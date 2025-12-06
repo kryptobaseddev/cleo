@@ -108,6 +108,7 @@ declare -A CMD_MAP=(
   [restore]="restore.sh"
   [session]="session.sh"
   [focus]="focus.sh"
+  [export]="export.sh"
 )
 
 # Brief descriptions for main help (one-liners only)
@@ -124,6 +125,7 @@ declare -A CMD_DESC=(
   [restore]="Restore from backup"
   [session]="Manage work sessions (start/end/status)"
   [focus]="Manage task focus (set/clear/note/next)"
+  [export]="Export tasks to TodoWrite/JSON/Markdown format"
 )
 
 show_main_help() {
@@ -133,7 +135,7 @@ show_main_help() {
   echo "       claude-todo help <command>    Show detailed command help"
   echo ""
   echo "Commands:"
-  for cmd in init add complete list focus session archive validate stats backup restore log; do
+  for cmd in init add complete list focus session archive validate stats backup restore export log; do
     printf "  %-14s %s\n" "$cmd" "${CMD_DESC[$cmd]}"
   done
   echo "  version        Show version"
