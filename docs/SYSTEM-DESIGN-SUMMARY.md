@@ -580,7 +580,7 @@ Automatically run during:
 ### Installation
 ```bash
 # 1. Clone repository
-git clone <repository-url> claude-todo
+git clone https://github.com/kryptobaseddev/claude-todo.git
 cd claude-todo
 
 # 2. Install globally

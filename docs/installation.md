@@ -51,7 +51,7 @@ Before installing CLAUDE-TODO, ensure your system has the following:
 ```bash
 # Clone the repository
 cd /tmp
-git clone https://github.com/yourusername/claude-todo.git
+git clone https://github.com/kryptobaseddev/claude-todo.git
 cd claude-todo
 ```
 

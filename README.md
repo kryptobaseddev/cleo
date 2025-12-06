@@ -44,7 +44,7 @@ CLAUDE-TODO is a robust, schema-validated task management system specifically de
 
 ```bash
 # 1. Clone the repository
-git clone <repository-url> claude-todo
+git clone https://github.com/kryptobaseddev/claude-todo.git
 cd claude-todo
 
 # 2. Install globally (works immediately - no shell restart needed!)
