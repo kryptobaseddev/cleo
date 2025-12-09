@@ -12,6 +12,7 @@ Task management system for Claude Code with anti-hallucination validation, auto-
 ./install.sh                        # Global installation to ~/.claude-todo/
 claude-todo init                    # Initialize project (.claude/ directory)
 claude-todo add "Task"              # Create task
+claude-todo update <id> [OPTIONS]   # Update existing task
 claude-todo complete <id>           # Mark complete
 claude-todo list                    # Display tasks
 claude-todo focus set <id>          # Set focus to task (marks active)
@@ -38,7 +39,7 @@ docs/             # Documentation
 ## Key Files
 - Schema definitions: `schemas/todo.schema.json`
 - Library core: `lib/validation.sh`, `lib/file-ops.sh`, `lib/logging.sh`
-- Main scripts: `scripts/add-task.sh`, `scripts/complete-task.sh`
+- Main scripts: `scripts/add-task.sh`, `scripts/update-task.sh`, `scripts/complete-task.sh`
 
 ## Rules
 - **CRITICAL**: All write operations MUST use atomic pattern (temp file → validate → backup → rename)
@@ -76,6 +77,7 @@ Use the `claude-todo` CLI for **all** task operations. Never read or edit `.clau
 ```bash
 claude-todo list                    # View tasks
 claude-todo add "Task title"        # Create task
+claude-todo update <task-id> [opts] # Update task fields
 claude-todo complete <task-id>      # Mark done
 claude-todo focus set <task-id>     # Set focus (marks active)
 claude-todo focus show              # Show current focus
@@ -102,6 +104,7 @@ claude-todo focus show              # Check last focus/notes
 ```bash
 claude-todo focus set <task-id>     # Set focus (one task only)
 claude-todo add "Subtask"           # Add new tasks as needed
+claude-todo update <task-id> --notes "Progress"  # Add notes to task
 claude-todo focus note "Progress"   # Update session note
 ```
 

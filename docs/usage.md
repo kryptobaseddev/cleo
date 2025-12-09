@@ -358,6 +358,85 @@ claude-todo add "Deploy to production" \
 
 ---
 
+### update-task.sh
+
+Update an existing task's fields.
+
+```bash
+claude-todo update TASK_ID [OPTIONS]
+```
+
+**Required Arguments**:
+- `TASK_ID`: Task identifier (e.g., T001)
+
+**Scalar Field Options**:
+- `--title "New title"`: Update task title
+- `--status STATUS`: Change status (pending|active|blocked)
+  - Note: Use `complete-task.sh` for done status
+- `--priority PRIORITY`: Update priority (critical|high|medium|low)
+- `--description DESC`: Update description
+- `--phase PHASE`: Update phase slug
+- `--blocked-by REASON`: Set blocked reason (status becomes blocked)
+
+**Array Field Options** (append by default):
+- `--labels LABELS`: Append comma-separated labels
+- `--set-labels LABELS`: Replace all labels with these
+- `--clear-labels`: Remove all labels
+
+- `--files FILES`: Append comma-separated file paths
+- `--set-files FILES`: Replace all files with these
+- `--clear-files`: Remove all files
+
+- `--acceptance CRIT`: Append comma-separated acceptance criteria
+- `--set-acceptance CRIT`: Replace all acceptance criteria
+- `--clear-acceptance`: Remove all acceptance criteria
+
+- `--depends IDS`: Append comma-separated task IDs
+- `--set-depends IDS`: Replace all dependencies
+- `--clear-depends`: Remove all dependencies
+
+- `--notes NOTE`: Add a timestamped note (appends only)
+
+**Examples**:
+```bash
+# Update priority
+claude-todo update T001 --priority high
+
+# Add labels (appends to existing)
+claude-todo update T002 --labels "bug,urgent"
+
+# Replace all labels
+claude-todo update T003 --set-labels "frontend,ui"
+
+# Set task as blocked
+claude-todo update T004 --blocked-by "Waiting for API spec"
+
+# Add a note
+claude-todo update T005 --notes "Started implementation"
+
+# Multiple updates at once
+claude-todo update T006 --priority critical --labels "security" --notes "Security review required"
+
+# Clear and set new values
+claude-todo update T007 --clear-files --set-labels "backend,api"
+```
+
+**Validation**:
+- Task must exist and not be completed (done status)
+- Status transitions validated (can't set to done - use complete-task.sh)
+- Only one active task allowed (active status constraint enforced)
+- Labels must be lowercase alphanumeric with hyphens
+- Dependencies must reference existing task IDs
+- All updates logged to audit trail
+
+**Array Behavior**:
+- Default: Append mode (--labels adds to existing)
+- Replace: Use --set-* variants (--set-labels replaces all)
+- Clear: Use --clear-* variants (--clear-labels removes all)
+- Notes: Always append with timestamp (no replace/clear)
+
+---
+
 ### list-tasks.sh
 
 Display current tasks with filtering.
@@ -1622,6 +1701,7 @@ claude-todo restore .claude/.backups/backup-2025-12-05-100000/
 # Essential Commands
 init.sh              # Initialize project
 add-task.sh "title"  # Create task
+update-task.sh ID    # Update task fields
 list-tasks.sh        # Show tasks
 complete-task.sh ID  # Mark complete
 archive.sh           # Archive old tasks

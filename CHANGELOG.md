@@ -5,6 +5,21 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-12-09
+
+### Added
+- **update-task.sh**: New command to update existing task fields
+  - Scalar fields: `--title`, `--status`, `--priority`, `--description`, `--phase`, `--blocked-by`
+  - Array fields with append-by-default: `--labels`, `--files`, `--acceptance`, `--depends`, `--notes`
+  - Replace mode: `--set-labels`, `--set-files`, `--set-acceptance`, `--set-depends`
+  - Clear mode: `--clear-labels`, `--clear-files`, `--clear-acceptance`, `--clear-depends`
+- **CLI routing**: Added `update` command to main CLI wrapper
+- **Documentation**: Full update-task.sh section in usage.md, CLAUDE.md, README.md
+
+### Changed
+- **install.sh**: Added update command to CMD_MAP and CMD_DESC arrays
+- **Help output**: Update command now appears in `claude-todo help`
+
 ## [0.3.1] - 2025-12-06
 
 ### Changed

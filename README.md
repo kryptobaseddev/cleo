@@ -3,7 +3,7 @@
 > **A production-grade task management system for Claude Code with automatic archiving, comprehensive validation, and anti-hallucination protection.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](CHANGELOG.md)
 [![Bash](https://img.shields.io/badge/bash-4.0%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 
@@ -68,6 +68,9 @@ claude-todo add "Implement authentication"
 
 # List all tasks
 claude-todo list
+
+# Update a task
+claude-todo update T001 --priority high --labels "urgent,bug"
 
 # Complete a task
 claude-todo complete T001
@@ -226,6 +229,7 @@ Defaults → Global → Project → Environment → CLI Flags
 ### Core Operations
 - `init.sh` - Initialize project with todo system
 - `add-task.sh` - Create new task with validation
+- `update-task.sh` - Update existing task fields
 - `complete-task.sh` - Mark task as completed
 - `archive.sh` - Archive completed tasks
 
