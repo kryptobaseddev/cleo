@@ -3,7 +3,7 @@
 > **A production-grade task management system for Claude Code with automatic archiving, comprehensive validation, and anti-hallucination protection.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.1-blue.svg)](CHANGELOG.md)
 [![Bash](https://img.shields.io/badge/bash-4.0%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 
@@ -98,6 +98,29 @@ ct add "Task"  # Same as: claude-todo add "Task"
 ct version     # Same as: claude-todo version
 ```
 
+### Command Aliases
+
+Built-in aliases for faster workflows:
+
+```bash
+claude-todo ls              # list
+claude-todo done T001       # complete T001
+claude-todo new "Task"      # add "Task"
+claude-todo edit T001       # update T001
+claude-todo rm              # archive
+claude-todo check           # validate
+```
+
+### Debug Mode
+
+Validate your CLI installation:
+
+```bash
+claude-todo --validate      # Check scripts, aliases, checksums
+claude-todo --list-commands # Show all available commands
+CLAUDE_TODO_DEBUG=1 claude-todo list  # Verbose output
+```
+
 ## Architecture
 
 ### System Structure
@@ -116,7 +139,9 @@ Global Installation (~/.claude-todo/)
 ├── schemas/           JSON Schema validation definitions
 ├── scripts/           User-facing operational scripts
 ├── lib/               Shared library functions
-└── templates/         Starter templates
+├── templates/         Starter templates
+├── plugins/           Custom command plugins
+└── checksums.sha256   Script integrity verification
 
 Per-Project Instance (.claude/)
 ├── todo.json          Active tasks

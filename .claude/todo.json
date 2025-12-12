@@ -2,13 +2,13 @@
   "$schema": "./schemas/todo.schema.json",
   "version": "2.1.0",
   "project": "claude-todo",
-  "lastUpdated": "2025-12-06T16:49:19Z",
+  "lastUpdated": "2025-12-12T19:59:37Z",
   "_meta": {
-    "checksum": "d4405e5d10c7b0a9",
+    "checksum": "e4b0ef89eafdbb16",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2025-12-06T16:49:49Z"
+    "lastModified": "2025-12-12T16:57:35Z"
   },
   "focus": {
     "currentTask": null,
@@ -72,14 +72,19 @@
     {
       "id": "T012",
       "title": "Decouple CLI wrapper from hardcoded script mappings",
-      "status": "active",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-06T04:51:17Z",
       "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
       "labels": [
         "fragile-coupling",
         "medium"
-      ]
+      ],
+      "notes": [
+        "2025-12-09 01:15:23 UTC: Testing update script",
+        "2025-12-09 01:17:53 UTC: Verified update command works through CLI"
+      ],
+      "completedAt": "2025-12-12T19:41:28Z"
     },
     {
       "id": "T013",
@@ -426,6 +431,218 @@
       "createdAt": "2025-12-06T08:03:44Z",
       "description": "Current tests only cover add-task, archive, validation. Need tests for: (1) session.sh start/end/status, (2) focus.sh set/clear/note, (3) export.sh all formats, (4) migrate.sh status/check/run, (5) Edge cases: empty files, malformed JSON, concurrent access. Target: All commands have at least basic happy-path tests before v1.0",
       "completedAt": "2025-12-06T08:12:34Z"
+    },
+    {
+      "id": "T041",
+      "title": "Review and consolidate all documentation files",
+      "status": "done",
+      "priority": "high",
+      "createdAt": "2025-12-06T17:19:25Z",
+      "description": "Comprehensive docs review: 1) Walk through each docs/*.md file confirming content accuracy and facts 2) Move root markdown files to docs/ (keep only README.md, CHANGELOG.md, CLAUDE.md, CONTRIBUTING.md in root) 3) Files to move: ARCHITECTURE.md, SYSTEM-DESIGN-SUMMARY.md, MIGRATION-SYSTEM-SUMMARY.md 4) Update all cross-references after moves 5) Verify INDEX.md reflects final structure",
+      "labels": [
+        "documentation",
+        "cleanup",
+        "consolidation"
+      ],
+      "completedAt": "2025-12-06T18:00:38Z"
+    },
+    {
+      "id": "T042",
+      "title": "Test checksum auto-fix",
+      "status": "done",
+      "priority": "low",
+      "createdAt": "2025-12-06T18:02:46Z",
+      "completedAt": "2025-12-06T18:03:11Z"
+    },
+    {
+      "id": "T043",
+      "title": "Test new checksum behavior",
+      "status": "done",
+      "priority": "low",
+      "createdAt": "2025-12-06T18:07:13Z",
+      "completedAt": "2025-12-06T18:07:20Z"
+    },
+    {
+      "id": "T044",
+      "title": "Final test task",
+      "status": "done",
+      "priority": "low",
+      "createdAt": "2025-12-06T18:13:12Z",
+      "completedAt": "2025-12-06T18:13:18Z"
+    },
+    {
+      "id": "T045",
+      "title": "Create TODO_Task_Management.md documentation file",
+      "status": "done",
+      "priority": "critical",
+      "createdAt": "2025-12-12T16:56:07Z",
+      "description": "Create concise (~100 lines) task management documentation for CLAUDE.md import",
+      "labels": [
+        "documentation",
+        "task-management"
+      ],
+      "completedAt": "2025-12-12T16:56:59Z"
+    },
+    {
+      "id": "T046",
+      "title": "Update CLAUDE.md injection with missing commands",
+      "status": "done",
+      "priority": "critical",
+      "createdAt": "2025-12-12T16:56:08Z",
+      "description": "Add update, export --format todowrite, and update --notes to Quick Reference",
+      "labels": [
+        "documentation",
+        "task-management"
+      ],
+      "completedAt": "2025-12-12T16:57:33Z"
+    },
+    {
+      "id": "T047",
+      "title": "Update install.sh to install TODO_Task_Management.md",
+      "status": "done",
+      "priority": "high",
+      "createdAt": "2025-12-12T16:56:09Z",
+      "description": "Ensure docs are copied during global installation",
+      "labels": [
+        "installation",
+        "task-management"
+      ],
+      "completedAt": "2025-12-12T16:57:56Z"
+    },
+    {
+      "id": "T048",
+      "title": "Test task for verification",
+      "status": "done",
+      "priority": "medium",
+      "createdAt": "2025-12-12T18:47:18Z",
+      "description": "Testing the full add/update/complete workflow",
+      "labels": [
+        "test",
+        "verification"
+      ],
+      "notes": [
+        "2025-12-12 18:47:26 UTC: Updated via test"
+      ],
+      "completedAt": "2025-12-12T18:47:26Z"
+    },
+    {
+      "id": "T049",
+      "title": "Add Task Management documentation with auto-install",
+      "status": "done",
+      "priority": "high",
+      "createdAt": "2025-12-12T19:47:01Z",
+      "description": "Created TODO_Task_Management.md, install copies to ~/.claude/, auto-appends reference to CLAUDE.md",
+      "labels": [
+        "docs",
+        "feature",
+        "release-050"
+      ],
+      "completedAt": "2025-12-12T19:47:09Z"
+    },
+    {
+      "id": "T050",
+      "title": "Implement CLI command aliases",
+      "status": "done",
+      "priority": "high",
+      "createdAt": "2025-12-12T19:47:01Z",
+      "description": "Added ls, done, new, edit, rm, check aliases with config override support",
+      "labels": [
+        "feature",
+        "cli",
+        "release-060"
+      ],
+      "completedAt": "2025-12-12T19:47:10Z"
+    },
+    {
+      "id": "T051",
+      "title": "Implement plugin system foundation",
+      "status": "done",
+      "priority": "high",
+      "createdAt": "2025-12-12T19:47:01Z",
+      "description": "Auto-discovery from ~/.claude-todo/plugins/ and ./.claude/plugins/, plugin metadata format",
+      "labels": [
+        "feature",
+        "plugins",
+        "release-060"
+      ],
+      "completedAt": "2025-12-12T19:47:10Z"
+    },
+    {
+      "id": "T052",
+      "title": "Add CLI debug validation mode",
+      "status": "done",
+      "priority": "medium",
+      "createdAt": "2025-12-12T19:47:01Z",
+      "description": "Added --validate/--debug flags, checksum verification, mapping validation",
+      "labels": [
+        "feature",
+        "cli",
+        "release-060"
+      ],
+      "completedAt": "2025-12-12T19:47:10Z"
+    },
+    {
+      "id": "T053",
+      "title": "Extend config schema with CLI section",
+      "status": "done",
+      "priority": "medium",
+      "createdAt": "2025-12-12T19:47:01Z",
+      "description": "Added cli.aliases, cli.plugins, cli.debug sections to config schema",
+      "labels": [
+        "schema",
+        "config",
+        "release-060"
+      ],
+      "completedAt": "2025-12-12T19:47:10Z"
+    },
+    {
+      "id": "T054",
+      "title": "Test version labels",
+      "status": "done",
+      "priority": "low",
+      "createdAt": "2025-12-12T19:58:05Z",
+      "labels": [
+        "v0.6.0",
+        "feature"
+      ],
+      "completedAt": "2025-12-12T19:58:16Z"
+    },
+    {
+      "id": "T055",
+      "title": "Fix label pattern to allow version tags",
+      "status": "done",
+      "priority": "medium",
+      "createdAt": "2025-12-12T19:59:29Z",
+      "labels": [
+        "v0.6.1",
+        "schema",
+        "bug-fix"
+      ],
+      "completedAt": "2025-12-12T19:59:37Z"
+    },
+    {
+      "id": "T056",
+      "title": "Create PLUGINS.md architecture documentation",
+      "status": "done",
+      "priority": "medium",
+      "createdAt": "2025-12-12T19:59:31Z",
+      "labels": [
+        "v0.6.1",
+        "documentation"
+      ],
+      "completedAt": "2025-12-12T19:59:37Z"
+    },
+    {
+      "id": "T057",
+      "title": "Update schema-reference.md with label pattern changes",
+      "status": "done",
+      "priority": "medium",
+      "createdAt": "2025-12-12T19:59:32Z",
+      "labels": [
+        "v0.6.1",
+        "documentation"
+      ],
+      "completedAt": "2025-12-12T19:59:37Z"
     }
   ],
   "phases": {

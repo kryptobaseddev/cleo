@@ -138,13 +138,31 @@ claude-todo add "Implement endpoints" --phase core --depends T050,T051
 | `focus note "text"` | Session-level progress | `.focus.sessionNote` (replaces) |
 | `update T001 --notes "text"` | Task-specific notes | `.tasks[].notes[]` (appends with timestamp) |
 
-## Quick Aliases
+## Command Aliases (v0.6.0+)
+
+Built-in CLI aliases for faster workflows:
+```bash
+claude-todo ls              # list
+claude-todo done T001       # complete T001
+claude-todo new "Task"      # add "Task"
+claude-todo edit T001       # update T001
+claude-todo rm              # archive
+claude-todo check           # validate
+```
+
+## Shell Aliases
 ```bash
 ct              # claude-todo
 ct-add          # claude-todo add
 ct-list         # claude-todo list
 ct-done         # claude-todo complete
 ct-focus        # claude-todo focus
+```
+
+## Debug & Validation
+```bash
+claude-todo --validate      # Check CLI integrity
+claude-todo --list-commands # Show all commands
 ```
 
 ## vs TodoWrite

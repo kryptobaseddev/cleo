@@ -5,6 +5,65 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2025-12-12
+
+### Added
+- **PLUGINS.md**: Comprehensive plugin architecture and development documentation
+  - Plugin structure, metadata format, and examples
+  - Future roadmap (4 phases) for plugin system evolution
+  - Integration with configuration system
+
+### Changed
+- **Label Pattern Fix**: Extended label regex to allow periods for version tags
+  - Pattern: `^[a-z][a-z0-9.-]*$` (was `^[a-z][a-z0-9-]*$`)
+  - Labels like `v0.6.0`, `v1.2.3` now supported
+  - Updated in: `todo.schema.json`, `add-task.sh`, `update-task.sh`, `schema-reference.md`
+- **Documentation Index**: Added PLUGINS.md to docs/INDEX.md navigation
+
+## [0.6.0] - 2025-12-12
+
+### Added
+- **CLI Command Aliases**: Built-in aliases for common commands
+  - `ls` → `list`, `done` → `complete`, `new` → `add`
+  - `edit` → `update`, `rm` → `archive`, `check` → `validate`
+  - Configurable via `cli.aliases` in config
+- **Plugin System Foundation**: Auto-discovery plugin architecture
+  - Global plugins: `~/.claude-todo/plugins/`
+  - Project plugins: `./.claude/plugins/`
+  - Plugin metadata format with `###PLUGIN` blocks
+- **Debug Validation Mode**: CLI diagnostics and integrity checking
+  - `claude-todo --validate` or `claude-todo --debug`
+  - `claude-todo --list-commands` to show all commands
+  - `CLAUDE_TODO_DEBUG=1` environment variable
+- **Script Checksums**: Integrity verification for installed scripts
+  - Generates `checksums.sha256` during installation
+  - Verifies in debug mode to detect modifications
+- **Config Schema Extension**: New `cli` section for CLI settings
+  - `cli.aliases` - Command alias mappings
+  - `cli.plugins` - Plugin discovery settings
+  - `cli.debug` - Debug and validation settings
+
+### Changed
+- **CLI Wrapper**: Enhanced v2 wrapper with alias resolution and plugin discovery
+- **Help Output**: Now displays aliases and discovered plugins
+- **Install Script**: Creates plugins directory and checksums
+
+## [0.5.0] - 2025-12-12
+
+### Added
+- **Task Management Documentation**: `TODO_Task_Management.md`
+  - Concise CLI usage instructions for context injection
+  - Installed to `~/.claude/TODO_Task_Management.md`
+  - Auto-appends `@TODO_Task_Management.md` to `~/.claude/CLAUDE.md`
+- **CLAUDE.md Injection Enhancement**: Added missing commands
+  - `update` command with options
+  - `export --format todowrite` command
+  - Common options examples
+
+### Changed
+- **Install Script**: Copies docs to `~/.claude/` (not symlink)
+- **Init Script**: Updated CLAUDE.md injection template
+
 ## [0.4.0] - 2025-12-09
 
 ### Added

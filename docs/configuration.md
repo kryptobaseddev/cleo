@@ -360,6 +360,98 @@ Controls output formatting and notifications.
 }
 ```
 
+### CLI Settings (v0.6.0+)
+
+Controls CLI behavior, command aliases, and plugin discovery.
+
+#### Aliases
+
+| Alias | Target | Description |
+|-------|--------|-------------|
+| `ls` | `list` | List tasks |
+| `done` | `complete` | Complete a task |
+| `new` | `add` | Add new task |
+| `edit` | `update` | Update existing task |
+| `rm` | `archive` | Archive completed tasks |
+| `check` | `validate` | Validate todo files |
+
+**Custom Aliases:**
+```json
+{
+  "cli": {
+    "aliases": {
+      "ls": "list",
+      "done": "complete",
+      "new": "add",
+      "edit": "update",
+      "rm": "archive",
+      "check": "validate",
+      "s": "stats",          // Custom: short for stats
+      "f": "focus"           // Custom: short for focus
+    }
+  }
+}
+```
+
+#### Plugins
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable plugin discovery |
+| `directories` | array | `["~/.claude-todo/plugins", "./.claude/plugins"]` | Plugin search paths |
+| `autoDiscover` | boolean | `true` | Auto-discover plugins on startup |
+
+**Plugin Configuration:**
+```json
+{
+  "cli": {
+    "plugins": {
+      "enabled": true,
+      "directories": [
+        "~/.claude-todo/plugins",
+        "./.claude/plugins"
+      ],
+      "autoDiscover": true
+    }
+  }
+}
+```
+
+#### Debug Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable debug mode globally |
+| `validateMappings` | boolean | `true` | Validate command-to-script mappings |
+| `checksumVerify` | boolean | `true` | Verify script checksums |
+| `showTimings` | boolean | `false` | Show command execution times |
+
+**Debug Configuration:**
+```json
+{
+  "cli": {
+    "debug": {
+      "enabled": false,
+      "validateMappings": true,
+      "checksumVerify": true,
+      "showTimings": false
+    }
+  }
+}
+```
+
+**Debug Mode Usage:**
+```bash
+# Run debug validation
+claude-todo --validate
+
+# Enable debug for single command
+CLAUDE_TODO_DEBUG=1 claude-todo list
+
+# List all available commands
+claude-todo --list-commands
+```
+
 ## Environment Variables
 
 Override configuration using environment variables with `CLAUDE_TODO_` prefix:

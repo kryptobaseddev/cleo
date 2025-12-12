@@ -189,8 +189,8 @@ validate_labels() {
   IFS=',' read -ra label_array <<< "$labels"
   for label in "${label_array[@]}"; do
     label=$(echo "$label" | xargs)  # Trim whitespace
-    if ! [[ "$label" =~ ^[a-z][a-z0-9-]*$ ]]; then
-      log_error "Invalid label format: '$label' (must be lowercase alphanumeric with hyphens)"
+    if ! [[ "$label" =~ ^[a-z][a-z0-9.-]*$ ]]; then
+      log_error "Invalid label format: '$label' (must be lowercase alphanumeric with hyphens/periods, e.g., bug, v0.5.0)"
       return 1
     fi
   done

@@ -61,7 +61,7 @@ Optional properties:
 | `depends` | array[string] | Task IDs that must be done first | Pattern: `^T\d{3,}$`, unique items |
 | `blockedBy` | string | Blocker reason | Max 300 chars, **REQUIRED if status=blocked** |
 | `notes` | array[string] | Append-only implementation log | Max 500 chars each |
-| `labels` | array[string] | Tags for filtering | Pattern: `^[a-z][a-z0-9-]*$`, unique items |
+| `labels` | array[string] | Tags for filtering | Pattern: `^[a-z][a-z0-9.-]*$` (supports version tags like v0.6.0), unique items |
 | `completedAt` | string | Completion timestamp | ISO 8601, **REQUIRED if status=done** |
 
 #### Status Values
@@ -148,7 +148,7 @@ Example:
 
 **Computed index** - derived from `task.labels`. Regenerate if stale.
 
-**Pattern**: `^[a-z][a-z0-9-]*$` → array of task IDs
+**Pattern**: `^[a-z][a-z0-9.-]*$` → array of task IDs (supports version tags like v0.6.0)
 
 Example:
 ```json
@@ -156,7 +156,7 @@ Example:
   "labels": {
     "bug": ["T001", "T005", "T012"],
     "security": ["T003", "T008"],
-    "feature": ["T002", "T004", "T007"]
+    "v0.6.0": ["T002", "T004", "T007"]
   }
 }
 ```
@@ -460,7 +460,8 @@ Required fields:
 
 **Required Patterns**:
 - Task IDs: `^T\d{3,}$`
-- Slugs (phase/label): `^[a-z][a-z0-9-]*$`
+- Phase slugs: `^[a-z][a-z0-9-]*$`
+- Labels: `^[a-z][a-z0-9.-]*$` (supports version tags like v0.6.0)
 - Version: `^\d+\.\d+\.\d+$`
 - Checksum: `^[a-f0-9]{16}$`
 

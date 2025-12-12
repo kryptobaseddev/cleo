@@ -99,7 +99,7 @@
       "type": "object",
       "description": "Computed label-to-task-ID index. Derived from task.labels. Regenerate if stale.",
       "patternProperties": {
-        "^[a-z][a-z0-9-]*$": {
+        "^[a-z][a-z0-9.-]*$": {
           "type": "array",
           "items": { "type": "string", "pattern": "^T\\d{3,}$" }
         }
@@ -174,9 +174,9 @@
         },
         "labels": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*$" },
           "uniqueItems": true,
-          "description": "Tags for filtering (bug, feature, security)."
+          "description": "Tags for filtering (bug, feature, security, v0.5.0)."
         },
         "createdAt": {
           "type": "string",

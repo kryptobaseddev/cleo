@@ -36,6 +36,7 @@
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
+| **[PLUGINS.md](PLUGINS.md)** | Plugin architecture and development | Extending the CLI with custom commands |
 | **[ENHANCEMENT-todowrite-integration.md](ENHANCEMENT-todowrite-integration.md)** | TodoWrite integration analysis | Understanding Claude Code integration |
 | **[MIGRATION-SYSTEM-SUMMARY.md](MIGRATION-SYSTEM-SUMMARY.md)** | Schema migration system | Understanding version migrations |
 
@@ -302,9 +303,10 @@
 4. Consult [ARCHITECTURE.md](ARCHITECTURE.md) error handling section
 
 #### ...extend the system
-1. Read [ARCHITECTURE.md](ARCHITECTURE.md) extension points section
-2. Review [SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md) extension summary
-3. Check [QUICK-REFERENCE.md](QUICK-REFERENCE.md) extension patterns
+1. Read [PLUGINS.md](PLUGINS.md) for plugin development guide
+2. Read [ARCHITECTURE.md](ARCHITECTURE.md) extension points section
+3. Review [SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md) extension summary
+4. Check [QUICK-REFERENCE.md](QUICK-REFERENCE.md) extension patterns
 
 ---
 

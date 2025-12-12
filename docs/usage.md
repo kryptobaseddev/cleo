@@ -52,6 +52,70 @@ claude-todo complete <task-id>
 claude-todo stats
 ```
 
+### Command Aliases (v0.6.0+)
+
+Built-in aliases for faster workflows:
+
+```bash
+claude-todo ls              # Same as: list
+claude-todo done T001       # Same as: complete T001
+claude-todo new "Task"      # Same as: add "Task"
+claude-todo edit T001       # Same as: update T001
+claude-todo rm              # Same as: archive
+claude-todo check           # Same as: validate
+```
+
+Aliases can be customized in `~/.claude-todo/config.json`:
+
+```json
+{
+  "cli": {
+    "aliases": {
+      "ls": "list",
+      "done": "complete",
+      "s": "stats"
+    }
+  }
+}
+```
+
+### Debug Mode
+
+Validate your CLI installation and troubleshoot issues:
+
+```bash
+# Run comprehensive validation
+claude-todo --validate
+
+# Show all available commands (core + aliases + plugins)
+claude-todo --list-commands
+
+# Enable debug output for any command
+CLAUDE_TODO_DEBUG=1 claude-todo list
+```
+
+### Plugins (v0.6.0+)
+
+Create custom commands by adding scripts to `~/.claude-todo/plugins/`:
+
+```bash
+# Create a custom command
+cat > ~/.claude-todo/plugins/my-report.sh << 'EOF'
+#!/usr/bin/env bash
+###PLUGIN
+# description: Generate my custom report
+###END
+echo "My custom report!"
+EOF
+
+chmod +x ~/.claude-todo/plugins/my-report.sh
+
+# Use it
+claude-todo my-report
+```
+
+Project-local plugins can be placed in `./.claude/plugins/`.
+
 ---
 
 ## Basic Workflow

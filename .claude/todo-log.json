@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 52,
+    "totalEntries": 79,
     "firstEntry": "2025-12-06T04:16:33Z",
-    "lastEntry": "2025-12-06T16:49:49Z",
+    "lastEntry": "2025-12-12T19:59:37Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -1658,6 +1658,931 @@
       "after": null,
       "details": {
         "note": "Completed all documentation tasks. 31/32 tasks done. T012 (CLI wrapper refactoring) deferred."
+      }
+    },
+    {
+      "id": "log-1765041565-15507e",
+      "timestamp": "2025-12-06T17:19:25Z",
+      "operation": "create",
+      "task_id": "T041",
+      "user": "system",
+      "details": {
+        "title": "Review and consolidate all documentation files",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Review and consolidate all documentation files",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_0ba883f0a239",
+      "timestamp": "2025-12-06T17:54:58Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T041"
+      },
+      "details": null
+    },
+    {
+      "id": "log_9905e618e279",
+      "timestamp": "2025-12-06T18:00:38Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T041",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-06T18:00:38Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765044166-f2ddea",
+      "timestamp": "2025-12-06T18:02:46Z",
+      "operation": "create",
+      "task_id": "T042",
+      "user": "system",
+      "details": {
+        "title": "Test checksum auto-fix",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Test checksum auto-fix",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_336f4e7fde55",
+      "timestamp": "2025-12-06T18:03:11Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T042",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-06T18:03:11Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765044433-4da07b",
+      "timestamp": "2025-12-06T18:07:13Z",
+      "operation": "create",
+      "task_id": "T043",
+      "user": "system",
+      "details": {
+        "title": "Test new checksum behavior",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Test new checksum behavior",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_ff52c4d036a5",
+      "timestamp": "2025-12-06T18:07:20Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T043",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-06T18:07:20Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765044792-79dce0",
+      "timestamp": "2025-12-06T18:13:12Z",
+      "operation": "create",
+      "task_id": "T044",
+      "user": "system",
+      "details": {
+        "title": "Final test task",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Final test task",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_68c8aa4cf8ee",
+      "timestamp": "2025-12-06T18:13:18Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T044",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-06T18:13:18Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5ea657c3bb51",
+      "timestamp": "2025-12-09T01:15:08Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T012",
+      "before": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "medium",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "fragile-coupling",
+          "medium"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "high",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "fragile-coupling",
+          "medium",
+          "needs-review"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_eeb20c7e9506",
+      "timestamp": "2025-12-09T01:15:23Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T012",
+      "before": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "high",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "fragile-coupling",
+          "medium",
+          "needs-review"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "high",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "cli",
+          "refactor"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_ecf78a1864cf",
+      "timestamp": "2025-12-09T01:15:43Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T012",
+      "before": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "high",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "cli",
+          "refactor"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "medium",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "fragile-coupling",
+          "medium"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_f9c1d19f2be0",
+      "timestamp": "2025-12-09T01:17:53Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T012",
+      "before": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "medium",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "fragile-coupling",
+          "medium"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Decouple CLI wrapper from hardcoded script mappings",
+        "status": "pending",
+        "priority": "medium",
+        "description": "MEDIUM RISK: The claude-todo wrapper has hardcoded case statement mapping commands to scripts. If scripts are renamed (like we almost did with -todo suffix), wrapper breaks silently. FIX: Generate wrapper from script directory listing, use config file for mappings, or convention-based routing (command name = script name).",
+        "phase": null,
+        "labels": [
+          "fragile-coupling",
+          "medium"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1765558567-ab44e8",
+      "timestamp": "2025-12-12T16:56:07Z",
+      "operation": "create",
+      "task_id": "T045",
+      "user": "system",
+      "details": {
+        "title": "Create TODO_Task_Management.md documentation file",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Create TODO_Task_Management.md documentation file",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1765558568-858d87",
+      "timestamp": "2025-12-12T16:56:08Z",
+      "operation": "create",
+      "task_id": "T046",
+      "user": "system",
+      "details": {
+        "title": "Update CLAUDE.md injection with missing commands",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Update CLAUDE.md injection with missing commands",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1765558569-c57734",
+      "timestamp": "2025-12-12T16:56:09Z",
+      "operation": "create",
+      "task_id": "T047",
+      "user": "system",
+      "details": {
+        "title": "Update install.sh to install TODO_Task_Management.md",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update install.sh to install TODO_Task_Management.md",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_67e860c0d62b",
+      "timestamp": "2025-12-12T16:56:17Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T045"
+      },
+      "details": null
+    },
+    {
+      "id": "log_c02367c5c07d",
+      "timestamp": "2025-12-12T16:56:59Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T045",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T16:56:59Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d38816b359b1",
+      "timestamp": "2025-12-12T16:57:01Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T046"
+      },
+      "details": null
+    },
+    {
+      "id": "log_6d8cc921183a",
+      "timestamp": "2025-12-12T16:57:33Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T046",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T16:57:33Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_93259f722aca",
+      "timestamp": "2025-12-12T16:57:35Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T047"
+      },
+      "details": null
+    },
+    {
+      "id": "log_36ee55851fd6",
+      "timestamp": "2025-12-12T16:57:56Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T047",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T16:57:56Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765565238-698a6a",
+      "timestamp": "2025-12-12T18:47:18Z",
+      "operation": "create",
+      "task_id": "T048",
+      "user": "system",
+      "details": {
+        "title": "Test task for verification",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Test task for verification",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_92f9d5a605e8",
+      "timestamp": "2025-12-12T18:47:26Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T048",
+      "before": {
+        "title": "Test task for verification",
+        "status": "pending",
+        "priority": "low",
+        "description": "Testing the full add/update/complete workflow",
+        "phase": null,
+        "labels": [
+          "test",
+          "verification"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Test task for verification",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Testing the full add/update/complete workflow",
+        "phase": null,
+        "labels": [
+          "test",
+          "verification"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_239aa6cf76d4",
+      "timestamp": "2025-12-12T18:47:26Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T048",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T18:47:26Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ca9245a4943f",
+      "timestamp": "2025-12-12T19:41:28Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T012",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:41:28Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765568821-cbb4ab",
+      "timestamp": "2025-12-12T19:47:01Z",
+      "operation": "create",
+      "task_id": "T049",
+      "user": "system",
+      "details": {
+        "title": "Add Task Management documentation with auto-install",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add Task Management documentation with auto-install",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765568821-9c985d",
+      "timestamp": "2025-12-12T19:47:01Z",
+      "operation": "create",
+      "task_id": "T050",
+      "user": "system",
+      "details": {
+        "title": "Implement CLI command aliases",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement CLI command aliases",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765568821-1f060b",
+      "timestamp": "2025-12-12T19:47:01Z",
+      "operation": "create",
+      "task_id": "T051",
+      "user": "system",
+      "details": {
+        "title": "Implement plugin system foundation",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement plugin system foundation",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765568821-d10e5b",
+      "timestamp": "2025-12-12T19:47:01Z",
+      "operation": "create",
+      "task_id": "T052",
+      "user": "system",
+      "details": {
+        "title": "Add CLI debug validation mode",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Add CLI debug validation mode",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765568821-21b0d3",
+      "timestamp": "2025-12-12T19:47:01Z",
+      "operation": "create",
+      "task_id": "T053",
+      "user": "system",
+      "details": {
+        "title": "Extend config schema with CLI section",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Extend config schema with CLI section",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_00c7851721b0",
+      "timestamp": "2025-12-12T19:47:10Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T049",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:47:09Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_091e152a7090",
+      "timestamp": "2025-12-12T19:47:10Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T050",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:47:10Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_124dd58a452d",
+      "timestamp": "2025-12-12T19:47:10Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T051",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:47:10Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_67d1a4905ceb",
+      "timestamp": "2025-12-12T19:47:10Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T052",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:47:10Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_3addcfe62cf6",
+      "timestamp": "2025-12-12T19:47:10Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T053",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:47:10Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765569485-c018c0",
+      "timestamp": "2025-12-12T19:58:05Z",
+      "operation": "create",
+      "task_id": "T054",
+      "user": "system",
+      "details": {
+        "title": "Test version labels",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Test version labels",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_5e09fb715cd4",
+      "timestamp": "2025-12-12T19:58:16Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T054",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:58:16Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765569569-b549f0",
+      "timestamp": "2025-12-12T19:59:29Z",
+      "operation": "create",
+      "task_id": "T055",
+      "user": "system",
+      "details": {
+        "title": "Fix label pattern to allow version tags",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix label pattern to allow version tags",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765569571-327c44",
+      "timestamp": "2025-12-12T19:59:31Z",
+      "operation": "create",
+      "task_id": "T056",
+      "user": "system",
+      "details": {
+        "title": "Create PLUGINS.md architecture documentation",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create PLUGINS.md architecture documentation",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765569572-30554f",
+      "timestamp": "2025-12-12T19:59:32Z",
+      "operation": "create",
+      "task_id": "T057",
+      "user": "system",
+      "details": {
+        "title": "Update schema-reference.md with label pattern changes",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Update schema-reference.md with label pattern changes",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_14666a6bd919",
+      "timestamp": "2025-12-12T19:59:37Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T055",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:59:37Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5e784b406a57",
+      "timestamp": "2025-12-12T19:59:37Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T056",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:59:37Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ff818494098c",
+      "timestamp": "2025-12-12T19:59:37Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T057",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T19:59:37Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
       }
     }
   ]
