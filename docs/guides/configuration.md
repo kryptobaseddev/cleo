@@ -740,4 +740,4 @@ claude-todo validate .claude/todo-config.json
 - [Usage Guide](./usage.md) - Working with tasks
 - [Schema Reference](../reference/schema-reference.md) - Complete schema documentation
 - [Troubleshooting](../reference/troubleshooting.md) - Common issues and solutions
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System design and rationale
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - System design and rationale

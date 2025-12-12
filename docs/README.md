@@ -49,11 +49,20 @@ Learn how to use CLAUDE-TODO effectively:
 
 Deep-dive into system internals:
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete system architecture
+- **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** - Complete system architecture
   - Directory structure and file organization
-  - Data flow diagrams
   - Anti-hallucination mechanisms
   - Operation workflows
+
+- **[DATA-FLOWS.md](architecture/DATA-FLOWS.md)** - Visual data flow diagrams
+  - Task lifecycle diagrams
+  - Validation pipeline visualization
+  - Atomic write pattern
+
+- **[Claude Code Integration](integration/CLAUDE-CODE.md)** - LLM integration guide
+  - Anti-hallucination rules (table format)
+  - Session protocol
+  - TodoWrite integration
 
 - **[Schema Reference](reference/schema-reference.md)** - JSON schema documentation
   - Task object structure
@@ -83,7 +92,11 @@ Deep-dive into system internals:
 ```
 docs/
 ├── README.md                    # This file - Documentation hub
-├── ARCHITECTURE.md              # System architecture and design
+├── architecture/
+│   ├── ARCHITECTURE.md          # System architecture and design
+│   └── DATA-FLOWS.md            # Visual data flow diagrams
+├── integration/
+│   └── CLAUDE-CODE.md           # Claude Code integration guide
 ├── getting-started/
 │   └── installation.md          # Installation and setup guide
 ├── guides/

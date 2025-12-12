@@ -332,9 +332,9 @@ chmod 600 .claude/.backups/*.json
 
 | Document | Purpose |
 |----------|---------|
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Complete system design |
-| **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** | Visual workflows |
-| **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** | Executive overview |
+| **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** | Complete system design |
+| **[DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md)** | Visual workflows |
+| **[ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary)** | Executive overview |
 | **[usage.md](usage.md)** | Detailed usage guide |
 | **[configuration.md](guides/configuration.md)** | Config reference |
 
@@ -414,4 +414,4 @@ jq '.entries[-10:]' .claude/todo-log.json
 
 ---
 
-**For detailed information, always refer to [ARCHITECTURE.md](ARCHITECTURE.md)**
+**For detailed information, always refer to [ARCHITECTURE.md](architecture/ARCHITECTURE.md)**

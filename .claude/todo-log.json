@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 79,
+    "totalEntries": 97,
     "firstEntry": "2025-12-06T04:16:33Z",
-    "lastEntry": "2025-12-12T19:59:37Z",
+    "lastEntry": "2025-12-12T22:50:35Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -2579,6 +2579,716 @@
       "after": {
         "status": "done",
         "completedAt": "2025-12-12T19:59:37Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765578905-05b025",
+      "timestamp": "2025-12-12T22:35:05Z",
+      "operation": "create",
+      "task_id": "T058",
+      "user": "system",
+      "details": {
+        "title": "Phase 1-4 Documentation Restructure (COMPLETED)",
+        "status": "done",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 1-4 Documentation Restructure (COMPLETED)",
+        "status": "done",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765578907-cd9a0b",
+      "timestamp": "2025-12-12T22:35:07Z",
+      "operation": "create",
+      "task_id": "T059",
+      "user": "system",
+      "details": {
+        "title": "Merge design-principles.md into ARCHITECTURE.md",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Merge design-principles.md into ARCHITECTURE.md",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765578908-1f544a",
+      "timestamp": "2025-12-12T22:35:08Z",
+      "operation": "create",
+      "task_id": "T060",
+      "user": "system",
+      "details": {
+        "title": "Create integration/CLAUDE-CODE.md (LLM-optimized)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create integration/CLAUDE-CODE.md (LLM-optimized)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765578910-b699cc",
+      "timestamp": "2025-12-12T22:35:10Z",
+      "operation": "create",
+      "task_id": "T061",
+      "user": "system",
+      "details": {
+        "title": "Merge WORKFLOW.md into integration docs",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Merge WORKFLOW.md into integration docs",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765578911-19b44b",
+      "timestamp": "2025-12-12T22:35:11Z",
+      "operation": "create",
+      "task_id": "T062",
+      "user": "system",
+      "details": {
+        "title": "Merge ENHANCEMENT-todowrite-integration.md",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Merge ENHANCEMENT-todowrite-integration.md",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765578912-6812d6",
+      "timestamp": "2025-12-12T22:35:12Z",
+      "operation": "create",
+      "task_id": "T063",
+      "user": "system",
+      "details": {
+        "title": "Consolidate/delete MIGRATION-SYSTEM-SUMMARY.md",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Consolidate/delete MIGRATION-SYSTEM-SUMMARY.md",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765578914-d5720f",
+      "timestamp": "2025-12-12T22:35:14Z",
+      "operation": "create",
+      "task_id": "T064",
+      "user": "system",
+      "details": {
+        "title": "Move DATA-FLOW-DIAGRAMS.md to architecture/",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Move DATA-FLOW-DIAGRAMS.md to architecture/",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1765578916-5627c5",
+      "timestamp": "2025-12-12T22:35:16Z",
+      "operation": "create",
+      "task_id": "T065",
+      "user": "system",
+      "details": {
+        "title": "Reduce total doc file count from 22 to ~13",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Reduce total doc file count from 22 to ~13",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_8f1d7602a524",
+      "timestamp": "2025-12-12T22:35:24Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T061",
+      "before": {
+        "title": "Merge WORKFLOW.md into integration docs",
+        "status": "pending",
+        "priority": "medium",
+        "description": "246 lines at root. Should merge into integration/CLAUDE-CODE.md or integration/WORKFLOWS.md.",
+        "phase": null,
+        "labels": [
+          "master-refactor",
+          "docs",
+          "phase-3-remaining"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Merge WORKFLOW.md into integration docs",
+        "status": "pending",
+        "priority": "medium",
+        "description": "246 lines at root. Should merge into integration/CLAUDE-CODE.md or integration/WORKFLOWS.md.",
+        "phase": null,
+        "labels": [
+          "master-refactor",
+          "docs",
+          "phase-3-remaining"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T060"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_76da040a0940",
+      "timestamp": "2025-12-12T22:35:24Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T062",
+      "before": {
+        "title": "Merge ENHANCEMENT-todowrite-integration.md",
+        "status": "pending",
+        "priority": "medium",
+        "description": "849 lines. Content should merge into integration/CLAUDE-CODE.md for single LLM reference.",
+        "phase": null,
+        "labels": [
+          "master-refactor",
+          "docs",
+          "phase-3-remaining"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Merge ENHANCEMENT-todowrite-integration.md",
+        "status": "pending",
+        "priority": "medium",
+        "description": "849 lines. Content should merge into integration/CLAUDE-CODE.md for single LLM reference.",
+        "phase": null,
+        "labels": [
+          "master-refactor",
+          "docs",
+          "phase-3-remaining"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T060"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_be2c3c7dc6ff",
+      "timestamp": "2025-12-12T22:35:24Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T065",
+      "before": {
+        "title": "Reduce total doc file count from 22 to ~13",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Original target: 13 files. Current: 22 files. Need to consolidate remaining redundant docs.",
+        "phase": null,
+        "labels": [
+          "master-refactor",
+          "docs",
+          "consolidation"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Reduce total doc file count from 22 to ~13",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Original target: 13 files. Current: 22 files. Need to consolidate remaining redundant docs.",
+        "phase": null,
+        "labels": [
+          "master-refactor",
+          "docs",
+          "consolidation"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T059",
+          "T060",
+          "T061",
+          "T062",
+          "T063",
+          "T064"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_dcec2e460908",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T079",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_6943c604c301",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T080",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_a33c94105b55",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T081",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_7035d19bd421",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T082",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_8f79df5dd5d6",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T083",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_4eb96db6d2ac",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T084",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_23d8cde30c54",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T085",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_7852c8ee99d8",
+      "timestamp": "2025-12-12T22:38:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T086",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:38:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765579112-d66f5b",
+      "timestamp": "2025-12-12T22:38:32Z",
+      "operation": "create",
+      "task_id": "T087",
+      "user": "system",
+      "details": {
+        "title": "Merge design-principles.md into ARCHITECTURE.md",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Merge design-principles.md into ARCHITECTURE.md",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765579113-bf1f82",
+      "timestamp": "2025-12-12T22:38:33Z",
+      "operation": "create",
+      "task_id": "T088",
+      "user": "system",
+      "details": {
+        "title": "Create integration/CLAUDE-CODE.md (LLM-optimized)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create integration/CLAUDE-CODE.md (LLM-optimized)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765579114-099686",
+      "timestamp": "2025-12-12T22:38:34Z",
+      "operation": "create",
+      "task_id": "T089",
+      "user": "system",
+      "details": {
+        "title": "Merge WORKFLOW.md into integration docs",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Merge WORKFLOW.md into integration docs",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765579116-dd362b",
+      "timestamp": "2025-12-12T22:38:36Z",
+      "operation": "create",
+      "task_id": "T090",
+      "user": "system",
+      "details": {
+        "title": "Merge ENHANCEMENT-todowrite-integration.md",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Merge ENHANCEMENT-todowrite-integration.md",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765579117-eb1077",
+      "timestamp": "2025-12-12T22:38:37Z",
+      "operation": "create",
+      "task_id": "T091",
+      "user": "system",
+      "details": {
+        "title": "Consolidate/delete MIGRATION-SYSTEM-SUMMARY.md",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Consolidate/delete MIGRATION-SYSTEM-SUMMARY.md",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765579118-be6446",
+      "timestamp": "2025-12-12T22:38:38Z",
+      "operation": "create",
+      "task_id": "T092",
+      "user": "system",
+      "details": {
+        "title": "Move DATA-FLOW-DIAGRAMS.md to architecture/",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Move DATA-FLOW-DIAGRAMS.md to architecture/",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1765579120-7a254d",
+      "timestamp": "2025-12-12T22:38:40Z",
+      "operation": "create",
+      "task_id": "T093",
+      "user": "system",
+      "details": {
+        "title": "Reduce total doc file count from 22 to ~13",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Reduce total doc file count from 22 to ~13",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_c8672b35abce",
+      "timestamp": "2025-12-12T22:44:34Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T087",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:44:34Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5637125d0d37",
+      "timestamp": "2025-12-12T22:45:59Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T088",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:45:59Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_315ce1c09ea7",
+      "timestamp": "2025-12-12T22:46:38Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T089",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:46:38Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_66b89ab42943",
+      "timestamp": "2025-12-12T22:46:58Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T090",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:46:58Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_1c7448fd250e",
+      "timestamp": "2025-12-12T22:47:40Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T091",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:47:40Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_54e220e2a0e4",
+      "timestamp": "2025-12-12T22:48:54Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T092",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:48:54Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5cb5d18f4534",
+      "timestamp": "2025-12-12T22:50:35Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T093",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-12T22:50:35Z"
       },
       "details": {
         "field": "status",

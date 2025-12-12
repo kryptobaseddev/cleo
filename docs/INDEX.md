@@ -15,10 +15,10 @@
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Complete system architecture | Understanding system design |
-| **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** | Visual workflows and data flows | Understanding operations |
-| **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** | Executive overview | High-level understanding |
-| **[design-principles.md](design-principles.md)** | Core design principles and patterns | Understanding design decisions |
+| **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** | Complete system architecture | Understanding system design |
+| **[DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md)** | Visual workflows and data flows | Understanding operations |
+| **[ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary)** | Executive overview | High-level understanding |
+| **[ARCHITECTURE.md#design-principles](architecture/ARCHITECTURE.md#design-principles)** | Core design principles and patterns | Understanding design decisions |
 
 ### 📖 User Guides
 
@@ -29,7 +29,7 @@
 | **[configuration.md](guides/configuration.md)** | Configuration reference | Customizing system behavior |
 | **[schema-reference.md](reference/schema-reference.md)** | Data schema documentation | Understanding data structures |
 | **[troubleshooting.md](reference/troubleshooting.md)** | Troubleshooting guide | Resolving issues |
-| **[WORKFLOW.md](WORKFLOW.md)** | Workflow documentation | Understanding process flows |
+| **[integration/CLAUDE-CODE.md](integration/CLAUDE-CODE.md)** | Claude Code integration & session workflows | Understanding process flows |
 | **[migration-guide.md](migration-guide.md)** | Migration and upgrade guide | Upgrading between versions |
 
 ### 🔬 Technical Reference
@@ -37,8 +37,8 @@
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
 | **[PLUGINS.md](PLUGINS.md)** | Plugin architecture and development | Extending the CLI with custom commands |
-| **[ENHANCEMENT-todowrite-integration.md](ENHANCEMENT-todowrite-integration.md)** | TodoWrite integration analysis | Understanding Claude Code integration |
-| **[MIGRATION-SYSTEM-SUMMARY.md](MIGRATION-SYSTEM-SUMMARY.md)** | Schema migration system | Understanding version migrations |
+| **[integration/CLAUDE-CODE.md](integration/CLAUDE-CODE.md)** | TodoWrite integration & session workflows | Understanding Claude Code integration |
+| **[migration-guide.md](migration-guide.md)** | Schema migration and upgrade guide | Understanding version migrations |
 
 ---
 
@@ -250,18 +250,18 @@
 
 ---
 
-### WORKFLOW.md
-**Purpose**: Workflow and process documentation
+### integration/CLAUDE-CODE.md
+**Purpose**: Claude Code integration and session workflow documentation
 
 **Contents**:
-- Task lifecycle workflows
-- Archive processes
-- Backup procedures
-- Validation workflows
-- Error recovery flows
-- Change management processes
+- Anti-hallucination rules (LLM-optimized format)
+- Session protocol (start, during, end)
+- Task lifecycle and status transitions
+- Checksum protocol
+- TodoWrite integration and schema mapping
+- Quick reference for Claude Code sessions
 
-**Best For**: Understanding system processes, operational procedures
+**Best For**: Understanding system processes, Claude Code integration, operational procedures
 
 ---
 
@@ -271,8 +271,8 @@
 
 #### ...understand the system
 1. Start with [README.md](../README.md) for overview
-2. Read [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) for architecture
-3. Review [DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md) for visual understanding
+2. Read [ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary) for architecture
+3. Review [DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md) for visual understanding
 
 #### ...install and configure the system
 1. Read [installation.md](getting-started/installation.md) for setup
@@ -285,27 +285,27 @@
 3. Reference [schema-reference.md](reference/schema-reference.md) for data structures
 
 #### ...implement the system
-1. Read [ARCHITECTURE.md](ARCHITECTURE.md) thoroughly
-2. Review [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) for overview
+1. Read [ARCHITECTURE.md](architecture/ARCHITECTURE.md) thoroughly
+2. Review [ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary) for overview
 3. Keep [QUICK-REFERENCE.md](QUICK-REFERENCE.md) nearby for reference
 4. Check [schema-reference.md](reference/schema-reference.md) for data structures
 
 #### ...contribute to the project
 1. Read [README.md](../README.md) for project overview
-2. Review [ARCHITECTURE.md](ARCHITECTURE.md) for design principles
+2. Review [ARCHITECTURE.md](architecture/ARCHITECTURE.md) for design principles
 3. Reference [QUICK-REFERENCE.md](QUICK-REFERENCE.md) for standards
 4. Check [usage.md](usage.md) for operational patterns
 
 #### ...debug an issue
 1. Check [troubleshooting.md](reference/troubleshooting.md) first
 2. Review [QUICK-REFERENCE.md](QUICK-REFERENCE.md) common errors
-3. Review [DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md) for workflow
-4. Consult [ARCHITECTURE.md](ARCHITECTURE.md) error handling section
+3. Review [DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md) for workflow
+4. Consult [ARCHITECTURE.md](architecture/ARCHITECTURE.md) error handling section
 
 #### ...extend the system
 1. Read [PLUGINS.md](PLUGINS.md) for plugin development guide
-2. Read [ARCHITECTURE.md](ARCHITECTURE.md) extension points section
-3. Review [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) extension summary
+2. Read [ARCHITECTURE.md](architecture/ARCHITECTURE.md) extension points section
+3. Review [ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary) extension summary
 4. Check [QUICK-REFERENCE.md](QUICK-REFERENCE.md) extension patterns
 
 ---
@@ -359,9 +359,9 @@
 
 ### Path 3: Developer Mastery (1 day)
 1. **[README.md](../README.md)** (30 min) - Complete understanding
-2. **[ARCHITECTURE.md](ARCHITECTURE.md)** (3 hours) - Deep dive into design
-3. **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** (1 hour) - All workflows
-4. **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** (1 hour) - Consolidation
+2. **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** (3 hours) - Deep dive into design
+3. **[DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md)** (1 hour) - All workflows
+4. **[ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary)** (1 hour) - Consolidation
 5. **[schema-reference.md](reference/schema-reference.md)** (1 hour) - Data structures
 6. **[usage.md](usage.md)** (1 hour) - Operation guide
 7. **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** (30 min) - Quick reference mastery
@@ -371,9 +371,9 @@
 ---
 
 ### Path 4: Architect/Reviewer (4 hours)
-1. **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** (1 hour) - Executive overview
-2. **[ARCHITECTURE.md](ARCHITECTURE.md)** (2 hours) - Complete architecture
-3. **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** (30 min) - Visual validation
+1. **[ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary)** (1 hour) - Executive overview
+2. **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** (2 hours) - Complete architecture
+3. **[DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md)** (30 min) - Visual validation
 4. **[schema-reference.md](reference/schema-reference.md)** (30 min) - Data structures
 
 **Outcome**: Can review, approve, or critique architectural decisions
@@ -389,7 +389,7 @@
 | ARCHITECTURE.md#executive-summary | ~5,500 | Technical Leadership | Medium |
 | docs/DATA-FLOW-DIAGRAMS.md | ~5,000 | Visual Learners | Medium |
 | docs/QUICK-REFERENCE.md | ~2,500 | Developers | Low |
-| docs/WORKFLOW.md | ~1,000 | Users | Low |
+| docs/integration/CLAUDE-CODE.md | ~380 | Developers/LLMs | Medium |
 | docs/installation.md | ~3,500 | System Administrators | Low |
 | docs/usage.md | ~8,000 | Users | Low-Medium |
 | docs/configuration.md | ~4,000 | System Administrators | Medium |
@@ -446,19 +446,19 @@ You understand the CLAUDE-TODO system when you can:
 ## 🚀 Quick Links
 
 ### Most Important Documents
-1. **[ARCHITECTURE.md](ARCHITECTURE.md)** - The definitive design reference
+1. **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** - The definitive design reference
 2. **[usage.md](usage.md)** - How to use it
 3. **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** - Daily development reference
-4. **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** - Executive overview
+4. **[ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary)** - Executive overview
 
 ### By Use Case
 - **Installing**: [installation.md](getting-started/installation.md) → Setup guide
 - **Configuring**: [configuration.md](guides/configuration.md) → Configuration options
 - **Using**: [usage.md](usage.md) → Operation guide
-- **Understanding**: [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) → Overview
+- **Understanding**: [ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary) → Overview
 - **Debugging**: [troubleshooting.md](reference/troubleshooting.md) → Issue resolution
-- **Extending**: [ARCHITECTURE.md](ARCHITECTURE.md) → Extension points
-- **Reviewing**: [ARCHITECTURE.md](ARCHITECTURE.md) → Complete design
+- **Extending**: [ARCHITECTURE.md](architecture/ARCHITECTURE.md) → Extension points
+- **Reviewing**: [ARCHITECTURE.md](architecture/ARCHITECTURE.md) → Complete design
 - **Data Structure**: [schema-reference.md](reference/schema-reference.md) → Schema reference
 
 ---
@@ -470,9 +470,9 @@ For questions about:
 - **Usage**: See [usage.md](usage.md) and [QUICK-REFERENCE.md](QUICK-REFERENCE.md)
 - **Configuration**: See [configuration.md](guides/configuration.md)
 - **Troubleshooting**: See [troubleshooting.md](reference/troubleshooting.md)
-- **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) and [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)
+- **Architecture**: See [ARCHITECTURE.md](architecture/ARCHITECTURE.md) and [ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary)
 - **Data Structures**: See [schema-reference.md](reference/schema-reference.md)
-- **Workflows**: See [DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)
+- **Workflows**: See [DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md)
 
 ---
 

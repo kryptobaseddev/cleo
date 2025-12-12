@@ -2,13 +2,13 @@
   "$schema": "./schemas/todo.schema.json",
   "version": "2.1.0",
   "project": "claude-todo",
-  "lastUpdated": "2025-12-12T22:50:35Z",
+  "lastUpdated": "2025-12-12T22:35:24Z",
   "_meta": {
-    "checksum": "538b31d87aa38f5d",
+    "checksum": "a580db38c5a6873d",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2025-12-12T22:13:23Z"
+    "lastModified": "2025-12-12T16:57:35Z"
   },
   "focus": {
     "currentTask": null,
@@ -646,579 +646,122 @@
     },
     {
       "id": "T058",
-      "title": "Add short flags to CLI commands (-s, -p, -l, -f, -v, -c, -q)",
-      "status": "pending",
+      "title": "Phase 1-4 Documentation Restructure (COMPLETED)",
+      "status": "done",
       "priority": "high",
-      "createdAt": "2025-12-12T20:23:20Z",
-      "phase": "core",
-      "description": "Add short flag variants for all common options: -s STATUS, -p PRIORITY, -l LABEL, -f FORMAT, -v verbose, -c compact, -q quiet. Update help text and documentation.",
+      "createdAt": "2025-12-12T22:35:05Z",
+      "description": "Completed: guides/, getting-started/, reference/ dirs. Merged SYSTEM-DESIGN-SUMMARY. Reduced usage.md 69%.",
       "labels": [
-        "cli",
-        "output",
-        "v0.7.0"
-      ]
+        "master-refactor",
+        "docs",
+        "completed"
+      ],
+      "completedAt": "2025-12-12T22:35:05Z"
     },
     {
       "id": "T059",
-      "title": "Implement NO_COLOR environment variable support",
-      "status": "pending",
-      "priority": "high",
-      "createdAt": "2025-12-12T20:23:21Z",
-      "phase": "core",
-      "description": "Respect the NO_COLOR environment variable standard (no-color.org) to disable all ANSI color codes. Also add FORCE_COLOR for override.",
-      "labels": [
-        "cli",
-        "accessibility",
-        "v0.7.0"
-      ]
-    },
-    {
-      "id": "T060",
-      "title": "Create lib/output-format.sh shared library",
-      "status": "pending",
-      "priority": "high",
-      "createdAt": "2025-12-12T20:23:23Z",
-      "phase": "core",
-      "description": "Create shared library with: detect_color_support(), detect_unicode_support(), get_terminal_width(), resolve_format(), status_color(), status_symbol(), progress_bar(), draw_box(). Used by all output commands.",
-      "labels": [
-        "cli",
-        "library",
-        "v0.7.0"
-      ]
-    },
-    {
-      "id": "T061",
-      "title": "Add JSON output envelope with _meta section",
-      "status": "pending",
-      "priority": "high",
-      "createdAt": "2025-12-12T20:23:24Z",
-      "phase": "core",
-      "description": "Enhance JSON output with envelope pattern: _meta (version, command, timestamp, checksum, execution_ms), filters applied, summary counts, then tasks array. Improves LLM anti-hallucination.",
-      "labels": [
-        "output",
-        "json",
-        "v0.7.0"
-      ]
-    },
-    {
-      "id": "T062",
-      "title": "Implement JSONL streaming output format",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:23:25Z",
-      "phase": "core",
-      "description": "Add --format jsonl for newline-delimited JSON output. Each line is valid JSON: meta line, task lines, summary line. Better for large datasets and piping.",
-      "labels": [
-        "output",
-        "json",
-        "streaming",
-        "v0.7.0"
-      ]
-    },
-    {
-      "id": "T063",
-      "title": "Add CSV and TSV export formats",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:23:26Z",
-      "phase": "core",
-      "description": "Add --format csv and --format tsv to export.sh. RFC 4180 compliant CSV. Include headers option, configurable delimiter. Essential for spreadsheet integration.",
-      "labels": [
-        "output",
-        "export",
-        "v0.7.0"
-      ]
-    },
-    {
-      "id": "T064",
-      "title": "Implement dash (dashboard) command",
-      "status": "pending",
-      "priority": "high",
-      "createdAt": "2025-12-12T20:23:41Z",
-      "phase": "core",
-      "description": "New command showing: status overview, current focus, phase progress with bars, weekly stats. Options: --compact, --period N, --no-chart. Uses box-drawing for borders.",
-      "labels": [
-        "command",
-        "dashboard",
-        "v0.8.0"
-      ]
-    },
-    {
-      "id": "T065",
-      "title": "Implement next command for task suggestion",
-      "status": "pending",
-      "priority": "high",
-      "createdAt": "2025-12-12T20:23:43Z",
-      "phase": "core",
-      "description": "Suggest next task to work on. Algorithm: filter pending+unblocked, sort by priority/deps/created. Options: --explain, --count N. Show reasoning for suggestion.",
-      "labels": [
-        "command",
-        "suggestion",
-        "v0.8.0"
-      ]
-    },
-    {
-      "id": "T066",
-      "title": "Implement labels command for tag management",
-      "status": "pending",
-      "priority": "high",
-      "createdAt": "2025-12-12T20:23:44Z",
-      "phase": "core",
-      "description": "List all labels with counts and bar visualization. Subcommands: show LABEL. Show critical task counts per label. Alias: tags.",
-      "labels": [
-        "command",
-        "labels",
-        "v0.8.0"
-      ]
-    },
-    {
-      "id": "T067",
-      "title": "Add ASCII progress bar and box-drawing support",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:23:46Z",
-      "phase": "core",
-      "description": "Progress bars with Unicode blocks (██░) and percentages. Box-drawing borders for tables (╭╮╰╯─│). ASCII fallback for non-UTF8 terminals.",
-      "labels": [
-        "output",
-        "visualization",
-        "v0.8.0"
-      ]
-    },
-    {
-      "id": "T068",
-      "title": "Add output.* configuration options",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:23:47Z",
-      "phase": "core",
-      "description": "Add to config.schema.json: output.defaultFormat, output.colorEnabled, output.unicodeEnabled, output.progressBars, output.csvDelimiter, output.dateFormat. Integrate into output-format.sh.",
-      "labels": [
-        "config",
-        "output",
-        "v0.8.0"
-      ]
-    },
-    {
-      "id": "T069",
-      "title": "Implement phases command for phase management",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:24:02Z",
-      "phase": "core",
-      "description": "Phase summary with progress. Subcommands: show PHASE, stats. Table with phase name, task counts by status, progress bar, overall status (Pending/InProgress/Completed).",
-      "labels": [
-        "command",
-        "phases",
-        "v0.9.0"
-      ]
-    },
-    {
-      "id": "T070",
-      "title": "Implement blockers command for blocker analysis",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:24:03Z",
-      "phase": "core",
-      "description": "List blocked tasks and what blocks them. Subcommand: analyze - show critical path, chain length, impact assessment, recommendations. Help identify bottlenecks.",
-      "labels": [
-        "command",
-        "blockers",
-        "v0.9.0"
-      ]
-    },
-    {
-      "id": "T071",
-      "title": "Implement deps command with dependency tree visualization",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:24:04Z",
-      "phase": "core",
-      "description": "ASCII dependency tree (├─►). Subcommands: show TASK_ID, check (validate/detect cycles), blocked (tasks with incomplete deps). Options: --depth N, --reverse. Topological sorting.",
-      "labels": [
-        "command",
-        "dependencies",
-        "v0.9.0"
-      ]
-    },
-    {
-      "id": "T072",
-      "title": "Implement circular dependency detection",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:24:05Z",
-      "phase": "core",
-      "description": "Detect circular dependencies using Tarjan's SCC algorithm. Warn on cycle detection. Block task creation that would create cycles. Report cycle chain in deps check.",
-      "labels": [
-        "validation",
-        "dependencies",
-        "v0.9.0"
-      ]
-    },
-    {
-      "id": "T073",
-      "title": "Implement critical path analysis",
-      "status": "pending",
-      "priority": "low",
-      "createdAt": "2025-12-12T20:24:07Z",
-      "phase": "core",
-      "description": "Identify longest dependency chain (critical path) that determines minimum project completion. Show in blockers analyze. Highlight tasks on critical path.",
-      "labels": [
-        "analysis",
-        "dependencies",
-        "v0.9.0"
-      ]
-    },
-    {
-      "id": "T074",
-      "title": "Implement index caching for labels and phases",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:24:21Z",
-      "phase": "polish",
-      "description": "Cache label-to-task and phase-to-task indices in .claude/.cache/. Checksum-based staleness detection. Lazy regeneration on first query after changes. O(1) lookups.",
-      "labels": [
-        "performance",
-        "caching",
-        "v1.0.0"
-      ]
-    },
-    {
-      "id": "T075",
-      "title": "Add CI/CD integration documentation and examples",
-      "status": "pending",
-      "priority": "low",
-      "createdAt": "2025-12-12T20:24:25Z",
-      "phase": "polish",
-      "description": "Add docs/ci-cd-integration.md with examples for: GitHub Actions, GitLab CI, Jenkins, Azure DevOps. Task validation, report generation, pre-deployment checks.",
-      "labels": [
-        "docs",
-        "ci-cd",
-        "v1.0.0"
-      ]
-    },
-    {
-      "id": "T076",
-      "title": "Optimize performance for 1000+ task datasets",
-      "status": "pending",
-      "priority": "low",
-      "createdAt": "2025-12-12T20:24:26Z",
-      "phase": "polish",
-      "description": "Ensure all commands meet performance targets (<100ms list, <1s stats) for 1000+ tasks. Streaming jq for large files, pagination defaults, lazy loading.",
-      "labels": [
-        "performance",
-        "optimization",
-        "v1.0.0"
-      ]
-    },
-    {
-      "id": "T077",
-      "title": "Add BATS test suite for output formats",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:24:34Z",
-      "phase": "polish",
-      "description": "BATS tests for: all output formats (json, jsonl, csv, tsv, table, markdown), color modes (NO_COLOR, FORCE_COLOR), terminal width adaptation, JSON schema validation with ajv-cli.",
-      "labels": [
-        "testing",
-        "output",
-        "v1.0.0"
-      ]
-    },
-    {
-      "id": "T078",
-      "title": "Create golden file tests for output regression",
-      "status": "pending",
-      "priority": "medium",
-      "createdAt": "2025-12-12T20:24:35Z",
-      "phase": "polish",
-      "description": "Golden file tests in tests/golden/. Snapshot expected output for list, stats, dash, deps commands. UPDATE_GOLDEN=1 workflow. Normalize timestamps and paths.",
-      "labels": [
-        "testing",
-        "golden-files",
-        "v1.0.0"
-      ]
-    },
-    {
-      "id": "T079",
-      "title": "Create backup branch and baseline metrics",
-      "status": "done",
-      "priority": "high",
-      "createdAt": "2025-12-12T22:11:11Z",
-      "description": "Create git backup branch, timestamped backup directory, capture baseline metrics per MASTER-REFACTORING-GUIDE.md Prerequisites section",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "prerequisites"
-      ],
-      "notes": [
-        "2025-12-12 22:11:11 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#prerequisites"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T080",
-      "title": "Phase 1: Create docs/guides/ directory structure",
-      "status": "done",
-      "priority": "high",
-      "createdAt": "2025-12-12T22:11:13Z",
-      "description": "Create guides/ directory with command-reference.md (~400 lines), workflow-patterns.md (~300 lines), filtering-guide.md (~200 lines)",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "phase-1"
-      ],
-      "notes": [
-        "2025-12-12 22:11:13 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#phase-1-extract--link-usagemd-consolidation"
-      ],
-      "depends": [
-        "T079"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T081",
-      "title": "Phase 1: Refactor usage.md to streamlined version",
-      "status": "done",
-      "priority": "high",
-      "createdAt": "2025-12-12T22:11:14Z",
-      "description": "Reduce usage.md from ~1,200 lines to ~400 lines by extracting content to guides/, maintaining links and navigation",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "phase-1"
-      ],
-      "notes": [
-        "2025-12-12 22:11:14 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#step-5-refactor-usagemd"
-      ],
-      "depends": [
-        "T080"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T082",
-      "title": "Phase 2: Merge SYSTEM-DESIGN-SUMMARY.md into ARCHITECTURE.md",
-      "status": "done",
-      "priority": "high",
-      "createdAt": "2025-12-12T22:11:16Z",
-      "description": "Consolidate architecture docs: merge unique content from SYSTEM-DESIGN-SUMMARY.md, add Executive Summary section, delete duplicate file",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "phase-2"
-      ],
-      "notes": [
-        "2025-12-12 22:11:16 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#phase-2-architecture-consolidation"
-      ],
-      "depends": [
-        "T081"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T083",
-      "title": "Phase 3: Create documentation directory hierarchy",
-      "status": "done",
-      "priority": "high",
-      "createdAt": "2025-12-12T22:11:19Z",
-      "description": "Create getting-started/ and reference/ directories, move files to new locations, create docs/README.md navigation hub",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "phase-3"
-      ],
-      "notes": [
-        "2025-12-12 22:11:19 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#phase-3-directory-restructuring"
-      ],
-      "depends": [
-        "T082"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T084",
-      "title": "Phase 3: Update install.sh for new docs structure",
-      "status": "done",
-      "priority": "high",
-      "createdAt": "2025-12-12T22:11:20Z",
-      "description": "Update install.sh to copy new directory structure to ~/.claude-todo/docs/, verify installation works",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "phase-3"
-      ],
-      "notes": [
-        "2025-12-12 22:11:20 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#step-5-update-installsh"
-      ],
-      "depends": [
-        "T083"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T085",
-      "title": "Phase 4: Comprehensive validation and testing",
-      "status": "done",
-      "priority": "high",
-      "createdAt": "2025-12-12T22:11:21Z",
-      "description": "Run content completeness check, link validation, installation testing, navigation testing, line count verification",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "phase-4"
-      ],
-      "notes": [
-        "2025-12-12 22:11:21 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#phase-4-validation"
-      ],
-      "depends": [
-        "T084"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T086",
-      "title": "Post-refactor: Create migration guide and update CHANGELOG",
-      "status": "done",
-      "priority": "medium",
-      "createdAt": "2025-12-12T22:11:23Z",
-      "description": "Create docs/MIGRATION-GUIDE.md for path changes, update CHANGELOG.md with breaking changes, announce completion",
-      "labels": [
-        "master-refactor",
-        "docs",
-        "post-refactor"
-      ],
-      "notes": [
-        "2025-12-12 22:11:23 UTC: Reference: claudedocs/MASTER-REFACTORING-GUIDE.md#post-refactoring-tasks"
-      ],
-      "depends": [
-        "T085"
-      ],
-      "completedAt": "2025-12-12T22:38:13Z"
-    },
-    {
-      "id": "T087",
       "title": "Merge design-principles.md into ARCHITECTURE.md",
-      "status": "done",
+      "status": "pending",
       "priority": "high",
-      "createdAt": "2025-12-12T22:38:31Z",
+      "createdAt": "2025-12-12T22:35:06Z",
       "description": "436 lines. Should be consolidated into ARCHITECTURE.md per original plan.",
       "labels": [
         "master-refactor",
         "docs",
         "phase-2-remaining"
-      ],
-      "depends": [
-        "T086"
-      ],
-      "completedAt": "2025-12-12T22:44:34Z"
+      ]
     },
     {
-      "id": "T088",
+      "id": "T060",
       "title": "Create integration/CLAUDE-CODE.md (LLM-optimized)",
-      "status": "done",
+      "status": "pending",
       "priority": "high",
-      "createdAt": "2025-12-12T22:38:33Z",
+      "createdAt": "2025-12-12T22:35:08Z",
       "description": "NEW file for LLM integration. Consolidate: session protocol, anti-hallucination rules, CLI patterns, TodoWrite integration.",
       "labels": [
         "master-refactor",
         "docs",
         "phase-3-remaining"
-      ],
-      "depends": [
-        "T086"
-      ],
-      "completedAt": "2025-12-12T22:45:59Z"
+      ]
     },
     {
-      "id": "T089",
+      "id": "T061",
       "title": "Merge WORKFLOW.md into integration docs",
-      "status": "done",
+      "status": "pending",
       "priority": "medium",
-      "createdAt": "2025-12-12T22:38:34Z",
-      "description": "246 lines at root. Should merge into integration/CLAUDE-CODE.md.",
+      "createdAt": "2025-12-12T22:35:10Z",
+      "description": "246 lines at root. Should merge into integration/CLAUDE-CODE.md or integration/WORKFLOWS.md.",
       "labels": [
         "master-refactor",
         "docs",
         "phase-3-remaining"
       ],
       "depends": [
-        "T088"
-      ],
-      "completedAt": "2025-12-12T22:46:38Z"
+        "T060"
+      ]
     },
     {
-      "id": "T090",
+      "id": "T062",
       "title": "Merge ENHANCEMENT-todowrite-integration.md",
-      "status": "done",
+      "status": "pending",
       "priority": "medium",
-      "createdAt": "2025-12-12T22:38:36Z",
-      "description": "849 lines. Content should merge into integration/CLAUDE-CODE.md.",
+      "createdAt": "2025-12-12T22:35:11Z",
+      "description": "849 lines. Content should merge into integration/CLAUDE-CODE.md for single LLM reference.",
       "labels": [
         "master-refactor",
         "docs",
         "phase-3-remaining"
       ],
       "depends": [
-        "T088"
-      ],
-      "completedAt": "2025-12-12T22:46:58Z"
+        "T060"
+      ]
     },
     {
-      "id": "T091",
+      "id": "T063",
       "title": "Consolidate/delete MIGRATION-SYSTEM-SUMMARY.md",
-      "status": "done",
+      "status": "pending",
       "priority": "medium",
-      "createdAt": "2025-12-12T22:38:37Z",
+      "createdAt": "2025-12-12T22:35:12Z",
       "description": "538 lines. Potentially redundant. Review and merge useful content or delete.",
       "labels": [
         "master-refactor",
         "docs",
         "cleanup"
-      ],
-      "depends": [
-        "T086"
-      ],
-      "completedAt": "2025-12-12T22:47:40Z"
+      ]
     },
     {
-      "id": "T092",
+      "id": "T064",
       "title": "Move DATA-FLOW-DIAGRAMS.md to architecture/",
-      "status": "done",
+      "status": "pending",
       "priority": "low",
-      "createdAt": "2025-12-12T22:38:38Z",
-      "description": "947 lines. Should be in architecture/ subdirectory as DATA-FLOWS.md.",
+      "createdAt": "2025-12-12T22:35:14Z",
+      "description": "947 lines. Should be in architecture/ subdirectory as DATA-FLOWS.md per original plan.",
       "labels": [
         "master-refactor",
         "docs",
         "structure"
-      ],
-      "depends": [
-        "T087"
-      ],
-      "completedAt": "2025-12-12T22:48:54Z"
+      ]
     },
     {
-      "id": "T093",
+      "id": "T065",
       "title": "Reduce total doc file count from 22 to ~13",
-      "status": "done",
+      "status": "pending",
       "priority": "medium",
-      "createdAt": "2025-12-12T22:38:40Z",
-      "description": "Original target: 13 files. Current: 22 files. Final consolidation task.",
+      "createdAt": "2025-12-12T22:35:16Z",
+      "description": "Original target: 13 files. Current: 22 files. Need to consolidate remaining redundant docs.",
       "labels": [
         "master-refactor",
         "docs",
         "consolidation"
       ],
       "depends": [
-        "T087",
-        "T088",
-        "T089",
-        "T090",
-        "T091",
-        "T092"
-      ],
-      "completedAt": "2025-12-12T22:50:35Z"
+        "T059",
+        "T060",
+        "T061",
+        "T062",
+        "T063",
+        "T064"
+      ]
     }
   ],
   "phases": {

@@ -63,9 +63,9 @@ You cannot accurately predict time. Estimates create false precision and bad dec
 **Instead**: Describe scope, complexity, and dependencies. Use relative sizing if pressed (small/medium/large). If a user insists on time estimates, state clearly that you cannot provide accurate predictions and redirect to scope-based planning.
 
 ## Docs
-- Architecture: @docs/ARCHITECTURE.md
-- Design Summary: @docs/ARCHITECTURE.md
-- Installation: @docs/installation.md
+- Architecture: @docs/architecture/ARCHITECTURE.md
+- Data Flows: @docs/architecture/DATA-FLOWS.md
+- Installation: @docs/getting-started/installation.md
 - Usage: @docs/usage.md
 
 <!-- CLAUDE-TODO:START -->

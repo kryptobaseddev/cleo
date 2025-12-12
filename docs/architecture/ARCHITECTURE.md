@@ -35,17 +35,57 @@ The CLAUDE-TODO system is a production-grade task management solution specifical
 15. [Performance Considerations](#performance-considerations)
 16. [Security Considerations](#security-considerations)
 17. [Extension Points](#extension-points)
+18. [Architectural Decisions](#architectural-decisions)
+19. [Version Management](#version-management)
 
 ---
 
 ## Design Principles
 
-- **Single Source of Truth**: todo.json as primary task state
-- **Immutable History**: Append-only logging for auditability
-- **Fail-Safe Operations**: Atomic file operations with validation
-- **Schema-First**: JSON Schema validation prevents corruption
-- **Idempotent Scripts**: Safe to run multiple times
-- **Zero-Config Defaults**: Sensible defaults, optional customization
+### Core Philosophy
+
+CLAUDE-TODO is built on three foundational pillars designed specifically for AI-assisted development:
+
+**1. Anti-Hallucination First**
+Multi-layer validation prevents AI-generated errors from corrupting task data. Every operation undergoes schema enforcement, semantic validation, and cross-file integrity checks.
+
+*Why*: AI agents can generate syntactically valid but semantically incorrect data. Protection against hallucination is the foundation, not an afterthought.
+
+**2. Atomic Operations**
+Every file modification uses atomic write patterns. No partial writes, no data corruption, full rollback on any failure.
+
+*Why*: Task data is the source of truth for work sessions. Corruption destroys continuity. Atomic operations ensure all-or-nothing modifications.
+
+**3. Session Continuity**
+Complete audit trails, immutable change logs, and automatic backups enable seamless work across interrupted sessions.
+
+*Why*: Development work is rarely linear. Session continuity means you can pick up exactly where you left off with full context preserved.
+
+### Principle Details
+
+| Principle | Description | Implementation |
+|-----------|-------------|----------------|
+| **Single Source of Truth** | todo.json is authoritative for active tasks | Active tasks in todo.json, completed in archive, audit in log |
+| **Immutable History** | Append-only logging for auditability | Log entries never modified or deleted |
+| **Fail-Safe Operations** | Atomic file operations with validation | temp file → validate → backup → rename |
+| **Schema-First** | JSON Schema validation prevents corruption | Schema defines structure before code validates behavior |
+| **Idempotent Scripts** | Safe to run multiple times | Re-running produces same result |
+| **Zero-Config Defaults** | Sensible defaults, optional customization | Archive after 7 days, 10 backups, strict validation |
+
+### System Invariants
+
+These properties must **ALWAYS** be true:
+
+1. **ID Uniqueness**: Every task ID is globally unique (across todo.json + todo-archive.json)
+2. **Status Enum**: Task status is always one of: `pending | active | blocked | done`
+3. **Atomic Writes**: No partial writes to any JSON file
+4. **Backup Exists**: Before any modification, previous version is backed up
+5. **Log Append-Only**: Change log is never modified, only appended
+6. **Archive Immutability**: Archive file is only appended, never modified
+7. **Schema Validation**: Every file passes schema validation before being used
+8. **Timestamp Monotonicity**: Task timestamps are chronological (created ≤ completed)
+
+**Enforcement**: Validation runs on every read and write. Scripts exit with error if invariants are violated.
 
 ---
 
@@ -779,6 +819,111 @@ Place in `~/.claude-todo/integrations/`:
 - `github-issues.sh`
 - `trello-board.sh`
 - Export to external systems
+
+---
+
+## Architectural Decisions
+
+### Why Bash Scripts?
+
+**Decision**: Implement core system in Bash with jq for JSON manipulation.
+
+| Rationale | Trade-offs |
+|-----------|------------|
+| Universal availability on Unix systems | Performance ceiling lower than compiled languages |
+| Simple, transparent operations | Acceptable for 1000+ tasks (< 500ms operations) |
+| Easy integration with shell workflows | Complexity threshold requires refactor beyond 10K tasks |
+| No runtime dependencies beyond jq | |
+
+### Why JSON Schema?
+
+**Decision**: Use JSON Schema for validation instead of custom validation code.
+
+| Rationale | Trade-offs |
+|-----------|------------|
+| Declarative validation (separate from implementation) | Requires external validator (ajv or jsonschema) |
+| Versioned contracts (schema version tracks data format) | Fallback to jq-based validation if unavailable |
+| Self-documenting (schema explains structure) | |
+
+### Why Atomic Rename?
+
+**Decision**: Use temp file + atomic rename pattern for all writes.
+
+| Rationale | Trade-offs |
+|-----------|------------|
+| OS-level atomicity guarantee (POSIX rename) | Slower than direct writes (< 50ms overhead) |
+| No partial writes possible | Acceptable for data safety |
+| Crash-safe (interrupted write leaves temp file) | |
+| Enables rollback on validation failure | |
+
+### Why Checksum is Detection-Only?
+
+**Decision**: Checksum mismatches log information but don't block operations.
+
+**Context**: Both `claude-todo` CLI and `TodoWrite` modify todo.json. TodoWrite doesn't know about checksums.
+
+| Rationale | Trade-offs |
+|-----------|------------|
+| Multi-writer scenario support | Cannot use checksum as optimistic locking |
+| Blocking would break normal Claude Code workflows | External modifications proceed without approval |
+| Real protection: schema + semantic checks + atomic writes | |
+
+**Checksum is used for**: Detecting external modifications (logged), backup integrity verification, corruption detection in disaster recovery.
+
+### Why Separate Archive File?
+
+**Decision**: Completed tasks move to `todo-archive.json`.
+
+| Rationale | Trade-offs |
+|-----------|------------|
+| Active task list stays small (fast operations) | Cross-file queries more complex |
+| Archive is immutable (optimize for read-only) | Careful handling during archival |
+| Separate retention policies | |
+| Clear separation: active vs historical | |
+
+### Why Auto-Derived activeForm?
+
+**Decision**: Generate `activeForm` from task `title` during TodoWrite export.
+
+**Context**: Claude Code's TodoWrite uses `content` (imperative) and `activeForm` (present continuous).
+
+| Rationale | Implementation |
+|-----------|----------------|
+| Single source of truth (title written once) | Grammar transformation in lib/grammar.sh |
+| No schema changes required | Export: `claude-todo export --format todowrite` |
+| Clean bidirectional mapping | Fallback: "Working on X" for edge cases |
+
+---
+
+## Version Management
+
+### Versioning Strategy
+
+```
+Major.Minor.Patch
+  │     │     │
+  │     │     └─ Bug fixes (backward compatible)
+  │     └─────── New features (backward compatible)
+  └───────────── Breaking changes (migration required)
+```
+
+### Migration Path
+
+Migrations run automatically on upgrade:
+
+```
+~/.claude-todo/migrations/
+├── migrate-1.0-to-1.1.sh
+├── migrate-1.1-to-2.0.sh
+└── rollback-2.0-to-1.1.sh
+```
+
+### Backward Compatibility
+
+- New fields optional by default
+- Deprecated fields supported for 2 major versions
+- Clear migration documentation
+- Automatic schema version detection
 
 ---
 

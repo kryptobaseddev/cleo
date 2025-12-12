@@ -256,7 +256,7 @@ Now that you're up and running:
 1. **Detailed Usage**: See [usage.md](../usage.md) for complete command reference
 2. **Configuration Guide**: See [configuration.md](../guides/configuration.md) for all settings
 3. **CLI Output Formats**: See [CLI-OUTPUT-REFERENCE.md](../../claudedocs/CLI-OUTPUT-REFERENCE.md)
-4. **Architecture**: See [ARCHITECTURE.md](../ARCHITECTURE.md) for system design
+4. **Architecture**: See [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) for system design
 5. **Troubleshooting**: See [troubleshooting.md](../reference/troubleshooting.md) for common issues
 
 ## Common Issues
