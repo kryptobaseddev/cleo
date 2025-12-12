@@ -660,7 +660,7 @@ For complete schema definition including all constraints and validation rules:
 cat ~/.claude-todo/schemas/config.schema.json
 ```
 
-See also: [schema-reference.md](./schema-reference.md)
+See also: [schema-reference.md](../reference/schema-reference.md)
 
 ## Troubleshooting Configuration
 
@@ -736,8 +736,8 @@ claude-todo validate .claude/todo-config.json
 
 ## See Also
 
-- [Installation Guide](./installation.md) - Setting up CLAUDE-TODO
+- [Installation Guide](../getting-started/installation.md) - Setting up CLAUDE-TODO
 - [Usage Guide](./usage.md) - Working with tasks
-- [Schema Reference](./schema-reference.md) - Complete schema documentation
-- [Troubleshooting](./troubleshooting.md) - Common issues and solutions
+- [Schema Reference](../reference/schema-reference.md) - Complete schema documentation
+- [Troubleshooting](../reference/troubleshooting.md) - Common issues and solutions
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System design and rationale

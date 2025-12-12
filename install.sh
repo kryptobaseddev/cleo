@@ -580,14 +580,26 @@ fi
 # ============================================
 log_step "Installing documentation..."
 
-# Copy all documentation files from docs/
+# Copy all documentation files from docs/ including subdirectories
 if [[ -d "$SCRIPT_DIR/docs" ]]; then
+  # Copy root-level markdown files
   for doc in "$SCRIPT_DIR/docs/"*.md; do
     if [[ -f "$doc" ]]; then
       cp "$doc" "$INSTALL_DIR/docs/"
     fi
   done
-  log_info "Documentation installed ($(ls -1 "$INSTALL_DIR/docs"/*.md 2>/dev/null | wc -l) files)"
+
+  # Copy subdirectories (guides, getting-started, reference)
+  for subdir in guides getting-started reference; do
+    if [[ -d "$SCRIPT_DIR/docs/$subdir" ]]; then
+      mkdir -p "$INSTALL_DIR/docs/$subdir"
+      cp -r "$SCRIPT_DIR/docs/$subdir/"* "$INSTALL_DIR/docs/$subdir/" 2>/dev/null || true
+    fi
+  done
+
+  # Count total files installed
+  local total_docs=$(find "$INSTALL_DIR/docs" -name "*.md" 2>/dev/null | wc -l)
+  log_info "Documentation installed ($total_docs files in 4 directories)"
 else
   log_warn "Documentation directory not found at $SCRIPT_DIR/docs"
 fi

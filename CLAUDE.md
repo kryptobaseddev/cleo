@@ -64,7 +64,7 @@ You cannot accurately predict time. Estimates create false precision and bad dec
 
 ## Docs
 - Architecture: @docs/ARCHITECTURE.md
-- Design Summary: @docs/SYSTEM-DESIGN-SUMMARY.md
+- Design Summary: @docs/ARCHITECTURE.md
 - Installation: @docs/installation.md
 - Usage: @docs/usage.md
 

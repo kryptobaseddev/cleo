@@ -5,6 +5,33 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-12-12
+
+### Changed
+- **BREAKING: Documentation Restructured** - Complete documentation reorganization for improved maintainability
+  - Created `docs/getting-started/` directory with `installation.md`, `quick-start.md`
+  - Created `docs/guides/` directory with `command-reference.md`, `workflow-patterns.md`, `filtering-guide.md`, `configuration.md`
+  - Created `docs/reference/` directory with `schema-reference.md`, `troubleshooting.md`
+  - Consolidated `SYSTEM-DESIGN-SUMMARY.md` into `ARCHITECTURE.md` (single source of truth)
+  - Reduced `usage.md` from 1,939 to 599 lines (69% reduction)
+  - Added `docs/README.md` as documentation navigation hub
+  - See `docs/DOCS-MIGRATION-GUIDE.md` for path changes
+
+### Added
+- **docs/guides/command-reference.md**: Comprehensive CLI command documentation (~843 lines)
+- **docs/guides/workflow-patterns.md**: Session management, task lifecycle, recipes (~807 lines)
+- **docs/guides/filtering-guide.md**: Advanced filtering and query techniques (~704 lines)
+- **docs/getting-started/quick-start.md**: 5-minute getting started guide (~312 lines)
+- **docs/README.md**: Documentation index and navigation hub
+- **docs/DOCS-MIGRATION-GUIDE.md**: Migration guide for users with existing bookmarks
+
+### Removed
+- **docs/SYSTEM-DESIGN-SUMMARY.md**: Content merged into ARCHITECTURE.md
+
+### Fixed
+- **install.sh**: Updated to copy new docs subdirectory structure (guides/, getting-started/, reference/)
+- All internal documentation cross-references updated for new paths
+
 ## [0.6.1] - 2025-12-12
 
 ### Added

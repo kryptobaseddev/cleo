@@ -17,18 +17,18 @@
 |----------|---------|--------------|
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | Complete system architecture | Understanding system design |
 | **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** | Visual workflows and data flows | Understanding operations |
-| **[SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md)** | Executive overview | High-level understanding |
+| **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** | Executive overview | High-level understanding |
 | **[design-principles.md](design-principles.md)** | Core design principles and patterns | Understanding design decisions |
 
 ### 📖 User Guides
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
-| **[installation.md](installation.md)** | Installation guide | Setting up the system |
+| **[installation.md](getting-started/installation.md)** | Installation guide | Setting up the system |
 | **[usage.md](usage.md)** | Usage guide and examples | Learning system operations |
-| **[configuration.md](configuration.md)** | Configuration reference | Customizing system behavior |
-| **[schema-reference.md](schema-reference.md)** | Data schema documentation | Understanding data structures |
-| **[troubleshooting.md](troubleshooting.md)** | Troubleshooting guide | Resolving issues |
+| **[configuration.md](guides/configuration.md)** | Configuration reference | Customizing system behavior |
+| **[schema-reference.md](reference/schema-reference.md)** | Data schema documentation | Understanding data structures |
+| **[troubleshooting.md](reference/troubleshooting.md)** | Troubleshooting guide | Resolving issues |
 | **[WORKFLOW.md](WORKFLOW.md)** | Workflow documentation | Understanding process flows |
 | **[migration-guide.md](migration-guide.md)** | Migration and upgrade guide | Upgrading between versions |
 
@@ -106,7 +106,7 @@
 
 ---
 
-### SYSTEM-DESIGN-SUMMARY.md
+### ARCHITECTURE.md#executive-summary
 **Purpose**: Executive overview consolidating key architectural concepts
 
 **Contents**:
@@ -271,24 +271,24 @@
 
 #### ...understand the system
 1. Start with [README.md](../README.md) for overview
-2. Read [SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md) for architecture
+2. Read [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) for architecture
 3. Review [DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md) for visual understanding
 
 #### ...install and configure the system
-1. Read [installation.md](installation.md) for setup
-2. Review [configuration.md](configuration.md) for customization
-3. Check [troubleshooting.md](troubleshooting.md) if issues arise
+1. Read [installation.md](getting-started/installation.md) for setup
+2. Review [configuration.md](guides/configuration.md) for customization
+3. Check [troubleshooting.md](reference/troubleshooting.md) if issues arise
 
 #### ...use the system daily
 1. Start with [usage.md](usage.md) for operations
 2. Keep [QUICK-REFERENCE.md](QUICK-REFERENCE.md) nearby for quick lookups
-3. Reference [schema-reference.md](schema-reference.md) for data structures
+3. Reference [schema-reference.md](reference/schema-reference.md) for data structures
 
 #### ...implement the system
 1. Read [ARCHITECTURE.md](ARCHITECTURE.md) thoroughly
-2. Review [SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md) for overview
+2. Review [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) for overview
 3. Keep [QUICK-REFERENCE.md](QUICK-REFERENCE.md) nearby for reference
-4. Check [schema-reference.md](schema-reference.md) for data structures
+4. Check [schema-reference.md](reference/schema-reference.md) for data structures
 
 #### ...contribute to the project
 1. Read [README.md](../README.md) for project overview
@@ -297,7 +297,7 @@
 4. Check [usage.md](usage.md) for operational patterns
 
 #### ...debug an issue
-1. Check [troubleshooting.md](troubleshooting.md) first
+1. Check [troubleshooting.md](reference/troubleshooting.md) first
 2. Review [QUICK-REFERENCE.md](QUICK-REFERENCE.md) common errors
 3. Review [DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md) for workflow
 4. Consult [ARCHITECTURE.md](ARCHITECTURE.md) error handling section
@@ -305,7 +305,7 @@
 #### ...extend the system
 1. Read [PLUGINS.md](PLUGINS.md) for plugin development guide
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) extension points section
-3. Review [SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md) extension summary
+3. Review [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) extension summary
 4. Check [QUICK-REFERENCE.md](QUICK-REFERENCE.md) extension patterns
 
 ---
@@ -316,13 +316,13 @@
 
 | Concept | Primary Source | Also Referenced In |
 |---------|---------------|-------------------|
-| **Anti-Hallucination** | ARCHITECTURE.md | SYSTEM-DESIGN-SUMMARY.md, docs/QUICK-REFERENCE.md |
+| **Anti-Hallucination** | ARCHITECTURE.md | ARCHITECTURE.md#executive-summary, docs/QUICK-REFERENCE.md |
 | **Atomic Writes** | ARCHITECTURE.md | docs/DATA-FLOW-DIAGRAMS.md, docs/QUICK-REFERENCE.md |
-| **Data Flow** | docs/DATA-FLOW-DIAGRAMS.md | ARCHITECTURE.md, SYSTEM-DESIGN-SUMMARY.md |
+| **Data Flow** | docs/DATA-FLOW-DIAGRAMS.md | ARCHITECTURE.md, ARCHITECTURE.md#executive-summary |
 | **Validation Pipeline** | ARCHITECTURE.md | docs/DATA-FLOW-DIAGRAMS.md, docs/schema-reference.md |
-| **Configuration Hierarchy** | ARCHITECTURE.md | docs/configuration.md, SYSTEM-DESIGN-SUMMARY.md |
+| **Configuration Hierarchy** | ARCHITECTURE.md | docs/configuration.md, ARCHITECTURE.md#executive-summary |
 | **Backup System** | ARCHITECTURE.md | docs/DATA-FLOW-DIAGRAMS.md, docs/troubleshooting.md |
-| **Extension Points** | ARCHITECTURE.md | SYSTEM-DESIGN-SUMMARY.md |
+| **Extension Points** | ARCHITECTURE.md | ARCHITECTURE.md#executive-summary |
 
 ### Implementation Details
 
@@ -330,9 +330,9 @@
 |--------|---------------|-------------------|
 | **Schema Structure** | docs/schema-reference.md | ARCHITECTURE.md, docs/QUICK-REFERENCE.md |
 | **Library Functions** | ARCHITECTURE.md | docs/QUICK-REFERENCE.md |
-| **Script Operations** | docs/usage.md | ARCHITECTURE.md, SYSTEM-DESIGN-SUMMARY.md |
-| **Testing Strategy** | ARCHITECTURE.md | SYSTEM-DESIGN-SUMMARY.md |
-| **Installation Process** | docs/installation.md | ARCHITECTURE.md, SYSTEM-DESIGN-SUMMARY.md |
+| **Script Operations** | docs/usage.md | ARCHITECTURE.md, ARCHITECTURE.md#executive-summary |
+| **Testing Strategy** | ARCHITECTURE.md | ARCHITECTURE.md#executive-summary |
+| **Installation Process** | docs/installation.md | ARCHITECTURE.md, ARCHITECTURE.md#executive-summary |
 
 ---
 
@@ -348,9 +348,9 @@
 
 ### Path 2: User Proficiency (2 hours)
 1. **[README.md](../README.md)** (15 min) - Full read
-2. **[installation.md](installation.md)** (20 min) - Setup
+2. **[installation.md](getting-started/installation.md)** (20 min) - Setup
 3. **[usage.md](usage.md)** (45 min) - Operations
-4. **[configuration.md](configuration.md)** (20 min) - Customization
+4. **[configuration.md](guides/configuration.md)** (20 min) - Customization
 5. **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** (20 min) - Reference
 
 **Outcome**: Can install, configure, and use all features effectively
@@ -361,8 +361,8 @@
 1. **[README.md](../README.md)** (30 min) - Complete understanding
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** (3 hours) - Deep dive into design
 3. **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** (1 hour) - All workflows
-4. **[SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md)** (1 hour) - Consolidation
-5. **[schema-reference.md](schema-reference.md)** (1 hour) - Data structures
+4. **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** (1 hour) - Consolidation
+5. **[schema-reference.md](reference/schema-reference.md)** (1 hour) - Data structures
 6. **[usage.md](usage.md)** (1 hour) - Operation guide
 7. **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** (30 min) - Quick reference mastery
 
@@ -371,10 +371,10 @@
 ---
 
 ### Path 4: Architect/Reviewer (4 hours)
-1. **[SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md)** (1 hour) - Executive overview
+1. **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** (1 hour) - Executive overview
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** (2 hours) - Complete architecture
 3. **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** (30 min) - Visual validation
-4. **[schema-reference.md](schema-reference.md)** (30 min) - Data structures
+4. **[schema-reference.md](reference/schema-reference.md)** (30 min) - Data structures
 
 **Outcome**: Can review, approve, or critique architectural decisions
 
@@ -386,7 +386,7 @@
 |----------|-----------|------------------|------------|
 | README.md | ~2,000 | Users | Low |
 | ARCHITECTURE.md | ~6,500 | Developers | High |
-| SYSTEM-DESIGN-SUMMARY.md | ~5,500 | Technical Leadership | Medium |
+| ARCHITECTURE.md#executive-summary | ~5,500 | Technical Leadership | Medium |
 | docs/DATA-FLOW-DIAGRAMS.md | ~5,000 | Visual Learners | Medium |
 | docs/QUICK-REFERENCE.md | ~2,500 | Developers | Low |
 | docs/WORKFLOW.md | ~1,000 | Users | Low |
@@ -412,7 +412,7 @@
 ### Update Triggers
 - **README.md**: Feature additions, installation changes
 - **ARCHITECTURE.md**: Major design changes (rare)
-- **SYSTEM-DESIGN-SUMMARY.md**: Architectural updates
+- **ARCHITECTURE.md#executive-summary**: Architectural updates
 - **docs/DATA-FLOW-DIAGRAMS.md**: Workflow modifications
 - **docs/QUICK-REFERENCE.md**: Command changes, new patterns
 - **docs/installation.md**: Setup procedure changes, requirement updates
@@ -449,31 +449,31 @@ You understand the CLAUDE-TODO system when you can:
 1. **[ARCHITECTURE.md](ARCHITECTURE.md)** - The definitive design reference
 2. **[usage.md](usage.md)** - How to use it
 3. **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** - Daily development reference
-4. **[SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md)** - Executive overview
+4. **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** - Executive overview
 
 ### By Use Case
-- **Installing**: [installation.md](installation.md) → Setup guide
-- **Configuring**: [configuration.md](configuration.md) → Configuration options
+- **Installing**: [installation.md](getting-started/installation.md) → Setup guide
+- **Configuring**: [configuration.md](guides/configuration.md) → Configuration options
 - **Using**: [usage.md](usage.md) → Operation guide
-- **Understanding**: [SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md) → Overview
-- **Debugging**: [troubleshooting.md](troubleshooting.md) → Issue resolution
+- **Understanding**: [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary) → Overview
+- **Debugging**: [troubleshooting.md](reference/troubleshooting.md) → Issue resolution
 - **Extending**: [ARCHITECTURE.md](ARCHITECTURE.md) → Extension points
 - **Reviewing**: [ARCHITECTURE.md](ARCHITECTURE.md) → Complete design
-- **Data Structure**: [schema-reference.md](schema-reference.md) → Schema reference
+- **Data Structure**: [schema-reference.md](reference/schema-reference.md) → Schema reference
 
 ---
 
 ## 📧 Support
 
 For questions about:
-- **Installation**: See [installation.md](installation.md)
+- **Installation**: See [installation.md](getting-started/installation.md)
 - **Usage**: See [usage.md](usage.md) and [QUICK-REFERENCE.md](QUICK-REFERENCE.md)
-- **Configuration**: See [configuration.md](configuration.md)
-- **Troubleshooting**: See [troubleshooting.md](troubleshooting.md)
-- **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) and [SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md)
-- **Data Structures**: See [schema-reference.md](schema-reference.md)
+- **Configuration**: See [configuration.md](guides/configuration.md)
+- **Troubleshooting**: See [troubleshooting.md](reference/troubleshooting.md)
+- **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) and [ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)
+- **Data Structures**: See [schema-reference.md](reference/schema-reference.md)
 - **Workflows**: See [DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)
 
 ---
 
-**Happy building! Start with [README.md](../README.md) if you're new, [installation.md](installation.md) to install, or [usage.md](usage.md) to learn operations.**
+**Happy building! Start with [README.md](../README.md) if you're new, [installation.md](getting-started/installation.md) to install, or [usage.md](usage.md) to learn operations.**

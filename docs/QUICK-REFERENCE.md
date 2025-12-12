@@ -334,9 +334,9 @@ chmod 600 .claude/.backups/*.json
 |----------|---------|
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | Complete system design |
 | **[DATA-FLOW-DIAGRAMS.md](DATA-FLOW-DIAGRAMS.md)** | Visual workflows |
-| **[SYSTEM-DESIGN-SUMMARY.md](SYSTEM-DESIGN-SUMMARY.md)** | Executive overview |
+| **[ARCHITECTURE.md#executive-summary](ARCHITECTURE.md#executive-summary)** | Executive overview |
 | **[usage.md](usage.md)** | Detailed usage guide |
-| **[configuration.md](configuration.md)** | Config reference |
+| **[configuration.md](guides/configuration.md)** | Config reference |
 
 ## Upgrade Path
 
