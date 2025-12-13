@@ -5,6 +5,39 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2025-12-13
+
+### Fixed
+- **complete-task.sh Backup Rotation**: Added automatic rotation for safety backups
+  - Previously created unlimited backup files (100+ files, 3.3MB bloat)
+  - Now maintains max 10 backups with mtime-based rotation
+  - Cross-platform support (GNU find + macOS stat fallback)
+- **file-ops.sh Path Calculation Bug**: Fixed BACKUP_DIR path concatenation
+  - Changed from `.claude/.backups` (absolute) to `.backups` (relative)
+  - Fixes nested directory creation (`.claude/.claude/.backups/`)
+  - Backups now correctly go to `.claude/.backups/`
+- **safe_find Edge Cases**: Implemented mtime-based sorting for backup operations
+  - New `safe_find_sorted_by_mtime()` function in platform-compat.sh
+  - Works with any filename format (timestamps, numbered, mixed)
+  - Replaces fragile filename parsing (`sort -t. -k2 -n`)
+  - Cross-platform (GNU find -printf, BSD stat fallback)
+
+### Added
+- **docs/commands/restore.md**: Comprehensive restore command documentation (937 lines)
+  - Full command reference with all options
+  - Step-by-step restore procedures
+  - Recovery scenarios and troubleshooting
+  - Best practices and workflow examples
+- **safe_find_sorted_by_mtime()**: Platform-compatible backup file sorting function
+  - Added to lib/platform-compat.sh
+  - Sorts files by modification time (oldest first)
+  - Enables correct rotation and restore operations
+
+### Changed
+- **docs/QUICK-REFERENCE.md**: Added restore command examples
+- **docs/INDEX.md**: Added restore.md to command documentation list
+- **file-ops.sh**: Updated rotate_backups(), restore_backup(), list_backups() to use mtime sorting
+
 ## [0.9.4] - 2025-12-13
 
 ### Changed

@@ -303,6 +303,39 @@ safe_find() {
     done
 }
 
+# Find files sorted by modification time (oldest first)
+# Args: $1 = directory, $2 = pattern
+# Returns: list of matching files sorted by mtime (oldest first)
+safe_find_sorted_by_mtime() {
+    local dir="$1"
+    local pattern="$2"
+
+    if [[ ! -d "$dir" ]]; then
+        return 0
+    fi
+
+    # Use find with printf to get mtime, then sort numerically
+    if command_exists find; then
+        # GNU find supports -printf
+        if find "$dir" -maxdepth 1 -name "$pattern" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | cut -d' ' -f2-; then
+            return 0
+        fi
+
+        # Fallback for BSD find (macOS) - use stat for mtime
+        find "$dir" -maxdepth 1 -name "$pattern" -type f 2>/dev/null | while read -r file; do
+            local mtime
+            mtime=$(get_file_mtime "$file")
+            echo "$mtime $file"
+        done | sort -n | cut -d' ' -f2-
+        return 0
+    fi
+
+    # Final fallback: return unsorted (same as safe_find)
+    ls -1 "$dir"/"$pattern" 2>/dev/null | while read -r file; do
+        [[ -f "$file" ]] && echo "$file"
+    done
+}
+
 # ============================================================================
 # TEMP FILE HANDLING
 # ============================================================================
@@ -342,6 +375,7 @@ export -f generate_random_hex
 export -f detect_json_validator
 export -f validate_json_schema
 export -f safe_find
+export -f safe_find_sorted_by_mtime
 export -f create_temp_file
 
 # Export platform constant

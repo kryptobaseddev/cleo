@@ -65,6 +65,10 @@ claude-todo export --format jsonl     # Export as JSONL (streaming)
 claude-todo archive                   # Archive completed tasks
 claude-todo validate                  # Validate all files
 claude-todo backup                    # Manual backup
+claude-todo backup --list             # List available backups
+claude-todo restore <backup-path>     # Restore from backup
+claude-todo restore <backup> --file todo.json  # Restore specific file
+claude-todo restore <backup> --force  # Skip confirmation prompt
 claude-todo stats                     # Show statistics
 claude-todo help                      # Show all commands
 ```
@@ -707,11 +711,13 @@ claude-todo validate
 # 2. Try auto-fix
 claude-todo validate --fix
 
-# 3. Check backups
-ls -lh .claude/.backups/
+# 3. List backups
+claude-todo backup --list
 
 # 4. Restore if needed
-claude-todo restore .claude/.backups/todo.json.1
+claude-todo restore <backup-path>
+# OR restore specific file
+claude-todo restore <backup> --file todo.json
 
 # 5. Check logs
 jq '.entries[-10:]' .claude/todo-log.json

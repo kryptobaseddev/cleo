@@ -46,7 +46,8 @@
 | **[commands/blockers.md](commands/blockers.md)** | Blockers command documentation | Analyzing blocked tasks and chains |
 | **[commands/phases.md](commands/phases.md)** | Phase management command documentation | Managing project phases and phase-based workflows |
 | **[commands/export.md](commands/export.md)** | Export command documentation | Exporting tasks in CSV, TSV, JSON, markdown formats |
-| **[commands/backup.md](commands/backup.md)** | Backup and restore command documentation | Creating, listing, and restoring backups |
+| **[commands/backup.md](commands/backup.md)** | Backup command documentation | Creating and listing backups |
+| **[commands/restore.md](commands/restore.md)** | Restore command documentation | Restoring from backups |
 
 ### 🔬 Technical Reference
 

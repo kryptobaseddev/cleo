@@ -21,7 +21,7 @@ else
 fi
 
 # Configuration
-BACKUP_DIR=".claude/.backups"
+BACKUP_DIR=".backups"
 MAX_BACKUPS=10
 TEMP_SUFFIX=".tmp"
 LOCK_SUFFIX=".lock"
@@ -246,9 +246,8 @@ rotate_backups() {
     # Calculate how many to delete
     local delete_count=$((backup_count - max_backups))
 
-    # Delete oldest backups (lowest numbers) - uses platform-compat safe_find
-    safe_find "$backup_dir" "$backup_pattern" \
-        | sort -t. -k2 -n \
+    # Delete oldest backups (lowest numbers) - uses platform-compat safe_find_sorted_by_mtime
+    safe_find_sorted_by_mtime "$backup_dir" "$backup_pattern" \
         | head -n "$delete_count" \
         | xargs rm -f 2>/dev/null || true
 
@@ -405,9 +404,8 @@ restore_backup() {
             return $E_FILE_NOT_FOUND
         fi
     else
-        # Find most recent backup (highest number) - uses platform-compat safe_find
-        backup_file=$(safe_find "$backup_dir" "${basename}.[0-9]*" \
-            | sort -t. -k2 -n \
+        # Find most recent backup - uses platform-compat safe_find_sorted_by_mtime
+        backup_file=$(safe_find_sorted_by_mtime "$backup_dir" "${basename}.*" \
             | tail -n 1)
 
         if [[ -z "$backup_file" ]]; then
@@ -537,8 +535,7 @@ list_backups() {
     fi
 
     # Find and list backups with metadata - uses platform-compat functions
-    safe_find "$backup_dir" "${basename}.[0-9]*" \
-        | sort -t. -k2 -n \
+    safe_find_sorted_by_mtime "$backup_dir" "${basename}.*" \
         | while read -r backup; do
             local mtime
             mtime=$(get_file_mtime "$backup")
