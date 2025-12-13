@@ -318,10 +318,10 @@ Complete documentation is available in the [`docs/`](docs/) directory. Start wit
 
 | Category | Documents |
 |----------|-----------|
-| **Getting Started** | [Installation](docs/getting-started/installation.md) · [Usage](docs/usage.md) · [Quick Reference](docs/QUICK-REFERENCE.md) |
+| **Getting Started** | [Installation](docs/reference/installation.md) · [Usage](docs/usage.md) · [Quick Reference](docs/QUICK-REFERENCE.md) |
 | **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flow Diagrams](docs/architecture/DATA-FLOWS.md) |
 | **Reference** | [Configuration](docs/reference/configuration.md) · [Schema Reference](docs/architecture/SCHEMAS.md) · [Workflow Guide](docs/integration/WORKFLOWS.md) |
-| **Guides** | [Migration Guide](docs/migration-guide.md) · [Troubleshooting](docs/reference/troubleshooting.md) |
+| **Guides** | [Migration Guide](docs/reference/migration-guide.md) · [Troubleshooting](docs/reference/troubleshooting.md) |
 | **For Claude** | [CLAUDE.md](CLAUDE.md) - Protocol instructions for Claude Code integration |
 
 ## Testing
@@ -493,7 +493,7 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 <p align="center">
   <a href="docs/INDEX.md">Documentation</a> ·
-  <a href="docs/getting-started/installation.md">Installation</a> ·
+  <a href="docs/reference/installation.md">Installation</a> ·
   <a href="docs/usage.md">Usage Guide</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
