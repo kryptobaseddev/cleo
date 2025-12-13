@@ -27,6 +27,7 @@
 | **[installation.md](reference/installation.md)** | Installation guide | Setting up the system |
 | **[usage.md](usage.md)** | Usage guide and examples | Learning system operations |
 | **[TODO_Task_Management.md](TODO_Task_Management.md)** | CLI reference (installed to ~/.claude-todo/docs/) | Quick CLI command reference |
+| **[cli-output-formats.md](reference/cli-output-formats.md)** | Output formats reference | Understanding JSON, CSV, JSONL output |
 | **[configuration.md](reference/configuration.md)** | Configuration reference | Customizing system behavior |
 | **[schema-reference.md](architecture/SCHEMAS.md)** | Data schema documentation | Understanding data structures |
 | **[troubleshooting.md](reference/troubleshooting.md)** | Troubleshooting guide | Resolving issues |
@@ -198,6 +199,22 @@
 - Common scenarios
 
 **Best For**: Day-to-day usage, learning system features, operational reference
+
+---
+
+### cli-output-formats.md
+**Purpose**: CLI output formats reference guide
+
+**Contents**:
+- Output formats overview (text, json, jsonl, csv, tsv, markdown, table)
+- Format specifications with examples
+- Short flags reference
+- Color control (NO_COLOR, FORCE_COLOR)
+- Use cases by format
+- Format comparison matrix
+- Best practices for each format
+
+**Best For**: Understanding output options, API integration, data export workflows
 
 ---
 

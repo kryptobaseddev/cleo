@@ -40,6 +40,9 @@ claude-todo list --status pending     # Filter by status
 claude-todo export --format todowrite # Export for Claude Code
 claude-todo export --format markdown  # Export as checklist
 claude-todo export --format json      # Export raw JSON
+claude-todo export --format csv       # Export as CSV
+claude-todo export --format tsv       # Export as TSV
+claude-todo export --format jsonl     # Export as JSONL (streaming)
 
 # MAINTENANCE
 claude-todo archive                   # Archive completed tasks
@@ -48,6 +51,39 @@ claude-todo backup                    # Manual backup
 claude-todo stats                     # Show statistics
 claude-todo help                      # Show all commands
 ```
+
+## Short Flags (v0.7.0+)
+
+```bash
+# Common short flags
+-s STATUS      --status STATUS       # Filter/set status
+-p PRIORITY    --priority PRIORITY   # Filter/set priority
+-l LABEL       --label(s) LABEL      # Filter/set labels
+-f FORMAT      --format FORMAT       # Output format
+-v             --verbose             # Verbose output
+-c             --compact             # Compact view
+-q             --quiet               # Quiet mode (scripting)
+-h             --help                # Show help
+
+# Examples
+claude-todo list -s pending -p high  # Pending high-priority tasks
+claude-todo add "Task" -p critical -l bug,urgent -q  # Add quietly
+claude-todo export -f csv            # Export as CSV
+NO_COLOR=1 claude-todo list          # Disable colors
+FORCE_COLOR=1 claude-todo list       # Force colors in CI
+```
+
+## Output Formats
+
+| Format | Flag | Use Case |
+|--------|------|----------|
+| text | `-f text` | Human terminal (default) |
+| json | `-f json` | API with `_meta` envelope |
+| jsonl | `-f jsonl` | Streaming, log processing |
+| csv | `-f csv` | Spreadsheets, data analysis |
+| tsv | `-f tsv` | Unix pipelines |
+| markdown | `-f markdown` | Documentation |
+| table | `-f table` | Compact ASCII tables |
 
 ## Data Flow Patterns
 
