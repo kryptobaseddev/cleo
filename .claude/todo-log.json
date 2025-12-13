@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 42,
+    "totalEntries": 53,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-13T18:48:28Z",
+    "lastEntry": "2025-12-13T18:51:18Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -1900,6 +1900,439 @@
         "depends": [
           "T163"
         ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_a1a4d136db1b",
+      "timestamp": "2025-12-13T18:50:59Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T148",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-13T18:50:59Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_670fbc5fbab0",
+      "timestamp": "2025-12-13T18:50:59Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T150",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-13T18:50:59Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_c3716f2315c7",
+      "timestamp": "2025-12-13T18:50:59Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T151",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-13T18:50:59Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5d2b46a63fc6",
+      "timestamp": "2025-12-13T18:51:09Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T132",
+      "before": {
+        "title": "P0: Fix task ID collision under concurrent operations",
+        "status": "pending",
+        "priority": "critical",
+        "description": "File locking exists but ID generation happens BEFORE lock acquisition. Under concurrent load (5 parallel adds), all processes generate same ID causing 80% data loss. Solution: Move ID generation inside locked critical section. See claudedocs/P0-1-RACE-CONDITION-ISSUE.md for full root cause analysis, fix requirements, and implementation plan.",
+        "phase": null,
+        "labels": [
+          "critical-bug",
+          "p0",
+          "race-condition",
+          "architectural-change"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "P0: Fix task ID collision under concurrent operations",
+        "status": "pending",
+        "priority": "critical",
+        "description": "File locking exists but ID generation happens BEFORE lock acquisition. Under concurrent load (5 parallel adds), all processes generate same ID causing 80% data loss. Solution: Move ID generation inside locked critical section. See claudedocs/P0-1-RACE-CONDITION-ISSUE.md for full root cause analysis, fix requirements, and implementation plan.",
+        "phase": null,
+        "labels": [
+          "architectural-change",
+          "critical-bug",
+          "p0",
+          "race-condition",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_e59a2d700488",
+      "timestamp": "2025-12-13T18:51:09Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T144",
+      "before": {
+        "title": "Fix validate checksum recovery test",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Tests failing: Unit T211, Integration T33, T34. Tests: validate --fix recovers from checksum mismatch, validate --fix preserves task data. Root cause: checksum recalculation or file handling in validate.sh --fix mode. See: scripts/validate.sh, lib/validation.sh",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "issue",
+          "test",
+          "validation"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix validate checksum recovery test",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Tests failing: Unit T211, Integration T33, T34. Tests: validate --fix recovers from checksum mismatch, validate --fix preserves task data. Root cause: checksum recalculation or file handling in validate.sh --fix mode. See: scripts/validate.sh, lib/validation.sh",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "issue",
+          "test",
+          "v0.9.6",
+          "validation"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_4fb4517b0838",
+      "timestamp": "2025-12-13T18:51:09Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T145",
+      "before": {
+        "title": "Fix orphaned dependency cleanup tests",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Tests failing: Unit T216, T217, Integration T42, T43. Tests: orphaned dependencies cleaned on archive, multiple orphaned dependencies all cleaned, orphaned dependency cleanup preserves other dependencies. Root cause: archive.sh dependency cleanup logic not handling all edge cases. See: scripts/archive.sh, lib/analysis.sh",
+        "phase": "core",
+        "labels": [
+          "archive",
+          "bats",
+          "dependencies",
+          "issue",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix orphaned dependency cleanup tests",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Tests failing: Unit T216, T217, Integration T42, T43. Tests: orphaned dependencies cleaned on archive, multiple orphaned dependencies all cleaned, orphaned dependency cleanup preserves other dependencies. Root cause: archive.sh dependency cleanup logic not handling all edge cases. See: scripts/archive.sh, lib/analysis.sh",
+        "phase": "core",
+        "labels": [
+          "archive",
+          "bats",
+          "dependencies",
+          "issue",
+          "test",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_0fa45ee23742",
+      "timestamp": "2025-12-13T18:51:09Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T146",
+      "before": {
+        "title": "Fix file locking concurrency tests",
+        "status": "pending",
+        "priority": "low",
+        "description": "Tests failing: Unit T274, T279, T280, T283. Tests: concurrent lock timeout, lock released on error, lock timeout configurable, race condition prevention. Root cause: timing-sensitive tests that depend on system load and flock behavior. May need test isolation or mocking. See: lib/file-ops.sh lock_file() unlock_file()",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "concurrency",
+          "flaky",
+          "issue",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix file locking concurrency tests",
+        "status": "pending",
+        "priority": "low",
+        "description": "Tests failing: Unit T274, T279, T280, T283. Tests: concurrent lock timeout, lock released on error, lock timeout configurable, race condition prevention. Root cause: timing-sensitive tests that depend on system load and flock behavior. May need test isolation or mocking. See: lib/file-ops.sh lock_file() unlock_file()",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "concurrency",
+          "flaky",
+          "issue",
+          "test",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_63648054744e",
+      "timestamp": "2025-12-13T18:51:09Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T147",
+      "before": {
+        "title": "Fix stats command tests",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Tests failing: Unit T606, T621, T631. Tests: stats --period invalid shows error, stats shows 'tasks' for count > 1 (pluralization), stats handles missing .claude directory. Root cause: stats.sh validation and edge case handling. See: scripts/stats.sh",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "issue",
+          "stats",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix stats command tests",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Tests failing: Unit T606, T621, T631. Tests: stats --period invalid shows error, stats shows 'tasks' for count > 1 (pluralization), stats handles missing .claude directory. Root cause: stats.sh validation and edge case handling. See: scripts/stats.sh",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "issue",
+          "stats",
+          "test",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_d58143253cae",
+      "timestamp": "2025-12-13T18:51:09Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T159",
+      "before": {
+        "title": "Fix integration workflow tests (full lifecycle, dependencies)",
+        "status": "pending",
+        "priority": "medium",
+        "description": "14 integration tests failing: T57-64 (lifecycle/dependency workflows), T69-71 (validation workflows). Tests: full task lifecycle, multiple tasks with dependencies, session workflows, dependency chain completion, unblock workflows, validation workflows, batch operations. Root cause: likely timing or state management issues in complex multi-step scenarios.",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "integration",
+          "issue",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix integration workflow tests (full lifecycle, dependencies)",
+        "status": "pending",
+        "priority": "medium",
+        "description": "14 integration tests failing: T57-64 (lifecycle/dependency workflows), T69-71 (validation workflows). Tests: full task lifecycle, multiple tasks with dependencies, session workflows, dependency chain completion, unblock workflows, validation workflows, batch operations. Root cause: likely timing or state management issues in complex multi-step scenarios.",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "integration",
+          "issue",
+          "test",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_ed7ffec13bd7",
+      "timestamp": "2025-12-13T18:51:09Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T160",
+      "before": {
+        "title": "Fix schema validation tests (invalid schema, missing fields)",
+        "status": "pending",
+        "priority": "medium",
+        "description": "2 tests failing: T51 (invalid schema version handled gracefully), T52 (missing required fields detected). Root cause: schema validation edge cases in migrate.sh or validate.sh not handling error conditions correctly.",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "issue",
+          "schema",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix schema validation tests (invalid schema, missing fields)",
+        "status": "pending",
+        "priority": "medium",
+        "description": "2 tests failing: T51 (invalid schema version handled gracefully), T52 (missing required fields detected). Root cause: schema validation edge cases in migrate.sh or validate.sh not handling error conditions correctly.",
+        "phase": "core",
+        "labels": [
+          "bats",
+          "issue",
+          "schema",
+          "test",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_ff07f917c588",
+      "timestamp": "2025-12-13T18:51:18Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T132",
+      "before": {
+        "title": "P0: Fix task ID collision under concurrent operations",
+        "status": "pending",
+        "priority": "critical",
+        "description": "File locking exists but ID generation happens BEFORE lock acquisition. Under concurrent load (5 parallel adds), all processes generate same ID causing 80% data loss. Solution: Move ID generation inside locked critical section. See claudedocs/P0-1-RACE-CONDITION-ISSUE.md for full root cause analysis, fix requirements, and implementation plan.",
+        "phase": null,
+        "labels": [
+          "architectural-change",
+          "critical-bug",
+          "p0",
+          "race-condition",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "P0: Fix task ID collision under concurrent operations",
+        "status": "pending",
+        "priority": "critical",
+        "description": "File locking exists but ID generation happens BEFORE lock acquisition. Under concurrent load (5 parallel adds), all processes generate same ID causing 80% data loss. Solution: Move ID generation inside locked critical section. See claudedocs/P0-1-RACE-CONDITION-ISSUE.md for full root cause analysis, fix requirements, and implementation plan.",
+        "phase": "core",
+        "labels": [
+          "architectural-change",
+          "critical-bug",
+          "p0",
+          "race-condition",
+          "v0.9.6"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
         "blockedBy": null
       },
       "details": {

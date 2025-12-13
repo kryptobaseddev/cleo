@@ -2,9 +2,9 @@
   "$schema": "./schemas/todo.schema.json",
   "version": "2.1.0",
   "project": "claude-todo",
-  "lastUpdated": "2025-12-13T18:48:28Z",
+  "lastUpdated": "2025-12-13T18:51:18Z",
   "_meta": {
-    "checksum": "0cd306759bbb9fd4",
+    "checksum": "2f9dacb6679287d7",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -623,17 +623,19 @@
       "createdAt": "2025-12-13T05:49:34Z",
       "description": "File locking exists but ID generation happens BEFORE lock acquisition. Under concurrent load (5 parallel adds), all processes generate same ID causing 80% data loss. Solution: Move ID generation inside locked critical section. See claudedocs/P0-1-RACE-CONDITION-ISSUE.md for full root cause analysis, fix requirements, and implementation plan.",
       "labels": [
+        "architectural-change",
         "critical-bug",
         "p0",
         "race-condition",
-        "architectural-change"
+        "v0.9.6"
       ],
       "notes": [
         {
           "timestamp": "2025-12-13T07:58:48Z",
           "content": "Full documentation: claudedocs/P0-1-RACE-CONDITION-ISSUE.md - Requires architectural change to make ID generation atomic inside locked section"
         }
-      ]
+      ],
+      "phase": "core"
     },
     {
       "id": "T133",
@@ -863,6 +865,7 @@
         "bats",
         "issue",
         "test",
+        "v0.9.6",
         "validation"
       ],
       "phase": "core"
@@ -879,7 +882,8 @@
         "bats",
         "dependencies",
         "issue",
-        "test"
+        "test",
+        "v0.9.6"
       ],
       "phase": "core"
     },
@@ -895,7 +899,8 @@
         "concurrency",
         "flaky",
         "issue",
-        "test"
+        "test",
+        "v0.9.6"
       ],
       "phase": "core",
       "notes": [
@@ -913,17 +918,22 @@
         "bats",
         "issue",
         "stats",
-        "test"
+        "test",
+        "v0.9.6"
       ],
       "phase": "core"
     },
     {
       "id": "T148",
       "title": "Test task",
-      "status": "active",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-13T16:11:57Z",
-      "labels": []
+      "labels": [],
+      "completedAt": "2025-12-13T18:50:59Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T18:50:59Z] Test task - cleaning up"
+      ]
     },
     {
       "id": "T149",
@@ -944,22 +954,30 @@
     {
       "id": "T150",
       "title": "Test",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-13T16:12:22Z",
       "files": [
         "src/file.ts",
         "lib/util.js"
       ],
-      "labels": []
+      "labels": [],
+      "completedAt": "2025-12-13T18:50:59Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T18:50:59Z] Test task - cleaning up"
+      ]
     },
     {
       "id": "T151",
       "title": "Test",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-13T16:12:31Z",
-      "labels": []
+      "labels": [],
+      "completedAt": "2025-12-13T18:50:59Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T18:50:59Z] Test task - cleaning up"
+      ]
     },
     {
       "id": "T152",
@@ -1110,7 +1128,8 @@
         "bats",
         "integration",
         "issue",
-        "test"
+        "test",
+        "v0.9.6"
       ],
       "phase": "core"
     },
@@ -1125,7 +1144,8 @@
         "bats",
         "issue",
         "schema",
-        "test"
+        "test",
+        "v0.9.6"
       ],
       "phase": "core"
     },
