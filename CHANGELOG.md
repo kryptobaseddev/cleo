@@ -5,6 +5,43 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2025-12-13
+
+### Added
+- **lib/dependency-check.sh**: Centralized dependency validation module
+  - Individual check functions for all required tools (jq, bash, sha256sum, tar, flock, numfmt, date, find)
+  - Platform-aware install hints for Linux (apt/dnf/yum/pacman), macOS (brew), and Windows
+  - `validate_all_dependencies()` master function with `--quiet` and `--strict` options
+  - `quick_dependency_check()` for runtime validation
+  - Cross-platform fallbacks (sha256sum→shasum, numfmt→gnumfmt)
+- **install.sh --check-deps**: Check system dependencies without installing
+- **install.sh --install-deps**: Attempt automatic dependency installation via system package manager
+- **Pre-install validation**: Installation now validates all dependencies before proceeding
+
+### Changed
+- **install.sh**: Integrated comprehensive dependency checking before installation (T166)
+  - Validates critical deps (jq, bash 4+) and required deps (sha256sum, tar, flock, date, find)
+  - Shows platform-specific install commands for missing dependencies
+  - Cross-platform checksum generation (sha256sum or shasum -a 256)
+- **lib/platform-compat.sh**: Added bash version validation (T168)
+  - New `check_bash_version()` function requiring bash 4.0+
+  - New `get_bash_version_info()` helper
+  - Enhanced `check_required_tools()` with bash version validation
+- **scripts/export.sh**: Added jq dependency check with install hints (T167)
+- **scripts/migrate.sh**: Added jq dependency check with install hints (T167)
+- **Shebang consistency**: Standardized to `#!/usr/bin/env bash` across all scripts
+
+### Tasks Completed
+- T166: Master dependency check in install.sh
+- T167: jq check in export.sh and migrate.sh
+- T168: Bash version check in platform-compat.sh
+- T169: Auto-installer option (--install-deps)
+- T170: sha256sum/shasum cross-platform check
+- T171: tar availability check
+- T172: flock check with macOS hint
+- T173: numfmt/gnumfmt cross-platform check
+- T174: date/find POSIX tools check
+
 ## [0.9.5] - 2025-12-13
 
 ### Fixed

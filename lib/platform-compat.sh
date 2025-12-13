@@ -51,9 +51,41 @@ require_tool() {
     return 0
 }
 
+# ============================================================================
+# BASH VERSION CHECK (T168)
+# ============================================================================
+
+# Minimum required bash version
+REQUIRED_BASH_VERSION_MAJOR=4
+REQUIRED_BASH_VERSION_MINOR=0
+
+# Check bash version meets minimum requirements
+check_bash_version() {
+    local major="${BASH_VERSINFO[0]:-0}"
+    local minor="${BASH_VERSINFO[1]:-0}"
+
+    if (( major < REQUIRED_BASH_VERSION_MAJOR )); then
+        return 1
+    elif (( major == REQUIRED_BASH_VERSION_MAJOR && minor < REQUIRED_BASH_VERSION_MINOR )); then
+        return 1
+    fi
+    return 0
+}
+
+# Get formatted bash version info
+get_bash_version_info() {
+    echo "${BASH_VERSION:-unknown}"
+}
+
 # Check all required tools for claude-todo
 check_required_tools() {
     local missing_tools=()
+    local outdated_tools=()
+
+    # Check bash version first (T168)
+    if ! check_bash_version; then
+        outdated_tools+=("bash (have: ${BASH_VERSION:-unknown}, need: $REQUIRED_BASH_VERSION_MAJOR.$REQUIRED_BASH_VERSION_MINOR+)")
+    fi
 
     # Core requirement: jq for JSON processing
     if ! command_exists jq; then
@@ -63,6 +95,18 @@ check_required_tools() {
     # Core requirement: date for timestamps
     if ! command_exists date; then
         missing_tools+=("date")
+    fi
+
+    # Report outdated tools first
+    if [[ ${#outdated_tools[@]} -gt 0 ]]; then
+        echo "ERROR: Outdated tools found:" >&2
+        for tool in "${outdated_tools[@]}"; do
+            echo "  $tool" >&2
+        done
+        echo "" >&2
+        echo "Upgrade instructions:" >&2
+        echo "  bash: brew install bash (macOS) or upgrade system bash" >&2
+        echo "" >&2
     fi
 
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
@@ -83,6 +127,10 @@ check_required_tools() {
             esac
         done
 
+        return 1
+    fi
+
+    if [[ ${#outdated_tools[@]} -gt 0 ]]; then
         return 1
     fi
 
@@ -366,6 +414,8 @@ export -f detect_platform
 export -f command_exists
 export -f require_tool
 export -f check_required_tools
+export -f check_bash_version
+export -f get_bash_version_info
 export -f get_iso_timestamp
 export -f iso_to_epoch
 export -f date_days_ago
@@ -380,3 +430,7 @@ export -f create_temp_file
 
 # Export platform constant
 export PLATFORM
+
+# Export bash version requirements (T168)
+export REQUIRED_BASH_VERSION_MAJOR
+export REQUIRED_BASH_VERSION_MINOR

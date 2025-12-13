@@ -2,9 +2,9 @@
   "$schema": "./schemas/todo.schema.json",
   "version": "2.1.0",
   "project": "claude-todo",
-  "lastUpdated": "2025-12-13T19:29:07Z",
+  "lastUpdated": "2025-12-13T19:38:49Z",
   "_meta": {
-    "checksum": "e25839198e0515d7",
+    "checksum": "d43edb3dac47e407",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -1253,7 +1253,7 @@
     {
       "id": "T166",
       "title": "Add dependency check to install.sh before installation",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-13T19:06:35Z",
       "phase": "core",
@@ -1262,12 +1262,16 @@
         "dependencies",
         "installation",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:30Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:30Z] Implemented master dependency check in install.sh with validate_all_dependencies function"
       ]
     },
     {
       "id": "T167",
       "title": "Add jq check to export.sh and migrate.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-13T19:06:35Z",
       "phase": "core",
@@ -1276,12 +1280,16 @@
         "bug-fix",
         "dependencies",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:31Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:31Z] Added jq check to export.sh and migrate.sh with platform-specific install hints"
       ]
     },
     {
       "id": "T168",
       "title": "Add bash version check to platform-compat.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-13T19:06:36Z",
       "phase": "core",
@@ -1289,12 +1297,16 @@
       "labels": [
         "dependencies",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:33Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:33Z] Added bash version check to platform-compat.sh - requires bash 4.0+"
       ]
     },
     {
       "id": "T169",
       "title": "Create dependency auto-installer option",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "createdAt": "2025-12-13T19:06:36Z",
       "phase": "polish",
@@ -1311,12 +1323,16 @@
         "T172",
         "T173",
         "T174"
+      ],
+      "completedAt": "2025-12-13T19:38:34Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:34Z] Implemented --install-deps auto-installer with platform detection and package manager support"
       ]
     },
     {
       "id": "T170",
       "title": "Add sha256sum/shasum check to install.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-13T19:09:36Z",
       "phase": "core",
@@ -1324,12 +1340,16 @@
       "labels": [
         "dependencies",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:35Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:35Z] Added sha256sum/shasum cross-platform check with fallback support"
       ]
     },
     {
       "id": "T171",
       "title": "Add tar check to install.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-13T19:09:36Z",
       "phase": "core",
@@ -1337,12 +1357,16 @@
       "labels": [
         "dependencies",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:44Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:44Z] Added tar check to dependency-check.sh module"
       ]
     },
     {
       "id": "T172",
       "title": "Add flock check to install.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-13T19:09:36Z",
       "phase": "core",
@@ -1350,12 +1374,16 @@
       "labels": [
         "dependencies",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:46Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:46Z] Added flock check to dependency-check.sh module with macOS brew hint"
       ]
     },
     {
       "id": "T173",
       "title": "Add numfmt check to install.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-13T19:09:36Z",
       "phase": "core",
@@ -1363,12 +1391,16 @@
       "labels": [
         "dependencies",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:47Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:47Z] Added numfmt/gnumfmt cross-platform check to dependency-check.sh"
       ]
     },
     {
       "id": "T174",
       "title": "Add date/find POSIX tools check to install.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-13T19:09:36Z",
       "phase": "core",
@@ -1376,6 +1408,10 @@
       "labels": [
         "dependencies",
         "v0.9.7"
+      ],
+      "completedAt": "2025-12-13T19:38:49Z",
+      "notes": [
+        "[COMPLETED 2025-12-13T19:38:49Z] Added date/find POSIX tools check to dependency-check.sh module"
       ]
     },
     {

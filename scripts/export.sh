@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # export.sh - Export tasks to various formats
 # =============================================================================
@@ -20,6 +20,23 @@ LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 # Source required libraries
 source "$LIB_DIR/logging.sh"
 source "$LIB_DIR/todowrite-integration.sh"
+
+# ============================================================================
+# DEPENDENCY CHECK (T167)
+# ============================================================================
+# jq is required for all export operations
+if ! command -v jq &>/dev/null; then
+    echo "ERROR: jq is required for export operations but not found." >&2
+    echo "" >&2
+    echo "Install jq:" >&2
+    case "$(uname -s)" in
+        Linux*)  echo "  sudo apt install jq  (Debian/Ubuntu)" >&2
+                 echo "  sudo yum install jq  (RHEL/CentOS)" >&2 ;;
+        Darwin*) echo "  brew install jq" >&2 ;;
+        *)       echo "  See: https://stedolan.github.io/jq/download/" >&2 ;;
+    esac
+    exit 1
+fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then

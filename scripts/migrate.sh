@@ -13,6 +13,23 @@ LIB_DIR="$SCRIPT_DIR/../lib"
 source "$LIB_DIR/migrate.sh"
 
 # ============================================================================
+# DEPENDENCY CHECK (T167)
+# ============================================================================
+# jq is required for all migration operations
+if ! command -v jq &>/dev/null; then
+    echo "ERROR: jq is required for migration operations but not found." >&2
+    echo "" >&2
+    echo "Install jq:" >&2
+    case "$(uname -s)" in
+        Linux*)  echo "  sudo apt install jq  (Debian/Ubuntu)" >&2
+                 echo "  sudo yum install jq  (RHEL/CentOS)" >&2 ;;
+        Darwin*) echo "  brew install jq" >&2 ;;
+        *)       echo "  See: https://stedolan.github.io/jq/download/" >&2 ;;
+    esac
+    exit 1
+fi
+
+# ============================================================================
 # USAGE
 # ============================================================================
 

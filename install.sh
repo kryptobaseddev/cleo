@@ -9,21 +9,160 @@ INSTALL_DIR="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
 
 # Parse arguments
 FORCE=false
+CHECK_DEPS_ONLY=false
+INSTALL_DEPS=false
 for arg in "$@"; do
   case "$arg" in
     -f|--force|-y|--yes)
       FORCE=true
+      ;;
+    --check-deps)
+      CHECK_DEPS_ONLY=true
+      ;;
+    --install-deps)
+      INSTALL_DEPS=true
       ;;
     -h|--help)
       echo "Usage: ./install.sh [OPTIONS]"
       echo ""
       echo "Options:"
       echo "  -f, --force, -y, --yes   Skip confirmation prompts"
+      echo "  --check-deps             Check dependencies only, don't install"
+      echo "  --install-deps           Attempt to install missing dependencies (T169)"
       echo "  -h, --help               Show this help"
+      echo ""
+      echo "Dependencies:"
+      echo "  Critical: jq, bash 4+"
+      echo "  Required: sha256sum/shasum, tar, flock, date, find"
+      echo "  Optional: numfmt, ajv, jsonschema"
       exit 0
       ;;
   esac
 done
+
+# Handle --check-deps mode
+if [[ "$CHECK_DEPS_ONLY" == "true" ]]; then
+  echo "Checking claude-todo dependencies..."
+  echo ""
+  if [[ -f "$SCRIPT_DIR/lib/dependency-check.sh" ]]; then
+    source "$SCRIPT_DIR/lib/dependency-check.sh"
+    validate_all_dependencies
+    exit $?
+  else
+    echo "ERROR: dependency-check.sh not found" >&2
+    exit 1
+  fi
+fi
+
+# ============================================
+# AUTO-INSTALL DEPENDENCIES (T169)
+# ============================================
+install_missing_deps() {
+  local platform
+  case "$(uname -s)" in
+    Linux*)  platform="linux" ;;
+    Darwin*) platform="macos" ;;
+    *)       platform="unknown" ;;
+  esac
+
+  echo "Attempting to install missing dependencies..."
+  echo "Platform detected: $platform"
+  echo ""
+
+  local install_cmd=""
+  local sudo_needed=true
+
+  case "$platform" in
+    linux)
+      if command -v apt-get &>/dev/null; then
+        install_cmd="apt-get install -y"
+      elif command -v dnf &>/dev/null; then
+        install_cmd="dnf install -y"
+      elif command -v yum &>/dev/null; then
+        install_cmd="yum install -y"
+      elif command -v pacman &>/dev/null; then
+        install_cmd="pacman -S --noconfirm"
+      else
+        echo "ERROR: No supported package manager found (apt, dnf, yum, pacman)" >&2
+        return 1
+      fi
+      ;;
+    macos)
+      if command -v brew &>/dev/null; then
+        install_cmd="brew install"
+        sudo_needed=false
+      else
+        echo "ERROR: Homebrew not found. Install it from https://brew.sh" >&2
+        return 1
+      fi
+      ;;
+    *)
+      echo "ERROR: Unsupported platform for auto-install" >&2
+      return 1
+      ;;
+  esac
+
+  # Check what's missing
+  local missing=()
+  command -v jq &>/dev/null || missing+=("jq")
+  command -v flock &>/dev/null || {
+    [[ "$platform" == "macos" ]] && missing+=("flock") || missing+=("util-linux")
+  }
+
+  # coreutils provides sha256sum, numfmt on Linux (usually pre-installed)
+  # On macOS, coreutils provides gsha256sum, gnumfmt
+  if [[ "$platform" == "macos" ]]; then
+    if ! command -v sha256sum &>/dev/null && ! command -v shasum &>/dev/null; then
+      missing+=("coreutils")
+    fi
+    if ! command -v numfmt &>/dev/null && ! command -v gnumfmt &>/dev/null; then
+      [[ ! " ${missing[*]} " =~ " coreutils " ]] && missing+=("coreutils")
+    fi
+  fi
+
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    echo "All dependencies are already installed!"
+    return 0
+  fi
+
+  echo "Will install: ${missing[*]}"
+  echo ""
+
+  if [[ "$FORCE" != "true" ]]; then
+    read -p "Continue? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Installation cancelled."
+      return 1
+    fi
+  fi
+
+  # Run install command
+  local full_cmd="$install_cmd ${missing[*]}"
+  if [[ "$sudo_needed" == "true" ]]; then
+    echo "Running: sudo $full_cmd"
+    sudo $full_cmd
+  else
+    echo "Running: $full_cmd"
+    $full_cmd
+  fi
+
+  local result=$?
+  if [[ $result -eq 0 ]]; then
+    echo ""
+    echo "Dependencies installed successfully!"
+  else
+    echo ""
+    echo "ERROR: Failed to install some dependencies" >&2
+  fi
+  return $result
+}
+
+# Handle --install-deps mode
+if [[ "$INSTALL_DEPS" == "true" ]]; then
+  install_missing_deps
+  exit $?
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -119,6 +258,74 @@ echo ""
 
 # Determine script directory (where this installer is located)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# ============================================
+# PRE-INSTALL DEPENDENCY CHECK (T166)
+# ============================================
+log_step "Checking system dependencies..."
+
+# Source dependency check module if available
+if [[ -f "$SCRIPT_DIR/lib/dependency-check.sh" ]]; then
+  source "$SCRIPT_DIR/lib/dependency-check.sh"
+
+  # Run comprehensive dependency validation
+  if ! validate_all_dependencies; then
+    echo ""
+    log_error "Missing dependencies detected. Installation cannot continue."
+    echo ""
+    echo "Please install the missing dependencies listed above, then re-run this installer."
+    echo ""
+    echo "Quick install commands for common systems:"
+    echo "  Ubuntu/Debian: sudo apt install jq coreutils util-linux"
+    echo "  Fedora/RHEL:   sudo dnf install jq coreutils util-linux"
+    echo "  macOS:         brew install jq coreutils flock"
+    echo ""
+    exit 1
+  fi
+  echo ""
+else
+  # Minimal fallback checks if module not available
+  log_warn "Dependency check module not found, performing minimal validation..."
+
+  # Check jq (critical)
+  if ! command -v jq &>/dev/null; then
+    log_error "jq is required but not installed."
+    echo "Install with: sudo apt install jq (Debian/Ubuntu) or brew install jq (macOS)"
+    exit 1
+  fi
+  log_info "jq: OK"
+
+  # Check bash version (critical)
+  if (( BASH_VERSINFO[0] < 4 )); then
+    log_error "Bash 4+ is required (found: $BASH_VERSION)"
+    echo "Install with: brew install bash (macOS) or upgrade your system bash"
+    exit 1
+  fi
+  log_info "bash: OK ($BASH_VERSION)"
+
+  # Check sha256sum or shasum (required)
+  if ! command -v sha256sum &>/dev/null && ! command -v shasum &>/dev/null; then
+    log_warn "sha256sum/shasum not found - checksum verification will be skipped"
+  else
+    log_info "sha256sum: OK"
+  fi
+
+  # Check tar (required)
+  if ! command -v tar &>/dev/null; then
+    log_warn "tar not found - backup features may be limited"
+  else
+    log_info "tar: OK"
+  fi
+
+  # Check flock (required)
+  if ! command -v flock &>/dev/null; then
+    log_warn "flock not found - file locking may not work properly"
+  else
+    log_info "flock: OK"
+  fi
+
+  echo ""
+fi
 
 # Create directory structure
 log_step "Creating directory structure..."
@@ -526,13 +733,20 @@ else
   log_warn "Scripts directory not found at $SCRIPT_DIR/scripts"
 fi
 
-# Generate checksums for integrity verification
+# Generate checksums for integrity verification (T170 - cross-platform)
 log_step "Generating script checksums..."
+SHA_CMD=""
 if command -v sha256sum &>/dev/null; then
-  (cd "$INSTALL_DIR/scripts" && sha256sum *.sh > "$INSTALL_DIR/checksums.sha256" 2>/dev/null)
+  SHA_CMD="sha256sum"
+elif command -v shasum &>/dev/null; then
+  SHA_CMD="shasum -a 256"
+fi
+
+if [[ -n "$SHA_CMD" ]]; then
+  (cd "$INSTALL_DIR/scripts" && $SHA_CMD *.sh > "$INSTALL_DIR/checksums.sha256" 2>/dev/null)
   log_info "Checksums generated: $INSTALL_DIR/checksums.sha256"
 else
-  log_warn "sha256sum not found - skipping checksum generation"
+  log_warn "sha256sum/shasum not found - skipping checksum generation"
 fi
 
 # ============================================
