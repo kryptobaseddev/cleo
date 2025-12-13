@@ -3,9 +3,11 @@
 > **A production-grade task management system for Claude Code with automatic archiving, comprehensive validation, and anti-hallucination protection.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.6.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.7-blue.svg)](CHANGELOG.md)
 [![Bash](https://img.shields.io/badge/bash-4.0%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+
+<!-- VERSION_SYNC: This badge version should match VERSION file. Run ./scripts/sync-version.sh to update. -->
 
 ---
 
@@ -249,24 +251,45 @@ Defaults → Global → Project → Environment → CLI Flags
 }
 ```
 
-## Available Scripts
+## Available Commands
 
 ### Core Operations
-- `init.sh` - Initialize project with todo system
-- `add-task.sh` - Create new task with validation
-- `update-task.sh` - Update existing task fields
-- `complete-task.sh` - Mark task as completed
-- `archive.sh` - Archive completed tasks
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize project with todo system |
+| `add` | Create new task with validation |
+| `update` | Update existing task fields |
+| `complete` | Mark task as completed |
+| `archive` | Archive completed tasks |
 
-### Query Operations
-- `list-tasks.sh` - Display tasks with filtering
-- `stats.sh` - Generate statistics and reports
-- `export.sh` - Export to TodoWrite/JSON/Markdown format
+### Query & Analysis
+| Command | Description |
+|---------|-------------|
+| `list` | Display tasks with filtering |
+| `stats` | Generate statistics and reports |
+| `dash` | Project dashboard with status overview |
+| `next` | Suggest next task based on priority/dependencies |
+| `labels` | List and analyze task labels |
+| `deps` | Visualize task dependency graphs |
+| `blockers` | Analyze blocked tasks and chains |
+| `phases` | Manage project phases |
+
+### Session Management
+| Command | Description |
+|---------|-------------|
+| `focus` | Set/show/clear current task focus |
+| `session` | Start/end work sessions |
+| `export` | Export to TodoWrite/JSON/CSV/Markdown |
 
 ### Maintenance Operations
-- `validate.sh` - Validate all JSON files
-- `backup.sh` - Create manual backup
-- `restore.sh` - Restore from backup
+| Command | Description |
+|---------|-------------|
+| `validate` | Validate all JSON files |
+| `backup` | Create manual backup |
+| `restore` | Restore from backup |
+| `migrate` | Migrate schema versions |
+
+> **Full command reference**: See [docs/INDEX.md](docs/INDEX.md) for complete documentation.
 
 ## Extension Points
 
@@ -359,14 +382,31 @@ Target performance metrics:
 
 ## Requirements
 
-### Required
-- Bash 4.0+
-- jq (JSON processor)
-- One JSON Schema validator (ajv, jsonschema, or jq-based fallback)
+### Critical (Installation will fail without these)
+- **Bash 4.0+** - Required for associative arrays
+- **jq** - JSON processing (install: `apt install jq` or `brew install jq`)
 
-### Optional
-- git (for version control integration)
-- cron (for automatic archival scheduling)
+### Required (Full functionality)
+- **sha256sum** or **shasum** - Checksum verification (usually pre-installed)
+- **tar** - Backup archives (usually pre-installed)
+- **flock** - File locking (install: `brew install flock` on macOS)
+- **date** / **find** - POSIX tools (always available)
+
+### Optional (Enhanced features)
+- **numfmt** - Human-readable sizes (part of coreutils)
+- **ajv** or **jsonschema** - Schema validation (falls back to jq)
+- **git** - Version control integration
+- **cron** - Automatic archival scheduling
+
+### Check Dependencies
+
+```bash
+# Check all dependencies before installing
+./install.sh --check-deps
+
+# Auto-install missing dependencies (Linux/macOS)
+./install.sh --install-deps
+```
 
 ## Troubleshooting
 

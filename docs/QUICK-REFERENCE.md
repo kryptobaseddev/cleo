@@ -32,12 +32,14 @@ claude-todo init                      # Initialize project
 
 # TASKS
 claude-todo add "Task description"    # Create task
-claude-todo complete <id> --notes "What was done"  # Complete with notes
-claude-todo complete <id> --skip-notes             # Quick complete
+claude-todo complete <id> --notes "What was done"  # Complete with notes (required)
+claude-todo complete <id> --skip-notes             # Quick complete (bypass notes)
 claude-todo list                      # List all tasks
 claude-todo list --status pending     # Filter by status
 claude-todo next                      # Get next task suggestion
 claude-todo next --explain            # Show why task is suggested
+
+# Note: complete command requires either --notes or --skip-notes flag
 
 # FOCUS MANAGEMENT
 claude-todo focus set <id>            # Set focus to task (marks active)

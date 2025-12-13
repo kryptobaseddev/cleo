@@ -356,7 +356,7 @@ validate_title() {
 
     # Check length (max 120 chars per schema)
     if [[ ${#title} -gt 120 ]]; then
-        echo "[ERROR] Title too long (max 120 characters)" >&2
+        echo "[ERROR] Title too long (${#title}/120 characters)" >&2
         return 1
     fi
 

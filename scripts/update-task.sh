@@ -67,6 +67,7 @@ DEPENDS_TO_SET=""
 CLEAR_DEPENDS=false
 
 NOTE_TO_ADD=""
+ADD_PHASE=false
 
 usage() {
   cat << 'EOF'
@@ -84,6 +85,7 @@ Scalar Field Options:
   -p, --priority PRIORITY   Update priority (critical|high|medium|low)
   -d, --description DESC    Update description
   -P, --phase PHASE         Update phase slug
+      --add-phase           Create new phase if it doesn't exist
       --blocked-by REASON   Set blocked reason (status becomes blocked)
 
 Array Field Options (append by default):
@@ -112,6 +114,7 @@ Examples:
   claude-todo update T001 --priority high
   claude-todo update T002 --labels bug,urgent --status active
   claude-todo update T003 --set-labels "frontend,ui" --clear-files
+  claude-todo update T004 --phase new-phase --add-phase
   claude-todo update T004 --blocked-by "Waiting for API spec"
   claude-todo update T005 --notes "Started implementation"
 
@@ -178,7 +181,7 @@ validate_title_local() {
   return 0
 }
 
-# Validate phase format
+# Validate phase format or create if --add-phase flag is set
 validate_phase() {
   local phase="$1"
   if [[ -z "$phase" ]]; then
@@ -193,11 +196,64 @@ validate_phase() {
     local phase_exists
     phase_exists=$(jq --arg phase "$phase" '.phases | has($phase)' "$TODO_FILE")
     if [[ "$phase_exists" != "true" ]]; then
-      log_error "Phase '$phase' not found in phases definition"
+      # If --add-phase flag is set, we'll create it later
+      if [[ "$ADD_PHASE" == "true" ]]; then
+        return 0
+      fi
+
+      # Get list of valid phases for error message
+      local valid_phases
+      valid_phases=$(jq -r '.phases | keys | join(", ")' "$TODO_FILE")
+
+      if [[ -n "$valid_phases" && "$valid_phases" != "null" ]]; then
+        log_error "Phase '$phase' not found. Valid phases: $valid_phases. Use --add-phase to create new."
+      else
+        log_error "Phase '$phase' not found. No phases defined yet. Use --add-phase to create new."
+      fi
       return 1
     fi
   fi
   return 0
+}
+
+# Add a new phase to todo.json
+add_new_phase() {
+  local phase="$1"
+
+  if [[ ! -f "$TODO_FILE" ]]; then
+    return 0
+  fi
+
+  # Check if phase already exists
+  local phase_exists
+  phase_exists=$(jq --arg phase "$phase" '.phases | has($phase)' "$TODO_FILE")
+  if [[ "$phase_exists" == "true" ]]; then
+    return 0  # Already exists, nothing to do
+  fi
+
+  # Get next order number
+  local next_order
+  next_order=$(jq '[.phases[].order // 0] | max + 1' "$TODO_FILE")
+  if [[ "$next_order" == "null" || -z "$next_order" ]]; then
+    next_order=1
+  fi
+
+  # Create phase name from slug (capitalize first letter of each word)
+  local phase_name
+  phase_name=$(echo "$phase" | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))}1')
+
+  # Add phase to todo.json
+  local updated_content
+  updated_content=$(jq --arg phase "$phase" \
+                       --arg name "$phase_name" \
+                       --argjson order "$next_order" \
+                       '.phases[$phase] = {name: $name, order: $order}' \
+                       "$TODO_FILE")
+
+  # Save using atomic write
+  save_json "$TODO_FILE" "$updated_content"
+
+  log_info "Created new phase: $phase ($phase_name)"
 }
 
 # Validate labels format
@@ -277,6 +333,10 @@ while [[ $# -gt 0 ]]; do
     -P|--phase)
       NEW_PHASE="$2"
       shift 2
+      ;;
+    --add-phase)
+      ADD_PHASE=true
+      shift
       ;;
     --blocked-by)
       NEW_BLOCKED_BY="$2"
@@ -417,6 +477,11 @@ fi
 [[ -n "$LABELS_TO_SET" ]] && { validate_labels "$LABELS_TO_SET" || exit 1; }
 [[ -n "$DEPENDS_TO_ADD" ]] && { validate_depends "$DEPENDS_TO_ADD" || exit 1; }
 [[ -n "$DEPENDS_TO_SET" ]] && { validate_depends "$DEPENDS_TO_SET" || exit 1; }
+
+# Add new phase if --add-phase flag is set and phase doesn't exist
+if [[ "$ADD_PHASE" == "true" ]] && [[ -n "$NEW_PHASE" ]]; then
+  add_new_phase "$NEW_PHASE"
+fi
 
 # Check for circular dependencies when updating dependencies
 if [[ -n "$DEPENDS_TO_ADD" || -n "$DEPENDS_TO_SET" ]]; then

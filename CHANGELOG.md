@@ -5,6 +5,35 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2025-12-13
+
+### Added
+- **--add-phase flag**: Create new phases on-the-fly when adding or updating tasks
+  - `claude-todo add "Task" --phase new-phase --add-phase` creates phase automatically
+  - Auto-generates human-readable name from slug (e.g., "test-phase" → "Test Phase")
+  - Assigns next available order number
+  - Works in both `add` and `update` commands (T177)
+
+### Changed
+- **Title validation error message**: Now shows actual character count
+  - Before: `Title too long (max 120 characters)`
+  - After: `Title too long (145/120 characters)`
+  - Helps users understand exactly how much to trim (T175)
+- **Phase validation errors**: Now list valid phases when invalid phase used
+  - Error format: `Phase 'foo' not found. Valid phases: setup, core, polish. Use --add-phase to create new.`
+  - Handles edge case when no phases are defined (T177)
+
+### Documentation
+- **Complete command**: Documented `--notes` and `--skip-notes` requirements
+  - Updated command help text with clear examples
+  - Updated QUICK-REFERENCE.md with complete options table
+  - Updated TODO_Task_Management.md with session protocol examples (T176)
+
+### Tasks Completed
+- T175: Show character count in title length validation error
+- T176: Document --notes/--skip-notes requirement for complete command
+- T177: Improve phase validation errors with valid options and add-phase flag
+
 ## [0.9.7] - 2025-12-13
 
 ### Added
