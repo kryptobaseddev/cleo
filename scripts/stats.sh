@@ -57,14 +57,14 @@ Usage: stats.sh [OPTIONS]
 Generate comprehensive statistics from todo system files.
 
 Options:
-    --period DAYS     Analysis period in days (default: 30)
-    --format FORMAT   Output format: text | json (default: text)
-    --help           Show this help message
+    -p, --period DAYS     Analysis period in days (default: 30)
+    -f, --format FORMAT   Output format: text | json (default: text)
+    -h, --help            Show this help message
 
 Examples:
     stats.sh                    # Full statistics (30 days)
-    stats.sh --period 7         # Last week statistics
-    stats.sh --format json      # JSON output for scripting
+    stats.sh -p 7               # Last week statistics
+    stats.sh -f json            # JSON output for scripting
 
 Statistics Categories:
     📊 Current State: Tasks by status and priority
@@ -368,37 +368,49 @@ generate_statistics() {
     local total_completed
     total_completed=$(jq -r '[.entries[] | select(.operation == "complete")] | length' "$STATS_LOG_FILE" 2>/dev/null || echo "0")
 
-    # Build JSON output
+    # Build JSON output with _meta envelope (consistent with list command)
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local version
+    version=$(cat "${LIB_DIR}/../VERSION" 2>/dev/null || echo "0.8.0")
+
     cat <<EOF
 {
-  "generated_at": "$(date -Iseconds)",
-  "period_days": $period_days,
-  "current_state": {
-    "pending": $pending,
-    "in_progress": $in_progress,
-    "completed": $completed,
-    "total_active": $total_active
+  "\$schema": "https://claude-todo.dev/schemas/output-v2.json",
+  "_meta": {
+    "version": "$version",
+    "command": "stats",
+    "timestamp": "$timestamp",
+    "period_days": $period_days
   },
-  "completion_metrics": {
-    "period_days": $period_days,
-    "completed_in_period": $completed_in_period,
-    "created_in_period": $created_in_period,
-    "completion_rate": $completion_rate,
-    "avg_completion_hours": $avg_completion_hours
-  },
-  "activity_metrics": {
-    "created_in_period": $created_in_period,
-    "completed_in_period": $completed_in_period,
-    "archived_in_period": $archived_in_period,
-    "busiest_day": "$busiest_day"
-  },
-  "archive_stats": {
-    "total_archived": $total_archived,
-    "archived_in_period": $archived_in_period
-  },
-  "all_time": {
-    "total_tasks_created": $total_created,
-    "total_tasks_completed": $total_completed
+  "data": {
+    "current_state": {
+      "pending": $pending,
+      "in_progress": $in_progress,
+      "completed": $completed,
+      "total_active": $total_active
+    },
+    "completion_metrics": {
+      "period_days": $period_days,
+      "completed_in_period": $completed_in_period,
+      "created_in_period": $created_in_period,
+      "completion_rate": $completion_rate,
+      "avg_completion_hours": $avg_completion_hours
+    },
+    "activity_metrics": {
+      "created_in_period": $created_in_period,
+      "completed_in_period": $completed_in_period,
+      "archived_in_period": $archived_in_period,
+      "busiest_day": "$busiest_day"
+    },
+    "archive_stats": {
+      "total_archived": $total_archived,
+      "archived_in_period": $archived_in_period
+    },
+    "all_time": {
+      "total_tasks_created": $total_created,
+      "total_tasks_completed": $total_completed
+    }
   }
 }
 EOF
@@ -411,7 +423,7 @@ EOF
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --period)
+            -p|--period)
                 PERIOD_DAYS="$2"
                 if ! [[ "$PERIOD_DAYS" =~ ^[0-9]+$ ]]; then
                     echo "Error: --period must be a positive integer" >&2
@@ -419,7 +431,7 @@ parse_arguments() {
                 fi
                 shift 2
                 ;;
-            --format)
+            -f|--format)
                 OUTPUT_FORMAT="$2"
                 if [[ ! "$OUTPUT_FORMAT" =~ ^(text|json)$ ]]; then
                     echo "Error: --format must be 'text' or 'json'" >&2
@@ -427,7 +439,7 @@ parse_arguments() {
                 fi
                 shift 2
                 ;;
-            --help|-h)
+            -h|--help)
                 usage
                 exit 0
                 ;;

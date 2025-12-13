@@ -63,38 +63,38 @@ Usage: update-task.sh TASK_ID [OPTIONS]
 Update an existing task's fields.
 
 Arguments:
-  TASK_ID               Task ID to update (e.g., T001)
+  TASK_ID                   Task ID to update (e.g., T001)
 
 Scalar Field Options:
-  --title "New title"   Update task title
-  --status STATUS       Change status (pending|active|blocked)
-                        Note: Use 'complete-task.sh' for done status
-  --priority PRIORITY   Update priority (critical|high|medium|low)
-  --description DESC    Update description
-  --phase PHASE         Update phase slug
-  --blocked-by REASON   Set blocked reason (status becomes blocked)
+  -t, --title "New title"   Update task title
+  -s, --status STATUS       Change status (pending|active|blocked)
+                            Note: Use 'complete-task.sh' for done status
+  -p, --priority PRIORITY   Update priority (critical|high|medium|low)
+  -d, --description DESC    Update description
+  -P, --phase PHASE         Update phase slug
+      --blocked-by REASON   Set blocked reason (status becomes blocked)
 
 Array Field Options (append by default):
-  --labels LABELS       Append comma-separated labels
-  --set-labels LABELS   Replace all labels with these
-  --clear-labels        Remove all labels
+  -l, --labels LABELS       Append comma-separated labels
+      --set-labels LABELS   Replace all labels with these
+      --clear-labels        Remove all labels
 
-  --files FILES         Append comma-separated file paths
-  --set-files FILES     Replace all files with these
-  --clear-files         Remove all files
+  -f, --files FILES         Append comma-separated file paths
+      --set-files FILES     Replace all files with these
+      --clear-files         Remove all files
 
-  --acceptance CRIT     Append comma-separated acceptance criteria
-  --set-acceptance CRIT Replace all acceptance criteria
-  --clear-acceptance    Remove all acceptance criteria
+      --acceptance CRIT     Append comma-separated acceptance criteria
+      --set-acceptance CRIT Replace all acceptance criteria
+      --clear-acceptance    Remove all acceptance criteria
 
-  --depends IDS         Append comma-separated task IDs
-  --set-depends IDS     Replace all dependencies
-  --clear-depends       Remove all dependencies
+      --depends IDS         Append comma-separated task IDs
+      --set-depends IDS     Replace all dependencies
+      --clear-depends       Remove all dependencies
 
-  --notes NOTE          Add a timestamped note (appends only)
+  -n, --notes NOTE          Add a timestamped note (appends only)
 
 General Options:
-  -h, --help            Show this help
+  -h, --help                Show this help
 
 Examples:
   update-task.sh T001 --priority high
@@ -291,23 +291,23 @@ atomic_write() {
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --title)
+    -t|--title)
       NEW_TITLE="$2"
       shift 2
       ;;
-    --status)
+    -s|--status)
       NEW_STATUS="$2"
       shift 2
       ;;
-    --priority)
+    -p|--priority)
       NEW_PRIORITY="$2"
       shift 2
       ;;
-    --description)
+    -d|--description)
       NEW_DESCRIPTION="$2"
       shift 2
       ;;
-    --phase)
+    -P|--phase)
       NEW_PHASE="$2"
       shift 2
       ;;
@@ -316,7 +316,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     # Labels
-    --labels)
+    -l|--labels)
       LABELS_TO_ADD="$2"
       shift 2
       ;;
@@ -329,7 +329,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     # Files
-    --files)
+    -f|--files)
       FILES_TO_ADD="$2"
       shift 2
       ;;
@@ -368,7 +368,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     # Notes
-    --notes)
+    -n|--notes)
       NOTE_TO_ADD="$2"
       shift 2
       ;;

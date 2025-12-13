@@ -46,6 +46,16 @@
     "warnStaleDays": 30
   },
 
+  "output": {
+    "colorEnabled": true,
+    "unicodeEnabled": true,
+    "progressBars": true,
+    "dateFormat": "iso8601",
+    "csvDelimiter": ",",
+    "compactTitles": false,
+    "maxTitleLength": 80
+  },
+
   "cli": {
     "aliases": {
       "ls": "list",

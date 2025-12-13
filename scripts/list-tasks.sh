@@ -29,6 +29,19 @@ if [[ -f "$LIB_DIR/logging.sh" ]]; then
   source "$LIB_DIR/logging.sh"
 fi
 
+# Source output-format library for Unicode detection
+if [[ -f "$LIB_DIR/output-format.sh" ]]; then
+  # shellcheck source=../lib/output-format.sh
+  source "$LIB_DIR/output-format.sh"
+fi
+
+# Detect Unicode support (respects NO_COLOR, LANG=C, config)
+if declare -f detect_unicode_support >/dev/null 2>&1 && detect_unicode_support; then
+  UNICODE_ENABLED=true
+else
+  UNICODE_ENABLED=false
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   COLORS_ENABLED=true
@@ -266,24 +279,46 @@ priority_color() {
 
 status_icon() {
   local status="$1"
-  case "$status" in
-    pending) echo "○" ;;
-    active) echo "◉" ;;
-    blocked) echo "⊗" ;;
-    done) echo "✓" ;;
-    *) echo "?" ;;
-  esac
+  if [[ "$UNICODE_ENABLED" == true ]]; then
+    case "$status" in
+      pending) echo "○" ;;
+      active) echo "◉" ;;
+      blocked) echo "⊗" ;;
+      done) echo "✓" ;;
+      *) echo "?" ;;
+    esac
+  else
+    # ASCII fallback
+    case "$status" in
+      pending) echo "-" ;;
+      active) echo "*" ;;
+      blocked) echo "x" ;;
+      done) echo "+" ;;
+      *) echo "?" ;;
+    esac
+  fi
 }
 
 priority_icon() {
   local priority="$1"
-  case "$priority" in
-    critical) echo "🔴" ;;
-    high) echo "🟡" ;;
-    medium) echo "🔵" ;;
-    low) echo "⚪" ;;
-    *) echo "?" ;;
-  esac
+  if [[ "$UNICODE_ENABLED" == true ]]; then
+    case "$priority" in
+      critical) echo "🔴" ;;
+      high) echo "🟡" ;;
+      medium) echo "🔵" ;;
+      low) echo "⚪" ;;
+      *) echo "?" ;;
+    esac
+  else
+    # ASCII fallback
+    case "$priority" in
+      critical) echo "!" ;;
+      high) echo "H" ;;
+      medium) echo "M" ;;
+      low) echo "L" ;;
+      *) echo "?" ;;
+    esac
+  fi
 }
 
 # Function to render a single task (defined here for subshell access)
@@ -526,12 +561,22 @@ case "$FORMAT" in
     # Header (suppress in quiet mode)
     if [[ "$QUIET" != true ]]; then
     echo ""
-    echo -e "${BOLD}╭─────────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${BOLD}│${NC}  📋 ${BOLD}TASKS${NC}                                                       ${BOLD}│${NC}"
-    echo -e "${BOLD}├─────────────────────────────────────────────────────────────────┤${NC}"
-    echo -e "${BOLD}│${NC}  ${RED}🔴 ${critical_count} critical${NC}  ${YELLOW}🟡 ${high_count} high${NC}  ${CYAN}🔵 ${medium_count} medium${NC}  ${DIM}⚪ ${low_count} low${NC}          ${BOLD}│${NC}"
-    echo -e "${BOLD}│${NC}  ${YELLOW}○ ${pending_count} pending${NC}  ${GREEN}◉ ${active_count} active${NC}  ${RED}⊗ ${blocked_count} blocked${NC}  ${DIM}✓ ${done_count} done${NC}          ${BOLD}│${NC}"
-    echo -e "${BOLD}╰─────────────────────────────────────────────────────────────────╯${NC}"
+    if [[ "$UNICODE_ENABLED" == true ]]; then
+      echo -e "${BOLD}╭─────────────────────────────────────────────────────────────────╮${NC}"
+      echo -e "${BOLD}│${NC}  📋 ${BOLD}TASKS${NC}                                                       ${BOLD}│${NC}"
+      echo -e "${BOLD}├─────────────────────────────────────────────────────────────────┤${NC}"
+      echo -e "${BOLD}│${NC}  ${RED}🔴 ${critical_count} critical${NC}  ${YELLOW}🟡 ${high_count} high${NC}  ${CYAN}🔵 ${medium_count} medium${NC}  ${DIM}⚪ ${low_count} low${NC}          ${BOLD}│${NC}"
+      echo -e "${BOLD}│${NC}  ${YELLOW}○ ${pending_count} pending${NC}  ${GREEN}◉ ${active_count} active${NC}  ${RED}⊗ ${blocked_count} blocked${NC}  ${DIM}✓ ${done_count} done${NC}          ${BOLD}│${NC}"
+      echo -e "${BOLD}╰─────────────────────────────────────────────────────────────────╯${NC}"
+    else
+      # ASCII fallback
+      echo -e "${BOLD}+-------------------------------------------------------------------+${NC}"
+      echo -e "${BOLD}|${NC}  ${BOLD}TASKS${NC}                                                           ${BOLD}|${NC}"
+      echo -e "${BOLD}+-------------------------------------------------------------------+${NC}"
+      echo -e "${BOLD}|${NC}  ${RED}! ${critical_count} critical${NC}  ${YELLOW}H ${high_count} high${NC}  ${CYAN}M ${medium_count} medium${NC}  ${DIM}L ${low_count} low${NC}            ${BOLD}|${NC}"
+      echo -e "${BOLD}|${NC}  ${YELLOW}- ${pending_count} pending${NC}  ${GREEN}* ${active_count} active${NC}  ${RED}x ${blocked_count} blocked${NC}  ${DIM}+ ${done_count} done${NC}            ${BOLD}|${NC}"
+      echo -e "${BOLD}+-------------------------------------------------------------------+${NC}"
+    fi
 
       # Show filters if any
       if [[ -n "$STATUS_FILTER" ]] || [[ -n "$PRIORITY_FILTER" ]] || [[ -n "$PHASE_FILTER" ]] || [[ -n "$LABEL_FILTER" ]]; then
@@ -552,22 +597,38 @@ case "$FORMAT" in
           critical)
             priority_tasks=$(echo "$FILTERED_TASKS" | jq -c '[.[] | select(.priority == "critical")]')
             count=$critical_count
-            header="${RED}${BOLD}🔴 CRITICAL${NC}"
+            if [[ "$UNICODE_ENABLED" == true ]]; then
+              header="${RED}${BOLD}🔴 CRITICAL${NC}"
+            else
+              header="${RED}${BOLD}! CRITICAL${NC}"
+            fi
             ;;
           high)
             priority_tasks=$(echo "$FILTERED_TASKS" | jq -c '[.[] | select(.priority == "high")]')
             count=$high_count
-            header="${YELLOW}${BOLD}🟡 HIGH${NC}"
+            if [[ "$UNICODE_ENABLED" == true ]]; then
+              header="${YELLOW}${BOLD}🟡 HIGH${NC}"
+            else
+              header="${YELLOW}${BOLD}H HIGH${NC}"
+            fi
             ;;
           medium)
             priority_tasks=$(echo "$FILTERED_TASKS" | jq -c '[.[] | select(.priority == "medium")]')
             count=$medium_count
-            header="${CYAN}${BOLD}🔵 MEDIUM${NC}"
+            if [[ "$UNICODE_ENABLED" == true ]]; then
+              header="${CYAN}${BOLD}🔵 MEDIUM${NC}"
+            else
+              header="${CYAN}${BOLD}M MEDIUM${NC}"
+            fi
             ;;
           low)
             priority_tasks=$(echo "$FILTERED_TASKS" | jq -c '[.[] | select(.priority == "low")]')
             count=$low_count
-            header="${DIM}${BOLD}⚪ LOW${NC}"
+            if [[ "$UNICODE_ENABLED" == true ]]; then
+              header="${DIM}${BOLD}⚪ LOW${NC}"
+            else
+              header="${DIM}${BOLD}L LOW${NC}"
+            fi
             ;;
         esac
 
@@ -576,7 +637,11 @@ case "$FORMAT" in
           if [[ "$QUIET" != true ]]; then
             echo ""
             echo -e "$header ${DIM}($count)${NC}"
-            echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
+            if [[ "$UNICODE_ENABLED" == true ]]; then
+              echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
+            else
+              echo -e "${DIM}---------------------------------------------------------------------${NC}"
+            fi
           fi
 
           # Use readarray to avoid subshell issues
@@ -598,7 +663,11 @@ case "$FORMAT" in
     # Footer (suppress in quiet mode)
     if [[ "$QUIET" != true ]]; then
       echo ""
-      echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
+      if [[ "$UNICODE_ENABLED" == true ]]; then
+        echo -e "${DIM}─────────────────────────────────────────────────────────────────${NC}"
+      else
+        echo -e "${DIM}---------------------------------------------------------------------${NC}"
+      fi
       echo -e "${DIM}Total: $TASK_COUNT tasks${NC}"
     fi
     ;;

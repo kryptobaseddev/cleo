@@ -8,9 +8,95 @@
 # - Status and priority formatting (colors, symbols)
 # - Progress bars and box-drawing characters
 # - Output helpers for colored text and formatted headers
+# - Configuration integration (output.* settings)
 #
-# Version: 0.7.0
-# Part of: claude-todo CLI Output Enhancement (Phase 1)
+# Version: 0.8.0
+# Part of: claude-todo CLI Output Enhancement (Phase 2)
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Configuration file path
+OUTPUT_CONFIG_FILE="${OUTPUT_CONFIG_FILE:-.claude/todo-config.json}"
+
+# Cached configuration values (loaded once per script execution)
+declare -g _OUTPUT_CONFIG_LOADED=""
+declare -g _OUTPUT_CONFIG_COLOR=""
+declare -g _OUTPUT_CONFIG_UNICODE=""
+declare -g _OUTPUT_CONFIG_PROGRESS_BARS=""
+declare -g _OUTPUT_CONFIG_DATE_FORMAT=""
+declare -g _OUTPUT_CONFIG_CSV_DELIMITER=""
+declare -g _OUTPUT_CONFIG_COMPACT_TITLES=""
+declare -g _OUTPUT_CONFIG_MAX_TITLE_LENGTH=""
+
+# load_output_config - Load output configuration from config file
+#
+# Reads output.* settings from todo-config.json and caches them.
+# Safe to call multiple times - will only read file once.
+#
+# Returns: 0 (always succeeds, uses defaults if config missing)
+load_output_config() {
+  # Only load once
+  [[ -n "$_OUTPUT_CONFIG_LOADED" ]] && return 0
+  _OUTPUT_CONFIG_LOADED="true"
+
+  # Set defaults
+  _OUTPUT_CONFIG_COLOR="true"
+  _OUTPUT_CONFIG_UNICODE="true"
+  _OUTPUT_CONFIG_PROGRESS_BARS="true"
+  _OUTPUT_CONFIG_DATE_FORMAT="iso8601"
+  _OUTPUT_CONFIG_CSV_DELIMITER=","
+  _OUTPUT_CONFIG_COMPACT_TITLES="false"
+  _OUTPUT_CONFIG_MAX_TITLE_LENGTH="80"
+
+  # Load from config if available
+  if [[ -f "$OUTPUT_CONFIG_FILE" ]] && command -v jq &>/dev/null; then
+    local config_color config_unicode config_progress config_date config_csv config_compact config_max
+
+    config_color=$(jq -r '.output.colorEnabled // empty' "$OUTPUT_CONFIG_FILE" 2>/dev/null)
+    config_unicode=$(jq -r '.output.unicodeEnabled // empty' "$OUTPUT_CONFIG_FILE" 2>/dev/null)
+    config_progress=$(jq -r '.output.progressBars // empty' "$OUTPUT_CONFIG_FILE" 2>/dev/null)
+    config_date=$(jq -r '.output.dateFormat // empty' "$OUTPUT_CONFIG_FILE" 2>/dev/null)
+    config_csv=$(jq -r '.output.csvDelimiter // empty' "$OUTPUT_CONFIG_FILE" 2>/dev/null)
+    config_compact=$(jq -r '.output.compactTitles // empty' "$OUTPUT_CONFIG_FILE" 2>/dev/null)
+    config_max=$(jq -r '.output.maxTitleLength // empty' "$OUTPUT_CONFIG_FILE" 2>/dev/null)
+
+    [[ -n "$config_color" ]] && _OUTPUT_CONFIG_COLOR="$config_color"
+    [[ -n "$config_unicode" ]] && _OUTPUT_CONFIG_UNICODE="$config_unicode"
+    [[ -n "$config_progress" ]] && _OUTPUT_CONFIG_PROGRESS_BARS="$config_progress"
+    [[ -n "$config_date" ]] && _OUTPUT_CONFIG_DATE_FORMAT="$config_date"
+    [[ -n "$config_csv" ]] && _OUTPUT_CONFIG_CSV_DELIMITER="$config_csv"
+    [[ -n "$config_compact" ]] && _OUTPUT_CONFIG_COMPACT_TITLES="$config_compact"
+    [[ -n "$config_max" ]] && _OUTPUT_CONFIG_MAX_TITLE_LENGTH="$config_max"
+  fi
+
+  return 0
+}
+
+# get_output_config - Get a specific output configuration value
+#
+# Args:
+#   $1 - Configuration key (color, unicode, progressBars, dateFormat, csvDelimiter, compactTitles, maxTitleLength)
+#
+# Returns: Configuration value
+get_output_config() {
+  local key="$1"
+
+  # Ensure config is loaded
+  load_output_config
+
+  case "$key" in
+    color|colorEnabled)       echo "$_OUTPUT_CONFIG_COLOR" ;;
+    unicode|unicodeEnabled)   echo "$_OUTPUT_CONFIG_UNICODE" ;;
+    progressBars)             echo "$_OUTPUT_CONFIG_PROGRESS_BARS" ;;
+    dateFormat)               echo "$_OUTPUT_CONFIG_DATE_FORMAT" ;;
+    csvDelimiter)             echo "$_OUTPUT_CONFIG_CSV_DELIMITER" ;;
+    compactTitles)            echo "$_OUTPUT_CONFIG_COMPACT_TITLES" ;;
+    maxTitleLength)           echo "$_OUTPUT_CONFIG_MAX_TITLE_LENGTH" ;;
+    *)                        echo "" ;;
+  esac
+}
 
 # ============================================================================
 # FEATURE DETECTION
@@ -21,7 +107,8 @@
 # Priority order:
 # 1. NO_COLOR env var -> disable colors (respects standard)
 # 2. FORCE_COLOR env var -> enable colors
-# 3. TTY check + tput colors >= 8 -> enable colors
+# 3. Config output.colorEnabled -> respect setting
+# 4. TTY check + tput colors >= 8 -> enable colors
 #
 # Returns: 0 if colors supported, 1 if not
 detect_color_support() {
@@ -30,6 +117,11 @@ detect_color_support() {
 
   # FORCE_COLOR override
   [[ -n "${FORCE_COLOR:-}" ]] && return 0
+
+  # Check configuration setting
+  local config_color
+  config_color=$(get_output_config "color")
+  [[ "$config_color" == "false" ]] && return 1
 
   # Check if stdout is a terminal and tput supports colors
   if [[ -t 1 ]] && command -v tput &>/dev/null; then
@@ -43,10 +135,27 @@ detect_color_support() {
 
 # detect_unicode_support - Check if Unicode/UTF-8 is supported
 #
-# Checks LANG and LC_ALL environment variables for UTF-8 encoding
+# Priority order:
+# 1. NO_COLOR env var -> disables Unicode (accessibility/plain text mode)
+# 2. LANG=C or LC_ALL=C -> disables Unicode (POSIX locale)
+# 3. Config output.unicodeEnabled -> respect setting if false
+# 4. LANG/LC_ALL environment variables for UTF-8 encoding
 #
 # Returns: 0 if Unicode supported, 1 if not
 detect_unicode_support() {
+  # NO_COLOR implies plain text mode - disable Unicode for accessibility
+  [[ -n "${NO_COLOR:-}" ]] && return 1
+
+  # LANG=C or LC_ALL=C means POSIX locale - no Unicode
+  [[ "${LANG:-}" == "C" ]] && return 1
+  [[ "${LC_ALL:-}" == "C" ]] && return 1
+
+  # Check configuration setting
+  local config_unicode
+  config_unicode=$(get_output_config "unicode")
+  [[ "$config_unicode" == "false" ]] && return 1
+
+  # Check environment for UTF-8 support
   [[ "${LANG:-}" =~ UTF-8 ]] || [[ "${LC_ALL:-}" =~ UTF-8 ]]
 }
 
@@ -497,10 +606,133 @@ print_task_line() {
 }
 
 # ============================================================================
+# DATE FORMATTING
+# ============================================================================
+
+# format_date - Format a date/time according to configuration
+#
+# Respects output.dateFormat configuration:
+# - iso8601: Full ISO 8601 format (2025-12-12T10:30:00Z)
+# - relative: Relative time (5 minutes ago, 2 days ago)
+# - unix: Unix timestamp
+# - locale: System locale format
+#
+# Args:
+#   $1 - ISO 8601 date string
+#
+# Returns: Formatted date string
+format_date() {
+  local iso_date="$1"
+  local format
+  format=$(get_output_config "dateFormat")
+
+  case "$format" in
+    relative)
+      # Calculate relative time
+      local now_epoch date_epoch diff
+      now_epoch=$(date +%s)
+      date_epoch=$(date -d "$iso_date" +%s 2>/dev/null || echo "0")
+
+      if [[ "$date_epoch" -eq 0 ]]; then
+        echo "$iso_date"
+        return
+      fi
+
+      diff=$((now_epoch - date_epoch))
+
+      if [[ "$diff" -lt 60 ]]; then
+        echo "just now"
+      elif [[ "$diff" -lt 3600 ]]; then
+        echo "$((diff / 60)) minutes ago"
+      elif [[ "$diff" -lt 86400 ]]; then
+        echo "$((diff / 3600)) hours ago"
+      elif [[ "$diff" -lt 604800 ]]; then
+        echo "$((diff / 86400)) days ago"
+      else
+        echo "$((diff / 604800)) weeks ago"
+      fi
+      ;;
+    unix)
+      date -d "$iso_date" +%s 2>/dev/null || echo "$iso_date"
+      ;;
+    locale)
+      date -d "$iso_date" "+%c" 2>/dev/null || echo "$iso_date"
+      ;;
+    iso8601|*)
+      echo "$iso_date"
+      ;;
+  esac
+}
+
+# ============================================================================
+# TITLE FORMATTING
+# ============================================================================
+
+# truncate_title - Truncate a title according to configuration
+#
+# Respects output.compactTitles and output.maxTitleLength configuration.
+#
+# Args:
+#   $1 - Title string
+#   $2 - Optional override for max length
+#
+# Returns: Truncated title (with ... if truncated)
+truncate_title() {
+  local title="$1"
+  local max_length="${2:-}"
+
+  # Check if truncation is enabled
+  local compact
+  compact=$(get_output_config "compactTitles")
+
+  if [[ "$compact" != "true" && -z "$max_length" ]]; then
+    echo "$title"
+    return
+  fi
+
+  # Get max length
+  if [[ -z "$max_length" ]]; then
+    max_length=$(get_output_config "maxTitleLength")
+  fi
+
+  if [[ ${#title} -le "$max_length" ]]; then
+    echo "$title"
+  else
+    echo "${title:0:$((max_length - 3))}..."
+  fi
+}
+
+# ============================================================================
+# CSV FORMATTING
+# ============================================================================
+
+# get_csv_delimiter - Get the configured CSV delimiter
+#
+# Returns: CSV delimiter character (default: comma)
+get_csv_delimiter() {
+  get_output_config "csvDelimiter"
+}
+
+# ============================================================================
+# PROGRESS BAR CONFIG
+# ============================================================================
+
+# progress_bars_enabled - Check if progress bars are enabled
+#
+# Returns: 0 if enabled, 1 if disabled
+progress_bars_enabled() {
+  local enabled
+  enabled=$(get_output_config "progressBars")
+  [[ "$enabled" != "false" ]]
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
 # Export all functions for sourcing by other scripts
+export -f load_output_config
+export -f get_output_config
 export -f detect_color_support
 export -f detect_unicode_support
 export -f get_terminal_width
@@ -514,3 +746,7 @@ export -f draw_box
 export -f print_colored
 export -f print_header
 export -f print_task_line
+export -f format_date
+export -f truncate_title
+export -f get_csv_delimiter
+export -f progress_bars_enabled
