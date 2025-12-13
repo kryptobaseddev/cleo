@@ -90,24 +90,24 @@ DASH_LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
 
 usage() {
   cat << 'EOF'
-Usage: dash.sh [OPTIONS]
+Usage: claude-todo dash [OPTIONS]
 
 Generate a comprehensive dashboard view of your todo system.
 
 Options:
-    --compact         Condensed single-line view
+    -c, --compact     Condensed single-line view
     --period DAYS     Stats period in days (default: 7)
     --no-chart        Disable ASCII charts/progress bars
     --sections LIST   Comma-separated: focus,summary,priority,blocked,phases,labels,activity,all
-    --format FORMAT   Output format: text | json (default: text)
+    -f, --format FORMAT   Output format: text | json (default: text)
     -h, --help        Show this help message
 
 Examples:
-    dash.sh                              # Full dashboard
-    dash.sh --compact                    # Single-line summary
-    dash.sh --period 14                  # 14-day activity metrics
-    dash.sh --sections focus,blocked     # Only focus and blocked sections
-    dash.sh --format json                # JSON output
+    claude-todo dash                              # Full dashboard
+    claude-todo dash --compact                    # Single-line summary
+    claude-todo dash --period 14                  # 14-day activity metrics
+    claude-todo dash --sections focus,blocked     # Only focus and blocked sections
+    claude-todo dash --format json                # JSON output
 
 Sections:
     focus    - Current focus task and session note
@@ -745,8 +745,7 @@ parse_arguments() {
         ;;
       --format|-f)
         OUTPUT_FORMAT="$2"
-        if [[ ! "$OUTPUT_FORMAT" =~ ^(text|json)$ ]]; then
-          echo "[ERROR] --format must be 'text' or 'json'" >&2
+        if ! validate_format "$OUTPUT_FORMAT" "text,json"; then
           exit 1
         fi
         shift 2
@@ -756,7 +755,7 @@ parse_arguments() {
         ;;
       *)
         echo "[ERROR] Unknown option: $1" >&2
-        echo "Run 'dash.sh --help' for usage"
+        echo "Run 'claude-todo dash --help' for usage"
         exit 1
         ;;
     esac

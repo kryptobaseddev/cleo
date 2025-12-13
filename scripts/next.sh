@@ -75,14 +75,14 @@ TODO_FILE="${CLAUDE_DIR}/todo.json"
 
 usage() {
   cat << 'EOF'
-Usage: next.sh [OPTIONS]
+Usage: claude-todo next [OPTIONS]
 
 Suggest the next task to work on based on priority and dependencies.
 
 Options:
-    --explain         Show detailed reasoning for suggestion
-    --count N         Show top N suggestions (default: 1)
-    --format FORMAT   Output format: text | json (default: text)
+    -e, --explain     Show detailed reasoning for suggestion
+    -n, --count N     Show top N suggestions (default: 1)
+    -f, --format FORMAT   Output format: text | json (default: text)
     -h, --help        Show this help message
 
 Algorithm:
@@ -93,10 +93,10 @@ Algorithm:
     5. Break ties by creation date (oldest first)
 
 Examples:
-    next.sh                    # Get single best suggestion
-    next.sh --explain          # Show why this task is suggested
-    next.sh --count 3          # Show top 3 suggestions
-    next.sh --format json      # JSON output
+    claude-todo next                    # Get single best suggestion
+    claude-todo next --explain          # Show why this task is suggested
+    claude-todo next --count 3          # Show top 3 suggestions
+    claude-todo next --format json      # JSON output
 
 Output:
     Shows the suggested task with its ID, title, priority, and phase.
@@ -497,8 +497,7 @@ parse_arguments() {
         ;;
       --format|-f)
         OUTPUT_FORMAT="$2"
-        if [[ ! "$OUTPUT_FORMAT" =~ ^(text|json)$ ]]; then
-          echo "[ERROR] --format must be 'text' or 'json'" >&2
+        if ! validate_format "$OUTPUT_FORMAT" "text,json"; then
           exit 1
         fi
         shift 2
@@ -508,7 +507,7 @@ parse_arguments() {
         ;;
       *)
         echo "[ERROR] Unknown option: $1" >&2
-        echo "Run 'next.sh --help' for usage"
+        echo "Run 'claude-todo next --help' for usage"
         exit 1
         ;;
     esac

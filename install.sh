@@ -193,6 +193,9 @@ declare -A CMD_MAP=(
   [export]="export.sh"
   [migrate]="migrate.sh"
   [update]="update-task.sh"
+  [dash]="dash.sh"
+  [next]="next.sh"
+  [labels]="labels.sh"
 )
 
 # Brief descriptions for main help
@@ -212,6 +215,9 @@ declare -A CMD_DESC=(
   [export]="Export tasks to TodoWrite/JSON/Markdown format"
   [migrate]="Migrate todo files to current schema version"
   [update]="Update existing task fields"
+  [dash]="Show project dashboard (status, focus, phases, activity)"
+  [next]="Suggest next task based on priority and dependencies"
+  [labels]="List and analyze task labels/tags"
 )
 
 # ============================================
@@ -224,6 +230,8 @@ declare -A CMD_ALIASES=(
   [edit]="update"
   [rm]="archive"
   [check]="validate"
+  [overview]="dash"
+  [tags]="labels"
 )
 
 # ============================================
@@ -598,7 +606,7 @@ if [[ -d "$SCRIPT_DIR/docs" ]]; then
   done
 
   # Count total files installed
-  local total_docs=$(find "$INSTALL_DIR/docs" -name "*.md" 2>/dev/null | wc -l)
+  total_docs=$(find "$INSTALL_DIR/docs" -name "*.md" 2>/dev/null | wc -l)
   log_info "Documentation installed ($total_docs files in 4 directories)"
 else
   log_warn "Documentation directory not found at $SCRIPT_DIR/docs"

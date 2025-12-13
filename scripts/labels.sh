@@ -74,7 +74,7 @@ TODO_FILE="${CLAUDE_DIR}/todo.json"
 
 usage() {
   cat << 'EOF'
-Usage: labels.sh [SUBCOMMAND] [OPTIONS]
+Usage: claude-todo labels [SUBCOMMAND] [OPTIONS]
 
 List and analyze labels (tags) across all tasks.
 
@@ -84,14 +84,14 @@ Subcommands:
     stats             Detailed label statistics
 
 Options:
-    --format FORMAT   Output format: text | json (default: text)
-    -h, --help        Show this help message
+    --format, -f FORMAT   Output format: text | json (default: text)
+    -h, --help            Show this help message
 
 Examples:
-    labels.sh                      # List all labels
-    labels.sh show backend         # Show tasks with 'backend' label
-    labels.sh stats                # Show detailed statistics
-    labels.sh --format json        # JSON output
+    claude-todo labels                      # List all labels
+    claude-todo labels show backend         # Show tasks with 'backend' label
+    claude-todo labels stats                # Show detailed statistics
+    claude-todo labels --format json        # JSON output
 
 Alias: This command can also be invoked as 'claude-todo tags'
 
@@ -474,6 +474,9 @@ output_stats_json() {
 #####################################################################
 
 parse_arguments() {
+  # Valid subcommands
+  local VALID_SUBCOMMANDS="list show stats"
+
   # Check for subcommand first
   if [[ $# -gt 0 ]]; then
     case $1 in
@@ -482,10 +485,16 @@ parse_arguments() {
         shift
         if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
           LABEL_ARG="$1"
+          # Validate non-empty label
+          if [[ -z "$LABEL_ARG" ]]; then
+            echo "[ERROR] Label cannot be empty" >&2
+            echo "Usage: claude-todo labels show LABEL" >&2
+            exit 1
+          fi
           shift
         else
           echo "[ERROR] 'show' requires a label argument" >&2
-          echo "Usage: labels.sh show LABEL" >&2
+          echo "Usage: claude-todo labels show LABEL" >&2
           exit 1
         fi
         ;;
@@ -504,11 +513,32 @@ parse_arguments() {
         # Not a subcommand, will be parsed below
         ;;
       *)
-        # Could be a label for implicit 'show'
+        # Check if it's an invalid subcommand vs a label argument
         if [[ ! "$1" =~ ^- ]]; then
-          SUBCOMMAND="show"
-          LABEL_ARG="$1"
-          shift
+          # Check if it looks like a subcommand (not containing special chars typical of labels)
+          if [[ "$VALID_SUBCOMMANDS" == *"$1"* ]]; then
+            # It's a valid subcommand but not matched above (shouldn't happen)
+            SUBCOMMAND="$1"
+            shift
+          elif [[ "$1" =~ ^[a-z]+$ && ${#1} -le 10 ]]; then
+            # Could be a label or invalid subcommand - treat as implicit 'show'
+            SUBCOMMAND="show"
+            LABEL_ARG="$1"
+            if [[ -z "$LABEL_ARG" ]]; then
+              echo "[ERROR] Label cannot be empty" >&2
+              exit 1
+            fi
+            shift
+          else
+            # Treat as label for implicit 'show'
+            SUBCOMMAND="show"
+            LABEL_ARG="$1"
+            if [[ -z "$LABEL_ARG" ]]; then
+              echo "[ERROR] Label cannot be empty" >&2
+              exit 1
+            fi
+            shift
+          fi
         fi
         ;;
     esac
@@ -519,8 +549,7 @@ parse_arguments() {
     case $1 in
       --format|-f)
         OUTPUT_FORMAT="$2"
-        if [[ ! "$OUTPUT_FORMAT" =~ ^(text|json)$ ]]; then
-          echo "[ERROR] --format must be 'text' or 'json'" >&2
+        if ! validate_format "$OUTPUT_FORMAT" "text,json"; then
           exit 1
         fi
         shift 2
@@ -530,7 +559,7 @@ parse_arguments() {
         ;;
       *)
         echo "[ERROR] Unknown option: $1" >&2
-        echo "Run 'labels.sh --help' for usage"
+        echo "Run 'claude-todo labels --help' for usage"
         exit 1
         ;;
     esac

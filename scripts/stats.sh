@@ -35,6 +35,9 @@ source "${LIB_DIR}/file-ops.sh"
 # shellcheck source=../lib/validation.sh
 source "${LIB_DIR}/validation.sh"
 
+# shellcheck source=../lib/output-format.sh
+source "${LIB_DIR}/output-format.sh"
+
 # Default configuration
 PERIOD_DAYS=30
 OUTPUT_FORMAT="text"
@@ -52,7 +55,7 @@ CONFIG_FILE="${CLAUDE_DIR}/todo-config.json"
 
 usage() {
     cat << EOF
-Usage: stats.sh [OPTIONS]
+Usage: claude-todo stats [OPTIONS]
 
 Generate comprehensive statistics from todo system files.
 
@@ -62,25 +65,27 @@ Options:
     -h, --help            Show this help message
 
 Examples:
-    stats.sh                    # Full statistics (30 days)
-    stats.sh -p 7               # Last week statistics
-    stats.sh -f json            # JSON output for scripting
+    claude-todo stats                    # Full statistics (30 days)
+    claude-todo stats -p 7               # Last week statistics
+    claude-todo stats -f json            # JSON output for scripting
 
 Statistics Categories:
-    📊 Current State: Tasks by status and priority
-    📈 Completion Metrics: Rate, average time, period analysis
-    📅 Activity Metrics: Tasks created/completed per period
-    📦 Archive Statistics: Total archived, growth rate
-    🏆 All-Time Statistics: Total created, completed, success rate
+    Current State: Tasks by status and priority
+    Completion Metrics: Rate, average time, period analysis
+    Activity Metrics: Tasks created/completed per period
+    Archive Statistics: Total archived, growth rate
+    All-Time Statistics: Total created, completed, success rate
 
 JSON Output Structure (--format json):
     {
-      "period_days": 30,
-      "current": { "pending": N, "active": N, "done": N, "total": N },
-      "completion": { "completed": N, "created": N, "rate_pct": N, "avg_hours": N },
-      "activity": { "tasks_created": N, "tasks_completed": N, "busiest_day": "..." },
-      "archive": { "total": N, "archived_period": N },
-      "all_time": { "total_created": N, "total_completed": N }
+      "_meta": { "version": "...", "command": "stats", ... },
+      "data": {
+        "current_state": { "pending": N, "in_progress": N, "completed": N, "total_active": N },
+        "completion_metrics": { ... },
+        "activity_metrics": { ... },
+        "archive_stats": { ... },
+        "all_time": { ... }
+      }
     }
 
 EOF
@@ -266,51 +271,77 @@ calculate_completion_rate() {
 output_text_format() {
     local stats_json="$1"
 
+    # Detect Unicode support (respects NO_COLOR, LANG=C)
+    local unicode_enabled
+    if detect_unicode_support 2>/dev/null; then
+        unicode_enabled=true
+    else
+        unicode_enabled=false
+    fi
+
+    # Section headers - use ASCII when Unicode disabled
+    local ICON_STATS ICON_STATUS ICON_METRICS ICON_ACTIVITY ICON_ARCHIVE ICON_ALLTIME
+    if [[ "$unicode_enabled" == true ]]; then
+        ICON_STATS="📊"
+        ICON_STATUS="📋"
+        ICON_METRICS="📈"
+        ICON_ACTIVITY="📅"
+        ICON_ARCHIVE="📦"
+        ICON_ALLTIME="🏆"
+    else
+        ICON_STATS="[STATS]"
+        ICON_STATUS="[STATUS]"
+        ICON_METRICS="[METRICS]"
+        ICON_ACTIVITY="[ACTIVITY]"
+        ICON_ARCHIVE="[ARCHIVE]"
+        ICON_ALLTIME="[ALL-TIME]"
+    fi
+
     echo "================================================"
-    echo "📊 CLAUDE TODO SYSTEM STATISTICS"
+    echo "$ICON_STATS CLAUDE TODO SYSTEM STATISTICS"
     echo "================================================"
     echo ""
 
     # Current State
-    echo "📋 CURRENT STATE"
+    echo "$ICON_STATUS CURRENT STATE"
     echo "----------------"
-    echo "Pending:      $(echo "$stats_json" | jq -r '.current_state.pending')"
-    echo "In Progress:  $(echo "$stats_json" | jq -r '.current_state.in_progress')"
-    echo "Completed:    $(echo "$stats_json" | jq -r '.current_state.completed')"
-    echo "Total Active: $(echo "$stats_json" | jq -r '.current_state.total_active')"
+    echo "Pending:      $(echo "$stats_json" | jq -r '.data.current_state.pending')"
+    echo "In Progress:  $(echo "$stats_json" | jq -r '.data.current_state.in_progress')"
+    echo "Completed:    $(echo "$stats_json" | jq -r '.data.current_state.completed')"
+    echo "Total Active: $(echo "$stats_json" | jq -r '.data.current_state.total_active')"
     echo ""
 
     # Completion Metrics
-    local period=$(echo "$stats_json" | jq -r '.completion_metrics.period_days')
-    echo "📈 COMPLETION METRICS (Last $period days)"
+    local period=$(echo "$stats_json" | jq -r '.data.completion_metrics.period_days')
+    echo "$ICON_METRICS COMPLETION METRICS (Last $period days)"
     echo "----------------"
-    echo "Tasks Completed:     $(echo "$stats_json" | jq -r '.completion_metrics.completed_in_period')"
-    echo "Tasks Created:       $(echo "$stats_json" | jq -r '.completion_metrics.created_in_period')"
-    echo "Completion Rate:     $(echo "$stats_json" | jq -r '.completion_metrics.completion_rate')%"
-    echo "Avg Time to Complete: $(echo "$stats_json" | jq -r '.completion_metrics.avg_completion_hours')h"
+    echo "Tasks Completed:     $(echo "$stats_json" | jq -r '.data.completion_metrics.completed_in_period')"
+    echo "Tasks Created:       $(echo "$stats_json" | jq -r '.data.completion_metrics.created_in_period')"
+    echo "Completion Rate:     $(echo "$stats_json" | jq -r '.data.completion_metrics.completion_rate')%"
+    echo "Avg Time to Complete: $(echo "$stats_json" | jq -r '.data.completion_metrics.avg_completion_hours')h"
     echo ""
 
     # Activity Metrics
-    echo "📅 ACTIVITY METRICS (Last $period days)"
+    echo "$ICON_ACTIVITY ACTIVITY METRICS (Last $period days)"
     echo "----------------"
-    echo "Tasks Created:    $(echo "$stats_json" | jq -r '.activity_metrics.created_in_period')"
-    echo "Tasks Completed:  $(echo "$stats_json" | jq -r '.activity_metrics.completed_in_period')"
-    echo "Tasks Archived:   $(echo "$stats_json" | jq -r '.activity_metrics.archived_in_period')"
-    echo "Busiest Day:      $(echo "$stats_json" | jq -r '.activity_metrics.busiest_day')"
+    echo "Tasks Created:    $(echo "$stats_json" | jq -r '.data.activity_metrics.created_in_period')"
+    echo "Tasks Completed:  $(echo "$stats_json" | jq -r '.data.activity_metrics.completed_in_period')"
+    echo "Tasks Archived:   $(echo "$stats_json" | jq -r '.data.activity_metrics.archived_in_period')"
+    echo "Busiest Day:      $(echo "$stats_json" | jq -r '.data.activity_metrics.busiest_day')"
     echo ""
 
     # Archive Statistics
-    echo "📦 ARCHIVE STATISTICS"
+    echo "$ICON_ARCHIVE ARCHIVE STATISTICS"
     echo "----------------"
-    echo "Total Archived:    $(echo "$stats_json" | jq -r '.archive_stats.total_archived')"
-    echo "Archived (Period): $(echo "$stats_json" | jq -r '.archive_stats.archived_in_period')"
+    echo "Total Archived:    $(echo "$stats_json" | jq -r '.data.archive_stats.total_archived')"
+    echo "Archived (Period): $(echo "$stats_json" | jq -r '.data.archive_stats.archived_in_period')"
     echo ""
 
     # All-Time Statistics
-    echo "🏆 ALL-TIME STATISTICS"
+    echo "$ICON_ALLTIME ALL-TIME STATISTICS"
     echo "----------------"
-    echo "Total Tasks Created: $(echo "$stats_json" | jq -r '.all_time.total_tasks_created')"
-    echo "Total Tasks Completed: $(echo "$stats_json" | jq -r '.all_time.total_tasks_completed')"
+    echo "Total Tasks Created: $(echo "$stats_json" | jq -r '.data.all_time.total_tasks_created')"
+    echo "Total Tasks Completed: $(echo "$stats_json" | jq -r '.data.all_time.total_tasks_completed')"
     echo ""
 
     echo "================================================"
@@ -433,8 +464,7 @@ parse_arguments() {
                 ;;
             -f|--format)
                 OUTPUT_FORMAT="$2"
-                if [[ ! "$OUTPUT_FORMAT" =~ ^(text|json)$ ]]; then
-                    echo "Error: --format must be 'text' or 'json'" >&2
+                if ! validate_format "$OUTPUT_FORMAT" "text,json"; then
                     exit 1
                 fi
                 shift 2
@@ -444,8 +474,8 @@ parse_arguments() {
                 exit 0
                 ;;
             *)
-                echo "Error: Unknown option: $1" >&2
-                usage
+                echo "[ERROR] Unknown option: $1" >&2
+                echo "Run 'claude-todo stats --help' for usage"
                 exit 1
                 ;;
         esac
@@ -461,18 +491,18 @@ main() {
 
     # Check if in a todo-enabled project
     if [[ ! -d "$CLAUDE_DIR" ]]; then
-        echo "Error: Not in a todo-enabled project. Run init.sh first." >&2
+        echo "[ERROR] Not in a todo-enabled project. Run 'claude-todo init' first." >&2
         exit 1
     fi
 
     # Check if required commands are available
     if ! command -v jq &> /dev/null; then
-        echo "Error: jq is required but not installed." >&2
+        echo "[ERROR] jq is required but not installed." >&2
         exit 1
     fi
 
     if ! command -v bc &> /dev/null; then
-        echo "Error: bc is required but not installed." >&2
+        echo "[ERROR] bc is required but not installed." >&2
         exit 1
     fi
 

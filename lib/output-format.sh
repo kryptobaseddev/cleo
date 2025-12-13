@@ -184,6 +184,27 @@ get_terminal_width() {
 # FORMAT RESOLUTION
 # ============================================================================
 
+# validate_format - Check if a format value is valid
+#
+# Args:
+#   $1 - Format value to validate
+#   $2 - Comma-separated list of valid formats (default: "text,json")
+#
+# Returns: 0 if valid, 1 if invalid
+# Outputs: Error message to stderr if invalid
+validate_format() {
+  local format="$1"
+  local valid_formats="${2:-text,json}"
+
+  # Check if format is in the valid list
+  if [[ ",$valid_formats," == *",$format,"* ]]; then
+    return 0
+  else
+    echo "[ERROR] Invalid format: '$format'. Valid formats: $valid_formats" >&2
+    return 1
+  fi
+}
+
 # resolve_format - Determine output format with priority hierarchy
 #
 # Priority order (CLI > env > config > default):
@@ -194,26 +215,39 @@ get_terminal_width() {
 #
 # Args:
 #   $1 - CLI format argument (optional)
+#   $2 - Validate format (true/false, default: false) - set to true to error on invalid
+#   $3 - Valid formats for validation (default: "text,json")
 #
 # Returns: Resolved format name
 resolve_format() {
   local cli_format="${1:-}"
+  local do_validate="${2:-false}"
+  local valid_formats="${3:-text,json}"
+
+  local resolved_format=""
 
   # CLI argument takes precedence
-  [[ -n "$cli_format" ]] && echo "$cli_format" && return
-
+  if [[ -n "$cli_format" ]]; then
+    resolved_format="$cli_format"
   # Environment variable
-  [[ -n "${CLAUDE_TODO_FORMAT:-}" ]] && echo "$CLAUDE_TODO_FORMAT" && return
-
+  elif [[ -n "${CLAUDE_TODO_FORMAT:-}" ]]; then
+    resolved_format="$CLAUDE_TODO_FORMAT"
   # Config file setting (if jq available and config exists)
-  if command -v jq &>/dev/null && [[ -f ".claude/todo-config.json" ]]; then
-    local config_format
-    config_format=$(jq -r '.output.defaultFormat // empty' .claude/todo-config.json 2>/dev/null)
-    [[ -n "$config_format" ]] && echo "$config_format" && return
+  elif command -v jq &>/dev/null && [[ -f ".claude/todo-config.json" ]]; then
+    resolved_format=$(jq -r '.output.defaultFormat // empty' .claude/todo-config.json 2>/dev/null)
   fi
 
-  # Default fallback
-  echo "text"
+  # Default fallback if nothing resolved
+  [[ -z "$resolved_format" ]] && resolved_format="text"
+
+  # Validate if requested
+  if [[ "$do_validate" == "true" ]]; then
+    if ! validate_format "$resolved_format" "$valid_formats"; then
+      exit 1
+    fi
+  fi
+
+  echo "$resolved_format"
 }
 
 # ============================================================================
@@ -727,6 +761,35 @@ progress_bars_enabled() {
 }
 
 # ============================================================================
+# TEXT FORMATTING
+# ============================================================================
+
+# pluralize - Return singular or plural form based on count
+#
+# Args:
+#   $1 - Count value
+#   $2 - Singular form (e.g., "task")
+#   $3 - Plural form (optional, defaults to singular + "s")
+#
+# Returns: Correct form based on count
+#
+# Examples:
+#   pluralize 1 "task"         -> "task"
+#   pluralize 5 "task"         -> "tasks"
+#   pluralize 1 "entry" "entries" -> "entry"
+#   pluralize 3 "entry" "entries" -> "entries"
+pluralize() {
+  local count="$1"
+  local singular="$2"
+  local plural="${3:-${singular}s}"
+  if [[ "$count" -eq 1 ]]; then
+    echo "$singular"
+  else
+    echo "$plural"
+  fi
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -736,6 +799,7 @@ export -f get_output_config
 export -f detect_color_support
 export -f detect_unicode_support
 export -f get_terminal_width
+export -f validate_format
 export -f resolve_format
 export -f status_color
 export -f status_symbol
@@ -750,3 +814,4 @@ export -f format_date
 export -f truncate_title
 export -f get_csv_delimiter
 export -f progress_bars_enabled
+export -f pluralize

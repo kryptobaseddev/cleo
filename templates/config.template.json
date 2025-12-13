@@ -53,7 +53,8 @@
     "dateFormat": "iso8601",
     "csvDelimiter": ",",
     "compactTitles": false,
-    "maxTitleLength": 80
+    "maxTitleLength": 80,
+    "defaultFormat": "text"
   },
 
   "cli": {
