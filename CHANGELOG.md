@@ -5,6 +5,19 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2025-12-13
+
+### Changed
+- **TODO_Task_Management.md**: Comprehensive update for LLM instructions
+  - Added all Analysis & Planning commands (dash, next, phases, labels, deps, blockers)
+  - Added all Maintenance commands (backup, restore, migrate)
+  - Added focus clear/next subcommands
+  - Added session status subcommand
+  - Added list --phase filter and all output formats
+  - Updated aliases (tags, overview)
+  - Updated error recovery with restore and migrate solutions
+  - This file is copied to `~/.claude/` during installation for LLM context
+
 ## [0.9.3] - 2025-12-13
 
 ### Fixed

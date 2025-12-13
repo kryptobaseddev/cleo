@@ -26,17 +26,45 @@ claude-todo list [--status STATUS]         # View tasks
 ```bash
 claude-todo focus set <id>                 # Set active task (marks active)
 claude-todo focus show                     # Show current focus
+claude-todo focus clear                    # Clear focus
 claude-todo focus note "Progress text"     # Set session progress note
+claude-todo focus next "Next action"       # Set suggested next action
 claude-todo session start                  # Begin work session
 claude-todo session end                    # End session
+claude-todo session status                 # Show session info
+```
+
+### Analysis & Planning
+```bash
+claude-todo dash                           # Project dashboard overview
+claude-todo dash --compact                 # Single-line status summary
+claude-todo next                           # Suggest next task (priority + deps)
+claude-todo next --explain                 # Show suggestion reasoning
+claude-todo phases                         # List phases with progress bars
+claude-todo phases show <phase>            # Tasks in specific phase
+claude-todo phases stats                   # Detailed phase statistics
+claude-todo labels                         # List all labels with counts
+claude-todo labels show <label>            # Tasks with specific label
+claude-todo deps                           # Dependency overview
+claude-todo deps <id>                      # Dependencies for task
+claude-todo deps tree                      # Full dependency tree
+claude-todo blockers                       # Show blocked tasks
+claude-todo blockers analyze               # Critical path analysis
 ```
 
 ### Maintenance
 ```bash
 claude-todo validate                       # Check file integrity
+claude-todo validate --fix                 # Fix checksum issues
 claude-todo archive                        # Archive completed tasks
 claude-todo stats                          # Show statistics
+claude-todo backup                         # Create backup
+claude-todo backup --list                  # List available backups
+claude-todo restore [backup]               # Restore from backup
+claude-todo migrate status                 # Check schema versions
+claude-todo migrate run                    # Run schema migrations
 claude-todo export --format todowrite      # Export to Claude Code format
+claude-todo export --format csv            # Export to CSV
 ```
 
 ## Task Options
@@ -50,7 +78,7 @@ claude-todo export --format todowrite      # Export to Claude Code format
 | `--depends` | task IDs | Dependencies: `T001,T002` |
 | `--description` | text | Detailed description |
 | `--notes` | text | Add timestamped note to task |
-| `--phase` | slug | Project phase: `core`, `testing` |
+| `--phase` | slug | Project phase: `setup`, `core`, `polish` |
 | `--blocked-by` | reason | Why blocked (sets status=blocked) |
 
 ### List Filters
@@ -58,7 +86,8 @@ claude-todo export --format todowrite      # Export to Claude Code format
 claude-todo list --status pending          # Filter by status
 claude-todo list --priority high           # Filter by priority
 claude-todo list --label bug               # Filter by label
-claude-todo list --format json             # Output format (text|json|markdown)
+claude-todo list --phase core              # Filter by phase
+claude-todo list --format json             # Output format (text|json|jsonl|markdown|table)
 ```
 
 ## Session Protocol
@@ -66,13 +95,14 @@ claude-todo list --format json             # Output format (text|json|markdown)
 ### START
 ```bash
 claude-todo session start
-claude-todo list
-claude-todo focus show
+claude-todo dash                           # Overview of project state
+claude-todo focus show                     # Check current focus
 ```
 
 ### WORK
 ```bash
 claude-todo focus set <task-id>            # ONE task only
+claude-todo next                           # Get task suggestion
 claude-todo add "Subtask" --depends T045   # Add related tasks
 claude-todo update T045 --notes "Progress" # Add task notes
 claude-todo focus note "Working on X"      # Update session note
@@ -88,37 +118,27 @@ claude-todo session end
 ## Task Organization
 
 ### Labels (Categorization)
-Use labels for grouping and filtering:
 ```bash
-# Feature tracking
 claude-todo add "JWT middleware" --labels feature-auth,backend
-
-# Find all auth tasks
-claude-todo list --label feature-auth
+claude-todo list --label feature-auth      # Filter tasks
+claude-todo labels                         # See all labels with counts
+claude-todo labels show feature-auth       # All tasks with label
 ```
 
 ### Phases (Workflow Stages)
-Predefined project phases (setup → core → polish):
 ```bash
 claude-todo add "Implement API" --phase core
-claude-todo list --phase core
+claude-todo list --phase core              # Filter by phase
+claude-todo phases                         # See phase progress
+claude-todo phases stats                   # Detailed breakdown
 ```
 
 ### Dependencies (Task Ordering)
-Block tasks until prerequisites complete:
 ```bash
 claude-todo add "Write tests" --depends T001,T002
-# Task stays pending until T001, T002 are done
-```
-
-### Planning Pattern
-```bash
-# Phase 1 tasks
-claude-todo add "Design API" --phase setup --priority high
-claude-todo add "Create schema" --phase setup --depends T050
-
-# Phase 2 tasks (blocked until phase 1)
-claude-todo add "Implement endpoints" --phase core --depends T050,T051
+claude-todo deps T001                      # What depends on T001
+claude-todo blockers                       # What's blocking progress
+claude-todo blockers analyze               # Critical path analysis
 ```
 
 ## Error Recovery
@@ -128,19 +148,12 @@ claude-todo add "Implement endpoints" --phase core --depends T050,T051
 | Checksum mismatch | `claude-todo validate --fix` |
 | Task not found | `claude-todo list --all` (check archive) |
 | Multiple active tasks | `claude-todo focus set <correct-id>` (resets others) |
-| Corrupted JSON | Restore: `cp .claude/.backups/todo.json.*.bak .claude/todo.json` |
+| Corrupted JSON | `claude-todo restore` or `backup --list` then restore |
 | Session already active | `claude-todo session status` then `session end` |
+| Schema outdated | `claude-todo migrate run` |
 
-## Notes: focus.note vs update --notes
+## Command Aliases
 
-| Command | Purpose | Storage |
-|---------|---------|---------|
-| `focus note "text"` | Session-level progress | `.focus.sessionNote` (replaces) |
-| `update T001 --notes "text"` | Task-specific notes | `.tasks[].notes[]` (appends with timestamp) |
-
-## Command Aliases (v0.6.0+)
-
-Built-in CLI aliases for faster workflows:
 ```bash
 claude-todo ls              # list
 claude-todo done T001       # complete T001
@@ -148,6 +161,8 @@ claude-todo new "Task"      # add "Task"
 claude-todo edit T001       # update T001
 claude-todo rm              # archive
 claude-todo check           # validate
+claude-todo tags            # labels
+claude-todo overview        # dash
 ```
 
 ## Shell Aliases
@@ -163,6 +178,7 @@ ct-focus        # claude-todo focus
 ```bash
 claude-todo --validate      # Check CLI integrity
 claude-todo --list-commands # Show all commands
+claude-todo help <command>  # Detailed command help
 ```
 
 ## vs TodoWrite
@@ -172,7 +188,7 @@ claude-todo --list-commands # Show all commands
 | **claude-todo** | Durable task tracking | Survives sessions, full metadata |
 | **TodoWrite** | Ephemeral session tasks | Session-only, simplified format |
 
-Use `claude-todo export --format todowrite` to generate TodoWrite snapshot from persistent tasks.
+Use `claude-todo export --format todowrite` to sync persistent tasks to TodoWrite.
 
 ---
-*Full documentation: `claude-todo help <command>` or see `~/.claude-todo/docs/`*
+*Full documentation: `claude-todo help <command>` or `~/.claude-todo/docs/`*
