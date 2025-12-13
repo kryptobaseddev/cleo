@@ -112,6 +112,7 @@ echo ""
 TOTAL_PASSED=0
 TOTAL_FAILED=0
 TOTAL_SKIPPED=0
+FAILED_TESTS=""
 
 run_test_suite() {
     local suite_name="$1"
@@ -162,6 +163,17 @@ run_test_suite() {
     failed=$(echo "$output" | grep -c "^not ok " 2>/dev/null) || failed=0
     skipped=$(echo "$output" | grep -c "# skip" 2>/dev/null) || skipped=0
 
+    # Capture failing test names for summary
+    local failed_lines
+    failed_lines=$(echo "$output" | grep "^not ok " 2>/dev/null) || true
+    if [[ -n "$failed_lines" ]]; then
+        while IFS= read -r line; do
+            # Extract test name: "not ok 123 test name here" -> "test name here"
+            local test_name="${line#not ok [0-9]* }"
+            FAILED_TESTS="${FAILED_TESTS}  [$suite_name] $test_name"$'\n'
+        done <<< "$failed_lines"
+    fi
+
     TOTAL_PASSED=$((TOTAL_PASSED + passed))
     TOTAL_FAILED=$((TOTAL_FAILED + failed))
     TOTAL_SKIPPED=$((TOTAL_SKIPPED + skipped))
@@ -197,6 +209,11 @@ if [[ $TOTAL_FAILED -eq 0 ]]; then
     echo -e "${GREEN}All tests passed!${NC}"
     exit 0
 else
-    echo -e "${RED}Some tests failed${NC}"
+    echo -e "${RED}============================================${NC}"
+    echo -e "${RED}            FAILED TESTS${NC}"
+    echo -e "${RED}============================================${NC}"
+    echo ""
+    echo -e "${RED}$FAILED_TESTS${NC}"
+    echo -e "${RED}Total: $TOTAL_FAILED failed${NC}"
     exit 1
 fi
