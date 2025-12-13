@@ -20,6 +20,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
+      - name: Install bats-core
+        run: |
+          # Install bats-core from npm (helper libraries are bundled in tests/libs/)
+          sudo npm install -g bats
+
       - name: Verify Bash version
         run: bash --version
 
