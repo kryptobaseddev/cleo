@@ -90,6 +90,21 @@ claude-todo list --phase core              # Filter by phase
 claude-todo list --format json             # Output format (text|json|jsonl|markdown|table)
 ```
 
+### JSON Output Parsing
+JSON output is wrapped with metadata. Access tasks via `.tasks[]`:
+```bash
+# Structure: { "_meta": {...}, "summary": {...}, "tasks": [...] }
+
+# Get task IDs
+claude-todo list --format json | jq -r '.tasks[].id'
+
+# Filter pending tasks
+claude-todo list --format json | jq '.tasks[] | select(.status == "pending")'
+
+# Format as table
+claude-todo list --format json | jq -r '.tasks[] | "[\(.id)] \(.status) - \(.title)"'
+```
+
 ## Session Protocol
 
 ### START
