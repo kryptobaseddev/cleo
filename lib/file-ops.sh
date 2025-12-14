@@ -231,8 +231,8 @@ backup_file() {
     # Set backup file permissions (owner only)
     chmod 600 "$backup_file" 2>/dev/null || true
 
-    # Rotate old backups
-    rotate_backups "$file_dir" "$basename" "$MAX_BACKUPS"
+    # Rotate old backups (use internal function to avoid conflict with lib/backup.sh)
+    _rotate_numbered_backups "$file_dir" "$basename" "$MAX_BACKUPS"
 
     # Output backup file path
     echo "$backup_file"
@@ -240,7 +240,8 @@ backup_file() {
 }
 
 #######################################
-# Rotate backups, keeping only max_backups most recent
+# Rotate numbered backups, keeping only max_backups most recent
+# Internal function to avoid collision with lib/backup.sh rotate_backups
 # Arguments:
 #   $1 - Directory containing file
 #   $2 - Base filename
@@ -248,7 +249,7 @@ backup_file() {
 # Returns:
 #   0 on success
 #######################################
-rotate_backups() {
+_rotate_numbered_backups() {
     local file_dir="$1"
     local basename="$2"
     local max_backups="$3"
@@ -579,7 +580,7 @@ export -f ensure_directory
 export -f lock_file
 export -f unlock_file
 export -f backup_file
-export -f rotate_backups
+export -f _rotate_numbered_backups
 export -f atomic_write
 export -f restore_backup
 export -f load_json
