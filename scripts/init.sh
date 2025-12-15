@@ -313,90 +313,38 @@ if [[ "$NO_CLAUDE_MD" != true ]]; then
     if grep -q "CLAUDE-TODO:START" CLAUDE.md 2>/dev/null; then
       log_warn "CLAUDE.md already has task integration (skipped)"
     else
-      # Inject CLI-based task management instructions
-      cat >> CLAUDE.md << 'CLAUDE_EOF'
+      # Inject CLI-based task management instructions from template
+      local injection_template="$CLAUDE_TODO_HOME/templates/CLAUDE-INJECTION.md"
+      if [[ -f "$injection_template" ]]; then
+        echo "" >> CLAUDE.md
+        cat "$injection_template" >> CLAUDE.md
+        log_info "Updated CLAUDE.md (from template)"
+      else
+        # Fallback minimal injection if template missing
+        cat >> CLAUDE.md << 'CLAUDE_EOF'
 
 <!-- CLAUDE-TODO:START -->
-## Task Management (claude-todo CLI)
+## Task Management (claude-todo)
 
-Use the `claude-todo` CLI for **all** task operations. Never read/edit `.claude/*.json` files directly.
+Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`
 
-**Full documentation**: `~/.claude-todo/docs/TODO_Task_Management.md`
-
-### Quick Reference
+### Essential Commands
 ```bash
-claude-todo list                    # View tasks
-claude-todo add "Task title"        # Create task
-claude-todo update <id> [OPTIONS]   # Update task fields
-claude-todo complete <task-id>      # Mark done
-claude-todo focus set <task-id>     # Set focus (marks active)
-claude-todo focus show              # Show current focus
-claude-todo focus note "Progress"   # Set session note
-claude-todo session start           # Start session
-claude-todo session end             # End session
-claude-todo export --format todowrite  # Export to TodoWrite format
-claude-todo validate                # Check file integrity
-claude-todo archive                 # Archive completed tasks
-claude-todo stats                   # Show statistics
-claude-todo help                    # All commands
+ct list                    # View tasks
+ct add "Task"              # Create task
+ct done <id>               # Complete task
+ct focus set <id>          # Set active task
+ct session start|end       # Session lifecycle
+ct exists <id>             # Verify task exists
 ```
 
-### Common Options
-```bash
-# Add task with options
-claude-todo add "Task" --priority high --labels bug,urgent
-
-# Update task
-claude-todo update T001 --status blocked --notes "Waiting for API"
-claude-todo update T001 --labels feature-auth,backend
-
-# List with filters
-claude-todo list --status pending --label bug
-```
-
-### Session Protocol
-
-**START**:
-```bash
-claude-todo session start           # Logs session, shows context
-claude-todo list                    # See pending tasks
-claude-todo focus show              # Check last focus/notes
-```
-
-**WORK**:
-```bash
-claude-todo focus set <task-id>     # Set focus (one task only)
-claude-todo add "Subtask"           # Add new tasks as needed
-claude-todo update <id> --notes "Progress"  # Add task note
-claude-todo focus note "Session progress"   # Update session note
-```
-
-**END**:
-```bash
-claude-todo complete <task-id>      # Complete finished tasks
-claude-todo archive                 # Clean up completed tasks
-claude-todo session end             # End session
-```
-
-### Anti-Hallucination Rules
-
-- **CLI only** - Never read/edit `.claude/*.json` files directly
-- **One active task** - Use `claude-todo focus set` (enforces single active)
-- **Verify state** - Use `claude-todo list` to confirm, don't assume
-- **Session discipline** - Start/end sessions properly
-- **Validate after errors** - Run `claude-todo validate` if something fails
-
-### Aliases (installed automatically)
-```bash
-ct          # claude-todo
-ct-add      # claude-todo add
-ct-list     # claude-todo list
-ct-done     # claude-todo complete
-ct-focus    # claude-todo focus
-```
+### Anti-Hallucination
+- **CLI only** - Never edit `.claude/*.json` directly
+- **Verify state** - Use `ct list` before assuming
 <!-- CLAUDE-TODO:END -->
 CLAUDE_EOF
-      log_info "Updated CLAUDE.md"
+        log_info "Updated CLAUDE.md (fallback)"
+      fi
     fi
   else
     log_warn "No CLAUDE.md found (skipped)"
