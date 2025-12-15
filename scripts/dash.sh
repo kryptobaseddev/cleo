@@ -24,14 +24,16 @@
 #   -h, --help        Show this help message
 #
 # Sections:
-#   focus    - Current focus task and session note
-#   summary  - Task counts by status
-#   priority - High/critical priority tasks
-#   blocked  - Blocked tasks
-#   phases   - Phase progress bars
-#   labels   - Top labels with counts
-#   activity - Recent activity metrics
-#   all      - All sections (default)
+#   focus        - Current focus task and session note
+#   summary      - Task counts by status
+#   priority     - High/critical priority tasks
+#   blocked      - Blocked tasks
+#   phases       - Phase progress bars
+#   labels       - Top labels with counts
+#   activity     - Recent activity metrics
+#   archive      - Archived task count and date range
+#   completions  - Recent completion history
+#   all          - All sections (default)
 #
 # Examples:
 #   dash.sh                              # Full dashboard
@@ -40,8 +42,9 @@
 #   dash.sh --sections focus,blocked     # Only focus and blocked sections
 #   dash.sh --format json                # JSON output for scripting
 #
-# Version: 0.8.0
+# Version: 0.8.2
 # Part of: claude-todo CLI Output Enhancement (Phase 2)
+# Enhanced: Added archive and completion history sections
 #####################################################################
 
 set -euo pipefail
@@ -110,14 +113,16 @@ Examples:
     claude-todo dash --format json                # JSON output
 
 Sections:
-    focus    - Current focus task and session note
-    summary  - Task counts by status
-    priority - High/critical priority tasks
-    blocked  - Blocked tasks with blocking reason
-    phases   - Phase progress bars
-    labels   - Top labels with counts
-    activity - Recent activity metrics (created/completed)
-    all      - All sections (default)
+    focus        - Current focus task and session note
+    summary      - Task counts by status
+    priority     - High/critical priority tasks
+    blocked      - Blocked tasks with blocking reason
+    phases       - Phase progress bars
+    labels       - Top labels with counts
+    activity     - Recent activity metrics (created/completed)
+    archive      - Archived task count and date range
+    completions  - Recent completion history
+    all          - All sections (default)
 EOF
   exit 0
 }
@@ -238,6 +243,105 @@ get_top_labels() {
   ' "$TODO_FILE" 2>/dev/null || echo "[]"
 }
 
+# Get archived task count
+get_archived_count() {
+  if [[ ! -f "$ARCHIVE_FILE" ]]; then
+    echo "0"
+    return
+  fi
+  jq -r '._meta.totalArchived // 0' "$ARCHIVE_FILE" 2>/dev/null || echo "0"
+}
+
+# Get archive date range
+get_archive_date_range() {
+  if [[ ! -f "$ARCHIVE_FILE" ]]; then
+    echo '{"oldest": null, "newest": null}'
+    return
+  fi
+
+  jq -r '{
+    oldest: (._meta.oldestTask // null),
+    newest: (._meta.newestTask // null)
+  }' "$ARCHIVE_FILE" 2>/dev/null || echo '{"oldest": null, "newest": null}'
+}
+
+# Get completion counts by time period
+get_completion_counts() {
+  if [[ ! -f "$DASH_LOG_FILE" ]]; then
+    echo '{"today": 0, "thisWeek": 0, "thisMonth": 0}'
+    return
+  fi
+
+  local now today_start week_start month_start
+  now=$(date -Iseconds)
+  today_start=$(date -d "today 00:00:00" -Iseconds 2>/dev/null || date -Iseconds)
+  week_start=$(date -d "7 days ago" -Iseconds 2>/dev/null || date -Iseconds)
+  month_start=$(date -d "30 days ago" -Iseconds 2>/dev/null || date -Iseconds)
+
+  local today_count week_count month_count
+  today_count=$(jq -r --arg start "$today_start" \
+    '[.entries[] | select(.action == "status_changed" and .after.status == "done" and .timestamp >= $start)] | length' \
+    "$DASH_LOG_FILE" 2>/dev/null || echo "0")
+
+  week_count=$(jq -r --arg start "$week_start" \
+    '[.entries[] | select(.action == "status_changed" and .after.status == "done" and .timestamp >= $start)] | length' \
+    "$DASH_LOG_FILE" 2>/dev/null || echo "0")
+
+  month_count=$(jq -r --arg start "$month_start" \
+    '[.entries[] | select(.action == "status_changed" and .after.status == "done" and .timestamp >= $start)] | length' \
+    "$DASH_LOG_FILE" 2>/dev/null || echo "0")
+
+  jq -n --argjson today "$today_count" --argjson week "$week_count" --argjson month "$month_count" \
+    '{today: $today, thisWeek: $week, thisMonth: $month}'
+}
+
+# Get recent completions with task details
+get_recent_completions() {
+  local limit="${1:-5}"
+
+  if [[ ! -f "$DASH_LOG_FILE" ]]; then
+    echo '[]'
+    return
+  fi
+
+  # Get completion events from log
+  local completions
+  completions=$(jq -r --argjson limit "$limit" '
+    [.entries[] | select(.action == "status_changed" and .after.status == "done")] |
+    sort_by(.timestamp) | reverse | .[0:$limit] |
+    map({taskId: .taskId, timestamp: .timestamp})
+  ' "$DASH_LOG_FILE" 2>/dev/null || echo "[]")
+
+  # Enrich with task titles from archive or current tasks
+  local enriched="[]"
+  if [[ -f "$ARCHIVE_FILE" ]]; then
+    enriched=$(jq -n --argjson completions "$completions" --slurpfile archive "$ARCHIVE_FILE" --slurpfile todo "$TODO_FILE" '
+      $completions | map(
+        . as $comp |
+        (($archive[0].archivedTasks // [] | map(select(.id == $comp.taskId)) | .[0]) //
+         ($todo[0].tasks // [] | map(select(.id == $comp.taskId)) | .[0])) as $task |
+        if $task then
+          {
+            id: $comp.taskId,
+            title: $task.title,
+            timestamp: $comp.timestamp,
+            date: ($comp.timestamp | split("T")[0])
+          }
+        else
+          {
+            id: $comp.taskId,
+            title: "Unknown",
+            timestamp: $comp.timestamp,
+            date: ($comp.timestamp | split("T")[0])
+          }
+        end
+      )
+    ')
+  fi
+
+  echo "$enriched"
+}
+
 # Get recent activity metrics
 get_activity_metrics() {
   local cutoff_date="$1"
@@ -356,6 +460,14 @@ output_compact() {
   local done=$(count_by_status "done")
   local total=$((pending + active + blocked + done))
 
+  local archived_count
+  archived_count=$(get_archived_count)
+
+  local completion_counts
+  completion_counts=$(get_completion_counts)
+  local today_completed
+  today_completed=$(echo "$completion_counts" | jq -r '.today')
+
   local focus_id
   focus_id=$(jq -r '.focus.currentTask // ""' "$TODO_FILE" 2>/dev/null)
 
@@ -376,9 +488,15 @@ output_compact() {
   local sym_blocked=$(status_symbol "blocked" "$unicode")
   local sym_done=$(status_symbol "done" "$unicode")
 
+  # Calculate completion percentage
+  local done_pct=0
+  if [[ $total -gt 0 ]]; then
+    done_pct=$(echo "scale=0; $done * 100 / $total" | bc 2>/dev/null || echo "0")
+  fi
+
   if detect_color_support 2>/dev/null; then
-    printf "${BOLD}%s${NC} | ${DIM}%s${NC}%d ${CYAN}%s${NC}%d ${YELLOW}%s${NC}%d ${GREEN}%s${NC}%d" \
-      "$project" "$sym_pending" "$pending" "$sym_active" "$active" "$sym_blocked" "$blocked" "$sym_done" "$done"
+    printf "${BOLD}%s${NC} | ${CYAN}%s${NC}%d ${GREEN}%s${NC}%d (%d%%) | ${DIM}Archived: %d${NC} | ${GREEN}Today: %d completed${NC}" \
+      "$project" "$sym_active" "$active" "$sym_done" "$done" "$done_pct" "$archived_count" "$today_completed"
 
     if [[ -n "$focus_id" && "$focus_id" != "null" ]]; then
       printf " | Focus: ${CYAN}%s${NC}" "$focus_id"
@@ -392,8 +510,8 @@ output_compact() {
       printf " | ${RED}Blocked: %d${NC}" "$blocked_count"
     fi
   else
-    printf "%s | %s%d %s%d %s%d %s%d" \
-      "$project" "$sym_pending" "$pending" "$sym_active" "$active" "$sym_blocked" "$blocked" "$sym_done" "$done"
+    printf "%s | %s%d %s%d (%d%%) | Archived: %d | Today: %d completed" \
+      "$project" "$sym_active" "$active" "$sym_done" "$done" "$done_pct" "$archived_count" "$today_completed"
 
     if [[ -n "$focus_id" && "$focus_id" != "null" ]]; then
       printf " | Focus: %s" "$focus_id"
@@ -624,6 +742,74 @@ output_text_format() {
     print_box_line "  Created: $created   Completed: $completed   Rate: ${rate}%" "$width"
   fi
 
+  # Archive Section
+  if should_show_section "archive"; then
+    local archived_count
+    archived_count=$(get_archived_count)
+
+    if [[ "$archived_count" -gt 0 ]]; then
+      local date_range
+      date_range=$(get_archive_date_range)
+      local oldest newest
+      oldest=$(echo "$date_range" | jq -r '.oldest // "" | split("T")[0]')
+      newest=$(echo "$date_range" | jq -r '.newest // "" | split("T")[0]')
+
+      print_box_separator "$width"
+      print_box_line "${DIM}  ARCHIVE${NC}" "$width"
+      print_box_line "  Archived Tasks: $archived_count" "$width"
+
+      if [[ -n "$oldest" && "$oldest" != "null" && "$oldest" != "" ]]; then
+        print_box_line "  Oldest: $oldest   |   Newest: $newest" "$width"
+      fi
+    fi
+  fi
+
+  # Recent Completions Section
+  if should_show_section "completions"; then
+    local completion_counts
+    completion_counts=$(get_completion_counts)
+    local today week month
+    today=$(echo "$completion_counts" | jq -r '.today')
+    week=$(echo "$completion_counts" | jq -r '.thisWeek')
+    month=$(echo "$completion_counts" | jq -r '.thisMonth')
+
+    if [[ "$month" -gt 0 ]]; then
+      print_box_separator "$width"
+      print_box_line "${GREEN}  RECENT COMPLETIONS${NC}" "$width"
+      print_box_line "  Today: $today   This Week: $week   This Month: $month" "$width"
+
+      # Get recent completions with details
+      local recent_completions
+      recent_completions=$(get_recent_completions 5)
+      local completion_count
+      completion_count=$(echo "$recent_completions" | jq -r 'length')
+
+      if [[ "$completion_count" -gt 0 ]]; then
+        print_box_line "" "$width"
+        print_box_line "  ${DIM}Last $completion_count completed:${NC}" "$width"
+
+        echo "$recent_completions" | jq -r '.[] | "\(.id) \(.title) \(.date)"' | while read -r line; do
+          local task_id="${line%% *}"
+          local rest="${line#* }"
+          local task_title="${rest% *}"
+          local task_date="${rest##* }"
+
+          # Truncate title if too long
+          if [[ ${#task_title} -gt 30 ]]; then
+            task_title="${task_title:0:27}..."
+          fi
+
+          # Format date as MM/DD
+          local month_day
+          month_day=$(echo "$task_date" | awk -F- '{print $2"/"$3}')
+
+          local sym_done=$(status_symbol "done" "$unicode")
+          print_box_line "    ${sym_done} $task_id - $task_title ($month_day)" "$width"
+        done
+      fi
+    fi
+  fi
+
   print_box_bottom "$width"
 }
 
@@ -662,6 +848,18 @@ output_json_format() {
   local activity
   activity=$(get_activity_metrics "$cutoff_date")
 
+  local archived_count
+  archived_count=$(get_archived_count)
+
+  local date_range
+  date_range=$(get_archive_date_range)
+
+  local completion_counts
+  completion_counts=$(get_completion_counts)
+
+  local recent_completions
+  recent_completions=$(get_recent_completions 5)
+
   local session_id
   session_id=$(get_session_status)
 
@@ -680,12 +878,16 @@ output_json_format() {
     --argjson phases "$phase_stats" \
     --argjson topLabels "$top_labels" \
     --argjson activity "$activity" \
+    --argjson archivedCount "$archived_count" \
+    --argjson archiveDateRange "$date_range" \
+    --argjson completionCounts "$completion_counts" \
+    --argjson recentCompletions "$recent_completions" \
     --argjson periodDays "$PERIOD_DAYS" \
     --arg session "$session_id" \
     '{
       "_meta": {
         "format": "json",
-        "version": "0.8.0",
+        "version": "0.8.2",
         "command": "dash",
         "timestamp": $timestamp,
         "periodDays": $periodDays
@@ -713,7 +915,15 @@ output_json_format() {
       },
       "phases": $phases,
       "topLabels": $topLabels,
-      "recentActivity": $activity
+      "recentActivity": $activity,
+      "archive": {
+        "count": $archivedCount,
+        "dateRange": $archiveDateRange
+      },
+      "completions": {
+        "counts": $completionCounts,
+        "recent": $recentCompletions
+      }
     }'
 }
 

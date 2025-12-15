@@ -66,6 +66,7 @@ PHASE_FILTER=""
 LABEL_FILTER=""
 FORMAT="text"
 INCLUDE_ARCHIVE=false
+SHOW_ARCHIVED=false
 LIMIT=""
 OFFSET=0
 SINCE_DATE=""
@@ -97,7 +98,8 @@ Filters:
   -l, --label LABEL         Filter by label
       --since DATE          Show tasks created after date (ISO 8601: YYYY-MM-DD)
       --until DATE          Show tasks created before date (ISO 8601: YYYY-MM-DD)
-      --all                 Include archived tasks
+      --all                 Include archived tasks (combines active + archived)
+      --archived            Show ONLY archived tasks
       --limit N             Show first N tasks only
       --offset N            Skip first N tasks (for pagination)
 
@@ -125,6 +127,8 @@ Examples:
   claude-todo list --sort createdAt --reverse  # Newest first
   claude-todo list -f json                  # JSON output
   claude-todo list --all --limit 20         # Last 20 tasks including archive
+  claude-todo list --archived               # Show only archived tasks
+  claude-todo list --archived -p high       # Archived high-priority tasks
   claude-todo list --limit 50 --offset 50   # Second page (51-100)
   claude-todo list -v                       # Verbose mode with all details
   claude-todo list -s pending -p high -l backend  # Combined filters
@@ -156,6 +160,7 @@ while [[ $# -gt 0 ]]; do
     --reverse) SORT_REVERSE=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --all) INCLUDE_ARCHIVE=true; shift ;;
+    --archived) SHOW_ARCHIVED=true; shift ;;
     --limit) LIMIT="$2"; shift 2 ;;
     --offset) OFFSET="$2"; shift 2 ;;
     --notes) SHOW_NOTES=true; shift ;;
@@ -221,7 +226,40 @@ fi
 
 # PERFORMANCE: Use -r for raw output to reduce overhead, then compact with -c only when needed
 # Load tasks with early filtering applied (reduces memory footprint)
-if [[ "$INCLUDE_ARCHIVE" == true ]] && [[ -f "$ARCHIVE_FILE" ]]; then
+if [[ "$SHOW_ARCHIVED" == true ]]; then
+  # Show ONLY archived tasks
+  if [[ ! -f "$ARCHIVE_FILE" ]]; then
+    if [[ "$FORMAT" == "json" ]]; then
+      # Return proper JSON envelope for empty archive
+      jq -n \
+        --arg version "$VERSION" \
+        --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+          "$schema": "https://claude-todo.dev/schemas/output-v2.json",
+          "_meta": {
+            "format": "json",
+            "version": $version,
+            "command": "list",
+            "timestamp": $timestamp
+          },
+          "filters": {"archived": true},
+          "summary": {
+            "total": 0,
+            "filtered": 0,
+            "pending": 0,
+            "active": 0,
+            "blocked": 0,
+            "done": 0
+          },
+          "tasks": []
+        }'
+    elif [[ "$QUIET" != true ]]; then
+      echo "No archived tasks found." >&2
+    fi
+    exit 0
+  fi
+  TASKS=$(jq -c ".archivedTasks[] | $PRE_FILTER" "$ARCHIVE_FILE" 2>/dev/null || echo "")
+elif [[ "$INCLUDE_ARCHIVE" == true ]] && [[ -f "$ARCHIVE_FILE" ]]; then
   # Combine both files in single jq invocation (more efficient than separate calls)
   TASKS=$(jq -c "((.tasks[] // empty), (input.archivedTasks[] // empty)) | $PRE_FILTER" "$TODO_FILE" "$ARCHIVE_FILE" 2>/dev/null || echo "")
 else
@@ -395,6 +433,7 @@ render_task() {
   local notes=$(echo "$task" | jq -r '.notes // []')
   local createdAt=$(echo "$task" | jq -r '.createdAt')
   local completedAt=$(echo "$task" | jq -r '.completedAt // ""')
+  local isArchived=$(echo "$task" | jq -r 'has("_archive")')
 
   local status_col=$(status_color "$status")
   local status_ic=$(status_icon "$status")
@@ -404,11 +443,14 @@ render_task() {
     local title_truncated="${title:0:50}"
     [[ ${#title} -gt 50 ]] && title_truncated="${title_truncated}…"
     printf "  ${DIM}%-5s${NC} ${status_col}%s${NC} %-52s" "$id" "$status_ic" "$title_truncated"
+    [[ "$isArchived" == "true" ]] && printf " ${DIM}[ARCHIVED]${NC}"
     [[ -n "$labels" ]] && printf " ${MAGENTA}#${NC}"
     echo ""
   else
     # Standard: multi-line with details
-    echo -e "  ${BOLD}$id${NC} ${status_col}$status_ic $status${NC}"
+    local archived_badge=""
+    [[ "$isArchived" == "true" ]] && archived_badge=" ${DIM}[ARCHIVED]${NC}"
+    echo -e "  ${BOLD}$id${NC} ${status_col}$status_ic $status${NC}${archived_badge}"
     echo -e "      ${BOLD}$title${NC}"
 
     # Show labels inline if present

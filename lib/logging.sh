@@ -590,6 +590,138 @@ log_error() {
 }
 
 # ============================================================================
+# LOG MIGRATION
+# ============================================================================
+
+# Migrate old schema log entries to new schema
+# Transforms: operation -> action, user -> actor, task_id -> taskId
+# Arguments:
+#   $1 - log file path (optional, defaults to LOG_FILE)
+# Returns: 0 on success, 1 on failure
+# Output: Number of entries migrated
+migrate_log_entries() {
+    local log_path="${1:-$LOG_FILE}"
+    local temp_file
+    local backup_file
+    local migrated_count
+
+    if [[ ! -f "$log_path" ]]; then
+        echo "ERROR: Log file does not exist: $log_path" >&2
+        return 1
+    fi
+
+    # Count entries needing migration (schema change, action value mapping, or ID format)
+    # Note: Count unique entries needing ANY type of migration
+    local schema_count
+    local action_count
+    local id_count
+    schema_count=$(jq '[.entries[] | select(has("operation"))] | length' "$log_path")
+    action_count=$(jq '[.entries[] | select(.action == "create" or .action == "update" or .action == "system_initialized")] | length' "$log_path")
+    id_count=$(jq '[.entries[] | select(.id | test("^log-[0-9]+-[0-9a-f]+$"))] | length' "$log_path")
+    # Count unique entries needing at least one migration
+    migrated_count=$(jq '[.entries[] | select(
+        has("operation") or
+        .action == "create" or .action == "update" or .action == "system_initialized" or
+        (.id | test("^log-[0-9]+-[0-9a-f]+$"))
+    )] | length' "$log_path")
+
+    if [[ "$migrated_count" -eq 0 ]]; then
+        echo "No entries need migration" >&2
+        return 0
+    fi
+
+    echo "Found $migrated_count entries to migrate ($schema_count schema changes, $action_count action mappings, $id_count ID fixes)" >&2
+
+    # Create backup
+    backup_file="${log_path}.pre-migration.$(date +%Y%m%d-%H%M%S)"
+    cp "$log_path" "$backup_file" || {
+        echo "ERROR: Failed to create backup: $backup_file" >&2
+        return 1
+    }
+    echo "Created backup: $backup_file" >&2
+
+    # Validate backup was created and is valid JSON
+    if ! jq empty "$backup_file" 2>/dev/null; then
+        echo "ERROR: Backup file is not valid JSON: $backup_file" >&2
+        rm -f "$backup_file"
+        return 1
+    fi
+
+    # Create temp file for migration
+    temp_file=$(create_temp_file)
+
+    # Transform entries using jq
+    if jq --arg version "$CLAUDE_TODO_VERSION" '
+        # Define action value mappings from old to new schema
+        def map_action_value:
+            if . == "create" then "task_created"
+            elif . == "update" then "task_updated"
+            elif . == "system_initialized" then "config_changed"
+            else .
+            end;
+
+        # Fix log entry ID format: log-<timestamp>-<hex> → log_<12hexchars>
+        # Only transforms IDs with multiple dashes (timestamp format)
+        def fix_log_id:
+            if test("^log-[0-9]+-[0-9a-f]+$") then
+                # Extract hex chars only, remove dashes and digits, pad/truncate to 12 chars
+                ("log_" + (split("-") | last | .[0:12]))
+            else
+                .
+            end;
+
+        # Update version metadata
+        .version = $version |
+        .entries = (.entries | map(
+            if has("operation") then
+                # Transform old schema to new schema
+                {
+                    id: (.id | fix_log_id),
+                    timestamp: .timestamp,
+                    sessionId: (.sessionId // null),
+                    action: (.operation | map_action_value),
+                    actor: (.user // "system"),
+                    taskId: (.task_id // null),
+                    before: .before,
+                    after: .after,
+                    details: .details
+                } + (if has("error") then {error: .error} else {} end)
+            else
+                # Also map action values in entries that already have new schema
+                {
+                    id: (.id | fix_log_id),
+                    timestamp: .timestamp,
+                    sessionId: (.sessionId // null),
+                    action: (.action | map_action_value),
+                    actor: .actor,
+                    taskId: .taskId,
+                    before: .before,
+                    after: .after,
+                    details: .details
+                } + (if has("error") then {error: .error} else {} end)
+            end
+        ))
+    ' "$log_path" > "$temp_file"; then
+        # Validate migrated file has valid JSON
+        if jq empty "$temp_file" 2>/dev/null; then
+            # Replace original atomically
+            mv "$temp_file" "$log_path"
+            echo "Successfully migrated $migrated_count entries" >&2
+            echo "$migrated_count"
+            return 0
+        else
+            echo "ERROR: Migrated file contains invalid JSON" >&2
+            rm -f "$temp_file"
+            return 1
+        fi
+    else
+        echo "ERROR: Failed to migrate log entries" >&2
+        rm -f "$temp_file"
+        return 1
+    fi
+}
+
+# ============================================================================
 # ERROR HANDLING
 # ============================================================================
 
@@ -626,3 +758,4 @@ export -f log_session_end
 export -f log_validation
 export -f log_error
 export -f handle_log_error
+export -f migrate_log_entries
