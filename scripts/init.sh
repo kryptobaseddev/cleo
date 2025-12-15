@@ -117,8 +117,8 @@ if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
     # Create temp file with new content
     temp_file=$(mktemp)
 
-    # Extract content before START tag
-    sed -n '1,/<!-- CLAUDE-TODO:START -->/p' CLAUDE.md | head -n -1 > "$temp_file"
+    # Extract content before START tag (handles versioned tags like v0.12.1)
+    sed -n '1,/<!-- CLAUDE-TODO:START/p' CLAUDE.md | head -n -1 > "$temp_file"
 
     # Append new injection template
     cat "$injection_template" >> "$temp_file"
