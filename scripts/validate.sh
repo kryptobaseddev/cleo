@@ -397,12 +397,28 @@ fi
 
 # 11. Check CLAUDE.md injection version
 if [[ -f "CLAUDE.md" ]] && [[ -f "$CLAUDE_TODO_HOME/templates/CLAUDE-INJECTION.md" ]]; then
+  # Check for versioned tag first, then unversioned (legacy)
   CURRENT_INJECTION_VERSION=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
+  HAS_LEGACY_INJECTION=$(grep -q 'CLAUDE-TODO:START' CLAUDE.md 2>/dev/null && echo "true" || echo "false")
   INSTALLED_INJECTION_VERSION=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' "$CLAUDE_TODO_HOME/templates/CLAUDE-INJECTION.md" 2>/dev/null || echo "")
 
-  if [[ -z "$CURRENT_INJECTION_VERSION" ]]; then
+  if [[ -z "$CURRENT_INJECTION_VERSION" ]] && [[ "$HAS_LEGACY_INJECTION" == "true" ]]; then
+    # Has unversioned legacy injection - needs update
     if [[ "$FIX" == true ]]; then
-      # Try to add injection using installed CLI
+      "$CLAUDE_TODO_HOME/scripts/init.sh" --update-claude-md 2>/dev/null
+      NEW_VERSION=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
+      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
+        echo "  Fixed: Updated legacy CLAUDE.md injection (unversioned → v${INSTALLED_INJECTION_VERSION})"
+        log_info "CLAUDE.md injection current (v${INSTALLED_INJECTION_VERSION})"
+      else
+        log_warn "CLAUDE.md has legacy (unversioned) injection. Run: claude-todo init --update-claude-md"
+      fi
+    else
+      log_warn "CLAUDE.md has legacy (unversioned) injection. Run with --fix or: claude-todo init --update-claude-md"
+    fi
+  elif [[ -z "$CURRENT_INJECTION_VERSION" ]]; then
+    # No injection at all
+    if [[ "$FIX" == true ]]; then
       "$CLAUDE_TODO_HOME/scripts/init.sh" --update-claude-md 2>/dev/null
       if grep -qP 'CLAUDE-TODO:START v[0-9.]+' CLAUDE.md 2>/dev/null; then
         echo "  Fixed: Added CLAUDE.md injection (v${INSTALLED_INJECTION_VERSION})"
@@ -414,8 +430,8 @@ if [[ -f "CLAUDE.md" ]] && [[ -f "$CLAUDE_TODO_HOME/templates/CLAUDE-INJECTION.m
       log_warn "No CLAUDE-TODO injection found in CLAUDE.md. Run with --fix or: claude-todo init --update-claude-md"
     fi
   elif [[ -n "$INSTALLED_INJECTION_VERSION" ]] && [[ "$CURRENT_INJECTION_VERSION" != "$INSTALLED_INJECTION_VERSION" ]]; then
+    # Has versioned injection but outdated
     if [[ "$FIX" == true ]]; then
-      # Update injection using installed CLI
       "$CLAUDE_TODO_HOME/scripts/init.sh" --update-claude-md 2>/dev/null
       NEW_VERSION=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
       if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
@@ -432,9 +448,12 @@ if [[ -f "CLAUDE.md" ]] && [[ -f "$CLAUDE_TODO_HOME/templates/CLAUDE-INJECTION.m
   fi
 elif [[ -f "CLAUDE.md" ]]; then
   # CLAUDE.md exists but no injection template to compare against
+  HAS_LEGACY_INJECTION=$(grep -q 'CLAUDE-TODO:START' CLAUDE.md 2>/dev/null && echo "true" || echo "false")
   CURRENT_INJECTION_VERSION=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
   if [[ -n "$CURRENT_INJECTION_VERSION" ]]; then
     log_info "CLAUDE.md injection present (v${CURRENT_INJECTION_VERSION})"
+  elif [[ "$HAS_LEGACY_INJECTION" == "true" ]]; then
+    log_warn "CLAUDE.md has legacy (unversioned) injection. Run with --fix or: claude-todo init --update-claude-md"
   else
     log_warn "CLAUDE.md exists but has no claude-todo injection. Run with --fix or: claude-todo init --update-claude-md"
   fi
