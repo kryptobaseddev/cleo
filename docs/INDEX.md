@@ -49,6 +49,8 @@
 | **[commands/backup.md](commands/backup.md)** | Backup command documentation | Creating and listing backups |
 | **[commands/restore.md](commands/restore.md)** | Restore command documentation | Restoring from backups |
 | **[commands/exists.md](commands/exists.md)** | Task existence validation documentation | Validating task IDs in scripts and CI/CD pipelines |
+| **[commands/history.md](commands/history.md)** | Completion history and timeline analytics | Reviewing productivity trends and completion metrics |
+| **[commands/show.md](commands/show.md)** | Single task detail view documentation | Viewing full task details, dependencies, and history |
 
 ### 🔬 Technical Reference
 

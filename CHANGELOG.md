@@ -5,6 +5,33 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.8] - 2025-12-15
+
+### Added
+- **`show` command**: Single task detail view (T225)
+  - Full task details with all fields displayed
+  - Dependency information (what this blocks, what blocks this)
+  - `--history` flag to show task log entries
+  - `--related` flag to show tasks with same labels
+  - `--include-archive` to search archived tasks
+  - JSON output support for scripting
+  - Documentation: `docs/commands/show.md`
+
+### Changed
+- Updated CLAUDE-INJECTION.md template with `show` command
+- Updated TODO_Task_Management.md with Task Inspection section
+
+## [0.12.7] - 2025-12-15
+
+### Added
+- **`history` command**: Completion timeline and analytics (T224)
+  - Daily completion counts with bar chart visualization
+  - Phase distribution of completed tasks
+  - Label breakdown of completions
+  - Velocity metrics (average, peak tasks/day)
+  - Options: `--days N`, `--since DATE`, `--until DATE`, `--format json`
+  - Documentation: `docs/commands/history.md`
+
 ## [0.12.6] - 2025-12-15
 
 ### Added

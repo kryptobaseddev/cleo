@@ -22,6 +22,7 @@ claude-todo add "Task title" [OPTIONS]     # Create task
 claude-todo update <id> [OPTIONS]          # Update task fields
 claude-todo complete <id>                  # Mark done
 claude-todo list [--status STATUS]         # View tasks
+claude-todo show <id>                      # View single task details
 ```
 
 ### Focus & Session
@@ -52,6 +53,15 @@ claude-todo deps <id>                      # Dependencies for task
 claude-todo deps tree                      # Full dependency tree
 claude-todo blockers                       # Show blocked tasks
 claude-todo blockers analyze               # Critical path analysis
+```
+
+### Task Inspection
+```bash
+claude-todo show <id>                      # Full task details view
+claude-todo show <id> --history            # Include task history from log
+claude-todo show <id> --related            # Show related tasks (same labels)
+claude-todo show <id> --include-archive    # Search archive if not found
+claude-todo show <id> --format json        # JSON output for scripting
 ```
 
 ### Maintenance
