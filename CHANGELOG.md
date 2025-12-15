@@ -5,6 +5,48 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.5] - 2025-12-15
+
+### Fixed
+- **Legacy injection detection**: `validate` now correctly detects unversioned `<!-- CLAUDE-TODO:START -->` tags as "legacy" instead of "no injection found"
+- `validate --fix` upgrades legacy injections to versioned format
+
+## [0.12.4] - 2025-12-15
+
+### Added
+- **`validate --fix` for CLAUDE.md**: Auto-updates outdated CLAUDE.md injections
+- One-command fix: `validate --fix` now handles both `_meta.version` and CLAUDE.md
+
+## [0.12.3] - 2025-12-15
+
+### Added
+- **CLAUDE.md injection check** in `validate` command (check #15)
+- **`validate --fix` for `_meta.version`**: Auto-adds schema version if missing
+- `_meta.version` field in todo.json template
+
+### Fixed
+- **autoArchiveOnComplete schema bug** (T212): Config field now accessible
+  - Added `autoArchiveOnComplete` to `schemas/config.schema.json`
+  - Fixed `complete-task.sh` to use camelCase config key
+  - Updated `templates/config.template.json` with default value
+
+### Changed
+- Renamed "Anti-Hallucination Rules" to "Data Integrity Rules" in documentation (T210)
+- Updated rationale to explain staleness prevention in multi-writer environments
+- All consensus investigation claims resolved (T205-T214)
+
+## [0.12.2] - 2025-12-15
+
+### Added
+- CLAUDE.md version check on session start
+- `init --update-claude-md` for idempotent injection updates
+- Versioned injection tags: `<!-- CLAUDE-TODO:START v0.12.2 -->`
+
+## [0.12.1] - 2025-12-15
+
+### Fixed
+- Handle versioned CLAUDE-TODO:START tags in init update
+
 ## [0.12.0] - 2025-12-15
 
 ### Added
