@@ -47,9 +47,9 @@
       }
     }
   },
-  "lastUpdated": "2025-12-16T22:04:08Z",
+  "lastUpdated": "2025-12-16T23:46:35Z",
   "_meta": {
-    "checksum": "d178ff5863f1d27a",
+    "checksum": "143d5c3e016f12ab",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -4242,6 +4242,50 @@
       "completedAt": "2025-12-16T21:34:39Z",
       "notes": [
         "[COMPLETED 2025-12-16T21:34:39Z] Updated golden fixtures to v2.2.0 format with 5-phase structure, regenerated all golden output files"
+      ]
+    },
+    {
+      "id": "T310",
+      "title": "ENHANCEMENT: Consolidate fix/repair terminology and functionality into unified pattern",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-16T23:46:02Z",
+      "phase": "core",
+      "description": "## Problem Statement\nThe codebase currently uses inconsistent terminology and patterns for auto-fixing/repairing data:\n1. `validate --fix` - Fixes checksum, focus mismatch, multiple active tasks\n2. `migrate repair` - Fixes phase structure, _meta fields, focus fields\n3. `init --update-claude-md` - Updates CLAUDE.md injection\n\nThis creates confusion about:\n- When to use which command\n- What each command actually fixes\n- Flag conventions (--fix vs repair subcommand)\n\n## Current State Analysis\n\n### `validate --fix` capabilities:\n- Updates checksum to match tasks array\n- Fixes focus.currentTask to match active task\n- Keeps only first active task (deactivates others)\n- Updates CLAUDE.md injection if outdated\n\n### `migrate repair` capabilities:\n- Ensures canonical 5-phase structure\n- Adds missing phases, removes obsolete phases\n- Fixes phase ordering\n- Ensures _meta has all required fields\n- Ensures focus has all required fields\n- Preserves existing status/timestamps\n\n### Flag Convention Inconsistencies:\n- Some commands use `--flag` (double dash): --fix, --dry-run, --auto\n- Some commands use subcommands: repair, status, run\n- No consistent pattern across CLI\n\n## Proposed Solution\n\n### Option A: Unified `--fix` flag\nAdd `--fix` flag to all relevant commands:\n- `validate --fix` (existing)\n- `migrate --fix` (instead of `migrate repair`)\n- `init --fix` (fix project issues)\n\n### Option B: Standalone `repair` command\nCreate `claude-todo repair` as top-level command:\n- `repair --dry-run` - Preview all repairs\n- `repair --auto` - Apply all repairs\n- `repair phases` - Fix phases only\n- `repair schema` - Fix schema compliance\n- `repair checksum` - Fix checksums\n\n### Option C: Hybrid (Recommended)\nKeep `validate --fix` for validation-related fixes\nCreate `claude-todo repair` for structural repairs\nEnsure both produce consistent output format\n\n## Implementation Tasks (if approved)\n1. Create lib/repair.sh with reusable repair interface\n2. Refactor migrate repair to use lib/repair.sh\n3. Add repair logic for other scenarios\n4. Ensure consistent flag naming across CLI\n5. Update documentation\n6. Add integration tests for repair scenarios\n\n## Decision Needed\n- Which option to implement (A, B, or C)?\n- Should --fix and repair both exist or consolidate?\n- What is the \"escape hatch\" for users when things break?",
+      "labels": [
+        "dx",
+        "enhancement",
+        "feature-phase",
+        "refactor"
+      ]
+    },
+    {
+      "id": "T311",
+      "title": "TESTING: Real-world production testing of v0.14.0 (NOT BATS)",
+      "status": "pending",
+      "priority": "critical",
+      "createdAt": "2025-12-16T23:46:18Z",
+      "phase": "testing",
+      "description": "## Purpose\nValidate v0.14.0 in real-world production scenarios, not just BATS unit tests.\nBATS tests pass (1124/1124) but we need to verify:\n1. Fresh project initialization works\n2. Existing project migration/repair works\n3. All commands function correctly in real usage\n4. Edge cases that BATS may not cover\n\n## Test Scenarios\n\n### Scenario 1: Fresh Project Setup\n```bash\nmkdir /tmp/test-fresh && cd /tmp/test-fresh\nclaude-todo init\nclaude-todo add \"Test task 1\" --priority high --phase setup\nclaude-todo add \"Test task 2\" --depends T001\nclaude-todo focus set T001\nclaude-todo session start\n# ... use for real work ...\nclaude-todo complete T001 --notes \"Done\"\nclaude-todo phase advance\nclaude-todo session end\n```\n\n### Scenario 2: Existing Project Migration\nTest with a project that has:\n- Old v2.1.0 format (string project field)\n- Missing phases\n- Wrong phase structure\n```bash\nclaude-todo migrate status\nclaude-todo migrate run --auto\nclaude-todo migrate repair --dry-run\nclaude-todo migrate repair --auto\nclaude-todo validate\n```\n\n### Scenario 3: Complex Workflow\n- Multiple tasks with dependencies\n- Blocked tasks\n- Archive operations\n- Export to various formats\n- Phase transitions\n\n### Scenario 4: Edge Cases\n- Very large task counts (100+ tasks)\n- Special characters in titles/descriptions\n- Concurrent operations\n- Network disconnection during operations\n\n### Scenario 5: Error Recovery\n- Intentionally corrupt todo.json\n- Run validate --fix\n- Verify recovery works\n\n## Success Criteria\n- All scenarios complete without errors\n- Data integrity maintained throughout\n- No data loss in any scenario\n- Commands produce expected output\n- Help text is accurate and complete\n\n## Deliverables\n- Test report with pass/fail for each scenario\n- List of any bugs discovered\n- Recommendations for documentation updates",
+      "labels": [
+        "feature-phase",
+        "release",
+        "testing",
+        "validation"
+      ]
+    },
+    {
+      "id": "T312",
+      "title": "DOCS: Create production readiness checklist and migration guide",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-16T23:46:35Z",
+      "phase": "core",
+      "description": "## Current State Assessment\n\n### What Works (BATS tested):\n- All 1124 tests passing\n- init, add, update, complete, list, focus, session commands\n- Phase tracking (phases, phase set/start/complete/advance)\n- Migration v2.1.0 → v2.2.0\n- Repair command for fixing phase structure\n- Validation with --fix\n- Export, import, archive, backup commands\n\n### What Needs Real-World Validation:\n- Fresh install experience\n- Existing project upgrade path\n- Error recovery scenarios\n- Performance with large datasets\n- Multi-user/concurrent access\n\n## Production Readiness Gaps\n\n### 1. User Documentation Gap\nUsers don't know what to run when. Need clear guide:\n- \"I just installed claude-todo\" → what to run?\n- \"I have an existing project\" → what to run?\n- \"Something broke\" → what to run?\n\n### 2. Migration/Repair Clarity Gap\nCurrent state is confusing:\n- migrate run - upgrades schema version\n- migrate repair - fixes structure within version\n- validate --fix - fixes data integrity\n- init --update-claude-md - updates instructions\n\nNeed: Single \"make it work\" command or clear flowchart\n\n### 3. Error Messages Gap\nSome error messages don't tell users what to do next.\nExample: \"Checksum mismatch\" doesn't say \"run validate --fix\"\n\n## Deliverables Needed\n\n### 1. Quick Start Guide\nFor README.md:\n```markdown\n## Quick Start\n# New project\nclaude-todo init\n\n# Existing project (upgrade from older version)\nclaude-todo migrate run --auto\nclaude-todo migrate repair --auto\nclaude-todo validate --fix\n```\n\n### 2. Troubleshooting Guide\nFor docs/TROUBLESHOOTING.md:\n- Common errors and fixes\n- Recovery procedures\n- When to use which command\n\n### 3. Migration Decision Tree\n```\nIs project initialized?\n├─ No → claude-todo init\n└─ Yes → Is version current?\n         ├─ No → claude-todo migrate run --auto\n         └─ Yes → Are phases correct?\n                  ├─ No → claude-todo migrate repair --auto\n                  └─ Yes → Run claude-todo validate\n```",
+      "labels": [
+        "documentation",
+        "feature-phase",
+        "release"
       ]
     }
   ],
