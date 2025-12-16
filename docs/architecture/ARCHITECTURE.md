@@ -13,6 +13,7 @@ The CLAUDE-TODO system is a production-grade task management solution specifical
 - **Performant**: Optimized for 1000+ tasks
 - **User-Friendly**: Zero-config defaults, clear error messages
 - **Portable**: Single installation, per-project initialization
+- **Phase-Aware**: Project-level phase tracking with task inheritance (v2.2.0+)
 
 ---
 
@@ -21,22 +22,23 @@ The CLAUDE-TODO system is a production-grade task management solution specifical
 1. [Design Principles](#design-principles)
 2. [Directory Structure](#directory-structure)
 3. [Data File Relationships](#data-file-relationships)
-4. [Schema Validation Architecture](#schema-validation-architecture)
-5. [Anti-Hallucination Mechanisms](#anti-hallucination-mechanisms)
-6. [Operation Workflows](#operation-workflows)
-7. [Atomic Write Pattern](#atomic-write-pattern)
-8. [Configuration System](#configuration-system)
-9. [Backup and Recovery System](#backup-and-recovery-system)
-10. [Change Log System](#change-log-system)
-11. [Installation and Initialization](#installation-and-initialization)
-12. [Script Reference](#script-reference)
-13. [Library Functions](#library-functions)
-14. [Testing Strategy](#testing-strategy)
-15. [Performance Considerations](#performance-considerations)
-16. [Security Considerations](#security-considerations)
-17. [Extension Points](#extension-points)
-18. [Architectural Decisions](#architectural-decisions)
-19. [Version Management](#version-management)
+4. [Phase Tracking System](#phase-tracking-system)
+5. [Schema Validation Architecture](#schema-validation-architecture)
+6. [Anti-Hallucination Mechanisms](#anti-hallucination-mechanisms)
+7. [Operation Workflows](#operation-workflows)
+8. [Atomic Write Pattern](#atomic-write-pattern)
+9. [Configuration System](#configuration-system)
+10. [Backup and Recovery System](#backup-and-recovery-system)
+11. [Change Log System](#change-log-system)
+12. [Installation and Initialization](#installation-and-initialization)
+13. [Script Reference](#script-reference)
+14. [Library Functions](#library-functions)
+15. [Testing Strategy](#testing-strategy)
+16. [Performance Considerations](#performance-considerations)
+17. [Security Considerations](#security-considerations)
+18. [Extension Points](#extension-points)
+19. [Architectural Decisions](#architectural-decisions)
+20. [Version Management](#version-management)
 
 ---
 
@@ -84,6 +86,8 @@ These properties must **ALWAYS** be true:
 6. **Archive Immutability**: Archive file is only appended, never modified
 7. **Schema Validation**: Every file passes schema validation before being used
 8. **Timestamp Monotonicity**: Task timestamps are chronological (created ≤ completed)
+9. **Phase Consistency**: `project.currentPhase` must reference an existing phase with `status=active`
+10. **Phase Status Enum**: Phase status is always one of: `pending | active | completed`
 
 **Enforcement**: Validation runs on every read and write. Scripts exit with error if invariants are violated.
 
@@ -107,9 +111,10 @@ claude-todo/                        # Git repository (system files only)
 │   └── log.schema.json            # Change log schema
 │
 ├── templates/                      # Starter templates
-│   ├── todo.template.json         # Empty task list with examples
+│   ├── todo.template.json         # Task list with project phases (v2.2.0+)
 │   ├── todo-config.template.json  # Default configuration
-│   └── todo-archive.template.json # Empty archive
+│   ├── log.template.json          # Empty audit log
+│   └── archive.template.json      # Empty archive
 │
 ├── scripts/                        # Operational scripts
 │   ├── init.sh                    # Initialize project with todo system
@@ -120,12 +125,15 @@ claude-todo/                        # Git repository (system files only)
 │   ├── list-tasks.sh              # Display current tasks
 │   ├── stats.sh                   # Statistics and reporting
 │   ├── backup.sh                  # Backup all todo files
-│   └── restore.sh                 # Restore from backup
+│   ├── restore.sh                 # Restore from backup
+│   ├── phase.sh                   # Current phase management (v2.2.0+)
+│   └── phases.sh                  # Phase listing and queries (v2.2.0+)
 │
 ├── lib/                            # Shared library functions
 │   ├── validation.sh              # Schema validation functions
 │   ├── logging.sh                 # Change log functions
-│   └── file-ops.sh                # Atomic file operations
+│   ├── file-ops.sh                # Atomic file operations
+│   └── phase-tracking.sh          # Phase lifecycle management (v2.2.0+)
 │
 ├── docs/                           # Documentation
 │   ├── architecture/              # System design docs
@@ -227,6 +235,115 @@ your-project/.claude/               # Per-project instance (NOT in git)
 | `todo-archive.json` | stats, list (--all) | archive | archive.schema.json |
 | `todo-config.json` | ALL scripts | init, user edit | config.schema.json |
 | `todo-log.json` | stats, troubleshooting | add-task, complete-task, archive | log.schema.json |
+
+---
+
+## Phase Tracking System
+
+> **Version**: Introduced in v2.2.0 (schema version 2.2.0)
+
+The phase tracking system provides project-level workflow organization with automatic task inheritance.
+
+### Phase Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     PROJECT OBJECT                              │
+│                                                                 │
+│  project: {                                                    │
+│    name: "my-project",                                         │
+│    currentPhase: "core",  ◄─── Active phase slug               │
+│    phases: {                                                   │
+│      "setup":  { order: 1, status: "completed", ... }         │
+│      "core":   { order: 2, status: "active", ... }    ◄─ Current│
+│      "polish": { order: 3, status: "pending", ... }           │
+│    }                                                           │
+│  }                                                             │
+├─────────────────────────────────────────────────────────────────┤
+│                      TASK INHERITANCE                           │
+│                                                                 │
+│  New tasks inherit currentPhase automatically:                 │
+│  claude-todo add "Task" ──► phase: "core" (from currentPhase)  │
+│  claude-todo add "Task" --phase setup ──► explicit override    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Phase Lifecycle
+
+```
+                    Phase States
+                    ─────────────
+
+    ┌─────────┐     ┌─────────┐     ┌───────────┐
+    │ pending │ ──► │ active  │ ──► │ completed │
+    └─────────┘     └─────────┘     └───────────┘
+         │               │                │
+         │               │                │
+    Not started    Being worked on    All tasks done
+```
+
+**State Transitions**:
+- `pending → active`: `claude-todo phase set <slug>` or `phase start <slug>`
+- `active → completed`: `claude-todo phase complete <slug>`
+- Only ONE phase can be active at a time
+
+### Phase Schema Structure
+
+```json
+{
+  "project": {
+    "name": "project-name",
+    "currentPhase": "core",
+    "phases": {
+      "setup": {
+        "order": 1,
+        "name": "Setup & Foundation",
+        "description": "Initial project setup",
+        "status": "completed",
+        "startedAt": "2025-01-01T00:00:00Z",
+        "completedAt": "2025-01-15T00:00:00Z"
+      },
+      "core": {
+        "order": 2,
+        "name": "Core Development",
+        "description": "Build core functionality",
+        "status": "active",
+        "startedAt": "2025-01-15T00:00:00Z",
+        "completedAt": null
+      }
+    }
+  }
+}
+```
+
+### Phase Commands
+
+| Command | Purpose |
+|---------|---------|
+| `claude-todo phases` | List all phases with progress |
+| `claude-todo phases show <slug>` | Show tasks in phase |
+| `claude-todo phases stats` | Detailed phase statistics |
+| `claude-todo phase set <slug>` | Set current project phase |
+| `claude-todo phase show` | Show current phase details |
+
+### Phase Integration Points
+
+| Feature | Integration |
+|---------|-------------|
+| **Task creation** | New tasks inherit `project.currentPhase` |
+| **Focus tracking** | `focus.currentPhase` syncs with project phase |
+| **TodoWrite sync** | `--inject --focused-only` filters by current phase |
+| **Dashboard** | `claude-todo dash` shows current phase status |
+| **Next task** | `claude-todo next` considers phase priority |
+
+### Library: lib/phase-tracking.sh
+
+Key functions:
+- `get_current_phase()` - Read current phase slug
+- `set_current_phase()` - Update project phase
+- `get_phase_status()` - Check phase status
+- `start_phase()` / `complete_phase()` - Lifecycle management
+- `count_phases_by_status()` - Phase statistics
 
 ---
 
@@ -670,6 +787,12 @@ claude-todo init
 | `list-tasks.sh` | Display tasks | `list-tasks.sh [--status STATUS]` |
 | `stats.sh` | Generate stats | `stats.sh [--period DAYS]` |
 
+### Phase Operations (v2.2.0+)
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `phase.sh` | Manage current phase | `phase.sh set <slug>`, `phase.sh show` |
+| `phases.sh` | List/query phases | `phases.sh`, `phases.sh show <slug>`, `phases.sh stats` |
+
 ### Maintenance Operations
 | Script | Purpose | Usage |
 |--------|---------|-------|
@@ -696,6 +819,14 @@ claude-todo init
 - `backup_file()` - Create versioned backup
 - `rotate_backups()` - Manage retention
 - `restore_backup()` - Restore from backup
+
+### phase-tracking.sh (v2.2.0+)
+- `get_current_phase()` - Read current project phase
+- `set_current_phase()` - Update project phase (with validation)
+- `get_phase_status()` - Check phase status (pending/active/completed)
+- `start_phase()` - Transition phase pending → active
+- `complete_phase()` - Transition phase active → completed
+- `count_phases_by_status()` - Phase statistics
 
 ---
 

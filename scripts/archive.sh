@@ -125,11 +125,12 @@ done
 
 # Create archive file if missing
 if [[ ! -f "$ARCHIVE_FILE" ]]; then
-  PROJECT=$(jq -r '.project' "$TODO_FILE")
+  # v2.2.0+: .project is an object with .name; v2.1.x: .project was a string
+  PROJECT_NAME=$(jq -r '.project.name // .project // "unknown"' "$TODO_FILE")
   cat > "$ARCHIVE_FILE" << EOF
 {
   "version": "$VERSION",
-  "project": "$PROJECT",
+  "project": "$PROJECT_NAME",
   "_meta": { "totalArchived": 0, "lastArchived": null, "oldestTask": null, "newestTask": null },
   "archivedTasks": [],
   "statistics": { "byPhase": {}, "byPriority": {"critical":0,"high":0,"medium":0,"low":0}, "byLabel": {}, "averageCycleTime": null }

@@ -1,4 +1,4 @@
-<!-- CLAUDE-TODO:START v0.13.0 -->
+<!-- CLAUDE-TODO:START v0.13.1 -->
 ## Task Management (claude-todo)
 
 Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`
@@ -6,7 +6,6 @@ Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claud
 ### Essential Commands
 ```bash
 ct list                    # View tasks
-ct show <id>               # View single task details
 ct add "Task"              # Create task
 ct done <id>               # Complete task
 ct focus set <id>          # Set active task
@@ -16,8 +15,16 @@ ct exists <id>             # Verify task exists
 ct dash                    # Project overview
 ```
 
+### Phase Tracking (v0.13.1+)
+```bash
+ct phases                  # List phases with progress
+ct phase set <slug>        # Set current project phase
+ct phase show              # Show current phase
+ct list --phase core       # Filter tasks by phase
+```
+
 ### Data Integrity
 - **CLI only** - Never edit `.claude/*.json` directly
-- **Verify state** - Use `ct list` or `ct show <id>` before assuming
+- **Verify state** - Use `ct list` before assuming
 - **Session discipline** - Start/end sessions properly
 <!-- CLAUDE-TODO:END -->

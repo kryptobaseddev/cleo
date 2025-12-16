@@ -29,7 +29,7 @@ The recommendation engine works as follows:
    - `high` = 75 points
    - `medium` = 50 points
    - `low` = 25 points
-4. **Apply phase bonus**: +10 points if task phase matches current focus phase
+4. **Apply phase bonus**: +30 points if task phase matches current focus phase
 5. **Break ties**: Use creation date (older tasks first)
 
 ## Options
@@ -75,9 +75,9 @@ NEXT TASK SUGGESTION
 
 📌 T015 - Implement user authentication
    Priority: critical (score: 100)
-   Phase: core (matches focus: +10 bonus)
+   Phase: core (matches focus: +30 bonus)
    Created: 2025-12-10
-   Final Score: 110
+   Final Score: 130
 
 WHY THIS TASK?
 
@@ -112,17 +112,17 @@ NEXT TASK SUGGESTIONS (Top 3)
 1. 📌 T015 - Implement user authentication
    Priority: critical
    Phase: core
-   Score: 110
+   Score: 130
 
-2. 📌 T018 - Add error logging
+2. 📌 T022 - Optimize API calls
+   Priority: medium
+   Phase: core
+   Score: 80
+
+3. 📌 T018 - Add error logging
    Priority: high
    Phase: polish
    Score: 75
-
-3. 📌 T022 - Optimize API calls
-   Priority: medium
-   Phase: core
-   Score: 60
 ```
 
 ### JSON Output
@@ -149,10 +149,10 @@ Output structure:
       "priority": "critical",
       "phase": "core",
       "createdAt": "2025-12-10T10:00:00Z",
-      "score": 110,
+      "score": 130,
       "breakdown": {
         "priorityScore": 100,
-        "phaseBonus": 10,
+        "phaseBonus": 30,
         "ageBonus": 0
       },
       "dependencies": {
@@ -224,8 +224,8 @@ claude-todo next || claude-todo list --status blocked
 
 ### Bonuses
 
-**Phase Alignment (+10)**:
-If the task's phase matches the current focus task's phase, it receives a bonus. This encourages completing work in one area before context-switching.
+**Phase Alignment (+30)**:
+If the task's phase matches the current project phase or focused task's phase, it receives a significant bonus. This strongly encourages completing work in the current phase before context-switching to other phases.
 
 **Age Tiebreaker**:
 When two tasks have identical scores, older tasks are prioritized to prevent task starvation.
@@ -345,10 +345,10 @@ claude-todo update T015 --priority critical  # Will be suggested first
 
 **Using Phases**:
 ```bash
-# Tasks in same phase as focus get +10 bonus
+# Tasks in same phase as focus get +30 bonus
 claude-todo add "Backend work" --phase core
 claude-todo focus set T015  # Also in core phase
-claude-todo next  # Will prefer core phase tasks
+claude-todo next  # Will strongly prefer core phase tasks
 ```
 
 **Managing Dependencies**:
@@ -367,4 +367,5 @@ claude-todo update T020 --depends T015,T018
 ## Version History
 
 - **v0.8.0**: Initial implementation with priority-based scoring
-- **v0.8.2**: Added phase alignment bonus and explain mode
+- **v0.8.2**: Added phase alignment bonus (+10) and explain mode
+- **v0.13.0**: Increased phase alignment bonus to +30 for stronger phase prioritization

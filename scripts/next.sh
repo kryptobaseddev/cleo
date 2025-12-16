@@ -227,7 +227,7 @@ get_scored_tasks() {
                       elif .priority == "high" then 75
                       elif .priority == "medium" then 50
                       else 25 end),
-      phaseBonus: (if .phase == $phase and $phase != "" then 10 else 0 end)
+      phaseBonus: (if .phase == $phase and $phase != "" then 30 else 0 end)
     })
   ' "$TODO_FILE" 2>/dev/null
 }
@@ -410,17 +410,17 @@ output_explain_format() {
 
     if [[ -n "$project_phase" && "$project_phase" != "null" ]]; then
       echo "Current project phase: $current_phase"
-      echo "  (From project.currentPhase - tasks in this phase get +10 bonus score)"
+      echo "  (From project.currentPhase - tasks in this phase get +30 bonus score)"
     else
       echo "Current focus phase: $current_phase"
-      echo "  (From focused task - tasks in this phase get +10 bonus score)"
+      echo "  (From focused task - tasks in this phase get +30 bonus score)"
     fi
     echo ""
   fi
 
   echo -e "${BOLD}Scoring Breakdown:${NC}"
   echo "  Priority:  critical=100, high=75, medium=50, low=25"
-  echo "  Phase match: +10"
+  echo "  Phase match: +30"
   echo "  Dependencies: Must all be 'done'"
   echo ""
 

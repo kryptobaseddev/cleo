@@ -14,9 +14,19 @@
         "name": "Core Development",
         "status": "pending"
       },
-      "polish": {
+      "testing": {
         "order": 3,
+        "name": "Testing",
+        "status": "pending"
+      },
+      "polish": {
+        "order": 4,
         "name": "Polish",
+        "status": "pending"
+      },
+      "maintenance": {
+        "order": 5,
+        "name": "Maintenance",
         "status": "pending"
       }
     }

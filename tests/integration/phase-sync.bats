@@ -72,7 +72,7 @@ create_phased_project_fixture() {
 }
 CONFIGEOF
 
-    # Create todo.json with tasks in different phases
+    # Create todo.json with tasks in different phases (v2.2.0 schema)
     cat > "$TODO_FILE" << 'EOF'
 {
   "version": "2.2.0",
@@ -83,24 +83,32 @@ CONFIGEOF
       "setup": {
         "order": 1,
         "name": "Setup & Planning",
+        "description": "Initial project setup and planning phase",
         "status": "active",
-        "startedAt": "2025-12-14T09:00:00Z"
+        "startedAt": "2025-12-14T09:00:00Z",
+        "completedAt": null
       },
       "core": {
         "order": 2,
         "name": "Core Development",
-        "status": "pending"
+        "description": "Core feature development",
+        "status": "pending",
+        "startedAt": null,
+        "completedAt": null
       },
       "polish": {
         "order": 3,
         "name": "Polish & Testing",
-        "status": "pending"
+        "description": "Final polish and testing phase",
+        "status": "pending",
+        "startedAt": null,
+        "completedAt": null
       }
     }
   },
   "_meta": {
-    "checksum": "test_phase_sync",
-    "configVersion": "2.0.0",
+    "version": "2.2.0",
+    "checksum": "placeholder",
     "activeSession": "session_phase_test_001"
   },
   "lastUpdated": "2025-12-15T10:00:00Z",
@@ -148,9 +156,12 @@ CONFIGEOF
     "blockedUntil": null,
     "sessionNote": null,
     "nextAction": null
-  }
+  },
+  "labels": {}
 }
 EOF
+    # Update checksum to match content
+    _update_fixture_checksum "$TODO_FILE"
 }
 
 # =============================================================================
@@ -357,11 +368,10 @@ EOF
     run bash "$DASH_SCRIPT"
     assert_success
 
-    # Should display phase information for tasks
-    # Check that different phases are represented
+    # Dashboard shows current phase in header (not task grouping by phase)
+    # Phase info is displayed in "Current Phase:" section
     assert_output --partial "setup"
-    assert_output --partial "core"
-    assert_output --partial "polish"
+    assert_output --partial "Current Phase"
 }
 
 # =============================================================================
@@ -472,8 +482,8 @@ EOF
     run bash "$NEXT_SCRIPT" --format json
     assert_success
 
-    # Should have phase field in JSON
-    echo "$output" | jq -e '.tasks[0].phase'
+    # Should have phase field in suggestions (not tasks)
+    run bash -c "echo '$output' | jq -e '.suggestions[0].phase'"
     assert_success
 }
 
@@ -599,11 +609,12 @@ EOF
     create_phased_project_fixture
 
     # Clear all phases
-    jq '.project.phases = {}' "$TODO_FILE" > "${TODO_FILE}.tmp"
+    jq '.project.phases = {} | .project.currentPhase = null | .focus.currentPhase = null' "$TODO_FILE" > "${TODO_FILE}.tmp"
     mv "${TODO_FILE}.tmp" "$TODO_FILE"
+    _update_fixture_checksum "$TODO_FILE"
 
-    # Add task should still work (uses config or creates phase)
-    run bash "$ADD_SCRIPT" "Task without phases" --quiet
+    # Add task should work with --add-phase to create the phase
+    run bash "$ADD_SCRIPT" "Task without phases" --phase setup --add-phase --quiet
     assert_success
 }
 

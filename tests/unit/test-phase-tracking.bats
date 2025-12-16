@@ -726,7 +726,8 @@ EOF
 }
 
 @test "handles missing project.phases field" {
-    create_empty_todo
+    # Create todo without project.phases field (legacy v2.1 format)
+    create_empty_todo_legacy
     run get_all_phases "$TODO_FILE"
     assert_success
     assert_output "{}"

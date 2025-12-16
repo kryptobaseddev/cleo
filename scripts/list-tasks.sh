@@ -573,7 +573,8 @@ DONE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "done")] | le
 case "$FORMAT" in
   json)
     # JSON format with metadata envelope
-    jq -n --argjson tasks "$FILTERED_TASKS" \
+    # Use stdin piping to avoid "Argument list too long" with large task arrays
+    echo "$FILTERED_TASKS" | jq \
       --arg version "$VERSION" \
       --arg timestamp "$CURRENT_TIMESTAMP" \
       --arg checksum "$TASKS_CHECKSUM" \
@@ -611,7 +612,7 @@ case "$FORMAT" in
         blocked: $blocked,
         done: $done
       },
-      tasks: $tasks
+      tasks: .
     }'
     ;;
 

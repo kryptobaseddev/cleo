@@ -930,6 +930,278 @@ This ensures todo + archive are ALWAYS in sync.
 
 ---
 
+## Phase Operation Data Flows (v2.2.0+)
+
+### Phase Set Operation
+
+```
+                     PHASE SET REQUEST
+                     (claude-todo phase set <slug>)
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Load todo.json    │
+                   │  Validate phase    │
+                   │  slug exists       │
+                   └──────────┬─────────┘
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+           Phase Not Found           Phase Found
+                 │                         │
+                 ▼                         ▼
+            ┌─────────┐         ┌──────────────────┐
+            │  ERROR  │         │  Get Previous    │
+            │  "Phase │         │  Phase Status    │
+            │  does   │         └────────┬─────────┘
+            │  not    │                  │
+            │  exist" │                  ▼
+            └─────────┘         ┌──────────────────┐
+                                │  Update Previous │
+                                │  Phase:          │
+                                │  status=completed│
+                                │  (if active)     │
+                                └────────┬─────────┘
+                                         │
+                                         ▼
+                                ┌──────────────────┐
+                                │  Set New Phase:  │
+                                │  project.        │
+                                │   currentPhase   │
+                                │  focus.          │
+                                │   currentPhase   │
+                                └────────┬─────────┘
+                                         │
+                                         ▼
+                                ┌──────────────────┐
+                                │  Update New      │
+                                │  Phase:          │
+                                │  status=active   │
+                                │  startedAt=now   │
+                                └────────┬─────────┘
+                                         │
+                                         ▼
+                                ┌──────────────────┐
+                                │  Atomic Write    │
+                                │  + Log Operation │
+                                │  + Backup        │
+                                └────────┬─────────┘
+                                         │
+                                         ▼
+                                ┌──────────────────┐
+                                │    SUCCESS       │
+                                │  "Phase set to   │
+                                │   <slug>"        │
+                                └──────────────────┘
+```
+
+### Task Phase Inheritance Flow
+
+```
+                      ADD TASK REQUEST
+                      (claude-todo add "Task title")
+                               │
+                               ▼
+                    ┌────────────────────┐
+                    │  Parse Arguments   │
+                    │  Check --phase     │
+                    └──────────┬─────────┘
+                               │
+              ┌────────────────┴────────────────┐
+              │                                 │
+       --phase provided              No --phase flag
+              │                                 │
+              ▼                                 ▼
+    ┌──────────────────┐             ┌──────────────────┐
+    │  Use Explicit    │             │  Read            │
+    │  Phase from CLI  │             │  project.        │
+    │                  │             │   currentPhase   │
+    └────────┬─────────┘             └────────┬─────────┘
+             │                                │
+             └────────────────┬───────────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Validate Phase    │
+                   │  Exists in         │
+                   │  project.phases    │
+                   └──────────┬─────────┘
+                              │
+             ┌────────────────┴────────────────┐
+             │                                 │
+       Phase Invalid                    Phase Valid
+             │                                 │
+             ▼                                 ▼
+      ┌──────────────┐              ┌──────────────────┐
+      │    ERROR     │              │  Create Task     │
+      │  "Phase      │              │  with            │
+      │  not found"  │              │  phase: <slug>   │
+      └──────────────┘              └────────┬─────────┘
+                                             │
+                                             ▼
+                                  ┌──────────────────┐
+                                  │  Add to          │
+                                  │  todo.json       │
+                                  │  (standard flow) │
+                                  └──────────────────┘
+
+Key Points:
+  - Tasks INHERIT currentPhase if not specified
+  - Explicit --phase flag overrides inheritance
+  - Phase must exist in project.phases
+  - No phase validation skips inheritance
+```
+
+### Phase Listing Data Flow
+
+```
+                     PHASES COMMAND
+                     (claude-todo phases)
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Load todo.json    │
+                   │  Extract project   │
+                   │  object            │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Get phases:       │
+                   │  project.phases    │
+                   │  project.          │
+                   │   currentPhase     │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  For Each Phase:   │
+                   │  - Count tasks     │
+                   │  - Count completed │
+                   │  - Calculate %     │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Sort by order     │
+                   │  field             │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Format Output:    │
+                   │  - Status icon     │
+                   │  - Progress bar    │
+                   │  - Current marker  │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌──────────────────────────────────┐
+                   │         OUTPUT EXAMPLE            │
+                   │                                   │
+                   │  Phases (4 phases)               │
+                   │  ┌────────────────────────────┐  │
+                   │  │ ✓ setup  [████████] 100%  │  │
+                   │  │ ◉ core   [████░░░░]  50%  │◄─current
+                   │  │ ○ polish [░░░░░░░░]   0%  │  │
+                   │  │ ○ maint  [░░░░░░░░]   0%  │  │
+                   │  └────────────────────────────┘  │
+                   └──────────────────────────────────┘
+```
+
+### TodoWrite Sync Phase Filtering
+
+```
+                    INJECT COMMAND
+                    (claude-todo sync --inject --focused-only)
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Read todo.json    │
+                   │  Get currentPhase  │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Filter Tasks:     │
+                   │  WHERE             │
+                   │  task.phase ==     │
+                   │   currentPhase     │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Export to         │
+                   │  TodoWrite Format  │
+                   │  (filtered set)    │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Store Phase       │
+                   │  Metadata in       │
+                   │  Sync State File   │
+                   └──────────────────────┘
+
+                    EXTRACT COMMAND
+                    (claude-todo sync --extract)
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Read TodoWrite    │
+                   │  State from        │
+                   │  stdin/file        │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Read Sync State   │
+                   │  Get original      │
+                   │  phase context     │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  For NEW tasks     │
+                   │  from TodoWrite:   │
+                   │  Inherit phase     │
+                   │  from sync state   │
+                   └──────────┬─────────┘
+                              │
+                              ▼
+                   ┌────────────────────┐
+                   │  Merge Changes     │
+                   │  Back to           │
+                   │  todo.json         │
+                   └──────────────────────┘
+```
+
+### File Interaction Matrix (Phase Operations)
+
+```
+┌──────────────────┬─────────────┬──────────────────┬──────────────────┬──────────────────┐
+│  OPERATION       │  todo.json  │ todo-archive.json│ todo-config.json │ todo-log.json    │
+├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
+│  phase.sh set    │   R + W     │      -           │      R           │      W           │
+├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
+│  phase.sh show   │      R      │      -           │      R           │      -           │
+├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
+│  phases.sh       │      R      │      -           │      R           │      -           │
+├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
+│  phases.sh show  │      R      │      -           │      R           │      -           │
+├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
+│  phases.sh stats │      R      │      R           │      R           │      -           │
+└──────────────────┴─────────────┴──────────────────┴──────────────────┴──────────────────┘
+
+Legend:
+  R = Read operation
+  W = Write operation
+  R + W = Read then Write (atomic update)
+  - = Not accessed
+```
+
+---
+
 ## Summary
 
 These data flow diagrams illustrate:
@@ -943,5 +1215,6 @@ These data flow diagrams illustrate:
 7. **Error Recovery**: Comprehensive failure handling
 8. **Synchronization**: Multi-file consistency guarantees
 9. **Statistics**: Comprehensive reporting from all data sources
+10. **Phase Operations** (v2.2.0+): Project-level phase tracking with task inheritance
 
-The architecture prioritizes **data integrity**, **atomicity**, **recoverability**, and **anti-hallucination protection** throughout all operations.
+The architecture prioritizes **data integrity**, **atomicity**, **recoverability**, **anti-hallucination protection**, and **phase-aware workflows** throughout all operations.

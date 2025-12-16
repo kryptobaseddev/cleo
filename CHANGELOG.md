@@ -5,6 +5,31 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2025-12-16
+
+### Fixed
+- **Critical: Migration v2.1.0 → v2.2.0 not running** (IFS bug)
+  - `lib/migrate.sh`: `check_compatibility()` failed due to `IFS=':'` persisting from caller
+  - Version parsing in `read` commands didn't split on spaces when IFS was modified
+  - Fix: Explicitly set `IFS=' '` in read statements for version parsing
+  - Migration now correctly detects v2.1.0 files and upgrades to v2.2.0
+
+- **"Argument list too long" with large task counts**
+  - `scripts/list-tasks.sh`: JSON output failed with 200+ tasks due to `--argjson` CLI limit
+  - `scripts/history.sh`: Same issue with large datasets
+  - Fix: Changed to stdin piping (`echo | jq`) and temp files (`--slurpfile`) instead of CLI args
+
+- **Phase completion validation**
+  - `lib/phase-tracking.sh`: `complete_phase()` now validates no incomplete tasks before allowing completion
+  - `lib/phase-tracking.sh`: `advance_phase()` now skips completion step if phase already completed
+
+- **Phase priority in next command**
+  - `scripts/next.sh`: Increased phase bonus from +10 to +30 for better task prioritization
+
+### Changed
+- `docs/commands/next.md`: Updated phase bonus documentation (+10 → +30)
+- `docs/commands/phase.md`: Added task validation requirement for phase completion
+
 ## [0.13.0] - 2025-12-16
 
 ### Added

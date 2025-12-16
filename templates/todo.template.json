@@ -21,16 +21,24 @@
         "startedAt": null,
         "completedAt": null
       },
-      "polish": {
+      "testing": {
         "order": 3,
-        "name": "Polish & Launch",
-        "description": "Refinement, testing, and release preparation",
+        "name": "Testing & Validation",
+        "description": "Comprehensive testing, validation, and quality assurance",
+        "status": "pending",
+        "startedAt": null,
+        "completedAt": null
+      },
+      "polish": {
+        "order": 4,
+        "name": "Polish & Refinement",
+        "description": "UX improvements, optimization, and release preparation",
         "status": "pending",
         "startedAt": null,
         "completedAt": null
       },
       "maintenance": {
-        "order": 4,
+        "order": 5,
         "name": "Maintenance",
         "description": "Bug fixes, updates, and ongoing support",
         "status": "pending",

@@ -214,8 +214,8 @@ get_phase_status() {
 # Get all phases with their statistics
 get_phase_stats() {
   jq -r '
-    # Get phase definitions (default to empty object)
-    (.phases // {}) as $phase_defs |
+    # Get phase definitions from project.phases (v2.2.0+) or .phases (legacy)
+    (.project.phases // .phases // {}) as $phase_defs |
 
     # Get all tasks
     .tasks as $tasks |
@@ -234,6 +234,7 @@ get_phase_stats() {
         name: ($phase_defs[$slug].name // $slug),
         description: ($phase_defs[$slug].description // ""),
         order: ($phase_defs[$slug].order // 999),
+        status: ($phase_defs[$slug].status // "pending"),
         tasks: [$tasks[] | select(.phase == $slug)],
         total: ([$tasks[] | select(.phase == $slug)] | length),
         done: ([$tasks[] | select(.phase == $slug and .status == "done")] | length),
@@ -263,12 +264,18 @@ list_phases() {
   count=$(echo "$phase_stats" | jq 'length')
 
   if [[ "$OUTPUT_FORMAT" == "json" ]]; then
-    echo "$phase_stats" | jq '{
+    # Get currentPhase from todo.json
+    local current_phase
+    current_phase=$(jq -r '.focus.currentPhase // .project.currentPhase // null' "$TODO_FILE")
+
+    echo "$phase_stats" | jq --arg cp "$current_phase" '{
+      currentPhase: $cp,
       phases: [.[] | {
         slug: .slug,
         name: .name,
         description: .description,
         order: .order,
+        status: .status,
         total: .total,
         done: .done,
         pending: .pending,
@@ -358,10 +365,10 @@ list_phases() {
 show_phase() {
   local phase_slug="$1"
 
-  # Check if phase exists
+  # Check if phase exists (support v2.2.0 project.phases and legacy .phases)
   local phase_exists
   phase_exists=$(jq --arg p "$phase_slug" '
-    (.phases[$p] != null) or ([.tasks[].phase] | index($p) != null)
+    ((.project.phases // .phases)[$p] != null) or ([.tasks[].phase] | index($p) != null)
   ' "$TODO_FILE")
 
   if [[ "$phase_exists" != "true" ]]; then
@@ -369,13 +376,14 @@ show_phase() {
     exit 1
   fi
 
-  # Get phase info
+  # Get phase info (support v2.2.0 project.phases and legacy .phases)
   local phase_info
   phase_info=$(jq --arg p "$phase_slug" '
+    (.project.phases // .phases // {}) as $phases |
     {
       slug: $p,
-      name: (.phases[$p].name // $p),
-      description: (.phases[$p].description // ""),
+      name: ($phases[$p].name // $p),
+      description: ($phases[$p].description // ""),
       tasks: [.tasks[] | select(.phase == $p)]
     }
   ' "$TODO_FILE")

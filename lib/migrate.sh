@@ -548,8 +548,9 @@ check_compatibility() {
     curr_parts=$(parse_version "$current_version") || return 2
     exp_parts=$(parse_version "$expected_version") || return 2
 
-    read -r curr_major curr_minor curr_patch <<< "$curr_parts"
-    read -r exp_major exp_minor exp_patch <<< "$exp_parts"
+    # Explicitly set IFS to space for version parsing (IFS may have been modified by caller)
+    IFS=' ' read -r curr_major curr_minor curr_patch <<< "$curr_parts"
+    IFS=' ' read -r exp_major exp_minor exp_patch <<< "$exp_parts"
 
     # Check backward compatibility rules
     if [[ $curr_major -ne $exp_major ]]; then

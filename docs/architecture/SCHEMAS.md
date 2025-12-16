@@ -19,22 +19,65 @@ All schemas use JSON Schema Draft-07 with strict `additionalProperties: false` t
 
 ## Task Schema (todo.schema.json)
 
-**Schema ID**: `claude-todo-schema-v2.1`
-**Current Version**: `2.1.0`
+**Schema ID**: `claude-todo-schema-v2.2`
+**Current Version**: `2.2.0`
 
 ### Root Object
 
 Required properties:
 - `version` (string) - Schema version in semver format (pattern: `^\d+\.\d+\.\d+$`)
-- `project` (string) - Project identifier (minLength: 1)
+- `project` (object) - Project configuration with phase tracking (v2.2.0+)
 - `lastUpdated` (string) - ISO 8601 timestamp of last modification
 - `tasks` (array) - Flat array of all active tasks
 - `_meta` (object) - System metadata for integrity verification
 
 Optional properties:
 - `focus` (object) - Session continuity state
-- `phases` (object) - Phase definitions (slugs and metadata)
 - `labels` (object) - Computed label-to-task-ID index
+
+### Project Object (v2.2.0+)
+
+The `project` field is now an object containing project metadata and phase definitions.
+
+Required properties:
+- `name` (string) - Project identifier (minLength: 1)
+- `phases` (object) - Phase definitions keyed by slug
+
+Optional properties:
+- `currentPhase` (string or null) - Active phase slug (pattern: `^[a-z][a-z0-9-]*$`)
+
+Example:
+```json
+{
+  "project": {
+    "name": "my-project",
+    "currentPhase": "core",
+    "phases": {
+      "setup": { "order": 1, "name": "Setup", "status": "completed" },
+      "core": { "order": 2, "name": "Core Dev", "status": "active" },
+      "polish": { "order": 3, "name": "Polish", "status": "pending" }
+    }
+  }
+}
+```
+
+### Phase Definition Object
+
+Each phase in `project.phases` has the following structure:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `order` | integer | **Yes** | Display order (minimum: 1) |
+| `name` | string | **Yes** | Human-readable name (max 50 chars) |
+| `description` | string | No | Phase description (max 200 chars) |
+| `status` | string | **Yes** | Phase status (see below) |
+| `startedAt` | string or null | No | When phase was activated (ISO 8601) |
+| `completedAt` | string or null | No | When phase was completed (ISO 8601) |
+
+**Phase Status Values**:
+- `pending` - Phase not yet started
+- `active` - Currently working on this phase (only ONE phase can be active)
+- `completed` - Phase work finished
 
 ### Task Object Definition
 
@@ -123,26 +166,19 @@ Ordered from highest to lowest:
 | `sessionNote` | string or null | Context from last session (max 1000 chars) |
 | `nextAction` | string or null | Specific next step when resuming (max 500 chars) |
 
-### Phases Object
+### Focus Object - Phase Tracking
 
-Optional phase definitions. Keys are slugs referenced by `task.phase`.
+The focus object includes phase-aware tracking (v2.2.0+):
 
-**Pattern**: `^[a-z][a-z0-9-]*$` (lowercase alphanumeric + hyphens)
+| Field | Type | Description |
+|-------|------|-------------|
+| `currentTask` | string or null | Task ID with status=active (pattern: `^T\d{3,}$`) |
+| `currentPhase` | string or null | Synced with `project.currentPhase` |
+| `blockedUntil` | string or null | Global blocker if entire project stuck |
+| `sessionNote` | string or null | Context from last session (max 1000 chars) |
+| `nextAction` | string or null | Specific next step when resuming (max 500 chars) |
 
-Each phase requires:
-- `order` (integer, minimum: 1) - Display order
-- `name` (string, max 50 chars) - Human-readable name
-
-Example:
-```json
-{
-  "phases": {
-    "setup": { "order": 1, "name": "Project Setup" },
-    "core": { "order": 2, "name": "Core Features" },
-    "polish": { "order": 3, "name": "Polish & Optimization" }
-  }
-}
-```
+**Phase Synchronization**: When `project.currentPhase` changes, `focus.currentPhase` is automatically updated to match.
 
 ### Labels Object
 
@@ -165,7 +201,7 @@ Example:
 
 ## Archive Schema (archive.schema.json)
 
-**Schema ID**: `claude-todo-archive-schema-v2.1`
+**Schema ID**: `claude-todo-archive-schema-v2.2`
 
 ### Root Object
 
@@ -232,7 +268,7 @@ Computed during archive operations:
 
 ## Config Schema (config.schema.json)
 
-**Schema ID**: `claude-todo-config-schema-v2.1`
+**Schema ID**: `claude-todo-config-schema-v2.2`
 
 ### Root Object
 
@@ -375,7 +411,7 @@ Debug and validation settings for CLI operations.
 
 ## Log Schema (log.schema.json)
 
-**Schema ID**: `claude-todo-log-schema-v2.1`
+**Schema ID**: `claude-todo-log-schema-v2.2`
 
 ### Root Object
 
@@ -423,6 +459,9 @@ config_changed     - Configuration modified
 validation_run     - Validation check performed
 checksum_updated   - Checksum recalculated
 error_occurred     - Error logged for debugging
+phase_changed      - Project phase changed (v2.2.0+)
+phase_started      - Phase transitioned to active (v2.2.0+)
+phase_completed    - Phase marked as completed (v2.2.0+)
 ```
 
 #### Actor Types
@@ -878,5 +917,5 @@ When schema changes:
 
 ---
 
-**Last Updated**: 2025-12-05
-**Schema Version**: 2.1.0
+**Last Updated**: 2025-12-16
+**Schema Version**: 2.2.0

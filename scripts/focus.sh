@@ -199,9 +199,12 @@ cmd_set() {
     .tasks = [.tasks[] | if .id == $id then .status = "active" else . end]
   ' "$TODO_FILE")
 
-  # Update project.currentPhase if task has phase
+  # Update project.currentPhase and focus.currentPhase if task has phase
   if [[ -n "$task_phase" && "$task_phase" != "null" ]]; then
-    updated_todo=$(echo "$updated_todo" | jq --arg phase "$task_phase" '.project.currentPhase = $phase')
+    updated_todo=$(echo "$updated_todo" | jq --arg phase "$task_phase" '
+      .project.currentPhase = $phase |
+      .focus.currentPhase = $phase
+    ')
     log_info "Phase changed to: $task_phase"
   fi
 

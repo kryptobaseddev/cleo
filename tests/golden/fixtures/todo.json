@@ -6,7 +6,9 @@
   "phases": {
     "setup": {"name": "Setup", "description": "Initial setup tasks", "order": 1},
     "core": {"name": "Core", "description": "Core functionality", "order": 2},
-    "polish": {"name": "Polish", "description": "Final polish", "order": 3}
+    "testing": {"name": "Testing", "description": "Testing and validation", "order": 3},
+    "polish": {"name": "Polish", "description": "Final polish", "order": 4},
+    "maintenance": {"name": "Maintenance", "description": "Bug fixes and support", "order": 5}
   },
   "tasks": [
     {

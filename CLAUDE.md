@@ -24,13 +24,20 @@ claude-todo archive                 # Archive completed tasks
 claude-todo validate                # Validate all JSON files
 claude-todo stats                   # Show statistics
 
-# Phase 3 Commands (v0.8.2)
+# Analysis Commands (v0.8.2+)
 claude-todo dash                    # Comprehensive dashboard overview
 claude-todo dash --compact          # Single-line summary
 claude-todo labels                  # List all labels with counts
 claude-todo labels show <label>     # Show tasks with specific label
 claude-todo next                    # Get next task suggestion
 claude-todo next --explain          # Show reasoning for suggestion
+
+# Phase Tracking (v0.13.0+)
+claude-todo phases                  # List phases with progress
+claude-todo phases show <slug>      # Tasks in specific phase
+claude-todo phases stats            # Detailed phase statistics
+claude-todo phase set <slug>        # Set current project phase
+claude-todo phase show              # Show current phase details
 
 claude-todo help                    # Show all commands
 ```
@@ -46,9 +53,10 @@ docs/             # Documentation
 ```
 
 ## Key Files
-- Schema definitions: `schemas/todo.schema.json`
-- Library core: `lib/validation.sh`, `lib/file-ops.sh`, `lib/logging.sh`
+- Schema definitions: `schemas/todo.schema.json` (v2.2.0 with project.phases)
+- Library core: `lib/validation.sh`, `lib/file-ops.sh`, `lib/logging.sh`, `lib/phase-tracking.sh`
 - Main scripts: `scripts/add-task.sh`, `scripts/update-task.sh`, `scripts/complete-task.sh`
+- Phase commands: `scripts/phase.sh`, `scripts/phases.sh`
 
 ## Rules
 - **CRITICAL**: All write operations MUST use atomic pattern (temp file → validate → backup → rename)
@@ -81,7 +89,7 @@ You cannot accurately predict time. Estimates create false precision and bad dec
 - Usage: docs/usage.md
 
 
-<!-- CLAUDE-TODO:START v0.12.6 -->
+<!-- CLAUDE-TODO:START v0.13.0 -->
 ## Task Management (claude-todo)
 
 Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`
@@ -96,6 +104,14 @@ ct focus show              # Show current focus
 ct session start|end       # Session lifecycle
 ct exists <id>             # Verify task exists
 ct dash                    # Project overview
+```
+
+### Phase Tracking (v0.13.0+)
+```bash
+ct phases                  # List phases with progress
+ct phase set <slug>        # Set current project phase
+ct phase show              # Show current phase
+ct list --phase core       # Filter tasks by phase
 ```
 
 ### Data Integrity

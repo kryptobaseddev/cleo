@@ -34,11 +34,21 @@ EOF
 
     cat > "$TODO_FILE" << 'EOF'
 {
-  "version": "0.8.2",
-  "project": "archive-atomic-test",
+  "version": "2.2.0",
+  "project": {
+    "name": "archive-atomic-test",
+    "currentPhase": "setup",
+    "phases": {
+      "setup": {"order": 1, "name": "Setup", "description": "Initial setup", "status": "active", "startedAt": "2025-12-01T10:00:00Z", "completedAt": null},
+      "core": {"order": 2, "name": "Core", "description": "Core features", "status": "pending", "startedAt": null, "completedAt": null},
+      "testing": {"order": 3, "name": "Testing", "description": "Testing and validation", "status": "pending", "startedAt": null, "completedAt": null},
+      "polish": {"order": 4, "name": "Polish", "description": "Polish and optimization", "status": "pending", "startedAt": null, "completedAt": null},
+      "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
+    }
+  },
   "_meta": {
-    "version": "2.1.0",
-    "checksum": "test123",
+    "version": "2.2.0",
+    "checksum": "placeholder",
     "activeSession": null
   },
   "lastUpdated": "2025-12-01T00:00:00Z",
@@ -49,6 +59,7 @@ EOF
       "description": "First completed task",
       "status": "done",
       "priority": "medium",
+      "phase": "setup",
       "createdAt": "2025-11-01T00:00:00Z",
       "completedAt": "2025-11-05T00:00:00Z"
     },
@@ -58,6 +69,7 @@ EOF
       "description": "Second completed task",
       "status": "done",
       "priority": "medium",
+      "phase": "setup",
       "createdAt": "2025-11-02T00:00:00Z",
       "completedAt": "2025-11-06T00:00:00Z"
     },
@@ -67,6 +79,7 @@ EOF
       "description": "Recent completed task",
       "status": "done",
       "priority": "medium",
+      "phase": "setup",
       "createdAt": "2025-12-10T00:00:00Z",
       "completedAt": "2025-12-11T00:00:00Z"
     },
@@ -76,6 +89,7 @@ EOF
       "description": "Active task depending on archived task",
       "status": "active",
       "priority": "high",
+      "phase": "setup",
       "createdAt": "2025-12-10T00:00:00Z",
       "depends": ["T001", "T005"]
     },
@@ -85,6 +99,7 @@ EOF
       "description": "Pending task",
       "status": "pending",
       "priority": "medium",
+      "phase": "setup",
       "createdAt": "2025-12-10T00:00:00Z"
     },
     {
@@ -93,13 +108,17 @@ EOF
       "description": "Pending task depending on archived task",
       "status": "pending",
       "priority": "low",
+      "phase": "setup",
       "createdAt": "2025-12-10T00:00:00Z",
       "depends": ["T002"]
     }
   ],
-  "focus": {}
+  "focus": {"currentPhase": "setup"},
+  "labels": {}
 }
 EOF
+    # Update checksum to match content
+    _update_fixture_checksum "$TODO_FILE"
 }
 
 # =============================================================================
@@ -279,15 +298,11 @@ EOF
 # =============================================================================
 
 @test "archive handles tasks with no completedAt gracefully" {
-    cat > "$TODO_FILE" << 'EOF'
-{
-  "_meta": {"version": "2.1.0", "checksum": "test123"},
-  "tasks": [
-    {"id": "T001", "title": "Done without date", "description": "Missing completedAt", "status": "done", "priority": "medium", "createdAt": "2025-11-01T00:00:00Z"}
-  ],
-  "focus": {}
-}
-EOF
+    # Use the shared fixture generator to create a v2.2.0 compatible fixture
+    create_empty_todo
+    jq '.tasks = [{"id": "T001", "title": "Done without date", "description": "Missing completedAt", "status": "done", "priority": "medium", "phase": "setup", "createdAt": "2025-11-01T00:00:00Z"}]' "$TODO_FILE" > "${TODO_FILE}.tmp"
+    mv "${TODO_FILE}.tmp" "$TODO_FILE"
+    _update_fixture_checksum "$TODO_FILE"
 
     run bash "$ARCHIVE_SCRIPT" --force
     # Should handle gracefully
@@ -298,16 +313,14 @@ EOF
 }
 
 @test "archive handles empty depends array" {
-    cat > "$TODO_FILE" << 'EOF'
-{
-  "_meta": {"version": "2.1.0", "checksum": "test123"},
-  "tasks": [
-    {"id": "T001", "title": "Done", "description": "Completed", "status": "done", "priority": "medium", "createdAt": "2025-11-01T00:00:00Z", "completedAt": "2025-11-05T00:00:00Z"},
-    {"id": "T002", "title": "Pending", "description": "Has empty depends", "status": "pending", "priority": "medium", "createdAt": "2025-12-01T00:00:00Z", "depends": []}
-  ],
-  "focus": {}
-}
-EOF
+    # Use the shared fixture generator to create a v2.2.0 compatible fixture
+    create_empty_todo
+    jq '.tasks = [
+      {"id": "T001", "title": "Done", "description": "Completed", "status": "done", "priority": "medium", "phase": "setup", "createdAt": "2025-11-01T00:00:00Z", "completedAt": "2025-11-05T00:00:00Z"},
+      {"id": "T002", "title": "Pending", "description": "Has empty depends", "status": "pending", "priority": "medium", "phase": "setup", "createdAt": "2025-12-01T00:00:00Z", "depends": []}
+    ]' "$TODO_FILE" > "${TODO_FILE}.tmp"
+    mv "${TODO_FILE}.tmp" "$TODO_FILE"
+    _update_fixture_checksum "$TODO_FILE"
 
     run bash "$ARCHIVE_SCRIPT" --force
     assert_success

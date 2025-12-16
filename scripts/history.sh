@@ -242,13 +242,20 @@ enrich_completions() {
   [[ -f "$TODO_FILE" ]] && current_tasks=$(jq -r '.tasks // []' "$TODO_FILE" 2>/dev/null || echo "[]")
 
   # Merge completion events with task metadata
-  jq -n --argjson completions "$completions" \
-        --argjson archive "$archive_tasks" \
-        --argjson current "$current_tasks" '
-    $completions | map(
+  # Use temp files to avoid "Argument list too long" with large datasets
+  local temp_dir
+  temp_dir=$(mktemp -d)
+  echo "$completions" > "$temp_dir/completions.json"
+  echo "$archive_tasks" > "$temp_dir/archive.json"
+  echo "$current_tasks" > "$temp_dir/current.json"
+
+  jq -n --slurpfile completions "$temp_dir/completions.json" \
+        --slurpfile archive "$temp_dir/archive.json" \
+        --slurpfile current "$temp_dir/current.json" '
+    $completions[0] | map(
       . as $comp |
-      (($archive | map(select(.id == $comp.taskId)) | .[0]) //
-       ($current | map(select(.id == $comp.taskId)) | .[0])) as $task |
+      (($archive[0] | map(select(.id == $comp.taskId)) | .[0]) //
+       ($current[0] | map(select(.id == $comp.taskId)) | .[0])) as $task |
       if $task then
         {
           taskId: $comp.taskId,
@@ -268,6 +275,8 @@ enrich_completions() {
       end
     )
   '
+
+  rm -rf "$temp_dir"
 }
 
 # Aggregate completions by day

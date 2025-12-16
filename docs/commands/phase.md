@@ -111,11 +111,21 @@ Completed phase: setup
 ```
 
 **Behavior**:
+- Validates all tasks in the phase are `done`
 - Sets phase status to `completed`
 - Records `completedAt` timestamp
 - Logs phase completion event with duration
 
-**Restrictions**: Can only complete phases with status `active`.
+**Restrictions**:
+- Can only complete phases with status `active`
+- **All tasks in the phase must be completed** (status = `done`)
+
+If incomplete tasks exist:
+```
+ERROR: Cannot complete phase 'setup' - 3 incomplete task(s) pending
+```
+
+**Solution**: Complete all pending tasks in the phase before completing the phase itself.
 
 ### Advance to Next Phase
 
@@ -130,7 +140,9 @@ Advanced from 'core' to 'polish'
 ```
 
 **Behavior**:
-1. Completes current phase
+1. Completes current phase (if still `active`)
+   - **Skips completion step if phase is already `completed`**
+   - Validates all tasks are `done` before completing
 2. Finds next phase by `order` value
 3. Starts next phase automatically
 4. Updates current phase pointer
@@ -138,6 +150,17 @@ Advanced from 'core' to 'polish'
 **Error Cases**:
 - No current phase set
 - No next phase exists (final phase)
+- Incomplete tasks in current phase (if phase is `active`)
+
+**Typical Workflows**:
+```bash
+# Workflow 1: Advance completes and advances
+claude-todo phase advance  # Completes active phase, starts next
+
+# Workflow 2: Explicit complete then advance
+claude-todo phase complete setup  # Manually complete
+claude-todo phase advance          # Only starts next (skips completion)
+```
 
 ### List All Phases
 

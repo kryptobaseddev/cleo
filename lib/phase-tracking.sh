@@ -136,6 +136,17 @@ complete_phase() {
         return 1
     fi
 
+    # Check for incomplete tasks in this phase
+    local incomplete_count
+    incomplete_count=$(jq --arg phase "$slug" '
+        [.tasks[] | select(.phase == $phase and .status != "done")] | length
+    ' "$todo_file")
+
+    if [[ "$incomplete_count" -gt 0 ]]; then
+        echo "ERROR: Cannot complete phase '$slug' - $incomplete_count incomplete task(s) pending" >&2
+        return 1
+    fi
+
     temp_file=$(mktemp)
     local timestamp
     timestamp=$(get_iso_timestamp)
@@ -147,13 +158,14 @@ complete_phase() {
     ' "$todo_file" > "$temp_file" && mv "$temp_file" "$todo_file"
 }
 
-# Advance to next phase (complete current, start next)
+# Advance to next phase (complete current if needed, start next)
 # Args: $1 = todo file path
 # Returns: 0 on success, 1 if no next phase
 advance_phase() {
     local todo_file="${1:-$TODO_FILE}"
     local current_phase
     local current_order
+    local current_status
     local next_phase
 
     current_phase=$(get_current_phase "$todo_file")
@@ -164,6 +176,7 @@ advance_phase() {
     fi
 
     current_order=$(jq -r --arg slug "$current_phase" '.project.phases[$slug].order // 0' "$todo_file")
+    current_status=$(get_phase_status "$current_phase" "$todo_file")
 
     # Find next phase by order
     next_phase=$(jq -r --argjson order "$current_order" '
@@ -178,8 +191,12 @@ advance_phase() {
         return 1
     fi
 
-    # Complete current and start next
-    complete_phase "$current_phase" "$todo_file" || return 1
+    # Complete current phase if still active (skip if already completed)
+    if [[ "$current_status" == "active" ]]; then
+        complete_phase "$current_phase" "$todo_file" || return 1
+    fi
+
+    # Start next phase
     start_phase "$next_phase" "$todo_file" || return 1
 
     echo "Advanced from '$current_phase' to '$next_phase'"
