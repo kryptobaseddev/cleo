@@ -28,6 +28,7 @@
 | **[usage.md](usage.md)** | Usage guide and examples | Learning system operations |
 | **[PHASE-3-FEATURES.md](PHASE-3-FEATURES.md)** | Phase 3 features overview (v0.8.2) | Understanding new workflow commands |
 | **[TODO_Task_Management.md](TODO_Task_Management.md)** | CLI reference (installed to ~/.claude-todo/docs/) | Quick CLI command reference |
+| **[TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md)** | Task sizing and completion philosophy | Understanding "Always Be Shipping" principles for agents |
 | **[cli-output-formats.md](reference/cli-output-formats.md)** | Output formats reference | Understanding output formats (list: text/json/jsonl/markdown/table, export: csv/tsv) |
 | **[configuration.md](reference/configuration.md)** | Configuration reference | Customizing system behavior |
 | **[schema-reference.md](architecture/SCHEMAS.md)** | Data schema documentation | Understanding data structures |
@@ -41,6 +42,7 @@
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
 | **[commands/add.md](commands/add.md)** | Add task command documentation | Creating new tasks with options |
+| **[commands/analyze.md](commands/analyze.md)** | Analyze command documentation | Task triage with leverage scoring and bottleneck detection |
 | **[commands/archive.md](commands/archive.md)** | Archive command documentation | Archiving completed tasks |
 | **[commands/backup.md](commands/backup.md)** | Backup command documentation | Creating and listing backups |
 | **[commands/blockers.md](commands/blockers.md)** | Blockers command documentation | Analyzing blocked tasks and chains |
@@ -239,6 +241,26 @@
 
 ---
 
+### TASK-COMPLETION-PHILOSOPHY.md
+**Purpose**: Task sizing and completion philosophy for agent-driven development
+
+**Contents**:
+- "Always Be Shipping" core principles
+- Minimum viable task size (1-4 hours sweet spot)
+- Epic/Story/Task hierarchy and shippable increments
+- Definition of Done vs. Acceptance Criteria
+- Work-in-Progress (WIP) limits for agents
+- Task:Planning ratio guidelines (80/20)
+- Preventing planning paralysis anti-patterns
+- Deployment frequency best practices
+- Trunk-based development model
+- Agent-specific completion rules
+- Governance and quality standards
+
+**Best For**: Understanding task sizing, preventing planning paralysis, agent automation workflows, deployment velocity optimization
+
+---
+
 ### cli-output-formats.md
 **Purpose**: CLI output formats reference guide
 
@@ -373,6 +395,7 @@
 1. Start with [usage.md](usage.md) for operations
 2. Keep [QUICK-REFERENCE.md](QUICK-REFERENCE.md) nearby for quick lookups
 3. Reference [schema-reference.md](architecture/SCHEMAS.md) for data structures
+4. Review [TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md) for task sizing and shipping velocity
 
 #### ...implement the system
 1. Read [ARCHITECTURE.md](architecture/ARCHITECTURE.md) thoroughly
@@ -553,6 +576,7 @@ You understand the CLAUDE-TODO system when you can:
 - **Configuring**: [configuration.md](reference/configuration.md) → Configuration options
 - **Using**: [usage.md](usage.md) → Operation guide
 - **Understanding**: [ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary) → Overview
+- **Task Sizing**: [TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md) → Shipping velocity and completion philosophy
 - **Debugging**: [troubleshooting.md](reference/troubleshooting.md) → Issue resolution
 - **Extending**: [ARCHITECTURE.md](architecture/ARCHITECTURE.md) → Extension points
 - **Reviewing**: [ARCHITECTURE.md](architecture/ARCHITECTURE.md) → Complete design

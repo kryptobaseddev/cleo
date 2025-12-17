@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 588,
+    "totalEntries": 606,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-16T22:04:08Z",
+    "lastEntry": "2025-12-17T05:43:09Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -14897,6 +14897,745 @@
         "title": "DOCS: Create production readiness checklist and migration guide",
         "status": "pending",
         "priority": "high"
+      }
+    },
+    {
+      "id": "log_01b2a6522fd4",
+      "timestamp": "2025-12-16T23:47:40Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T311"
+      },
+      "details": null
+    },
+    {
+      "id": "log_ba0ea51ae66d",
+      "timestamp": "2025-12-16T23:47:42Z",
+      "sessionId": "session_20251216_154742_812a62",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": "Session started"
+    },
+    {
+      "id": "log_47ec2873652b",
+      "timestamp": "2025-12-16T23:53:23Z",
+      "sessionId": "session_20251216_154742_812a62",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T311",
+      "before": {
+        "title": "TESTING: Real-world production testing of v0.14.0 (NOT BATS)",
+        "status": "active",
+        "priority": "critical",
+        "description": "## Purpose\nValidate v0.14.0 in real-world production scenarios, not just BATS unit tests.\nBATS tests pass (1124/1124) but we need to verify:\n1. Fresh project initialization works\n2. Existing project migration/repair works\n3. All commands function correctly in real usage\n4. Edge cases that BATS may not cover\n\n## Test Scenarios\n\n### Scenario 1: Fresh Project Setup\n```bash\nmkdir /tmp/test-fresh && cd /tmp/test-fresh\nclaude-todo init\nclaude-todo add \"Test task 1\" --priority high --phase setup\nclaude-todo add \"Test task 2\" --depends T001\nclaude-todo focus set T001\nclaude-todo session start\n# ... use for real work ...\nclaude-todo complete T001 --notes \"Done\"\nclaude-todo phase advance\nclaude-todo session end\n```\n\n### Scenario 2: Existing Project Migration\nTest with a project that has:\n- Old v2.1.0 format (string project field)\n- Missing phases\n- Wrong phase structure\n```bash\nclaude-todo migrate status\nclaude-todo migrate run --auto\nclaude-todo migrate repair --dry-run\nclaude-todo migrate repair --auto\nclaude-todo validate\n```\n\n### Scenario 3: Complex Workflow\n- Multiple tasks with dependencies\n- Blocked tasks\n- Archive operations\n- Export to various formats\n- Phase transitions\n\n### Scenario 4: Edge Cases\n- Very large task counts (100+ tasks)\n- Special characters in titles/descriptions\n- Concurrent operations\n- Network disconnection during operations\n\n### Scenario 5: Error Recovery\n- Intentionally corrupt todo.json\n- Run validate --fix\n- Verify recovery works\n\n## Success Criteria\n- All scenarios complete without errors\n- Data integrity maintained throughout\n- No data loss in any scenario\n- Commands produce expected output\n- Help text is accurate and complete\n\n## Deliverables\n- Test report with pass/fail for each scenario\n- List of any bugs discovered\n- Recommendations for documentation updates",
+        "phase": "testing",
+        "labels": [
+          "feature-phase",
+          "release",
+          "testing",
+          "validation"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "TESTING: Real-world production testing of v0.14.0 (NOT BATS)",
+        "status": "active",
+        "priority": "critical",
+        "description": "## Purpose\nValidate v0.14.0 in real-world production scenarios, not just BATS unit tests.\nBATS tests pass (1124/1124) but we need to verify:\n1. Fresh project initialization works\n2. Existing project migration/repair works\n3. All commands function correctly in real usage\n4. Edge cases that BATS may not cover\n\n## Test Scenarios\n\n### Scenario 1: Fresh Project Setup\n```bash\nmkdir /tmp/test-fresh && cd /tmp/test-fresh\nclaude-todo init\nclaude-todo add \"Test task 1\" --priority high --phase setup\nclaude-todo add \"Test task 2\" --depends T001\nclaude-todo focus set T001\nclaude-todo session start\n# ... use for real work ...\nclaude-todo complete T001 --notes \"Done\"\nclaude-todo phase advance\nclaude-todo session end\n```\n\n### Scenario 2: Existing Project Migration\nTest with a project that has:\n- Old v2.1.0 format (string project field)\n- Missing phases\n- Wrong phase structure\n```bash\nclaude-todo migrate status\nclaude-todo migrate run --auto\nclaude-todo migrate repair --dry-run\nclaude-todo migrate repair --auto\nclaude-todo validate\n```\n\n### Scenario 3: Complex Workflow\n- Multiple tasks with dependencies\n- Blocked tasks\n- Archive operations\n- Export to various formats\n- Phase transitions\n\n### Scenario 4: Edge Cases\n- Very large task counts (100+ tasks)\n- Special characters in titles/descriptions\n- Concurrent operations\n- Network disconnection during operations\n\n### Scenario 5: Error Recovery\n- Intentionally corrupt todo.json\n- Run validate --fix\n- Verify recovery works\n\n## Success Criteria\n- All scenarios complete without errors\n- Data integrity maintained throughout\n- No data loss in any scenario\n- Commands produce expected output\n- Help text is accurate and complete\n\n## Deliverables\n- Test report with pass/fail for each scenario\n- List of any bugs discovered\n- Recommendations for documentation updates",
+        "phase": "testing",
+        "labels": [
+          "feature-phase",
+          "release",
+          "testing",
+          "validation"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_29f9abcebbdd",
+      "timestamp": "2025-12-16T23:53:29Z",
+      "sessionId": "session_20251216_154742_812a62",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T311",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-16T23:53:29Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_67fb6e83015a",
+      "timestamp": "2025-12-16T23:53:31Z",
+      "sessionId": "session_20251216_154742_812a62",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1765929705-c9857f",
+      "timestamp": "2025-12-17T00:01:45Z",
+      "action": "task_created",
+      "taskId": "T313",
+      "actor": "system",
+      "details": {
+        "title": "BUG: validation.sh readonly variable warnings on multiple sourcing",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "BUG: validation.sh readonly variable warnings on multiple sourcing",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1765929716-e39ba0",
+      "timestamp": "2025-12-17T00:01:56Z",
+      "action": "task_created",
+      "taskId": "T314",
+      "actor": "system",
+      "details": {
+        "title": "BUG: migrate repair doesn't update checksum after modifications",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "BUG: migrate repair doesn't update checksum after modifications",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765929752-1e1dbe",
+      "timestamp": "2025-12-17T00:02:32Z",
+      "action": "task_created",
+      "taskId": "T315",
+      "actor": "system",
+      "details": {
+        "title": "BUG: TodoWrite export activeForm verb conjugation broken",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "BUG: TodoWrite export activeForm verb conjugation broken",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_5be3307c6c51",
+      "timestamp": "2025-12-17T00:02:40Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T310",
+      "before": {
+        "title": "ENHANCEMENT: Consolidate fix/repair terminology and functionality into unified pattern",
+        "status": "pending",
+        "priority": "high",
+        "description": "## Problem Statement\nThe codebase currently uses inconsistent terminology and patterns for auto-fixing/repairing data:\n1. `validate --fix` - Fixes checksum, focus mismatch, multiple active tasks\n2. `migrate repair` - Fixes phase structure, _meta fields, focus fields\n3. `init --update-claude-md` - Updates CLAUDE.md injection\n\nThis creates confusion about:\n- When to use which command\n- What each command actually fixes\n- Flag conventions (--fix vs repair subcommand)\n\n## Current State Analysis\n\n### `validate --fix` capabilities:\n- Updates checksum to match tasks array\n- Fixes focus.currentTask to match active task\n- Keeps only first active task (deactivates others)\n- Updates CLAUDE.md injection if outdated\n\n### `migrate repair` capabilities:\n- Ensures canonical 5-phase structure\n- Adds missing phases, removes obsolete phases\n- Fixes phase ordering\n- Ensures _meta has all required fields\n- Ensures focus has all required fields\n- Preserves existing status/timestamps\n\n### Flag Convention Inconsistencies:\n- Some commands use `--flag` (double dash): --fix, --dry-run, --auto\n- Some commands use subcommands: repair, status, run\n- No consistent pattern across CLI\n\n## Proposed Solution\n\n### Option A: Unified `--fix` flag\nAdd `--fix` flag to all relevant commands:\n- `validate --fix` (existing)\n- `migrate --fix` (instead of `migrate repair`)\n- `init --fix` (fix project issues)\n\n### Option B: Standalone `repair` command\nCreate `claude-todo repair` as top-level command:\n- `repair --dry-run` - Preview all repairs\n- `repair --auto` - Apply all repairs\n- `repair phases` - Fix phases only\n- `repair schema` - Fix schema compliance\n- `repair checksum` - Fix checksums\n\n### Option C: Hybrid (Recommended)\nKeep `validate --fix` for validation-related fixes\nCreate `claude-todo repair` for structural repairs\nEnsure both produce consistent output format\n\n## Implementation Tasks (if approved)\n1. Create lib/repair.sh with reusable repair interface\n2. Refactor migrate repair to use lib/repair.sh\n3. Add repair logic for other scenarios\n4. Ensure consistent flag naming across CLI\n5. Update documentation\n6. Add integration tests for repair scenarios\n\n## Decision Needed\n- Which option to implement (A, B, or C)?\n- Should --fix and repair both exist or consolidate?\n- What is the \"escape hatch\" for users when things break?",
+        "phase": "core",
+        "labels": [
+          "dx",
+          "enhancement",
+          "feature-phase",
+          "refactor"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "ENHANCEMENT: Consolidate fix/repair terminology and functionality into unified pattern",
+        "status": "pending",
+        "priority": "high",
+        "description": "## Problem Statement\nThe codebase currently uses inconsistent terminology and patterns for auto-fixing/repairing data:\n1. `validate --fix` - Fixes checksum, focus mismatch, multiple active tasks\n2. `migrate repair` - Fixes phase structure, _meta fields, focus fields\n3. `init --update-claude-md` - Updates CLAUDE.md injection\n\nThis creates confusion about:\n- When to use which command\n- What each command actually fixes\n- Flag conventions (--fix vs repair subcommand)\n\n## Current State Analysis\n\n### `validate --fix` capabilities:\n- Updates checksum to match tasks array\n- Fixes focus.currentTask to match active task\n- Keeps only first active task (deactivates others)\n- Updates CLAUDE.md injection if outdated\n\n### `migrate repair` capabilities:\n- Ensures canonical 5-phase structure\n- Adds missing phases, removes obsolete phases\n- Fixes phase ordering\n- Ensures _meta has all required fields\n- Ensures focus has all required fields\n- Preserves existing status/timestamps\n\n### Flag Convention Inconsistencies:\n- Some commands use `--flag` (double dash): --fix, --dry-run, --auto\n- Some commands use subcommands: repair, status, run\n- No consistent pattern across CLI\n\n## Proposed Solution\n\n### Option A: Unified `--fix` flag\nAdd `--fix` flag to all relevant commands:\n- `validate --fix` (existing)\n- `migrate --fix` (instead of `migrate repair`)\n- `init --fix` (fix project issues)\n\n### Option B: Standalone `repair` command\nCreate `claude-todo repair` as top-level command:\n- `repair --dry-run` - Preview all repairs\n- `repair --auto` - Apply all repairs\n- `repair phases` - Fix phases only\n- `repair schema` - Fix schema compliance\n- `repair checksum` - Fix checksums\n\n### Option C: Hybrid (Recommended)\nKeep `validate --fix` for validation-related fixes\nCreate `claude-todo repair` for structural repairs\nEnsure both produce consistent output format\n\n## Implementation Tasks (if approved)\n1. Create lib/repair.sh with reusable repair interface\n2. Refactor migrate repair to use lib/repair.sh\n3. Add repair logic for other scenarios\n4. Ensure consistent flag naming across CLI\n5. Update documentation\n6. Add integration tests for repair scenarios\n\n## Decision Needed\n- Which option to implement (A, B, or C)?\n- Should --fix and repair both exist or consolidate?\n- What is the \"escape hatch\" for users when things break?",
+        "phase": "core",
+        "labels": [
+          "dx",
+          "enhancement",
+          "feature-phase",
+          "refactor"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_2164c87bc1a0",
+      "timestamp": "2025-12-17T00:08:32Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T312",
+      "before": {
+        "title": "DOCS: Create production readiness checklist and migration guide",
+        "status": "pending",
+        "priority": "high",
+        "description": "## Current State Assessment\n\n### What Works (BATS tested):\n- All 1124 tests passing\n- init, add, update, complete, list, focus, session commands\n- Phase tracking (phases, phase set/start/complete/advance)\n- Migration v2.1.0 → v2.2.0\n- Repair command for fixing phase structure\n- Validation with --fix\n- Export, import, archive, backup commands\n\n### What Needs Real-World Validation:\n- Fresh install experience\n- Existing project upgrade path\n- Error recovery scenarios\n- Performance with large datasets\n- Multi-user/concurrent access\n\n## Production Readiness Gaps\n\n### 1. User Documentation Gap\nUsers don't know what to run when. Need clear guide:\n- \"I just installed claude-todo\" → what to run?\n- \"I have an existing project\" → what to run?\n- \"Something broke\" → what to run?\n\n### 2. Migration/Repair Clarity Gap\nCurrent state is confusing:\n- migrate run - upgrades schema version\n- migrate repair - fixes structure within version\n- validate --fix - fixes data integrity\n- init --update-claude-md - updates instructions\n\nNeed: Single \"make it work\" command or clear flowchart\n\n### 3. Error Messages Gap\nSome error messages don't tell users what to do next.\nExample: \"Checksum mismatch\" doesn't say \"run validate --fix\"\n\n## Deliverables Needed\n\n### 1. Quick Start Guide\nFor README.md:\n```markdown\n## Quick Start\n# New project\nclaude-todo init\n\n# Existing project (upgrade from older version)\nclaude-todo migrate run --auto\nclaude-todo migrate repair --auto\nclaude-todo validate --fix\n```\n\n### 2. Troubleshooting Guide\nFor docs/TROUBLESHOOTING.md:\n- Common errors and fixes\n- Recovery procedures\n- When to use which command\n\n### 3. Migration Decision Tree\n```\nIs project initialized?\n├─ No → claude-todo init\n└─ Yes → Is version current?\n         ├─ No → claude-todo migrate run --auto\n         └─ Yes → Are phases correct?\n                  ├─ No → claude-todo migrate repair --auto\n                  └─ Yes → Run claude-todo validate\n```",
+        "phase": "core",
+        "labels": [
+          "documentation",
+          "feature-phase",
+          "release"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "DOCS: Create production readiness checklist and migration guide",
+        "status": "pending",
+        "priority": "high",
+        "description": "## Current State Assessment\n\n### What Works (BATS tested):\n- All 1124 tests passing\n- init, add, update, complete, list, focus, session commands\n- Phase tracking (phases, phase set/start/complete/advance)\n- Migration v2.1.0 → v2.2.0\n- Repair command for fixing phase structure\n- Validation with --fix\n- Export, import, archive, backup commands\n\n### What Needs Real-World Validation:\n- Fresh install experience\n- Existing project upgrade path\n- Error recovery scenarios\n- Performance with large datasets\n- Multi-user/concurrent access\n\n## Production Readiness Gaps\n\n### 1. User Documentation Gap\nUsers don't know what to run when. Need clear guide:\n- \"I just installed claude-todo\" → what to run?\n- \"I have an existing project\" → what to run?\n- \"Something broke\" → what to run?\n\n### 2. Migration/Repair Clarity Gap\nCurrent state is confusing:\n- migrate run - upgrades schema version\n- migrate repair - fixes structure within version\n- validate --fix - fixes data integrity\n- init --update-claude-md - updates instructions\n\nNeed: Single \"make it work\" command or clear flowchart\n\n### 3. Error Messages Gap\nSome error messages don't tell users what to do next.\nExample: \"Checksum mismatch\" doesn't say \"run validate --fix\"\n\n## Deliverables Needed\n\n### 1. Quick Start Guide\nFor README.md:\n```markdown\n## Quick Start\n# New project\nclaude-todo init\n\n# Existing project (upgrade from older version)\nclaude-todo migrate run --auto\nclaude-todo migrate repair --auto\nclaude-todo validate --fix\n```\n\n### 2. Troubleshooting Guide\nFor docs/TROUBLESHOOTING.md:\n- Common errors and fixes\n- Recovery procedures\n- When to use which command\n\n### 3. Migration Decision Tree\n```\nIs project initialized?\n├─ No → claude-todo init\n└─ Yes → Is version current?\n         ├─ No → claude-todo migrate run --auto\n         └─ Yes → Are phases correct?\n                  ├─ No → claude-todo migrate repair --auto\n                  └─ Yes → Run claude-todo validate\n```",
+        "phase": "core",
+        "labels": [
+          "documentation",
+          "feature-phase",
+          "release"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1765930144-304aea",
+      "timestamp": "2025-12-17T00:09:04Z",
+      "action": "task_created",
+      "taskId": "T316",
+      "actor": "system",
+      "details": {
+        "title": "FIX: stats.sh uses obsolete log schema field 'operation' - metrics return 0",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "FIX: stats.sh uses obsolete log schema field 'operation' - metrics return 0",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1765930146-64915d",
+      "timestamp": "2025-12-17T00:09:06Z",
+      "action": "task_created",
+      "taskId": "T317",
+      "actor": "system",
+      "details": {
+        "title": "FIX: session.md documents --format but only --json works",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "FIX: session.md documents --format but only --json works",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1765930148-dabddb",
+      "timestamp": "2025-12-17T00:09:08Z",
+      "action": "task_created",
+      "taskId": "T318",
+      "actor": "system",
+      "details": {
+        "title": "FIX: Remove non-existent updatedAt field from JSON examples",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "FIX: Remove non-existent updatedAt field from JSON examples",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765930150-a8e16b",
+      "timestamp": "2025-12-17T00:09:10Z",
+      "action": "task_created",
+      "taskId": "T319",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Document migrate repair and rollback commands",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Document migrate repair and rollback commands",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765930151-3f051c",
+      "timestamp": "2025-12-17T00:09:11Z",
+      "action": "task_created",
+      "taskId": "T320",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Document undocumented list command options (--notes, --files, --acceptance, --flat)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Document undocumented list command options (--notes, --files, --acceptance, --flat)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765930153-c4949e",
+      "timestamp": "2025-12-17T00:09:13Z",
+      "action": "task_created",
+      "taskId": "T321",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Document sync --clear, --phase, --no-save-state options",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Document sync --clear, --phase, --no-save-state options",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765930155-eb3750",
+      "timestamp": "2025-12-17T00:09:15Z",
+      "action": "task_created",
+      "taskId": "T322",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Update configuration.md - remove deprecated script names",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Update configuration.md - remove deprecated script names",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765930157-98549f",
+      "timestamp": "2025-12-17T00:09:17Z",
+      "action": "task_created",
+      "taskId": "T323",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Update QUICK-REFERENCE.md to v0.14.0 and add 9 missing commands",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Update QUICK-REFERENCE.md to v0.14.0 and add 9 missing commands",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765930179-a093db",
+      "timestamp": "2025-12-17T00:09:39Z",
+      "action": "task_created",
+      "taskId": "T324",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Add phase validation config to SCHEMAS.md",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Add phase validation config to SCHEMAS.md",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765930181-6beb3d",
+      "timestamp": "2025-12-17T00:09:41Z",
+      "action": "task_created",
+      "taskId": "T325",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Update ARCHITECTURE.md with 24+ missing scripts",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Update ARCHITECTURE.md with 24+ missing scripts",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765930182-f43093",
+      "timestamp": "2025-12-17T00:09:42Z",
+      "action": "task_created",
+      "taskId": "T326",
+      "actor": "system",
+      "details": {
+        "title": "DOCS: Add exit codes to all command documentation",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "DOCS: Add exit codes to all command documentation",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_d1ff0f83620b",
+      "timestamp": "2025-12-17T00:13:57Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T239",
+      "before": {
+        "title": "Review TodoWrite sync implementation",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Created during TodoWrite session",
+        "phase": null,
+        "labels": [
+          "session-created"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Review TodoWrite sync implementation",
+        "status": "pending",
+        "priority": "high",
+        "description": "## EPIC: TodoWrite ↔ claude-todo Bidirectional Sync Integration\n\nMaster tracking task for all TodoWrite sync integration work.\n\n### Purpose\nSeamless integration between durable claude-todo persistence and ephemeral TodoWrite session tracking with automatic injection at session start and extraction at session end.\n\n### Completed Work\n\n#### Research Phase (T227)\n- T227: Research epic ✅\n- T228: Analyze TodoWrite schema ✅\n- T229: Design injection mechanism ✅\n- T230: Design extraction strategy ✅\n- T231: Metadata mapping analysis ✅\n- T232: Conflict resolution protocol ✅\n- T233: Hook integration architecture ✅\n\n#### Implementation Phase\n- T234: inject-todowrite.sh ✅\n- T235: extract-todowrite.sh ✅\n- T236: sync-todowrite.sh orchestrator ✅\n- T237: Fix extraction tests ✅\n\n#### Phase Enhancement\n- T257: Inject with phase filtering ✅\n- T258: Extract with phase inheritance ✅\n- T259: Sync state format for phases ✅\n- T265: phase-sync.bats tests ✅\n- T272: sync.md documentation ✅\n- T278: CLAUDE.md injection template ✅\n\n### Remaining Work\n- T291: Update phase-sync.bats fixtures to 5-phase structure\n- T315: BUG: activeForm verb conjugation broken\n- T321: Document sync --clear, --phase, --no-save-state options\n\n### Commands Delivered\n```bash\nclaude-todo sync --inject           # Prepare tasks for TodoWrite\nclaude-todo sync --inject --focused-only\nclaude-todo sync --extract <file>   # Merge TodoWrite state back\nclaude-todo sync --extract --dry-run\nclaude-todo sync --status           # Show sync session state\n```\n\n### Success Criteria\n- [ ] All pending subtasks complete\n- [ ] All tests passing with 5-phase fixtures\n- [ ] Documentation complete for all sync options\n- [ ] activeForm generation produces correct grammar",
+        "phase": null,
+        "labels": [
+          "epic",
+          "integration",
+          "session-created",
+          "sync",
+          "todowrite",
+          "v0.14.0"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_ec613fe3b0fc",
+      "timestamp": "2025-12-17T00:14:04Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T291",
+      "before": {
+        "title": "Update phase-sync.bats inline fixtures to 5-phase structure",
+        "status": "pending",
+        "priority": "high",
+        "description": "The phase-sync.bats file contains create_phased_project_fixture() with hardcoded 3-phase structure (setup, core, polish). Must update to 5-phase structure (setup, core, testing, polish, maintenance) with correct order numbers. Also verify test assertions match new phase names and structure. This is NOT a workaround - the fixture must reflect the actual schema structure.",
+        "phase": "core",
+        "labels": [
+          "feature-phase",
+          "fixture-update",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T290"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update phase-sync.bats inline fixtures to 5-phase structure",
+        "status": "pending",
+        "priority": "high",
+        "description": "The phase-sync.bats file contains create_phased_project_fixture() with hardcoded 3-phase structure (setup, core, polish). Must update to 5-phase structure (setup, core, testing, polish, maintenance) with correct order numbers. Also verify test assertions match new phase names and structure. This is NOT a workaround - the fixture must reflect the actual schema structure.",
+        "phase": "core",
+        "labels": [
+          "feature-phase",
+          "fixture-update",
+          "sync",
+          "testing",
+          "todowrite"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T290"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_f8ab8cfc34d4",
+      "timestamp": "2025-12-17T00:14:06Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T315",
+      "before": {
+        "title": "BUG: TodoWrite export activeForm verb conjugation broken",
+        "status": "pending",
+        "priority": "medium",
+        "description": "## Problem\nWhen exporting tasks to TodoWrite format, the activeForm generation produces incorrect verb conjugation:\n```json\n{\n  \"content\": \"Core feature A\",\n  \"activeForm\": \"Coring feature A\"  // Wrong - should be 'Working on Core feature A' or similar\n}\n{\n  \"content\": \"Testing task\",\n  \"activeForm\": \"Testinging task\"   // Double -ing suffix\n}\n```\n\n## Root Cause\nThe verb conjugation logic in export.sh (or inject-todowrite.sh) naively appends '-ing' to first word without proper grammar rules.\n\n## Solution Options\n1. **Simple prefix**: Use 'Working on {title}' pattern for all tasks\n2. **Smart conjugation**: Handle common verb patterns:\n   - 'Test' → 'Testing' (add -ing)\n   - 'Core' → 'Working on Core' (non-verb, use prefix)\n   - Words ending in 'e' → drop 'e', add '-ing'\n3. **User override**: Allow activeForm to be specified in task metadata\n\n## Recommendation\nOption 1 (simple prefix) is safest and most consistent. Grammar-aware conjugation is complex and error-prone.\n\n## Related Work\nPart of TodoWrite sync integration effort:\n- T227: Research TodoWrite ↔ claude-todo Bidirectional Sync Integration\n- T234: Implement inject-todowrite.sh script\n- T235: Implement extract-todowrite.sh script\n\n## Found During\nT311 v0.14.0 production testing",
+        "phase": "core",
+        "labels": [
+          "bugs",
+          "sync",
+          "todowrite",
+          "v0.14.1"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "BUG: TodoWrite export activeForm verb conjugation broken",
+        "status": "pending",
+        "priority": "medium",
+        "description": "## Problem\nWhen exporting tasks to TodoWrite format, the activeForm generation produces incorrect verb conjugation:\n```json\n{\n  \"content\": \"Core feature A\",\n  \"activeForm\": \"Coring feature A\"  // Wrong - should be 'Working on Core feature A' or similar\n}\n{\n  \"content\": \"Testing task\",\n  \"activeForm\": \"Testinging task\"   // Double -ing suffix\n}\n```\n\n## Root Cause\nThe verb conjugation logic in export.sh (or inject-todowrite.sh) naively appends '-ing' to first word without proper grammar rules.\n\n## Solution Options\n1. **Simple prefix**: Use 'Working on {title}' pattern for all tasks\n2. **Smart conjugation**: Handle common verb patterns:\n   - 'Test' → 'Testing' (add -ing)\n   - 'Core' → 'Working on Core' (non-verb, use prefix)\n   - Words ending in 'e' → drop 'e', add '-ing'\n3. **User override**: Allow activeForm to be specified in task metadata\n\n## Recommendation\nOption 1 (simple prefix) is safest and most consistent. Grammar-aware conjugation is complex and error-prone.\n\n## Related Work\nPart of TodoWrite sync integration effort:\n- T227: Research TodoWrite ↔ claude-todo Bidirectional Sync Integration\n- T234: Implement inject-todowrite.sh script\n- T235: Implement extract-todowrite.sh script\n\n## Found During\nT311 v0.14.0 production testing",
+        "phase": "core",
+        "labels": [
+          "bugs",
+          "sync",
+          "todowrite",
+          "v0.14.1"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_ed568e122641",
+      "timestamp": "2025-12-17T00:14:07Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T321",
+      "before": {
+        "title": "DOCS: Document sync --clear, --phase, --no-save-state options",
+        "status": "pending",
+        "priority": "high",
+        "description": "sync command has undocumented options: --clear (clear sync state), --phase (phase filtering), --no-save-state (skip persistence). Add to docs/commands/sync.md with use cases and examples.",
+        "phase": "core",
+        "labels": [
+          "documentation",
+          "documentation-audit",
+          "p1"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T312"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "DOCS: Document sync --clear, --phase, --no-save-state options",
+        "status": "pending",
+        "priority": "high",
+        "description": "sync command has undocumented options: --clear (clear sync state), --phase (phase filtering), --no-save-state (skip persistence). Add to docs/commands/sync.md with use cases and examples.",
+        "phase": "core",
+        "labels": [
+          "documentation",
+          "documentation-audit",
+          "p1",
+          "sync",
+          "todowrite",
+          "v0.14.1"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T312"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_1e0de660b3c8",
+      "timestamp": "2025-12-17T00:14:23Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T239",
+      "before": {
+        "title": "Review TodoWrite sync implementation",
+        "status": "pending",
+        "priority": "high",
+        "description": "## EPIC: TodoWrite ↔ claude-todo Bidirectional Sync Integration\n\nMaster tracking task for all TodoWrite sync integration work.\n\n### Purpose\nSeamless integration between durable claude-todo persistence and ephemeral TodoWrite session tracking with automatic injection at session start and extraction at session end.\n\n### Completed Work\n\n#### Research Phase (T227)\n- T227: Research epic ✅\n- T228: Analyze TodoWrite schema ✅\n- T229: Design injection mechanism ✅\n- T230: Design extraction strategy ✅\n- T231: Metadata mapping analysis ✅\n- T232: Conflict resolution protocol ✅\n- T233: Hook integration architecture ✅\n\n#### Implementation Phase\n- T234: inject-todowrite.sh ✅\n- T235: extract-todowrite.sh ✅\n- T236: sync-todowrite.sh orchestrator ✅\n- T237: Fix extraction tests ✅\n\n#### Phase Enhancement\n- T257: Inject with phase filtering ✅\n- T258: Extract with phase inheritance ✅\n- T259: Sync state format for phases ✅\n- T265: phase-sync.bats tests ✅\n- T272: sync.md documentation ✅\n- T278: CLAUDE.md injection template ✅\n\n### Remaining Work\n- T291: Update phase-sync.bats fixtures to 5-phase structure\n- T315: BUG: activeForm verb conjugation broken\n- T321: Document sync --clear, --phase, --no-save-state options\n\n### Commands Delivered\n```bash\nclaude-todo sync --inject           # Prepare tasks for TodoWrite\nclaude-todo sync --inject --focused-only\nclaude-todo sync --extract <file>   # Merge TodoWrite state back\nclaude-todo sync --extract --dry-run\nclaude-todo sync --status           # Show sync session state\n```\n\n### Success Criteria\n- [ ] All pending subtasks complete\n- [ ] All tests passing with 5-phase fixtures\n- [ ] Documentation complete for all sync options\n- [ ] activeForm generation produces correct grammar",
+        "phase": null,
+        "labels": [
+          "epic",
+          "integration",
+          "session-created",
+          "sync",
+          "todowrite",
+          "v0.14.0"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: TodoWrite Bidirectional Sync Integration",
+        "status": "pending",
+        "priority": "high",
+        "description": "## EPIC: TodoWrite ↔ claude-todo Bidirectional Sync Integration\n\nMaster tracking task for all TodoWrite sync integration work.\n\n### Purpose\nSeamless integration between durable claude-todo persistence and ephemeral TodoWrite session tracking with automatic injection at session start and extraction at session end.\n\n### Completed Work\n\n#### Research Phase (T227)\n- T227: Research epic ✅\n- T228: Analyze TodoWrite schema ✅\n- T229: Design injection mechanism ✅\n- T230: Design extraction strategy ✅\n- T231: Metadata mapping analysis ✅\n- T232: Conflict resolution protocol ✅\n- T233: Hook integration architecture ✅\n\n#### Implementation Phase\n- T234: inject-todowrite.sh ✅\n- T235: extract-todowrite.sh ✅\n- T236: sync-todowrite.sh orchestrator ✅\n- T237: Fix extraction tests ✅\n\n#### Phase Enhancement\n- T257: Inject with phase filtering ✅\n- T258: Extract with phase inheritance ✅\n- T259: Sync state format for phases ✅\n- T265: phase-sync.bats tests ✅\n- T272: sync.md documentation ✅\n- T278: CLAUDE.md injection template ✅\n\n### Remaining Work\n- T291: Update phase-sync.bats fixtures to 5-phase structure\n- T315: BUG: activeForm verb conjugation broken\n- T321: Document sync --clear, --phase, --no-save-state options\n\n### Commands Delivered\n```bash\nclaude-todo sync --inject           # Prepare tasks for TodoWrite\nclaude-todo sync --inject --focused-only\nclaude-todo sync --extract <file>   # Merge TodoWrite state back\nclaude-todo sync --extract --dry-run\nclaude-todo sync --status           # Show sync session state\n```\n\n### Success Criteria\n- [ ] All pending subtasks complete\n- [ ] All tests passing with 5-phase fixtures\n- [ ] Documentation complete for all sync options\n- [ ] activeForm generation produces correct grammar",
+        "phase": null,
+        "labels": [
+          "epic",
+          "integration",
+          "session-created",
+          "sync",
+          "todowrite",
+          "v0.14.0"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1765949800-1f81d3",
+      "timestamp": "2025-12-17T05:36:40Z",
+      "action": "task_created",
+      "taskId": "T327",
+      "actor": "system",
+      "details": {
+        "title": "Implement claude-todo analyze command (v0.15.0)",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement claude-todo analyze command (v0.15.0)",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log_4b1ab84c45f0",
+      "timestamp": "2025-12-17T05:36:51Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T327"
+      },
+      "details": null
+    },
+    {
+      "id": "log_e07a4cdefc7a",
+      "timestamp": "2025-12-17T05:37:31Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": "Session started"
+    },
+    {
+      "id": "log_fe81f9fb274a",
+      "timestamp": "2025-12-17T05:43:09Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T327",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T05:43:09Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
       }
     }
   ]
