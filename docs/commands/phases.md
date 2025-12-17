@@ -35,6 +35,13 @@ This command is particularly useful for:
 | `--format FORMAT` | `-f` | Output format: `text` or `json` | `text` |
 | `--help` | `-h` | Show help message | |
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (validation failed, phase not found, file operation error) |
+
 ## Examples
 
 ### List All Phases

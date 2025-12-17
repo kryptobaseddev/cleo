@@ -34,7 +34,11 @@ By default, completed tasks are hidden. Use `--status done` or `--all` to includ
 | `--limit N` | | Limit number of results | No limit |
 | `--offset N` | | Skip first N tasks (pagination) | 0 |
 | `--compact` | `-c` | Compact one-line per task view | `false` |
-| `--verbose` | `-v` | Show all task details | `false` |
+| `--flat` | | Disable priority grouping, show flat list | `false` |
+| `--notes` | | Show task notes inline in output | `false` |
+| `--files` | | Show associated file references | `false` |
+| `--acceptance` | | Show acceptance criteria | `false` |
+| `--verbose` | `-v` | Show all task details (enables notes, files, acceptance) | `false` |
 | `--quiet` | `-q` | Suppress informational messages | `false` |
 | `--help` | `-h` | Show help message | |
 
@@ -95,6 +99,31 @@ claude-todo list --until 2025-12-31
 claude-todo list -s pending -p high --phase core
 ```
 
+### Display Customization
+
+```bash
+# Show task notes inline
+claude-todo list --notes
+
+# Show file references
+claude-todo list --files
+
+# Show acceptance criteria
+claude-todo list --acceptance
+
+# Combine display options
+claude-todo list --notes --files --acceptance
+
+# Verbose mode (all details)
+claude-todo list --verbose
+
+# Flat list (no priority grouping)
+claude-todo list --flat
+
+# Compact view (one line per task)
+claude-todo list --compact
+```
+
 ### Output Formats
 
 ```bash
@@ -151,6 +180,125 @@ claude-todo list --sort createdAt --reverse
 # Limit results
 claude-todo list --limit 5
 ```
+
+### Display Options
+
+#### Flat List (`--flat`)
+
+By default, tasks are grouped by priority level with section headers. Use `--flat` to disable grouping and show a flat list.
+
+```bash
+# Default: grouped by priority with headers
+claude-todo list
+
+# Output:
+# 🔴 CRITICAL (2)
+# ─────────────────
+#   T001 ○ Fix security vulnerability
+#   T003 ◉ Patch authentication bug
+#
+# 🟡 HIGH (1)
+# ─────────────────
+#   T005 ○ Implement JWT middleware
+
+# Flat list: no grouping
+claude-todo list --flat
+
+# Output:
+#   T001 ○ Fix security vulnerability
+#   T003 ◉ Patch authentication bug
+#   T005 ○ Implement JWT middleware
+```
+
+**Note**: Using `--sort` automatically enables flat list mode.
+
+#### Task Notes (`--notes`)
+
+Show timestamped notes added to tasks via `update --notes`.
+
+```bash
+claude-todo list --notes
+
+# Output:
+#   T005 ◉ Implement authentication
+#       Implement JWT middleware
+#       📝 Notes:
+#         • Started investigating passport.js options
+#         • Decided to use jsonwebtoken library instead
+```
+
+Notes are displayed with:
+- Icon: `📝` (Unicode) or `N` (ASCII fallback)
+- Bullet points for each note entry
+- Chronological order (oldest first)
+
+#### File References (`--files`)
+
+Show file paths associated with tasks.
+
+```bash
+claude-todo list --files
+
+# Output:
+#   T012 ○ Refactor authentication module
+#       Refactor auth system to use middleware pattern
+#       📁 src/auth/middleware.js, src/auth/passport.js, tests/auth.test.js
+```
+
+Files are displayed with:
+- Icon: `📁` (Unicode) or `F` (ASCII fallback)
+- Comma-separated list of file paths
+
+#### Acceptance Criteria (`--acceptance`)
+
+Show acceptance criteria checklist for tasks.
+
+```bash
+claude-todo list --acceptance
+
+# Output:
+#   T008 ○ Add user registration
+#       Implement user registration with email verification
+#       ✓ Acceptance:
+#         • Email validation works
+#         • Password strength requirements enforced
+#         • Confirmation email sent
+#         • User can verify email via link
+```
+
+Acceptance criteria are displayed with:
+- Icon: `✓` (Unicode) or `+` (ASCII fallback)
+- Bullet points for each criterion
+- List order preserved from task definition
+
+#### Verbose Mode (`--verbose`)
+
+Enables all display options automatically: `--notes`, `--files`, `--acceptance`, plus description and timestamps.
+
+```bash
+# Equivalent to: --notes --files --acceptance
+claude-todo list --verbose
+
+# Output:
+#   T005 ◉ Implement authentication
+#       Implement JWT middleware for API endpoints
+#       Add authentication middleware using JWT tokens
+#       📁 src/auth/middleware.js, src/routes/api.js
+#       ✓ Acceptance:
+#         • Token validation works
+#         • Refresh tokens implemented
+#       📝 Notes:
+#         • Using jsonwebtoken library
+#       Created: 2025-12-10T14:30:00Z
+```
+
+Verbose mode shows:
+- Task description (full text)
+- File references (if present)
+- Acceptance criteria (if present)
+- Notes (if present)
+- Created timestamp
+- Completed timestamp (if status is `done`)
 
 ## Status Icons
 

@@ -620,20 +620,20 @@ Most configuration values can be overridden via command-line flags:
 
 ```bash
 # Override archive settings
-todo-add.sh --no-archive-on-complete "Task description"
+claude-todo add --no-archive-on-complete "Task description"
 
 # Override validation settings
-todo-add.sh --no-strict "Task description"
-todo-complete.sh --allow-multiple-active T001
+claude-todo add --no-strict "Task description"
+claude-todo complete --allow-multiple-active T001
 
 # Override logging settings
-todo-add.sh --log-level=verbose "Task description"
+claude-todo add --log-level=verbose "Task description"
 
 # Override display settings
-todo-list.sh --no-show-archive-count
+claude-todo list --no-show-archive-count
 ```
 
-See individual script documentation for available flags.
+See individual command documentation for available flags.
 
 ## Common Configuration Scenarios
 
@@ -760,9 +760,9 @@ See individual script documentation for available flags.
 ## Configuration Validation
 
 Configuration files are validated against `config.schema.json` during:
-- Project initialization (`init.sh`)
-- Manual validation (`validate.sh`)
-- Script execution (if validation enabled)
+- Project initialization (`claude-todo init`)
+- Manual validation (`claude-todo validate`)
+- Command execution (if validation enabled)
 
 ### Valid Value Ranges
 
@@ -807,7 +807,7 @@ cat .claude/todo-config.json
 env | grep CLAUDE_TODO
 
 # Test with explicit CLI flags
-todo-list.sh --help
+claude-todo list --help
 ```
 
 **Validate configuration:**

@@ -47,9 +47,9 @@
       }
     }
   },
-  "lastUpdated": "2025-12-17T05:43:09Z",
+  "lastUpdated": "2025-12-17T19:47:26Z",
   "_meta": {
-    "checksum": "49a932c5c1712dd9",
+    "checksum": "0e9c9ff36a448d67",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": "session_20251216_213731_392dd7",
@@ -3850,7 +3850,7 @@
     {
       "id": "T288",
       "title": "Final release preparation for v2.2.0",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "createdAt": "2025-12-16T04:44:01Z",
       "phase": "core",
@@ -3867,8 +3867,11 @@
         "T287"
       ],
       "notes": [
-        "2025-12-16 05:59:05 UTC: Created comprehensive release status report showing:\n- 4/8 Wave 8 tasks complete (T281, T283, T284, T285)\n- 4/8 pending (T282, T286, T287, T289 - blocked or optional)\n- 959/969 tests passing (10 failures in phase-sync.bats are expected - Wave 6-7 incomplete)\n- Release NOT READY: Blocked by Wave 6-7 completion\n- Wave 8 deliverables COMPLETE and ready for final release once dependencies met"
-      ]
+        "2025-12-16 05:59:05 UTC: Created comprehensive release status report showing:\n- 4/8 Wave 8 tasks complete (T281, T283, T284, T285)\n- 4/8 pending (T282, T286, T287, T289 - blocked or optional)\n- 959/969 tests passing (10 failures in phase-sync.bats are expected - Wave 6-7 incomplete)\n- Release NOT READY: Blocked by Wave 6-7 completion\n- Wave 8 deliverables COMPLETE and ready for final release once dependencies met",
+        "2025-12-17 19:47:18 UTC: All 1124 tests passing, 0 failures. Golden files regenerated for v2.2.0 schema. Documentation enhanced with clear update triggers and troubleshooting.",
+        "[COMPLETED 2025-12-17T19:47:26Z] v2.2.0 release ready: 1124 tests passing (0 failures), golden files regenerated, documentation enhanced with update triggers and troubleshooting guide."
+      ],
+      "completedAt": "2025-12-17T19:47:26Z"
     },
     {
       "id": "T289",
@@ -4352,7 +4355,7 @@
     {
       "id": "T316",
       "title": "FIX: stats.sh uses obsolete log schema field 'operation' - metrics return 0",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "createdAt": "2025-12-17T00:09:04Z",
       "phase": "core",
@@ -4364,12 +4367,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:12:55Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:12:55Z] Fixed obsolete log schema field: operation → action in all jq queries. Period-based metrics now work correctly."
       ]
     },
     {
       "id": "T317",
       "title": "FIX: session.md documents --format but only --json works",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "createdAt": "2025-12-17T00:09:06Z",
       "phase": "core",
@@ -4381,12 +4388,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:10:45Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:10:45Z] Fixed session.md documentation: removed incorrect --format option references and updated default behavior from status to help"
       ]
     },
     {
       "id": "T318",
       "title": "FIX: Remove non-existent updatedAt field from JSON examples",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-17T00:09:08Z",
       "phase": "core",
@@ -4398,12 +4409,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:10:42Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:10:42Z] Removed updatedAt field from JSON example on line 115. Verified no other instances exist. JSON structure remains valid with proper formatting."
       ]
     },
     {
       "id": "T319",
       "title": "DOCS: Document migrate repair and rollback commands",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-17T00:09:10Z",
       "phase": "core",
@@ -4415,12 +4430,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:12:57Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:12:57Z] Added comprehensive documentation for migrate repair and migrate rollback commands with examples, options, and use cases."
       ]
     },
     {
       "id": "T320",
       "title": "DOCS: Document undocumented list command options (--notes, --files, --acceptance, --flat)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-17T00:09:11Z",
       "phase": "core",
@@ -4432,12 +4451,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:12:59Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:12:59Z] Documented --notes, --files, --acceptance, --flat options with examples and output formatting details."
       ]
     },
     {
       "id": "T321",
       "title": "DOCS: Document sync --clear, --phase, --no-save-state options",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-17T00:09:13Z",
       "phase": "core",
@@ -4452,12 +4475,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:13:01Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:13:01Z] Documented --clear, --phase, --no-save-state options with use cases and workflow examples."
       ]
     },
     {
       "id": "T322",
       "title": "DOCS: Update configuration.md - remove deprecated script names",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-17T00:09:15Z",
       "phase": "core",
@@ -4469,12 +4496,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:13:03Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:13:03Z] Removed 9 deprecated script references (todo-add.sh, todo-complete.sh, todo-list.sh, etc.) Updated to claude-todo commands."
       ]
     },
     {
       "id": "T323",
       "title": "DOCS: Update QUICK-REFERENCE.md to v0.14.0 and add 9 missing commands",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-17T00:09:17Z",
       "phase": "core",
@@ -4486,12 +4517,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:13:05Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:13:05Z] Updated version to v0.15.0 and added 9 missing commands: dash, next, labels, phases, phase, deps, blockers, exists, history."
       ]
     },
     {
       "id": "T324",
       "title": "DOCS: Add phase validation config to SCHEMAS.md",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "createdAt": "2025-12-17T00:09:39Z",
       "phase": "core",
@@ -4503,12 +4538,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:13:06Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:13:06Z] Added phase validation config section with 4 properties: enforcePhaseOrder, phaseAdvanceThreshold, blockOnCriticalTasks, warnPhaseContext."
       ]
     },
     {
       "id": "T325",
       "title": "DOCS: Update ARCHITECTURE.md with 24+ missing scripts",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-17T00:09:41Z",
       "phase": "core",
@@ -4520,12 +4559,16 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:13:08Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:13:08Z] Expanded script reference from 11 to 33 scripts across 9 categories. Added Analysis, Session, TodoWrite, Migration, and Development Utilities sections."
       ]
     },
     {
       "id": "T326",
       "title": "DOCS: Add exit codes to all command documentation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "createdAt": "2025-12-17T00:09:42Z",
       "phase": "core",
@@ -4537,6 +4580,10 @@
       ],
       "depends": [
         "T312"
+      ],
+      "completedAt": "2025-12-17T06:13:10Z",
+      "notes": [
+        "[COMPLETED 2025-12-17T06:13:10Z] Added exit code sections to 7 command docs: phase, phases, init, history, log, dash, next. Pattern: 0=success, 1=error."
       ]
     },
     {
@@ -4553,6 +4600,387 @@
         "v0.15.0"
       ],
       "completedAt": "2025-12-17T05:43:09Z"
+    },
+    {
+      "id": "T328",
+      "title": "EPIC: Hierarchy Enhancement Phase 1 - Core (v0.15.0)",
+      "status": "pending",
+      "priority": "critical",
+      "createdAt": "2025-12-17T06:11:05Z",
+      "phase": "core",
+      "description": "## Overview\nImplement core hierarchical task management for claude-todo.\n\n## Scope\n- Schema v2.3.0 with type, parentId, size fields\n- Migration from v2.2.0 (label conventions to schema fields)\n- Validation rules (depth, siblings, parent existence, orphans)\n- CLI flags: --type, --parent, --size, --tree, --children\n- Anti-hallucination error messages\n\n## Success Criteria\n- All existing tests pass (1124+)\n- New hierarchy tests pass (100+)\n- Migration preserves all data\n- Validation catches invalid operations\n\n## NOT in scope (Phase 2)\n- Auto-complete parent\n- reparent/promote commands\n- Tab completion\n- Advanced automation",
+      "labels": [
+        "epic-type",
+        "hierarchy",
+        "v0.15.0"
+      ]
+    },
+    {
+      "id": "T329",
+      "title": "T328.1: Update todo.schema.json to v2.3.0 with type, parentId, size fields",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:18Z",
+      "phase": "core",
+      "description": "Add new optional fields to task definition:\n- type: enum [epic, task, subtask], default task\n- parentId: string or null, pattern ^T\\d{3,}$\n- size: enum [small, medium, large] or null\n\nUpdate schema version to 2.3.0",
+      "labels": [
+        "hierarchy",
+        "schema",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T328"
+      ]
+    },
+    {
+      "id": "T330",
+      "title": "T328.2: Create lib/hierarchy.sh with validation functions",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:20Z",
+      "phase": "core",
+      "description": "New library with functions:\n- validate_parent_exists()\n- validate_parent_type()\n- validate_depth_limit() (max 3)\n- validate_sibling_limit() (max 7)\n- detect_circular_reference()\n- calculate_task_depth()\n- get_task_children()\n- get_task_ancestors()",
+      "labels": [
+        "hierarchy",
+        "library",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T328"
+      ]
+    },
+    {
+      "id": "T331",
+      "title": "T328.3: Add hierarchy validation to lib/validation.sh",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:22Z",
+      "phase": "core",
+      "description": "Integrate hierarchy checks into validate_all():\n- Parent existence check\n- Depth limit check\n- Sibling limit check\n- Orphan detection\n- Type hierarchy rules (subtask cannot have children)\n\nAdd new exit codes:\n- EXIT_PARENT_NOT_FOUND=10\n- EXIT_DEPTH_EXCEEDED=11\n- EXIT_SIBLING_LIMIT=12\n- EXIT_INVALID_PARENT_TYPE=13\n- EXIT_ORPHAN_DETECTED=14\n- EXIT_CIRCULAR_REFERENCE=15",
+      "labels": [
+        "hierarchy",
+        "v0.15.0",
+        "validation"
+      ],
+      "depends": [
+        "T328"
+      ]
+    },
+    {
+      "id": "T332",
+      "title": "T328.4: Add v2.2.0 to v2.3.0 migration in lib/migrate.sh",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:38Z",
+      "phase": "core",
+      "description": "Migration logic:\n- Detect v2.2.0 projects\n- Add type=task to all existing tasks (default)\n- Add parentId=null to all existing tasks\n- Convert label conventions if present:\n  - type-epic label -> type=epic\n  - parent-TXXX label -> parentId=TXXX\n- Remove migrated labels from labels array\n- Update _meta.version to 2.3.0\n- Preserve all existing data",
+      "labels": [
+        "hierarchy",
+        "migration",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T329"
+      ]
+    },
+    {
+      "id": "T333",
+      "title": "T328.5: Add --type, --parent, --size flags to add-task.sh",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:40Z",
+      "phase": "core",
+      "description": "Extend add-task.sh:\n- --type epic|task|subtask (default: task)\n- --parent TXXX (validates parent exists, depth, siblings)\n- --size small|medium|large (optional)\n\nValidation:\n- If --parent specified, validate with hierarchy.sh\n- Auto-infer type from parent depth if not specified\n- Show clear error messages for invalid operations",
+      "labels": [
+        "cli",
+        "hierarchy",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T329",
+        "T330"
+      ]
+    },
+    {
+      "id": "T334",
+      "title": "T328.6: Add --tree, --children, --type flags to list.sh",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:41Z",
+      "phase": "core",
+      "description": "Extend list.sh:\n- --tree: Display hierarchical tree view with ASCII art\n- --tree --depth N: Limit tree depth\n- --children TXXX: Show direct children only\n- --descendants TXXX: Show all nested children\n- --root: Only root-level tasks (parentId=null)\n- --leaf: Only tasks without children\n- --type epic|task|subtask: Filter by type\n\nTree output format:\nT001 [epic] Title\n├─ T002 [task] Child 1\n└─ T003 [task] Child 2\n    └─ T004 [subtask] Grandchild",
+      "labels": [
+        "cli",
+        "hierarchy",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T329",
+        "T330"
+      ]
+    },
+    {
+      "id": "T335",
+      "title": "T328.7: Enhance show.sh with hierarchy context",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:11:56Z",
+      "phase": "core",
+      "description": "Extend show command output:\n- Show parent task (if exists): Parent: T001 (Title)\n- Show depth level: Depth: 2\n- Show child count: Children: 3\n- Show ancestors: Ancestors: T001 -> T002\n- Include in JSON output",
+      "labels": [
+        "cli",
+        "hierarchy",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T330"
+      ]
+    },
+    {
+      "id": "T336",
+      "title": "T328.8: Create tests/unit/test-hierarchy.bats",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:58Z",
+      "phase": "testing",
+      "description": "Unit tests for hierarchy validation:\n- validate_parent_exists (exists/not exists/archived)\n- validate_depth_limit (1,2,3,4 levels)\n- validate_sibling_limit (1-7, 8+)\n- detect_circular_reference\n- calculate_task_depth\n- get_task_children\n- get_task_ancestors\n- Type hierarchy rules\n\nTarget: 50+ test cases",
+      "labels": [
+        "hierarchy",
+        "testing",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T330",
+        "T331"
+      ]
+    },
+    {
+      "id": "T337",
+      "title": "T328.9: Create tests/integration/hierarchy-workflow.bats",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:11:59Z",
+      "phase": "testing",
+      "description": "Integration tests for hierarchy workflow:\n- Create epic -> add children -> complete flow\n- Migration from v2.2.0 to v2.3.0\n- Tree display accuracy\n- Parent validation errors\n- Depth/sibling limit enforcement\n- Orphan detection scenarios\n\nTarget: 50+ test cases",
+      "labels": [
+        "hierarchy",
+        "testing",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T333",
+        "T334"
+      ]
+    },
+    {
+      "id": "T338",
+      "title": "T328.10: Create docs/commands/hierarchy.md documentation",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:12:00Z",
+      "phase": "polish",
+      "description": "Document hierarchy features:\n- Type definitions (epic/task/subtask)\n- Size model (small/medium/large) - NO TIME ESTIMATES\n- --parent and --type flags\n- --tree and list filters\n- Validation rules and error messages\n- Migration guide\n- Examples and workflows",
+      "labels": [
+        "documentation",
+        "hierarchy",
+        "v0.15.0"
+      ],
+      "depends": [
+        "T333",
+        "T334"
+      ]
+    },
+    {
+      "id": "T339",
+      "title": "EPIC: Hierarchy Enhancement Phase 2 - Automation (v0.16.0)",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:12:14Z",
+      "phase": "core",
+      "description": "## Overview\nAdvanced automation and UX enhancements for hierarchy.\n\n## Scope\n- Auto-complete parent when all children done\n- Auto-unblock when dependencies complete\n- Orphan detection and repair commands\n- tree, reparent, promote commands\n- Tab completion for --parent\n- Focus integration with hierarchy context\n- next command hierarchy awareness\n\n## Success Criteria\n- All Phase 1 + Phase 2 tests pass\n- Auto-behaviors work correctly\n- Commands are intuitive and documented\n- Performance acceptable for 500+ tasks",
+      "labels": [
+        "epic-type",
+        "hierarchy",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T328"
+      ]
+    },
+    {
+      "id": "T340",
+      "title": "T339.1: Implement parent auto-complete in complete-task.sh",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:12:33Z",
+      "phase": "core",
+      "description": "When completing a task:\n1. Check if task has parent\n2. Check if all siblings are done\n3. If yes: auto-complete parent (configurable mode)\n\nConfig options in todo-config.json:\n- hierarchy.autoCompleteParent: true|false\n- hierarchy.autoCompleteMode: auto|suggest|off\n\nModes:\n- auto: Complete parent silently\n- suggest: Prompt user (default)\n- off: No auto-complete",
+      "labels": [
+        "automation",
+        "hierarchy",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T341",
+      "title": "T339.2: Implement orphan detection and repair",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:12:35Z",
+      "phase": "core",
+      "description": "Enhance validate command:\n- Detect tasks with parentId referencing non-existent task\n- Detect tasks with parentId referencing archived task\n\nAdd --fix-orphans flag:\n- --unlink: Set parentId=null (promote to root)\n- --delete: Remove orphaned tasks\n- Default: show orphans, don't fix\n\nAdd to regular validation output as warning",
+      "labels": [
+        "hierarchy",
+        "v0.16.0",
+        "validation"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T342",
+      "title": "T339.3: Create scripts/tree.sh command",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:12:36Z",
+      "phase": "core",
+      "description": "New tree command (alias for list --tree):\n- claude-todo tree: Show full tree\n- claude-todo tree TXXX: Show subtree rooted at TXXX\n- Supports --depth, --status, --priority filters\n\nClean, focused command for hierarchy visualization",
+      "labels": [
+        "cli",
+        "hierarchy",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T343",
+      "title": "T339.4: Create scripts/reparent.sh command",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:12:39Z",
+      "phase": "core",
+      "description": "New reparent command:\n- claude-todo reparent TXXX --to TYYY\n\nValidates:\n- Source task exists\n- Target parent exists\n- Target has valid type (not subtask)\n- Move doesn't exceed depth limit\n- Move doesn't create circular reference\n- Target doesn't exceed sibling limit\n\nLogs operation to todo-log.json",
+      "labels": [
+        "cli",
+        "hierarchy",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T344",
+      "title": "T339.5: Create scripts/promote.sh command",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:12:40Z",
+      "phase": "core",
+      "description": "New promote command:\n- claude-todo promote TXXX\n\nRemoves parentId (makes task root-level).\nOptionally updates type if was subtask -> task.\n\nSimple command for removing parent relationship.",
+      "labels": [
+        "cli",
+        "hierarchy",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T345",
+      "title": "T339.6: Add hierarchy awareness to focus.sh",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:12:58Z",
+      "phase": "core",
+      "description": "Enhance focus show output:\n- Show parent context: Parent: T001 (Title)\n- Show child status: Children: 2 done, 1 pending\n- Show ancestor breadcrumb\n\nWhen focusing on epic, show child summary.\nWhen focusing on task with parent, show parent context.",
+      "labels": [
+        "focus",
+        "hierarchy",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T346",
+      "title": "T339.7: Add hierarchy awareness to next.sh",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:13:01Z",
+      "phase": "core",
+      "description": "Enhance next task suggestion:\n- Prefer tasks in currently focused epic (+30 score)\n- Prefer leaf tasks (no children) (+10 score)\n- Consider sibling completion status\n- Show parent context in suggestion\n\nExample output:\nSuggested: T002 - JWT middleware\n  Parent: T001 - Authentication System\n  Score: 95 (priority:50, same-epic:30, leaf:10, unblocked:5)",
+      "labels": [
+        "hierarchy",
+        "suggestion",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T347",
+      "title": "T339.8: Add bash/zsh tab completion for --parent",
+      "status": "pending",
+      "priority": "low",
+      "createdAt": "2025-12-17T06:13:03Z",
+      "phase": "polish",
+      "description": "Create completion scripts:\n- completions/bash-completion.sh\n- completions/zsh-completion.zsh\n\nContext-aware completion for --parent:\n- Only suggest tasks with type epic or task (not subtask)\n- Show task titles alongside IDs\n- Filter by current input prefix\n\nInstall instructions in docs.",
+      "labels": [
+        "completion",
+        "hierarchy",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T348",
+      "title": "T339.9: Add hierarchy index caching to lib/cache.sh",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "2025-12-17T06:13:04Z",
+      "phase": "core",
+      "description": "Extend cache system:\n- Cache parent-child relationships\n- Cache depth calculations\n- Cache child counts\n\nRebuild on task add/update/delete.\nImproves performance for large hierarchies (500+ tasks).",
+      "labels": [
+        "hierarchy",
+        "performance",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T339"
+      ]
+    },
+    {
+      "id": "T349",
+      "title": "T339.10: Create Phase 2 tests and documentation",
+      "status": "pending",
+      "priority": "high",
+      "createdAt": "2025-12-17T06:13:06Z",
+      "phase": "testing",
+      "description": "Testing:\n- tests/unit/test-auto-complete.bats\n- tests/integration/hierarchy-automation.bats\n- tests/e2e/full-hierarchy-workflow.bats\n\nDocumentation:\n- Update docs/commands/hierarchy.md with Phase 2 features\n- Update docs/QUICK-REFERENCE.md\n- Update CLAUDE.md injection template\n\nTarget: 50+ additional test cases",
+      "labels": [
+        "documentation",
+        "hierarchy",
+        "testing",
+        "v0.16.0"
+      ],
+      "depends": [
+        "T340",
+        "T341",
+        "T342",
+        "T343",
+        "T344"
+      ]
     }
   ],
   "phases": {

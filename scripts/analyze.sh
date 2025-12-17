@@ -6,24 +6,25 @@
 # Analyzes task dependencies to identify high-leverage work:
 # - Calculates task leverage (how many tasks each unblocks)
 # - Identifies bottlenecks (tasks blocking the most others)
+# - Groups tasks by logical domains (labels)
 # - Tiers tasks by strategic value
-# - Provides actionable recommendations
+# - Provides actionable recommendations with action order
 #
 # Usage:
 #   analyze.sh [OPTIONS]
 #
 # Options:
-#   --full            Show comprehensive analysis with all tiers
-#   --json            Output in machine-readable JSON format
+#   --human           Human-readable text output (default is JSON for LLM)
+#   --full            Comprehensive human-readable with all details
 #   --auto-focus      Automatically set focus to recommended task
 #   -h, --help        Show this help message
 #
 # Output Modes:
-#   Brief (default):  Top leverage tasks, bottlenecks, tier summary
-#   Full:             Complete analysis with all tiers and metrics
-#   JSON:             Structured data for scripting/automation
+#   JSON (default):   LLM-optimized structured data with all analysis
+#   Human (--human):  Brief human-readable summary
+#   Full (--full):    Comprehensive human-readable report
 #
-# Version: 0.15.0
+# Version: 0.16.0
 # Part of: claude-todo Advanced Analysis System
 #####################################################################
 
@@ -33,6 +34,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+
+# Source version from central location
+if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
+  VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
+else
+  VERSION="unknown"
+fi
 
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
@@ -59,8 +69,8 @@ elif [[ -f "$CLAUDE_TODO_HOME/lib/analysis.sh" ]]; then
   source "$CLAUDE_TODO_HOME/lib/analysis.sh"
 fi
 
-# Default configuration
-OUTPUT_MODE="brief"
+# Default configuration - JSON output for LLM agents
+OUTPUT_MODE="json"
 AUTO_FOCUS=false
 
 # File paths
@@ -76,28 +86,31 @@ usage() {
 Usage: claude-todo analyze [OPTIONS]
 
 Analyze task dependencies and identify high-leverage work.
+Default output is LLM-optimized JSON with comprehensive analysis.
 
 Options:
-    --full          Show comprehensive analysis with all tiers
-    --json          Output in machine-readable JSON format
+    --human         Human-readable text output (brief summary)
+    --full          Comprehensive human-readable report with all tiers
     --auto-focus    Automatically set focus to recommended task
     -h, --help      Show this help message
 
 Analysis Components:
-    Leverage:       How many tasks each task unblocks
-    Bottlenecks:    Tasks blocking the most others
-    Tiers:          Strategic grouping (1=Unblock, 2=Critical, 3=Progress, 4=Routine)
-    Recommendation: Suggested next task to maximize impact
+    leverage:       Tasks ranked by downstream impact (how many they unblock)
+    bottlenecks:    Tasks blocking the most others with cascade details
+    domains:        Dynamic grouping by label patterns
+    tiers:          Strategic grouping (1=Unblock, 2=Critical, 3=Progress, 4=Routine)
+    action_order:   Suggested sequence of tasks to maximize throughput
+    recommendation: Single best task to start with reasoning
 
 Output Modes:
-    Brief (default):  Summary with top tasks and recommendation
-    Full (--full):    Complete analysis with all tiers
-    JSON (--json):    Structured data for automation
+    JSON (default):   LLM-optimized structured data for autonomous agents
+    Human (--human):  Brief summary for quick human review
+    Full (--full):    Comprehensive human-readable report
 
 Examples:
-    claude-todo analyze                    # Brief analysis
-    claude-todo analyze --full             # Comprehensive report
-    claude-todo analyze --json             # JSON output
+    claude-todo analyze                    # JSON output (LLM default)
+    claude-todo analyze --human            # Brief human-readable
+    claude-todo analyze --full             # Detailed human-readable
     claude-todo analyze --auto-focus       # Analyze and set focus
 
 Exit Codes:
@@ -129,49 +142,26 @@ get_colors() {
   fi
 }
 
-# Build leverage map (task_id -> count of tasks it unblocks)
-build_leverage_map() {
+#####################################################################
+# Core Analysis - Single jq Query for Efficiency
+#####################################################################
+
+# Complete analysis in a single jq pass for performance
+run_complete_analysis() {
   local todo_file="$1"
 
-  # Build dependency graph: task -> [tasks that depend on it]
-  jq -r '
-    # Build adjacency list
-    .tasks |
-    reduce .[] as $task (
-      {};
-      if $task.depends and ($task.depends | length > 0) then
-        reduce $task.depends[] as $dep (
-          .;
-          .[$dep] += [$task.id]
-        )
-      else
-        .
-      end
-    ) |
-    # Count direct + transitive dependents
-    to_entries |
-    map({
-      id: .key,
-      unlocks: (.value | length)
-    })
-  ' "$todo_file"
-}
+  jq --arg version "$VERSION" '
+    # ================================================================
+    # SETUP: Build dependency graphs and helper data
+    # ================================================================
 
-# Calculate leverage scores with transitive dependencies
-calculate_leverage_scores() {
-  local todo_file="$1"
+    .tasks as $all_tasks |
 
-  # Build dependency graph: task -> [tasks that depend on it]
-  local dep_graph
-  if declare -f build_dependency_graph >/dev/null 2>&1; then
-    dep_graph=$(build_dependency_graph "$todo_file")
-  else
-    # Fallback: build inline
-    dep_graph=$(jq -r '
-      .tasks |
-      reduce .[] as $task (
+    # Reverse dependency map: task_id -> [tasks that depend on it]
+    (
+      reduce $all_tasks[] as $task (
         {};
-        if $task.depends and ($task.depends | length > 0) then
+        if $task.depends then
           reduce $task.depends[] as $dep (
             .;
             .[$dep] += [$task.id]
@@ -180,96 +170,293 @@ calculate_leverage_scores() {
           .
         end
       )
-    ' "$todo_file")
-  fi
+    ) as $reverse_deps |
 
-  # For each pending task, count transitive dependents
-  jq -r --argjson graph "$dep_graph" '
-    [.tasks[] |
-     select(.status == "pending" or .status == "active") |
-     {
-       id,
-       title,
-       priority,
-       status,
-       unlocks: ($graph[.id] // [] | length)
-     }
-    ] | sort_by(-.unlocks)
+    # Set of done task IDs for dependency checking
+    ([$all_tasks[] | select(.status == "done") | .id]) as $done_ids |
+
+    # Pending tasks only
+    [$all_tasks[] | select(.status == "pending" or .status == "active")] as $pending_tasks |
+
+    # ================================================================
+    # LEVERAGE: Calculate leverage scores for all pending tasks
+    # ================================================================
+
+    [
+      $pending_tasks[] |
+      . as $task |
+      ($reverse_deps[$task.id] // []) as $blocked_by_this |
+      {
+        id: $task.id,
+        title: $task.title,
+        status: $task.status,
+        priority: ($task.priority // "medium"),
+        phase: ($task.phase // null),
+        labels: ($task.labels // []),
+        depends: ($task.depends // []),
+        unlocks_count: ($blocked_by_this | length),
+        unlocks_tasks: $blocked_by_this,
+        # Check if this task is actionable (all deps satisfied)
+        is_actionable: (
+          if $task.depends then
+            all($task.depends[]; . as $dep | $done_ids | index($dep) | type == "number")
+          else
+            true
+          end
+        ),
+        priority_score: (
+          if ($task.priority // "medium") == "critical" then 100
+          elif ($task.priority // "medium") == "high" then 75
+          elif ($task.priority // "medium") == "medium" then 50
+          else 25
+          end
+        )
+      } |
+      .leverage_score = (.unlocks_count * 15) + .priority_score
+    ] | sort_by(-(.leverage_score // 0)) as $leverage_data |
+
+    # ================================================================
+    # BOTTLENECKS: Tasks that block the most others
+    # ================================================================
+
+    [
+      $leverage_data[] |
+      select(.unlocks_count >= 2) |
+      {
+        id: .id,
+        title: .title,
+        priority: .priority,
+        blocks_count: .unlocks_count,
+        blocked_tasks: .unlocks_tasks,
+        is_actionable: .is_actionable
+      }
+    ] | sort_by(-(.blocks_count // 0)) as $bottlenecks |
+
+    # ================================================================
+    # TIERS: Group tasks by strategic value
+    # Only actionable tasks in Tiers 1-2, blocked tasks in Tier 3
+    # ================================================================
+
+    {
+      tier1_unblock: [
+        $leverage_data[] |
+        select(.unlocks_count >= 3 and .is_actionable) |
+        {id, title, priority, unlocks_count, unlocks_tasks, leverage_score}
+      ] | sort_by(-(.unlocks_count // 0)),
+
+      tier2_critical: [
+        $leverage_data[] |
+        select(
+          .is_actionable and
+          .unlocks_count < 3 and
+          (.priority == "critical" or .priority == "high")
+        ) |
+        {id, title, priority, unlocks_count, leverage_score}
+      ] | sort_by(-(.leverage_score // 0)),
+
+      tier3_blocked: [
+        $leverage_data[] |
+        select((.is_actionable // false) == false) |
+        {
+          id,
+          title,
+          priority,
+          blocked_by: [.depends[] | select(. as $d | $done_ids | index($d) | type == "null")]
+        }
+      ],
+
+      tier4_routine: [
+        $leverage_data[] |
+        select(
+          .is_actionable and
+          .unlocks_count < 3 and
+          (.priority == "medium" or .priority == "low")
+        ) |
+        {id, title, priority, unlocks_count, leverage_score}
+      ] | sort_by(-(.leverage_score // 0))
+    } as $tiers |
+
+    # ================================================================
+    # DOMAINS: Dynamic grouping by label patterns
+    # ================================================================
+
+    (
+      # Extract unique label prefixes/categories
+      [
+        $leverage_data[] |
+        select(.labels | length > 0) |
+        .labels[]
+      ] | unique |
+
+      # Group tasks by each label
+      . as $all_labels |
+      [
+        $all_labels[] |
+        . as $label |
+        {
+          domain: $label,
+          tasks: [
+            $leverage_data[] |
+            select(.labels | index($label) | type == "number") |
+            {id, title, priority, is_actionable, unlocks_count}
+          ],
+          count: ([$leverage_data[] | select(.labels | index($label) | type == "number")] | length),
+          actionable_count: ([$leverage_data[] | select(.labels | index($label) | type == "number") | select(.is_actionable)] | length)
+        } |
+        select(.count >= 2)  # Only show domains with 2+ tasks
+      ] | sort_by(-(.count // 0))
+    ) as $domains |
+
+    # ================================================================
+    # ACTION ORDER: Suggested sequence to maximize throughput
+    # Priority: Tier1 by leverage -> Tier2 by leverage -> Tier4 by leverage
+    # ================================================================
+
+    (
+      ($tiers.tier1_unblock | map({id, title, priority, reason: "Unblocks \(.unlocks_count) tasks", tier: 1})) +
+      ($tiers.tier2_critical | map({id, title, priority, reason: "High priority, actionable", tier: 2})) +
+      ($tiers.tier4_routine[0:5] | map({id, title, priority, reason: "Quick win", tier: 4}))
+    )[0:10] as $action_order |
+
+    # ================================================================
+    # RECOMMENDATION: Single best task with reasoning
+    # ================================================================
+
+    (
+      if ($tiers.tier1_unblock | length) > 0 then
+        $tiers.tier1_unblock | sort_by(-(.unlocks_count // 0)) | .[0] |
+        {
+          task_id: .id,
+          title: .title,
+          priority: .priority,
+          reason: "Highest leverage - unblocks \(.unlocks_count) tasks",
+          unlocks: .unlocks_tasks,
+          command: "ct focus set \(.id)"
+        }
+      elif ($tiers.tier2_critical | length) > 0 then
+        $tiers.tier2_critical[0] |
+        {
+          task_id: .id,
+          title: .title,
+          priority: .priority,
+          reason: "Critical/high priority with clear path",
+          unlocks: [],
+          command: "ct focus set \(.id)"
+        }
+      elif ($tiers.tier4_routine | length) > 0 then
+        $tiers.tier4_routine[0] |
+        {
+          task_id: .id,
+          title: .title,
+          priority: .priority,
+          reason: "Actionable task in backlog",
+          unlocks: [],
+          command: "ct focus set \(.id)"
+        }
+      else
+        null
+      end
+    ) as $recommendation |
+
+    # ================================================================
+    # SUMMARY STATISTICS
+    # ================================================================
+
+    {
+      total_pending: ($pending_tasks | length),
+      actionable: ([$leverage_data[] | select(.is_actionable)] | length),
+      blocked: ([$leverage_data[] | select(.is_actionable == false)] | length),
+      total_done: ($done_ids | length),
+      bottleneck_count: ($bottlenecks | length)
+    } as $summary |
+
+    # ================================================================
+    # FINAL OUTPUT: Complete analysis object
+    # ================================================================
+
+    {
+      "_meta": {
+        "version": $version,
+        "generated": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        "algorithm": "leverage_scoring_v2"
+      },
+
+      "summary": $summary,
+
+      "recommendation": $recommendation,
+
+      "action_order": $action_order,
+
+      "bottlenecks": ($bottlenecks | .[0:5]),
+
+      "leverage": ($leverage_data | map(select(.unlocks_count > 0)) | .[0:10]),
+
+      "tiers": {
+        "tier1_unblock": {
+          "description": "High leverage - unblock multiple tasks",
+          "count": ($tiers.tier1_unblock | length),
+          "tasks": $tiers.tier1_unblock
+        },
+        "tier2_critical": {
+          "description": "Critical/high priority, actionable",
+          "count": ($tiers.tier2_critical | length),
+          "tasks": ($tiers.tier2_critical | .[0:10])
+        },
+        "tier3_blocked": {
+          "description": "Blocked by incomplete dependencies",
+          "count": ($tiers.tier3_blocked | length),
+          "tasks": ($tiers.tier3_blocked | .[0:10])
+        },
+        "tier4_routine": {
+          "description": "Medium/low priority, actionable",
+          "count": ($tiers.tier4_routine | length),
+          "tasks": ($tiers.tier4_routine | .[0:10])
+        }
+      },
+
+      "domains": $domains
+    }
   ' "$todo_file"
-}
-
-# Identify bottlenecks (use existing function from analysis.sh)
-get_bottlenecks() {
-  local todo_file="$1"
-
-  if declare -f find_bottlenecks >/dev/null 2>&1; then
-    find_bottlenecks "$todo_file" | jq -r '[.[] | select(.blocks_count > 0)] | sort_by(-.blocks_count) | .[0:5]'
-  else
-    echo "[]"
-  fi
-}
-
-# Categorize tasks into tiers
-tier_tasks() {
-  local todo_file="$1"
-
-  local leverage_scores
-  leverage_scores=$(calculate_leverage_scores "$todo_file")
-
-  local bottlenecks
-  bottlenecks=$(get_bottlenecks "$todo_file")
-
-  # Tier logic:
-  # Tier 1: Unlocks 5+ tasks OR is a top-3 bottleneck
-  # Tier 2: High/critical priority AND unlocks 2-4 tasks
-  # Tier 3: Medium priority OR unlocks 1 task
-  # Tier 4: Low priority, no dependencies
-
-  jq -n \
-    --argjson scores "$leverage_scores" \
-    --argjson bottlenecks "$bottlenecks" \
-    '{
-      tier1: ($scores | map(select(.unlocks >= 5)) + ($bottlenecks | .[0:3] | map({id, title, unlocks: .blocks_count, priority})) | unique_by(.id)),
-      tier2: ($scores | map(select(.unlocks >= 2 and .unlocks < 5 and (.priority == "high" or .priority == "critical")))),
-      tier3: ($scores | map(select(.unlocks == 1 or .priority == "medium"))),
-      tier4: ($scores | map(select(.unlocks == 0 and .priority == "low")))
-    }'
-}
-
-# Get recommendation
-get_recommendation() {
-  local tiers="$1"
-
-  # Prefer Tier 1, then Tier 2
-  local recommended
-  recommended=$(echo "$tiers" | jq -r '
-    if (.tier1 | length) > 0 then
-      .tier1[0] | {task: .id, reason: "Unlocks \(.unlocks) tasks"}
-    elif (.tier2 | length) > 0 then
-      .tier2[0] | {task: .id, reason: "High priority with dependencies"}
-    elif (.tier3 | length) > 0 then
-      .tier3[0] | {task: .id, reason: "Progress task"}
-    else
-      null
-    end
-  ')
-
-  echo "$recommended"
 }
 
 #####################################################################
 # Output Formatters
 #####################################################################
 
-# Output brief format
-output_brief() {
-  get_colors
-
+# Output LLM-optimized JSON (default)
+output_json() {
   local todo_file="$1"
   local pending_count
   pending_count=$(jq -r '[.tasks[] | select(.status == "pending")] | length' "$todo_file")
 
   if [[ "$pending_count" -eq 0 ]]; then
+    jq -n --arg version "$VERSION" '{
+      "_meta": {"version": $version, "generated": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))},
+      "summary": {"total_pending": 0, "actionable": 0, "blocked": 0},
+      "recommendation": null,
+      "action_order": [],
+      "message": "No pending tasks to analyze"
+    }'
+    exit 2
+  fi
+
+  run_complete_analysis "$todo_file"
+}
+
+# Output human-readable brief format
+output_human() {
+  get_colors
+
+  local todo_file="$1"
+  local analysis
+  analysis=$(run_complete_analysis "$todo_file")
+
+  local pending actionable blocked
+  pending=$(echo "$analysis" | jq -r '.summary.total_pending')
+  actionable=$(echo "$analysis" | jq -r '.summary.actionable')
+  blocked=$(echo "$analysis" | jq -r '.summary.blocked')
+
+  if [[ "$pending" -eq 0 ]]; then
     echo ""
     echo -e "${YELLOW}No pending tasks to analyze.${NC}"
     echo ""
@@ -279,154 +466,136 @@ output_brief() {
   local unicode
   detect_unicode_support 2>/dev/null && unicode="true" || unicode="false"
 
-  local leverage_scores
-  leverage_scores=$(calculate_leverage_scores "$todo_file")
-
-  local bottlenecks
-  bottlenecks=$(get_bottlenecks "$todo_file")
-
-  local tiers
-  tiers=$(tier_tasks "$todo_file")
-
-  local recommendation
-  recommendation=$(get_recommendation "$tiers")
-
   echo ""
   if [[ "$unicode" == "true" ]]; then
-    echo -e "${BOLD}⚡ TASK ANALYSIS${NC} ${DIM}($pending_count pending)${NC}"
-    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${BOLD}⚡ TASK ANALYSIS${NC} ${DIM}($pending pending, $actionable actionable, $blocked blocked)${NC}"
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   else
-    echo -e "${BOLD}TASK ANALYSIS${NC} ${DIM}($pending_count pending)${NC}"
-    echo -e "========================================"
+    echo -e "${BOLD}TASK ANALYSIS${NC} ${DIM}($pending pending, $actionable actionable, $blocked blocked)${NC}"
+    echo -e "===================================================================="
   fi
   echo ""
 
-  # Highest Leverage
-  echo -e "${BOLD}${CYAN}🎯 HIGHEST LEVERAGE${NC}"
-  local top_leverage
-  top_leverage=$(echo "$leverage_scores" | jq -c '.[0:2]')
-  if [[ "$(echo "$top_leverage" | jq 'length')" -gt 0 ]]; then
-    echo "$top_leverage" | jq -c '.[]' | while read -r task; do
-      local id title unlocks
-      id=$(echo "$task" | jq -r '.id')
-      title=$(echo "$task" | jq -r '.title')
-      unlocks=$(echo "$task" | jq -r '.unlocks')
+  # Recommendation
+  local rec_task rec_reason rec_unlocks
+  rec_task=$(echo "$analysis" | jq -r '.recommendation.task_id // empty')
+  if [[ -n "$rec_task" ]]; then
+    rec_reason=$(echo "$analysis" | jq -r '.recommendation.reason')
+    echo -e "${BOLD}${GREEN}RECOMMENDATION${NC}"
+    echo -e "  ${CYAN}→ ct focus set $rec_task${NC}"
+    echo -e "  ${DIM}$rec_reason${NC}"
 
-      if [[ "$unlocks" -gt 0 ]]; then
-        # Truncate title if too long
-        if [[ ${#title} -gt 50 ]]; then
-          title="${title:0:47}..."
-        fi
-        echo -e "  ${BOLD}$id${NC} → Unlocks $unlocks tasks ${DIM}($title)${NC}"
-      fi
-    done
+    # Show what it unblocks
+    local unlocks_list
+    unlocks_list=$(echo "$analysis" | jq -r '.recommendation.unlocks | join(", ")')
+    if [[ -n "$unlocks_list" && "$unlocks_list" != "" ]]; then
+      echo -e "  ${DIM}Unblocks: $unlocks_list${NC}"
+    fi
+    echo ""
+  fi
+
+  # Action Order
+  echo -e "${BOLD}${CYAN}ACTION ORDER${NC} ${DIM}(suggested sequence)${NC}"
+  local action_count
+  action_count=$(echo "$analysis" | jq '.action_order | length')
+  if [[ "$action_count" -gt 0 ]]; then
+    echo "$analysis" | jq -r '.action_order[0:5][] | "  \(.id) [\(.priority)] \(.reason)"'
   else
-    echo -e "  ${DIM}No tasks unblock others${NC}"
+    echo -e "  ${DIM}No actionable tasks available${NC}"
   fi
   echo ""
 
   # Bottlenecks
   local bottleneck_count
-  bottleneck_count=$(echo "$bottlenecks" | jq 'length')
+  bottleneck_count=$(echo "$analysis" | jq '.bottlenecks | length')
   if [[ "$bottleneck_count" -gt 0 ]]; then
-    echo -e "${BOLD}${RED}🚨 BOTTLENECKS${NC}"
-    echo "$bottlenecks" | jq -c '.[0:2]' | jq -c '.[]' | while read -r task; do
-      local id title blocks_count blocked_tasks
-      id=$(echo "$task" | jq -r '.id')
-      title=$(echo "$task" | jq -r '.title')
-      blocks_count=$(echo "$task" | jq -r '.blocks_count')
-      blocked_tasks=$(echo "$task" | jq -r '.blocked_tasks | join(",") | split(",") | .[0:11] | join(",")')
-
-      if [[ ${#title} -gt 40 ]]; then
-        title="${title:0:37}..."
-      fi
-
-      echo -e "  ${BOLD}$id${NC} blocks: ${YELLOW}$blocked_tasks${NC}${DIM}...${NC} ${DIM}($blocks_count total)${NC}"
-    done
+    echo -e "${BOLD}${RED}BOTTLENECKS${NC} ${DIM}(tasks blocking others)${NC}"
+    echo "$analysis" | jq -r '.bottlenecks[0:3][] | "  \(.id) blocks \(.blocks_count) tasks: \(.blocked_tasks | join(", "))"'
     echo ""
   fi
 
   # Tier Summary
-  echo -e "${BOLD}${BLUE}📊 TIERS${NC}"
-  local tier1_count tier2_count tier3_count tier4_count
-  tier1_count=$(echo "$tiers" | jq '.tier1 | length')
-  tier2_count=$(echo "$tiers" | jq '.tier2 | length')
-  tier3_count=$(echo "$tiers" | jq '.tier3 | length')
-  tier4_count=$(echo "$tiers" | jq '.tier4 | length')
+  echo -e "${BOLD}${BLUE}TIERS${NC}"
+  local t1 t2 t3 t4
+  t1=$(echo "$analysis" | jq '.tiers.tier1_unblock.count')
+  t2=$(echo "$analysis" | jq '.tiers.tier2_critical.count')
+  t3=$(echo "$analysis" | jq '.tiers.tier3_blocked.count')
+  t4=$(echo "$analysis" | jq '.tiers.tier4_routine.count')
 
-  echo -e "  ${BOLD}Tier 1${NC} (Unblock): ${CYAN}$tier1_count${NC} task(s)"
-  if [[ "$tier1_count" -gt 0 ]]; then
-    echo "$tiers" | jq -r '.tier1[0:3] | .[] | "    \(.id)"'
-  fi
-
-  echo -e "  ${BOLD}Tier 2${NC} (Critical): ${YELLOW}$tier2_count${NC} task(s)"
-  if [[ "$tier2_count" -gt 0 ]]; then
-    echo "$tiers" | jq -r '.tier2[0:3] | .[] | "    \(.id)"'
-  fi
-
-  echo -e "  ${BOLD}Tier 3${NC} (Progress): ${GREEN}$tier3_count${NC} task(s)"
-  echo -e "  ${BOLD}Tier 4${NC} (Routine): ${DIM}$tier4_count${NC} task(s)"
+  echo -e "  ${BOLD}Tier 1${NC} (Unblock):  ${CYAN}$t1${NC} task(s)"
+  echo -e "  ${BOLD}Tier 2${NC} (Critical): ${YELLOW}$t2${NC} task(s)"
+  echo -e "  ${BOLD}Tier 3${NC} (Blocked):  ${RED}$t3${NC} task(s)"
+  echo -e "  ${BOLD}Tier 4${NC} (Routine):  ${DIM}$t4${NC} task(s)"
   echo ""
 
-  # Recommendation
-  if [[ -n "$recommendation" && "$recommendation" != "null" ]]; then
-    local rec_task rec_reason
-    rec_task=$(echo "$recommendation" | jq -r '.task')
-    rec_reason=$(echo "$recommendation" | jq -r '.reason')
-
-    echo -e "${BOLD}${GREEN}→ RECOMMENDED${NC}: ${CYAN}ct focus set $rec_task${NC}"
-    echo -e "  ${DIM}$rec_reason${NC}"
-  else
-    echo -e "${BOLD}${GREEN}→ RECOMMENDED${NC}: ${DIM}Work on highest priority task${NC}"
+  # Domains (if any)
+  local domain_count
+  domain_count=$(echo "$analysis" | jq '.domains | length')
+  if [[ "$domain_count" -gt 0 ]]; then
+    echo -e "${BOLD}${MAGENTA}DOMAINS${NC} ${DIM}(by label)${NC}"
+    echo "$analysis" | jq -r '.domains[0:5][] | "  \(.domain): \(.actionable_count)/\(.count) actionable"'
+    echo ""
   fi
-
-  echo ""
 }
 
-# Output full format
+# Output comprehensive human-readable format
 output_full() {
-  output_brief "$1"
-
   get_colors
 
   local todo_file="$1"
-  local tiers
-  tiers=$(tier_tasks "$todo_file")
+  local analysis
+  analysis=$(run_complete_analysis "$todo_file")
 
-  echo -e "${BOLD}${BLUE}═══════════════════════════════════════${NC}"
-  echo -e "${BOLD}DETAILED TIER BREAKDOWN${NC}"
-  echo -e "${BOLD}${BLUE}═══════════════════════════════════════${NC}"
+  # Start with brief output
+  output_human "$todo_file"
+
+  local unicode
+  detect_unicode_support 2>/dev/null && unicode="true" || unicode="false"
+
+  if [[ "$unicode" == "true" ]]; then
+    echo -e "${BOLD}═══════════════════════════════════════════════════════════════════${NC}"
+  else
+    echo -e "${BOLD}===================================================================${NC}"
+  fi
+  echo -e "${BOLD}DETAILED BREAKDOWN${NC}"
+  if [[ "$unicode" == "true" ]]; then
+    echo -e "${BOLD}═══════════════════════════════════════════════════════════════════${NC}"
+  else
+    echo -e "${BOLD}===================================================================${NC}"
+  fi
   echo ""
 
-  # Tier 1
-  echo -e "${BOLD}${CYAN}Tier 1 - Unblock${NC} ${DIM}(High leverage - unblocks multiple tasks)${NC}"
-  local tier1
-  tier1=$(echo "$tiers" | jq -c '.tier1[]')
-  if [[ -n "$tier1" ]]; then
-    echo "$tier1" | while read -r task; do
-      local id title unlocks priority
+  # Tier 1 Details
+  echo -e "${BOLD}${CYAN}Tier 1 - UNBLOCK${NC} ${DIM}(High leverage - work on these first)${NC}"
+  local tier1_tasks
+  tier1_tasks=$(echo "$analysis" | jq -c '.tiers.tier1_unblock.tasks[]' 2>/dev/null)
+  if [[ -n "$tier1_tasks" ]]; then
+    echo "$tier1_tasks" | while read -r task; do
+      local id title priority unlocks unlocks_list
       id=$(echo "$task" | jq -r '.id')
       title=$(echo "$task" | jq -r '.title')
-      unlocks=$(echo "$task" | jq -r '.unlocks')
       priority=$(echo "$task" | jq -r '.priority')
+      unlocks=$(echo "$task" | jq -r '.unlocks_count')
+      unlocks_list=$(echo "$task" | jq -r '.unlocks_tasks | join(", ")')
 
-      if [[ ${#title} -gt 55 ]]; then
-        title="${title:0:52}..."
+      if [[ ${#title} -gt 50 ]]; then
+        title="${title:0:47}..."
       fi
 
-      echo -e "  ${BOLD}$id${NC} [$priority] $title ${DIM}(unlocks: $unlocks)${NC}"
+      echo -e "  ${BOLD}$id${NC} [$priority] $title"
+      echo -e "    ${DIM}Unlocks $unlocks: $unlocks_list${NC}"
     done
   else
     echo -e "  ${DIM}None${NC}"
   fi
   echo ""
 
-  # Tier 2
-  echo -e "${BOLD}${YELLOW}Tier 2 - Critical${NC} ${DIM}(High priority with dependencies)${NC}"
-  local tier2
-  tier2=$(echo "$tiers" | jq -c '.tier2[]')
-  if [[ -n "$tier2" ]]; then
-    echo "$tier2" | while read -r task; do
+  # Tier 2 Details
+  echo -e "${BOLD}${YELLOW}Tier 2 - CRITICAL${NC} ${DIM}(High priority, actionable)${NC}"
+  local tier2_tasks
+  tier2_tasks=$(echo "$analysis" | jq -c '.tiers.tier2_critical.tasks[0:7][]' 2>/dev/null)
+  if [[ -n "$tier2_tasks" ]]; then
+    echo "$tier2_tasks" | while read -r task; do
       local id title priority
       id=$(echo "$task" | jq -r '.id')
       title=$(echo "$task" | jq -r '.title')
@@ -443,83 +612,44 @@ output_full() {
   fi
   echo ""
 
-  # Tier 3
-  echo -e "${BOLD}${GREEN}Tier 3 - Progress${NC} ${DIM}(Standard work)${NC}"
-  local tier3_count
-  tier3_count=$(echo "$tiers" | jq '.tier3 | length')
-  echo -e "  ${tier3_count} task(s) - Use ${CYAN}ct list --priority medium${NC} to view"
+  # Tier 3 Details (Blocked)
+  echo -e "${BOLD}${RED}Tier 3 - BLOCKED${NC} ${DIM}(Waiting on dependencies)${NC}"
+  local tier3_tasks
+  tier3_tasks=$(echo "$analysis" | jq -c '.tiers.tier3_blocked.tasks[0:7][]' 2>/dev/null)
+  if [[ -n "$tier3_tasks" ]]; then
+    echo "$tier3_tasks" | while read -r task; do
+      local id title blocked_by
+      id=$(echo "$task" | jq -r '.id')
+      title=$(echo "$task" | jq -r '.title')
+      blocked_by=$(echo "$task" | jq -r '.blocked_by | join(", ")')
+
+      if [[ ${#title} -gt 45 ]]; then
+        title="${title:0:42}..."
+      fi
+
+      echo -e "  ${BOLD}$id${NC} $title"
+      echo -e "    ${DIM}Blocked by: $blocked_by${NC}"
+    done
+  else
+    echo -e "  ${DIM}None${NC}"
+  fi
   echo ""
 
-  # Tier 4
-  echo -e "${BOLD}${DIM}Tier 4 - Routine${NC} ${DIM}(Low priority, no dependencies)${NC}"
+  # Tier 4 Summary
   local tier4_count
-  tier4_count=$(echo "$tiers" | jq '.tier4 | length')
-  echo -e "  ${tier4_count} task(s) - Use ${CYAN}ct list --priority low${NC} to view"
+  tier4_count=$(echo "$analysis" | jq '.tiers.tier4_routine.count')
+  echo -e "${BOLD}${DIM}Tier 4 - ROUTINE${NC} ${DIM}($tier4_count tasks - use ct list --priority medium,low to view)${NC}"
   echo ""
-}
 
-# Output JSON format
-output_json() {
-  local todo_file="$1"
-  local pending_count
-  pending_count=$(jq -r '[.tasks[] | select(.status == "pending")] | length' "$todo_file")
-
-  local leverage_scores
-  leverage_scores=$(calculate_leverage_scores "$todo_file")
-
-  local bottlenecks
-  bottlenecks=$(get_bottlenecks "$todo_file")
-
-  local tiers
-  tiers=$(tier_tasks "$todo_file")
-
-  local recommendation
-  recommendation=$(get_recommendation "$tiers")
-
-  local tier1_count tier2_count tier3_count tier4_count
-  tier1_count=$(echo "$tiers" | jq '.tier1 | length')
-  tier2_count=$(echo "$tiers" | jq '.tier2 | length')
-  tier3_count=$(echo "$tiers" | jq '.tier3 | length')
-  tier4_count=$(echo "$tiers" | jq '.tier4 | length')
-
-  local unblocked_count
-  unblocked_count=$(jq -r '[.tasks[] | select(.status == "pending") | select((.depends // [] | length) == 0)] | length' "$todo_file")
-
-  local blocked_count
-  blocked_count=$(jq -r '[.tasks[] | select(.status == "blocked")] | length' "$todo_file")
-
-  jq -n \
-    --argjson pending "$pending_count" \
-    --argjson blocked "$blocked_count" \
-    --argjson unblocked "$unblocked_count" \
-    --argjson leverage "$leverage_scores" \
-    --argjson bottlenecks "$bottlenecks" \
-    --argjson tiers "$tiers" \
-    --argjson recommendation "$recommendation" \
-    '{
-      "_meta": {
-        "version": "0.15.0",
-        "generated": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
-      },
-      "summary": {
-        "pending": $pending,
-        "blocked": $blocked,
-        "unblocked": $unblocked
-      },
-      "leverage": ($leverage | map(select(.unlocks > 0)) | sort_by(-.unlocks)),
-      "bottlenecks": $bottlenecks,
-      "tiers": {
-        "1": $tiers.tier1,
-        "2": $tiers.tier2,
-        "3": $tiers.tier3,
-        "4": $tiers.tier4
-      },
-      "recommendation": (if $recommendation then {
-        "task": $recommendation.task,
-        "reason": $recommendation.reason,
-        "command": ("ct focus set " + $recommendation.task)
-      } else null end)
-    }'
+  # Domain breakdown
+  local domain_count
+  domain_count=$(echo "$analysis" | jq '.domains | length')
+  if [[ "$domain_count" -gt 0 ]]; then
+    echo -e "${BOLD}${MAGENTA}DOMAIN BREAKDOWN${NC}"
+    echo "$analysis" | jq -r '.domains[0:8][] |
+      "  \(.domain) (\(.count) tasks, \(.actionable_count) actionable)\n    \(.tasks[0:3] | map(.id) | join(", "))\(.tasks | if length > 3 then "..." else "" end)"'
+    echo ""
+  fi
 }
 
 #####################################################################
@@ -529,6 +659,10 @@ output_json() {
 parse_arguments() {
   while [[ $# -gt 0 ]]; do
     case $1 in
+      --human)
+        OUTPUT_MODE="human"
+        shift
+        ;;
       --full)
         OUTPUT_MODE="full"
         shift
@@ -581,25 +715,29 @@ main() {
     full)
       output_full "$TODO_FILE"
       ;;
-    brief)
-      output_brief "$TODO_FILE"
+    human)
+      output_human "$TODO_FILE"
       ;;
   esac
 
   # Auto-focus if requested
-  if [[ "$AUTO_FOCUS" == "true" && "$OUTPUT_MODE" != "json" ]]; then
-    local tiers
-    tiers=$(tier_tasks "$TODO_FILE")
-    local recommendation
-    recommendation=$(get_recommendation "$tiers")
+  if [[ "$AUTO_FOCUS" == "true" ]]; then
+    local analysis
+    analysis=$(run_complete_analysis "$TODO_FILE")
+    local rec_task
+    rec_task=$(echo "$analysis" | jq -r '.recommendation.task_id // empty')
 
-    if [[ -n "$recommendation" && "$recommendation" != "null" ]]; then
-      local rec_task
-      rec_task=$(echo "$recommendation" | jq -r '.task')
+    if [[ -n "$rec_task" ]]; then
+      if [[ "$OUTPUT_MODE" != "json" ]]; then
+        echo ""
+        echo "Setting focus to $rec_task..."
+      fi
+      "$SCRIPT_DIR/focus-command.sh" set "$rec_task" >/dev/null 2>&1
 
-      echo ""
-      echo "Setting focus to $rec_task..."
-      "$SCRIPT_DIR/focus-command.sh" set "$rec_task"
+      if [[ "$OUTPUT_MODE" == "json" ]]; then
+        echo ""
+        jq -n --arg task "$rec_task" '{"auto_focus": {"set": $task, "status": "success"}}'
+      fi
     fi
   fi
 }

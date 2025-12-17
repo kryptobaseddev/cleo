@@ -3,11 +3,11 @@
 > **A production-grade task management system for Claude Code with automatic archiving, comprehensive validation, and anti-hallucination protection.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.0-blue.svg)](CHANGELOG.md)
 [![Bash](https://img.shields.io/badge/bash-4.0%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 
-<!-- VERSION_SYNC: This badge version should match VERSION file. Run ./scripts/sync-version.sh to update. -->
+<!-- VERSION_SYNC: This badge version should match VERSION file. Run ./scripts/bump-version.sh to update. -->
 
 ---
 

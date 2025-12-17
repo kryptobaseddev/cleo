@@ -27,6 +27,16 @@ set -euo pipefail
 # Source library functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
+CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+
+# Source version from central location
+if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
+  VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
+else
+  VERSION="unknown"
+fi
 
 # shellcheck source=../lib/file-ops.sh
 source "${LIB_DIR}/file-ops.sh"
@@ -563,13 +573,12 @@ output_json_format() {
             tasks_with_deps=$(get_tasks_with_deps)
             local current_timestamp
             current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            local version="0.8.2"
 
             jq -n --argjson tasks "$tasks_with_deps" \
                 --argjson graph "$graph" \
                 --argjson reverse "$reverse_graph" \
                 --arg timestamp "$current_timestamp" \
-                --arg version "$version" '{
+                --arg version "$VERSION" '{
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -590,13 +599,12 @@ output_json_format() {
             dependents=$(get_dependent_tasks "$task_id")
             local current_timestamp
             current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            local version="0.8.2"
 
             jq -n --arg id "$task_id" \
                 --argjson deps "$deps" \
                 --argjson dependents "$dependents" \
                 --arg timestamp "$current_timestamp" \
-                --arg version "$version" '{
+                --arg version "$VERSION" '{
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -612,12 +620,11 @@ output_json_format() {
         tree)
             local current_timestamp
             current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            local version="0.8.2"
 
             jq -n --argjson graph "$graph" \
                 --argjson reverse "$reverse_graph" \
                 --arg timestamp "$current_timestamp" \
-                --arg version "$version" '{
+                --arg version "$VERSION" '{
                 "_meta": {
                     "format": "json",
                     "version": $version,

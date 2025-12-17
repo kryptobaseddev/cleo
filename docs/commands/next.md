@@ -41,6 +41,13 @@ The recommendation engine works as follows:
 | `--format FORMAT` | `-f` | Output format: `text` or `json` | `text` |
 | `--help` | `-h` | Show help message | |
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (validation failed, file read error, no tasks available) |
+
 ## Examples
 
 ### Basic Suggestion

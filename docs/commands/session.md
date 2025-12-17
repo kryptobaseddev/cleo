@@ -23,8 +23,9 @@ The `session` command manages work sessions to track when you're actively workin
 |------------|-------------|
 | `start` | Start a new work session |
 | `end` | End the current session |
-| `status` | Show current session status (default) |
+| `status` | Show current session status |
 | `info` | Show detailed session information |
+| (none) | Show help message (default) |
 
 ## Options
 

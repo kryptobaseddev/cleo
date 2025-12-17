@@ -130,6 +130,25 @@ wc -l templates/CLAUDE-INJECTION.md  # Should be <50 lines
 | Explain concepts in INDEX.md | Link to appropriate guide |
 | Document same feature twice | Single source in Layer 3 |
 
+## Version Documentation
+
+When releasing new versions:
+
+1. **VERSION file** (source of truth) - Modified only by bump-version.sh
+2. **CHANGELOG.md** - Manually updated with release notes
+3. **README.md badge** - Auto-updated by bump-version.sh
+4. **CLAUDE-INJECTION.md tag** - Auto-updated by bump-version.sh
+
+**Workflow**:
+```bash
+./scripts/validate-version.sh           # Check for drift
+./scripts/bump-version.sh <version>     # Bump and sync
+# Update CHANGELOG.md manually
+git commit && git push
+```
+
+See [VERSION-MANAGEMENT.md](reference/VERSION-MANAGEMENT.md) for full details.
+
 ---
 
 *This guide itself follows the principles: single source of truth for documentation maintenance.*

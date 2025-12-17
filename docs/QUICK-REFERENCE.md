@@ -23,7 +23,7 @@
 └─────────────────────────────────────────────────────┘
 ```
 
-## Essential Commands (v0.8.2)
+## Essential Commands (v0.15.0)
 
 ```bash
 # SETUP
@@ -38,8 +38,6 @@ claude-todo complete <id> --skip-notes             # Quick complete (bypass note
 claude-todo list                      # List all tasks
 claude-todo list --status pending     # Filter by status
 claude-todo list --phase core         # Filter by phase
-claude-todo next                      # Get next task suggestion
-claude-todo next --explain            # Show why task is suggested
 
 # Note: complete command requires either --notes or --skip-notes flag
 
@@ -69,9 +67,21 @@ claude-todo analyze --json            # Machine-readable triage output
 claude-todo analyze --auto-focus      # Auto-set focus to top task
 claude-todo dash                      # Full dashboard overview
 claude-todo dash --compact            # Single-line summary
+claude-todo next                      # Suggest next task (priority + deps)
+claude-todo next --explain            # Show suggestion reasoning
 claude-todo labels                    # List all labels with counts
 claude-todo labels show backend       # Show tasks with specific label
 claude-todo labels stats              # Detailed label statistics
+claude-todo history                   # Completion history timeline (30 days)
+claude-todo history --days 7          # Last week's completions
+claude-todo history --since 2025-12-01  # Since specific date
+
+# DEPENDENCIES & BLOCKERS
+claude-todo deps                      # Dependency overview
+claude-todo deps <id>                 # Show dependencies for task
+claude-todo deps tree                 # Full dependency tree
+claude-todo blockers                  # Show blocked tasks
+claude-todo blockers analyze          # Critical path analysis
 
 # EXPORT (TodoWrite Integration)
 claude-todo export --format todowrite # Export for Claude Code
@@ -80,6 +90,11 @@ claude-todo export --format json      # Export raw JSON
 claude-todo export --format csv       # Export as CSV
 claude-todo export --format tsv       # Export as TSV
 claude-todo export --format jsonl     # Export as JSONL (streaming)
+
+# TASK VALIDATION & SCRIPTING
+claude-todo exists <id>               # Check if task ID exists (exit code)
+claude-todo exists <id> --quiet       # Silent check for scripting
+claude-todo exists <id> --include-archive  # Search archive too
 
 # MAINTENANCE
 claude-todo archive                   # Archive completed tasks

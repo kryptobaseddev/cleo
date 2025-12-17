@@ -3,6 +3,9 @@
 #####################################################################
 # cache.sh - Index Caching Library for Claude Todo System
 #
+# NOTE: This library is sourced by other scripts, so VERSION variable
+# should already be set by the sourcing script. If not, we set a fallback.
+#
 # Provides O(1) lookups for labels and phases through cached indices:
 # - Label-to-task index: quickly find all tasks with a specific label
 # - Phase-to-task index: quickly find all tasks in a specific phase
@@ -36,6 +39,16 @@
 # Version: 1.0.0
 # Part of: claude-todo CLI (Phase 4 - T074)
 #####################################################################
+
+# Set VERSION if not already set (should be set by sourcing script)
+if [[ -z "${VERSION:-}" ]]; then
+  CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+  if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
+    VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+  else
+    VERSION="unknown"
+  fi
+fi
 
 # Cache directory and files
 CACHE_DIR="${CLAUDE_DIR:-.claude}/.cache"
@@ -154,7 +167,7 @@ _cache_write_files() {
   # Write metadata
   cat > "$CACHE_METADATA_FILE" << EOF
 {
-  "version": "1.0.0",
+  "version": "$VERSION",
   "createdAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "todoFile": "$todo_file",
   "labelCount": $(jq 'length' "$CACHE_LABELS_INDEX"),

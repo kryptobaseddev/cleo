@@ -29,8 +29,9 @@ Transforms claude-todo tasks into TodoWrite JSON format.
 |--------|-------------|---------|
 | `--max-tasks N` | Maximum tasks to inject | `8` |
 | `--focused-only` | Only inject the currently focused task | `false` |
+| `--phase SLUG` | Filter tasks to specific phase (overrides project.currentPhase) | `project.currentPhase` |
 | `--output FILE` | Write JSON to file instead of stdout | stdout |
-| `--no-save-state` | Don't save session state file | save state |
+| `--no-save-state` | Skip saving session state (for debugging/testing) | save state |
 | `--quiet`, `-q` | Suppress info messages | show messages |
 
 **Selection Strategy (tiered):**
@@ -90,7 +91,22 @@ Displays:
 - Active session ID
 - Injection timestamp
 - Injected task IDs
+- Phase distribution
 - State file location
+
+### sync --clear
+
+Clears sync state without merging changes. Used for recovery from stale or abandoned sessions.
+
+```bash
+claude-todo sync --clear
+```
+
+**Use Cases:**
+- Recovery from crashed session without merging incomplete work
+- Cleaning up stale sync state before starting new session
+- Resetting after manual state file corruption
+- Abandoning session without applying changes
 
 ## Examples
 
@@ -104,8 +120,11 @@ claude-todo sync --inject
 # Inject focused task only
 claude-todo sync --inject --focused-only
 
-# Save to file for debugging
-claude-todo sync --inject --output /tmp/inject.json
+# Inject tasks from specific phase
+claude-todo sync --inject --phase core
+
+# Save to file for debugging (without saving session state)
+claude-todo sync --inject --output /tmp/inject.json --no-save-state
 ```
 
 ### Session End Workflow
@@ -119,6 +138,45 @@ claude-todo sync --extract --dry-run /path/to/todowrite-state.json
 
 # End session
 claude-todo session end
+```
+
+### Recovery Workflow
+
+```bash
+# Check if stale sync state exists
+claude-todo sync --status
+
+# Clear stale state without merging (abandoned session)
+claude-todo sync --clear
+
+# Verify cleanup
+claude-todo sync --status  # Should show "No active sync session"
+```
+
+### Phase-Specific Workflow
+
+```bash
+# Focus work on specific phase (e.g., polish phase)
+claude-todo phase set polish
+claude-todo sync --inject --phase polish --max-tasks 5
+
+# Work on polish tasks...
+
+# Extract changes
+claude-todo sync --extract /tmp/todowrite-state.json
+```
+
+### Debugging Workflow
+
+```bash
+# Generate injection without saving state (for testing)
+claude-todo sync --inject --no-save-state --output /tmp/test-inject.json
+
+# Inspect the output
+cat /tmp/test-inject.json | jq .
+
+# Test extraction without applying
+claude-todo sync --extract --dry-run /tmp/test-inject.json
 ```
 
 ### Full Cycle Example
@@ -143,6 +201,65 @@ claude-todo sync --extract /tmp/todowrite-final.json
 # 6. Session end
 claude-todo session end
 ```
+
+## Option Use Cases
+
+### --phase SLUG
+
+**When to use:**
+- Working on specific project phase (e.g., `setup`, `core`, `polish`)
+- Want to focus Claude Code session on phase-specific tasks
+- Overriding project.currentPhase for isolated phase work
+
+**Example:**
+```bash
+# Work exclusively on polish phase tasks
+claude-todo sync --inject --phase polish
+```
+
+**Behavior:**
+- Filters injected tasks to specified phase
+- Overrides `project.currentPhase` if set
+- Combines with tiered selection (focused task, dependencies, high-priority)
+
+### --no-save-state
+
+**When to use:**
+- Testing injection output without creating session state
+- Debugging TodoWrite format generation
+- One-way export scenarios (no extraction planned)
+- Generating example JSON for documentation
+
+**Example:**
+```bash
+# Test injection format without session tracking
+claude-todo sync --inject --no-save-state --output /tmp/test.json
+```
+
+**Behavior:**
+- Skips creating `.claude/sync/todowrite-session.json`
+- Extraction will not be possible (no state for comparison)
+- Useful for read-only operations
+
+### --clear
+
+**When to use:**
+- Session crashed or abandoned without proper extraction
+- Stale sync state blocking new session
+- Manual state file corruption detected
+- Testing sync workflows repeatedly
+
+**Example:**
+```bash
+# Recover from crashed session
+claude-todo sync --status  # Verify stale state
+claude-todo sync --clear   # Remove without merging
+```
+
+**Behavior:**
+- Deletes `.claude/sync/todowrite-session.json`
+- Does NOT apply changes from TodoWrite
+- Safe to run (no data loss in claude-todo)
 
 ## Status Mapping
 

@@ -77,6 +77,7 @@
 | **[PLUGINS.md](PLUGINS.md)** | Plugin architecture and development | Extending the CLI with custom commands |
 | **[integration/CLAUDE-CODE.md](integration/CLAUDE-CODE.md)** | TodoWrite integration & session workflows | Understanding Claude Code integration |
 | **[ci-cd-integration.md](ci-cd-integration.md)** | CI/CD pipeline integration guide | Integrating with GitHub Actions, GitLab CI, Jenkins, Azure DevOps |
+| **[VERSION-MANAGEMENT.md](reference/VERSION-MANAGEMENT.md)** | Version management and release process | Understanding versioning strategy and release workflow |
 | **[migration-guide.md](reference/migration-guide.md)** | Schema migration and upgrade guide | Understanding version migrations |
 | **[migration/v2.2.0-migration-guide.md](migration/v2.2.0-migration-guide.md)** | v2.2.0 specific migration guide | Detailed guide for upgrading to project phases |
 | **[testing.md](testing.md)** | BATS test suite guide | Writing and running tests |

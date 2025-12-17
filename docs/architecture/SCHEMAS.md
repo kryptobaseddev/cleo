@@ -313,6 +313,15 @@ All other properties optional with documented defaults.
 | `validateDependencies` | boolean | true | Check all depends[] references exist |
 | `detectCircularDeps` | boolean | true | Detect and block circular dependencies |
 
+### Phase Validation Configuration (validation.phaseValidation)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enforcePhaseOrder` | boolean | false | Warn when activating tasks outside current project phase |
+| `phaseAdvanceThreshold` | integer | 90 | Percentage of tasks that must be completed to advance phase (0-100) |
+| `blockOnCriticalTasks` | boolean | true | Prevent phase advancement if critical tasks remain incomplete |
+| `warnPhaseContext` | boolean | true | Show warning when task phase differs from project phase |
+
 ### Default Settings (defaults)
 
 Default values for new tasks:

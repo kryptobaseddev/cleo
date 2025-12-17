@@ -41,6 +41,13 @@ This command provides:
 |--------|-------------|
 | `--help`, `-h` | Show help message |
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (validation failed, phase not found, invalid operation) |
+
 ## Examples
 
 ### Show Current Phase

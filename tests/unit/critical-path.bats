@@ -112,7 +112,8 @@ EOF
     create_bottleneck
     run bash "$BLOCKERS_SCRIPT" analyze
     assert_success
-    assert_output_contains_any "Bottleneck" "bottleneck" "blocks"
+    # Output uses "BLOCKER" and "Blocked" terminology
+    assert_output_contains_any "BLOCKER" "Blocked" "blocked"
 }
 
 @test "blockers analyze shows task blocking count" {

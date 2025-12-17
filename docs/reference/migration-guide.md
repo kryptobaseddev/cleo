@@ -16,7 +16,7 @@ Schema versions follow semantic versioning (MAJOR.MINOR.PATCH):
 
 ### Current Schema Versions
 
-- **todo.json**: 2.1.0
+- **todo.json**: 2.2.0
 - **todo-config.json**: 2.1.0
 - **todo-archive.json**: 2.1.0
 - **todo-log.json**: 2.1.0
@@ -40,7 +40,7 @@ Output:
 Schema Version Status
 ====================
 
-✓ todo: v2.1.0 (compatible)
+✓ todo: v2.2.0 (compatible)
 ✓ config: v2.1.0 (compatible)
 ✓ archive: v2.1.0 (compatible)
 ✓ log: v2.1.0 (compatible)

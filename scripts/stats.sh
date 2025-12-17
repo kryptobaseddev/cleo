@@ -198,7 +198,7 @@ count_created_in_period() {
         return
     fi
     jq -r --arg cutoff "$cutoff_date" \
-        '[.entries[] | select(.operation == "create" and .timestamp >= $cutoff)] | length' \
+        '[.entries[] | select(.action == "task_created" and .timestamp >= $cutoff)] | length' \
         "$STATS_LOG_FILE" 2>/dev/null || echo "0"
 }
 
@@ -210,7 +210,7 @@ count_completed_in_period() {
         return
     fi
     jq -r --arg cutoff "$cutoff_date" \
-        '[.entries[] | select(.operation == "complete" and .timestamp >= $cutoff)] | length' \
+        '[.entries[] | select(.action == "status_changed" and .new_status == "done" and .timestamp >= $cutoff)] | length' \
         "$STATS_LOG_FILE" 2>/dev/null || echo "0"
 }
 
@@ -222,7 +222,7 @@ count_archived_in_period() {
         return
     fi
     jq -r --arg cutoff "$cutoff_date" \
-        '[.entries[] | select(.operation == "archive" and .timestamp >= $cutoff)] | length' \
+        '[.entries[] | select(.action == "task_archived" and .timestamp >= $cutoff)] | length' \
         "$STATS_LOG_FILE" 2>/dev/null || echo "0"
 }
 
@@ -240,9 +240,9 @@ calculate_avg_completion_time() {
     avg_hours=$(jq -r '
         # Build map of task_id -> {created: timestamp, completed: timestamp}
         reduce .entries[] as $entry ({};
-            if $entry.operation == "create" and ($entry.task_id | type == "string") then
+            if $entry.action == "task_created" and ($entry.task_id | type == "string") then
                 .[$entry.task_id].created = $entry.timestamp
-            elif $entry.operation == "complete" and ($entry.task_id | type == "string") then
+            elif $entry.action == "status_changed" and $entry.new_status == "done" and ($entry.task_id | type == "string") then
                 .[$entry.task_id].completed = $entry.timestamp
             else
                 .
@@ -442,9 +442,9 @@ generate_statistics() {
 
     # All-Time Statistics
     local total_created
-    total_created=$(jq -r '[.entries[] | select(.operation == "create")] | length' "$STATS_LOG_FILE" 2>/dev/null || echo "0")
+    total_created=$(jq -r '[.entries[] | select(.action == "task_created")] | length' "$STATS_LOG_FILE" 2>/dev/null || echo "0")
     local total_completed
-    total_completed=$(jq -r '[.entries[] | select(.operation == "complete")] | length' "$STATS_LOG_FILE" 2>/dev/null || echo "0")
+    total_completed=$(jq -r '[.entries[] | select(.action == "status_changed" and .new_status == "done")] | length' "$STATS_LOG_FILE" 2>/dev/null || echo "0")
 
     # Build JSON output with _meta envelope (consistent with list command)
     local timestamp

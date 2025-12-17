@@ -32,6 +32,13 @@ This command is ideal for:
 | `--format FORMAT` | `-f` | Output format: `text` or `json` | `text` |
 | `--help` | `-h` | Show help message | |
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (validation failed, file read error, invalid option) |
+
 ## Sections
 
 The dashboard is composed of modular sections that can be shown or hidden:

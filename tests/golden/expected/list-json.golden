@@ -2,7 +2,7 @@
   "$schema": "https://claude-todo.dev/schemas/output-v2.json",
   "_meta": {
     "format": "json",
-    "version": "0.13.3",
+    "version": "0.15.0",
     "command": "list",
     "timestamp": "TIMESTAMP",
     "checksum: CHECKSUM",

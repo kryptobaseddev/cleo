@@ -33,6 +33,13 @@ This command is ideal for:
 | `--no-chart` | | Disable sparkline and bar charts | Show charts |
 | `--help` | `-h` | Show help message | |
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (invalid date format, file read error, validation failed) |
+
 ## Examples
 
 ### Basic Usage

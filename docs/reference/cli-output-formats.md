@@ -111,8 +111,7 @@ Claude-todo supports multiple output formats for different use cases:
       "description": "Add JWT-based auth",
       "files": ["src/auth/jwt.ts", "src/middleware/auth.ts"],
       "labels": ["backend", "security"],
-      "createdAt": "2025-12-05T09:30:00Z",
-      "updatedAt": "2025-12-05T10:00:00Z"
+      "createdAt": "2025-12-05T09:30:00Z"
     },
     {
       "id": "T001",

@@ -41,6 +41,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
 
+# Source version from central location
+if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
+  VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
+else
+  VERSION="unknown"
+fi
+
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
@@ -463,10 +472,11 @@ output_json_format() {
     --arg currentFocus "$current_focus" \
     --argjson totalPending "$total_pending" \
     --argjson requestedCount "$SUGGESTION_COUNT" \
+    --arg version "$VERSION" \
     '{
       "_meta": {
         "format": "json",
-        "version": "0.8.0",
+        "version": $version,
         "command": "next",
         "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
       },

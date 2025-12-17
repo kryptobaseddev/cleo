@@ -778,6 +778,7 @@ claude-todo init
 |--------|---------|-------|
 | `init.sh` | Initialize project | `claude-todo init` |
 | `add-task.sh` | Create new task | `add-task.sh "Task description"` |
+| `update-task.sh` | Update existing task | `update-task.sh <task-id> [OPTIONS]` |
 | `complete-task.sh` | Mark task done | `complete-task.sh <task-id>` |
 | `archive.sh` | Archive completed | `archive.sh [--dry-run] [--force] [--all]` |
 
@@ -785,7 +786,25 @@ claude-todo init
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `list-tasks.sh` | Display tasks | `list-tasks.sh [--status STATUS]` |
+| `show.sh` | Single task detail view | `show.sh <task-id> [--history] [--related]` |
 | `stats.sh` | Generate stats | `stats.sh [--period DAYS]` |
+| `history.sh` | Completion history analytics | `history.sh [--days N] [--since DATE]` |
+
+### Analysis Commands
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `dash.sh` | Project dashboard overview | `dash.sh [--compact] [--period DAYS]` |
+| `next.sh` | Intelligent next task suggestion | `next.sh [--explain] [--count N]` |
+| `labels.sh` | Label management and statistics | `labels.sh [show LABEL] [stats]` |
+| `analyze.sh` | Task leverage and bottleneck analysis | `analyze.sh [--full] [--auto-focus]` |
+| `blockers-command.sh` | Blocked task analysis | `blockers-command.sh [analyze]` |
+| `deps-command.sh` | Dependency visualization | `deps-command.sh [TASK_ID] [tree]` |
+
+### Focus and Session Management
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `focus.sh` | Manage task focus | `focus.sh set <task-id>`, `focus.sh show`, `focus.sh clear` |
+| `session.sh` | Work session lifecycle | `session.sh start`, `session.sh end`, `session.sh status` |
 
 ### Phase Operations (v2.2.0+)
 | Script | Purpose | Usage |
@@ -793,12 +812,35 @@ claude-todo init
 | `phase.sh` | Manage current phase | `phase.sh set <slug>`, `phase.sh show` |
 | `phases.sh` | List/query phases | `phases.sh`, `phases.sh show <slug>`, `phases.sh stats` |
 
+### TodoWrite Integration
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `sync-todowrite.sh` | Bidirectional sync orchestration | `sync-todowrite.sh --inject`, `sync-todowrite.sh --extract [FILE]` |
+| `inject-todowrite.sh` | Export tasks to TodoWrite format | `inject-todowrite.sh [--max-tasks N] [--focused-only]` |
+| `extract-todowrite.sh` | Import TodoWrite state back | `extract-todowrite.sh <file> [--dry-run]` |
+| `export.sh` | Export to various formats | `export.sh --format todowrite` |
+
 ### Maintenance Operations
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `validate.sh` | Validate files | `validate.sh [--fix]` |
 | `backup.sh` | Manual backup | `backup.sh [--destination DIR]` |
 | `restore.sh` | Restore backup | `restore.sh <backup-file>` |
+| `exists.sh` | Task existence validation | `exists.sh <task-id> [--quiet] [--include-archive]` |
+| `log.sh` | Audit log operations | `log.sh [add] [query]` |
+
+### Migration Operations
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `migrate.sh` | Schema migration management | `migrate.sh status`, `migrate.sh run` |
+| `migrate-backups.sh` | Legacy backup migration | `migrate-backups.sh --detect`, `migrate-backups.sh --run` |
+
+### Development Utilities
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `bump-version.sh` | Bump version numbers | `bump-version.sh [patch\|minor\|major]` |
+| `validate-version.sh` | Validate version consistency | `validate-version.sh` |
+| `benchmark-performance.sh` | Performance benchmarking | `benchmark-performance.sh` |
 
 ---
 

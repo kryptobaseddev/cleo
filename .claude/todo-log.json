@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 606,
+    "totalEntries": 619,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-17T05:43:09Z",
+    "lastEntry": "2025-12-17T19:47:27Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -15632,6 +15632,695 @@
       "after": {
         "status": "done",
         "completedAt": "2025-12-17T05:43:09Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_bcd08479b676",
+      "timestamp": "2025-12-17T06:10:42Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T318",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:10:42Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d6ca996e685a",
+      "timestamp": "2025-12-17T06:10:46Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T317",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:10:45Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765951865-f96858",
+      "timestamp": "2025-12-17T06:11:05Z",
+      "action": "task_created",
+      "taskId": "T328",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Hierarchy Enhancement Phase 1 - Core (v0.15.0)",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Hierarchy Enhancement Phase 1 - Core (v0.15.0)",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1765951879-9dc63a",
+      "timestamp": "2025-12-17T06:11:19Z",
+      "action": "task_created",
+      "taskId": "T329",
+      "actor": "system",
+      "details": {
+        "title": "T328.1: Update todo.schema.json to v2.3.0 with type, parentId, size fields",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.1: Update todo.schema.json to v2.3.0 with type, parentId, size fields",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951880-a5b192",
+      "timestamp": "2025-12-17T06:11:20Z",
+      "action": "task_created",
+      "taskId": "T330",
+      "actor": "system",
+      "details": {
+        "title": "T328.2: Create lib/hierarchy.sh with validation functions",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.2: Create lib/hierarchy.sh with validation functions",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951882-c3339a",
+      "timestamp": "2025-12-17T06:11:22Z",
+      "action": "task_created",
+      "taskId": "T331",
+      "actor": "system",
+      "details": {
+        "title": "T328.3: Add hierarchy validation to lib/validation.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.3: Add hierarchy validation to lib/validation.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951898-5fe2b4",
+      "timestamp": "2025-12-17T06:11:38Z",
+      "action": "task_created",
+      "taskId": "T332",
+      "actor": "system",
+      "details": {
+        "title": "T328.4: Add v2.2.0 to v2.3.0 migration in lib/migrate.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.4: Add v2.2.0 to v2.3.0 migration in lib/migrate.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951900-1c435d",
+      "timestamp": "2025-12-17T06:11:40Z",
+      "action": "task_created",
+      "taskId": "T333",
+      "actor": "system",
+      "details": {
+        "title": "T328.5: Add --type, --parent, --size flags to add-task.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.5: Add --type, --parent, --size flags to add-task.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951901-9702a5",
+      "timestamp": "2025-12-17T06:11:41Z",
+      "action": "task_created",
+      "taskId": "T334",
+      "actor": "system",
+      "details": {
+        "title": "T328.6: Add --tree, --children, --type flags to list.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.6: Add --tree, --children, --type flags to list.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951916-39fa3a",
+      "timestamp": "2025-12-17T06:11:56Z",
+      "action": "task_created",
+      "taskId": "T335",
+      "actor": "system",
+      "details": {
+        "title": "T328.7: Enhance show.sh with hierarchy context",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.7: Enhance show.sh with hierarchy context",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765951918-79a33d",
+      "timestamp": "2025-12-17T06:11:58Z",
+      "action": "task_created",
+      "taskId": "T336",
+      "actor": "system",
+      "details": {
+        "title": "T328.8: Create tests/unit/test-hierarchy.bats",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.8: Create tests/unit/test-hierarchy.bats",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951919-37e9f9",
+      "timestamp": "2025-12-17T06:11:59Z",
+      "action": "task_created",
+      "taskId": "T337",
+      "actor": "system",
+      "details": {
+        "title": "T328.9: Create tests/integration/hierarchy-workflow.bats",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.9: Create tests/integration/hierarchy-workflow.bats",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951920-faf20f",
+      "timestamp": "2025-12-17T06:12:00Z",
+      "action": "task_created",
+      "taskId": "T338",
+      "actor": "system",
+      "details": {
+        "title": "T328.10: Create docs/commands/hierarchy.md documentation",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T328.10: Create docs/commands/hierarchy.md documentation",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765951934-05d197",
+      "timestamp": "2025-12-17T06:12:14Z",
+      "action": "task_created",
+      "taskId": "T339",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Hierarchy Enhancement Phase 2 - Automation (v0.16.0)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Hierarchy Enhancement Phase 2 - Automation (v0.16.0)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951953-cefb03",
+      "timestamp": "2025-12-17T06:12:33Z",
+      "action": "task_created",
+      "taskId": "T340",
+      "actor": "system",
+      "details": {
+        "title": "T339.1: Implement parent auto-complete in complete-task.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.1: Implement parent auto-complete in complete-task.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951955-05d394",
+      "timestamp": "2025-12-17T06:12:35Z",
+      "action": "task_created",
+      "taskId": "T341",
+      "actor": "system",
+      "details": {
+        "title": "T339.2: Implement orphan detection and repair",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.2: Implement orphan detection and repair",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1765951956-725fa5",
+      "timestamp": "2025-12-17T06:12:36Z",
+      "action": "task_created",
+      "taskId": "T342",
+      "actor": "system",
+      "details": {
+        "title": "T339.3: Create scripts/tree.sh command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.3: Create scripts/tree.sh command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765951959-f99148",
+      "timestamp": "2025-12-17T06:12:39Z",
+      "action": "task_created",
+      "taskId": "T343",
+      "actor": "system",
+      "details": {
+        "title": "T339.4: Create scripts/reparent.sh command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.4: Create scripts/reparent.sh command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765951960-688eb4",
+      "timestamp": "2025-12-17T06:12:40Z",
+      "action": "task_created",
+      "taskId": "T344",
+      "actor": "system",
+      "details": {
+        "title": "T339.5: Create scripts/promote.sh command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.5: Create scripts/promote.sh command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_5de858dd92d0",
+      "timestamp": "2025-12-17T06:12:55Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T316",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:12:55Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_2db89602fd9f",
+      "timestamp": "2025-12-17T06:12:57Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T319",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:12:57Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765951978-bc99ac",
+      "timestamp": "2025-12-17T06:12:58Z",
+      "action": "task_created",
+      "taskId": "T345",
+      "actor": "system",
+      "details": {
+        "title": "T339.6: Add hierarchy awareness to focus.sh",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.6: Add hierarchy awareness to focus.sh",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_10a2a68325ca",
+      "timestamp": "2025-12-17T06:12:59Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T320",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:12:59Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_555d19f095cb",
+      "timestamp": "2025-12-17T06:13:01Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T321",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:13:01Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765951981-7d43ce",
+      "timestamp": "2025-12-17T06:13:01Z",
+      "action": "task_created",
+      "taskId": "T346",
+      "actor": "system",
+      "details": {
+        "title": "T339.7: Add hierarchy awareness to next.sh",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.7: Add hierarchy awareness to next.sh",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1765951983-aebc37",
+      "timestamp": "2025-12-17T06:13:03Z",
+      "action": "task_created",
+      "taskId": "T347",
+      "actor": "system",
+      "details": {
+        "title": "T339.8: Add bash/zsh tab completion for --parent",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.8: Add bash/zsh tab completion for --parent",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_01f21377da68",
+      "timestamp": "2025-12-17T06:13:03Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T322",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:13:03Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765951984-1f9afe",
+      "timestamp": "2025-12-17T06:13:04Z",
+      "action": "task_created",
+      "taskId": "T348",
+      "actor": "system",
+      "details": {
+        "title": "T339.9: Add hierarchy index caching to lib/cache.sh",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.9: Add hierarchy index caching to lib/cache.sh",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_a57e1d4e2ed7",
+      "timestamp": "2025-12-17T06:13:05Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T323",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:13:05Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1765951986-4457a3",
+      "timestamp": "2025-12-17T06:13:06Z",
+      "action": "task_created",
+      "taskId": "T349",
+      "actor": "system",
+      "details": {
+        "title": "T339.10: Create Phase 2 tests and documentation",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "T339.10: Create Phase 2 tests and documentation",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_841e9634590c",
+      "timestamp": "2025-12-17T06:13:06Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T324",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:13:06Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_3b4a6ab941e2",
+      "timestamp": "2025-12-17T06:13:09Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T325",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:13:08Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_396cde3cc5c8",
+      "timestamp": "2025-12-17T06:13:10Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T326",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T06:13:10Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_6054194105a8",
+      "timestamp": "2025-12-17T19:47:18Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T288",
+      "before": {
+        "title": "Final release preparation for v2.2.0",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Pre-release checklist: all tests passing, documentation complete, CHANGELOG finalized, version numbers updated across all files, install.sh tested, migration tested on real projects. Create release tag. Prepare release notes.",
+        "phase": "core",
+        "labels": [
+          "feature-phase",
+          "release"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T282",
+          "T283",
+          "T284",
+          "T285",
+          "T287"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Final release preparation for v2.2.0",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Pre-release checklist: all tests passing, documentation complete, CHANGELOG finalized, version numbers updated across all files, install.sh tested, migration tested on real projects. Create release tag. Prepare release notes.",
+        "phase": "core",
+        "labels": [
+          "feature-phase",
+          "release"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T282",
+          "T283",
+          "T284",
+          "T285",
+          "T287"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_3e579a8816e4",
+      "timestamp": "2025-12-17T19:47:27Z",
+      "sessionId": "session_20251216_213731_392dd7",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T288",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-17T19:47:26Z"
       },
       "details": {
         "field": "status",

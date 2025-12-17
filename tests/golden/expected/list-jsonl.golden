@@ -1,4 +1,4 @@
-{"_type":"meta","version":"0.13.3","command":"list","timestamp":"TIMESTAMP","checksum":"CHECKSUM","execution_ms": XXX}
+{"_type":"meta","version":"0.15.0","command":"list","timestamp":"TIMESTAMP","checksum":"CHECKSUM","execution_ms": XXX}
 {"_type":"task","id":"T002","title":"Implement core feature A","description":"Build the main feature","status":"done","priority":"critical","phase":"core","labels":["feature","core"],"createdAt":"TIMESTAMP","completedAt":"TIMESTAMP","depends":["T001"]}
 {"_type":"task","id":"T001","title":"Setup project structure","description":"Create initial directory structure","status":"done","priority":"high","phase":"setup","labels":["setup","infrastructure"],"createdAt":"TIMESTAMP","completedAt":"TIMESTAMP"}
 {"_type":"task","id":"T003","title":"Add authentication","description":"Implement user authentication","status":"active","priority":"high","phase":"core","labels":["feature","security"],"createdAt":"TIMESTAMP","depends":["T001"]}

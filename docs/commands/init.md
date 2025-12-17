@@ -29,6 +29,13 @@ This command is idempotent - running it multiple times on an initialized project
 | `--update-claude-md` | Only update CLAUDE.md injection (no other changes) | `false` |
 | `--help`, `-h` | Show help message | |
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (directory creation failed, file write failed, validation failed) |
+
 ## Examples
 
 ### New Project Setup

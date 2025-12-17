@@ -40,6 +40,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
 
+# Source version from central location
+if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
+  VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
+else
+  VERSION="unknown"
+fi
+
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
@@ -315,10 +324,11 @@ output_list_json() {
 
   jq -n \
     --argjson labels "$label_data" \
+    --arg version "$VERSION" \
     '{
       "_meta": {
         "format": "json",
-        "version": "0.8.0",
+        "version": $version,
         "command": "labels",
         "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
       },
@@ -383,10 +393,11 @@ output_show_json() {
   jq -n \
     --arg label "$label" \
     --argjson tasks "$tasks" \
+    --arg version "$VERSION" \
     '{
       "_meta": {
         "format": "json",
-        "version": "0.8.0",
+        "version": $version,
         "command": "labels show",
         "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
       },
@@ -459,10 +470,11 @@ output_stats_json() {
     --argjson labels "$label_data" \
     --argjson stats "$stats" \
     --argjson cooccurrence "$cooccurrence" \
+    --arg version "$VERSION" \
     '{
       "_meta": {
         "format": "json",
-        "version": "0.8.0",
+        "version": $version,
         "command": "labels stats",
         "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
       },

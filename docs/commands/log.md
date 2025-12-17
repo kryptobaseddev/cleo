@@ -29,6 +29,13 @@ claude-todo log list [OPTIONS]
 - `--since DATE` - Show entries since date (YYYY-MM-DD)
 - `--format FORMAT` - Output format: text|json (default: text)
 
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Error (validation failed, file not found, invalid operation) |
+
 **Examples:**
 ```bash
 # List last 20 entries

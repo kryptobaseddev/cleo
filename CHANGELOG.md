@@ -5,6 +5,46 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2025-12-17
+
+### Added
+- **Unified version management automation**
+  - `scripts/validate-version.sh`: Version drift detection with auto-fix
+    - Validates VERSION file against README.md, CLAUDE-INJECTION.md, CLAUDE.md
+    - `--fix` flag for automatic drift repair
+    - POSIX-compliant (works on Linux and macOS)
+    - Creates backups before modifications
+    - Exit codes: 0=synced, 1=drift detected
+  - `docs/reference/VERSION-MANAGEMENT.md`: Comprehensive versioning documentation
+    - Dual-track versioning (app vs schema)
+    - Release checklist and workflow
+    - Troubleshooting guide
+
+### Changed
+- **Enhanced `scripts/bump-version.sh`**
+  - Pre-bump validation: Checks VERSION file and current sync state
+  - Post-bump validation: Verifies all files updated correctly
+  - `--dry-run` flag: Preview changes without modifying files
+  - `--verbose` flag: Detailed operation logging
+  - `--no-validate` flag: Skip validation for automation
+  - Automatic backup creation with cleanup on success
+  - Rollback instructions on failure
+- **Dynamic VERSION sourcing in 7 scripts** (no more hardcoded versions)
+  - `scripts/labels.sh`: 0.8.0 → dynamic
+  - `scripts/next.sh`: 0.8.0 → dynamic
+  - `scripts/dash.sh`: 0.8.2 → dynamic
+  - `scripts/history.sh`: 0.10.2 → dynamic
+  - `scripts/analyze.sh`: 0.15.0 → dynamic
+  - `scripts/deps-command.sh`: 0.8.2 → dynamic
+  - `lib/cache.sh`: 1.0.0 → dynamic
+- **Documentation updates**
+  - `docs/INDEX.md`: Added VERSION-MANAGEMENT.md reference
+  - `docs/DOCUMENTATION-MAINTENANCE.md`: Added version policy section
+  - `docs/reference/migration-guide.md`: Fixed schema version 2.1.0 → 2.2.0
+
+### Removed
+- **`scripts/sync-version.sh`**: Functionality merged into `bump-version.sh`
+
 ## [0.15.0] - 2025-12-16
 
 ### Added
