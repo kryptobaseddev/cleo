@@ -5,6 +5,20 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2025-12-18
+
+### Fixed
+- **Post-release validation fixes** - Additional envelope compliance gaps found via parallel subagent testing:
+  - `focus.sh` cmd_show: Added missing `format` field to `_meta`
+  - `next.sh`: Added missing `success` boolean field
+  - `dash.sh`: Added missing `success` boolean field after `_meta` block
+  - `backup.sh`: Added missing `version` field to backup create `_meta`
+  - `phase.sh`: Added VERSION loading and `version`/`format` to cmd_show `_meta`
+
+### Changed
+- **Compliance status**: 100% LLM-Agent-First envelope compliance (from 99.2%)
+- **Implementation report**: Updated to v3.3 with post-release validation session
+
 ## [0.19.0] - 2025-12-18
 
 ### Added
