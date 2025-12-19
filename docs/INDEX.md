@@ -81,6 +81,9 @@
 | **[PHASE-SYSTEM-SPEC.md](specs/PHASE-SYSTEM-SPEC.md)** | **AUTHORITATIVE** Phase lifecycle system specification | Phase commands, history, validation, integration |
 | **[HIERARCHY-ENHANCEMENT-SPEC.md](specs/HIERARCHY-ENHANCEMENT-SPEC.md)** | Hierarchy feature specification (v0.17.0+) | Implementing Epic/Task/Subtask hierarchy |
 | **[LLM-AGENT-FIRST-SPEC.md](specs/LLM-AGENT-FIRST-SPEC.md)** | LLM-first design principles | Understanding agent-optimized design decisions |
+| **[CONFIG-SYSTEM-SPEC.md](specs/CONFIG-SYSTEM-SPEC.md)** | Configuration system specification | Config command, priority resolution, env vars |
+| **[FILE-LOCKING-SPEC.md](specs/FILE-LOCKING-SPEC.md)** | File locking & concurrency safety | Atomic writes, race condition prevention |
+| **[SPEC-BIBLE-GUIDELINES.md](specs/SPEC-BIBLE-GUIDELINES.md)** | Specification writing standards | Creating and maintaining spec documents |
 
 ### 🔬 Technical Reference
 
@@ -93,6 +96,15 @@
 | **[migration-guide.md](reference/migration-guide.md)** | Schema migration and upgrade guide | Understanding version migrations |
 | **[migration/v2.2.0-migration-guide.md](migration/v2.2.0-migration-guide.md)** | v2.2.0 specific migration guide | Detailed guide for upgrading to project phases |
 | **[testing.md](testing.md)** | BATS test suite guide | Writing and running tests |
+
+### 🛠️ Development Tools
+
+| Document | Purpose | When to Read |
+|----------|---------|--------------|
+| **[development/DEV-SCRIPTS-OVERVIEW.md](development/DEV-SCRIPTS-OVERVIEW.md)** | Dev scripts index and reference | Contributing to development tooling |
+| **[development/COMPLIANCE-CHECKING.md](development/COMPLIANCE-CHECKING.md)** | LLM-Agent-First compliance system | Understanding and running compliance checks |
+| **[development/PERFORMANCE-TESTING.md](development/PERFORMANCE-TESTING.md)** | Benchmarking workflow guide | Running and interpreting performance tests |
+| **[DEV-WORKFLOW.md](../dev/DEV-WORKFLOW.md)** | Development contribution guidelines | Before contributing to dev/ scripts |
 
 ---
 
