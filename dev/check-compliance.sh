@@ -2,6 +2,12 @@
 # check-compliance.sh - LLM-Agent-First Compliance Validator
 # Automated checking of claude-todo commands against LLM-AGENT-FIRST-SPEC.md
 #
+# This script itself follows LLM-Agent-First principles:
+# - JSON output by default for non-TTY
+# - --format, --quiet, --json, --human flags
+# - Structured _meta envelope
+# - DEV_EXIT_* constants
+#
 # Usage:
 #   ./dev/check-compliance.sh                           # Full compliance check
 #   ./dev/check-compliance.sh --command list            # Check specific command
@@ -12,8 +18,13 @@
 
 set -euo pipefail
 
+# ============================================================================
+# SETUP - LLM-Agent-First compliant
+# ============================================================================
+
 # Script location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEV_LIB_DIR="$SCRIPT_DIR/lib"
 COMPLIANCE_DIR="$SCRIPT_DIR/compliance"
 SCHEMA_PATH="$COMPLIANCE_DIR/schema.json"
 CHECKS_DIR="$COMPLIANCE_DIR/checks"
@@ -24,8 +35,35 @@ CACHE_FILE="$CACHE_DIR/cache.json"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCRIPTS_DIR="$PROJECT_ROOT/scripts"
 
-# Source helpers
+# Command identification (for error reporting and JSON output)
+COMMAND_NAME="check-compliance"
+
+# Source dev library (with fallback for compatibility)
+if [[ -d "$DEV_LIB_DIR" ]] && [[ -f "$DEV_LIB_DIR/dev-common.sh" ]]; then
+    source "$DEV_LIB_DIR/dev-common.sh"
+else
+    # Fallback definitions if dev-common.sh not available
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'
+    CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+    log_error() { echo -e "${RED}✗${NC} $*" >&2; }
+    log_info() { echo -e "${GREEN}✓${NC} $*"; }
+    dev_resolve_format() {
+        local f="${1:-}"; [[ -n "$f" ]] && echo "$f" && return
+        [[ -t 1 ]] && echo "text" || echo "json"
+    }
+fi
+
+# Source compliance test helpers (provides pattern_* functions, colors, etc.)
 source "$COMPLIANCE_DIR/lib/test-helpers.sh"
+
+# Exit codes - use from dev-exit-codes.sh (via dev-common.sh) if available, else define locally
+if [[ -z "${DEV_EXIT_SUCCESS:-}" ]]; then
+    DEV_EXIT_SUCCESS=0
+    DEV_EXIT_GENERAL_ERROR=1
+    DEV_EXIT_INVALID_INPUT=2
+    DEV_EXIT_NOT_FOUND=4
+    DEV_EXIT_COMPLIANCE_FAILED=12
+fi
 
 # Default options
 OUTPUT_FORMAT="text"
@@ -106,6 +144,14 @@ parse_args() {
                 OUTPUT_FORMAT="$2"
                 shift 2
                 ;;
+            --json)
+                OUTPUT_FORMAT="json"
+                shift
+                ;;
+            --human)
+                OUTPUT_FORMAT="text"
+                shift
+                ;;
             -t|--threshold)
                 THRESHOLD="$2"
                 shift 2
@@ -148,16 +194,16 @@ parse_args() {
                 ;;
             -h|--help)
                 usage
-                exit 0
+                exit $DEV_EXIT_SUCCESS
                 ;;
             --version)
                 echo "check-compliance v${TOOL_VERSION}"
-                exit 0
+                exit $DEV_EXIT_SUCCESS
                 ;;
             *)
-                echo "Unknown option: $1" >&2
+                log_error "Unknown option: $1"
                 usage >&2
-                exit 1
+                exit $DEV_EXIT_INVALID_INPUT
                 ;;
         esac
     done
@@ -166,13 +212,13 @@ parse_args() {
 # Load and validate schema
 load_schema_file() {
     if [[ ! -f "$SCHEMA_PATH" ]]; then
-        echo "ERROR: Schema not found: $SCHEMA_PATH" >&2
-        exit 1
+        log_error "Schema not found: $SCHEMA_PATH"
+        exit $DEV_EXIT_NOT_FOUND
     fi
 
     if ! jq . "$SCHEMA_PATH" &>/dev/null; then
-        echo "ERROR: Invalid JSON in schema: $SCHEMA_PATH" >&2
-        exit 1
+        log_error "Invalid JSON in schema: $SCHEMA_PATH"
+        exit $DEV_EXIT_GENERAL_ERROR
     fi
 
     cat "$SCHEMA_PATH"
@@ -783,6 +829,9 @@ EOF
 main() {
     parse_args "$@"
 
+    # Resolve format (TTY-aware for LLM-Agent-First)
+    OUTPUT_FORMAT=$(dev_resolve_format "$OUTPUT_FORMAT")
+
     # Dev scripts mode - use different schema and paths
     if [[ "$DEV_SCRIPTS_MODE" == "true" ]]; then
         SCHEMA_PATH="$DEV_SCRIPTS_SCHEMA"
@@ -790,9 +839,9 @@ main() {
         CACHE_FILE="$CACHE_DIR/dev-cache.json"
 
         if [[ ! -f "$SCHEMA_PATH" ]]; then
-            echo -e "${RED}✗${NC} Dev scripts schema not found: $SCHEMA_PATH" >&2
+            log_error "Dev scripts schema not found: $SCHEMA_PATH"
             echo -e "${DIM}Create it with: ./dev/check-compliance.sh --init-dev-schema${NC}" >&2
-            exit 1
+            exit $DEV_EXIT_NOT_FOUND
         fi
     fi
 
@@ -821,11 +870,11 @@ main() {
 
     if [[ -z "$scripts_list" ]]; then
         if [[ "$INCREMENTAL" == "true" ]]; then
-            [[ "$QUIET" != "true" ]] && echo "No changed files to check."
-            exit 0
+            [[ "$QUIET" != "true" ]] && log_info "No changed files to check."
+            exit $DEV_EXIT_SUCCESS
         else
-            echo "No scripts found to check." >&2
-            exit 1
+            log_error "No scripts found to check."
+            exit $DEV_EXIT_NOT_FOUND
         fi
     fi
 
@@ -963,9 +1012,11 @@ main() {
     if [[ "$CI_MODE" == "true" ]]; then
         local score_int="${overall_score%.*}"
         if [[ "$score_int" -lt "$THRESHOLD" ]]; then
-            exit 1
+            exit $DEV_EXIT_COMPLIANCE_FAILED
         fi
     fi
+
+    exit $DEV_EXIT_SUCCESS
 }
 
 main "$@"
