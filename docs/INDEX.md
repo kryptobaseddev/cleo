@@ -83,6 +83,7 @@
 | **[LLM-AGENT-FIRST-SPEC.md](specs/LLM-AGENT-FIRST-SPEC.md)** | LLM-first design principles | Understanding agent-optimized design decisions |
 | **[CONFIG-SYSTEM-SPEC.md](specs/CONFIG-SYSTEM-SPEC.md)** | Configuration system specification | Config command, priority resolution, env vars |
 | **[FILE-LOCKING-SPEC.md](specs/FILE-LOCKING-SPEC.md)** | File locking & concurrency safety | Atomic writes, race condition prevention |
+| **[TODOWRITE-SYNC-SPEC.md](specs/TODOWRITE-SYNC-SPEC.md)** | **ACTIVE** TodoWrite bidirectional sync specification | Session workflows, status mapping, ID round-tripping |
 | **[SPEC-BIBLE-GUIDELINES.md](specs/SPEC-BIBLE-GUIDELINES.md)** | Specification writing standards | Creating and maintaining spec documents |
 
 ### 🔬 Technical Reference

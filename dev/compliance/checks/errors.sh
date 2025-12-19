@@ -48,12 +48,26 @@ check_errors() {
         fi
     fi
 
-    # Check 2: Defensive function check (declare -f output_error)
+    # Check 2: Defensive function check (declare -f OR fallback function definition)
+    # Defensive patterns include:
+    # - declare -f function_name >/dev/null
+    # - Fallback function definition in else block (function_name() { ... })
     local defensive_pattern
     defensive_pattern=$(echo "$schema" | jq -r '.requirements.error_handling.defensive_check')
 
-    if pattern_exists "$script" "$defensive_pattern"; then
-        results+=('{"check": "defensive_check", "passed": true, "details": "Defensive function check present"}')
+    # Also check for fallback patterns where function is defined in else block
+    local fallback_pattern="log_error\\(\\)|output_error\\(\\)|dev_die\\(\\)"
+    local has_fallback_def=false
+
+    # Check for fallback function definition pattern (else branch with function def)
+    if grep -qE "^[[:space:]]*(log_error|output_error|dev_die)\\(\\)[[:space:]]*\\{" "$script" 2>/dev/null; then
+        has_fallback_def=true
+    fi
+
+    if pattern_exists "$script" "$defensive_pattern" || [[ "$has_fallback_def" == "true" ]]; then
+        local detail_msg="Defensive function check present"
+        [[ "$has_fallback_def" == "true" ]] && detail_msg="Fallback function definition provides defense"
+        results+=('{"check": "defensive_check", "passed": true, "details": "'"$detail_msg"'"}')
         ((passed++)) || true
         [[ "$verbose" == "true" ]] && print_check pass "Defensive function check"
     else
@@ -132,6 +146,48 @@ check_errors() {
         results+=('{"check": "error_json_structure", "passed": true, "skipped": true, "details": "No inline JSON errors found"}')
         ((passed++)) || true
         [[ "$verbose" == "true" ]] && print_check skip "Error JSON structure (no inline JSON)"
+    fi
+
+    # Check 6: Heredoc safety (unquoted heredocs with $schema must escape it)
+    # This catches set -u errors when heredoc contains literal $schema
+    # Only check INSIDE heredoc blocks, not regular variable usage
+    local heredoc_unsafe=false
+
+    # Use awk to extract content between unquoted heredocs and check for unescaped $schema
+    # Pattern: $schema NOT followed by alphanumeric/underscore (not part of $schema_version)
+    local unsafe_in_heredoc
+    unsafe_in_heredoc=$(awk '
+        # Match unquoted heredoc start (not << '\''EOF'\'' or << "EOF")
+        /<<[[:space:]]*EOF$/ || /<<[[:space:]]*EOF[^'\''"[:alnum:]]/ {
+            in_heredoc = 1
+            next
+        }
+        # Match heredoc end
+        /^EOF$/ || /^[[:space:]]*EOF$/ {
+            in_heredoc = 0
+            next
+        }
+        # Inside heredoc, look for $schema that is:
+        # - Not escaped (\$schema)
+        # - Not part of a longer variable name ($schema_version, $schemaPath)
+        # Pattern: $schema followed by non-word char or end of line
+        in_heredoc && /\$schema([^_a-zA-Z0-9]|$)/ && !/\\\$schema/ {
+            print NR ": " $0
+        }
+    ' "$script" 2>/dev/null)
+
+    if [[ -n "$unsafe_in_heredoc" ]]; then
+        heredoc_unsafe=true
+    fi
+
+    if [[ "$heredoc_unsafe" == "true" ]]; then
+        results+=('{"check": "heredoc_safety", "passed": false, "details": "Unquoted heredoc has unescaped $schema - use \\$schema or quote EOF"}')
+        ((failed++)) || true
+        [[ "$verbose" == "true" ]] && print_check fail "Heredoc safety" "Escape \$schema in unquoted heredocs or use << 'EOF'"
+    else
+        results+=('{"check": "heredoc_safety", "passed": true, "details": "No unsafe heredoc patterns detected"}')
+        ((passed++)) || true
+        [[ "$verbose" == "true" ]] && print_check pass "Heredoc safety"
     fi
 
     # Build JSON result

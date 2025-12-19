@@ -59,8 +59,15 @@ check_exit_codes() {
     local grep_exclude_pattern
     grep_exclude_pattern=$(echo "$const_pattern" | sed 's/\\\\\\$/\\$/g' | sed 's/|/\\|/g')
 
+    # Filter out heredoc content (lines between <<EOF and EOF markers contain example code)
+    # Also exclude comment lines and valid constant usage
     local magic_exits
-    magic_exits=$(grep -nE 'exit [0-9]' "$script" 2>/dev/null | grep -vE "$grep_exclude_pattern|#.*exit [0-9]" || true)
+    magic_exits=$(awk '
+        /<<.*EOF/ || /<<.*END/ { in_heredoc = 1; next }
+        /^EOF$/ || /^END$/ || /^[[:space:]]*EOF$/ || /^[[:space:]]*END$/ { in_heredoc = 0; next }
+        in_heredoc { next }
+        /exit [0-9]/ { print NR ":" $0 }
+    ' "$script" 2>/dev/null | grep -vE "$grep_exclude_pattern|#.*exit [0-9]" || true)
 
     if [[ -z "$magic_exits" ]]; then
         results+=('{"check": "no_magic_numbers", "passed": true, "details": "No magic exit numbers found"}')

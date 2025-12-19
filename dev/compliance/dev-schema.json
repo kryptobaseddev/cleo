@@ -80,6 +80,18 @@
       }
     },
 
+    "robustness": {
+      "heredoc_safety": {
+        "description": "Unquoted heredocs with literal $ must be escaped to avoid set -u errors",
+        "safe_patterns": [
+          "<<[[:space:]]*'EOF'",
+          "<<[[:space:]]*'.*_EOF'",
+          "\\\\\\$schema"
+        ],
+        "unsafe_pattern": "<<[[:space:]]*EOF.*\\$schema[^}]"
+      }
+    },
+
     "output": {
       "patterns": {
         "log_info": "log_info",

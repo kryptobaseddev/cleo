@@ -1,6 +1,6 @@
 # Phase System Specification
 
-**Status**: Implemented
+**Status**: ACTIVE
 **Version**: v2.2.0+
 **Last Updated**: 2025-12-17
 **Schema Version**: 2.2.0
@@ -243,7 +243,7 @@ ct phase set setup --rollback --force
       "enforcePhaseOrder": false,
       "phaseAdvanceThreshold": 90,
       "blockOnCriticalTasks": true,
-      "warnPhaseContext": true
+      "warnPhaseContext": false
     }
   }
 }
@@ -505,7 +505,7 @@ ct validate
       "enforcePhaseOrder": false,
       "phaseAdvanceThreshold": 90,
       "blockOnCriticalTasks": true,
-      "warnPhaseContext": true
+      "warnPhaseContext": false
     }
   }
 }
@@ -516,7 +516,7 @@ ct validate
 | `enforcePhaseOrder` | boolean | `false` | Warn on cross-phase work |
 | `phaseAdvanceThreshold` | integer | `90` | % completion required to advance |
 | `blockOnCriticalTasks` | boolean | `true` | Critical tasks always block advance |
-| `warnPhaseContext` | boolean | `true` | Warn when task phase != project phase |
+| `warnPhaseContext` | boolean | `false` | Warn when task phase != project phase |
 
 ### 10.2 Default Phase Config
 
@@ -713,6 +713,17 @@ Key definitions:
 - `#/properties/project/properties/currentPhase`
 - `#/properties/project/properties/phaseHistory`
 - `#/definitions/phaseDefinition`
+
+---
+
+## Related Specifications
+
+| Document | Relationship |
+|----------|--------------|
+| [SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md) | **AUTHORITATIVE** for specification standards |
+| [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) | Related: LLM-first command design principles |
+| [CONFIG-SYSTEM-SPEC.md](CONFIG-SYSTEM-SPEC.md) | Related: Configuration system authority |
+| PHASE-SYSTEM-IMPLEMENTATION-REPORT.md | Tracks implementation status (pending creation) |
 
 ---
 

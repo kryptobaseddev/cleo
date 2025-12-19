@@ -63,6 +63,14 @@
       "required_function": "output_error",
       "defensive_check": "declare -f output_error.*>/dev/null",
       "error_codes_pattern": "E_[A-Z_]+"
+    },
+
+    "robustness": {
+      "heredoc_safety": {
+        "description": "Unquoted heredocs with literal $ must be escaped to avoid set -u errors",
+        "safe_patterns": ["<<[[:space:]]*'EOF'", "\\\\\\$schema"],
+        "unsafe_pattern": "<<[[:space:]]*EOF.*\\$schema[^_a-zA-Z0-9]"
+      }
     }
   },
 

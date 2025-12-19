@@ -186,7 +186,7 @@ check_json_envelope() {
             ;;
     esac
 
-    [[ "$verbose" == "true" ]] && echo -e "  ${DIM}Running: claude-todo $cmd ${cmd_args[*]} --format json${NC}"
+    [[ "$verbose" == "true" ]] && echo -e "  ${DIM}Running: claude-todo $cmd ${cmd_args[*]} --format json${NC}" >&2
 
     run_result=$(run_command "$cmd" "${cmd_args[@]}" 2>/dev/null || echo '{"error": "command failed"}')
 
@@ -365,7 +365,7 @@ check_all_json_envelope() {
     local verbose="${2:-false}"
 
     # Setup fixture
-    [[ "$verbose" == "true" ]] && echo -e "\n${DIM}Setting up test fixture...${NC}"
+    [[ "$verbose" == "true" ]] && echo -e "\n${DIM}Setting up test fixture...${NC}" >&2
     setup_fixture >/dev/null
 
     local all_results=()
@@ -373,7 +373,7 @@ check_all_json_envelope() {
     commands=$(list_all_commands "$schema")
 
     for cmd in $commands; do
-        [[ "$verbose" == "true" ]] && echo -e "\n${BOLD}[$cmd]${NC}"
+        [[ "$verbose" == "true" ]] && echo -e "\n${BOLD}[$cmd]${NC}" >&2
         local result
         result=$(check_json_envelope "$cmd" "$schema" "$verbose")
         all_results+=("$result")
