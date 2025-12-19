@@ -15,18 +15,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 VERSION_FILE="$PROJECT_ROOT/VERSION"
 VALIDATE_SCRIPT="$SCRIPT_DIR/validate-version.sh"
+DEV_LIB_DIR="$SCRIPT_DIR/lib"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-log_info() { echo -e "${GREEN}✓${NC} $1"; }
-log_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
-log_error() { echo -e "${RED}✗${NC} $1" >&2; }
-log_step() { echo -e "${BLUE}→${NC} $1"; }
+# ============================================================================
+# LIBRARY SOURCING
+# ============================================================================
+# Source shared dev library (provides colors, logging, utilities)
+if [[ -d "$DEV_LIB_DIR" ]] && [[ -f "$DEV_LIB_DIR/dev-output.sh" ]]; then
+    source "$DEV_LIB_DIR/dev-output.sh"
+else
+    # Fallback for backward compatibility if lib not available
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+    log_info() { echo -e "${GREEN}✓${NC} $1"; }
+    log_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+    log_error() { echo -e "${RED}✗${NC} $1" >&2; }
+    log_step() { echo -e "${BLUE}→${NC} $1"; }
+fi
 
 # Options
 DRY_RUN=false
@@ -136,7 +140,8 @@ pre_bump_validation() {
     if [[ "$NO_VALIDATE" == false ]] && [[ -x "$VALIDATE_SCRIPT" ]]; then
         if ! "$VALIDATE_SCRIPT" >/dev/null 2>&1; then
             log_warn "Version drift detected in current state (continuing anyway)"
-            [[ "$VERBOSE" == true ]] && "$VALIDATE_SCRIPT" 2>&1 | head -10
+            # Note: || true prevents set -e exit when VERBOSE=false (short-circuit returns 1)
+            [[ "$VERBOSE" == true ]] && "$VALIDATE_SCRIPT" 2>&1 | head -10 || true
         fi
     fi
 }
