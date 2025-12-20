@@ -377,6 +377,21 @@ claude-todo focus note "Working on $ACTIVE"
 
 ---
 
+## Extensibility
+
+Claude-TODO supports extension points for custom workflows:
+
+```bash
+.claude/validators/    # Custom validation scripts
+.claude/hooks/         # Event hooks (on-complete, on-archive, etc.)
+~/.claude-todo/formatters/    # Custom output formatters
+~/.claude-todo/integrations/  # External system integrations
+```
+
+See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
+
+---
+
 ## Documentation
 
 | Category | Documents |

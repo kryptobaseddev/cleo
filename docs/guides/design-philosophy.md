@@ -52,6 +52,10 @@ Traditional task management assumes human users. But when your primary "user" is
 }
 ```
 
+**Key insight: Hierarchy is a relationship, not identity.**
+
+The `parentId` field describes *where* a task sits in the hierarchy. The `id` field describes *which* task it is. Reparenting changes the relationship without changing the identity.
+
 **Industry precedent**: Linear beat Jira with flat IDs. GitHub uses `#123`. Git uses flat SHAs. Flat wins.
 
 ---
