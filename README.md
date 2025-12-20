@@ -1,602 +1,458 @@
 # CLAUDE-TODO
 
-> **A production-grade task management system for Claude Code with automatic archiving, comprehensive validation, and anti-hallucination protection.**
+> **The task management protocol for solo developers and their AI coding agents**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-0.23.0-blue.svg)](CHANGELOG.md)
-[![Bash](https://img.shields.io/badge/bash-4.0%2B-green.svg)](https://www.gnu.org/software/bash/)
+[![LLM-Agent-First](https://img.shields.io/badge/design-LLM--Agent--First-purple.svg)](docs/specs/LLM-AGENT-FIRST-SPEC.md)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 
 <!-- VERSION_SYNC: This badge version should match VERSION file. Run ./dev/bump-version.sh to update. -->
 
 ---
 
-## Table of Contents
+## One Developer. One Agent. One Source of Truth.
 
-- [Overview](#overview)
-- [Key Features](#key-features)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-- [Anti-Hallucination Protection](#anti-hallucination-protection)
-- [Architecture](#architecture)
-- [Configuration](#configuration)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
+Claude-TODO is the **contract between you and your AI coding agent**. It's not just a task tracker—it's a structured protocol designed for the unique challenges of AI-assisted development:
+
+- **Agents hallucinate**. Claude-TODO validates every operation before execution.
+- **Agents lose context**. Claude-TODO persists state across sessions with immutable audit trails.
+- **Agents need structure**. Claude-TODO outputs JSON by default, with human-readable formatting opt-in.
+
+Built specifically for [Claude Code](https://claude.ai/claude-code), but the principles apply to any LLM-agent workflow.
 
 ---
 
-## Overview
+## Why This Exists
 
-CLAUDE-TODO is a robust, schema-validated task management system specifically designed for Claude Code. It provides comprehensive anti-hallucination mechanisms, automatic archiving, complete audit trails, and atomic file operations to ensure data integrity.
+Traditional task management assumes human users. But when your primary "user" is an LLM agent:
 
-### Key Features
+| What Humans Need | What Agents Need |
+|------------------|------------------|
+| Natural language | Structured JSON |
+| Descriptive errors | Exit codes |
+| Flexibility | Constraints |
+| Trust | Validation |
+| Memory | Persistence |
 
-- **Project Phase Tracking**: Built-in phase lifecycle management (pending/active/done)
-- **Anti-Hallucination Protection**: Multi-layer validation prevents AI-generated errors
-- **Automatic Archiving**: Configurable policies for completed task archiving
-- **Complete Audit Trail**: Immutable change log tracks every operation
-- **Atomic Operations**: Safe file handling with automatic backups and rollback
-- **Schema Validation**: JSON Schema enforcement ensures data integrity
-- **Zero-Config Defaults**: Works out of the box with sensible defaults
-- **Extensible Design**: Custom validators, hooks, formatters, and integrations
+**Claude-TODO is built for agents first.** The `--human` flag is for you—the developer reviewing what your agent sees.
+
+---
+
+## Core Principles
+
+### LLM-Agent-First Design
+
+Every command follows a consistent pattern:
+
+```bash
+# Piped/scripted → JSON automatically (agent-friendly)
+claude-todo list | jq '.tasks[0].id'
+
+# Terminal → human-readable (developer-friendly)
+claude-todo list --human
+
+# Exit codes for programmatic branching (17 documented codes)
+claude-todo exists T042 --quiet && echo "Found"
+```
+
+### Anti-Hallucination Protection
+
+Four layers of validation prevent AI-generated errors:
+
+1. **Schema Validation** — JSON Schema enforcement for structure
+2. **Semantic Checks** — ID uniqueness, timestamp sanity, status transitions
+3. **Cross-File Integrity** — Referential consistency across todo/archive/log
+4. **State Machine Rules** — Only valid transitions allowed
+
+### Stable Task IDs
+
+```
+T001, T002, T042, T999, T1000...
+```
+
+IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` that break when you restructure. Hierarchy is stored in the `parentId` field—identity and structure are decoupled.
+
+**Every external reference stays valid forever:**
+- Git commits: `"Fixes T042"` → always resolves
+- Documentation: `See [T042]` → never orphaned
+- Scripts: `grep T042` → always finds it
+
+---
 
 ## Quick Start
 
 ### Installation
 
 ```bash
-# 1. Clone the repository
+# Clone and install globally
 git clone https://github.com/kryptobaseddev/claude-todo.git
 cd claude-todo
-
-# 2. Install globally (works immediately - no shell restart needed!)
 ./install.sh
 
-# 3. Verify installation
-claude-todo version
-
-# 4. Initialize in your project
+# Initialize in your project
 cd /path/to/your/project
 claude-todo init
 ```
 
-> **Claude Code Compatible**: The installer creates symlinks in `~/.local/bin/`, which is already in PATH for Claude Code and most modern shells. No manual PATH configuration required.
-
-### Upgrade Existing Project
-
-If you have an existing claude-todo project from an older version:
+### Essential Commands
 
 ```bash
-# Navigate to your project
-cd /path/to/your/project
-
-# Run schema migration (upgrades version)
-claude-todo migrate run --auto
-
-# Repair schema structure (fixes compliance issues)
-claude-todo migrate repair --auto
-
-# Validate and auto-fix any remaining issues
-claude-todo validate --fix
-```
-
-**Decision Tree:**
-```
-Is project initialized (.claude/ exists)?
-├─ No → claude-todo init
-└─ Yes → Is schema version current?
-    ├─ No → claude-todo migrate run --auto
-    └─ Yes → Are there structural issues?
-        ├─ Yes → claude-todo migrate repair --auto
-        └─ No → claude-todo validate
-```
-
-### Basic Usage
-
-```bash
-# Add a task
+# Task lifecycle
 claude-todo add "Implement authentication"
-
-# List all tasks
-claude-todo list
-
-# Update a task
-claude-todo update T001 --priority high --labels "urgent,bug"
-
-# Complete a task
 claude-todo complete T001
-
-# Export to TodoWrite format (for Claude Code integration)
-claude-todo export --format todowrite
-
-# Show statistics
-claude-todo stats
-
-# Archive completed tasks
 claude-todo archive
 
-# Get help
-claude-todo help
+# Session workflow
+claude-todo session start
+claude-todo focus set T001
+claude-todo focus note "Working on JWT validation"
+claude-todo session end
+
+# Analysis
+claude-todo dash              # Project overview
+claude-todo next --explain    # What should I work on?
+claude-todo analyze           # Task triage with leverage scoring
+
+# Agent-friendly output
+claude-todo list | jq '.tasks[] | select(.status == "pending")'
+claude-todo show T001 --format json
 ```
 
-### Shortcut Command
-
-The installer also creates a `ct` shortcut:
+### The `ct` Shortcut
 
 ```bash
-ct list        # Same as: claude-todo list
-ct add "Task"  # Same as: claude-todo add "Task"
-ct version     # Same as: claude-todo version
+ct list        # Same as claude-todo list
+ct add "Task"  # Same as claude-todo add "Task"
+ct done T001   # Same as claude-todo complete T001
 ```
 
-### Command Aliases
+---
 
-Built-in aliases for faster workflows:
+## Task Hierarchy (v0.17.0+)
+
+Three levels, no more:
+
+```
+Epic (strategic initiative)
+  └── Task (primary work unit)
+        └── Subtask (atomic operation)
+```
 
 ```bash
-claude-todo ls              # list
-claude-todo done T001       # complete T001
-claude-todo new "Task"      # add "Task"
-claude-todo edit T001       # update T001
-claude-todo rm              # archive
-claude-todo check           # validate
+# Create hierarchy
+claude-todo add "Auth System" --type epic --size large
+claude-todo add "JWT middleware" --parent T001 --size medium
+claude-todo add "Validate tokens" --parent T002 --type subtask
+
+# View tree
+claude-todo list --tree
+T001 [epic] Auth System
+├── T002 [task] JWT middleware
+│   └── T003 [subtask] Validate tokens
+└── T004 [task] Session management
 ```
 
-### Debug Mode
+### Scope-Based Sizing (No Time Estimates)
 
-Validate your CLI installation:
+| Size | Scope | Action |
+|------|-------|--------|
+| **Small** | 1-2 files, straightforward | Execute |
+| **Medium** | 3-7 files, moderate complexity | Execute |
+| **Large** | 8+ files, architectural | **Decompose first** |
+
+Time estimates are prohibited. They're unpredictable for humans and meaningless for agents.
+
+---
+
+## Session Protocol
+
+Agents lose context between invocations. Sessions provide checkpoints:
 
 ```bash
-claude-todo --validate      # Check scripts, aliases, checksums
-claude-todo --list-commands # Show all available commands
-CLAUDE_TODO_DEBUG=1 claude-todo list  # Verbose output
+# Morning routine
+claude-todo session start
+claude-todo dash              # Where am I?
+claude-todo focus show        # What was I working on?
+
+# Work session
+claude-todo focus set T042
+claude-todo focus note "Implementing validation logic"
+claude-todo update T042 --notes "Tests passing"
+
+# End of day
+claude-todo complete T042
+claude-todo session end
 ```
 
-### Phase Tracking (v2.2.0+)
+**Single active task enforcement**: Only ONE task can be `active` at a time. This prevents context confusion and scope creep.
 
-Organize your project with built-in phase lifecycle management:
+---
+
+## Project Structure
+
+```
+~/.claude-todo/              # Global installation
+├── scripts/                 # Command implementations
+├── lib/                     # Shared libraries
+├── schemas/                 # JSON Schema definitions
+└── docs/                    # Documentation
+
+your-project/.claude/        # Per-project instance
+├── todo.json               # Active tasks (source of truth)
+├── todo-archive.json       # Completed tasks
+├── todo-log.json           # Immutable audit trail
+├── todo-config.json        # Project configuration
+└── .backups/               # Automatic versioned backups
+```
+
+---
+
+## Output Formats
+
+### JSON by Default (Non-TTY)
+
+When piped or scripted, output is JSON:
 
 ```bash
-# Add a task to a phase (creates phase if it doesn't exist)
-claude-todo add "Design API" --phase planning --add-phase
-
-# Set current project phase
-claude-todo phase set planning
-
-# View phase overview
-claude-todo phases
-
-# See phase statistics
-claude-todo phases stats
-
-# Advance to next phase
-claude-todo phase advance
-
-# View tasks in a specific phase
-claude-todo phases show core
-
-# Complete a phase
-claude-todo phase complete planning
+claude-todo list | jq '.tasks'
 ```
-
-**Phase Benefits:**
-- Automatic phase inheritance for new tasks
-- Visual phase progress in dashboard (`claude-todo dash`)
-- Phase-based task filtering and analytics
-- Lifecycle tracking (pending → active → done) with timestamps
-
-## Architecture
-
-### System Structure
-
-```
-Repository Structure
-├── schemas/           JSON Schema validation definitions
-├── scripts/           User-facing operational scripts
-├── lib/               Shared library functions
-├── templates/         Starter templates
-├── docs/              Documentation (see docs/INDEX.md)
-├── tests/             Test suite and fixtures
-└── archive/           Development artifacts and history
-
-Global Installation (~/.claude-todo/)
-├── schemas/           JSON Schema validation definitions
-├── scripts/           User-facing operational scripts
-├── lib/               Shared library functions
-├── templates/         Starter templates
-├── plugins/           Custom command plugins
-└── checksums.sha256   Script integrity verification
-
-Per-Project Instance (.claude/)
-├── todo.json          Active tasks
-├── todo-archive.json  Completed tasks
-├── todo-config.json   Project configuration
-├── todo-log.json      Complete audit trail
-└── .backups/          Automatic versioned backups
-```
-
-### Core Components
-
-1. **Task Storage**: Active tasks in `todo.json`, completed in `todo-archive.json`
-2. **Configuration**: Flexible per-project and global settings
-3. **Audit Trail**: Complete change history in `todo-log.json`
-4. **Validation**: Schema + semantic anti-hallucination checks
-5. **Backups**: Automatic versioned backups before every modification
-
-## Anti-Hallucination Protection
-
-CLAUDE-TODO implements multiple layers of protection against AI-generated errors:
-
-### Layer 1: JSON Schema Enforcement
-- Structure validation (required fields, types)
-- Enum constraints (status must be: pending, active, blocked, done)
-- Format validation (ISO 8601 timestamps, proper IDs)
-
-### Layer 2: Semantic Validation
-- **ID Uniqueness**: No duplicate IDs within or across files
-- **Timestamp Sanity**: `createdAt` not in future, `completedAt` after `createdAt`
-- **Field Requirements**: Every task must have both `title` AND `description`
-- **Duplicate Detection**: Warning on identical task descriptions
-- **Status Transitions**: Only valid state transitions allowed
-
-### Layer 3: Cross-File Integrity
-- Referential integrity (log entries reference valid task IDs)
-- Archive consistency (archived tasks match completion criteria)
-- No data loss verification (task count before/after operations)
-- Synchronized multi-file updates
-
-### Layer 4: Configuration Validation
-- Policy enforcement (archive policies applied consistently)
-- Constraint checking (config values within valid ranges)
-- Dependency resolution (related options validated together)
-
-## Data Integrity
-
-### Atomic Write Pattern
-
-All file modifications follow this pattern:
-
-```
-1. Generate temp file (.todo.json.tmp)
-2. Write data to temp file
-3. Validate temp file (schema + anti-hallucination)
-4. Backup original file
-5. Atomic rename (OS-level guarantee, no partial writes)
-6. Rollback on any failure
-```
-
-### Backup System
-
-- Automatic backup before every write operation
-- Versioned backups (.backups/todo.json.1 through .10)
-- Automatic rotation (oldest deleted when limit reached)
-- Manual backup and restore capabilities
-
-### Change Log
-
-Every operation logged with:
-- Timestamp
-- Operation type (create, update, complete, archive)
-- Task ID reference
-- Before/after state
-- User and context
-
-## Configuration
-
-### Configuration Hierarchy
-
-Values resolved in this order (later overrides earlier):
-
-```
-Defaults → Global → Project → Environment → CLI Flags
-           (~/.c-t)  (.claude)  (CLAUDE_TODO_*)  (--options)
-```
-
-### Key Configuration Options
 
 ```json
 {
-  "archive": {
-    "enabled": true,
-    "daysUntilArchive": 7,
-    "maxCompletedTasks": 15,
-    "preserveRecentCount": 3,
-    "archiveOnSessionEnd": true
+  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "_meta": {"command": "list", "version": "0.23.0", "timestamp": "..."},
+  "success": true,
+  "tasks": [...]
+}
+```
+
+### Human-Readable (Opt-In)
+
+```bash
+claude-todo list --human
+```
+
+```
+TASKS
+=====
+T001 [active] high - Implement JWT middleware
+T002 [pending] medium - Add session management
+```
+
+### Exit Codes
+
+17 documented exit codes for programmatic handling:
+
+| Range | Purpose |
+|-------|---------|
+| `0` | Success |
+| `1-9` | General errors |
+| `10-19` | Hierarchy errors |
+| `20-29` | Concurrency errors |
+| `100+` | Special conditions |
+
+```bash
+claude-todo exists T042 --quiet
+case $? in
+  0) echo "Found" ;;
+  1) echo "Not found" ;;
+  2) echo "Invalid ID format" ;;
+esac
+```
+
+---
+
+## Validation & Integrity
+
+### Atomic Write Pattern
+
+Every file modification:
+
+1. Write to temp file
+2. Validate (schema + semantic)
+3. Backup original
+4. Atomic rename
+5. Rollback on any failure
+
+**No partial writes. No corruption.**
+
+### Anti-Hallucination Checks
+
+```bash
+# Before any operation, validate:
+- ID exists (prevent hallucinated references)
+- ID unique (prevent duplicates)
+- Status valid (enum enforcement)
+- Timestamps sane (not future, completion after creation)
+- Dependencies acyclic (no circular references)
+- Parent exists (hierarchy integrity)
+```
+
+---
+
+## Phase Tracking
+
+Organize work into project phases:
+
+```bash
+# Define phases
+claude-todo add "Design API" --phase planning --add-phase
+claude-todo add "Implement core" --phase development
+
+# Manage phases
+claude-todo phase set development
+claude-todo phases              # View all phases with progress
+claude-todo phases stats        # Detailed breakdown
+```
+
+---
+
+## Configuration
+
+Priority resolution (later overrides earlier):
+
+```
+Defaults → Global → Project → Environment → CLI Flags
+```
+
+Key options:
+
+```json
+{
+  "hierarchy": {
+    "maxDepth": 3,
+    "maxSiblings": 20,
+    "maxActiveSiblings": 8
   },
   "validation": {
     "strictMode": false,
     "checksumEnabled": true,
-    "enforceAcceptance": true,
-    "requireDescription": false,
     "maxActiveTasks": 1
+  },
+  "archive": {
+    "daysUntilArchive": 7,
+    "archiveOnSessionEnd": true
   }
 }
 ```
 
-## Available Commands
+---
 
-### Core Operations
-| Command | Description |
-|---------|-------------|
-| `init` | Initialize project with todo system |
-| `add` | Create new task with validation |
-| `update` | Update existing task fields |
-| `complete` | Mark task as completed |
-| `archive` | Archive completed tasks |
+## For Claude Code Users
 
-### Query & Analysis
-| Command | Description |
-|---------|-------------|
-| `list` | Display tasks with filtering |
-| `stats` | Generate statistics and reports |
-| `dash` | Project dashboard with status overview |
-| `next` | Suggest next task based on priority/dependencies |
-| `labels` | List and analyze task labels |
-| `deps` | Visualize task dependency graphs |
-| `blockers` | Analyze blocked tasks and chains |
-| `phases` | Manage project phases |
+Claude-TODO integrates seamlessly with Claude Code:
 
-### Session Management
-| Command | Description |
-|---------|-------------|
-| `focus` | Set/show/clear current task focus |
-| `session` | Start/end work sessions |
-| `export` | Export to TodoWrite/JSON/CSV/Markdown |
-
-### Maintenance Operations
-| Command | Description |
-|---------|-------------|
-| `validate` | Validate all JSON files |
-| `backup` | Create manual backup |
-| `restore` | Restore from backup |
-| `migrate` | Migrate schema versions |
-
-> **Full command reference**: See [docs/INDEX.md](docs/INDEX.md) for complete documentation.
-
-## Extension Points
-
-### Custom Validators
-Place custom validation scripts in `.claude/validators/`:
+### CLAUDE.md Integration
 
 ```bash
-# .claude/validators/team-standards.sh
-validate_team_standards() {
-    # Custom validation logic
-    return 0
-}
+# Update your project's CLAUDE.md with task instructions
+claude-todo init --update-claude-md
 ```
 
-### Event Hooks
-Place event hooks in `.claude/hooks/`:
+### TodoWrite Sync
+
+Bidirectional sync with Claude Code's ephemeral todo system:
 
 ```bash
-# .claude/hooks/on-task-complete.sh
-#!/usr/bin/env bash
-task_id="$1"
-# Send notification, update external tracker, etc.
+claude-todo sync --inject   # Push to TodoWrite (session start)
+claude-todo sync --extract  # Pull from TodoWrite (session end)
 ```
 
-### Custom Formatters
-Add output formatters in `~/.claude-todo/formatters/`:
+### Agent Workflow Pattern
 
 ```bash
-# ~/.claude-todo/formatters/csv-export.sh
-format_csv() {
-    local todo_file="$1"
-    jq -r '.todos[] | [.id, .status, .title] | @csv' "$todo_file"
-}
+# Agent verifies before operating
+if claude-todo exists T042 --quiet; then
+  claude-todo update T042 --notes "Progress update"
+else
+  echo "ERROR: Task T042 not found" >&2
+  exit 1
+fi
+
+# Agent parses structured output
+ACTIVE=$(claude-todo list | jq -r '.tasks[] | select(.status=="active") | .id')
+claude-todo focus note "Working on $ACTIVE"
 ```
-
-### Integrations
-Create integration scripts in `~/.claude-todo/integrations/`:
-
-```bash
-# ~/.claude-todo/integrations/jira-sync.sh
-# Sync tasks with JIRA
-```
-
-## Documentation
-
-Complete documentation is available in the [`docs/`](docs/) directory. Start with **[docs/INDEX.md](docs/INDEX.md)** for navigation.
-
-### Quick Links
-
-| Category | Documents |
-|----------|-----------|
-| **Getting Started** | [Installation](docs/reference/installation.md) · [Usage](docs/usage.md) · [Quick Reference](docs/QUICK-REFERENCE.md) |
-| **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flow Diagrams](docs/architecture/DATA-FLOWS.md) |
-| **Reference** | [Configuration](docs/reference/configuration.md) · [Schema Reference](docs/architecture/SCHEMAS.md) · [Workflow Guide](docs/integration/WORKFLOWS.md) |
-| **Guides** | [Migration Guide](docs/reference/migration-guide.md) · [Troubleshooting](docs/reference/troubleshooting.md) |
-| **For Claude** | [CLAUDE.md](CLAUDE.md) - Protocol instructions for Claude Code integration |
-
-## Testing
-
-```bash
-# Run all tests
-./tests/run-all-tests.sh
-
-# Run specific test suite
-./tests/test-validation.sh
-./tests/test-archive.sh
-
-# Test with verbose output
-CLAUDE_TODO_LOG_LEVEL=debug ./tests/run-all-tests.sh
-```
-
-## Performance
-
-Target performance metrics:
-
-| Operation | Target Time |
-|-----------|-------------|
-| Task creation | < 100ms |
-| Task completion | < 100ms |
-| Archive (100 tasks) | < 500ms |
-| Validation (100 tasks) | < 200ms |
-| List tasks | < 50ms |
-
-## Security
-
-- **Local Storage**: All data stored locally, no external calls
-- **File Permissions**: Proper permissions enforced (644 for data, 755 for scripts)
-- **Input Validation**: All user inputs sanitized
-- **No Telemetry**: Complete user control over data
-
-## Requirements
-
-### Critical (Installation will fail without these)
-- **Bash 4.0+** - Required for associative arrays
-- **jq** - JSON processing (install: `apt install jq` or `brew install jq`)
-
-### Required (Full functionality)
-- **sha256sum** or **shasum** - Checksum verification (usually pre-installed)
-- **tar** - Backup archives (usually pre-installed)
-- **flock** - File locking (install: `brew install flock` on macOS)
-- **date** / **find** - POSIX tools (always available)
-
-### Optional (Enhanced features)
-- **numfmt** - Human-readable sizes (part of coreutils)
-- **ajv** or **jsonschema** - Schema validation (falls back to jq)
-- **git** - Version control integration
-- **cron** - Automatic archival scheduling
-
-### Check Dependencies
-
-```bash
-# Check all dependencies before installing
-./install.sh --check-deps
-
-# Auto-install missing dependencies (Linux/macOS)
-./install.sh --install-deps
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**"Permission denied" error**
-```bash
-chmod 755 ~/.claude-todo/scripts/*.sh
-```
-
-**"Invalid JSON" error**
-```bash
-# Try automatic fix
-claude-todo validate --fix
-
-# Or restore from backup
-claude-todo restore .claude/.backups/todo.json.1
-```
-
-**"Duplicate ID" error**
-```bash
-# Restore from backup
-claude-todo restore .claude/.backups/todo.json.1
-```
-
-### Health Check
-
-```bash
-claude-todo validate
-```
-
-Checks:
-- File integrity
-- Schema compliance
-- Backup freshness
-- Log file size
-- Configuration validity
-
-## Upgrading
-
-```bash
-cd claude-todo
-git pull
-./install.sh --upgrade
-```
-
-Migrations run automatically when needed.
-
-## Contributing
-
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-### Quick Start for Contributors
-
-1. **Fork and clone** the repository
-2. **Create a feature branch**: `git checkout -b feature/your-feature`
-3. **Make your changes** following the existing code style
-4. **Add tests** for new features in `tests/`
-5. **Update documentation** if needed
-6. **Run validation**: `./tests/run-all-tests.sh`
-7. **Submit a pull request**
-
-### Code Standards
-
-- Bash 4.0+ compatible
-- Follow existing patterns in `lib/` and `scripts/`
-- Use jq for JSON manipulation
-- Add unit tests for new functionality
-- Update relevant documentation
-
-## Design Philosophy
-
-CLAUDE-TODO is built on three core pillars:
-
-### 1. Anti-Hallucination First
-Multi-layer validation prevents AI-generated errors from corrupting task data. Schema enforcement, semantic validation, and cross-file integrity checks ensure data remains accurate and consistent across all operations.
-
-### 2. Atomic Operations
-Every file modification uses atomic write patterns: write to temp file, validate, backup original, atomic rename. If any step fails, the system rolls back automatically. No partial writes, no data corruption.
-
-### 3. Session Continuity
-Complete audit trails, immutable change logs, and automatic backups enable seamless work across sessions. Pick up exactly where you left off, with full context and history preserved.
-
-### Design Principles
-
-1. **Single Source of Truth**: todo.json is authoritative
-2. **Immutable History**: Append-only change log
-3. **Fail-Safe Operations**: Atomic writes with rollback
-4. **Schema-First**: Validation prevents corruption
-5. **Idempotent Scripts**: Safe to run multiple times
-6. **Zero-Config Defaults**: Sensible defaults, optional customization
-
-## Success Criteria
-
-CLAUDE-TODO provides:
-
-✅ **Robust**: Schema validation + anti-hallucination checks
-✅ **Maintainable**: Clear separation of concerns, modular design
-✅ **Safe**: Atomic operations, automatic backups, validation gates
-✅ **Extensible**: Hooks, validators, formatters, integrations
-✅ **Performant**: Optimized for 1000+ tasks
-✅ **User-Friendly**: Zero-config defaults, clear error messages
-✅ **Auditable**: Comprehensive logging, complete change history
-✅ **Portable**: Single installation, per-project initialization
-
-## License
-
-MIT License - See [LICENSE](LICENSE) file for details.
 
 ---
 
-## Getting Help
+## Documentation
 
-- **Documentation**: [docs/INDEX.md](docs/INDEX.md) - Complete documentation navigation
-- **Quick Reference**: [docs/QUICK-REFERENCE.md](docs/QUICK-REFERENCE.md) - Cheat sheet for daily use
-- **Troubleshooting**: [docs/reference/troubleshooting.md](docs/reference/troubleshooting.md) - Common issues and solutions
-- **Issues**: Open an issue on GitHub for bugs or feature requests
+| Category | Documents |
+|----------|-----------|
+| **Start Here** | [Quick Start](docs/getting-started/quick-start.md) · [Design Philosophy](docs/guides/design-philosophy.md) |
+| **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) |
+| **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flows](docs/architecture/DATA-FLOWS.md) |
+| **Specifications** | [LLM-Agent-First Spec](docs/specs/LLM-AGENT-FIRST-SPEC.md) · [Task ID System](docs/specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) · [Hierarchy Spec](docs/specs/TASK-HIERARCHY-SPEC.md) |
+| **Integration** | [Claude Code Guide](docs/integration/CLAUDE-CODE.md) · [CI/CD Integration](docs/ci-cd-integration.md) |
+
+**Complete documentation**: [docs/INDEX.md](docs/INDEX.md)
+
+---
+
+## Requirements
+
+### Critical
+- **Bash 4.0+** — Required for associative arrays
+- **jq** — JSON processing (`apt install jq` or `brew install jq`)
+
+### Recommended
+- **flock** — File locking (`brew install flock` on macOS)
+- **sha256sum/shasum** — Checksum verification
+
+```bash
+# Check dependencies
+./install.sh --check-deps
+```
+
+---
+
+## The Philosophy
+
+Claude-TODO is built on three pillars:
+
+### 1. Agent-First, Human-Accessible
+JSON output by default. Exit codes for branching. Structured errors. The `--human` flag is opt-in for developer visibility.
+
+### 2. Validate Everything
+LLMs hallucinate. Every operation validates before execution. Schema enforcement, semantic checks, state machine rules. If it fails validation, it doesn't happen.
+
+### 3. Persist Everything
+Agents lose context. Immutable audit trails, automatic backups, session checkpoints. Pick up exactly where you left off.
+
+**One developer. One agent. One source of truth.**
+
+---
+
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+```bash
+# Run tests
+./tests/run-all-tests.sh
+
+# Validate installation
+claude-todo --validate
+```
+
+---
+
+## License
+
+MIT License — See [LICENSE](LICENSE)
 
 ---
 
 <p align="center">
-  <strong>Ready to get started?</strong> Run <code>./install.sh</code> to begin!
+  <strong>Ready to build with your AI agent?</strong><br>
+  <code>./install.sh && claude-todo init</code>
 </p>
 
 <p align="center">
   <a href="docs/INDEX.md">Documentation</a> ·
-  <a href="docs/reference/installation.md">Installation</a> ·
-  <a href="docs/usage.md">Usage Guide</a> ·
+  <a href="docs/guides/design-philosophy.md">Design Philosophy</a> ·
+  <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md">LLM-Agent-First Spec</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>

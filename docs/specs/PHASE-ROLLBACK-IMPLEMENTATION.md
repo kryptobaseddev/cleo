@@ -156,7 +156,7 @@ Potential improvements (not yet implemented):
 ## Related Specifications
 
 - **PHASE-ENHANCEMENT-RISK-ANALYSIS.md** - Original rollback design discussion
-- **HIERARCHY-ENHANCEMENT-SPEC.md** - Phase tracking system architecture
+- **TASK-HIERARCHY-SPEC.md** - Phase tracking system architecture
 - **LLM-AGENT-FIRST-SPEC.md** - JSON output format standards
 
 ## Verification

@@ -1,17 +1,17 @@
 {
   "$schema": "https://claude-todo.dev/schemas/v1/spec-index.schema.json",
   "_meta": {
-    "version": "1.0.2",
+    "version": "1.0.3",
     "lastUpdated": "2025-12-20",
     "totalSpecs": 16,
-    "totalReports": 8
+    "totalReports": 9
   },
   "authorities": {
     "task-ids": "LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md",
     "spec-writing": "SPEC-BIBLE-GUIDELINES.md",
     "llm-first-design": "LLM-AGENT-FIRST-SPEC.md",
     "phase-lifecycle": "PHASE-SYSTEM-SPEC.md",
-    "task-hierarchy": "HIERARCHY-ENHANCEMENT-SPEC.md",
+    "task-hierarchy": "TASK-HIERARCHY-SPEC.md",
     "todowrite-sync": "TODOWRITE-SYNC-SPEC.md",
     "configuration": "CONFIG-SYSTEM-SPEC.md",
     "file-operations": "FILE-LOCKING-SPEC.md",
@@ -30,7 +30,7 @@
       "synopsis": "Authoritative standards for writing specifications. Defines SPEC vs IMPLEMENTATION-REPORT separation, RFC 2119 usage, status lifecycle.",
       "lastUpdated": "2025-12-17",
       "dependsOn": [],
-      "dependedOnBy": ["LLM-AGENT-FIRST-SPEC.md", "CONSENSUS-FRAMEWORK-SPEC.md"],
+      "dependedOnBy": ["LLM-AGENT-FIRST-SPEC.md", "CONSENSUS-FRAMEWORK-SPEC.md", "TASK-HIERARCHY-SPEC.md"],
       "isAuthoritativeFor": ["spec-writing"]
     },
     {
@@ -43,21 +43,21 @@
       "synopsis": "Task ID system design (T001 format). Flat sequential IDs with parentId for hierarchy. Six guarantees: unique, immutable, stable, sequential, referenceable, recoverable.",
       "lastUpdated": "2025-01-17",
       "dependsOn": [],
-      "dependedOnBy": ["HIERARCHY-ENHANCEMENT-SPEC.md", "PHASE-SYSTEM-SPEC.md", "TODOWRITE-SYNC-SPEC.md", "FIND-COMMAND-SPEC.md", "CONSENSUS-FRAMEWORK-SPEC.md"],
+      "dependedOnBy": ["TASK-HIERARCHY-SPEC.md", "PHASE-SYSTEM-SPEC.md", "TODOWRITE-SYNC-SPEC.md", "FIND-COMMAND-SPEC.md", "CONSENSUS-FRAMEWORK-SPEC.md"],
       "implementationReport": "LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md",
       "isAuthoritativeFor": ["task-ids"]
     },
     {
       "file": "LLM-AGENT-FIRST-SPEC.md",
-      "version": "3.0",
+      "version": "3.1",
       "status": "ACTIVE",
       "type": "SPEC",
       "domain": "llm-first-design",
       "category": "design-philosophy",
-      "synopsis": "CLI design standard for LLM agents. JSON output by default, TTY auto-detection, 32 commands, standardized exit/error codes, universal flags.",
-      "lastUpdated": "2025-12-18",
+      "synopsis": "CLI design standard for LLM agents. JSON output by default, TTY auto-detection, 33 commands, standardized exit/error codes, universal flags.",
+      "lastUpdated": "2025-12-19",
       "dependsOn": ["SPEC-BIBLE-GUIDELINES.md"],
-      "dependedOnBy": ["CONSENSUS-FRAMEWORK-SPEC.md"],
+      "dependedOnBy": ["CONSENSUS-FRAMEWORK-SPEC.md", "TASK-HIERARCHY-SPEC.md"],
       "implementationReport": "LLM-AGENT-FIRST-IMPLEMENTATION-REPORT.md",
       "isAuthoritativeFor": ["llm-first-design"]
     },
@@ -75,16 +75,17 @@
       "isAuthoritativeFor": ["phase-lifecycle"]
     },
     {
-      "file": "HIERARCHY-ENHANCEMENT-SPEC.md",
-      "version": "1.2.0",
-      "status": "APPROVED",
+      "file": "TASK-HIERARCHY-SPEC.md",
+      "version": "2.0.0",
+      "status": "ACTIVE",
       "type": "SPEC",
       "domain": "task-hierarchy",
       "category": "feature",
-      "synopsis": "Epic/Task/Subtask taxonomy with max depth 3, max 7 siblings. Flat ID + parentId design. Schema v2.3.0.",
-      "lastUpdated": "2025-01-17",
-      "dependsOn": ["LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md"],
+      "synopsis": "Epic/Task/Subtask taxonomy with max depth 3, configurable siblings (default 20). Flat ID + parentId design. RFC 2119 compliant. LLM-Agent-First sibling limits.",
+      "lastUpdated": "2025-12-20",
+      "dependsOn": ["LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md", "SPEC-BIBLE-GUIDELINES.md", "LLM-AGENT-FIRST-SPEC.md", "CONFIG-SYSTEM-SPEC.md"],
       "dependedOnBy": [],
+      "implementationReport": "TASK-HIERARCHY-IMPLEMENTATION-REPORT.md",
       "isAuthoritativeFor": ["task-hierarchy"]
     },
     {
@@ -97,7 +98,7 @@
       "synopsis": "Configuration system with global (~/.claude-todo/config.json) and project (.claude/todo-config.json) configs. Priority resolution, environment variables.",
       "lastUpdated": "2025-12-19",
       "dependsOn": [],
-      "dependedOnBy": [],
+      "dependedOnBy": ["TASK-HIERARCHY-SPEC.md"],
       "implementationReport": "CONFIG-SYSTEM-IMPLEMENTATION-REPORT.md",
       "isAuthoritativeFor": ["configuration"]
     },
@@ -240,7 +241,7 @@
       "progress": "100%",
       "phase": "complete",
       "lastUpdated": "2025-12-18",
-      "notes": "All 32 commands have complete _meta envelopes"
+      "notes": "All 33 commands have complete _meta envelopes"
     },
     {
       "file": "TODOWRITE-SYNC-IMPLEMENTATION-REPORT.md",
@@ -297,9 +298,38 @@
       "phase": "complete",
       "lastUpdated": "2025-12-20",
       "notes": "Meta-investigation complete. 11 agents deployed, framework validated as SOUND."
+    },
+    {
+      "file": "TASK-HIERARCHY-IMPLEMENTATION-REPORT.md",
+      "relatedSpec": "TASK-HIERARCHY-SPEC.md",
+      "progress": "75%",
+      "phase": "phase-1",
+      "lastUpdated": "2025-12-20",
+      "notes": "Phase 1: 8/10 components. Schema+validation complete, tree view pending."
     }
   ],
   "recentChanges": [
+    {
+      "date": "2025-12-20",
+      "file": "TASK-HIERARCHY-SPEC.md",
+      "changeType": "Created",
+      "version": "2.0.0",
+      "description": "Renamed from HIERARCHY-ENHANCEMENT-SPEC.md. RFC 2119 compliance, separated implementation report, LLM-Agent-First sibling limits."
+    },
+    {
+      "date": "2025-12-20",
+      "file": "TASK-HIERARCHY-IMPLEMENTATION-REPORT.md",
+      "changeType": "Created",
+      "version": "1.0.0",
+      "description": "Implementation tracking separated from spec per SPEC-BIBLE-GUIDELINES."
+    },
+    {
+      "date": "2025-12-20",
+      "file": "HIERARCHY-ENHANCEMENT-SPEC.md",
+      "changeType": "Superseded",
+      "version": "1.3.0",
+      "description": "Superseded by TASK-HIERARCHY-SPEC.md v2.0.0"
+    },
     {
       "date": "2025-12-20",
       "file": "CONSENSUS-FRAMEWORK-SPEC.md",
@@ -359,20 +389,6 @@
     {
       "date": "2025-12-17",
       "file": "SPEC-BIBLE-GUIDELINES.md",
-      "changeType": "StatusChange",
-      "version": "1.0.0",
-      "description": "Set to IMMUTABLE status"
-    },
-    {
-      "date": "2025-12-17",
-      "file": "PHASE-SYSTEM-SPEC.md",
-      "changeType": "Updated",
-      "version": "2.2.0",
-      "description": "Phase lifecycle commands added"
-    },
-    {
-      "date": "2025-12-17",
-      "file": "LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md",
       "changeType": "StatusChange",
       "version": "1.0.0",
       "description": "Set to IMMUTABLE status"

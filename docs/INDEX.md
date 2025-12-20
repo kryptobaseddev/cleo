@@ -8,8 +8,16 @@
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
-| **[README.md](../README.md)** | Quick start and overview | First document - start here |
+| **[README.md](../README.md)** | LLM-Agent-First overview and quick start | First document - the vision |
+| **[Design Philosophy](guides/design-philosophy.md)** | Why Claude-TODO works this way | Understanding the design decisions |
 | **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** | Quick reference card | Daily reference during development |
+
+### 💡 Guides
+
+| Document | Purpose | When to Read |
+|----------|---------|--------------|
+| **[Design Philosophy](guides/design-philosophy.md)** | The contract between developer and agent | Understanding flat IDs, JSON output, exit codes |
+| **[Filtering Guide](guides/filtering-guide.md)** | Task filtering and queries | Advanced task filtering |
 
 ### 🏗️ Architecture & Design
 

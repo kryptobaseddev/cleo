@@ -228,7 +228,7 @@ Potential improvements (not currently implemented):
 
 This implementation fully satisfies the requirements from:
 - **PHASE-ENHANCEMENT-RISK-ANALYSIS.md** - Atomic multi-step rename with rollback
-- **HIERARCHY-ENHANCEMENT-SPEC.md** - Phase management without orphaning tasks
+- **TASK-HIERARCHY-SPEC.md** - Phase management without orphaning tasks
 - **LLM-AGENT-FIRST-SPEC.md** - Structured JSON output, error codes, machine-readable
 
 ## Change Summary

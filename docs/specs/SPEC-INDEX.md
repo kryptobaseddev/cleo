@@ -21,7 +21,7 @@ jq '.authorities["task-ids"]' docs/specs/SPEC-INDEX.json
 jq '.specs[] | select(.status == "IMMUTABLE") | .file' docs/specs/SPEC-INDEX.json
 
 # Get dependencies for a spec
-jq '.specs[] | select(.file == "HIERARCHY-ENHANCEMENT-SPEC.md") | .dependsOn' docs/specs/SPEC-INDEX.json
+jq '.specs[] | select(.file == "TASK-HIERARCHY-SPEC.md") | .dependsOn' docs/specs/SPEC-INDEX.json
 
 # Find specs by domain
 jq '.specs[] | select(.domain == "phase-lifecycle")' docs/specs/SPEC-INDEX.json
@@ -102,7 +102,7 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 
 | Document | Version | Status | Last Updated | Synopsis |
 |----------|---------|--------|--------------|----------|
-| [**HIERARCHY-ENHANCEMENT-SPEC.md**](HIERARCHY-ENHANCEMENT-SPEC.md) | 1.2.0 | **APPROVED** | 2025-01-17 | Epic → Task → Subtask taxonomy with max depth 3, max 7 siblings. Flat ID + parentId design. Schema v2.3.0. |
+| [**TASK-HIERARCHY-SPEC.md**](TASK-HIERARCHY-SPEC.md) | 1.2.0 | **APPROVED** | 2025-01-17 | Epic → Task → Subtask taxonomy with max depth 3, max 7 siblings. Flat ID + parentId design. Schema v2.3.0. |
 | [**TODOWRITE-SYNC-SPEC.md**](TODOWRITE-SYNC-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-18 | Bidirectional sync between claude-todo (durable) and Claude Code TodoWrite (ephemeral). Lossy by design with ID preservation via [T###] prefix. |
 | [**FIND-COMMAND-SPEC.md**](FIND-COMMAND-SPEC.md) | 1.0 | **DRAFT** | 2025-12-18 | Fuzzy task search command. Context reduction 355KB→1KB (99.7%). ID prefix matching, match scoring, minimal output. |
 | [**RELEASE-VERSION-MANAGEMENT-SPEC.md**](RELEASE-VERSION-MANAGEMENT-SPEC.md) | 2.0.0 | **DRAFT** | 2025-12-18 | Release version tracking with 4-state lifecycle (planning→development→released/cancelled). VERSION file integration, git tags. |
@@ -147,7 +147,7 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 | **Specification Writing** | [SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md) | - |
 | **LLM-First Design** | [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) | SPEC-BIBLE-GUIDELINES for spec structure |
 | **Phase Lifecycle** | [PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md) | LLM-TASK-ID-SYSTEM-DESIGN-SPEC for ID handling |
-| **Task Hierarchy** | [HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md) | LLM-TASK-ID-SYSTEM-DESIGN-SPEC for ID contract |
+| **Task Hierarchy** | [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) | LLM-TASK-ID-SYSTEM-DESIGN-SPEC for ID contract |
 | **TodoWrite Sync** | [TODOWRITE-SYNC-SPEC.md](TODOWRITE-SYNC-SPEC.md) | LLM-TASK-ID-SYSTEM-DESIGN-SPEC for IDs, PHASE-SYSTEM-SPEC for phases |
 | **Configuration** | [CONFIG-SYSTEM-SPEC.md](CONFIG-SYSTEM-SPEC.md) | - |
 | **File Operations** | [FILE-LOCKING-SPEC.md](FILE-LOCKING-SPEC.md) | - |
@@ -172,7 +172,7 @@ SPEC-BIBLE-GUIDELINES.md (Meta-level authority)
             │       ├─► PHASE-RENAME-IMPLEMENTATION.md
             │       └─► PHASE-ROLLBACK-IMPLEMENTATION.md
             │
-            ├─► HIERARCHY-ENHANCEMENT-SPEC.md
+            ├─► TASK-HIERARCHY-SPEC.md
             │       └─► Depends on: flat ID + parentId design
             │
             ├─► TODOWRITE-SYNC-SPEC.md
@@ -223,7 +223,7 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 - [CONFIG-SYSTEM-SPEC.md](CONFIG-SYSTEM-SPEC.md) - Configuration management
 
 ### Task Management
-- [HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md) - Epic/Task/Subtask structure
+- [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) - Epic/Task/Subtask structure
 - [PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md) - Phase lifecycle
 - [FIND-COMMAND-SPEC.md](FIND-COMMAND-SPEC.md) - Task search
 
@@ -249,7 +249,7 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 - [TODOWRITE-SYNC-SPEC.md](TODOWRITE-SYNC-SPEC.md) - v1.0.0
 
 ### APPROVED (Endorsed, Formal Amendments)
-- [HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md) - v1.2.0
+- [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) - v1.2.0
 
 ### DRAFT (Work in Progress)
 - [FIND-COMMAND-SPEC.md](FIND-COMMAND-SPEC.md) - v1.0

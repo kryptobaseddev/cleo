@@ -205,4 +205,4 @@ Potential improvements (not currently required):
 ## Related Specifications
 
 - See docs/specs/PHASE-ENHANCEMENT-RISK-ANALYSIS.md for original design
-- See docs/specs/HIERARCHY-ENHANCEMENT-SPEC.md for phase system overview
+- See docs/specs/TASK-HIERARCHY-SPEC.md for phase system overview

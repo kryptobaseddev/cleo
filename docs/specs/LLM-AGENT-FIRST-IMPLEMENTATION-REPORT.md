@@ -12,7 +12,7 @@
 |----------|--------------|
 | **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | **AUTHORITATIVE** specification this report implements |
 | **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | Exit codes 10-22, error code naming (`E_` prefix) |
-| **[HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md)** | JSON output must include `type`, `parentId`, `size` fields |
+| **[TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md)** | JSON output must include `type`, `parentId`, `size` fields |
 
 > **Version Coordination (Updated 2025-12-17)**:
 > - **v0.16.0**: Version management features, LLM-Agent-First foundation libs created

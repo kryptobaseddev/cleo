@@ -915,7 +915,7 @@ This follows the IETF model: "RFCs never change" - shipped releases are historic
 | **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for specification standards |
 | **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | **AUTHORITATIVE** for CLI output format, exit codes, JSON envelope |
 | **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | Task ID system design; release references use same validation patterns |
-| **[HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md)** | Related: hierarchy + releases provide complementary organization |
+| **[TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md)** | Related: hierarchy + releases provide complementary organization |
 | **[RELEASE-VERSION-MANAGEMENT-IMPLEMENTATION-REPORT.md](RELEASE-VERSION-MANAGEMENT-IMPLEMENTATION-REPORT.md)** | Tracks implementation status |
 
 ---

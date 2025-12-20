@@ -762,7 +762,7 @@ This specification establishes the **permanent ID system** for claude-todo:
 | Document | Relationship |
 |----------|--------------|
 | **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for specification standards |
-| **[HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md)** | Hierarchy features; defers to this spec for ID design |
+| **[TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md)** | Hierarchy features; defers to this spec for ID design |
 | **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | CLI output formats, JSON envelopes, exit codes implementation |
 | **[LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md](LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md)** | Tracks implementation status against this spec |
 

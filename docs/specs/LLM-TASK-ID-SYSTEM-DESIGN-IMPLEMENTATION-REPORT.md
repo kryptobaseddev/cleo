@@ -16,7 +16,7 @@ This report tracks compliance with:
 |---------------|---------|--------|
 | [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) | v1.0.0 FINAL | IMMUTABLE |
 | [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) | v2.0 | Active |
-| [HIERARCHY-ENHANCEMENT-SPEC.md](HIERARCHY-ENHANCEMENT-SPEC.md) | v1.0 | Active |
+| [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) | v1.0 | Active |
 
 ---
 

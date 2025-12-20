@@ -488,7 +488,7 @@ When creating an Implementation Report:
 | Type | Pattern | Example |
 |------|---------|---------|
 | Design Spec | `[DOMAIN]-SPEC.md` | `LLM-AGENT-FIRST-SPEC.md` |
-| Feature Spec | `[DOMAIN]-[FEATURE]-SPEC.md` | `HIERARCHY-ENHANCEMENT-SPEC.md` |
+| Feature Spec | `[DOMAIN]-[FEATURE]-SPEC.md` | `TASK-HIERARCHY-SPEC.md` |
 | System Spec | `[DOMAIN]-SYSTEM-DESIGN-SPEC.md` | `LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md` |
 | Implementation Report | `[SPEC-NAME]-IMPLEMENTATION-REPORT.md` | `LLM-TASK-ID-SYSTEM-DESIGN-IMPLEMENTATION-REPORT.md` |
 | Guidelines | `[DOMAIN]-GUIDELINES.md` | `SPEC-BIBLE-GUIDELINES.md` |
