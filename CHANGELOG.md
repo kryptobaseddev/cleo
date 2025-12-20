@@ -5,6 +5,14 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.2] - 2025-12-20
+
+### Fixed
+- **archive.sh ARG_MAX limit error** - Fixed "Argument list too long" error when archiving projects with many tasks
+  - Changed `jq --argjson` to `jq --slurpfile` with process substitution at lines 387 and 456
+  - Prevents shell ARG_MAX limit (~128KB-2MB) from blocking archive operations on large todo.json files
+  - All `$tasks` references updated to `$tasks[0]` for slurpfile array wrapper handling
+
 ## [0.21.1] - 2025-12-20
 
 ### Fixed

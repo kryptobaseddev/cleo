@@ -1,4 +1,4 @@
-<!-- CLAUDE-TODO:START v0.21.1 -->
+<!-- CLAUDE-TODO:START v0.21.2 -->
 ## Task Management (claude-todo)
 
 Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`

@@ -382,13 +382,15 @@ cleanup_temp_files() {
 trap cleanup_temp_files EXIT
 
 # Step 1: Generate archive file update with full statistics
-if ! jq --argjson tasks "$TASKS_WITH_METADATA" --arg ts "$TIMESTAMP" '
-  # Add tasks to archive
-  .archivedTasks += $tasks |
-  ._meta.totalArchived += ($tasks | length) |
+# NOTE: Using --slurpfile with process substitution instead of --argjson to avoid
+# "Argument list too long" error when tasks array exceeds ARG_MAX (~128KB-2MB)
+if ! jq --slurpfile tasks <(echo "$TASKS_WITH_METADATA") --arg ts "$TIMESTAMP" '
+  # Add tasks to archive (slurpfile wraps in array, so use [0])
+  .archivedTasks += $tasks[0] |
+  ._meta.totalArchived += ($tasks[0] | length) |
   ._meta.lastArchived = $ts |
-  ._meta.newestTask = ($tasks | max_by(.completedAt) | .completedAt) |
-  ._meta.oldestTask = (if ._meta.oldestTask then ._meta.oldestTask else ($tasks | min_by(.completedAt) | .completedAt) end) |
+  ._meta.newestTask = ($tasks[0] | max_by(.completedAt) | .completedAt) |
+  ._meta.oldestTask = (if ._meta.oldestTask then ._meta.oldestTask else ($tasks[0] | min_by(.completedAt) | .completedAt) end) |
 
   # Update statistics.byPhase with counts
   .statistics.byPhase = (
@@ -450,8 +452,9 @@ REMAINING_TASKS=$(jq --argjson ids "$(echo "$ARCHIVE_IDS" | jq -R . | jq -s .)" 
 
 NEW_CHECKSUM=$(echo "$REMAINING_TASKS" | jq -c '.' | sha256sum | cut -c1-16)
 
-if ! jq --argjson tasks "$REMAINING_TASKS" --arg checksum "$NEW_CHECKSUM" --arg ts "$TIMESTAMP" '
-  .tasks = $tasks |
+# NOTE: Using --slurpfile with process substitution to avoid ARG_MAX limit
+if ! jq --slurpfile tasks <(echo "$REMAINING_TASKS") --arg checksum "$NEW_CHECKSUM" --arg ts "$TIMESTAMP" '
+  .tasks = $tasks[0] |
   ._meta.checksum = $checksum |
   .lastUpdated = $ts
 ' "$TODO_FILE" > "$TODO_TMP"; then
