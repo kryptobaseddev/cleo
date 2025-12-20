@@ -544,14 +544,18 @@ perform_search() {
                             # Starts with query (word boundary bonus)
                             0.95 * field_weight
                         elif ($lower_text | contains($lower_query)) then
-                            # Contains query
+                            # Contains query - give bonus for word boundary match
+                            # Use try/catch to handle regex special chars in query
                             (
-                                # Check for word boundary match
-                                if ($lower_text | test("\\b" + ($lower_query | gsub("[^a-z0-9]"; "\\\\\\(.)"))) ) then
-                                    0.85 * field_weight
-                                else
-                                    0.7 * field_weight
-                                end
+                                try (
+                                    # Escape regex special chars in query
+                                    ($lower_query | gsub("(?<c>[.\\[\\]^$|?*+(){}\\\\])"; "\\\(.c)")) as $escaped |
+                                    if ($lower_text | test("\\b" + $escaped)) then
+                                        0.85 * field_weight
+                                    else
+                                        0.7 * field_weight
+                                    end
+                                ) catch 0.7 * field_weight  # Fallback on regex error
                             )
                         else
                             0
