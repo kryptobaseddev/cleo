@@ -404,11 +404,48 @@ get_pattern() {
     esac
 }
 
-# Initialize cache
+# Compute hash of schema and check scripts for cache invalidation
+# Returns: 16-char hash of schema.json + all check scripts
+compute_schema_hash() {
+    local hash_input=""
+
+    # Include schema.json content
+    if [[ -f "$SCHEMA_PATH" ]]; then
+        hash_input+=$(cat "$SCHEMA_PATH")
+    fi
+
+    # Include all check script contents
+    if [[ -d "$CHECKS_DIR" ]]; then
+        for check_script in "$CHECKS_DIR"/*.sh; do
+            [[ -f "$check_script" ]] && hash_input+=$(cat "$check_script")
+        done
+    fi
+
+    # Compute hash (first 16 chars)
+    echo -n "$hash_input" | sha256sum | cut -c1-16
+}
+
+# Initialize cache (with schema hash validation)
 init_cache() {
     mkdir -p "$CACHE_DIR"
-    if [[ ! -f "$CACHE_FILE" ]] || [[ "$FORCE" == "true" ]]; then
-        echo '{"files": {}, "lastRun": null}' > "$CACHE_FILE"
+
+    # Compute current schema hash
+    local current_hash
+    current_hash=$(compute_schema_hash)
+
+    # Check if cache exists and is valid
+    if [[ -f "$CACHE_FILE" ]] && [[ "$FORCE" != "true" ]]; then
+        local cached_hash
+        cached_hash=$(jq -r '.schemaHash // ""' "$CACHE_FILE" 2>/dev/null)
+
+        if [[ "$cached_hash" != "$current_hash" ]]; then
+            # Schema or check scripts changed - invalidate cache
+            [[ "$QUIET" != "true" ]] && echo -e "${YELLOW}⚠${NC} Schema or checks changed, invalidating cache" >&2
+            echo '{"files": {}, "lastRun": null, "schemaHash": "'"$current_hash"'"}' > "$CACHE_FILE"
+        fi
+    else
+        # Create new cache with schema hash
+        echo '{"files": {}, "lastRun": null, "schemaHash": "'"$current_hash"'"}' > "$CACHE_FILE"
     fi
 }
 
@@ -596,11 +633,15 @@ EOF
     esac
 }
 
-# Save cache
+# Save cache (with schema hash for invalidation)
 save_cache() {
     local results="$1"
     local timestamp
     timestamp=$(format_timestamp)
+
+    # Compute current schema hash
+    local schema_hash
+    schema_hash=$(compute_schema_hash)
 
     # Build file hashes from results
     local file_hashes
@@ -614,7 +655,8 @@ save_cache() {
     jq -n \
         --argjson files "$file_hashes" \
         --arg lastRun "$timestamp" \
-        '{files: $files, lastRun: $lastRun}' > "$CACHE_FILE"
+        --arg schemaHash "$schema_hash" \
+        '{files: $files, lastRun: $lastRun, schemaHash: $schemaHash}' > "$CACHE_FILE"
 }
 
 # Get list of scripts to check
