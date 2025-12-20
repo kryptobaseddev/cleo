@@ -94,7 +94,7 @@ You cannot accurately predict time. Estimates create false precision and bad dec
 - Usage: docs/usage.md
 
 
-<!-- CLAUDE-TODO:START v0.22.0 -->
+<!-- CLAUDE-TODO:START v0.23.0 -->
 ## Task Management (claude-todo)
 
 Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`

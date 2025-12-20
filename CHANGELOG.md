@@ -5,6 +5,34 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2025-12-20
+
+### Added
+- **`research` command** - Multi-source web research aggregation with MCP servers
+  - Query mode: `claude-todo research "query"` - comprehensive topic research
+  - Library mode: `claude-todo research --library NAME --topic X` - Context7 docs
+  - Reddit mode: `claude-todo research --reddit "topic" --subreddit S` - community discussions
+  - URL mode: `claude-todo research --url URL [URL...]` - extract specific URLs
+  - Depth levels: `quick` (3-5), `standard` (8-12), `deep` (15-25 sources)
+  - Task linking: `--link-task ID` for research-to-task association
+  - Output: Creates `.claude/research/` with JSON + Markdown reports
+  - Implements [Web Aggregation Pipeline Specification](docs/specs/WEB-AGGREGATION-PIPELINE-SPEC.md)
+
+- **Research skill files** in `~/.claude/skills/research-aggregator/`
+  - Complete MCP integration patterns for Tavily, Context7, Sequential-thinking
+  - Reddit JSON API reference (no authentication required)
+  - Fallback chains for graceful degradation
+  - Mode-specific guides (query, url, reddit, library)
+
+### Changed
+- **install.sh** - Registered `research` command with `dig` alias
+- **docs/INDEX.md** - Added research.md to command reference
+- **docs/TODO_Task_Management.md** - Added Research & Discovery section
+
+### Related Specifications
+- [WEB-AGGREGATION-PIPELINE-SPEC.md](docs/specs/WEB-AGGREGATION-PIPELINE-SPEC.md) - Pipeline architecture
+- [WEB-AGGREGATION-PIPELINE-IMPLEMENTATION-REPORT.md](docs/specs/WEB-AGGREGATION-PIPELINE-IMPLEMENTATION-REPORT.md) - Implementation tracking
+
 ## [0.22.0] - 2025-12-20
 
 ### Added

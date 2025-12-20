@@ -70,6 +70,7 @@
 | **[commands/next.md](commands/next.md)** | Next command documentation | Using intelligent task suggestions |
 | **[commands/phase.md](commands/phase.md)** | Phase lifecycle command documentation | Managing project-level phase transitions (pending → active → completed) |
 | **[commands/phases.md](commands/phases.md)** | Phase management command documentation | Managing project phases and phase-based workflows |
+| **[commands/research.md](commands/research.md)** | Research aggregation command documentation | Multi-source web research with MCP servers (Tavily, Context7, Reddit) |
 | **[commands/restore.md](commands/restore.md)** | Restore command documentation | Restoring from backups |
 | **[commands/session.md](commands/session.md)** | Session command documentation | Managing work sessions |
 | **[commands/show.md](commands/show.md)** | Single task detail view documentation | Viewing full task details, dependencies, and history |

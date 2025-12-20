@@ -67,6 +67,20 @@ claude-todo blockers                       # Show blocked tasks
 claude-todo blockers analyze               # Critical path analysis
 ```
 
+### Research & Discovery (v0.23.0+)
+```bash
+claude-todo research "query"               # Multi-source web research
+claude-todo research --library NAME -t X   # Library docs via Context7
+claude-todo research --reddit "topic" -s S # Reddit discussions via Tavily
+claude-todo research --url URL [URL...]    # Extract from specific URLs
+claude-todo research -d deep               # Deep research (15-25 sources)
+claude-todo research --link-task T001      # Link research to task
+```
+
+**Aliases**: `dig` → `research`
+
+**Output**: Creates `.claude/research/research_[id].json` + `.md` files with citations.
+
 ### Task Inspection
 ```bash
 claude-todo show <id>                      # Full task details view
@@ -370,6 +384,7 @@ claude-todo rm              # archive
 claude-todo check           # validate
 claude-todo tags            # labels
 claude-todo overview        # dash
+claude-todo dig "query"     # research
 ```
 
 ## Shell Aliases

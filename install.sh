@@ -416,6 +416,7 @@ declare -A CMD_MAP=(
   [config]="config.sh"
   [find]="find.sh"
   [commands]="commands.sh"
+  [research]="research.sh"
 )
 
 # Brief descriptions for main help
@@ -451,6 +452,7 @@ declare -A CMD_DESC=(
   [config]="View and modify configuration settings"
   [find]="Fuzzy search tasks by title, ID, or labels"
   [commands]="List and query available commands (JSON by default)"
+  [research]="Multi-source web research aggregation (Tavily, Context7, Reddit)"
 )
 
 # ============================================
@@ -467,6 +469,7 @@ declare -A CMD_ALIASES=(
   [overview]="dash"
   [tags]="labels"
   [search]="find"
+  [dig]="research"
 )
 
 # ============================================
