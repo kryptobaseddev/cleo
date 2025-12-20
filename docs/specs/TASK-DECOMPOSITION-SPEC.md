@@ -4,6 +4,7 @@
 **Status**: DRAFT
 **Created**: 2025-12-19
 **Target**: v0.22.0+
+**Implementation Report**: [TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md](TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md)
 
 ---
 
@@ -282,7 +283,7 @@ Each goal type has defined decomposition methods:
 ```
 FUNCTION decompose_goal(goal: Goal, depth: int = 0) -> TaskTree:
 
-    # Depth guard (per HIERARCHY-ENHANCEMENT-SPEC)
+    # Depth guard (per TASK-HIERARCHY-SPEC)
     IF depth >= 3:
         WARN("Max depth reached, forcing atomic")
         RETURN create_atomic_task(goal)
@@ -305,7 +306,7 @@ FUNCTION decompose_goal(goal: Goal, depth: int = 0) -> TaskTree:
         subtask_tree = decompose_goal(subtask_goal, depth + 1)
         subtasks.append(subtask_tree)
 
-    # Sibling limit check (per HIERARCHY-ENHANCEMENT-SPEC)
+    # Sibling limit check (per TASK-HIERARCHY-SPEC)
     IF len(subtasks) > 7:
         subtasks = group_into_intermediates(subtasks, max_group=7)
 
@@ -1266,8 +1267,8 @@ Decomposition MUST trigger HITL when:
 | Metric | Limit | Reason |
 |--------|-------|--------|
 | Tasks per decomposition | 50 | Context window preservation |
-| Depth | 3 | Per HIERARCHY-ENHANCEMENT-SPEC |
-| Siblings | 7 | Per HIERARCHY-ENHANCEMENT-SPEC |
+| Depth | 3 | Per TASK-HIERARCHY-SPEC |
+| Siblings | 7 | Per TASK-HIERARCHY-SPEC |
 | Parallel DAG width | 10 | Practical execution limit |
 | Request length | 10,000 chars | Prompt size management |
 

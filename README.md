@@ -60,10 +60,22 @@ claude-todo exists T042 --quiet && echo "Found"
 
 Four layers of validation prevent AI-generated errors:
 
-1. **Schema Validation** — JSON Schema enforcement for structure
-2. **Semantic Checks** — ID uniqueness, timestamp sanity, status transitions
-3. **Cross-File Integrity** — Referential consistency across todo/archive/log
-4. **State Machine Rules** — Only valid transitions allowed
+| Layer | Purpose | What It Catches |
+|-------|---------|-----------------|
+| **1. Schema** | JSON Schema enforcement | Missing fields, wrong types, invalid enums |
+| **2. Semantic** | Business logic validation | Duplicate IDs, future timestamps, invalid status transitions |
+| **3. Cross-File** | Referential integrity | Orphaned references, archive inconsistencies, data loss |
+| **4. State Machine** | Transition rules | Invalid status changes, constraint violations |
+
+Before any write operation:
+```bash
+✓ ID exists (prevent hallucinated references)
+✓ ID unique (across todo.json AND archive)
+✓ Status valid (pending|active|blocked|done)
+✓ Timestamps sane (not future, completedAt > createdAt)
+✓ Dependencies acyclic (no circular references)
+✓ Parent exists (hierarchy integrity)
+```
 
 ### Stable Task IDs
 
@@ -82,41 +94,52 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 
 ## Quick Start
 
+### Prerequisites
+
+| Dependency | Required | Install |
+|------------|----------|---------|
+| **Bash 4.0+** | Critical | Pre-installed (check: `bash --version`) |
+| **jq** | Critical | `apt install jq` / `brew install jq` |
+| **flock** | Recommended | `brew install flock` (macOS) |
+| **sha256sum** | Recommended | Pre-installed / `brew install coreutils` |
+
+```bash
+# Check all dependencies
+./install.sh --check-deps
+
+# Auto-install missing (Linux/macOS)
+./install.sh --install-deps
+```
+
 ### Installation
 
 ```bash
-# Clone and install globally
+# 1. Clone and install globally
 git clone https://github.com/kryptobaseddev/claude-todo.git
 cd claude-todo
 ./install.sh
 
-# Initialize in your project
+# 2. Verify installation
+claude-todo version
+claude-todo --validate
+
+# 3. Initialize in your project
 cd /path/to/your/project
 claude-todo init
 ```
 
-### Essential Commands
+> **Note**: The installer creates symlinks in `~/.local/bin/`, which works immediately with Claude Code and most modern shells.
+
+### Upgrade Existing Installation
 
 ```bash
-# Task lifecycle
-claude-todo add "Implement authentication"
-claude-todo complete T001
-claude-todo archive
+cd claude-todo
+git pull origin main
+./install.sh --upgrade
 
-# Session workflow
-claude-todo session start
-claude-todo focus set T001
-claude-todo focus note "Working on JWT validation"
-claude-todo session end
-
-# Analysis
-claude-todo dash              # Project overview
-claude-todo next --explain    # What should I work on?
-claude-todo analyze           # Task triage with leverage scoring
-
-# Agent-friendly output
-claude-todo list | jq '.tasks[] | select(.status == "pending")'
-claude-todo show T001 --format json
+# For project schema migrations
+claude-todo migrate status
+claude-todo migrate run
 ```
 
 ### The `ct` Shortcut
@@ -125,6 +148,89 @@ claude-todo show T001 --format json
 ct list        # Same as claude-todo list
 ct add "Task"  # Same as claude-todo add "Task"
 ct done T001   # Same as claude-todo complete T001
+ct find "auth" # Fast fuzzy search (99% less tokens than list)
+```
+
+**Built-in aliases**: `ls`, `done`, `new`, `edit`, `rm`, `check`, `tags`, `overview`, `dig`
+
+---
+
+## Command Reference
+
+### 33 Commands Across 4 Categories
+
+| Category | Commands | Purpose |
+|----------|----------|---------|
+| **Write (7)** | `add`, `update`, `complete`, `focus`, `session`, `phase`, `archive` | Modify task state |
+| **Read (16)** | `list`, `show`, `find`, `analyze`, `next`, `dash`, `deps`, `blockers`, `phases`, `labels`, `stats`, `log`, `commands`, `exists`, `export`, `history` | Query and analyze |
+| **Sync (3)** | `sync`, `inject`, `extract` | TodoWrite integration |
+| **Maintenance (7)** | `init`, `validate`, `backup`, `restore`, `migrate`, `migrate-backups`, `config` | System administration |
+
+### Essential Commands
+
+```bash
+# Task lifecycle
+claude-todo add "Implement authentication" --priority high
+claude-todo update T001 --labels "backend,security"
+claude-todo complete T001
+claude-todo archive
+
+# Session workflow
+claude-todo session start
+claude-todo focus set T001           # Only ONE active task allowed
+claude-todo focus note "Working on JWT validation"
+claude-todo session end
+
+# Analysis & planning
+claude-todo dash                     # Project overview
+claude-todo analyze                  # Task triage with leverage scoring (JSON default)
+claude-todo analyze --auto-focus     # Auto-set focus to highest leverage task
+claude-todo next --explain           # What should I work on?
+claude-todo blockers analyze         # Critical path analysis
+
+# Context-efficient search (v0.19.2+)
+claude-todo find "auth"              # Fuzzy search (~1KB vs 355KB for full list)
+claude-todo find --id 42             # Find T42, T420, T421...
+claude-todo find "api" --status pending --field title
+
+# Single task inspection
+claude-todo show T001                # Full task details
+claude-todo show T001 --history      # Include audit trail
+claude-todo exists T001 --quiet      # Exit 0 if exists, 1 if not
+
+# Research & discovery (v0.23.0+)
+claude-todo research "TypeScript patterns"           # Multi-source web research
+claude-todo research --library svelte --topic state  # Official docs via Context7
+claude-todo research --url https://example.com       # Extract from URL
+```
+
+### Command Discovery (v0.21.0+)
+
+```bash
+# Native filters - no jq needed
+claude-todo commands                     # List all (JSON by default)
+claude-todo commands --human             # Human-readable
+claude-todo commands --category write    # Filter by category
+claude-todo commands --relevance critical # Filter by agent relevance
+claude-todo commands --workflows         # Agent workflow sequences
+claude-todo commands add                 # Details for specific command
+```
+
+### Agent-Friendly Output
+
+```bash
+# JSON auto-detection based on TTY
+claude-todo list                    # TTY → human text
+claude-todo list | jq '.'           # Pipe → auto-JSON (no flag needed!)
+claude-todo analyze                 # JSON by default (use --human for text)
+
+# JSON envelope structure
+{
+  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "_meta": {"command": "list", "version": "0.23.0", "timestamp": "..."},
+  "success": true,
+  "tasks": [...]
+}
 ```
 
 ---
@@ -151,7 +257,20 @@ T001 [epic] Auth System
 ├── T002 [task] JWT middleware
 │   └── T003 [subtask] Validate tokens
 └── T004 [task] Session management
+
+# Filter by hierarchy
+claude-todo list --type epic
+claude-todo list --parent T001
+claude-todo list --children T001
 ```
+
+### Hierarchy Constraints
+
+| Constraint | Default | Configurable |
+|------------|---------|--------------|
+| Max depth | 3 levels | `hierarchy.maxDepth` |
+| Max siblings | 20 per parent | `hierarchy.maxSiblings` |
+| Max active siblings | 8 per parent | `hierarchy.maxActiveSiblings` |
 
 ### Scope-Based Sizing (No Time Estimates)
 
@@ -187,70 +306,35 @@ claude-todo session end
 
 **Single active task enforcement**: Only ONE task can be `active` at a time. This prevents context confusion and scope creep.
 
----
+### Session Notes vs Task Notes
 
-## Project Structure
-
-```
-~/.claude-todo/              # Global installation
-├── scripts/                 # Command implementations
-├── lib/                     # Shared libraries
-├── schemas/                 # JSON Schema definitions
-└── docs/                    # Documentation
-
-your-project/.claude/        # Per-project instance
-├── todo.json               # Active tasks (source of truth)
-├── todo-archive.json       # Completed tasks
-├── todo-log.json           # Immutable audit trail
-├── todo-config.json        # Project configuration
-└── .backups/               # Automatic versioned backups
-```
+| Command | Purpose | Storage |
+|---------|---------|---------|
+| `focus note "text"` | Session-level progress | Replaces `.focus.sessionNote` |
+| `update T001 --notes "text"` | Task-specific history | Appends to `.tasks[].notes[]` with timestamp |
 
 ---
 
-## Output Formats
+## Output Formats & Exit Codes
 
-### JSON by Default (Non-TTY)
+### TTY Auto-Detection
 
-When piped or scripted, output is JSON:
-
-```bash
-claude-todo list | jq '.tasks'
-```
-
-```json
-{
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
-  "_meta": {"command": "list", "version": "0.23.0", "timestamp": "..."},
-  "success": true,
-  "tasks": [...]
-}
-```
-
-### Human-Readable (Opt-In)
-
-```bash
-claude-todo list --human
-```
-
-```
-TASKS
-=====
-T001 [active] high - Implement JWT middleware
-T002 [pending] medium - Add session management
-```
+| Context | Default Format | Override |
+|---------|----------------|----------|
+| Interactive terminal | Human text | `--json`, `--format json` |
+| Pipe/redirect/agent | JSON | `--human`, `--format text` |
 
 ### Exit Codes
 
 17 documented exit codes for programmatic handling:
 
-| Range | Purpose |
-|-------|---------|
-| `0` | Success |
-| `1-9` | General errors |
-| `10-19` | Hierarchy errors |
-| `20-29` | Concurrency errors |
-| `100+` | Special conditions |
+| Range | Purpose | Examples |
+|-------|---------|----------|
+| `0` | Success | Operation completed |
+| `1-9` | General errors | Invalid input (2), File error (3), Not found (4), Validation (6) |
+| `10-19` | Hierarchy errors | Parent not found (10), Depth exceeded (11), Sibling limit (12) |
+| `20-29` | Concurrency errors | Checksum mismatch (20), Lock timeout (7) |
+| `100+` | Special conditions | No data (100), Already exists (101), No change (102) |
 
 ```bash
 claude-todo exists T042 --quiet
@@ -267,27 +351,32 @@ esac
 
 ### Atomic Write Pattern
 
-Every file modification:
+Every file modification follows this exact sequence:
 
-1. Write to temp file
-2. Validate (schema + semantic)
-3. Backup original
-4. Atomic rename
-5. Rollback on any failure
+```
+1. Write to temp file (.todo.json.tmp)
+2. Validate temp (schema + anti-hallucination)
+3. IF INVALID: Delete temp → Abort → Exit with error
+4. IF VALID: Backup original → Atomic rename → Rotate backups
+```
 
-**No partial writes. No corruption.**
+**No partial writes. No corruption.** The OS guarantees atomic rename.
 
-### Anti-Hallucination Checks
+### Checksum System
 
 ```bash
-# Before any operation, validate:
-- ID exists (prevent hallucinated references)
-- ID unique (prevent duplicates)
-- Status valid (enum enforcement)
-- Timestamps sane (not future, completion after creation)
-- Dependencies acyclic (no circular references)
-- Parent exists (hierarchy integrity)
+# SHA256 checksum of .tasks array
+claude-todo validate           # Check integrity
+claude-todo validate --fix     # Repair checksum mismatches
 ```
+
+Checksums detect corruption but don't block multi-writer scenarios (CLI + TodoWrite).
+
+### Backup System
+
+- **Automatic**: Safety backup before every write
+- **Rotation**: 10 versioned backups (`.backups/todo.json.1` through `.10`)
+- **Recovery**: `claude-todo restore` or `claude-todo backup --list`
 
 ---
 
@@ -301,22 +390,30 @@ claude-todo add "Design API" --phase planning --add-phase
 claude-todo add "Implement core" --phase development
 
 # Manage phases
-claude-todo phase set development
-claude-todo phases              # View all phases with progress
-claude-todo phases stats        # Detailed breakdown
+claude-todo phase set development    # Set current project phase
+claude-todo phase show               # Show current phase details
+claude-todo phases                   # View all phases with progress
+claude-todo phases stats             # Detailed breakdown
+
+# Filter by phase
+claude-todo list --phase core
 ```
+
+**Phase lifecycle**: `pending` → `active` → `completed` (only ONE can be active)
 
 ---
 
 ## Configuration
 
-Priority resolution (later overrides earlier):
+### Priority Resolution
+
+Values resolved in order (later overrides earlier):
 
 ```
-Defaults → Global → Project → Environment → CLI Flags
+Defaults → Global (~/.claude-todo/config.json) → Project (.claude/todo-config.json) → Environment (CLAUDE_TODO_*) → CLI Flags
 ```
 
-Key options:
+### Key Options
 
 ```json
 {
@@ -333,8 +430,49 @@ Key options:
   "archive": {
     "daysUntilArchive": 7,
     "archiveOnSessionEnd": true
+  },
+  "backup": {
+    "enabled": true,
+    "maxSafetyBackups": 5
   }
 }
+```
+
+### Configuration Commands
+
+```bash
+claude-todo config show              # View merged configuration
+claude-todo config get hierarchy.maxDepth
+claude-todo config set archive.daysUntilArchive 14
+claude-todo config set --global validation.strictMode true
+```
+
+### Environment Variables
+
+```bash
+CLAUDE_TODO_HOME=/custom/path        # Installation directory
+CLAUDE_TODO_DEBUG=1                  # Verbose output
+CLAUDE_TODO_FORMAT=json              # Force output format
+```
+
+---
+
+## Project Structure
+
+```
+~/.claude-todo/              # Global installation
+├── scripts/                 # Command implementations (35 scripts)
+├── lib/                     # Shared libraries (validation, file-ops, logging, phase-tracking)
+├── schemas/                 # JSON Schema definitions
+├── templates/               # Starter templates
+└── docs/                    # Documentation
+
+your-project/.claude/        # Per-project instance
+├── todo.json               # Active tasks (source of truth)
+├── todo-archive.json       # Completed tasks (immutable)
+├── todo-log.json           # Audit trail (append-only)
+├── todo-config.json        # Project configuration
+└── .backups/               # Automatic versioned backups
 ```
 
 ---
@@ -350,19 +488,23 @@ Claude-TODO integrates seamlessly with Claude Code:
 claude-todo init --update-claude-md
 ```
 
+This injects the essential commands and protocols between `<!-- CLAUDE-TODO:START -->` and `<!-- CLAUDE-TODO:END -->` markers.
+
 ### TodoWrite Sync
 
 Bidirectional sync with Claude Code's ephemeral todo system:
 
 ```bash
-claude-todo sync --inject   # Push to TodoWrite (session start)
-claude-todo sync --extract  # Pull from TodoWrite (session end)
+claude-todo sync --inject              # Push to TodoWrite (session start)
+claude-todo sync --inject --focused-only  # Only push focused task
+claude-todo sync --extract             # Pull from TodoWrite (session end)
+claude-todo sync --extract --dry-run   # Preview changes
 ```
 
 ### Agent Workflow Pattern
 
 ```bash
-# Agent verifies before operating
+# Agent verifies before operating (anti-hallucination)
 if claude-todo exists T042 --quiet; then
   claude-todo update T042 --notes "Progress update"
 else
@@ -373,6 +515,9 @@ fi
 # Agent parses structured output
 ACTIVE=$(claude-todo list | jq -r '.tasks[] | select(.status=="active") | .id')
 claude-todo focus note "Working on $ACTIVE"
+
+# Context-efficient task discovery
+claude-todo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
 ```
 
 ---
@@ -382,13 +527,60 @@ claude-todo focus note "Working on $ACTIVE"
 Claude-TODO supports extension points for custom workflows:
 
 ```bash
-.claude/validators/    # Custom validation scripts
-.claude/hooks/         # Event hooks (on-complete, on-archive, etc.)
+.claude/validators/           # Custom validation scripts
+.claude/hooks/                # Event hooks (on-complete, on-archive, etc.)
 ~/.claude-todo/formatters/    # Custom output formatters
 ~/.claude-todo/integrations/  # External system integrations
 ```
 
+### Event Hooks Example
+
+```bash
+# .claude/hooks/on-task-complete.sh
+#!/usr/bin/env bash
+task_id="$1"
+# Send notification, update external tracker, etc.
+```
+
 See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+| Problem | Solution |
+|---------|----------|
+| `command not found` | Check `~/.local/bin` in PATH, run `source ~/.bashrc` |
+| `Permission denied` | `chmod 755 ~/.claude-todo/scripts/*.sh` |
+| `Invalid JSON` | `claude-todo validate --fix` or `claude-todo restore` |
+| `Duplicate ID` | `claude-todo restore .claude/.backups/todo.json.1` |
+| `Checksum mismatch` | `claude-todo validate --fix` |
+| `Multiple active tasks` | `claude-todo focus set <correct-id>` (resets others) |
+| `Schema outdated` | `claude-todo migrate run` |
+
+### Debug Mode
+
+```bash
+CLAUDE_TODO_DEBUG=1 claude-todo list  # Verbose output
+claude-todo --validate                # Check CLI integrity
+claude-todo --list-commands           # Show all available commands
+```
+
+---
+
+## Performance
+
+Target metrics (optimized for 1000+ tasks):
+
+| Operation | Target |
+|-----------|--------|
+| Task creation | < 100ms |
+| Task completion | < 100ms |
+| List tasks | < 50ms |
+| Archive (100 tasks) | < 500ms |
+| Validation (100 tasks) | < 200ms |
 
 ---
 
@@ -397,29 +589,12 @@ See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
 | Category | Documents |
 |----------|-----------|
 | **Start Here** | [Quick Start](docs/getting-started/quick-start.md) · [Design Philosophy](docs/guides/design-philosophy.md) |
-| **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) |
+| **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) · [Task Management](docs/TODO_Task_Management.md) |
 | **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flows](docs/architecture/DATA-FLOWS.md) |
 | **Specifications** | [LLM-Agent-First Spec](docs/specs/LLM-AGENT-FIRST-SPEC.md) · [Task ID System](docs/specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) · [Hierarchy Spec](docs/specs/TASK-HIERARCHY-SPEC.md) |
 | **Integration** | [Claude Code Guide](docs/integration/CLAUDE-CODE.md) · [CI/CD Integration](docs/ci-cd-integration.md) |
 
 **Complete documentation**: [docs/INDEX.md](docs/INDEX.md)
-
----
-
-## Requirements
-
-### Critical
-- **Bash 4.0+** — Required for associative arrays
-- **jq** — JSON processing (`apt install jq` or `brew install jq`)
-
-### Recommended
-- **flock** — File locking (`brew install flock` on macOS)
-- **sha256sum/shasum** — Checksum verification
-
-```bash
-# Check dependencies
-./install.sh --check-deps
-```
 
 ---
 
@@ -447,6 +622,9 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 ```bash
 # Run tests
 ./tests/run-all-tests.sh
+
+# Run specific test suite
+./tests/test-validation.sh
 
 # Validate installation
 claude-todo --validate
