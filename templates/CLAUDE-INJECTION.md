@@ -1,4 +1,4 @@
-<!-- CLAUDE-TODO:START v0.20.1 -->
+<!-- CLAUDE-TODO:START v0.21.0 -->
 ## Task Management (claude-todo)
 
 Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`
@@ -22,6 +22,7 @@ ct analyze --auto-focus    # Auto-set focus to top task
 - **JSON auto-detection**: Piped output → JSON (no `--format` needed)
 - **Native filters**: Use `--status`, `--label`, `--phase` instead of jq
 - **Context-efficient**: Prefer `find` over `list` for task discovery
+- **Command discovery**: `ct commands -r critical` (no jq needed)
 
 ### Phase Tracking (v0.13.3+)
 ```bash

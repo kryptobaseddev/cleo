@@ -415,6 +415,7 @@ declare -A CMD_MAP=(
   [analyze]="analyze.sh"
   [config]="config.sh"
   [find]="find.sh"
+  [commands]="commands.sh"
 )
 
 # Brief descriptions for main help
@@ -449,6 +450,7 @@ declare -A CMD_DESC=(
   [analyze]="Task triage with leverage scoring and bottleneck detection"
   [config]="View and modify configuration settings"
   [find]="Fuzzy search tasks by title, ID, or labels"
+  [commands]="List and query available commands (JSON by default)"
 )
 
 # ============================================
@@ -603,7 +605,7 @@ show_main_help() {
   echo "       claude-todo help <command>    Show detailed command help"
   echo ""
   echo "Commands:"
-  for cmd in init add update complete list find focus session archive validate stats backup restore export migrate migrate-backups log dash next labels deps blockers phases phase exists history show analyze; do
+  for cmd in init add update complete list find focus session archive validate stats backup restore export migrate migrate-backups log dash next labels deps blockers phases phase exists history show analyze config commands; do
     printf "  %-14s %s\n" "$cmd" "${CMD_DESC[$cmd]}"
   done
   echo "  version        Show version"

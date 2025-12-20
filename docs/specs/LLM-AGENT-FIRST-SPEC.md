@@ -2,8 +2,8 @@
 
 > **Authoritative standard for LLM-agent-first CLI design**
 >
-> **Version**: 3.0 | **Updated**: 2025-12-18
-> **Scope**: 32 commands, universal standards for agent automation
+> **Version**: 3.1 | **Updated**: 2025-12-19
+> **Scope**: 33 commands, universal standards for agent automation
 
 ---
 
@@ -72,32 +72,33 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default for
 | 4 | `backup` | `backup.sh` | Maintenance | JSON output, `--format`, `--quiet` |
 | 5 | `blockers` | `blockers-command.sh` | Read | JSON output, `--format`, `--quiet` |
 | 6 | `complete` | `complete-task.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 7 | `config` | `config.sh` | Maintenance | JSON output, `--format`, `--quiet` |
-| 8 | `dash` | `dash.sh` | Read | JSON output, `--format`, `--quiet` |
-| 9 | `deps` | `deps-command.sh` | Read | JSON output, `--format`, `--quiet` |
-| 10 | `exists` | `exists.sh` | Read | JSON output, `--format`, `--quiet` |
-| 11 | `export` | `export.sh` | Read | Multi-format, `--quiet` |
-| 12 | `extract` | `extract-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 13 | `find` | `find.sh` | Read | JSON output, `--format`, `--quiet`, fuzzy search |
-| 14 | `focus` | `focus.sh` | Write | JSON output, `--format`, `--quiet` |
-| 15 | `history` | `history.sh` | Read | JSON output, `--format`, `--quiet` |
-| 16 | `init` | `init.sh` | Setup | JSON output, `--format`, `--quiet` |
-| 17 | `inject` | `inject-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 18 | `labels` | `labels.sh` | Read | JSON output, `--format`, `--quiet` |
-| 19 | `list` | `list-tasks.sh` | Read | JSON output, `--format`, `--quiet` |
-| 20 | `log` | `log.sh` | Read | JSON output, `--format`, `--quiet` |
-| 21 | `migrate` | `migrate.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 22 | `migrate-backups` | `migrate-backups.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 23 | `next` | `next.sh` | Read | JSON output, `--format`, `--quiet` |
-| 24 | `phase` | `phase.sh` | Write | JSON output, `--format`, `--quiet` |
-| 25 | `phases` | `phases.sh` | Read | JSON output, `--format`, `--quiet` |
-| 26 | `restore` | `restore.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 27 | `session` | `session.sh` | Write | JSON output, `--format`, `--quiet` |
-| 28 | `show` | `show.sh` | Read | JSON output, `--format`, `--quiet` |
-| 29 | `stats` | `stats.sh` | Read | JSON output, `--format`, `--quiet` |
-| 30 | `sync` | `sync-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 31 | `update` | `update-task.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 32 | `validate` | `validate.sh` | Maintenance | JSON output, `--format`, `--quiet` |
+| 7 | `commands` | `commands.sh` | Read | JSON default, `--human` opt-in, filters |
+| 8 | `config` | `config.sh` | Maintenance | JSON output, `--format`, `--quiet` |
+| 9 | `dash` | `dash.sh` | Read | JSON output, `--format`, `--quiet` |
+| 10 | `deps` | `deps-command.sh` | Read | JSON output, `--format`, `--quiet` |
+| 11 | `exists` | `exists.sh` | Read | JSON output, `--format`, `--quiet` |
+| 12 | `export` | `export.sh` | Read | Multi-format, `--quiet` |
+| 13 | `extract` | `extract-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 14 | `find` | `find.sh` | Read | JSON output, `--format`, `--quiet`, fuzzy search |
+| 15 | `focus` | `focus.sh` | Write | JSON output, `--format`, `--quiet` |
+| 16 | `history` | `history.sh` | Read | JSON output, `--format`, `--quiet` |
+| 17 | `init` | `init.sh` | Setup | JSON output, `--format`, `--quiet` |
+| 18 | `inject` | `inject-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 19 | `labels` | `labels.sh` | Read | JSON output, `--format`, `--quiet` |
+| 20 | `list` | `list-tasks.sh` | Read | JSON output, `--format`, `--quiet` |
+| 21 | `log` | `log.sh` | Read | JSON output, `--format`, `--quiet` |
+| 22 | `migrate` | `migrate.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 23 | `migrate-backups` | `migrate-backups.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 24 | `next` | `next.sh` | Read | JSON output, `--format`, `--quiet` |
+| 25 | `phase` | `phase.sh` | Write | JSON output, `--format`, `--quiet` |
+| 26 | `phases` | `phases.sh` | Read | JSON output, `--format`, `--quiet` |
+| 27 | `restore` | `restore.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 28 | `session` | `session.sh` | Write | JSON output, `--format`, `--quiet` |
+| 29 | `show` | `show.sh` | Read | JSON output, `--format`, `--quiet` |
+| 30 | `stats` | `stats.sh` | Read | JSON output, `--format`, `--quiet` |
+| 31 | `sync` | `sync-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 32 | `update` | `update-task.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 33 | `validate` | `validate.sh` | Maintenance | JSON output, `--format`, `--quiet` |
 
 ### Command Categories
 
@@ -917,6 +918,7 @@ All commands **MUST** meet these requirements:
 | backup | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
 | blockers | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
 | complete | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| commands | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
 | config | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
 | dash | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
 | deps | ✅ | ✅ | ✅ | N/A | ✅ | ✅ | ✅ |
@@ -946,7 +948,7 @@ All commands **MUST** meet these requirements:
 
 **Legend**: ✅ = REQUIRED | N/A = Not Applicable for this command type
 
-**All 32 commands MUST achieve 100% compliance with applicable requirements.**
+**All 33 commands MUST achieve 100% compliance with applicable requirements.**
 
 ---
 

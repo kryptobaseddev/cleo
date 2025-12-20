@@ -124,6 +124,13 @@ claude-todo migrate-backups --run          # Migrate to new taxonomy
 claude-todo export --format todowrite      # Export to Claude Code format
 claude-todo export --format csv            # Export to CSV
 claude-todo init --update-claude-md        # Update CLAUDE.md injection (idempotent)
+claude-todo config show                    # View current configuration
+claude-todo config set <key> <value>       # Update configuration
+claude-todo config get <key>               # Get specific config value
+claude-todo log                            # View recent audit log entries
+claude-todo log --limit 20                 # Limit entries shown
+claude-todo log --operation create         # Filter by operation type
+claude-todo log --task T001                # Filter by task ID
 ```
 
 ### History & Analytics
@@ -380,6 +387,19 @@ claude-todo --validate      # Check CLI integrity
 claude-todo --list-commands # Show all commands
 claude-todo help <command>  # Detailed command help
 ```
+
+### Command Discovery (v0.21.0+)
+```bash
+claude-todo commands                   # List all commands (JSON by default)
+claude-todo commands --human           # Human-readable list
+claude-todo commands -r critical       # Filter by agent relevance
+claude-todo commands -c write          # Filter by category
+claude-todo commands add               # Details for specific command
+claude-todo commands --workflows       # Agent workflow sequences
+claude-todo commands --lookup          # Intent-to-command mapping
+```
+
+**No jq required** - use native `--category` and `--relevance` filters instead.
 
 ## vs TodoWrite
 

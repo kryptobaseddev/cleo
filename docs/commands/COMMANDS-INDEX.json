@@ -3,12 +3,12 @@
   "_meta": {
     "version": "1.0.0",
     "lastUpdated": "2025-12-19",
-    "totalCommands": 32,
+    "totalCommands": 33,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
     "write": ["add", "archive", "complete", "focus", "phase", "session", "update"],
-    "read": ["analyze", "blockers", "dash", "deps", "exists", "export", "find", "history", "labels", "list", "log", "next", "phases", "show", "stats"],
+    "read": ["analyze", "blockers", "commands", "dash", "deps", "exists", "export", "find", "history", "labels", "list", "log", "next", "phases", "show", "stats"],
     "sync": ["extract", "inject", "sync"],
     "maintenance": ["backup", "config", "init", "migrate", "migrate-backups", "restore", "validate"]
   },
@@ -79,6 +79,19 @@
       "exitCodes": [0, 2, 4, 102],
       "jsonOutput": true,
       "agentRelevance": "critical"
+    },
+    {
+      "name": "commands",
+      "script": "commands.sh",
+      "category": "read",
+      "doc": "commands.md",
+      "synopsis": "List and query available commands with filtering. JSON by default.",
+      "flags": ["--format", "--quiet", "--json", "--human", "--category", "--relevance", "--workflows", "--lookup"],
+      "exitCodes": [0, 2, 3, 4],
+      "jsonOutput": true,
+      "jsonDefault": true,
+      "agentRelevance": "high",
+      "note": "Use instead of jq for command discovery"
     },
     {
       "name": "config",

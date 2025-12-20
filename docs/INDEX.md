@@ -51,6 +51,7 @@
 | **[commands/backup.md](commands/backup.md)** | Backup command documentation | Creating and listing backups |
 | **[commands/blockers.md](commands/blockers.md)** | Blockers command documentation | Analyzing blocked tasks and chains |
 | **[commands/complete.md](commands/complete.md)** | Complete task command documentation | Marking tasks as done |
+| **[commands/commands.md](commands/commands.md)** | Commands query and discovery | LLM-first command lookup (JSON default, native filters) |
 | **[commands/config.md](commands/config.md)** | Configuration command documentation | Viewing and modifying settings (project and global) |
 | **[commands/dash.md](commands/dash.md)** | Dashboard command documentation | Using project overview features |
 | **[commands/deps.md](commands/deps.md)** | Dependency visualization documentation | Understanding task dependencies |

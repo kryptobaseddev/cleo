@@ -5,6 +5,30 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2025-12-19
+
+### Added
+- **`commands` command** - LLM-Agent-First command discovery and query tool
+  - JSON output by default (non-TTY), `--human` for text
+  - Native filters: `--category` (write|read|sync|maintenance), `--relevance` (critical|high|medium|low)
+  - Single command lookup: `ct commands add` returns full command metadata
+  - `--workflows` flag: Returns pre-defined agent workflow sequences
+  - `--lookup` flag: Intent-to-command quick lookup mapping
+  - No jq required for command discovery - use native flags instead
+
+- **`COMMANDS-INDEX.json`** - Machine-readable command registry
+  - 33 commands with full metadata (script, flags, exit codes, relevance)
+  - Agent workflows (sessionStart, taskSelection, validation, sessionEnd)
+  - Quick lookup table (intent → command mapping)
+  - Schema-validated via `schemas/commands-index.schema.json`
+
+### Changed
+- **LLM-AGENT-FIRST-SPEC.md** updated to v3.1 (33 commands)
+- **docs/INDEX.md** - Added COMMANDS-INDEX.json reference
+
+### Removed
+- **`.serena/memories/suggested_commands.md`** - Obsolete, promoted anti-patterns (direct JSON file access)
+
 ## [0.20.1] - 2025-12-19
 
 ### Changed
