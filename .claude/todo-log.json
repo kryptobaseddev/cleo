@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 1545,
+    "totalEntries": 1566,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-23T05:59:17Z",
+    "lastEntry": "2025-12-23T06:26:23Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -36943,6 +36943,307 @@
         "currentTask": "T672"
       },
       "details": null
+    },
+    {
+      "id": "log_29e82bf8a679",
+      "timestamp": "2025-12-23T06:10:03Z",
+      "sessionId": "session_20251222_215002_fb641d",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T673",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-23T06:10:03Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_1c1c09258dbe",
+      "timestamp": "2025-12-23T06:10:04Z",
+      "sessionId": "session_20251222_215002_fb641d",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T674",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-23T06:10:03Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_34316ee26eef",
+      "timestamp": "2025-12-23T06:10:04Z",
+      "sessionId": "session_20251222_215002_fb641d",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T675",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-23T06:10:04Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_18fdc963abfd",
+      "timestamp": "2025-12-23T06:10:05Z",
+      "sessionId": "session_20251222_215002_fb641d",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T676",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-23T06:10:05Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_a632a376dbab",
+      "timestamp": "2025-12-23T06:10:06Z",
+      "sessionId": "session_20251222_215002_fb641d",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T677",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-23T06:10:05Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_cb9f3b413621",
+      "timestamp": "2025-12-23T06:10:06Z",
+      "sessionId": "session_20251222_215002_fb641d",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T672",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-23T06:10:05Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "auto_complete"
+      }
+    },
+    {
+      "id": "log_9532b95ed9ab",
+      "timestamp": "2025-12-23T06:10:31Z",
+      "sessionId": "session_20251222_215002_fb641d",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Completed T672 EPIC: Enhanced Tree Rendering. Implemented priority icons (🔴🟡🔵⚪), proper tree connectors (├── └── │), terminal-width-aware truncation, --wide flag, and updated tests."
+      }
+    },
+    {
+      "id": "log_f424b9678509",
+      "timestamp": "2025-12-23T06:14:18Z",
+      "sessionId": "session_20251222_221418_ae9e41",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": "Session started"
+    },
+    {
+      "id": "log_ad645754d97a",
+      "timestamp": "2025-12-23T06:14:18Z",
+      "sessionId": "session_20251222_221418_ae9e41",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T672"
+      },
+      "after": {
+        "currentTask": "T672"
+      },
+      "details": null
+    },
+    {
+      "id": "log_102350cdbdab",
+      "timestamp": "2025-12-23T06:16:22Z",
+      "sessionId": "session_20251222_221418_ae9e41",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T672"
+      },
+      "after": {
+        "currentTask": "T429"
+      },
+      "details": null
+    },
+    {
+      "id": "log_c18cad1891e8",
+      "timestamp": "2025-12-23T06:18:33Z",
+      "sessionId": "session_20251222_221418_ae9e41",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T429"
+      },
+      "after": {
+        "currentTask": "T487"
+      },
+      "details": null
+    },
+    {
+      "id": "log_08f754f27ceb",
+      "timestamp": "2025-12-23T06:19:22Z",
+      "sessionId": "session_20251222_221418_ae9e41",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T487",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-23T06:19:21Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1766470943-b4dc70",
+      "timestamp": "2025-12-23T06:22:23Z",
+      "action": "task_created",
+      "taskId": "T678",
+      "actor": "system",
+      "details": {
+        "title": "Test task for backup verification",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Test task for backup verification",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_df0682218dfb",
+      "timestamp": "2025-12-23T06:22:34Z",
+      "sessionId": "session_20251222_221418_ae9e41",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "v0.30.2: Fixed --human tree output to show full titles without truncation. Committed and installed successfully."
+      }
+    },
+    {
+      "id": "log-1766470961-5d5770",
+      "timestamp": "2025-12-23T06:22:41Z",
+      "action": "task_created",
+      "taskId": "T679",
+      "actor": "system",
+      "details": {
+        "title": "Second test for backup path",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Second test for backup path",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_e3aa421c8ff3",
+      "timestamp": "2025-12-23T06:26:23Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T429",
+      "before": {
+        "title": "EPIC: Smart Archive System Enhancement",
+        "status": "pending",
+        "priority": "critical",
+        "description": "## Overview\nComprehensive enhancement of the archive system to be smarter, more automated, and relationship-aware.\n\n## Current Limitations\n- Age-only retention (no task importance awareness)\n- No label filtering (can't exempt epics/important tasks)\n- No relationship awareness (archives children while parent active)\n- No dependency checking (breaks reference chains)\n- Limited retrieval (archived = essentially lost)\n\n## Proposed Solution\nThree-tier implementation:\n- Tier 1: Quick wins (exemptLabels, --exclude-labels, --safe flag, warnings)\n- Tier 2: Smart defaults (labelPolicies, relationship-aware, unarchive, list --include-archive)\n- Tier 3: Full automation (phase-triggered, cascade, interactive, analytics)\n\n## Dependencies\n- Requires Hierarchy Enhancement (T328/T339) for relationship-aware features\n- Schema changes needed for archive metadata and config\n\n## Success Criteria\n- [ ] Epics/important tasks protected from auto-archive\n- [ ] Archive respects parent-child and dependency relationships\n- [ ] Archived tasks searchable and restorable\n- [ ] Phase completion can trigger smart archiving\n- [ ] Clear warnings before breaking references",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "epic-type",
+          "feature"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: Smart Archive System Enhancement",
+        "status": "pending",
+        "priority": "critical",
+        "description": "## Overview\nComprehensive enhancement of the archive system to be smarter, more automated, and relationship-aware.\n\n## Current Limitations\n- Age-only retention (no task importance awareness)\n- No label filtering (can't exempt epics/important tasks)\n- No relationship awareness (archives children while parent active)\n- No dependency checking (breaks reference chains)\n- Limited retrieval (archived = essentially lost)\n\n## Proposed Solution\nThree-tier implementation:\n- Tier 1: Quick wins (exemptLabels, --exclude-labels, --safe flag, warnings)\n- Tier 2: Smart defaults (labelPolicies, relationship-aware, unarchive, list --include-archive)\n- Tier 3: Full automation (phase-triggered, cascade, interactive, analytics)\n\n## Dependencies\n- Requires Hierarchy Enhancement (T328/T339) for relationship-aware features\n- Schema changes needed for archive metadata and config\n\n## Success Criteria\n- [ ] Epics/important tasks protected from auto-archive\n- [ ] Archive respects parent-child and dependency relationships\n- [ ] Archived tasks searchable and restorable\n- [ ] Phase completion can trigger smart archiving\n- [ ] Clear warnings before breaking references",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "epic-type",
+          "feature"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ]
 }

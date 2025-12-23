@@ -127,7 +127,43 @@ readonly EXIT_NO_DATA=100
 readonly EXIT_ALREADY_EXISTS=101
 
 # No changes needed or made (operation was no-op)
-# Examples: update with same values, validation found no issues
+#
+# EXIT_NO_CHANGE (102) - Idempotency Signal for LLM Agents
+# =========================================================
+# See: LLM-AGENT-FIRST-SPEC.md Part 5.6 (Idempotency Requirements)
+#
+# SEMANTICS:
+#   - The command was VALID (not an error)
+#   - The operation was SUCCESSFUL (no failure occurred)
+#   - State is UNCHANGED (no modifications made)
+#
+# AGENT RETRY BEHAVIOR:
+#   - Agents SHOULD treat EXIT_NO_CHANGE as SUCCESS
+#   - Agents MUST NOT retry when receiving EXIT_NO_CHANGE
+#   - Retrying is safe but wasteful (state already matches intent)
+#
+# COMMANDS THAT RETURN EXIT_NO_CHANGE:
+#   - update: Updating with identical values (no actual changes)
+#   - complete: Task already has status "done"
+#   - archive: Task already in archive
+#   - restore: Task already in active todo.json
+#
+# JSON OUTPUT WHEN RETURNED:
+#   {
+#     "success": true,
+#     "noChange": true,
+#     "reason": "Task already completed",
+#     "message": "No changes made (already in target state)"
+#   }
+#
+# IMPORTANT FOR AGENTS:
+#   This exit code enables safe retry loops. If an agent's previous
+#   operation succeeded but the response was lost (network issue),
+#   the retry will return 102 instead of creating a duplicate or
+#   corrupting state. The agent can safely proceed knowing the
+#   intended state has been achieved.
+#
+# Examples: update with same values, complete on done task, archive on archived task
 readonly EXIT_NO_CHANGE=102
 
 # ============================================================================
@@ -198,6 +234,45 @@ is_recoverable_code() {
     esac
 }
 
+# Check if exit code indicates no change (idempotent operation)
+# See: LLM-AGENT-FIRST-SPEC.md Part 5.6 (Idempotency Requirements)
+#
+# Args: $1 = exit code number
+# Returns: 0 if exit code is EXIT_NO_CHANGE, 1 otherwise
+#
+# Usage:
+#   if is_no_change_code "$exit_code"; then
+#       # Operation succeeded but no state change occurred
+#       # Agent should NOT retry - target state already achieved
+#   fi
+#
+# Agent Guidance:
+#   - Treat as success (proceed with workflow)
+#   - Do NOT retry (wasteful, state already correct)
+#   - Log as "success (no change)" for audit trails
+is_no_change_code() {
+    local code="$1"
+    [[ "$code" -eq 102 ]]
+}
+
+# Check if exit code indicates success (including special success states)
+# Includes EXIT_SUCCESS (0), EXIT_NO_DATA (100), EXIT_ALREADY_EXISTS (101),
+# and EXIT_NO_CHANGE (102).
+#
+# Args: $1 = exit code number
+# Returns: 0 if success/special, 1 if error
+#
+# Usage (for agent retry logic):
+#   if is_success_code "$exit_code"; then
+#       # Operation succeeded - do NOT retry
+#   else
+#       # Operation failed - may need retry based on is_recoverable_code
+#   fi
+is_success_code() {
+    local code="$1"
+    [[ "$code" -eq 0 || "$code" -ge 100 ]]
+}
+
 # ============================================================================
 # EXPORTS
 # ============================================================================
@@ -235,3 +310,5 @@ export EXIT_NO_CHANGE
 export -f get_exit_code_name
 export -f is_error_code
 export -f is_recoverable_code
+export -f is_no_change_code
+export -f is_success_code

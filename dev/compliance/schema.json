@@ -67,7 +67,34 @@
     "error_handling": {
       "required_function": "output_error",
       "defensive_check": "declare -f output_error.*>/dev/null",
-      "error_codes_pattern": "E_[A-Z_]+"
+      "error_codes_pattern": "E_[A-Z_]+",
+      "error_lib_pattern": "error-json\\.sh",
+      "error_lib_name": "error-json.sh"
+    },
+
+    "input_validation": {
+      "description": "Part 5.3 Input Validation Requirements",
+      "error_codes": {
+        "E_INPUT_MISSING": {
+          "exit_code": 2,
+          "description": "Required argument missing"
+        },
+        "E_INPUT_INVALID": {
+          "exit_code": 2,
+          "description": "Argument value invalid"
+        },
+        "E_INPUT_FORMAT": {
+          "exit_code": 2,
+          "description": "Argument format incorrect"
+        }
+      },
+      "validation_order": ["required", "format", "length", "semantic"],
+      "field_limits": {
+        "title": 120,
+        "description": 2000,
+        "notes": 500
+      },
+      "write_commands": ["add", "update", "complete", "archive", "focus", "phase", "session", "sync", "extract", "inject"]
     },
 
     "robustness": {

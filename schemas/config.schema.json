@@ -58,6 +58,101 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically archive completed task if eligible (age >= daysUntilArchive)."
+        },
+        "exemptLabels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": ["epic-type", "pinned"],
+          "description": "Labels that exempt tasks from automatic archiving."
+        },
+        "labelPolicies": {
+          "type": "object",
+          "description": "Per-label retention policies overriding defaults.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "daysUntilArchive": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 365,
+                "description": "Days after completion before task with this label is eligible for archive."
+              },
+              "neverArchive": {
+                "type": "boolean",
+                "description": "If true, tasks with this label are never automatically archived."
+              }
+            }
+          },
+          "default": {}
+        },
+        "relationshipSafety": {
+          "type": "object",
+          "description": "Safety settings for archiving tasks with relationships.",
+          "additionalProperties": false,
+          "properties": {
+            "preventOrphanChildren": {
+              "type": "boolean",
+              "default": true,
+              "description": "Don't archive parent tasks with active children."
+            },
+            "preventBrokenDependencies": {
+              "type": "boolean",
+              "default": true,
+              "description": "Warn before archiving tasks that would break dependency chains."
+            },
+            "cascadeArchive": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow cascade archiving of completed children when parent is archived."
+            }
+          }
+        },
+        "phaseTriggers": {
+          "type": "object",
+          "description": "Phase completion triggers for auto-archiving.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable phase-based archive triggers."
+            },
+            "phases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "default": [],
+              "description": "Phase slugs that trigger archiving when completed."
+            },
+            "archivePhaseOnly": {
+              "type": "boolean",
+              "default": true,
+              "description": "Only archive tasks from the completed phase (vs all eligible tasks)."
+            }
+          }
+        },
+        "interactive": {
+          "type": "object",
+          "description": "Interactive prompts and warnings for archive operations.",
+          "additionalProperties": false,
+          "properties": {
+            "confirmBeforeArchive": {
+              "type": "boolean",
+              "default": false,
+              "description": "Prompt for confirmation before archiving tasks."
+            },
+            "showWarnings": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show warnings about relationships and dependencies before archiving."
+            }
+          }
         }
       }
     },

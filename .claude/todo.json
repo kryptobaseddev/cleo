@@ -121,20 +121,20 @@
       }
     ]
   },
-  "lastUpdated": "2025-12-23T05:52:45Z",
+  "lastUpdated": "2025-12-23T06:26:22Z",
   "_meta": {
-    "checksum": "84f120169ce483c3",
+    "checksum": "79a2021fce0489c0",
     "configVersion": "2.1.0",
     "lastSessionId": null,
-    "activeSession": "session_20251222_215002_fb641d",
-    "lastModified": "2025-12-23T05:59:17Z",
+    "activeSession": null,
+    "lastModified": "2025-12-23T06:22:34Z",
     "version": "2.3.0",
     "schemaVersion": "2.3.0"
   },
   "focus": {
-    "currentTask": "T672",
+    "currentTask": null,
     "blockedUntil": null,
-    "sessionNote": "Completed T633: Implemented backup search by date/content with --on, --task-id, --contains, and --verbose options",
+    "sessionNote": "v0.30.2: Fixed --human tree output to show full titles without truncation. Committed and installed successfully.",
     "nextAction": "NEXT SESSION: Implement T452 (archive.sh - HIGH priority) first. Pattern: source lib/file-ops.sh, replace all raw writes with save_json(). Then T453, T454. T350/T530/T531 can follow. See FILE-LOCKING-IMPLEMENTATION-REPORT.md for fix patterns.",
     "currentPhase": "core"
   },
@@ -4019,7 +4019,7 @@
     {
       "id": "T487",
       "title": "T481.2: Update dev-schema.json to specVersion 3.0",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T481",
@@ -4030,6 +4030,10 @@
         "compliance",
         "schema",
         "spec"
+      ],
+      "completedAt": "2025-12-23T06:19:21Z",
+      "notes": [
+        "[COMPLETED 2025-12-23T06:19:21Z] Updated dev-schema.json: added $id URI, bumped version to 3.0.0, specVersion to 3.0.0, updated description to reference LLM-Agent-First Spec v3.0"
       ]
     },
     {
@@ -7227,7 +7231,7 @@
     {
       "id": "T672",
       "title": "EPIC: Enhanced Tree Rendering with Proper Visualization",
-      "status": "active",
+      "status": "pending",
       "priority": "high",
       "type": "epic",
       "parentId": null,
@@ -7238,56 +7242,64 @@
         "display",
         "tree",
         "ux"
+      ],
+      "completedAt": "2025-12-23T06:10:05Z",
+      "notes": [
+        "[AUTO-COMPLETED 2025-12-23T06:10:05Z] All child tasks completed"
       ]
     },
     {
       "id": "T673",
       "title": "T672.1: Add priority color/icon to tree rendering",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T672",
       "createdAt": "2025-12-23T05:48:37Z",
       "phase": "testing",
-      "description": "Add priority indicators (🔴🟡🔵⚪ or colored text) after status icon in tree output. Map critical→red, high→yellow, medium→blue, low→gray. Must work in both Unicode and ASCII modes."
+      "description": "Add priority indicators (🔴🟡🔵⚪ or colored text) after status icon in tree output. Map critical→red, high→yellow, medium→blue, low→gray. Must work in both Unicode and ASCII modes.",
+      "completedAt": "2025-12-23T06:10:03Z"
     },
     {
       "id": "T674",
       "title": "T672.2: Fix tree connectors for proper hierarchy visualization",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T672",
       "createdAt": "2025-12-23T05:48:38Z",
       "phase": "testing",
-      "description": "Replace static ├── with proper tree connectors: ├── for middle children, └── for last child, │ for continuation lines. Requires tracking sibling position and depth in jq render function."
+      "description": "Replace static ├── with proper tree connectors: ├── for middle children, └── for last child, │ for continuation lines. Requires tracking sibling position and depth in jq render function.",
+      "completedAt": "2025-12-23T06:10:03Z"
     },
     {
       "id": "T675",
       "title": "T672.3: Add terminal-width-aware title truncation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T672",
       "createdAt": "2025-12-23T05:48:40Z",
       "phase": "testing",
-      "description": "Replace hardcoded .title[0:45] with dynamic truncation based on $COLUMNS. Calculate available width after ID, status, priority, and tree prefix. Add ellipsis (...) when truncated. Fallback to 80 cols if COLUMNS unavailable."
+      "description": "Replace hardcoded .title[0:45] with dynamic truncation based on $COLUMNS. Calculate available width after ID, status, priority, and tree prefix. Add ellipsis (...) when truncated. Fallback to 80 cols if COLUMNS unavailable.",
+      "completedAt": "2025-12-23T06:10:04Z"
     },
     {
       "id": "T676",
       "title": "T672.4: Add --wide flag for full title display",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T672",
       "createdAt": "2025-12-23T05:48:41Z",
       "phase": "testing",
-      "description": "Add --wide flag to tree/list commands to disable truncation and show full titles. Useful for piping to less or file output where terminal width doesn't apply."
+      "description": "Add --wide flag to tree/list commands to disable truncation and show full titles. Useful for piping to less or file output where terminal width doesn't apply.",
+      "completedAt": "2025-12-23T06:10:05Z"
     },
     {
       "id": "T677",
       "title": "T672.5: Update tree-alias.bats tests for new rendering",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T672",
@@ -7298,7 +7310,28 @@
         "T673",
         "T674",
         "T675"
-      ]
+      ],
+      "completedAt": "2025-12-23T06:10:05Z"
+    },
+    {
+      "id": "T678",
+      "title": "Test task for backup verification",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2025-12-23T06:22:23Z",
+      "phase": "core"
+    },
+    {
+      "id": "T679",
+      "title": "Second test for backup path",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2025-12-23T06:22:41Z",
+      "phase": "core"
     }
   ],
   "phases": {

@@ -41,6 +41,17 @@
           "type": ["string", "null"],
           "format": "date-time",
           "description": "Completion date of newest archived task."
+        },
+        "lastUnarchived": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Timestamp of most recent unarchive/restore operation."
+        },
+        "totalUnarchived": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Total count of tasks restored from archive."
         }
       }
     },
@@ -146,8 +157,8 @@
             },
             "reason": {
               "type": "string",
-              "enum": ["auto", "manual", "stale"],
-              "description": "auto=config rules, manual=user request, stale=exceeded retention."
+              "enum": ["auto", "manual", "stale", "force", "cascade", "phase-complete", "label-policy"],
+              "description": "Archival trigger: auto=config rules, manual=user request, stale=exceeded retention, force=forced archive, cascade=parent archived, phase-complete=phase finished, label-policy=label rule matched."
             },
             "sessionId": {
               "type": "string",
@@ -156,6 +167,95 @@
             "cycleTimeDays": {
               "type": "number",
               "description": "Days from creation to completion."
+            },
+            "archiveSource": {
+              "type": "string",
+              "enum": ["auto", "manual", "force", "all", "cascade", "phase-trigger", "unarchive-restore"],
+              "description": "How the archive operation was initiated: auto=automatic config rules, manual=user-initiated single task, force=forced regardless of state, all=bulk archive all eligible, cascade=triggered by parent archive, phase-trigger=phase completion triggered, unarchive-restore=metadata preserved from restore operation."
+            },
+            "triggerDetails": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Details about what triggered the archive operation.",
+              "properties": {
+                "phase": {
+                  "type": "string",
+                  "description": "Phase that triggered the archive (if phase-triggered)."
+                },
+                "parentId": {
+                  "type": "string",
+                  "pattern": "^T\\d{3,}$",
+                  "description": "Parent task ID that triggered cascade archive."
+                },
+                "configRule": {
+                  "type": "string",
+                  "description": "Name or identifier of the config rule that matched."
+                },
+                "labelPolicy": {
+                  "type": "string",
+                  "description": "Label policy name that triggered the archive."
+                }
+              }
+            },
+            "relationshipState": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "State of task relationships at archive time for restoration.",
+              "properties": {
+                "hadChildren": {
+                  "type": "boolean",
+                  "description": "Whether this task had child tasks at archive time."
+                },
+                "childIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^T\\d{3,}$"
+                  },
+                  "description": "IDs of child tasks that were archived with this task."
+                },
+                "hadDependents": {
+                  "type": "boolean",
+                  "description": "Whether other tasks depended on this task at archive time."
+                },
+                "dependentIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^T\\d{3,}$"
+                  },
+                  "description": "IDs of tasks that depended on this task."
+                },
+                "parentId": {
+                  "type": ["string", "null"],
+                  "pattern": "^T\\d{3,}$",
+                  "description": "Parent task ID if this was a child task, null if root."
+                }
+              }
+            },
+            "restoreInfo": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Information for potential restoration of this task.",
+              "properties": {
+                "originalStatus": {
+                  "type": "string",
+                  "enum": ["pending", "active", "blocked", "done"],
+                  "description": "Task status before it was completed (for restoration context)."
+                },
+                "canRestore": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Whether this task can be safely restored."
+                },
+                "restoreBlockers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Reasons why restoration might fail or require manual intervention."
+                }
+              }
             }
           }
         }

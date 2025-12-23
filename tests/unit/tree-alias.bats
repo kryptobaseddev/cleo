@@ -353,3 +353,133 @@ setup() {
     children_count=$(echo "$output" | jq '[.tree[] | select(.id == "T001")] | .[0].children | length')
     [[ "$children_count" -eq 1 ]]
 }
+
+# =============================================================================
+# RENDERING TESTS - Wide Flag (T676)
+# =============================================================================
+
+@test "tree --wide shows full long titles without truncation" {
+    create_empty_todo
+    local long_title="This is a very long task title that would normally be truncated in tree view but should show in full with wide flag"
+    bash "$ADD_SCRIPT" "$long_title" --type epic > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --wide --human
+    assert_success
+    # With --wide, full title should appear
+    assert_output --partial "$long_title"
+}
+
+@test "tree --wide is documented in help" {
+    run $CLAUDE_TODO_CMD list --help
+    assert_success
+    assert_output --partial "--wide"
+}
+
+@test "tree --wide works with JSON format" {
+    create_empty_todo
+    bash "$ADD_SCRIPT" "Test Epic" --type epic > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --wide --format json
+    assert_success
+    echo "$output" | jq -e '.success == true' > /dev/null
+}
+
+# =============================================================================
+# RENDERING TESTS - Priority Icons (T673)
+# =============================================================================
+
+@test "tree output shows priority icons in tree view" {
+    create_empty_todo
+    bash "$ADD_SCRIPT" "Critical Epic" --type epic --priority critical > /dev/null
+    bash "$ADD_SCRIPT" "High Task" --type epic --priority high > /dev/null
+    bash "$ADD_SCRIPT" "Medium Task" --type epic --priority medium > /dev/null
+    bash "$ADD_SCRIPT" "Low Task" --type epic --priority low > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --human
+    assert_success
+    # Should show priority indicators (Unicode: 🔴🟡🔵⚪)
+    assert_output --partial "🔴"
+    assert_output --partial "🟡"
+    assert_output --partial "🔵"
+    assert_output --partial "⚪"
+}
+
+@test "tree JSON includes priority field for each task" {
+    create_empty_todo
+    bash "$ADD_SCRIPT" "Critical Epic" --type epic --priority critical > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --format json
+    assert_success
+    echo "$output" | jq -e '.tree[0].priority == "critical"' > /dev/null
+}
+
+# =============================================================================
+# RENDERING TESTS - Title Truncation (T675)
+# =============================================================================
+
+@test "tree truncates long titles with ellipsis" {
+    create_empty_todo
+    local long_title="This is a very long task title that should definitely be truncated when displayed in tree view mode"
+    bash "$ADD_SCRIPT" "$long_title" --type epic > /dev/null
+
+    # Force narrow terminal
+    COLUMNS=60 run $CLAUDE_TODO_CMD tree --human
+    assert_success
+    # Should contain ellipsis character (Unicode: …)
+    assert_output --partial "…"
+    # Should NOT contain the full title
+    [[ "$output" != *"$long_title"* ]]
+}
+
+@test "tree shows short titles without truncation" {
+    create_empty_todo
+    bash "$ADD_SCRIPT" "Short Title" --type epic > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --human
+    assert_success
+    # Short title should appear in full
+    assert_output --partial "Short Title"
+    # No ellipsis needed
+    [[ "$output" != *"…"* ]] || [[ "$output" == *"Short Title"* ]]
+}
+
+# =============================================================================
+# RENDERING TESTS - Tree Connectors (T674)
+# =============================================================================
+
+@test "tree uses └── connector for last child" {
+    create_empty_todo
+    bash "$ADD_SCRIPT" "Epic" --type epic > /dev/null
+    bash "$ADD_SCRIPT" "Task A" --parent T001 > /dev/null
+    bash "$ADD_SCRIPT" "Task B" --parent T001 > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --human
+    assert_success
+    # Last child (T003) should use └──
+    assert_output --partial "└──"
+}
+
+@test "tree uses ├── connector for non-last children" {
+    create_empty_todo
+    bash "$ADD_SCRIPT" "Epic" --type epic > /dev/null
+    bash "$ADD_SCRIPT" "Task A" --parent T001 > /dev/null
+    bash "$ADD_SCRIPT" "Task B" --parent T001 > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --human
+    assert_success
+    # Non-last child (T002) should use ├──
+    assert_output --partial "├──"
+}
+
+@test "tree uses │ continuation for nested children under non-last parent" {
+    create_empty_todo
+    bash "$ADD_SCRIPT" "Epic" --type epic > /dev/null
+    bash "$ADD_SCRIPT" "Task A" --parent T001 > /dev/null
+    bash "$ADD_SCRIPT" "Subtask" --parent T002 --type subtask > /dev/null
+    bash "$ADD_SCRIPT" "Task B" --parent T001 > /dev/null
+
+    run $CLAUDE_TODO_CMD tree --human
+    assert_success
+    # Should show │ continuation line for nested structure
+    assert_output --partial "│"
+}

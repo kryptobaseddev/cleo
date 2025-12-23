@@ -193,6 +193,136 @@ check_errors() {
         [[ "$verbose" == "true" ]] && print_check pass "Heredoc safety"
     fi
 
+    # Check 7: E_INPUT_* error codes usage (Part 5.3 Input Validation)
+    # These codes are required for proper input validation per LLM-Agent-First Spec v3.0
+    # E_INPUT_MISSING (exit code 2) - required argument missing
+    # E_INPUT_INVALID (exit code 2) - argument value invalid
+    # E_INPUT_FORMAT (exit code 2) - argument format incorrect
+    local input_error_codes=("E_INPUT_MISSING" "E_INPUT_INVALID" "E_INPUT_FORMAT")
+    local input_codes_used=()
+    local input_codes_missing=()
+
+    for code in "${input_error_codes[@]}"; do
+        if pattern_exists "$script" "$code"; then
+            input_codes_used+=("$code")
+        else
+            input_codes_missing+=("$code")
+        fi
+    done
+
+    local input_codes_used_str="${input_codes_used[*]:-}"
+    local input_codes_missing_str="${input_codes_missing[*]:-}"
+
+    # Determine if this is a write command that needs input validation
+    local is_write_cmd=false
+    local write_commands=("add" "update" "complete" "archive" "focus" "phase" "session" "sync" "extract" "inject")
+    for cmd in "${write_commands[@]}"; do
+        if [[ "$script_name" == *"$cmd"* ]]; then
+            is_write_cmd=true
+            break
+        fi
+    done
+
+    if [[ ${#input_codes_used[@]} -gt 0 ]]; then
+        results+=('{"check": "input_error_codes", "passed": true, "details": "Uses E_INPUT_* error codes: '"${input_codes_used_str// /, }"'"}')
+        ((passed++)) || true
+        [[ "$verbose" == "true" ]] && print_check pass "E_INPUT_* codes (${input_codes_used_str// /, })"
+    elif [[ "$is_write_cmd" == "true" ]]; then
+        # Write commands should use input validation codes
+        results+=('{"check": "input_error_codes", "passed": false, "details": "Write command should use E_INPUT_* error codes for input validation"}')
+        ((failed++)) || true
+        [[ "$verbose" == "true" ]] && print_check fail "E_INPUT_* codes" "Write commands need: E_INPUT_MISSING, E_INPUT_INVALID, E_INPUT_FORMAT"
+    else
+        # Read commands may not need input validation
+        results+=('{"check": "input_error_codes", "passed": true, "skipped": true, "details": "Read command - E_INPUT_* codes optional"}')
+        ((passed++)) || true
+        [[ "$verbose" == "true" ]] && print_check skip "E_INPUT_* codes (read command)"
+    fi
+
+    # Check 8: Input validation order (Part 5.3)
+    # Validation should follow: required → format → length → semantic
+    # This check verifies that input validation patterns exist for write commands
+    if [[ "$is_write_cmd" == "true" ]]; then
+        local has_required_check=false
+        local has_format_check=false
+        local has_length_check=false
+
+        # Check for required argument validation (typically -z checks or E_INPUT_MISSING)
+        if pattern_exists "$script" '-z "\$' || pattern_exists "$script" 'E_INPUT_MISSING' || pattern_exists "$script" 'is required'; then
+            has_required_check=true
+        fi
+
+        # Check for format validation (regex patterns, case statements, E_INPUT_FORMAT)
+        if pattern_exists "$script" '=~' || pattern_exists "$script" 'E_INPUT_FORMAT' || pattern_exists "$script" 'Invalid.*format'; then
+            has_format_check=true
+        fi
+
+        # Check for length validation (validate_title, validate_description, validate_note)
+        if pattern_exists "$script" 'validate_title\|validate_description\|validate_note' || pattern_exists "$script" 'length'; then
+            has_length_check=true
+        fi
+
+        local validation_details=""
+        local validation_passed=true
+
+        if [[ "$has_required_check" == "true" ]]; then
+            validation_details="required"
+        else
+            validation_passed=false
+        fi
+
+        if [[ "$has_format_check" == "true" ]]; then
+            [[ -n "$validation_details" ]] && validation_details="${validation_details}, "
+            validation_details="${validation_details}format"
+        fi
+
+        if [[ "$has_length_check" == "true" ]]; then
+            [[ -n "$validation_details" ]] && validation_details="${validation_details}, "
+            validation_details="${validation_details}length"
+        fi
+
+        if [[ -n "$validation_details" ]]; then
+            if [[ "$validation_passed" == "true" ]]; then
+                results+=('{"check": "input_validation_order", "passed": true, "details": "Has validation: '"$validation_details"'"}')
+                ((passed++)) || true
+                [[ "$verbose" == "true" ]] && print_check pass "Input validation ($validation_details)"
+            else
+                results+=('{"check": "input_validation_order", "passed": false, "warning": true, "details": "Missing required arg check (has: '"$validation_details"')"}')
+                ((warnings++)) || true
+                ((passed++)) || true
+                [[ "$verbose" == "true" ]] && print_check warn "Input validation" "Missing required arg check"
+            fi
+        else
+            results+=('{"check": "input_validation_order", "passed": false, "details": "Write command lacks input validation"}')
+            ((failed++)) || true
+            [[ "$verbose" == "true" ]] && print_check fail "Input validation" "Add required/format/length validation per spec 5.3"
+        fi
+    else
+        results+=('{"check": "input_validation_order", "passed": true, "skipped": true, "details": "Read command - validation order check skipped"}')
+        ((passed++)) || true
+        [[ "$verbose" == "true" ]] && print_check skip "Input validation order (read command)"
+    fi
+
+    # Check 9: EXIT_INVALID_INPUT usage with E_INPUT_* codes
+    # E_INPUT_* codes should use exit code 2 (EXIT_INVALID_INPUT)
+    local exit_input_pattern='E_INPUT_[A-Z]+.*EXIT_INVALID_INPUT\|EXIT_INVALID_INPUT.*2\|exit.*2'
+    if [[ ${#input_codes_used[@]} -gt 0 ]]; then
+        if pattern_exists "$script" 'EXIT_INVALID_INPUT' || pattern_exists "$script" 'exit.*\$.*2\|exit 2'; then
+            results+=('{"check": "input_exit_code", "passed": true, "details": "E_INPUT_* codes use correct exit code (2)"}')
+            ((passed++)) || true
+            [[ "$verbose" == "true" ]] && print_check pass "Input exit code (EXIT_INVALID_INPUT=2)"
+        else
+            results+=('{"check": "input_exit_code", "passed": false, "warning": true, "details": "E_INPUT_* codes should use EXIT_INVALID_INPUT (exit 2)"}')
+            ((warnings++)) || true
+            ((passed++)) || true
+            [[ "$verbose" == "true" ]] && print_check warn "Input exit code" "E_INPUT_* should exit with code 2"
+        fi
+    else
+        results+=('{"check": "input_exit_code", "passed": true, "skipped": true, "details": "No E_INPUT_* codes used"}')
+        ((passed++)) || true
+        [[ "$verbose" == "true" ]] && print_check skip "Input exit code (no E_INPUT_* codes)"
+    fi
+
     # Build JSON result
     local total=$((passed + failed))
     local score

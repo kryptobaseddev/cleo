@@ -83,6 +83,7 @@ declare -A ENV_TO_CONFIG=(
     ["CLAUDE_TODO_ARCHIVE_DAYS_UNTIL_ARCHIVE"]="archive.daysUntilArchive"
     ["CLAUDE_TODO_ARCHIVE_MAX_COMPLETED_TASKS"]="archive.maxCompletedTasks"
     ["CLAUDE_TODO_ARCHIVE_PRESERVE_RECENT_COUNT"]="archive.preserveRecentCount"
+    ["CLAUDE_TODO_ARCHIVE_EXEMPT_LABELS"]="archive.exemptLabels"
 
     # Logging settings
     ["CLAUDE_TODO_LOGGING_ENABLED"]="logging.enabled"

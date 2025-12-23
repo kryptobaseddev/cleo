@@ -56,7 +56,9 @@ if [[ -f "$_LIB_DIR/config.sh" ]]; then
 fi
 
 # Configuration
-BACKUP_DIR=".backups"
+# BACKUP_DIR: Unified backup directory per BACKUP-SYSTEM-SPEC.md Part 3.1
+# Tier 1 (Operational) backups go to backups/operational/ with numbered rotation
+BACKUP_DIR="backups/operational"
 TEMP_SUFFIX=".tmp"
 LOCK_SUFFIX=".lock"
 

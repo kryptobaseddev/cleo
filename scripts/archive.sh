@@ -209,11 +209,19 @@ if declare -f get_config_value >/dev/null 2>&1; then
   DAYS_UNTIL_ARCHIVE=$(get_config_value "archive.daysUntilArchive" "7")
   MAX_COMPLETED=$(get_config_value "archive.maxCompletedTasks" "15")
   PRESERVE_COUNT=$(get_config_value "archive.preserveRecentCount" "3")
+  EXEMPT_LABELS=$(get_config_value "archive.exemptLabels" '["epic-type", "pinned"]')
 else
   # Fallback to direct jq if config.sh not available
   DAYS_UNTIL_ARCHIVE=$(jq -r '.archive.daysUntilArchive // 7' "$CONFIG_FILE")
   MAX_COMPLETED=$(jq -r '.archive.maxCompletedTasks // 15' "$CONFIG_FILE")
   PRESERVE_COUNT=$(jq -r '.archive.preserveRecentCount // 3' "$CONFIG_FILE")
+  EXEMPT_LABELS=$(jq -r '.archive.exemptLabels // ["epic-type", "pinned"]' "$CONFIG_FILE")
+fi
+
+# Validate EXEMPT_LABELS is valid JSON array, fallback to default if not
+if ! echo "$EXEMPT_LABELS" | jq -e 'type == "array"' >/dev/null 2>&1; then
+  [[ "$QUIET" != true && "$FORMAT" != "json" ]] && log_warn "Invalid exemptLabels config, using default"
+  EXEMPT_LABELS='["epic-type", "pinned"]'
 fi
 
 [[ -n "$MAX_OVERRIDE" ]] && MAX_COMPLETED="$MAX_OVERRIDE"
@@ -255,6 +263,7 @@ if [[ "$COMPLETED_COUNT" -eq 0 ]]; then
         "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
         "success": true,
         "archived": {"count": 0, "taskIds": []},
+        "exempted": {"count": 0, "taskIds": []},
         "remaining": {"total": $total, "pending": $pending, "active": $active, "blocked": $blocked}
       }'
   else
@@ -267,13 +276,47 @@ fi
 NOW=$(date +%s)
 ARCHIVE_THRESHOLD=$((NOW - DAYS_UNTIL_ARCHIVE * 86400))
 
+# First, identify tasks that would be exempted due to labels
+# This is done separately to track exempted tasks for logging/output
+EXEMPTED_TASKS=$(echo "$COMPLETED_TASKS" | jq --argjson exemptLabels "$EXEMPT_LABELS" '
+  [.[] | select(
+    (.labels // []) as $taskLabels |
+    ($exemptLabels | any(. as $exempt | $taskLabels | index($exempt) | type == "number"))
+  )]
+')
+
+EXEMPTED_COUNT=$(echo "$EXEMPTED_TASKS" | jq 'length')
+EXEMPTED_IDS=$(echo "$EXEMPTED_TASKS" | jq '[.[].id]')
+
+# Log exempted tasks if any
+if [[ "$EXEMPTED_COUNT" -gt 0 && "$QUIET" != true && "$FORMAT" != "json" ]]; then
+  echo "$EXEMPTED_TASKS" | jq -r --argjson exemptLabels "$EXEMPT_LABELS" '
+    .[] |
+    (.labels // []) as $taskLabels |
+    ($exemptLabels | map(select(. as $exempt | $taskLabels | index($exempt) | type == "number")) | first) as $matchedLabel |
+    "Skipping task \(.id): has exempt label \u0027\($matchedLabel)\u0027"
+  ' | while read -r msg; do
+    log_info "$msg"
+  done
+fi
+
 # Sort by completedAt (newest first) and determine which to archive
-TASKS_TO_ARCHIVE=$(echo "$COMPLETED_TASKS" | jq --argjson threshold "$ARCHIVE_THRESHOLD" --argjson preserve "$PRESERVE_COUNT" --argjson force "$FORCE" --argjson all "$ARCHIVE_ALL" '
+# Excludes tasks with exempt labels
+TASKS_TO_ARCHIVE=$(echo "$COMPLETED_TASKS" | jq --argjson threshold "$ARCHIVE_THRESHOLD" --argjson preserve "$PRESERVE_COUNT" --argjson force "$FORCE" --argjson all "$ARCHIVE_ALL" --argjson exemptLabels "$EXEMPT_LABELS" '
+  # First filter out exempt tasks (tasks with any label in exemptLabels)
+  [.[] |
+    (.labels // []) as $taskLabels |
+    if ($taskLabels | any(. as $label | $exemptLabels | index($label) | type == "number"))
+    then empty
+    else .
+    end
+  ] |
+  # Then apply normal archive logic
   sort_by(.completedAt) | reverse |
   to_entries |
   map(select(
     if $all then
-      true  # Archive ALL completed tasks
+      true  # Archive ALL completed tasks (except exempt)
     elif $force then
       .key >= $preserve  # Bypass retention, respect preserve count
     else
@@ -302,11 +345,14 @@ if [[ "$ARCHIVE_COUNT" -eq 0 ]]; then
       --argjson pending "$REMAINING_PENDING" \
       --argjson active "$REMAINING_ACTIVE" \
       --argjson blocked "$REMAINING_BLOCKED" \
+      --argjson exemptedCount "$EXEMPTED_COUNT" \
+      --argjson exemptedIds "$EXEMPTED_IDS" \
       '{
         "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
         "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
         "success": true,
         "archived": {"count": 0, "taskIds": []},
+        "exempted": {"count": $exemptedCount, "taskIds": $exemptedIds},
         "remaining": {"total": $total, "pending": $pending, "active": $active, "blocked": $blocked}
       }'
   elif [[ "$QUIET" != true ]]; then
@@ -337,18 +383,26 @@ if [[ "$DRY_RUN" == true ]]; then
       --argjson pending "$REMAINING_PENDING" \
       --argjson active "$REMAINING_ACTIVE" \
       --argjson blocked "$REMAINING_BLOCKED" \
+      --argjson exemptedCount "$EXEMPTED_COUNT" \
+      --argjson exemptedIds "$EXEMPTED_IDS" \
       '{
         "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
         "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
         "success": true,
         "dryRun": true,
         "archived": {"count": $count, "taskIds": $ids},
+        "exempted": {"count": $exemptedCount, "taskIds": $exemptedIds},
         "remaining": {"total": $total, "pending": $pending, "active": $active, "blocked": $blocked}
       }'
   else
     echo ""
     echo "DRY RUN - Would archive these tasks:"
     echo "$TASKS_TO_ARCHIVE" | jq -r '.[] | "  - \(.id): \(.title)"'
+    if [[ "$EXEMPTED_COUNT" -gt 0 ]]; then
+      echo ""
+      echo "Exempted tasks (protected by labels):"
+      echo "$EXEMPTED_TASKS" | jq -r '.[] | "  - \(.id): \(.title) [\(.labels | join(", "))]"'
+    fi
     echo ""
     echo "No changes made."
   fi
@@ -625,11 +679,14 @@ if [[ "$FORMAT" == "json" ]]; then
     --argjson pending "$REMAINING_PENDING" \
     --argjson active "$REMAINING_ACTIVE" \
     --argjson blocked "$REMAINING_BLOCKED" \
+    --argjson exemptedCount "$EXEMPTED_COUNT" \
+    --argjson exemptedIds "$EXEMPTED_IDS" \
     '{
       "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
       "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
       "success": true,
       "archived": {"count": $count, "taskIds": $ids},
+      "exempted": {"count": $exemptedCount, "taskIds": $exemptedIds},
       "remaining": {"total": $total, "pending": $pending, "active": $active, "blocked": $blocked}
     }'
 else
@@ -670,6 +727,13 @@ else
       AVG_CYCLE_TIME=$(echo "$TASKS_WITH_METADATA" | jq '[.[]._archive.cycleTimeDays | select(. != null)] | if length > 0 then (add / length | floor) else null end')
       if [[ "$AVG_CYCLE_TIME" != "null" && -n "$AVG_CYCLE_TIME" ]]; then
         echo "  Average cycle time: $AVG_CYCLE_TIME days"
+      fi
+
+      # Show exempted tasks if any
+      if [[ "$EXEMPTED_COUNT" -gt 0 ]]; then
+        echo ""
+        echo "  Exempted tasks (protected by labels): $EXEMPTED_COUNT"
+        echo "$EXEMPTED_TASKS" | jq -r '.[] | "    - \(.id): \(.title)"'
       fi
     fi
   fi

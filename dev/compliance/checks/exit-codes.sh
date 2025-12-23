@@ -118,6 +118,16 @@ check_exit_codes() {
     local total_exits
     total_exits=$(pattern_count "$script" "exit " || echo "0")
 
+    # Determine if this is an idempotent command that should use EXIT_NO_CHANGE
+    local idempotent_commands=("update-task.sh" "complete-task.sh" "archive.sh" "restore.sh" "phase.sh")
+    local is_idempotent=false
+    for idem_cmd in "${idempotent_commands[@]}"; do
+        if [[ "$script_name" == "$idem_cmd" ]]; then
+            is_idempotent=true
+            break
+        fi
+    done
+
     if [[ "$total_exits" -gt 0 ]]; then
         # Use schema pattern for counting constant exits
         # Use pre-extracted pattern from check-compliance.sh if available, fallback to jq
@@ -152,6 +162,81 @@ check_exit_codes() {
         results+=('{"check": "consistent_usage", "passed": true, "skipped": true, "details": "No exit statements to check"}')
         ((passed++)) || true
         [[ "$verbose" == "true" ]] && print_check skip "Consistency check (no exits)"
+    fi
+
+    # Check 5: Idempotent commands should reference EXIT_NO_CHANGE
+    # Only applicable to commands that can have no-op results
+    if [[ "$is_idempotent" == "true" ]]; then
+        local no_change_count
+        no_change_count=$(pattern_count "$script" "EXIT_NO_CHANGE" || echo "0")
+
+        if [[ "$no_change_count" -gt 0 ]]; then
+            results+=('{"check": "idempotent_no_change", "passed": true, "details": "Uses EXIT_NO_CHANGE for idempotent operations ('"$no_change_count"' references)"}')
+            ((passed++)) || true
+            [[ "$verbose" == "true" ]] && print_check pass "EXIT_NO_CHANGE usage ($no_change_count references)"
+        else
+            results+=('{"check": "idempotent_no_change", "passed": false, "details": "Idempotent command should use EXIT_NO_CHANGE (exit code 102) for no-op results"}')
+            ((failed++)) || true
+            [[ "$verbose" == "true" ]] && print_check fail "Missing EXIT_NO_CHANGE" "Idempotent commands should return 102 when no changes made"
+        fi
+
+        # Check 6: EXIT_NO_CHANGE should be paired with noChange JSON field
+        # Look for patterns that indicate proper JSON output when returning 102
+        local no_change_json_patterns=("noChange.*true" "\"noChange\"" "no_change.*true")
+        local has_no_change_json=false
+
+        for pattern in "${no_change_json_patterns[@]}"; do
+            if pattern_exists "$script" "$pattern"; then
+                has_no_change_json=true
+                break
+            fi
+        done
+
+        if [[ "$has_no_change_json" == "true" ]]; then
+            results+=('{"check": "no_change_json_field", "passed": true, "details": "Provides noChange JSON field when returning EXIT_NO_CHANGE"}')
+            ((passed++)) || true
+            [[ "$verbose" == "true" ]] && print_check pass "noChange JSON field present"
+        elif [[ "$no_change_count" -gt 0 ]]; then
+            # Only warn if EXIT_NO_CHANGE is used but no JSON field found
+            results+=('{"check": "no_change_json_field", "passed": true, "warning": true, "details": "Uses EXIT_NO_CHANGE but noChange JSON field not detected (may be in output library)"}')
+            ((warnings++)) || true
+            ((passed++)) || true
+            [[ "$verbose" == "true" ]] && print_check warn "noChange JSON field" "Consider adding \"noChange\": true to JSON output when 102 is returned"
+        else
+            results+=('{"check": "no_change_json_field", "passed": true, "skipped": true, "details": "No EXIT_NO_CHANGE usage found to pair with JSON field"}')
+            ((passed++)) || true
+            [[ "$verbose" == "true" ]] && print_check skip "noChange JSON field check (no EXIT_NO_CHANGE usage)"
+        fi
+    fi
+
+    # Check 7: Special exit codes (100+) should not be used as errors
+    # These are informational states, not failures
+    local special_code_misuse=false
+    local special_exit_pattern="EXIT_NO_DATA|EXIT_ALREADY_EXISTS|EXIT_NO_CHANGE"
+
+    # Look for patterns where special codes might be used incorrectly with error output
+    # Pattern: exit $EXIT_NO_DATA after output_error (within 5 lines)
+    local special_after_error
+    special_after_error=$(awk '
+        /output_error/ { error_line = NR }
+        /EXIT_NO_DATA|EXIT_ALREADY_EXISTS|EXIT_NO_CHANGE/ {
+            if (error_line > 0 && NR - error_line <= 5) {
+                print NR ":" $0
+                error_line = 0
+            }
+        }
+    ' "$script" 2>/dev/null || true)
+
+    if [[ -z "$special_after_error" ]]; then
+        results+=('{"check": "special_codes_not_errors", "passed": true, "details": "Special exit codes (100+) are not used as error indicators"}')
+        ((passed++)) || true
+        [[ "$verbose" == "true" ]] && print_check pass "Special codes used correctly (not as errors)"
+    else
+        local misuse_lines
+        misuse_lines=$(echo "$special_after_error" | cut -d: -f1 | head -3 | tr '\n' ',' | sed 's/,$//')
+        results+=('{"check": "special_codes_not_errors", "passed": false, "details": "Special exit codes (100+) may be used as errors on lines: '"$misuse_lines"'"}')
+        ((failed++)) || true
+        [[ "$verbose" == "true" ]] && print_check fail "Special code misuse" "Found near error output on lines: $misuse_lines"
     fi
 
     # Build JSON result

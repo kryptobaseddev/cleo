@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/todo.schema.json",
+  "$id": "https://claude-todo.dev/schemas/v3/todo.schema.json",
   "title": "CLAUDE-TODO Task Schema",
-  "description": "LLM-optimized task tracking with hierarchy support (Epic/Task/Subtask), integrity verification, session tracking, and anti-hallucination safeguards.",
+  "description": "LLM-Agent-First task tracking (Spec v3.0) with hierarchy support (Epic/Task/Subtask), integrity verification, session tracking, and anti-hallucination safeguards.",
   "type": "object",
   "required": ["version", "project", "lastUpdated", "tasks", "_meta"],
   "additionalProperties": false,
@@ -92,6 +92,12 @@
       "required": ["checksum", "configVersion"],
       "additionalProperties": false,
       "properties": {
+        "specVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "default": "3.0.0",
+          "description": "LLM-Agent-First Spec version this data conforms to. Semantic versioning (major.minor.patch)."
+        },
         "checksum": {
           "type": "string",
           "pattern": "^[a-f0-9]{16}$",
