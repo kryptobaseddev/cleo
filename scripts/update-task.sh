@@ -1188,7 +1188,7 @@ fi
 if [[ "$FORMAT" == "json" ]]; then
   # JSON success output
   jq -n \
-    --arg version "$VERSION" \
+    --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
     --arg command "$COMMAND_NAME" \
     --arg timestamp "$TIMESTAMP" \
     --arg task_id "$TASK_ID" \
