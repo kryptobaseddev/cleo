@@ -883,6 +883,10 @@ if [[ "$FORMAT" == "json" ]]; then
   # JSON output for LLM agents
   OUTPUT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+  # Build onlyLabelsFilter JSON (null if not specified)
+  ONLY_LABELS_OUTPUT="null"
+  [[ -n "$ONLY_LABELS" ]] && ONLY_LABELS_OUTPUT="$ONLY_LABELS_JSON"
+
   jq -n \
     --arg ts "$OUTPUT_TIMESTAMP" \
     --arg ver "$VERSION" \
@@ -892,21 +896,21 @@ if [[ "$FORMAT" == "json" ]]; then
     --argjson pending "$REMAINING_PENDING" \
     --argjson active "$REMAINING_ACTIVE" \
     --argjson blocked "$REMAINING_BLOCKED" \
-      --argjson excludeLabelsApplied "$EXCLUDE_LABELS_APPLIED" \
-      --argjson effectiveExemptLabels "$EXEMPT_LABELS" \
+    --argjson excludeLabelsApplied "$EXCLUDE_LABELS_APPLIED" \
+    --argjson effectiveExemptLabels "$EXEMPT_LABELS" \
     --argjson exemptedCount "$EXEMPTED_COUNT" \
     --argjson exemptedIds "$EXEMPTED_IDS" \
-      --argjson warnings "$WARNINGS_JSON" \
+    --argjson warnings "$WARNINGS_JSON" \
+    --argjson onlyLabelsFilter "$ONLY_LABELS_OUTPUT" \
     '{
       "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
       "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
       "success": true,
       "archived": {"count": $count, "taskIds": $ids},
       "exempted": {"count": $exemptedCount, "taskIds": $exemptedIds},
-        "excludeLabelsApplied": $excludeLabelsApplied,
-        "effectiveExemptLabels": $effectiveExemptLabels,
-        "warnings": $warnings,
-        "warningCount": ($warnings | length),
+      "filters": {"onlyLabels": $onlyLabelsFilter, "excludeLabels": (if $excludeLabelsApplied then $effectiveExemptLabels else null end)},
+      "warnings": $warnings,
+      "warningCount": ($warnings | length),
       "remaining": {"total": $total, "pending": $pending, "active": $active, "blocked": $blocked}
     }'
 else
