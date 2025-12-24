@@ -115,6 +115,7 @@
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
+| **[jq-helpers.md](reference/jq-helpers.md)** | jq wrapper library reference (14 functions) | Working with task JSON operations in scripts |
 | **[PLUGINS.md](PLUGINS.md)** | Plugin architecture and development | Extending the CLI with custom commands |
 | **[integration/CLAUDE-CODE.md](integration/CLAUDE-CODE.md)** | TodoWrite integration & session workflows | Understanding Claude Code integration |
 | **[ci-cd-integration.md](ci-cd-integration.md)** | CI/CD pipeline integration guide | Integrating with GitHub Actions, GitLab CI, Jenkins, Azure DevOps |

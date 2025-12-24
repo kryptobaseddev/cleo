@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added guards around readonly declarations to prevent re-declaration errors during testing
   - Fixes session.bats and integration test failures
 
+## [0.34.3] - 2025-12-24
+
+### Fixed
+- **jq Helper Wrappers**: Added 5 remaining jq wrapper functions to `lib/jq-helpers.sh`
+  - `get_all_task_ids()`: Extract all task IDs from todo.json
+  - `get_phase_tasks()`: Filter tasks by phase
+  - `task_exists()`: Check if task ID exists
+  - `get_task_with_field()`: Get task by ID with specific field
+  - `filter_tasks_multi()`: Multi-criteria task filtering
+- **Compliance Checker jq Overflow**: Fixed argument overflow bug in `dev/check-lib-compliance.sh`
+  - jq invocation was exceeding argument limits on large dependency lists
+
 ## [0.34.2] - 2025-12-24
 
 ### Added
@@ -95,6 +107,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Example: Increasing maxLength from 500 to 5000 now just bumps version automatically
   - Reduces developer burden for backwards-compatible schema changes
 
+## [0.33.0] - 2025-12-24
+
+### Added
+- **jq Helper Library**: New `lib/jq-helpers.sh` with 9 reusable wrapper functions
+  - Centralizes common jq patterns used across scripts
+  - Provides consistent error handling for JSON operations
+  - Reduces code duplication in task manipulation scripts
+
+## [0.32.5] - 2025-12-24
+
+### Changed
+- **Library Architecture Standardization**: Added source guards and layer headers to all 21 libraries
+  - Source guards prevent double-sourcing: `[[ -n "${_*_LOADED:-}" ]] && return 0`
+  - Layer headers document: LAYER, DEPENDENCIES, PROVIDES for each library
+  - Enables dependency analysis and circular dependency detection
+
 ## [0.32.4] - 2025-12-24
 
 ### Changed
@@ -103,6 +131,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Schema version bumped to 2.4.0 (backwards compatible)
   - Updated: `lib/validation.sh`, `schemas/todo.schema.json`, `lib/migrate.sh`
   - Updated compliance checks and documentation
+
+## [0.32.3] - 2025-12-24
+
+### Fixed
+- **Missing COMMAND_NAME Constants**: Added missing `COMMAND_NAME` to 3 scripts
+  - `scripts/promote.sh`: Now properly identifies as "promote" command
+  - `scripts/reparent.sh`: Now properly identifies as "reparent" command
+  - `scripts/validate.sh`: Now properly identifies as "validate" command
 
 ## [0.32.2] - 2025-12-24
 
