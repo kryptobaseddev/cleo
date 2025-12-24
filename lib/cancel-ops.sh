@@ -2,7 +2,7 @@
 # cancel-ops.sh - Cancellation/deletion operations library for claude-todo
 #
 # LAYER: 3 (Domain Logic)
-# DEPENDENCIES: exit-codes.sh, validation.sh, backup.sh
+# DEPENDENCIES: validation.sh, backup.sh
 # PROVIDES: preflight_delete_check, cancel_task, is_leaf_task,
 #           get_cascade_candidates, validate_cancel_reason
 #
@@ -21,14 +21,6 @@ set -euo pipefail
 # ============================================================================
 
 _CANCEL_OPS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Source exit codes if not already loaded
-if [[ -z "${EXIT_SUCCESS:-}" ]]; then
-    if [[ -f "$_CANCEL_OPS_LIB_DIR/exit-codes.sh" ]]; then
-        # shellcheck source=lib/exit-codes.sh
-        source "$_CANCEL_OPS_LIB_DIR/exit-codes.sh"
-    fi
-fi
 
 # Source validation library for validation functions
 # NOTE: validation.sh transitively provides hierarchy.sh and config.sh

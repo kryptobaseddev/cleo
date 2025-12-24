@@ -2,7 +2,7 @@
 # migrate.sh - Schema version migration system for claude-todo
 #
 # LAYER: 2 (Core Services)
-# DEPENDENCIES: atomic-write.sh, logging.sh
+# DEPENDENCIES: logging.sh (transitively provides atomic-write.sh)
 # PROVIDES: check_schema_version, run_migrations, get_default_phases,
 #           parse_version, compare_versions, get_schema_version_from_file,
 #           compare_schema_versions, bump_version_only, check_compatibility,
@@ -17,8 +17,6 @@ set -euo pipefail
 
 # Source dependencies
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/atomic-write.sh
-source "$SCRIPT_DIR/atomic-write.sh"
 # shellcheck source=lib/logging.sh
 source "$SCRIPT_DIR/logging.sh"
 

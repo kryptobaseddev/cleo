@@ -5,6 +5,22 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.1] - 2025-12-24
+
+### Changed
+- **Inter-library dependencies reduced to target** (37 → 25, meeting ≤25 spec requirement)
+  - Leveraged transitive sourcing across 12 library files
+  - phase-tracking.sh: 2→1 (via file-ops.sh transitive)
+  - logging.sh: 2→1 (via atomic-write.sh transitive)
+  - hierarchy.sh: 2→1 (via config.sh transitive)
+  - delete-preview.sh: 2→1 (via hierarchy.sh transitive)
+  - migrate.sh: 2→1 (via logging.sh transitive)
+  - file-ops.sh: 3→2 (via atomic-write.sh transitive)
+  - cancel-ops.sh: 3→2 (via validation.sh transitive)
+  - validation.sh: 5→4 (via config.sh transitive, 2 remain lazy-loaded)
+  - deletion-strategy.sh: 3→2 (via hierarchy.sh transitive)
+  - archive-cancel.sh: 3→1 (via file-ops.sh transitive)
+
 ## [0.35.0] - 2025-12-24
 
 ### Added

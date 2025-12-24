@@ -2,7 +2,7 @@
 # logging.sh - Change log functions for CLAUDE-TODO system
 #
 # LAYER: 1 (Core Infrastructure)
-# DEPENDENCIES: platform-compat.sh, atomic-write.sh
+# DEPENDENCIES: atomic-write.sh
 # PROVIDES: log_operation, get_log_entries, get_task_history, prune_log,
 #           LOG_FILE, generate_log_id
 
@@ -18,16 +18,8 @@ set -euo pipefail
 
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source platform compatibility layer
-if [[ -f "$_LIB_DIR/platform-compat.sh" ]]; then
-    # shellcheck source=lib/platform-compat.sh
-    source "$_LIB_DIR/platform-compat.sh"
-else
-    echo "ERROR: Cannot find platform-compat.sh in $_LIB_DIR" >&2
-    exit 1
-fi
-
 # Source atomic-write for primitive atomic operations (Layer 1)
+# Note: atomic-write.sh transitively provides platform-compat.sh
 if [[ -f "$_LIB_DIR/atomic-write.sh" ]]; then
     # shellcheck source=lib/atomic-write.sh
     source "$_LIB_DIR/atomic-write.sh"

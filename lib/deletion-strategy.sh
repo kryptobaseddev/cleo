@@ -2,8 +2,9 @@
 # deletion-strategy.sh - Strategy Pattern for child handling during task deletion/cancellation
 #
 # LAYER: 3 (Domain Logic)
-# DEPENDENCIES: exit-codes.sh, hierarchy.sh, file-ops.sh
-# NOTE: config.sh functions available transitively via hierarchy.sh
+# DEPENDENCIES: hierarchy.sh, file-ops.sh
+# NOTE: exit-codes.sh available transitively via hierarchy.sh
+# NOTE: config.sh functions available transitively via hierarchy.sh and file-ops.sh
 # PROVIDES: handle_children, handle_children_block, handle_children_cascade,
 #           handle_children_orphan, DELETION_STRATEGIES, VALID_CHILD_STRATEGIES
 #
@@ -18,9 +19,9 @@ declare -r _DELETION_STRATEGY_SH_LOADED=1
 _DELETION_STRATEGY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source dependencies (each has its own source guard)
-source "$_DELETION_STRATEGY_LIB_DIR/exit-codes.sh"
-source "$_DELETION_STRATEGY_LIB_DIR/hierarchy.sh"   # Also provides config.sh functions transitively
-source "$_DELETION_STRATEGY_LIB_DIR/file-ops.sh"
+# NOTE: exit-codes.sh provided transitively via hierarchy.sh
+source "$_DELETION_STRATEGY_LIB_DIR/hierarchy.sh"   # Also provides exit-codes.sh and config.sh transitively
+source "$_DELETION_STRATEGY_LIB_DIR/file-ops.sh"    # Also provides config.sh transitively
 
 # =============================================================================
 # Logging Callback (Dependency Injection Pattern)

@@ -2,7 +2,7 @@
 # phase-tracking.sh - Project-level phase tracking for claude-todo
 #
 # LAYER: 3 (Domain Logic)
-# DEPENDENCIES: platform-compat.sh, file-ops.sh
+# DEPENDENCIES: file-ops.sh (transitive: platform-compat.sh)
 # PROVIDES: get_current_phase, set_current_phase, get_all_phases, get_phase,
 #           validate_phase_slug, update_phase_status, get_phase_progress
 
@@ -14,7 +14,6 @@ set -euo pipefail
 
 # Library dependencies
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$_LIB_DIR/platform-compat.sh"
 source "$_LIB_DIR/file-ops.sh"
 
 # ============================================================================

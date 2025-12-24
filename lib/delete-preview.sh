@@ -2,7 +2,7 @@
 # delete-preview.sh - Dry-run preview functions for task deletion
 #
 # LAYER: 3 (Domain Logic)
-# DEPENDENCIES: exit-codes.sh, hierarchy.sh
+# DEPENDENCIES: hierarchy.sh
 # PROVIDES: preview_delete, get_impact_warnings, format_preview_output,
 #           SEVERITY_HIGH, SEVERITY_MEDIUM, SEVERITY_LOW
 
@@ -15,9 +15,6 @@ declare -r _DELETE_PREVIEW_SH_LOADED=1
 _DELETE_PREVIEW_LIB_DIR="${_DELETE_PREVIEW_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 # Source dependencies (each has its own source guard)
-# shellcheck source=exit-codes.sh
-source "${_DELETE_PREVIEW_LIB_DIR}/exit-codes.sh"
-
 # shellcheck source=hierarchy.sh
 source "${_DELETE_PREVIEW_LIB_DIR}/hierarchy.sh"
 

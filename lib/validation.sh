@@ -2,7 +2,7 @@
 # validation.sh - Core validation library for claude-todo system
 #
 # LAYER: 2 (Core Services)
-# DEPENDENCIES: platform-compat.sh, exit-codes.sh, config.sh
+# DEPENDENCIES: platform-compat.sh, config.sh
 # PROVIDES: validate_task, validate_json_file, validate_task_id, validate_status,
 #           validate_priority, validate_title, validate_cancel_reason, check_duplicates,
 #           validate_checksum, validate_task_hierarchy
@@ -60,15 +60,6 @@ _ensure_migrate_loaded() {
     fi
     return 1
 }
-
-# Source exit codes library for standardized error codes
-if [[ -f "$_LIB_DIR/exit-codes.sh" ]]; then
-    # shellcheck source=lib/exit-codes.sh
-    source "$_LIB_DIR/exit-codes.sh"
-    EXIT_CODES_AVAILABLE=true
-else
-    EXIT_CODES_AVAILABLE=false
-fi
 
 # Hierarchy library is NOT sourced at load time to keep Layer 2 deps minimal.
 # Use lazy loading via _ensure_hierarchy_loaded() if hierarchy support is needed.

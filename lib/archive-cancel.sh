@@ -2,7 +2,7 @@
 # archive-cancel.sh - Cancellation archival operations for claude-todo
 #
 # LAYER: 3 (Domain Logic)
-# DEPENDENCIES: exit-codes.sh, config.sh, file-ops.sh
+# DEPENDENCIES: file-ops.sh (transitive: config.sh, exit-codes.sh)
 # PROVIDES: prepare_cancel_archive_entry, archive_cancelled_task,
 #           archive_cancelled_tasks, should_auto_archive_cancel
 
@@ -18,27 +18,13 @@ set -euo pipefail
 
 _ARCHIVE_CANCEL_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source exit codes if not already loaded
-if [[ -z "${EXIT_SUCCESS:-}" ]]; then
-    if [[ -f "$_ARCHIVE_CANCEL_LIB_DIR/exit-codes.sh" ]]; then
-        # shellcheck source=lib/exit-codes.sh
-        source "$_ARCHIVE_CANCEL_LIB_DIR/exit-codes.sh"
-    fi
-fi
-
-# Source config library for cancellation settings
-if [[ -f "$_ARCHIVE_CANCEL_LIB_DIR/config.sh" ]]; then
-    # shellcheck source=lib/config.sh
-    source "$_ARCHIVE_CANCEL_LIB_DIR/config.sh"
-fi
-
-# Source file-ops library for atomic writes
+# Source file-ops library (transitively loads config.sh and exit-codes.sh)
 if [[ -f "$_ARCHIVE_CANCEL_LIB_DIR/file-ops.sh" ]]; then
     # shellcheck source=lib/file-ops.sh
     source "$_ARCHIVE_CANCEL_LIB_DIR/file-ops.sh"
 fi
 
-# Fallback exit codes
+# Fallback exit codes (in case file-ops.sh not available)
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_FILE_ERROR:=3}"
 : "${EXIT_VALIDATION_ERROR:=6}"

@@ -2,7 +2,7 @@
 # hierarchy.sh - Hierarchy validation and helper functions for claude-todo
 #
 # LAYER: 1 (Core Infrastructure)
-# DEPENDENCIES: exit-codes.sh, config.sh
+# DEPENDENCIES: config.sh
 # PROVIDES: validate_parent_exists, validate_depth, validate_sibling_count,
 #           validate_parent_type, detect_circular_reference, get_children,
 #           get_descendants, get_depth, get_task_type, calculate_type_from_depth
@@ -21,15 +21,7 @@ set -euo pipefail
 
 _HIERARCHY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source exit codes if not already loaded
-if [[ -z "${EXIT_PARENT_NOT_FOUND:-}" ]]; then
-    if [[ -f "$_HIERARCHY_LIB_DIR/exit-codes.sh" ]]; then
-        # shellcheck source=lib/exit-codes.sh
-        source "$_HIERARCHY_LIB_DIR/exit-codes.sh"
-    fi
-fi
-
-# Source config library for get_config_value
+# Source config library for get_config_value (which includes exit-codes.sh)
 if [[ -f "$_HIERARCHY_LIB_DIR/config.sh" ]]; then
     # shellcheck source=lib/config.sh
     source "$_HIERARCHY_LIB_DIR/config.sh" 2>/dev/null || true

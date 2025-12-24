@@ -2,7 +2,7 @@
 # file-ops.sh - Atomic file operations with backup management
 #
 # LAYER: 1 (Core Infrastructure)
-# DEPENDENCIES: platform-compat.sh, config.sh, atomic-write.sh
+# DEPENDENCIES: config.sh, atomic-write.sh
 # PROVIDES: atomic_write, save_json, backup_file, restore_backup, lock_file,
 #           unlock_file, recalculate_checksum, safe_file_read
 #
@@ -11,6 +11,9 @@
 # NOTE: This library does NOT depend on validation.sh to break circular dependency:
 #       file-ops.sh -> validation.sh -> migrate.sh -> file-ops.sh
 #       Validation is a Layer 2 concern handled by callers, not this library.
+#
+# NOTE: platform-compat.sh is sourced transitively via atomic-write.sh (Layer 1),
+#       so we don't source it directly (reduces transitive dependencies).
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_FILE_OPS_LOADED:-}" ]] && return 0
@@ -24,17 +27,8 @@ set -euo pipefail
 
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source platform compatibility layer (Layer 0)
-if [[ -f "$_LIB_DIR/platform-compat.sh" ]]; then
-    # shellcheck source=lib/platform-compat.sh
-    source "$_LIB_DIR/platform-compat.sh"
-else
-    echo "ERROR: Cannot find platform-compat.sh in $_LIB_DIR" >&2
-    exit 1
-fi
-
 # Source atomic-write library (Layer 1) for primitive atomic operations
-# This breaks the circular dependency by using Layer 1 primitives
+# This includes platform-compat.sh transitively and breaks circular dependency
 if [[ -f "$_LIB_DIR/atomic-write.sh" ]]; then
     # shellcheck source=lib/atomic-write.sh
     source "$_LIB_DIR/atomic-write.sh"
