@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 1854,
+    "totalEntries": 1861,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-24T03:28:57Z",
+    "lastEntry": "2025-12-24T03:33:28Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -44577,6 +44577,153 @@
       },
       "details": {
         "reason": "Test scaffolding - obsolete Test text output",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_e69733f64499",
+      "timestamp": "2025-12-24T03:33:08Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T215",
+      "before": {
+        "status": "blocked",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T03:33:08Z"
+      },
+      "details": {
+        "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_38e93e609279",
+      "timestamp": "2025-12-24T03:33:10Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T216",
+      "before": {
+        "status": "blocked",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T03:33:09Z"
+      },
+      "details": {
+        "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_54a839f1053b",
+      "timestamp": "2025-12-24T03:33:12Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T217",
+      "before": {
+        "status": "blocked",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T03:33:11Z"
+      },
+      "details": {
+        "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_2b132cdb4734",
+      "timestamp": "2025-12-24T03:33:13Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T218",
+      "before": {
+        "status": "blocked",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T03:33:13Z"
+      },
+      "details": {
+        "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_4bb613000fda",
+      "timestamp": "2025-12-24T03:33:16Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T219",
+      "before": {
+        "status": "blocked",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T03:33:15Z"
+      },
+      "details": {
+        "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_a45d15e3bbb2",
+      "timestamp": "2025-12-24T03:33:26Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T220",
+      "before": {
+        "status": "blocked",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T03:33:26Z"
+      },
+      "details": {
+        "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_e10b05098a50",
+      "timestamp": "2025-12-24T03:33:28Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T221",
+      "before": {
+        "status": "blocked",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T03:33:27Z"
+      },
+      "details": {
+        "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
         "childStrategy": "block",
         "affectedCount": 1
       }

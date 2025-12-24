@@ -121,9 +121,9 @@
       }
     ]
   },
-  "lastUpdated": "2025-12-24T03:28:57Z",
+  "lastUpdated": "2025-12-24T03:33:27Z",
   "_meta": {
-    "checksum": "12a699d356bc6f33",
+    "checksum": "12a70d88ec649412",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -193,7 +193,7 @@
     {
       "id": "T215",
       "title": "T204.1: Configuration Schema Design",
-      "status": "blocked",
+      "status": "cancelled",
       "priority": "high",
       "createdAt": "2025-12-15T05:01:58Z",
       "phase": "setup",
@@ -208,19 +208,22 @@
       ],
       "notes": [
         "2025-12-15 05:06:07 UTC: DOC: claudedocs/CONSENSUS-FRAMEWORK-SPEC.md (Execution Protocol, Subagent Mappings)",
-        "2025-12-24 00:10:09 UTC: SUPERSEDED: Configuration schema now in RCSD-PIPELINE-SPEC Part 5. Config embedded in spec authority."
+        "2025-12-24 00:10:09 UTC: SUPERSEDED: Configuration schema now in RCSD-PIPELINE-SPEC Part 5. Config embedded in spec authority.",
+        "[CANCELLED 2025-12-24T03:33:08Z] Superseded by T719 RCSD Pipeline - see T719 description"
       ],
       "files": [
         "claudedocs/CONSENSUS-FRAMEWORK-SPEC.md"
       ],
       "type": "task",
       "parentId": null,
-      "size": null
+      "size": null,
+      "cancelledAt": "2025-12-24T03:33:08Z",
+      "cancelReason": "Superseded by T719 RCSD Pipeline - see T719 description"
     },
     {
       "id": "T216",
       "title": "T204.2: Parameterized Prompt Templates",
-      "status": "blocked",
+      "status": "cancelled",
       "priority": "high",
       "createdAt": "2025-12-15T05:02:11Z",
       "phase": "setup",
@@ -235,19 +238,22 @@
       ],
       "notes": [
         "2025-12-15 05:06:08 UTC: DOC: claudedocs/CONSENSUS-FRAMEWORK-SPEC.md (Agent Roles, Evidence Passing Protocol)",
-        "2025-12-24 00:10:10 UTC: SUPERSEDED: Prompt templates now in RCSD-PIPELINE-SPEC Part 4. Agent roles defined in spec."
+        "2025-12-24 00:10:10 UTC: SUPERSEDED: Prompt templates now in RCSD-PIPELINE-SPEC Part 4. Agent roles defined in spec.",
+        "[CANCELLED 2025-12-24T03:33:09Z] Superseded by T719 RCSD Pipeline - see T719 description"
       ],
       "files": [
         "claudedocs/CONSENSUS-FRAMEWORK-SPEC.md"
       ],
       "type": "task",
       "parentId": null,
-      "size": null
+      "size": null,
+      "cancelledAt": "2025-12-24T03:33:09Z",
+      "cancelReason": "Superseded by T719 RCSD Pipeline - see T719 description"
     },
     {
       "id": "T217",
       "title": "T204.3: State Management Design",
-      "status": "blocked",
+      "status": "cancelled",
       "priority": "high",
       "createdAt": "2025-12-15T05:02:26Z",
       "phase": "setup",
@@ -262,19 +268,22 @@
       ],
       "notes": [
         "2025-12-15 05:06:09 UTC: DOC: claudedocs/CONSENSUS-FRAMEWORK-SPEC.md (Completion Criteria, Position Identification, Session Protocols)",
-        "2025-12-24 00:10:13 UTC: SUPERSEDED: State management via _manifest.json + RCSD-INDEX.json per RCSD-PIPELINE-SPEC Part 2."
+        "2025-12-24 00:10:13 UTC: SUPERSEDED: State management via _manifest.json + RCSD-INDEX.json per RCSD-PIPELINE-SPEC Part 2.",
+        "[CANCELLED 2025-12-24T03:33:11Z] Superseded by T719 RCSD Pipeline - see T719 description"
       ],
       "files": [
         "claudedocs/CONSENSUS-FRAMEWORK-SPEC.md"
       ],
       "type": "task",
       "parentId": null,
-      "size": null
+      "size": null,
+      "cancelledAt": "2025-12-24T03:33:11Z",
+      "cancelReason": "Superseded by T719 RCSD Pipeline - see T719 description"
     },
     {
       "id": "T218",
       "title": "T204.4: Output JSON Schemas",
-      "status": "blocked",
+      "status": "cancelled",
       "priority": "medium",
       "createdAt": "2025-12-15T05:02:39Z",
       "phase": "setup",
@@ -289,19 +298,22 @@
       ],
       "notes": [
         "2025-12-15 05:06:10 UTC: DOC: claudedocs/CONSENSUS-FRAMEWORK-SPEC.md (Output Artifacts section)",
-        "2025-12-24 00:10:14 UTC: SUPERSEDED: Output schemas in schemas/rcsd-*.schema.json per RCSD-PIPELINE-SPEC Part 5."
+        "2025-12-24 00:10:14 UTC: SUPERSEDED: Output schemas in schemas/rcsd-*.schema.json per RCSD-PIPELINE-SPEC Part 5.",
+        "[CANCELLED 2025-12-24T03:33:13Z] Superseded by T719 RCSD Pipeline - see T719 description"
       ],
       "files": [
         "claudedocs/CONSENSUS-FRAMEWORK-SPEC.md"
       ],
       "type": "task",
       "parentId": null,
-      "size": null
+      "size": null,
+      "cancelledAt": "2025-12-24T03:33:13Z",
+      "cancelReason": "Superseded by T719 RCSD Pipeline - see T719 description"
     },
     {
       "id": "T219",
       "title": "T204.5: Integration Points Specification",
-      "status": "blocked",
+      "status": "cancelled",
       "priority": "medium",
       "createdAt": "2025-12-15T05:02:52Z",
       "phase": "setup",
@@ -316,19 +328,22 @@
       ],
       "notes": [
         "2025-12-15 05:06:11 UTC: DOC: claudedocs/CONSENSUS-FRAMEWORK-SPEC.md (Execution Protocol, Task Tracking Protocol, Agent Execution Model)",
-        "2025-12-24 00:10:17 UTC: SUPERSEDED: Integration points in RCSD-PIPELINE-SPEC Part 3. Unified command flow."
+        "2025-12-24 00:10:17 UTC: SUPERSEDED: Integration points in RCSD-PIPELINE-SPEC Part 3. Unified command flow.",
+        "[CANCELLED 2025-12-24T03:33:15Z] Superseded by T719 RCSD Pipeline - see T719 description"
       ],
       "files": [
         "claudedocs/CONSENSUS-FRAMEWORK-SPEC.md"
       ],
       "type": "task",
       "parentId": null,
-      "size": null
+      "size": null,
+      "cancelledAt": "2025-12-24T03:33:15Z",
+      "cancelReason": "Superseded by T719 RCSD Pipeline - see T719 description"
     },
     {
       "id": "T220",
       "title": "T204.6: Error Recovery Protocols",
-      "status": "blocked",
+      "status": "cancelled",
       "priority": "medium",
       "createdAt": "2025-12-15T05:03:07Z",
       "phase": "setup",
@@ -343,19 +358,22 @@
       ],
       "notes": [
         "2025-12-15 05:06:13 UTC: DOC: claudedocs/CONSENSUS-FRAMEWORK-SPEC.md (Risk Mitigation, Session Recovery, HITL Gate Protocol)",
-        "2025-12-24 00:10:19 UTC: SUPERSEDED: Error recovery in RCSD-PIPELINE-SPEC Part 8. Exit codes 30-35."
+        "2025-12-24 00:10:19 UTC: SUPERSEDED: Error recovery in RCSD-PIPELINE-SPEC Part 8. Exit codes 30-35.",
+        "[CANCELLED 2025-12-24T03:33:26Z] Superseded by T719 RCSD Pipeline - see T719 description"
       ],
       "files": [
         "claudedocs/CONSENSUS-FRAMEWORK-SPEC.md"
       ],
       "type": "task",
       "parentId": null,
-      "size": null
+      "size": null,
+      "cancelledAt": "2025-12-24T03:33:26Z",
+      "cancelReason": "Superseded by T719 RCSD Pipeline - see T719 description"
     },
     {
       "id": "T221",
       "title": "T204.7: Invocation Modes Specification",
-      "status": "blocked",
+      "status": "cancelled",
       "priority": "medium",
       "createdAt": "2025-12-15T05:03:23Z",
       "phase": "setup",
@@ -370,14 +388,17 @@
       ],
       "notes": [
         "2025-12-15 05:06:15 UTC: DOC: claudedocs/CONSENSUS-FRAMEWORK-SPEC.md (Future Plugin Design section)",
-        "2025-12-24 00:10:21 UTC: SUPERSEDED: Invocation modes in RCSD-PIPELINE-SPEC Part 3. Single unified pipeline."
+        "2025-12-24 00:10:21 UTC: SUPERSEDED: Invocation modes in RCSD-PIPELINE-SPEC Part 3. Single unified pipeline.",
+        "[CANCELLED 2025-12-24T03:33:27Z] Superseded by T719 RCSD Pipeline - see T719 description"
       ],
       "files": [
         "claudedocs/CONSENSUS-FRAMEWORK-SPEC.md"
       ],
       "type": "task",
       "parentId": null,
-      "size": null
+      "size": null,
+      "cancelledAt": "2025-12-24T03:33:27Z",
+      "cancelReason": "Superseded by T719 RCSD Pipeline - see T719 description"
     },
     {
       "id": "T239",
