@@ -3,7 +3,7 @@
 > **The task management protocol for solo developers and their AI coding agents**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.34.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.34.1-blue.svg)](CHANGELOG.md)
 [![LLM-Agent-First](https://img.shields.io/badge/design-LLM--Agent--First-purple.svg)](docs/specs/LLM-AGENT-FIRST-SPEC.md)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 

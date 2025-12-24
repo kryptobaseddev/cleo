@@ -2,7 +2,7 @@
 # validation.sh - Core validation library for claude-todo system
 #
 # LAYER: 2 (Core Services)
-# DEPENDENCIES: platform-compat.sh, exit-codes.sh, config.sh, hierarchy.sh (optional)
+# DEPENDENCIES: platform-compat.sh, exit-codes.sh, config.sh
 # PROVIDES: validate_task, validate_json_file, validate_task_id, validate_status,
 #           validate_priority, validate_title, validate_cancel_reason, check_duplicates,
 #           validate_checksum, validate_task_hierarchy
@@ -34,14 +34,32 @@ if ! check_required_tools; then
     exit 1
 fi
 
-# Source migration library for version checking (optional)
-if [[ -f "$_LIB_DIR/migrate.sh" ]]; then
-    # shellcheck source=lib/migrate.sh
-    source "$_LIB_DIR/migrate.sh"
-    MIGRATION_AVAILABLE=true
-else
-    MIGRATION_AVAILABLE=false
-fi
+# Migration library is NOT sourced at load time to avoid circular dependencies.
+# file-ops.sh → validation.sh → migrate.sh → file-ops.sh would create a cycle.
+# Migration functions (check_compatibility, detect_file_version, get_expected_version)
+# are only needed for optional version checking in validate_version().
+# Use lazy loading via _ensure_migrate_loaded() if migration support is needed.
+MIGRATION_AVAILABLE=false
+_MIGRATE_LOAD_ATTEMPTED=false
+
+# Lazy-load migration library on demand
+# Returns: 0 if loaded successfully, 1 if not available
+_ensure_migrate_loaded() {
+    # Only attempt to load once
+    if [[ "$_MIGRATE_LOAD_ATTEMPTED" == "true" ]]; then
+        [[ "$MIGRATION_AVAILABLE" == "true" ]]
+        return $?
+    fi
+    _MIGRATE_LOAD_ATTEMPTED=true
+
+    if [[ -f "$_LIB_DIR/migrate.sh" ]]; then
+        # shellcheck source=lib/migrate.sh
+        source "$_LIB_DIR/migrate.sh"
+        MIGRATION_AVAILABLE=true
+        return 0
+    fi
+    return 1
+}
 
 # Source exit codes library for standardized error codes
 if [[ -f "$_LIB_DIR/exit-codes.sh" ]]; then
@@ -52,14 +70,29 @@ else
     EXIT_CODES_AVAILABLE=false
 fi
 
-# Source hierarchy library for parent/child validation (optional)
-if [[ -f "$_LIB_DIR/hierarchy.sh" ]]; then
-    # shellcheck source=lib/hierarchy.sh
-    source "$_LIB_DIR/hierarchy.sh"
-    HIERARCHY_AVAILABLE=true
-else
-    HIERARCHY_AVAILABLE=false
-fi
+# Hierarchy library is NOT sourced at load time to keep Layer 2 deps minimal.
+# Use lazy loading via _ensure_hierarchy_loaded() if hierarchy support is needed.
+HIERARCHY_AVAILABLE=false
+_HIERARCHY_LOAD_ATTEMPTED=false
+
+# Lazy-load hierarchy library on demand
+# Returns: 0 if loaded successfully, 1 if not available
+_ensure_hierarchy_loaded() {
+    # Only attempt to load once
+    if [[ "$_HIERARCHY_LOAD_ATTEMPTED" == "true" ]]; then
+        [[ "$HIERARCHY_AVAILABLE" == "true" ]]
+        return $?
+    fi
+    _HIERARCHY_LOAD_ATTEMPTED=true
+
+    if [[ -f "$_LIB_DIR/hierarchy.sh" ]]; then
+        # shellcheck source=lib/hierarchy.sh
+        source "$_LIB_DIR/hierarchy.sh"
+        HIERARCHY_AVAILABLE=true
+        return 0
+    fi
+    return 1
+}
 
 # Source config library for validation config settings (optional)
 if [[ -f "$_LIB_DIR/config.sh" ]]; then
@@ -461,12 +494,15 @@ validate_version() {
     local file="$1"
     local schema_type="$2"
 
-    # Skip if migration not available
+    # Lazy-load migration library if not already loaded
     if [[ "$MIGRATION_AVAILABLE" != "true" ]]; then
-        return 0
+        if ! _ensure_migrate_loaded; then
+            # Migration library not available - skip version checking (non-blocking)
+            return 0
+        fi
     fi
 
-    # Skip if function not available
+    # Verify required functions are available after loading
     if ! declare -f check_compatibility >/dev/null 2>&1; then
         return 0
     fi
@@ -1457,8 +1493,8 @@ validate_hierarchy_integrity() {
     local todo_file="$1"
     local errors=0
 
-    # Skip if hierarchy library not available
-    if [[ "$HIERARCHY_AVAILABLE" != "true" ]]; then
+    # Lazy-load hierarchy library on demand
+    if ! _ensure_hierarchy_loaded; then
         echo "INFO: Hierarchy library not available, skipping hierarchy validation" >&2
         return 0
     fi
@@ -1569,9 +1605,9 @@ validate_all() {
     echo "Schema type: $schema_type"
     echo "----------------------------------------"
 
-    # 0. Version Check (non-blocking warning)
-    if [[ "$MIGRATION_AVAILABLE" == "true" ]]; then
-        echo "[0/10] Checking schema version..."
+    # 0. Version Check (non-blocking warning, uses lazy-loaded migrate.sh)
+    echo "[0/10] Checking schema version..."
+    if _ensure_migrate_loaded && [[ "$MIGRATION_AVAILABLE" == "true" ]]; then
         if ! validate_version "$file" "$schema_type"; then
             echo "⚠ WARNING: Version check failed"
         else
@@ -1579,6 +1615,8 @@ validate_all() {
             current_version=$(detect_file_version "$file" 2>/dev/null || echo "unknown")
             echo "✓ PASSED: Version $current_version compatible"
         fi
+    else
+        echo "  (skipped - migration library not available)"
     fi
 
     # 1. JSON Syntax Validation
@@ -1761,15 +1799,12 @@ validate_all() {
     # 9. Hierarchy Validation (v0.17.0+)
     if [[ "$schema_type" == "todo" ]]; then
         echo "[9/10] Validating task hierarchy..."
-        if [[ "$HIERARCHY_AVAILABLE" == "true" ]]; then
-            if ! validate_hierarchy_integrity "$file"; then
-                ((semantic_errors++))
-                echo "✗ FAILED: Hierarchy validation failed"
-            else
-                echo "✓ PASSED: Hierarchy valid"
-            fi
+        # validate_hierarchy_integrity handles lazy loading internally
+        if ! validate_hierarchy_integrity "$file"; then
+            ((semantic_errors++))
+            echo "✗ FAILED: Hierarchy validation failed"
         else
-            echo "[9/10] Skipping hierarchy validation (library not available)"
+            echo "✓ PASSED: Hierarchy valid"
         fi
     else
         echo "[9/10] Skipping hierarchy validation (not applicable)"

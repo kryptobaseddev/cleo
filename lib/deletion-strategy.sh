@@ -2,7 +2,8 @@
 # deletion-strategy.sh - Strategy Pattern for child handling during task deletion/cancellation
 #
 # LAYER: 3 (Domain Logic)
-# DEPENDENCIES: exit-codes.sh, hierarchy.sh, config.sh, logging.sh, file-ops.sh, cancel-ops.sh
+# DEPENDENCIES: exit-codes.sh, hierarchy.sh, file-ops.sh
+# NOTE: config.sh functions available transitively via hierarchy.sh
 # PROVIDES: handle_children, handle_children_block, handle_children_cascade,
 #           handle_children_orphan, DELETION_STRATEGIES, VALID_CHILD_STRATEGIES
 #
@@ -18,11 +19,62 @@ _DELETION_STRATEGY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source dependencies (each has its own source guard)
 source "$_DELETION_STRATEGY_LIB_DIR/exit-codes.sh"
-source "$_DELETION_STRATEGY_LIB_DIR/hierarchy.sh"
-source "$_DELETION_STRATEGY_LIB_DIR/config.sh"
-source "$_DELETION_STRATEGY_LIB_DIR/logging.sh"
+source "$_DELETION_STRATEGY_LIB_DIR/hierarchy.sh"   # Also provides config.sh functions transitively
 source "$_DELETION_STRATEGY_LIB_DIR/file-ops.sh"
-source "$_DELETION_STRATEGY_LIB_DIR/cancel-ops.sh"
+
+# =============================================================================
+# Logging Callback (Dependency Injection Pattern)
+# =============================================================================
+# Allows parent scripts to inject their own logging implementation
+# without creating a hard dependency on logging.sh
+#
+# Usage: Set _DS_LOG_FN to the name of your log function before sourcing
+#        Example: _DS_LOG_FN="log_operation" source deletion-strategy.sh
+#
+_ds_log_operation() {
+    # Default no-op; override by setting: _DS_LOG_FN=your_log_function
+    if [[ -n "${_DS_LOG_FN:-}" ]] && declare -f "$_DS_LOG_FN" >/dev/null 2>&1; then
+        "$_DS_LOG_FN" "$@"
+    fi
+    # Silent success if no log function configured
+    return 0
+}
+
+# =============================================================================
+# Locking Wrappers (Thin wrappers around file-ops.sh lock_file/unlock_file)
+# =============================================================================
+# These wrap the file-ops.sh locking primitives with task-specific semantics
+
+# _ds_acquire_task_lock - Acquire lock on todo file before modification
+# Args: $1 - Path to todo.json, $2 - Timeout (optional, default 30)
+# Returns: File descriptor number via stdout
+# Exit code: 0 on success, EXIT_LOCK_TIMEOUT on failure
+_ds_acquire_task_lock() {
+    local todo_file="$1"
+    local timeout="${2:-30}"
+    local lock_fd=""
+
+    if declare -f lock_file >/dev/null 2>&1; then
+        if lock_file "$todo_file" lock_fd "$timeout"; then
+            echo "$lock_fd"
+            return 0
+        else
+            return "${EXIT_LOCK_TIMEOUT:-7}"
+        fi
+    fi
+    # Fallback: no locking available
+    echo ""
+    return 0
+}
+
+# _ds_release_task_lock - Release lock on todo file
+# Args: $1 - File descriptor to release
+_ds_release_task_lock() {
+    local lock_fd="$1"
+    if [[ -n "$lock_fd" ]] && declare -f unlock_file >/dev/null 2>&1; then
+        unlock_file "$lock_fd"
+    fi
+}
 
 # =============================================================================
 # Strategy Registry (Open/Closed Principle)
@@ -178,7 +230,7 @@ handle_children_cascade() {
     local lock_fd=""
 
     # Acquire lock before reading/modifying file
-    if ! lock_fd=$(acquire_task_lock "$todo_file"); then
+    if ! lock_fd=$(_ds_acquire_task_lock "$todo_file"); then
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -198,7 +250,7 @@ handle_children_cascade() {
 
     if [[ -z "$children" ]]; then
         # Leaf task - no children to cascade
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -215,7 +267,7 @@ handle_children_cascade() {
     local allow_cascade
     allow_cascade=$(get_allow_cascade)
     if [[ "$allow_cascade" != "true" ]]; then
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -249,7 +301,7 @@ handle_children_cascade() {
         local descendant_ids_json
         descendant_ids_json=$(echo "$descendants" | tr ' ' '\n' | jq -R . | jq -s .)
 
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             --argjson count "$descendant_count" \
@@ -303,7 +355,7 @@ handle_children_cascade() {
         ' "$todo_file")
 
     if [[ $? -ne 0 ]]; then
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -319,7 +371,7 @@ handle_children_cascade() {
 
     # Save atomically
     if ! save_json "$todo_file" "$updated_json"; then
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -334,7 +386,7 @@ handle_children_cascade() {
     fi
 
     # Release lock after successful save
-    release_task_lock "$lock_fd"
+    _ds_release_task_lock "$lock_fd"
 
     # Log the cascade operation
     local details
@@ -349,7 +401,7 @@ handle_children_cascade() {
             "affectedIds": $ids
         }')
 
-    log_operation "task_cascade_cancelled" "system" "$task_id" "null" "null" "$details" 2>/dev/null || true
+    _ds_log_operation "task_cascade_cancelled" "system" "$task_id" "null" "null" "$details"
 
     # Return success with affected tasks
     jq -n \
@@ -395,7 +447,7 @@ handle_children_orphan() {
     local lock_fd=""
 
     # Acquire lock before reading/modifying file
-    if ! lock_fd=$(acquire_task_lock "$todo_file"); then
+    if ! lock_fd=$(_ds_acquire_task_lock "$todo_file"); then
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -415,7 +467,7 @@ handle_children_orphan() {
 
     if [[ -z "$children" ]]; then
         # No children to orphan
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -451,7 +503,7 @@ handle_children_orphan() {
         ' "$todo_file")
 
     if [[ $? -ne 0 ]]; then
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -467,7 +519,7 @@ handle_children_orphan() {
 
     # Save atomically
     if ! save_json "$todo_file" "$updated_json"; then
-        release_task_lock "$lock_fd"
+        _ds_release_task_lock "$lock_fd"
         jq -n \
             --arg task_id "$task_id" \
             '{
@@ -482,7 +534,7 @@ handle_children_orphan() {
     fi
 
     # Release lock after successful save
-    release_task_lock "$lock_fd"
+    _ds_release_task_lock "$lock_fd"
 
     # Build affected IDs array
     local affected_ids=()
@@ -503,7 +555,7 @@ handle_children_orphan() {
             "orphanedIds": $ids
         }')
 
-    log_operation "task_children_orphaned" "system" "$task_id" "null" "null" "$details" 2>/dev/null || true
+    _ds_log_operation "task_children_orphaned" "system" "$task_id" "null" "null" "$details"
 
     # Return success with orphaned tasks
     jq -n \

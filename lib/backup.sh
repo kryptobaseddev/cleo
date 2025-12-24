@@ -2,7 +2,7 @@
 # backup.sh - Unified backup management for claude-todo
 #
 # LAYER: 2 (Core Services)
-# DEPENDENCIES: platform-compat.sh, validation.sh, logging.sh, file-ops.sh
+# DEPENDENCIES: file-ops.sh, validation.sh, logging.sh
 # PROVIDES: create_snapshot_backup, create_safety_backup, create_archive_backup,
 #           create_migration_backup, list_typed_backups, restore_typed_backup,
 #           rotate_backups, get_backup_metadata, BACKUP_TYPES
@@ -103,11 +103,12 @@ IFS=$'\n\t'
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source required libraries
-if [[ -f "$_LIB_DIR/platform-compat.sh" ]]; then
-    # shellcheck source=lib/platform-compat.sh
-    source "$_LIB_DIR/platform-compat.sh"
+# NOTE: file-ops.sh sources platform-compat.sh, so we get platform functions transitively
+if [[ -f "$_LIB_DIR/file-ops.sh" ]]; then
+    # shellcheck source=lib/file-ops.sh
+    source "$_LIB_DIR/file-ops.sh"
 else
-    echo "ERROR: Cannot find platform-compat.sh in $_LIB_DIR" >&2
+    echo "ERROR: Cannot find file-ops.sh in $_LIB_DIR" >&2
     exit 1
 fi
 
@@ -124,14 +125,6 @@ if [[ -f "$_LIB_DIR/logging.sh" ]]; then
     source "$_LIB_DIR/logging.sh"
 else
     echo "ERROR: Cannot find logging.sh in $_LIB_DIR" >&2
-    exit 1
-fi
-
-if [[ -f "$_LIB_DIR/file-ops.sh" ]]; then
-    # shellcheck source=lib/file-ops.sh
-    source "$_LIB_DIR/file-ops.sh"
-else
-    echo "ERROR: Cannot find file-ops.sh in $_LIB_DIR" >&2
     exit 1
 fi
 

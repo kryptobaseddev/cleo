@@ -2,11 +2,15 @@
 # file-ops.sh - Atomic file operations with backup management
 #
 # LAYER: 2 (Core Services)
-# DEPENDENCIES: platform-compat.sh, validation.sh, config.sh
+# DEPENDENCIES: platform-compat.sh, config.sh, atomic-write.sh
 # PROVIDES: atomic_write, save_json, backup_file, restore_backup, lock_file,
 #           unlock_file, recalculate_checksum, safe_file_read
 #
 # Design: All operations use temp files for atomicity with automatic backup rotation
+#
+# NOTE: This library does NOT depend on validation.sh to break circular dependency:
+#       file-ops.sh -> validation.sh -> migrate.sh -> file-ops.sh
+#       Validation is a Layer 2 concern handled by callers, not this library.
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_FILE_OPS_LOADED:-}" ]] && return 0
@@ -20,7 +24,7 @@ set -euo pipefail
 
 _LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source platform compatibility layer
+# Source platform compatibility layer (Layer 0)
 if [[ -f "$_LIB_DIR/platform-compat.sh" ]]; then
     # shellcheck source=lib/platform-compat.sh
     source "$_LIB_DIR/platform-compat.sh"
@@ -29,13 +33,13 @@ else
     exit 1
 fi
 
-# Source validation library for path sanitization (security)
-# Only source if not already loaded (validation.sh has its own guard)
-if [[ -f "$_LIB_DIR/validation.sh" ]]; then
-    # shellcheck source=lib/validation.sh
-    source "$_LIB_DIR/validation.sh"
+# Source atomic-write library (Layer 1) for primitive atomic operations
+# This breaks the circular dependency by using Layer 1 primitives
+if [[ -f "$_LIB_DIR/atomic-write.sh" ]]; then
+    # shellcheck source=lib/atomic-write.sh
+    source "$_LIB_DIR/atomic-write.sh"
 else
-    echo "ERROR: Cannot find validation.sh in $_LIB_DIR" >&2
+    echo "ERROR: Cannot find atomic-write.sh in $_LIB_DIR" >&2
     exit 1
 fi
 
@@ -72,6 +76,82 @@ FO_RESTORE_FAILED=6
 FO_JSON_PARSE_FAILED=7
 FO_LOCK_FAILED=8
 
+# ============================================================================
+# SECURITY FUNCTIONS (inlined from validation.sh to avoid circular dependency)
+# ============================================================================
+
+#######################################
+# Sanitize file path for safe shell usage
+# Validates path does not contain shell metacharacters that could enable injection
+# Arguments:
+#   $1 - Path to sanitize
+# Outputs:
+#   Sanitized path to stdout if valid
+# Returns:
+#   0 if path is safe, 1 if path contains dangerous characters
+# Security:
+#   Prevents command injection via malicious file names with shell metacharacters
+#   Used before any eval statements that include file paths
+#######################################
+_fo_sanitize_file_path() {
+    local path="$1"
+
+    # Check for empty path
+    if [[ -z "$path" ]]; then
+        echo "ERROR: Empty path provided" >&2
+        return $FO_INVALID_ARGS
+    fi
+
+    # Note: Null byte check removed - bash cannot store null bytes in variables.
+    # If a path contains null bytes, bash will truncate it before reaching here.
+    # The metacharacter check below handles all relevant security concerns.
+
+    # Check for shell metacharacters that could enable command injection
+    # These characters have special meaning in shell contexts:
+    #   $ - variable expansion / command substitution
+    #   ` - command substitution (backticks)
+    #   ; - command separator
+    #   | - pipe
+    #   & - background / AND operator
+    #   < > - redirection
+    #   ' " - quoting (can break out of quotes)
+    #   ( ) - subshell / grouping
+    #   { } - brace expansion / command grouping
+    #   [ ] - glob patterns / test brackets
+    #   ! - history expansion / negation
+    #   \ - escape character (at end of path)
+    #   newline/carriage return - command separator
+    if [[ "$path" == *'$'* ]] || [[ "$path" == *'`'* ]] || [[ "$path" == *';'* ]] || \
+       [[ "$path" == *'|'* ]] || [[ "$path" == *'&'* ]] || [[ "$path" == *'<'* ]] || \
+       [[ "$path" == *'>'* ]] || [[ "$path" == *"'"* ]] || [[ "$path" == *'"'* ]] || \
+       [[ "$path" == *'('* ]] || [[ "$path" == *')'* ]] || [[ "$path" == *'{'* ]] || \
+       [[ "$path" == *'}'* ]] || [[ "$path" == *'['* ]] || [[ "$path" == *']'* ]] || \
+       [[ "$path" == *'!'* ]]; then
+        echo "ERROR: Path contains shell metacharacters - potential injection attempt: $path" >&2
+        return $FO_INVALID_ARGS
+    fi
+
+    # Check for backslash at end of path (could escape following character)
+    if [[ "$path" == *'\' ]]; then
+        echo "ERROR: Path ends with backslash - potential injection attempt" >&2
+        return $FO_INVALID_ARGS
+    fi
+
+    # Check for newlines and carriage returns (command separators)
+    if [[ "$path" == *$'\n'* ]] || [[ "$path" == *$'\r'* ]]; then
+        echo "ERROR: Path contains newline/carriage return - potential injection attempt" >&2
+        return $FO_INVALID_ARGS
+    fi
+
+    # Path is safe - output it
+    printf '%s' "$path"
+    return $FO_SUCCESS
+}
+
+# ============================================================================
+# DIRECTORY OPERATIONS
+# ============================================================================
+
 #######################################
 # Ensure directory exists with proper permissions
 # Arguments:
@@ -87,18 +167,17 @@ ensure_directory() {
         return $FO_INVALID_ARGS
     fi
 
-    if [[ ! -d "$dir" ]]; then
-        if ! mkdir -p "$dir" 2>/dev/null; then
-            echo "Error: Failed to create directory: $dir" >&2
-            return $FO_WRITE_FAILED
-        fi
-
-        # Set proper permissions (owner: rwx, group: rx, other: rx)
-        chmod 755 "$dir" 2>/dev/null || true
+    # Delegate to atomic-write.sh Layer 1 primitive
+    if ! aw_ensure_dir "$dir"; then
+        return $FO_WRITE_FAILED
     fi
 
     return $FO_SUCCESS
 }
+
+# ============================================================================
+# FILE LOCKING
+# ============================================================================
 
 #######################################
 # Acquire exclusive lock on a file
@@ -128,7 +207,7 @@ lock_file() {
     # SECURITY: Sanitize file path before use in eval statements
     # Prevents command injection via malicious file names with shell metacharacters
     local safe_file
-    if ! safe_file=$(sanitize_file_path "$file"); then
+    if ! safe_file=$(_fo_sanitize_file_path "$file"); then
         echo "Error: Invalid file path for locking (security check failed)" >&2
         return $FO_INVALID_ARGS
     fi
@@ -150,7 +229,7 @@ lock_file() {
     # Create lock file path and sanitize it
     local lock_file="${safe_file}${LOCK_SUFFIX}"
     local safe_lock_file
-    if ! safe_lock_file=$(sanitize_file_path "$lock_file"); then
+    if ! safe_lock_file=$(_fo_sanitize_file_path "$lock_file"); then
         echo "Error: Invalid lock file path (security check failed)" >&2
         return $FO_INVALID_ARGS
     fi
@@ -228,6 +307,10 @@ unlock_file() {
     return $FO_SUCCESS
 }
 
+# ============================================================================
+# BACKUP OPERATIONS
+# ============================================================================
+
 #######################################
 # Create versioned backup of file
 # Arguments:
@@ -250,43 +333,16 @@ backup_file() {
         return $FO_FILE_NOT_FOUND
     fi
 
-    # Determine backup directory
-    local file_dir
-    file_dir="$(dirname "$file")"
-    local backup_dir="$file_dir/$BACKUP_DIR"
-
-    # Ensure backup directory exists
-    if ! ensure_directory "$backup_dir"; then
+    # Delegate to atomic-write.sh Layer 1 primitive
+    # aw_create_backup handles: directory creation, numbered backup, rotation
+    local backup_path
+    if ! backup_path=$(aw_create_backup "$file" "$MAX_BACKUPS" "$BACKUP_DIR"); then
+        echo "Error: Failed to create backup" >&2
         return $FO_BACKUP_FAILED
     fi
-
-    # Get base filename
-    local basename
-    basename="$(basename "$file")"
-
-    # Find next available backup number
-    local backup_num=1
-    local backup_file="$backup_dir/${basename}.${backup_num}"
-
-    while [[ -f "$backup_file" ]]; do
-        backup_num=$((backup_num + 1))
-        backup_file="$backup_dir/${basename}.${backup_num}"
-    done
-
-    # Copy file to backup
-    if ! cp -p "$file" "$backup_file" 2>/dev/null; then
-        echo "Error: Failed to create backup: $backup_file" >&2
-        return $FO_BACKUP_FAILED
-    fi
-
-    # Set backup file permissions (owner only)
-    chmod 600 "$backup_file" 2>/dev/null || true
-
-    # Rotate old backups (use internal function to avoid conflict with lib/backup.sh)
-    _rotate_numbered_backups "$file_dir" "$basename" "$MAX_BACKUPS"
 
     # Output backup file path
-    echo "$backup_file"
+    echo "$backup_path"
     return $FO_SUCCESS
 }
 
@@ -331,6 +387,10 @@ _rotate_numbered_backups() {
     return $FO_SUCCESS
 }
 
+# ============================================================================
+# ATOMIC WRITE OPERATIONS
+# ============================================================================
+
 #######################################
 # Atomic write operation with validation and backup
 # Arguments:
@@ -361,78 +421,27 @@ atomic_write() {
     # shellcheck disable=SC2064
     trap "unlock_file $lock_fd; rm -f '${file}${TEMP_SUFFIX}' 2>/dev/null || true" EXIT ERR INT TERM
 
-    # Ensure parent directory exists
-    local file_dir
-    file_dir="$(dirname "$file")"
-    if ! ensure_directory "$file_dir"; then
-        unlock_file "$lock_fd"
-        return $FO_WRITE_FAILED
+    # Read content from stdin if not provided as argument
+    if [[ -z "$content" ]]; then
+        content=$(cat)
     fi
 
-    # Create temporary file
-    local temp_file="${file}${TEMP_SUFFIX}"
-
-    # Write content to temp file
-    if [[ -n "$content" ]]; then
-        if ! echo "$content" > "$temp_file" 2>/dev/null; then
-            echo "Error: Failed to write to temp file: $temp_file" >&2
-            rm -f "$temp_file" 2>/dev/null || true
-            unlock_file "$lock_fd"
-            return $FO_WRITE_FAILED
-        fi
-    else
-        if ! cat > "$temp_file" 2>/dev/null; then
-            echo "Error: Failed to write to temp file: $temp_file" >&2
-            rm -f "$temp_file" 2>/dev/null || true
-            unlock_file "$lock_fd"
-            return $FO_WRITE_FAILED
-        fi
-    fi
-
-    # Validate temp file exists and has content
-    if [[ ! -f "$temp_file" ]]; then
-        echo "Error: Temp file not created: $temp_file" >&2
+    # Validate content is not empty
+    if [[ -z "$content" ]]; then
+        echo "Error: Content is empty" >&2
         unlock_file "$lock_fd"
-        return $FO_WRITE_FAILED
-    fi
-
-    if [[ ! -s "$temp_file" ]]; then
-        echo "Error: Temp file is empty: $temp_file" >&2
-        rm -f "$temp_file" 2>/dev/null || true
-        unlock_file "$lock_fd"
+        trap - EXIT ERR INT TERM
         return $FO_VALIDATION_FAILED
     fi
 
-    # Backup original file if it exists
-    local backup_file=""
-    if [[ -f "$file" ]]; then
-        backup_file=$(backup_file "$file")
-        local backup_result=$?
-        if [[ $backup_result -ne $FO_SUCCESS ]]; then
-            echo "Error: Failed to backup original file" >&2
-            rm -f "$temp_file" 2>/dev/null || true
-            unlock_file "$lock_fd"
-            return $FO_BACKUP_FAILED
-        fi
-    fi
-
-    # Atomic rename (mv is atomic on same filesystem)
-    if ! mv "$temp_file" "$file" 2>/dev/null; then
-        echo "Error: Failed to move temp file to target: $file" >&2
-
-        # Attempt rollback if backup exists
-        if [[ -n "$backup_file" && -f "$backup_file" ]]; then
-            echo "Attempting rollback from backup..." >&2
-            cp "$backup_file" "$file" 2>/dev/null || true
-        fi
-
-        rm -f "$temp_file" 2>/dev/null || true
+    # Use atomic-write.sh Layer 1 primitive for the actual write
+    # aw_atomic_write handles: temp file, backup, atomic move
+    if ! aw_atomic_write "$file" "$content" "$MAX_BACKUPS"; then
+        echo "Error: Atomic write failed for: $file" >&2
         unlock_file "$lock_fd"
+        trap - EXIT ERR INT TERM
         return $FO_WRITE_FAILED
     fi
-
-    # Set proper permissions
-    chmod 644 "$file" 2>/dev/null || true
 
     # Release lock before successful return
     unlock_file "$lock_fd"
@@ -510,6 +519,10 @@ restore_backup() {
     return $FO_SUCCESS
 }
 
+# ============================================================================
+# JSON OPERATIONS
+# ============================================================================
+
 #######################################
 # Load and parse JSON file
 # Arguments:
@@ -575,7 +588,9 @@ save_json() {
     fi
 
     # Pretty-print JSON and write atomically (with locking)
-    if ! echo "$json" | jq '.' | atomic_write "$file"; then
+    local pretty_json
+    pretty_json=$(echo "$json" | jq '.')
+    if ! atomic_write "$file" "$pretty_json"; then
         echo "Error: Failed to save JSON to: $file" >&2
         return $FO_WRITE_FAILED
     fi
@@ -637,3 +652,4 @@ export -f restore_backup
 export -f load_json
 export -f save_json
 export -f list_backups
+export -f _fo_sanitize_file_path

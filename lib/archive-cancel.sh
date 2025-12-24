@@ -2,7 +2,7 @@
 # archive-cancel.sh - Cancellation archival operations for claude-todo
 #
 # LAYER: 3 (Domain Logic)
-# DEPENDENCIES: exit-codes.sh, config.sh, file-ops.sh, logging.sh, platform-compat.sh
+# DEPENDENCIES: exit-codes.sh, config.sh, file-ops.sh
 # PROVIDES: prepare_cancel_archive_entry, archive_cancelled_task,
 #           archive_cancelled_tasks, should_auto_archive_cancel
 
@@ -36,12 +36,6 @@ fi
 if [[ -f "$_ARCHIVE_CANCEL_LIB_DIR/file-ops.sh" ]]; then
     # shellcheck source=lib/file-ops.sh
     source "$_ARCHIVE_CANCEL_LIB_DIR/file-ops.sh"
-fi
-
-# Source version library
-if [[ -f "$_ARCHIVE_CANCEL_LIB_DIR/version.sh" ]]; then
-    # shellcheck source=lib/version.sh
-    source "$_ARCHIVE_CANCEL_LIB_DIR/version.sh"
 fi
 
 # Fallback exit codes
@@ -230,7 +224,7 @@ archive_cancelled_task() {
         local project_name
         project_name=$(jq -r '.project.name // .project // "unknown"' "$todo_file")
         local version
-        version="${CLAUDE_TODO_VERSION:-$(get_version 2>/dev/null || echo '2.1.0')}"
+        version="${CLAUDE_TODO_VERSION:-2.4.0}"
 
         cat > "$archive_file" << EOF
 {
@@ -374,7 +368,7 @@ archive_cancelled_tasks() {
         local project_name
         project_name=$(jq -r '.project.name // .project // "unknown"' "$todo_file")
         local version
-        version="${CLAUDE_TODO_VERSION:-$(get_version 2>/dev/null || echo '2.1.0')}"
+        version="${CLAUDE_TODO_VERSION:-2.4.0}"
 
         cat > "$archive_file" << EOF
 {

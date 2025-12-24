@@ -5,6 +5,25 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] - 2025-12-24
+
+### Changed
+- **Refactored Library Dependencies**: Breaking circular dependency chains for cleaner architecture
+  - `validation.sh`: Changed to lazy-load `migrate.sh` via `_ensure_migrate_loaded()` function
+  - `file-ops.sh`: Now uses `atomic-write.sh` (Layer 1) instead of `validation.sh` (Layer 2)
+  - `backup.sh`, `cancel-ops.sh`, `deletion-strategy.sh`, `archive-cancel.sh`: Updated DEPENDENCIES headers
+  - `migrate.sh`: Refined dependency declarations
+
+### Added
+- **Library Compliance Script**: New `dev/check-lib-compliance.sh` for validating library architecture
+  - Validates LAYER/DEPENDENCIES/PROVIDES headers
+  - Checks source guard patterns
+  - Validates layer constraint compliance
+
+### Fixed
+- **Circular Dependency Prevention**: file-ops.sh no longer creates cycle:
+  `file-ops.sh -> validation.sh -> migrate.sh -> file-ops.sh`
+
 ## [0.34.0] - 2025-12-24
 
 ### Added

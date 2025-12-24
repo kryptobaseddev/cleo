@@ -2,7 +2,7 @@
 # migrate.sh - Schema version migration system for claude-todo
 #
 # LAYER: 2 (Core Services)
-# DEPENDENCIES: file-ops.sh, logging.sh
+# DEPENDENCIES: atomic-write.sh, logging.sh
 # PROVIDES: check_schema_version, run_migrations, get_default_phases,
 #           parse_version, compare_versions, get_schema_version_from_file,
 #           compare_schema_versions, bump_version_only, check_compatibility,
@@ -17,8 +17,8 @@ set -euo pipefail
 
 # Source dependencies
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/file-ops.sh
-source "$SCRIPT_DIR/file-ops.sh"
+# shellcheck source=lib/atomic-write.sh
+source "$SCRIPT_DIR/atomic-write.sh"
 # shellcheck source=lib/logging.sh
 source "$SCRIPT_DIR/logging.sh"
 
@@ -40,6 +40,33 @@ TEMPLATES_DIR="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/templates"
 
 # Schema directory
 SCHEMA_DIR="${SCHEMA_DIR:-${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/schemas}"
+
+# ============================================================================
+# LOCAL HELPER FUNCTIONS (LAYER 2)
+# ============================================================================
+
+# save_json - Atomic JSON save using Layer 1 primitives
+# This is a local implementation that doesn't require file-ops.sh
+# Args: $1 = file path, $2 = JSON content
+# Returns: 0 on success, 1 on failure
+save_json() {
+    local file="$1"
+    local content="$2"
+
+    if [[ -z "$file" || -z "$content" ]]; then
+        echo "save_json: Both file path and content required" >&2
+        return 1
+    fi
+
+    # Validate JSON before writing
+    if ! echo "$content" | jq empty 2>/dev/null; then
+        echo "save_json: Invalid JSON content" >&2
+        return 1
+    fi
+
+    # Use atomic-write.sh primitives
+    aw_atomic_write "$file" "$content"
+}
 
 # ============================================================================
 # SCHEMA VERSION HELPERS
@@ -1000,18 +1027,18 @@ log_migration() {
 # BACKWARD COMPATIBILITY ALIASES
 # ============================================================================
 
-# Alias for backward compatibility with file-ops.sh function names
+# Alias for backward compatibility - uses atomic-write.sh primitives
+# Args: $1 = file to backup, $2 = label (ignored for compatibility)
+# Returns: backup file path on stdout
 create_backup() {
-    # create_backup used to accept two arguments: file and label
-    # backup_file only accepts one argument: file
-    # The label argument is ignored for backward compatibility
-    backup_file "$1"
+    local file="$1"
+    # $2 (label) is ignored for backward compatibility
+    aw_create_backup "$file"
 }
 
-# Alias for backward compatibility with file-ops.sh function names
+# Alias for backward compatibility
+# Args: $1 = backup file, $2 = target file
 restore_file() {
-    # restore_file(backup_file, target_file) -> restore_backup(target_file, backup_num)
-    # This is a different signature, so we need to handle it carefully
     local backup="$1"
     local target="$2"
 
