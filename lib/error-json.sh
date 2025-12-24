@@ -1,33 +1,21 @@
 #!/usr/bin/env bash
 # error-json.sh - Standardized error JSON output for claude-todo
-# Part of the claude-todo-system library
 #
-# Provides format-aware error output functions that return structured JSON
-# when FORMAT=json, otherwise colored text to stderr.
+# LAYER: 1 (Core Infrastructure)
+# DEPENDENCIES: exit-codes.sh, platform-compat.sh
+# PROVIDES: output_error, output_error_with_context, format_error_json,
+#           add_error_context, get_error_code_name
 #
-# This is a critical component for LLM-agent-first design, enabling:
+# Critical component for LLM-agent-first design:
 # - Reliable error parsing in automation workflows
 # - Structured error codes and recovery suggestions
 # - Consistent error format across all commands
-#
-# Version: 0.16.0
-# Part of: LLM-Agent-First Implementation (Phase 1)
-#
-# Usage:
-#   source "${LIB_DIR}/error-json.sh"
-#   output_error "E_TASK_NOT_FOUND" "Task T999 does not exist" $EXIT_NOT_FOUND false "Use 'ct exists' to verify task ID"
-#
-# Dependencies:
-#   - exit-codes.sh (sourced automatically)
-#   - jq (for JSON construction)
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_ERROR_JSON_SH_LOADED:-}" ]] && return 0
+declare -r _ERROR_JSON_SH_LOADED=1
 
 set -euo pipefail
-
-# ============================================================================
-# SOURCE GUARD - Prevent double-sourcing which causes readonly variable errors
-# ============================================================================
-[[ -n "${_ERROR_JSON_SH_LOADED:-}" ]] && return 0
-_ERROR_JSON_SH_LOADED=1
 
 # ============================================================================
 # LIBRARY DEPENDENCIES

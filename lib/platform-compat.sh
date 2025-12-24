@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 # platform-compat.sh - Platform compatibility layer for external tools
-# Part of claude-todo system
-# Provides fallbacks and compatibility wrappers for cross-platform support
+#
+# LAYER: 0 (Foundation)
+# DEPENDENCIES: none
+# PROVIDES: detect_platform, command_exists, require_tool, check_required_tools,
+#           check_bash_version, get_bash_version_info, get_iso_timestamp,
+#           iso_to_epoch, date_days_ago, get_file_size, get_file_mtime,
+#           generate_random_hex, detect_json_validator, validate_json_schema,
+#           safe_find, safe_find_sorted_by_mtime, safe_checksum, safe_checksum_stdin,
+#           create_temp_file, PLATFORM
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_PLATFORM_COMPAT_LOADED:-}" ]] && return 0
+declare -r _PLATFORM_COMPAT_LOADED=1
 
 set -euo pipefail
 

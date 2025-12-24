@@ -5,6 +5,15 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.4] - 2025-12-24
+
+### Changed
+- **Task Notes Max Length**: Increased from 500 to 5000 characters
+  - Allows for more detailed implementation logs and context
+  - Schema version bumped to 2.4.0 (backwards compatible)
+  - Updated: `lib/validation.sh`, `schemas/todo.schema.json`, `lib/migrate.sh`
+  - Updated compliance checks and documentation
+
 ## [0.32.2] - 2025-12-24
 
 ### Fixed

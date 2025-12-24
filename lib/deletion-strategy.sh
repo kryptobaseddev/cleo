@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# lib/deletion-strategy.sh - Strategy Pattern for child handling during task deletion/cancellation
+# deletion-strategy.sh - Strategy Pattern for child handling during task deletion/cancellation
 #
-# This module implements the Strategy Pattern for handling child tasks when a parent
-# task is deleted or cancelled. Three strategies are supported:
-#   - block:   Fail if task has children (safety-first default)
-#   - cascade: Cancel all descendants recursively
-#   - orphan:  Remove parent reference from direct children
+# LAYER: 3 (Domain Logic)
+# DEPENDENCIES: exit-codes.sh, hierarchy.sh, config.sh, logging.sh, file-ops.sh, cancel-ops.sh
+# PROVIDES: handle_children, handle_children_block, handle_children_cascade,
+#           handle_children_orphan, DELETION_STRATEGIES, VALID_CHILD_STRATEGIES
 #
-# Usage:
-#   source "$LIB_DIR/deletion-strategy.sh"
-#   handle_children "T001" "cascade" "$TODO_FILE" "$FORCE"
-#
-# Open/Closed Principle: Add new strategies by adding to DELETION_STRATEGIES registry
+# Strategies: block (fail if has children), cascade (cancel all), orphan (remove parent ref)
 
-# Guard against double-sourcing
+#=== SOURCE GUARD ================================================
 [[ -n "${_DELETION_STRATEGY_SH_LOADED:-}" ]] && return 0
 
 # Get lib directory for sourcing dependencies
@@ -28,7 +23,7 @@ source "$_DELETION_STRATEGY_LIB_DIR/file-ops.sh"
 source "$_DELETION_STRATEGY_LIB_DIR/cancel-ops.sh"
 
 # Mark as loaded AFTER all dependencies are sourced
-_DELETION_STRATEGY_SH_LOADED=1
+declare -r _DELETION_STRATEGY_SH_LOADED=1
 
 # =============================================================================
 # Strategy Registry (Open/Closed Principle)

@@ -293,7 +293,7 @@
         },
         "notes": {
           "type": "array",
-          "items": { "type": "string", "maxLength": 500 },
+          "items": { "type": "string", "maxLength": 5000 },
           "description": "Append-only implementation log. NEVER delete entries. Timestamp recommended."
         },
         "labels": {

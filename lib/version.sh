@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Version Helper
-# Single source of truth for version information
+# version.sh - Version management for claude-todo
+#
+# LAYER: 0 (Foundation)
+# DEPENDENCIES: none
+# PROVIDES: get_version, _get_version_file, CLAUDE_TODO_VERSION
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_VERSION_LOADED:-}" ]] && return 0
+declare -r _VERSION_LOADED=1
 
 # Determine the base directory (works for both installed and dev)
 _get_version_file() {

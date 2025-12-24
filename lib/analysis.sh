@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# lib/analysis.sh - Task analysis and prioritization algorithms
-# Part of claude-todo v0.15.0
+# analysis.sh - Task analysis and prioritization algorithms
 #
-# Functions:
-#   calculate_leverage_scores - Score tasks by downstream impact
-#   identify_bottlenecks - Find blocking tasks
-#   group_by_tiers - Auto-assign priority tiers
-#   get_analysis_summary - Combined analysis output
+# LAYER: 3 (Domain Logic)
+# DEPENDENCIES: file-ops.sh, validation.sh
+# PROVIDES: calculate_leverage_scores, identify_bottlenecks, group_by_tiers,
+#           get_analysis_summary, suggest_next_task
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_ANALYSIS_LOADED:-}" ]] && return 0
+declare -r _ANALYSIS_LOADED=1
 
 set -euo pipefail
 

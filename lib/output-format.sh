@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# lib/output-format.sh - Shared output formatting functions
+# output-format.sh - Shared output formatting functions
 #
-# Provides centralized output formatting utilities for claude-todo CLI:
-# - Color and Unicode support detection
-# - Terminal width detection
-# - Format resolution with priority hierarchy
-# - Status and priority formatting (colors, symbols)
-# - Progress bars and box-drawing characters
-# - Output helpers for colored text and formatted headers
-# - Configuration integration (output.* settings)
-#
-# Version: 0.8.0
-# Part of: claude-todo CLI Output Enhancement (Phase 2)
+# LAYER: 1 (Core Infrastructure)
+# DEPENDENCIES: none (standalone formatting utilities)
+# PROVIDES: load_output_config, supports_color, supports_unicode, get_term_width,
+#           resolve_format, format_status, format_priority, progress_bar,
+#           colored_output, format_header, format_box
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_OUTPUT_FORMAT_LOADED:-}" ]] && return 0
+declare -r _OUTPUT_FORMAT_LOADED=1
 
 # ============================================================================
 # CONFIGURATION

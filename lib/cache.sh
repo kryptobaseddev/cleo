@@ -1,44 +1,17 @@
 #!/usr/bin/env bash
-
-#####################################################################
 # cache.sh - Index Caching Library for Claude Todo System
 #
-# NOTE: This library is sourced by other scripts, so VERSION variable
-# should already be set by the sourcing script. If not, we set a fallback.
+# LAYER: 2 (Core Services)
+# DEPENDENCIES: platform-compat.sh
+# PROVIDES: cache_init, cache_invalidate, cache_get_tasks_by_label,
+#           cache_get_tasks_by_phase, cache_is_stale, cache_rebuild
 #
-# Provides O(1) lookups for labels and phases through cached indices:
-# - Label-to-task index: quickly find all tasks with a specific label
-# - Phase-to-task index: quickly find all tasks in a specific phase
-# - Checksum-based staleness detection
-# - Lazy regeneration on first query after changes
-#
-# Cache files stored in .claude/.cache/:
-#   - labels.index.json: label -> task ID mapping
-#   - phases.index.json: phase -> task ID mapping
-#   - checksum.txt: SHA256 of todo.json for staleness detection
-#
-# PERFORMANCE CHARACTERISTICS:
-#   - Lookup time: O(1) via bash associative arrays
-#   - Build time: O(n) where n = number of tasks
-#   - Staleness check: O(1) via checksum comparison
-#   - Memory usage: O(m) where m = number of unique labels/phases
-#
-# Typical performance (1000 tasks, 50 labels, 5 phases):
-#   - cache_get_tasks_by_label: < 1ms
-#   - cache_get_tasks_by_phase: < 1ms
-#   - cache_init (cold): ~50ms
-#   - cache_init (warm): < 1ms
-#
-# Usage:
-#   source lib/cache.sh
-#   cache_init                          # Initialize cache system
-#   cache_get_tasks_by_label "bug"      # Get task IDs with label
-#   cache_get_tasks_by_phase "core"     # Get task IDs in phase
-#   cache_invalidate                    # Force cache rebuild
-#
-# Version: 1.0.0
-# Part of: claude-todo CLI (Phase 4 - T074)
-#####################################################################
+# O(1) lookups for labels and phases through cached indices with
+# checksum-based staleness detection and lazy regeneration
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_CACHE_LOADED:-}" ]] && return 0
+declare -r _CACHE_LOADED=1
 
 # Set VERSION if not already set (should be set by sourcing script)
 if [[ -z "${VERSION:-}" ]]; then

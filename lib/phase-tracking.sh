@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # phase-tracking.sh - Project-level phase tracking for claude-todo
-# Part of the v2.2.0 phase management feature
+#
+# LAYER: 3 (Domain Logic)
+# DEPENDENCIES: platform-compat.sh, file-ops.sh
+# PROVIDES: get_current_phase, set_current_phase, get_all_phases, get_phase,
+#           validate_phase_slug, update_phase_status, get_phase_progress
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_PHASE_TRACKING_LOADED:-}" ]] && return 0
+declare -r _PHASE_TRACKING_LOADED=1
 
 set -euo pipefail
 

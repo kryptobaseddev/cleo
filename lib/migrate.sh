@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # migrate.sh - Schema version migration system for claude-todo
-# Handles schema version changes gracefully with automatic data migration
+#
+# LAYER: 2 (Core Services)
+# DEPENDENCIES: file-ops.sh, logging.sh
+# PROVIDES: check_schema_version, run_migrations, get_default_phases,
+#           parse_version, compare_versions, SCHEMA_VERSION_TODO,
+#           SCHEMA_VERSION_CONFIG, SCHEMA_VERSION_ARCHIVE, SCHEMA_VERSION_LOG
 
-# Source guard - prevent multiple sourcing
+#=== SOURCE GUARD ================================================
 [[ -n "${_MIGRATE_SH_LOADED:-}" ]] && return 0
-_MIGRATE_SH_LOADED=1
+declare -r _MIGRATE_SH_LOADED=1
 
 set -euo pipefail
 
@@ -20,7 +25,7 @@ source "$SCRIPT_DIR/logging.sh"
 # ============================================================================
 
 # Current schema versions (single source of truth)
-SCHEMA_VERSION_TODO="2.3.0"
+SCHEMA_VERSION_TODO="2.4.0"
 SCHEMA_VERSION_CONFIG="2.2.0"
 SCHEMA_VERSION_ARCHIVE="2.1.0"
 SCHEMA_VERSION_LOG="2.1.0"
@@ -1051,12 +1056,12 @@ execute_repair() {
         .project.phases = $repaired_phases |
 
         # Ensure _meta has all fields
-        ._meta.schemaVersion = "2.2.0" |
+        ._meta.schemaVersion = "2.4.0" |
         ._meta.configVersion = (._meta.configVersion // "2.1.0") |
         (if ._meta.checksum == null then ._meta.checksum = "pending" else . end) |
 
         # Ensure version field
-        .version = "2.2.0" |
+        .version = "2.4.0" |
 
         # Ensure focus has all fields
         .focus.sessionNote = (.focus.sessionNote // null) |

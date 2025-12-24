@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # dependency-check.sh - Centralized dependency validation for claude-todo
-# Part of claude-todo system v0.9.7
-# Provides comprehensive dependency checking with platform-aware install hints
+#
+# LAYER: 1 (Core Infrastructure)
+# DEPENDENCIES: platform-compat.sh (optional)
+# PROVIDES: check_dependencies, check_critical_deps, check_required_deps,
+#           check_optional_deps, get_install_hint, validate_bash_version
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_DEPENDENCY_CHECK_LOADED:-}" ]] && return 0
+declare -r _DEPENDENCY_CHECK_LOADED=1
 
 set -euo pipefail
 

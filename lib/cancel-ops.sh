@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
-# lib/cancel-ops.sh - Cancellation/deletion operations library for claude-todo
+# cancel-ops.sh - Cancellation/deletion operations library for claude-todo
 #
-# Provides pre-flight validation and safe cancellation/deletion operations:
-# - preflight_delete_check(): Fail-fast validation for delete/cancel operations
-# - Leaf task fast-path optimization
-# - Pre-operation safety backup integration
-# - Cascade limit enforcement
-#
-# Version: 0.32.0
-# Part of: Delete Command Implementation (T708)
-# Spec: DELETE-COMMAND-SPEC.md
-#
-# Usage:
-#   source "${LIB_DIR}/cancel-ops.sh"
-#   result=$(preflight_delete_check "T001" "$TODO_FILE" "cascade" "Obsolete feature")
-#   if [[ $(echo "$result" | jq -r '.success') == "true" ]]; then
-#       # Proceed with deletion
-#   fi
+# LAYER: 3 (Domain Logic)
+# DEPENDENCIES: exit-codes.sh, validation.sh, hierarchy.sh, backup.sh, config.sh
+# PROVIDES: preflight_delete_check, cancel_task, is_leaf_task,
+#           get_cascade_candidates, validate_cancel_reason
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_CANCEL_OPS_LOADED:-}" ]] && return 0
+declare -r _CANCEL_OPS_LOADED=1
 
 set -euo pipefail
 

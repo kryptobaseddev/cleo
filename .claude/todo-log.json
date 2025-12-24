@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 1861,
+    "totalEntries": 1865,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-24T03:33:28Z",
+    "lastEntry": "2025-12-24T06:52:52Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -44726,6 +44726,1080 @@
         "reason": "Superseded by T719 RCSD Pipeline - see T719 description",
         "childStrategy": "block",
         "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_af921d38e9fd",
+      "timestamp": "2025-12-24T04:27:19Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T020",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-24T04:27:19Z"
+      },
+      "details": {
+        "reason": "Test JSON output",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_53f96c7382d7",
+      "timestamp": "2025-12-24T04:39:15Z",
+      "sessionId": "session_20251223_203915_5fb3b1",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": "Session started"
+    },
+    {
+      "id": "log-1766551222-13afe3",
+      "timestamp": "2025-12-24T04:40:22Z",
+      "action": "task_created",
+      "taskId": "T753",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Task Decomposition System Implementation (TASK-DECOMPOSITION-SPEC v1.0.0)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Task Decomposition System Implementation (TASK-DECOMPOSITION-SPEC v1.0.0)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551254-8e5ac9",
+      "timestamp": "2025-12-24T04:40:54Z",
+      "action": "task_created",
+      "taskId": "T754",
+      "actor": "system",
+      "details": {
+        "title": "Phase 1: Core Infrastructure - Decomposition Libraries",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 1: Core Infrastructure - Decomposition Libraries",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551282-e2a584",
+      "timestamp": "2025-12-24T04:41:22Z",
+      "action": "task_created",
+      "taskId": "T755",
+      "actor": "system",
+      "details": {
+        "title": "TD-001: Create lib/decomposition.sh library",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-001: Create lib/decomposition.sh library",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551286-669b3f",
+      "timestamp": "2025-12-24T04:41:26Z",
+      "action": "task_created",
+      "taskId": "T756",
+      "actor": "system",
+      "details": {
+        "title": "TD-002: Create lib/llm-invoke.sh library",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-002: Create lib/llm-invoke.sh library",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551288-405939",
+      "timestamp": "2025-12-24T04:41:28Z",
+      "action": "task_created",
+      "taskId": "T757",
+      "actor": "system",
+      "details": {
+        "title": "TD-003: Create lib/computed-fields.sh library",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-003: Create lib/computed-fields.sh library",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551302-2f3beb",
+      "timestamp": "2025-12-24T04:41:42Z",
+      "action": "task_created",
+      "taskId": "T758",
+      "actor": "system",
+      "details": {
+        "title": "TD-004: Create scripts/decompose.sh command",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-004: Create scripts/decompose.sh command",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551303-e71162",
+      "timestamp": "2025-12-24T04:41:43Z",
+      "action": "task_created",
+      "taskId": "T759",
+      "actor": "system",
+      "details": {
+        "title": "TD-005: Add exit codes to lib/exit-codes.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-005: Add exit codes to lib/exit-codes.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551321-6ebb66",
+      "timestamp": "2025-12-24T04:42:01Z",
+      "action": "task_created",
+      "taskId": "T760",
+      "actor": "system",
+      "details": {
+        "title": "Phase 2: Decomposition Pipeline - Core Functions",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 2: Decomposition Pipeline - Core Functions",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551336-84600d",
+      "timestamp": "2025-12-24T04:42:16Z",
+      "action": "task_created",
+      "taskId": "T761",
+      "actor": "system",
+      "details": {
+        "title": "TD-010: Implement analyze_scope() function",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-010: Implement analyze_scope() function",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551338-d50472",
+      "timestamp": "2025-12-24T04:42:18Z",
+      "action": "task_created",
+      "taskId": "T762",
+      "actor": "system",
+      "details": {
+        "title": "TD-011: Implement decompose_goals() function",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-011: Implement decompose_goals() function",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551340-92d5b1",
+      "timestamp": "2025-12-24T04:42:20Z",
+      "action": "task_created",
+      "taskId": "T763",
+      "actor": "system",
+      "details": {
+        "title": "TD-012: Implement build_dependency_graph() function",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-012: Implement build_dependency_graph() function",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551352-3d56e4",
+      "timestamp": "2025-12-24T04:42:32Z",
+      "action": "task_created",
+      "taskId": "T764",
+      "actor": "system",
+      "details": {
+        "title": "TD-013: Implement specify_tasks() function",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-013: Implement specify_tasks() function",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551354-944b46",
+      "timestamp": "2025-12-24T04:42:34Z",
+      "action": "task_created",
+      "taskId": "T765",
+      "actor": "system",
+      "details": {
+        "title": "TD-014: Implement atomicity scoring",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-014: Implement atomicity scoring",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551373-fd33f4",
+      "timestamp": "2025-12-24T04:42:53Z",
+      "action": "task_created",
+      "taskId": "T766",
+      "actor": "system",
+      "details": {
+        "title": "Phase 3: Challenge System - Adversarial Validation",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 3: Challenge System - Adversarial Validation",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551393-a05e1b",
+      "timestamp": "2025-12-24T04:43:13Z",
+      "action": "task_created",
+      "taskId": "T767",
+      "actor": "system",
+      "details": {
+        "title": "TD-020: Implement challenge_decomposition() function",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-020: Implement challenge_decomposition() function",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551395-3738b2",
+      "timestamp": "2025-12-24T04:43:15Z",
+      "action": "task_created",
+      "taskId": "T768",
+      "actor": "system",
+      "details": {
+        "title": "TD-021: Implement rubber-stamp detection",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-021: Implement rubber-stamp detection",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551398-d92393",
+      "timestamp": "2025-12-24T04:43:18Z",
+      "action": "task_created",
+      "taskId": "T769",
+      "actor": "system",
+      "details": {
+        "title": "TD-022: Implement challenge quality scoring",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-022: Implement challenge quality scoring",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551399-e0222b",
+      "timestamp": "2025-12-24T04:43:19Z",
+      "action": "task_created",
+      "taskId": "T770",
+      "actor": "system",
+      "details": {
+        "title": "TD-023: Implement challenge-revision loop",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-023: Implement challenge-revision loop",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551421-86ca01",
+      "timestamp": "2025-12-24T04:43:41Z",
+      "action": "task_created",
+      "taskId": "T771",
+      "actor": "system",
+      "details": {
+        "title": "Phase 4: Dependency Detection - Algorithm Implementation",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 4: Dependency Detection - Algorithm Implementation",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551434-cd6688",
+      "timestamp": "2025-12-24T04:43:54Z",
+      "action": "task_created",
+      "taskId": "T772",
+      "actor": "system",
+      "details": {
+        "title": "TD-030: Implement explicit dependency detection",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-030: Implement explicit dependency detection",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766551436-5e84f2",
+      "timestamp": "2025-12-24T04:43:56Z",
+      "action": "task_created",
+      "taskId": "T773",
+      "actor": "system",
+      "details": {
+        "title": "TD-031: Implement data flow dependency detection",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-031: Implement data flow dependency detection",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551438-9380b9",
+      "timestamp": "2025-12-24T04:43:58Z",
+      "action": "task_created",
+      "taskId": "T774",
+      "actor": "system",
+      "details": {
+        "title": "TD-032: Implement file conflict detection",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-032: Implement file conflict detection",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551450-fe9b3c",
+      "timestamp": "2025-12-24T04:44:10Z",
+      "action": "task_created",
+      "taskId": "T775",
+      "actor": "system",
+      "details": {
+        "title": "TD-033: Implement semantic dependency detection",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-033: Implement semantic dependency detection",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551452-1f87b3",
+      "timestamp": "2025-12-24T04:44:12Z",
+      "action": "task_created",
+      "taskId": "T776",
+      "actor": "system",
+      "details": {
+        "title": "TD-034: Implement transitive closure optimization",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-034: Implement transitive closure optimization",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551471-794a50",
+      "timestamp": "2025-12-24T04:44:31Z",
+      "action": "task_created",
+      "taskId": "T777",
+      "actor": "system",
+      "details": {
+        "title": "Phase 5: HITL Integration - Human-in-the-Loop Gates",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 5: HITL Integration - Human-in-the-Loop Gates",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551486-765edd",
+      "timestamp": "2025-12-24T04:44:46Z",
+      "action": "task_created",
+      "taskId": "T778",
+      "actor": "system",
+      "details": {
+        "title": "TD-040: Implement HITL gate output format",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-040: Implement HITL gate output format",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551488-fbc157",
+      "timestamp": "2025-12-24T04:44:48Z",
+      "action": "task_created",
+      "taskId": "T779",
+      "actor": "system",
+      "details": {
+        "title": "TD-041: Integrate HITL with AskUserQuestion pattern",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-041: Integrate HITL with AskUserQuestion pattern",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551490-7cda37",
+      "timestamp": "2025-12-24T04:44:50Z",
+      "action": "task_created",
+      "taskId": "T780",
+      "actor": "system",
+      "details": {
+        "title": "TD-042: Add --hitl-response flag to decompose",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-042: Add --hitl-response flag to decompose",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551510-ff4bc5",
+      "timestamp": "2025-12-24T04:45:10Z",
+      "action": "task_created",
+      "taskId": "T781",
+      "actor": "system",
+      "details": {
+        "title": "Phase 6: Schema Extensions - v2.4.0 Fields",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 6: Schema Extensions - v2.4.0 Fields",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551522-beb036",
+      "timestamp": "2025-12-24T04:45:22Z",
+      "action": "task_created",
+      "taskId": "T782",
+      "actor": "system",
+      "details": {
+        "title": "TD-050: Add decompositionId field to schema",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-050: Add decompositionId field to schema",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551523-cd0085",
+      "timestamp": "2025-12-24T04:45:23Z",
+      "action": "task_created",
+      "taskId": "T783",
+      "actor": "system",
+      "details": {
+        "title": "TD-051: Add atomicityScore field to schema",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-051: Add atomicityScore field to schema",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551525-567a28",
+      "timestamp": "2025-12-24T04:45:25Z",
+      "action": "task_created",
+      "taskId": "T784",
+      "actor": "system",
+      "details": {
+        "title": "TD-052: Add acceptance array field to schema",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-052: Add acceptance array field to schema",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551542-69a4ab",
+      "timestamp": "2025-12-24T04:45:42Z",
+      "action": "task_created",
+      "taskId": "T785",
+      "actor": "system",
+      "details": {
+        "title": "TD-053: Implement computed children field",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-053: Implement computed children field",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551544-431a17",
+      "timestamp": "2025-12-24T04:45:44Z",
+      "action": "task_created",
+      "taskId": "T786",
+      "actor": "system",
+      "details": {
+        "title": "TD-054: Implement computed blockedBy field",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-054: Implement computed blockedBy field",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551546-4ac60b",
+      "timestamp": "2025-12-24T04:45:46Z",
+      "action": "task_created",
+      "taskId": "T787",
+      "actor": "system",
+      "details": {
+        "title": "TD-055: Create schema migration v2.3.0 to v2.4.0",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-055: Create schema migration v2.3.0 to v2.4.0",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551566-0ab9ab",
+      "timestamp": "2025-12-24T04:46:06Z",
+      "action": "task_created",
+      "taskId": "T788",
+      "actor": "system",
+      "details": {
+        "title": "Phase 7: Testing - Unit, Integration, Challenge Tests",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 7: Testing - Unit, Integration, Challenge Tests",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551583-37e85f",
+      "timestamp": "2025-12-24T04:46:23Z",
+      "action": "task_created",
+      "taskId": "T789",
+      "actor": "system",
+      "details": {
+        "title": "TD-060: Add unit tests for decomposition functions",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-060: Add unit tests for decomposition functions",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551585-a5d2c6",
+      "timestamp": "2025-12-24T04:46:25Z",
+      "action": "task_created",
+      "taskId": "T790",
+      "actor": "system",
+      "details": {
+        "title": "TD-061: Add integration tests for decompose command",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-061: Add integration tests for decompose command",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766551588-6a166d",
+      "timestamp": "2025-12-24T04:46:28Z",
+      "action": "task_created",
+      "taskId": "T791",
+      "actor": "system",
+      "details": {
+        "title": "TD-062: Add challenge system tests",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-062: Add challenge system tests",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551590-b91f5f",
+      "timestamp": "2025-12-24T04:46:30Z",
+      "action": "task_created",
+      "taskId": "T792",
+      "actor": "system",
+      "details": {
+        "title": "TD-063: Add performance benchmarks",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-063: Add performance benchmarks",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1766551609-34e1fb",
+      "timestamp": "2025-12-24T04:46:49Z",
+      "action": "task_created",
+      "taskId": "T793",
+      "actor": "system",
+      "details": {
+        "title": "Phase 8: Documentation - User Guides & References",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 8: Documentation - User Guides & References",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551622-e909d3",
+      "timestamp": "2025-12-24T04:47:02Z",
+      "action": "task_created",
+      "taskId": "T794",
+      "actor": "system",
+      "details": {
+        "title": "TD-070: Add decompose to QUICK-REFERENCE.md",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-070: Add decompose to QUICK-REFERENCE.md",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551625-51f667",
+      "timestamp": "2025-12-24T04:47:05Z",
+      "action": "task_created",
+      "taskId": "T795",
+      "actor": "system",
+      "details": {
+        "title": "TD-071: Add decompose to TODO_Task_Management.md",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-071: Add decompose to TODO_Task_Management.md",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766551627-fcb22b",
+      "timestamp": "2025-12-24T04:47:07Z",
+      "action": "task_created",
+      "taskId": "T796",
+      "actor": "system",
+      "details": {
+        "title": "TD-072: Create decomposition user guide",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "TD-072: Create decomposition user guide",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_8983173602b0",
+      "timestamp": "2025-12-24T04:48:57Z",
+      "sessionId": "session_20251223_203915_5fb3b1",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T753",
+      "before": {
+        "title": "EPIC: Task Decomposition System Implementation (TASK-DECOMPOSITION-SPEC v1.0.0)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Master Epic for implementing the Task Decomposition System per TASK-DECOMPOSITION-SPEC.md v1.0.0. This implements Stage 4 (DECOMPOSE) of the RCSD Pipeline.\n\n## CRITICAL SUBAGENT REQUIREMENTS\n\n**ALL subagents working on Phase tasks and subtasks MUST:**\n1. Update task notes regularly with progress details\n2. Document what was completed in each work session\n3. Record any issues, blockers, or unexpected findings\n4. Note any deviations from the spec with rationale\n5. Update notes BEFORE ending session for handoff\n\n**Note Update Pattern:**\n```bash\nct update <task-id> --notes \"Session <date>: <what was done>\"\nct update <task-id> --notes \"BLOCKER: <issue description>\"\nct update <task-id> --notes \"COMPLETE: <summary of deliverables>\"\n```\n\n## Implementation Phases\n\n1. **Phase 1: Core Infrastructure** - Create lib/decomposition.sh, lib/llm-invoke.sh, scripts/decompose.sh\n2. **Phase 2: Decomposition Pipeline** - Implement analyze_scope(), decompose_goals(), build_dependency_graph(), specify_tasks()\n3. **Phase 3: Challenge System** - Challenge agent integration per CONSENSUS-FRAMEWORK-SPEC\n4. **Phase 4: Dependency Detection** - Explicit, data flow, file conflict, semantic detection\n5. **Phase 5: HITL Integration** - Human-in-the-loop gates and AskUserQuestion integration\n6. **Phase 6: Schema Extensions** - Add decompositionId, atomicityScore, acceptance fields\n7. **Phase 7: Testing** - Unit, integration, challenge, performance tests\n8. **Phase 8: Documentation** - QUICK-REFERENCE, TODO_Task_Management, user guide\n\n## Dependencies\n- Requires: HIERARCHY-ENHANCEMENT-SPEC (type, parentId, size)\n- Requires: LLM-AGENT-FIRST-SPEC (JSON output, exit codes)\n- Requires: CONSENSUS-FRAMEWORK-SPEC (challenge protocol)\n- Requires: LLM-TASK-ID-SYSTEM-DESIGN-SPEC (task ID format)\n\n## Key Specifications\n- Spec: docs/specs/TASK-DECOMPOSITION-SPEC.md\n- Report: docs/specs/TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md\n- Target: v0.22.0+",
+        "phase": "core",
+        "labels": [
+          "decomposition",
+          "llm-agent-first",
+          "multi-phase",
+          "rcsd-pipeline"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: Task Decomposition System Implementation (TASK-DECOMPOSITION-SPEC v1.0.0)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Master Epic for implementing the Task Decomposition System per TASK-DECOMPOSITION-SPEC.md v1.0.0. This implements Stage 4 (DECOMPOSE) of the RCSD Pipeline.\n\n## CRITICAL SUBAGENT REQUIREMENTS\n\n**ALL subagents working on Phase tasks and subtasks MUST:**\n1. Update task notes regularly with progress details\n2. Document what was completed in each work session\n3. Record any issues, blockers, or unexpected findings\n4. Note any deviations from the spec with rationale\n5. Update notes BEFORE ending session for handoff\n\n**Note Update Pattern:**\n```bash\nct update <task-id> --notes \"Session <date>: <what was done>\"\nct update <task-id> --notes \"BLOCKER: <issue description>\"\nct update <task-id> --notes \"COMPLETE: <summary of deliverables>\"\n```\n\n## Implementation Phases\n\n1. **Phase 1: Core Infrastructure** - Create lib/decomposition.sh, lib/llm-invoke.sh, scripts/decompose.sh\n2. **Phase 2: Decomposition Pipeline** - Implement analyze_scope(), decompose_goals(), build_dependency_graph(), specify_tasks()\n3. **Phase 3: Challenge System** - Challenge agent integration per CONSENSUS-FRAMEWORK-SPEC\n4. **Phase 4: Dependency Detection** - Explicit, data flow, file conflict, semantic detection\n5. **Phase 5: HITL Integration** - Human-in-the-loop gates and AskUserQuestion integration\n6. **Phase 6: Schema Extensions** - Add decompositionId, atomicityScore, acceptance fields\n7. **Phase 7: Testing** - Unit, integration, challenge, performance tests\n8. **Phase 8: Documentation** - QUICK-REFERENCE, TODO_Task_Management, user guide\n\n## Dependencies\n- Requires: HIERARCHY-ENHANCEMENT-SPEC (type, parentId, size)\n- Requires: LLM-AGENT-FIRST-SPEC (JSON output, exit codes)\n- Requires: CONSENSUS-FRAMEWORK-SPEC (challenge protocol)\n- Requires: LLM-TASK-ID-SYSTEM-DESIGN-SPEC (task ID format)\n\n## Key Specifications\n- Spec: docs/specs/TASK-DECOMPOSITION-SPEC.md\n- Report: docs/specs/TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md\n- Target: v0.22.0+",
+        "phase": "core",
+        "labels": [
+          "decomposition",
+          "llm-agent-first",
+          "multi-phase",
+          "rcsd-pipeline"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1766558515-5bde4e",
+      "timestamp": "2025-12-24T06:41:55Z",
+      "action": "task_created",
+      "taskId": "T797",
+      "actor": "system",
+      "details": {
+        "title": "Library Architecture Refactoring",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Library Architecture Refactoring",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766558533-65e3d4",
+      "timestamp": "2025-12-24T06:42:13Z",
+      "action": "task_created",
+      "taskId": "T798",
+      "actor": "system",
+      "details": {
+        "title": "Add source guards to all 21 libraries",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add source guards to all 21 libraries",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766558535-e29b70",
+      "timestamp": "2025-12-24T06:42:15Z",
+      "action": "task_created",
+      "taskId": "T799",
+      "actor": "system",
+      "details": {
+        "title": "Add layer headers to all libraries",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add layer headers to all libraries",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766558537-fc04f8",
+      "timestamp": "2025-12-24T06:42:17Z",
+      "action": "task_created",
+      "taskId": "T800",
+      "actor": "system",
+      "details": {
+        "title": "Break circular dependency chain",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Break circular dependency chain",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1766558539-c4c2ae",
+      "timestamp": "2025-12-24T06:42:19Z",
+      "action": "task_created",
+      "taskId": "T801",
+      "actor": "system",
+      "details": {
+        "title": "Reduce deletion-strategy.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Reduce deletion-strategy.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766558541-83e3d2",
+      "timestamp": "2025-12-24T06:42:21Z",
+      "action": "task_created",
+      "taskId": "T802",
+      "actor": "system",
+      "details": {
+        "title": "Reduce cancel-ops.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Reduce cancel-ops.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766558543-2bcb34",
+      "timestamp": "2025-12-24T06:42:23Z",
+      "action": "task_created",
+      "taskId": "T803",
+      "actor": "system",
+      "details": {
+        "title": "Reduce validation.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Reduce validation.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766558544-4d08de",
+      "timestamp": "2025-12-24T06:42:24Z",
+      "action": "task_created",
+      "taskId": "T804",
+      "actor": "system",
+      "details": {
+        "title": "Reduce backup.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Reduce backup.sh dependencies",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766559152-033a70",
+      "timestamp": "2025-12-24T06:52:32Z",
+      "action": "task_created",
+      "taskId": "T805",
+      "actor": "system",
+      "details": {
+        "title": "Explicit Positional Ordering System",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Explicit Positional Ordering System",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_be062c2f7f8a",
+      "timestamp": "2025-12-24T06:52:52Z",
+      "sessionId": "session_20251223_203915_5fb3b1",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T805",
+      "before": {
+        "title": "Explicit Positional Ordering System",
+        "status": "pending",
+        "priority": "high",
+        "description": "Enable explicit, ID-independent task ordering where position/rank is separate from task ID. Epics, tasks, and subtasks each have shuffleable positions. LLM agents see FORCED priority order with dependency/blocking info. Currently: only categorical priority + creation date ordering exists. Need: position field, reorder commands, mandatory position assignment, dependency-aware display. Requires research on scope (per-parent vs global), enforcement strategy, and integration with existing priority field.",
+        "phase": "core",
+        "labels": [
+          "architecture",
+          "feature",
+          "research-needed"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Explicit Positional Ordering System",
+        "status": "pending",
+        "priority": "high",
+        "description": "Enable explicit, ID-independent task ordering where position/rank is separate from task ID. Epics, tasks, and subtasks each have shuffleable positions. LLM agents see FORCED priority order with dependency/blocking info. Currently: only categorical priority + creation date ordering exists. Need: position field, reorder commands, mandatory position assignment, dependency-aware display. Requires research on scope (per-parent vs global), enforcement strategy, and integration with existing priority field.",
+        "phase": "core",
+        "labels": [
+          "architecture",
+          "feature",
+          "research-needed"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
       }
     }
   ]

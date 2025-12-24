@@ -1,25 +1,16 @@
 #!/bin/bash
 # file-ops.sh - Atomic file operations with backup management
-# Part of claude-todo system
-# Provides safe file operations with rollback capability
 #
-# PERFORMANCE CHARACTERISTICS:
-#   - atomic_write: O(1) + file I/O time
-#   - backup_file: O(1) copy operation
-#   - File locking: O(1) via flock
-#   - restore_backup: O(1) copy operation
+# LAYER: 2 (Core Services)
+# DEPENDENCIES: platform-compat.sh, validation.sh, config.sh
+# PROVIDES: atomic_write, save_json, backup_file, restore_backup, lock_file,
+#           unlock_file, recalculate_checksum, safe_file_read
 #
-# Typical performance:
-#   - atomic_write (small JSON): < 10ms
-#   - atomic_write (1000 tasks): ~20-30ms
-#   - backup_file: ~5-10ms
-#   - lock/unlock: < 1ms
-#
-# Design notes:
-#   - All operations use temp files for atomicity
-#   - Backups rotated automatically (max 10 by default)
-#   - File locking prevents concurrent write races
-#   - Checksums validate data integrity
+# Design: All operations use temp files for atomicity with automatic backup rotation
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_FILE_OPS_LOADED:-}" ]] && return 0
+declare -r _FILE_OPS_LOADED=1
 
 set -euo pipefail
 

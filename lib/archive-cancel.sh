@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
-# lib/archive-cancel.sh - Cancellation archival operations for claude-todo
+# archive-cancel.sh - Cancellation archival operations for claude-todo
 #
-# Provides functions for archiving cancelled tasks:
-# - prepare_cancel_archive_entry(): Build archive entry for cancelled task
-# - archive_cancelled_task(): Archive a single cancelled task
-# - archive_cancelled_tasks(): Batch archive multiple cancelled tasks
-# - should_auto_archive_cancel(): Check if immediate archive is configured
-#
-# Version: 0.32.0
-# Part of: Delete Command Implementation (T706)
-# Spec: DELETE-COMMAND-SPEC.md
-#
-# Usage:
-#   source "${LIB_DIR}/archive-cancel.sh"
-#   entry=$(prepare_cancel_archive_entry "$task_json" "$session_id")
-#   archive_cancelled_task "$TASK_ID" "$TODO_FILE" "$ARCHIVE_FILE"
+# LAYER: 3 (Domain Logic)
+# DEPENDENCIES: exit-codes.sh, config.sh, file-ops.sh, logging.sh, platform-compat.sh
+# PROVIDES: prepare_cancel_archive_entry, archive_cancelled_task,
+#           archive_cancelled_tasks, should_auto_archive_cancel
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_ARCHIVE_CANCEL_LOADED:-}" ]] && return 0
+declare -r _ARCHIVE_CANCEL_LOADED=1
 
 set -euo pipefail
 

@@ -21,7 +21,7 @@ source "$SCRIPT_DIR/../lib/test-helpers.sh"
 
 readonly SPEC_TITLE_MAX=120
 readonly SPEC_DESCRIPTION_MAX=2000
-readonly SPEC_NOTES_MAX=500
+readonly SPEC_NOTES_MAX=5000
 readonly SPEC_BLOCKED_BY_MAX=300
 readonly SPEC_SESSION_NOTE_MAX=1000
 readonly SPEC_LABEL_MAX=50
@@ -302,7 +302,7 @@ check_input_validation() {
         # Check for limit values in error messages
         if pattern_exists "$script" '120.*char|120.*max|max.*120' || \
            pattern_exists "$script" '2000.*char|2000.*max|max.*2000' || \
-           pattern_exists "$script" '500.*char|500.*max|max.*500' || \
+           pattern_exists "$script" '5000.*char|5000.*max|max.*5000' || \
            pattern_exists "$script" 'exceeds.*character|character.*limit|max.*chars'; then
             has_limit_in_error=true
         fi

@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-# Library: backup.sh
-# Purpose: Unified backup management for claude-todo
-# Usage: Source this file - source "$LIB_DIR/backup.sh"
+# backup.sh - Unified backup management for claude-todo
 #
+# LAYER: 2 (Core Services)
+# DEPENDENCIES: platform-compat.sh, validation.sh, logging.sh, file-ops.sh
+# PROVIDES: create_snapshot_backup, create_safety_backup, create_archive_backup,
+#           create_migration_backup, list_typed_backups, restore_typed_backup,
+#           rotate_backups, get_backup_metadata, BACKUP_TYPES
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_BACKUP_LOADED:-}" ]] && return 0
+declare -r _BACKUP_LOADED=1
+
 # ============================================================================
 # BACKUP TYPE TAXONOMY
 # ============================================================================

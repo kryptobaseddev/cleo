@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # validation.sh - Core validation library for claude-todo system
-# Provides schema validation and anti-hallucination checks
+#
+# LAYER: 2 (Core Services)
+# DEPENDENCIES: platform-compat.sh, exit-codes.sh, config.sh, hierarchy.sh (optional)
+# PROVIDES: validate_task, validate_json_file, validate_task_id, validate_status,
+#           validate_priority, validate_title, validate_cancel_reason, check_duplicates,
+#           validate_checksum, validate_task_hierarchy
 
-# Source guard to prevent multiple inclusion
+#=== SOURCE GUARD ================================================
 [[ -n "${_VALIDATION_SH_INCLUDED:-}" ]] && return 0
-readonly _VALIDATION_SH_INCLUDED=1
+declare -r _VALIDATION_SH_INCLUDED=1
 
 set -euo pipefail
 
@@ -598,7 +603,7 @@ export -f validate_title
 
 # Field length limits (defined as constants for consistency)
 readonly MAX_DESCRIPTION_LENGTH=2000
-readonly MAX_NOTE_LENGTH=500
+readonly MAX_NOTE_LENGTH=5000
 readonly MAX_BLOCKED_BY_LENGTH=300
 readonly MAX_SESSION_NOTE_LENGTH=1000
 
@@ -622,7 +627,7 @@ validate_description() {
 
 export -f validate_description
 
-# Validate note length (max 500 chars per note entry)
+# Validate note length (max 5000 chars per note entry)
 # Args: $1 = note string
 # Returns: 0 if valid, 1 if too long
 validate_note() {

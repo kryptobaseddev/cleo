@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # logging.sh - Change log functions for CLAUDE-TODO system
-# Part of the claude-todo-system library
+#
+# LAYER: 2 (Core Services)
+# DEPENDENCIES: platform-compat.sh, file-ops.sh
+# PROVIDES: log_operation, get_log_entries, get_task_history, prune_log,
+#           LOG_FILE, generate_log_id
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_LOGGING_LOADED:-}" ]] && return 0
+declare -r _LOGGING_LOADED=1
 
 set -euo pipefail
 

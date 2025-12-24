@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
-# lib/hierarchy.sh - Hierarchy validation and helper functions for claude-todo
+# hierarchy.sh - Hierarchy validation and helper functions for claude-todo
 #
-# Provides validation functions for the Epic → Task → Subtask hierarchy:
-# - Parent existence validation
-# - Maximum depth enforcement (3 levels)
-# - Maximum siblings enforcement (7 children)
-# - Parent type validation (subtask cannot have children)
-# - Circular reference detection
-# - Orphan detection
+# LAYER: 2 (Core Services)
+# DEPENDENCIES: exit-codes.sh, config.sh
+# PROVIDES: validate_parent_exists, validate_depth, validate_sibling_count,
+#           validate_parent_type, detect_circular_reference, get_children,
+#           get_descendants, get_depth, get_task_type, calculate_type_from_depth
 #
-# Version: 0.17.0
-# Part of: Hierarchy Enhancement (v0.17.0)
-# Spec: HIERARCHY-ENHANCEMENT-SPEC.md, LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md
-#
-# Usage:
-#   source "${LIB_DIR}/hierarchy.sh"
-#   validate_parent_exists "T001" "$TODO_FILE" || exit $EXIT_PARENT_NOT_FOUND
+# Epic -> Task -> Subtask hierarchy with max depth 3, configurable sibling limits
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_HIERARCHY_LOADED:-}" ]] && return 0
+declare -r _HIERARCHY_LOADED=1
 
 set -euo pipefail
 

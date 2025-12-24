@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
 # config.sh - Central configuration loading and management for claude-todo
-# Part of the claude-todo-system library
 #
-# Provides unified configuration access with priority resolution:
-#   CLI flags > Environment vars > Project config > Global config > Defaults
+# LAYER: 1 (Core Infrastructure)
+# DEPENDENCIES: exit-codes.sh, platform-compat.sh
+# PROVIDES: get_config_value, set_config_value, get_cascade_threshold,
+#           get_allow_cascade, get_require_reason, get_cancel_days_until_archive,
+#           GLOBAL_CONFIG_FILE, PROJECT_CONFIG_FILE
 #
-# Version: 0.17.0
-# Part of: Config System Enhancement
-#
-# Usage:
-#   source "${LIB_DIR}/config.sh"
-#   value=$(get_config_value "output.defaultFormat")
-#   set_config_value "output.defaultFormat" "json"
+# Priority resolution: CLI flags > Environment vars > Project config > Global config > Defaults
 
-# Include guard to prevent multiple sourcing
+#=== SOURCE GUARD ================================================
 [[ -n "${_CONFIG_SH_LOADED:-}" ]] && return 0
-_CONFIG_SH_LOADED=1
+declare -r _CONFIG_SH_LOADED=1
 
 set -euo pipefail
 

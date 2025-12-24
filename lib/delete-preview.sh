@@ -1,23 +1,12 @@
 #!/usr/bin/env bash
 # delete-preview.sh - Dry-run preview functions for task deletion
-# Part of the claude-todo-system library
 #
-# Provides preview and impact analysis for delete operations.
-# Used by delete.sh when --dry-run flag is specified.
-#
-# Version: 0.31.2
-# Part of: Task Deletion System (T700 EPIC)
-#
-# Usage:
-#   source "${LIB_DIR}/delete-preview.sh"
-#   preview_delete "T001" "cascade" "Duplicate task" "$TODO_FILE"
-#
-# Dependencies:
-#   - lib/hierarchy.sh (get_children, get_descendants)
-#   - lib/exit-codes.sh (exit code constants)
-#   - jq
+# LAYER: 3 (Domain Logic)
+# DEPENDENCIES: exit-codes.sh, hierarchy.sh
+# PROVIDES: preview_delete, get_impact_warnings, format_preview_output,
+#           SEVERITY_HIGH, SEVERITY_MEDIUM, SEVERITY_LOW
 
-# Guard against multiple sourcing
+#=== SOURCE GUARD ================================================
 [[ -n "${_DELETE_PREVIEW_SH_LOADED:-}" ]] && return 0
 
 # Resolve lib directory for sourcing dependencies
@@ -29,13 +18,13 @@ if [[ -z "${_EXIT_CODES_SH_LOADED:-}" ]] && [[ -f "${_DELETE_PREVIEW_LIB_DIR}/ex
     source "${_DELETE_PREVIEW_LIB_DIR}/exit-codes.sh"
 fi
 
-if [[ -z "${_HIERARCHY_SH_LOADED:-}" ]] && [[ -f "${_DELETE_PREVIEW_LIB_DIR}/hierarchy.sh" ]]; then
+if [[ -z "${_HIERARCHY_LOADED:-}" ]] && [[ -f "${_DELETE_PREVIEW_LIB_DIR}/hierarchy.sh" ]]; then
     # shellcheck source=hierarchy.sh
     source "${_DELETE_PREVIEW_LIB_DIR}/hierarchy.sh"
 fi
 
 # Mark as loaded AFTER all dependencies are sourced
-_DELETE_PREVIEW_SH_LOADED=1
+declare -r _DELETE_PREVIEW_SH_LOADED=1
 
 # ============================================================================
 # IMPACT SEVERITY LEVELS

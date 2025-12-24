@@ -1,27 +1,28 @@
 #!/usr/bin/env bash
-# exit-codes.sh - Standardized exit codes for claude-todo
-# Part of the claude-todo-system library
+# exit-codes.sh - Standardized exit codes for claude-todo CLI
 #
-# Provides consistent exit code constants for all commands.
-# Enables reliable error handling in agent automation workflows.
-#
-# Version: 0.16.0
-# Part of: LLM-Agent-First Implementation (Phase 1)
-#
-# Usage:
-#   source "${LIB_DIR}/exit-codes.sh"
-#   exit $EXIT_NOT_FOUND
+# LAYER: 0 (Foundation)
+# DEPENDENCIES: none
+# PROVIDES: EXIT_SUCCESS, EXIT_GENERAL_ERROR, EXIT_INVALID_INPUT, EXIT_FILE_ERROR,
+#           EXIT_NOT_FOUND, EXIT_DEPENDENCY_ERROR, EXIT_VALIDATION_ERROR,
+#           EXIT_LOCK_TIMEOUT, EXIT_CONFIG_ERROR, EXIT_PARENT_NOT_FOUND,
+#           EXIT_DEPTH_EXCEEDED, EXIT_SIBLING_LIMIT, EXIT_INVALID_PARENT_TYPE,
+#           EXIT_CIRCULAR_REFERENCE, EXIT_ORPHAN_DETECTED, EXIT_HAS_CHILDREN,
+#           EXIT_TASK_COMPLETED, EXIT_CASCADE_FAILED, EXIT_HAS_DEPENDENTS,
+#           EXIT_CHECKSUM_MISMATCH, EXIT_CONCURRENT_MODIFICATION, EXIT_ID_COLLISION,
+#           EXIT_NO_DATA, EXIT_ALREADY_EXISTS, EXIT_NO_CHANGE,
+#           get_exit_code_name, is_error_code, is_recoverable_code,
+#           is_no_change_code, is_success_code
 #
 # Exit Code Ranges:
 #   0      - Success
 #   1-99   - Error conditions
 #   100+   - Special conditions (not errors, but notable states)
 
-# Guard against multiple sourcing (readonly variables would fail)
-# Also guard against legacy libraries that define EXIT_SUCCESS as readonly
+#=== SOURCE GUARD ================================================
 [[ -n "${_EXIT_CODES_SH_LOADED:-}" ]] && return 0
 [[ -n "${EXIT_SUCCESS:-}" ]] && { _EXIT_CODES_SH_LOADED=1; return 0; }
-_EXIT_CODES_SH_LOADED=1
+declare -r _EXIT_CODES_SH_LOADED=1
 
 set -euo pipefail
 

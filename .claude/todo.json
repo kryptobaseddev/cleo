@@ -121,13 +121,13 @@
       }
     ]
   },
-  "lastUpdated": "2025-12-24T03:33:27Z",
+  "lastUpdated": "2025-12-24T06:52:51Z",
   "_meta": {
-    "checksum": "12a70d88ec649412",
+    "checksum": "3ee47bbf78c8c493",
     "configVersion": "2.1.0",
     "lastSessionId": null,
-    "activeSession": null,
-    "lastModified": "2025-12-24T01:44:56Z",
+    "activeSession": "session_20251223_203915_5fb3b1",
+    "lastModified": "2025-12-24T04:39:15Z",
     "version": "2.3.0",
     "schemaVersion": "2.3.0"
   },
@@ -9120,6 +9120,1020 @@
       "labels": [
         "config",
         "epic"
+      ]
+    },
+    {
+      "id": "T753",
+      "title": "EPIC: Task Decomposition System Implementation (TASK-DECOMPOSITION-SPEC v1.0.0)",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2025-12-24T04:40:22Z",
+      "size": "large",
+      "phase": "core",
+      "description": "Master Epic for implementing the Task Decomposition System per TASK-DECOMPOSITION-SPEC.md v1.0.0. This implements Stage 4 (DECOMPOSE) of the RCSD Pipeline.\n\n## CRITICAL SUBAGENT REQUIREMENTS\n\n**ALL subagents working on Phase tasks and subtasks MUST:**\n1. Update task notes regularly with progress details\n2. Document what was completed in each work session\n3. Record any issues, blockers, or unexpected findings\n4. Note any deviations from the spec with rationale\n5. Update notes BEFORE ending session for handoff\n\n**Note Update Pattern:**\n```bash\nct update <task-id> --notes \"Session <date>: <what was done>\"\nct update <task-id> --notes \"BLOCKER: <issue description>\"\nct update <task-id> --notes \"COMPLETE: <summary of deliverables>\"\n```\n\n## Implementation Phases\n\n1. **Phase 1: Core Infrastructure** - Create lib/decomposition.sh, lib/llm-invoke.sh, scripts/decompose.sh\n2. **Phase 2: Decomposition Pipeline** - Implement analyze_scope(), decompose_goals(), build_dependency_graph(), specify_tasks()\n3. **Phase 3: Challenge System** - Challenge agent integration per CONSENSUS-FRAMEWORK-SPEC\n4. **Phase 4: Dependency Detection** - Explicit, data flow, file conflict, semantic detection\n5. **Phase 5: HITL Integration** - Human-in-the-loop gates and AskUserQuestion integration\n6. **Phase 6: Schema Extensions** - Add decompositionId, atomicityScore, acceptance fields\n7. **Phase 7: Testing** - Unit, integration, challenge, performance tests\n8. **Phase 8: Documentation** - QUICK-REFERENCE, TODO_Task_Management, user guide\n\n## Dependencies\n- Requires: HIERARCHY-ENHANCEMENT-SPEC (type, parentId, size)\n- Requires: LLM-AGENT-FIRST-SPEC (JSON output, exit codes)\n- Requires: CONSENSUS-FRAMEWORK-SPEC (challenge protocol)\n- Requires: LLM-TASK-ID-SYSTEM-DESIGN-SPEC (task ID format)\n\n## Key Specifications\n- Spec: docs/specs/TASK-DECOMPOSITION-SPEC.md\n- Report: docs/specs/TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md\n- Target: v0.22.0+",
+      "labels": [
+        "decomposition",
+        "llm-agent-first",
+        "multi-phase",
+        "rcsd-pipeline"
+      ],
+      "notes": [
+        "2025-12-24 04:48:57 UTC: 2025-12-23: Epic created with full task hierarchy. 8 phase tasks, 38 subtasks created. Implementation report updated with task ID mappings. Ready for phase-by-phase implementation sessions."
+      ]
+    },
+    {
+      "id": "T754",
+      "title": "Phase 1: Core Infrastructure - Decomposition Libraries",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:40:54Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Create core libraries and command script for decomposition system. Deliverables: lib/decomposition.sh, lib/llm-invoke.sh, lib/computed-fields.sh, scripts/decompose.sh. Exit codes: EXIT_HITL_REQUIRED (30), EXIT_CHALLENGE_REJECTED (31). Spec refs: Part 9, 10, 18. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "decomposition",
+        "infrastructure",
+        "phase-1"
+      ]
+    },
+    {
+      "id": "T755",
+      "title": "TD-001: Create lib/decomposition.sh library",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T754",
+      "createdAt": "2025-12-24T04:41:22Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Core decomposition functions library. Functions: analyze_scope(), decompose_goals(), build_dependency_graph(), challenge_decomposition(), specify_tasks(), create_tasks(). See Spec Part 10. SUBAGENT: Update notes with function implementation progress.",
+      "labels": [
+        "decomposition",
+        "library",
+        "td-001"
+      ]
+    },
+    {
+      "id": "T756",
+      "title": "TD-002: Create lib/llm-invoke.sh library",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T754",
+      "createdAt": "2025-12-24T04:41:26Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "LLM invocation helpers with tiered model selection. Functions: select_model(), invoke_llm(), should_invoke_llm(). Models: Haiku (fast), Sonnet (complex/challenge). Token budgets per phase. Fallback strategy with backoff. See Spec Part 18. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "library",
+        "llm",
+        "td-002"
+      ]
+    },
+    {
+      "id": "T757",
+      "title": "TD-003: Create lib/computed-fields.sh library",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T754",
+      "createdAt": "2025-12-24T04:41:28Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Computed field calculations (not stored, calculated on read). Functions: compute_children(), compute_depth(), compute_blocked_by(), compute_ancestors(), compute_dependents(). See Spec Part 23.2. SUBAGENT: Update notes.",
+      "labels": [
+        "computed-fields",
+        "decomposition",
+        "library",
+        "td-003"
+      ]
+    },
+    {
+      "id": "T758",
+      "title": "TD-004: Create scripts/decompose.sh command",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T754",
+      "createdAt": "2025-12-24T04:41:41Z",
+      "size": "large",
+      "phase": "core",
+      "description": "Main decompose CLI command. Syntax: claude-todo decompose <request> [OPTIONS]. Options: --file, --phase, --parent, --dry-run, --no-challenge, --format, --quiet, --verbose. Implements 4-phase pipeline. See Spec Part 9. SUBAGENT: Update notes with implementation progress.",
+      "labels": [
+        "cli",
+        "command",
+        "decomposition",
+        "td-004"
+      ],
+      "depends": [
+        "T755",
+        "T756"
+      ]
+    },
+    {
+      "id": "T759",
+      "title": "TD-005: Add exit codes to lib/exit-codes.sh",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T754",
+      "createdAt": "2025-12-24T04:41:43Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Add decomposition-specific exit codes. EXIT_HITL_REQUIRED=30 (decomposition blocked by ambiguity). EXIT_CHALLENGE_REJECTED=31 (challenge agent rejected decomposition). See Spec Part 9.3. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "exit-codes",
+        "td-005"
+      ]
+    },
+    {
+      "id": "T760",
+      "title": "Phase 2: Decomposition Pipeline - Core Functions",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:42:01Z",
+      "size": "large",
+      "phase": "core",
+      "description": "Implement core decomposition pipeline functions. 4-phase pipeline: Scope Analysis, Goal Decomposition, DAG Construction, Task Specification. Subtasks TD-010 through TD-014. Depends on Phase 1 libraries. See Spec Parts 5-8. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "decomposition",
+        "phase-2",
+        "pipeline"
+      ],
+      "depends": [
+        "T754"
+      ]
+    },
+    {
+      "id": "T761",
+      "title": "TD-010: Implement analyze_scope() function",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T760",
+      "createdAt": "2025-12-24T04:42:16Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Scope analyzer (Pipeline Phase 1). Entity extraction, complexity scoring, classification (epic/task/subtask), HITL gate check. Output: ScopeAssessment JSON. See Spec Part 5. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "pipeline",
+        "scope",
+        "td-010"
+      ],
+      "depends": [
+        "T755"
+      ]
+    },
+    {
+      "id": "T762",
+      "title": "TD-011: Implement decompose_goals() function",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T760",
+      "createdAt": "2025-12-24T04:42:18Z",
+      "size": "large",
+      "phase": "core",
+      "description": "Goal decomposer (Pipeline Phase 2). HTN-inspired recursive decomposition. Methods: feature_decomposition, bug_fix_decomposition, cli_command_decomposition, generic_decomposition. Max depth 3, max siblings 7. See Spec Part 6. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "goals",
+        "pipeline",
+        "td-011"
+      ],
+      "depends": [
+        "T755",
+        "T756"
+      ]
+    },
+    {
+      "id": "T763",
+      "title": "TD-012: Implement build_dependency_graph() function",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T760",
+      "createdAt": "2025-12-24T04:42:20Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "DAG builder (Pipeline Phase 3). Flatten tree to nodes, detect dependencies (explicit, data_flow, file_conflict, semantic), validate no cycles, compute parallel groups, topological sort. See Spec Part 7. SUBAGENT: Update notes.",
+      "labels": [
+        "dag",
+        "decomposition",
+        "pipeline",
+        "td-012"
+      ],
+      "depends": [
+        "T755"
+      ]
+    },
+    {
+      "id": "T764",
+      "title": "TD-013: Implement specify_tasks() function",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T760",
+      "createdAt": "2025-12-24T04:42:32Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Task specifier (Pipeline Phase 4). Field mapping from DAG to todo.schema.json. ID generation, title validation, type/size mapping, dependency collection, acceptance criteria. Schema validation. See Spec Part 8. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "pipeline",
+        "tasks",
+        "td-013"
+      ],
+      "depends": [
+        "T755"
+      ]
+    },
+    {
+      "id": "T765",
+      "title": "TD-014: Implement atomicity scoring",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T760",
+      "createdAt": "2025-12-24T04:42:34Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "6-point atomicity test implementation. Criteria: single file scope, single cognitive concern, clear acceptance, no context switching, no hidden sub-decisions, programmatic validation. Score 0-100. See Spec Part 4. SUBAGENT: Update notes.",
+      "labels": [
+        "atomicity",
+        "decomposition",
+        "td-014"
+      ],
+      "depends": [
+        "T762"
+      ]
+    },
+    {
+      "id": "T766",
+      "title": "Phase 3: Challenge System - Adversarial Validation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:42:53Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Implement adversarial challenge system per CONSENSUS-FRAMEWORK-SPEC. Challenge agent validates decomposition at each phase. Subtasks TD-020 through TD-023. See Spec Parts 11.2, 21. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "challenge",
+        "consensus",
+        "decomposition",
+        "phase-3"
+      ],
+      "depends": [
+        "T760"
+      ]
+    },
+    {
+      "id": "T767",
+      "title": "TD-020: Implement challenge_decomposition() function",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T766",
+      "createdAt": "2025-12-24T04:43:13Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Challenge agent invocation. Questions: merge possible? missing tasks? clear criteria? appropriate method? Evidence standard: logical counter-argument with specific reference. Verdicts: VALID, NEEDS_REVISION, REJECTED. See Spec Part 11.2. SUBAGENT: Update notes.",
+      "labels": [
+        "challenge",
+        "decomposition",
+        "td-020"
+      ],
+      "depends": [
+        "T756"
+      ]
+    },
+    {
+      "id": "T768",
+      "title": "TD-021: Implement rubber-stamp detection",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T766",
+      "createdAt": "2025-12-24T04:43:15Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Detect suspicious challenge outputs: VALID with 0 findings, all info severity, <2s completion, no references. Trigger re-challenge with stricter prompt. See Spec Part 21.3. SUBAGENT: Update notes.",
+      "labels": [
+        "challenge",
+        "decomposition",
+        "rubber-stamp",
+        "td-021"
+      ],
+      "depends": [
+        "T767"
+      ]
+    },
+    {
+      "id": "T769",
+      "title": "TD-022: Implement challenge quality scoring",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T766",
+      "createdAt": "2025-12-24T04:43:18Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Challenge quality metrics. Dimensions: specificity (references), evidence (argument length), actionable (suggestions), coverage (tasks challenged). Threshold 0.6 warns. See Spec Part 21.2. SUBAGENT: Update notes.",
+      "labels": [
+        "challenge",
+        "decomposition",
+        "quality",
+        "td-022"
+      ],
+      "depends": [
+        "T767"
+      ]
+    },
+    {
+      "id": "T770",
+      "title": "TD-023: Implement challenge-revision loop",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T766",
+      "createdAt": "2025-12-24T04:43:19Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Challenge-revision iteration. Max 3 iterations. VALID: break. REJECTED: restart with alternative approach. NEEDS_REVISION: apply fixes for blocking/major findings. State preservation. See Spec Part 22.3. SUBAGENT: Update notes.",
+      "labels": [
+        "challenge",
+        "decomposition",
+        "revision",
+        "td-023"
+      ],
+      "depends": [
+        "T767"
+      ]
+    },
+    {
+      "id": "T771",
+      "title": "Phase 4: Dependency Detection - Algorithm Implementation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:43:40Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Implement dependency detection algorithms. Types: explicit, data_flow, file_conflict, semantic. Confidence thresholds, transitive closure, anti-hallucination. Subtasks TD-030 through TD-034. See Spec Part 19. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "dag",
+        "decomposition",
+        "dependencies",
+        "phase-4"
+      ],
+      "depends": [
+        "T760"
+      ]
+    },
+    {
+      "id": "T772",
+      "title": "TD-030: Implement explicit dependency detection",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T771",
+      "createdAt": "2025-12-24T04:43:54Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Detect explicit dependencies via keywords: after, requires, depends on, following, once. Confidence 1.0. See Spec Part 19.1. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "dependencies",
+        "explicit",
+        "td-030"
+      ],
+      "depends": [
+        "T763"
+      ]
+    },
+    {
+      "id": "T773",
+      "title": "TD-031: Implement data flow dependency detection",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T771",
+      "createdAt": "2025-12-24T04:43:56Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Detect data flow dependencies. Extract outputs from task_a, inputs from task_b, find intersection. Confidence 0.9. Track artifacts. See Spec Part 19.1. SUBAGENT: Update notes.",
+      "labels": [
+        "data-flow",
+        "decomposition",
+        "dependencies",
+        "td-031"
+      ],
+      "depends": [
+        "T763"
+      ]
+    },
+    {
+      "id": "T774",
+      "title": "TD-032: Implement file conflict detection",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T771",
+      "createdAt": "2025-12-24T04:43:58Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Detect file conflict dependencies when both tasks modify same file. File path intersection. Confidence 0.85. Resolution: serialize_execution. See Spec Part 19.1. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "dependencies",
+        "file-conflict",
+        "td-032"
+      ],
+      "depends": [
+        "T763"
+      ]
+    },
+    {
+      "id": "T775",
+      "title": "TD-033: Implement semantic dependency detection",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T771",
+      "createdAt": "2025-12-24T04:44:10Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Detect semantic dependencies via domain rules: schema→query, model→migration, interface→impl, implement→test. Confidence 0.75. See Spec Part 19.1. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "dependencies",
+        "semantic",
+        "td-033"
+      ],
+      "depends": [
+        "T763"
+      ]
+    },
+    {
+      "id": "T776",
+      "title": "TD-034: Implement transitive closure optimization",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T771",
+      "createdAt": "2025-12-24T04:44:12Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Floyd-Warshall for reachability. Remove redundant edges (A→B when A→C→B exists). Optimize DAG for minimal edge set. See Spec Part 19.3. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "dependencies",
+        "td-034",
+        "transitive"
+      ],
+      "depends": [
+        "T772",
+        "T773",
+        "T774",
+        "T775"
+      ]
+    },
+    {
+      "id": "T777",
+      "title": "Phase 5: HITL Integration - Human-in-the-Loop Gates",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:44:31Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Implement Human-in-the-Loop gates for ambiguity resolution. Gate types: ambiguity, scope, external, method, challenge. AskUserQuestion integration. Subtasks TD-040 through TD-042. See Spec Part 12. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "decomposition",
+        "gates",
+        "hitl",
+        "phase-5"
+      ],
+      "depends": [
+        "T760"
+      ]
+    },
+    {
+      "id": "T778",
+      "title": "TD-040: Implement HITL gate output format",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T777",
+      "createdAt": "2025-12-24T04:44:46Z",
+      "size": "small",
+      "phase": "core",
+      "description": "HITL gate JSON schema. Fields: gateId, phase, blocking, gate.type, gate.trigger, questions with options and implications, recommendation. See Spec Part 12.2. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "hitl",
+        "output",
+        "td-040"
+      ],
+      "depends": [
+        "T761"
+      ]
+    },
+    {
+      "id": "T779",
+      "title": "TD-041: Integrate HITL with AskUserQuestion pattern",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T777",
+      "createdAt": "2025-12-24T04:44:48Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Connect HITL gates to Claude Code AskUserQuestion tool. Transform gate questions to AskUserQuestion format. Handle responses and resume decomposition. See Spec Part 12. SUBAGENT: Update notes.",
+      "labels": [
+        "askuser",
+        "decomposition",
+        "hitl",
+        "td-041"
+      ],
+      "depends": [
+        "T778"
+      ]
+    },
+    {
+      "id": "T780",
+      "title": "TD-042: Add --hitl-response flag to decompose",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T777",
+      "createdAt": "2025-12-24T04:44:50Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Add --hitl-response flag to resume decomposition after HITL gate. Accept response JSON, validate, resume from saved state. See Spec Part 9.2. SUBAGENT: Update notes.",
+      "labels": [
+        "cli",
+        "decomposition",
+        "hitl",
+        "td-042"
+      ],
+      "depends": [
+        "T779"
+      ]
+    },
+    {
+      "id": "T781",
+      "title": "Phase 6: Schema Extensions - v2.4.0 Fields",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:45:09Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Extend todo.schema.json for decomposition support. New stored fields: decompositionId, atomicityScore, acceptance. New computed fields: children, ancestors, depth, dependents, blockedBy. Migration v2.3.0→v2.4.0. Subtasks TD-050 through TD-055. See Spec Part 23. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "decomposition",
+        "migration",
+        "phase-6",
+        "schema"
+      ]
+    },
+    {
+      "id": "T782",
+      "title": "TD-050: Add decompositionId field to schema",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T781",
+      "createdAt": "2025-12-24T04:45:21Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Add decompositionId field. Type: string, pattern: ^DEC-\\d{8}-\\d{3}$. Links task to decomposition session. See Spec Part 23.1. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "schema",
+        "td-050"
+      ]
+    },
+    {
+      "id": "T783",
+      "title": "TD-051: Add atomicityScore field to schema",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T781",
+      "createdAt": "2025-12-24T04:45:23Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Add atomicityScore field. Type: integer, min 0, max 100. Records atomicity at creation time. See Spec Part 23.1. SUBAGENT: Update notes.",
+      "labels": [
+        "atomicity",
+        "decomposition",
+        "schema",
+        "td-051"
+      ]
+    },
+    {
+      "id": "T784",
+      "title": "TD-052: Add acceptance array field to schema",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T781",
+      "createdAt": "2025-12-24T04:45:25Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Add acceptance field. Type: array of strings. Testable acceptance criteria for task completion. See Spec Part 23.1. SUBAGENT: Update notes.",
+      "labels": [
+        "acceptance",
+        "decomposition",
+        "schema",
+        "td-052"
+      ]
+    },
+    {
+      "id": "T785",
+      "title": "TD-053: Implement computed children field",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T781",
+      "createdAt": "2025-12-24T04:45:42Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Implement compute_children() in lib/computed-fields.sh. Inverse of parentId. Returns array of direct child task IDs. Not stored. See Spec Part 23.2. SUBAGENT: Update notes.",
+      "labels": [
+        "computed",
+        "decomposition",
+        "schema",
+        "td-053"
+      ],
+      "depends": [
+        "T757"
+      ]
+    },
+    {
+      "id": "T786",
+      "title": "TD-054: Implement computed blockedBy field",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T781",
+      "createdAt": "2025-12-24T04:45:44Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Implement compute_blocked_by() in lib/computed-fields.sh. Returns IDs of incomplete dependencies. Status-dependent. Not stored. See Spec Part 23.2. SUBAGENT: Update notes.",
+      "labels": [
+        "blocked",
+        "computed",
+        "decomposition",
+        "schema",
+        "td-054"
+      ],
+      "depends": [
+        "T757"
+      ]
+    },
+    {
+      "id": "T787",
+      "title": "TD-055: Create schema migration v2.3.0 to v2.4.0",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T781",
+      "createdAt": "2025-12-24T04:45:46Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Schema migration for decomposition fields. Add optional fields. Backward compatible. Run via claude-todo migrate run. See Spec Part 23.4. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "migration",
+        "schema",
+        "td-055"
+      ],
+      "depends": [
+        "T782",
+        "T783",
+        "T784"
+      ]
+    },
+    {
+      "id": "T788",
+      "title": "Phase 7: Testing - Unit, Integration, Challenge Tests",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:46:05Z",
+      "size": "medium",
+      "phase": "testing",
+      "description": "Comprehensive test suite for decomposition system. Unit tests for functions, integration tests for command, challenge system tests, performance benchmarks. Subtasks TD-060 through TD-063. See Spec Part 13-14. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "bats",
+        "decomposition",
+        "phase-7",
+        "testing"
+      ],
+      "depends": [
+        "T754",
+        "T760",
+        "T766",
+        "T771"
+      ]
+    },
+    {
+      "id": "T789",
+      "title": "TD-060: Add unit tests for decomposition functions",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T788",
+      "createdAt": "2025-12-24T04:46:23Z",
+      "size": "medium",
+      "phase": "testing",
+      "description": "Unit tests for analyze_scope(), decompose_goals(), etc. Test classification, complexity scoring, atomicity evaluation, DAG construction. tests/unit/test-decomposition.bats. See Spec Part 13.1. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "td-060",
+        "testing",
+        "unit"
+      ],
+      "depends": [
+        "T761",
+        "T762",
+        "T763",
+        "T764"
+      ]
+    },
+    {
+      "id": "T790",
+      "title": "TD-061: Add integration tests for decompose command",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T788",
+      "createdAt": "2025-12-24T04:46:25Z",
+      "size": "medium",
+      "phase": "testing",
+      "description": "Integration tests for decompose command. Tests: creates valid tasks, dry-run creates no tasks, parent sets parentId, cycle detection, depth/sibling limits. tests/integration/decomposition.bats. See Spec Part 13.2. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "integration",
+        "td-061",
+        "testing"
+      ],
+      "depends": [
+        "T758"
+      ]
+    },
+    {
+      "id": "T791",
+      "title": "TD-062: Add challenge system tests",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T788",
+      "createdAt": "2025-12-24T04:46:27Z",
+      "size": "small",
+      "phase": "testing",
+      "description": "Tests for challenge system. Challenge rejects non-atomic tasks, flags hallucinated dependencies, rubber-stamp detection, quality scoring. See Spec Part 13.3. SUBAGENT: Update notes.",
+      "labels": [
+        "challenge",
+        "decomposition",
+        "td-062",
+        "testing"
+      ],
+      "depends": [
+        "T767",
+        "T768",
+        "T769",
+        "T770"
+      ]
+    },
+    {
+      "id": "T792",
+      "title": "TD-063: Add performance benchmarks",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T788",
+      "createdAt": "2025-12-24T04:46:30Z",
+      "size": "small",
+      "phase": "testing",
+      "description": "Performance benchmarks. Latency targets: Scope <500ms, Goals <5s, DAG <1s, Tasks <500ms, Challenge <10s per phase. Total <20s with challenge. See Spec Part 14. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "performance",
+        "td-063",
+        "testing"
+      ],
+      "depends": [
+        "T758"
+      ]
+    },
+    {
+      "id": "T793",
+      "title": "Phase 8: Documentation - User Guides & References",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T753",
+      "createdAt": "2025-12-24T04:46:49Z",
+      "size": "small",
+      "phase": "polish",
+      "description": "Documentation for decomposition system. Update QUICK-REFERENCE.md, TODO_Task_Management.md, create user guide. Subtasks TD-070 through TD-072. SUBAGENT: Update notes regularly.",
+      "labels": [
+        "decomposition",
+        "documentation",
+        "phase-8"
+      ],
+      "depends": [
+        "T758"
+      ]
+    },
+    {
+      "id": "T794",
+      "title": "TD-070: Add decompose to QUICK-REFERENCE.md",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T793",
+      "createdAt": "2025-12-24T04:47:02Z",
+      "size": "small",
+      "phase": "polish",
+      "description": "Add decompose command to docs/QUICK-REFERENCE.md. Command syntax, options, examples. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "documentation",
+        "quick-ref",
+        "td-070"
+      ],
+      "depends": [
+        "T758"
+      ]
+    },
+    {
+      "id": "T795",
+      "title": "TD-071: Add decompose to TODO_Task_Management.md",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T793",
+      "createdAt": "2025-12-24T04:47:05Z",
+      "size": "small",
+      "phase": "polish",
+      "description": "Add decompose command to ~/.claude-todo/docs/TODO_Task_Management.md. Integration with task workflow. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "documentation",
+        "task-mgmt",
+        "td-071"
+      ],
+      "depends": [
+        "T758"
+      ]
+    },
+    {
+      "id": "T796",
+      "title": "TD-072: Create decomposition user guide",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T793",
+      "createdAt": "2025-12-24T04:47:07Z",
+      "size": "medium",
+      "phase": "polish",
+      "description": "Create docs/guides/decomposition.md user guide. Covers: 4-phase pipeline, atomicity criteria, dependency types, HITL gates, examples. SUBAGENT: Update notes.",
+      "labels": [
+        "decomposition",
+        "documentation",
+        "guide",
+        "td-072"
+      ],
+      "depends": [
+        "T758"
+      ]
+    },
+    {
+      "id": "T797",
+      "title": "Library Architecture Refactoring",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2025-12-24T06:41:54Z",
+      "phase": "core",
+      "description": "Refactor lib/ to meet LIBRARY-ARCHITECTURE-SPEC targets: reduce inter-lib deps from 44 to ≤25, add source guards to 21 libraries, break circular dependency chain"
+    },
+    {
+      "id": "T798",
+      "title": "Add source guards to all 21 libraries",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T797",
+      "createdAt": "2025-12-24T06:42:13Z",
+      "phase": "core",
+      "description": "Add _SOURCED guard pattern to prevent double-sourcing. Currently 0/21 libraries have guards. Pattern: [[ -n \"${_LIB_NAME_SOURCED:-}\" ]] && return; _LIB_NAME_SOURCED=1"
+    },
+    {
+      "id": "T799",
+      "title": "Add layer headers to all libraries",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T797",
+      "createdAt": "2025-12-24T06:42:15Z",
+      "phase": "core",
+      "description": "Add LAYER/DEPENDENCIES/PROVIDES headers to all 21 libraries per LIBRARY-ARCHITECTURE-SPEC. Headers document layer (L0-L3), dependencies, and public functions provided."
+    },
+    {
+      "id": "T800",
+      "title": "Break circular dependency chain",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T797",
+      "createdAt": "2025-12-24T06:42:17Z",
+      "phase": "core",
+      "description": "Break circular dependency: file-ops → validation → migrate → file-ops. Target: 0 circular dependency chains. May require extracting shared functions to lower-layer library."
+    },
+    {
+      "id": "T801",
+      "title": "Reduce deletion-strategy.sh dependencies",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T797",
+      "createdAt": "2025-12-24T06:42:19Z",
+      "phase": "core",
+      "description": "Reduce dependencies from 6 to ≤3. Current deps: logging, config, file-ops, validation, cancel-ops, hierarchy. Analyze which can be removed or consolidated."
+    },
+    {
+      "id": "T802",
+      "title": "Reduce cancel-ops.sh dependencies",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T797",
+      "createdAt": "2025-12-24T06:42:21Z",
+      "phase": "core",
+      "description": "Reduce dependencies from 5 to ≤3. Current deps: logging, config, file-ops, validation, hierarchy. Identify removable or consolidatable dependencies."
+    },
+    {
+      "id": "T803",
+      "title": "Reduce validation.sh dependencies",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T797",
+      "createdAt": "2025-12-24T06:42:23Z",
+      "phase": "core",
+      "description": "Reduce dependencies from 5 to ≤3. Current deps: logging, config, file-ops, json-helpers, schema-validation. Key file in circular dependency chain."
+    },
+    {
+      "id": "T804",
+      "title": "Reduce backup.sh dependencies",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T797",
+      "createdAt": "2025-12-24T06:42:24Z",
+      "phase": "core",
+      "description": "Reduce dependencies from 4 to ≤3. Current deps: logging, config, file-ops, validation. Evaluate if validation can be made optional or deferred."
+    },
+    {
+      "id": "T805",
+      "title": "Explicit Positional Ordering System",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2025-12-24T06:52:32Z",
+      "size": "large",
+      "phase": "core",
+      "description": "Enable explicit, ID-independent task ordering where position/rank is separate from task ID. Epics, tasks, and subtasks each have shuffleable positions. LLM agents see FORCED priority order with dependency/blocking info. Currently: only categorical priority + creation date ordering exists. Need: position field, reorder commands, mandatory position assignment, dependency-aware display. Requires research on scope (per-parent vs global), enforcement strategy, and integration with existing priority field.",
+      "labels": [
+        "architecture",
+        "feature",
+        "research-needed"
+      ],
+      "notes": [
+        "2025-12-24 06:52:51 UTC: USER REQS: (1) ID-independent ordering - T004→pos1, T002→pos2 (2) Hierarchical scope - epics, tasks, subtasks each orderable (3) Mandatory - position MUST be defined (4) Dependency-aware display - show blocks/depends (5) Shuffleable - reorder without changing other props"
       ]
     }
   ],

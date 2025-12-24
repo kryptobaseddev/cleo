@@ -144,7 +144,7 @@ Example:
 | `acceptance` | array[string] | Testable completion criteria | Min 1 item, max 200 chars each |
 | `depends` | array[string] | Task IDs that must be done first | Pattern: `^T\d{3,}$`, unique items |
 | `blockedBy` | string | Blocker reason | Max 300 chars, **REQUIRED if status=blocked** |
-| `notes` | array[string] | Append-only implementation log | Max 500 chars each |
+| `notes` | array[string] | Append-only implementation log | Max 5000 chars each |
 | `labels` | array[string] | Tags for filtering | Pattern: `^[a-z][a-z0-9.-]*$` (supports version tags like v0.6.0), unique items |
 | `completedAt` | string | Completion timestamp | ISO 8601, **REQUIRED if status=done** |
 
