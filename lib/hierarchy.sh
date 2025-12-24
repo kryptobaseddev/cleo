@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hierarchy.sh - Hierarchy validation and helper functions for claude-todo
 #
-# LAYER: 1 (Core Infrastructure)
+# LAYER: 2 (Data Layer)
 # DEPENDENCIES: config.sh
 # PROVIDES: validate_parent_exists, validate_depth, validate_sibling_count,
 #           validate_parent_type, detect_circular_reference, get_children,

@@ -5,6 +5,15 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.1] - 2025-12-24
+
+### Changed
+- **Library layer header corrections** - Fixed misclassified LAYER headers per LIBRARY-ARCHITECTURE-SPEC.md Part 11
+  - `lib/file-ops.sh`: LAYER 1 → LAYER 2 (Data Layer)
+  - `lib/hierarchy.sh`: LAYER 1 → LAYER 2 (Data Layer)
+  - `lib/logging.sh`: LAYER 1 → LAYER 2 (Data Layer)
+  - Headers now match authoritative spec classification
+
 ## [0.36.0] - 2025-12-24
 
 ### Added

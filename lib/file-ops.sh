@@ -1,7 +1,7 @@
 #!/bin/bash
 # file-ops.sh - Atomic file operations with backup management
 #
-# LAYER: 1 (Core Infrastructure)
+# LAYER: 2 (Data Layer)
 # DEPENDENCIES: config.sh, atomic-write.sh
 # PROVIDES: atomic_write, save_json, backup_file, restore_backup, lock_file,
 #           unlock_file, recalculate_checksum, safe_file_read

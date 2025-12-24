@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # logging.sh - Change log functions for CLAUDE-TODO system
 #
-# LAYER: 1 (Core Infrastructure)
+# LAYER: 2 (Data Layer)
 # DEPENDENCIES: atomic-write.sh
 # PROVIDES: log_operation, get_log_entries, get_task_history, prune_log,
 #           LOG_FILE, generate_log_id
