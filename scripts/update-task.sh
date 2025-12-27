@@ -315,7 +315,7 @@ validate_phase() {
   # Check if phase exists in todo.json
   if [[ -f "$TODO_FILE" ]]; then
     local phase_exists
-    phase_exists=$(jq --arg phase "$phase" '(.project.phases // {}) | has($phase)' "$TODO_FILE")
+    phase_exists=$(jq --arg phase "$phase" '((if (.project | type) == "object" then .project.phases else null end) // {}) | has($phase)' "$TODO_FILE")
     if [[ "$phase_exists" != "true" ]]; then
       # If --add-phase flag is set, we'll create it later
       if [[ "$ADD_PHASE" == "true" ]]; then
@@ -324,7 +324,7 @@ validate_phase() {
 
       # Get list of valid phases for error message
       local valid_phases
-      valid_phases=$(jq -r '(.project.phases // {}) | keys | join(", ")' "$TODO_FILE")
+      valid_phases=$(jq -r '((if (.project | type) == "object" then .project.phases else null end) // {}) | keys | join(", ")' "$TODO_FILE")
 
       if [[ -n "$valid_phases" && "$valid_phases" != "null" ]]; then
         log_error "Phase '$phase' not found. Valid phases: $valid_phases. Use --add-phase to create new."

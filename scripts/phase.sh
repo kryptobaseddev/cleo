@@ -187,7 +187,8 @@ cmd_set() {
     old_phase=$(get_current_phase "$TODO_FILE")
 
     # Validate phase exists before attempting set
-    if ! jq -e --arg slug "$slug" '.project.phases[$slug]' "$TODO_FILE" >/dev/null 2>&1; then
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    if ! jq -e --arg slug "$slug" '(.project | type) == "object" and .project.phases[$slug] != null' "$TODO_FILE" >/dev/null 2>&1; then
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
@@ -215,13 +216,14 @@ cmd_set() {
     # Detect rollback by comparing phase orders
     if [[ -n "$old_phase" && "$old_phase" != "null" ]]; then
         local old_order new_order old_name new_name
-        old_order=$(jq -r --arg slug "$old_phase" '.project.phases[$slug].order // 0' "$TODO_FILE")
-        new_order=$(jq -r --arg slug "$slug" '.project.phases[$slug].order // 0' "$TODO_FILE")
+        # Handle legacy data where .project may be a string (pre-v2.2.0)
+        old_order=$(jq -r --arg slug "$old_phase" '(if (.project | type) == "object" then .project.phases[$slug].order else null end) // 0' "$TODO_FILE")
+        new_order=$(jq -r --arg slug "$slug" '(if (.project | type) == "object" then .project.phases[$slug].order else null end) // 0' "$TODO_FILE")
 
         if [[ "$new_order" -lt "$old_order" ]]; then
             # This is a rollback
-            old_name=$(jq -r --arg slug "$old_phase" '.project.phases[$slug].name // $slug' "$TODO_FILE")
-            new_name=$(jq -r --arg slug "$slug" '.project.phases[$slug].name // $slug' "$TODO_FILE")
+            old_name=$(jq -r --arg slug "$old_phase" '(if (.project | type) == "object" then .project.phases[$slug].name else null end) // $slug' "$TODO_FILE")
+            new_name=$(jq -r --arg slug "$slug" '(if (.project | type) == "object" then .project.phases[$slug].name else null end) // $slug' "$TODO_FILE")
 
             if [[ "$allow_rollback" != true ]]; then
                 if [[ "$FORMAT" == "json" ]]; then
@@ -343,8 +345,9 @@ cmd_set() {
         local skipped_phases=0
         if [[ -n "$old_phase" && "$old_phase" != "null" && "$old_phase" != "none" ]]; then
             local check_old_order check_new_order
-            check_old_order=$(jq -r --arg slug "$old_phase" '.project.phases[$slug].order // 0' "$TODO_FILE")
-            check_new_order=$(jq -r --arg slug "$slug" '.project.phases[$slug].order // 0' "$TODO_FILE")
+            # Handle legacy data where .project may be a string (pre-v2.2.0)
+            check_old_order=$(jq -r --arg slug "$old_phase" '(if (.project | type) == "object" then .project.phases[$slug].order else null end) // 0' "$TODO_FILE")
+            check_new_order=$(jq -r --arg slug "$slug" '(if (.project | type) == "object" then .project.phases[$slug].order else null end) // 0' "$TODO_FILE")
             if [[ "$check_new_order" -lt "$check_old_order" ]]; then
                 is_rollback=true
             elif [[ "$check_new_order" -gt "$((check_old_order + 1))" ]]; then
@@ -431,7 +434,8 @@ cmd_start() {
     local slug="$1"
 
     # Check phase exists
-    if ! jq -e --arg slug "$slug" '.project.phases[$slug]' "$TODO_FILE" >/dev/null 2>&1; then
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    if ! jq -e --arg slug "$slug" '(.project | type) == "object" and .project.phases[$slug] != null' "$TODO_FILE" >/dev/null 2>&1; then
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
@@ -538,7 +542,8 @@ cmd_complete() {
     local started_at
 
     # Check phase exists
-    if ! jq -e --arg slug "$slug" '.project.phases[$slug]' "$TODO_FILE" >/dev/null 2>&1; then
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    if ! jq -e --arg slug "$slug" '(.project | type) == "object" and .project.phases[$slug] != null' "$TODO_FILE" >/dev/null 2>&1; then
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
@@ -625,7 +630,8 @@ cmd_complete() {
         return "$EXIT_VALIDATION_ERROR"
     fi
 
-    started_at=$(jq -r --arg slug "$slug" '.project.phases[$slug].startedAt // null' "$TODO_FILE")
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    started_at=$(jq -r --arg slug "$slug" '(if (.project | type) == "object" then .project.phases[$slug].startedAt else null end) // null' "$TODO_FILE")
 
     if complete_phase "$slug" "$TODO_FILE" 2>/dev/null; then
         local completed_at
@@ -743,14 +749,16 @@ cmd_advance() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    current_started=$(jq -r --arg slug "$current" '.project.phases[$slug].startedAt // null' "$TODO_FILE")
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    current_started=$(jq -r --arg slug "$current" '(if (.project | type) == "object" then .project.phases[$slug].startedAt else null end) // null' "$TODO_FILE")
 
     # Find next phase
     local current_order
-    current_order=$(jq -r --arg slug "$current" '.project.phases[$slug].order // 0' "$TODO_FILE")
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    current_order=$(jq -r --arg slug "$current" '(if (.project | type) == "object" then .project.phases[$slug].order else null end) // 0' "$TODO_FILE")
     local next_phase
     next_phase=$(jq -r --argjson order "$current_order" '
-        .project.phases | to_entries
+        (if (.project | type) == "object" then .project.phases else null end // {}) | to_entries
         | sort_by(.value.order)
         | map(select(.value.order > $order))
         | first.key // empty
@@ -1008,10 +1016,14 @@ cmd_list() {
     if [[ "$FORMAT" == "json" ]]; then
         local timestamp
         timestamp=$(get_iso_timestamp)
+        # Handle legacy data where .project may be a string (pre-v2.2.0)
         jq \
             --arg ts "$timestamp" \
             --arg current "$current_phase" \
-            '{
+            '
+            # Get phases with type guard for legacy data
+            (if (.project | type) == "object" then .project.phases else null end // {}) as $phases |
+            {
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "command": "phase list",
@@ -1020,7 +1032,7 @@ cmd_list() {
                 "success": true,
                 "currentPhase": (if $current == "" or $current == "null" then null else $current end),
                 "phases": [
-                    .project.phases | to_entries | sort_by(.value.order) | .[] |
+                    $phases | to_entries | sort_by(.value.order) | .[] |
                     {
                         "slug": .key,
                         "name": .value.name,
@@ -1032,17 +1044,18 @@ cmd_list() {
                     }
                 ],
                 "summary": {
-                    "total": (.project.phases | length),
-                    "pending": ([.project.phases | to_entries[] | select(.value.status == "pending")] | length),
-                    "active": ([.project.phases | to_entries[] | select(.value.status == "active")] | length),
-                    "completed": ([.project.phases | to_entries[] | select(.value.status == "completed")] | length)
+                    "total": ($phases | length),
+                    "pending": ([$phases | to_entries[] | select(.value.status == "pending")] | length),
+                    "active": ([$phases | to_entries[] | select(.value.status == "active")] | length),
+                    "completed": ([$phases | to_entries[] | select(.value.status == "completed")] | length)
                 }
             }' "$TODO_FILE"
     else
         echo "Project Phases:"
         echo "==============="
+        # Handle legacy data where .project may be a string (pre-v2.2.0)
         jq -r --arg current "$current_phase" '
-            .project.phases | to_entries | sort_by(.value.order) | .[] |
+            (if (.project | type) == "object" then .project.phases else null end // {}) | to_entries | sort_by(.value.order) | .[] |
             (if .key == $current then "★ " else "  " end) +
             "[\(.value.order)] \(.key): \(.value.name) (\(.value.status))"
         ' "$TODO_FILE"
@@ -1060,7 +1073,8 @@ cmd_rename() {
     local current_phase
 
     # Validate old phase exists
-    if ! jq -e --arg slug "$old_name" '.project.phases[$slug]' "$TODO_FILE" >/dev/null 2>&1; then
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    if ! jq -e --arg slug "$old_name" '(.project | type) == "object" and .project.phases[$slug] != null' "$TODO_FILE" >/dev/null 2>&1; then
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
@@ -1086,7 +1100,8 @@ cmd_rename() {
     fi
 
     # Validate new name doesn't already exist
-    if jq -e --arg slug "$new_name" '.project.phases[$slug]' "$TODO_FILE" >/dev/null 2>&1; then
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    if jq -e --arg slug "$new_name" '(.project | type) == "object" and .project.phases[$slug] != null' "$TODO_FILE" >/dev/null 2>&1; then
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
@@ -1179,38 +1194,44 @@ cmd_rename() {
     timestamp=$(get_iso_timestamp)
 
     # Step 1-4: Copy phase definition, update tasks, update currentPhase, remove old
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
     if ! jq --arg old "$old_name" --arg new "$new_name" --arg ts "$timestamp" '
-        # Copy phase definition with new name
-        .project.phases[$new] = .project.phases[$old] |
+        # Guard: Only proceed if .project is an object
+        if (.project | type) != "object" then
+            error("Cannot rename phase: .project is not an object (legacy data format)")
+        else
+            # Copy phase definition with new name
+            .project.phases[$new] = .project.phases[$old] |
 
-        # Update all task.phase references
-        .tasks = (.tasks | map(
-            if .phase == $old then
-                .phase = $new
+            # Update all task.phase references
+            .tasks = (.tasks | map(
+                if .phase == $old then
+                    .phase = $new
+                else
+                    .
+                end
+            )) |
+
+            # Update project.currentPhase if it matches
+            (if .project.currentPhase == $old then
+                .project.currentPhase = $new
             else
                 .
-            end
-        )) |
+            end) |
 
-        # Update project.currentPhase if it matches
-        (if .project.currentPhase == $old then
-            .project.currentPhase = $new
-        else
-            .
-        end) |
+            # Update focus.currentPhase if it matches
+            (if .focus.currentPhase == $old then
+                .focus.currentPhase = $new
+            else
+                .
+            end) |
 
-        # Update focus.currentPhase if it matches
-        (if .focus.currentPhase == $old then
-            .focus.currentPhase = $new
-        else
-            .
-        end) |
+            # Remove old phase definition
+            del(.project.phases[$old]) |
 
-        # Remove old phase definition
-        del(.project.phases[$old]) |
-
-        # Update lastUpdated timestamp
-        .lastUpdated = $ts
+            # Update lastUpdated timestamp
+            .lastUpdated = $ts
+        end
     ' "$TODO_FILE" > "$temp_file"; then
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
@@ -1268,7 +1289,8 @@ cmd_rename() {
     updated_count=$(jq --arg new "$new_name" '[.tasks[] | select(.phase == $new)] | length' "$temp_file")
 
     # Check if currentPhase was updated
-    current_phase=$(jq -r '.project.currentPhase // empty' "$temp_file")
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    current_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // empty' "$temp_file")
 
     # Atomic rename - replace original file
     if ! mv "$temp_file" "$TODO_FILE"; then
@@ -1351,7 +1373,8 @@ cmd_delete() {
     local force="${3:-false}"
 
     # Check phase exists
-    if ! jq -e --arg slug "$slug" '.project.phases[$slug]' "$TODO_FILE" >/dev/null 2>&1; then
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
+    if ! jq -e --arg slug "$slug" '(.project | type) == "object" and .project.phases[$slug] != null' "$TODO_FILE" >/dev/null 2>&1; then
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
@@ -1457,7 +1480,8 @@ cmd_delete() {
 
     # If tasks exist and reassignment specified, validate target phase
     if [[ "$task_count" -gt 0 && -n "$reassign_to" ]]; then
-        if ! jq -e --arg slug "$reassign_to" '.project.phases[$slug]' "$TODO_FILE" >/dev/null 2>&1; then
+        # Handle legacy data where .project may be a string (pre-v2.2.0)
+        if ! jq -e --arg slug "$reassign_to" '(.project | type) == "object" and .project.phases[$slug] != null' "$TODO_FILE" >/dev/null 2>&1; then
             if [[ "$FORMAT" == "json" ]]; then
                 local timestamp
                 timestamp=$(get_iso_timestamp)
@@ -1546,24 +1570,35 @@ cmd_delete() {
     timestamp=$(get_iso_timestamp)
 
     # Reassign tasks if needed, then delete phase
+    # Handle legacy data where .project may be a string (pre-v2.2.0)
     if [[ "$task_count" -gt 0 && -n "$reassign_to" ]]; then
         jq --arg slug "$slug" \
            --arg reassign "$reassign_to" \
            --arg ts "$timestamp" '
-            # Reassign all tasks with this phase
-            .tasks = [.tasks[] | if .phase == $slug then .phase = $reassign else . end] |
-            # Delete the phase
-            del(.project.phases[$slug]) |
-            # Update timestamp
-            .lastUpdated = $ts
+            # Guard: Only proceed if .project is an object
+            if (.project | type) != "object" then
+                error("Cannot delete phase: .project is not an object (legacy data format)")
+            else
+                # Reassign all tasks with this phase
+                .tasks = [.tasks[] | if .phase == $slug then .phase = $reassign else . end] |
+                # Delete the phase
+                del(.project.phases[$slug]) |
+                # Update timestamp
+                .lastUpdated = $ts
+            end
         ' "$TODO_FILE" > "$temp_file"
     else
         jq --arg slug "$slug" \
            --arg ts "$timestamp" '
-            # Delete the phase
-            del(.project.phases[$slug]) |
-            # Update timestamp
-            .lastUpdated = $ts
+            # Guard: Only proceed if .project is an object
+            if (.project | type) != "object" then
+                error("Cannot delete phase: .project is not an object (legacy data format)")
+            else
+                # Delete the phase
+                del(.project.phases[$slug]) |
+                # Update timestamp
+                .lastUpdated = $ts
+            end
         ' "$TODO_FILE" > "$temp_file"
     fi
 

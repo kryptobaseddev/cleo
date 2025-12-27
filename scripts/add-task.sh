@@ -401,7 +401,7 @@ validate_phase() {
   # Check if phase exists in todo.json
   if [[ -f "$TODO_FILE" ]]; then
     local phase_exists
-    phase_exists=$(jq --arg phase "$phase" '(.project.phases // {}) | has($phase)' "$TODO_FILE")
+    phase_exists=$(jq --arg phase "$phase" '((if (.project | type) == "object" then .project.phases else null end) // {}) | has($phase)' "$TODO_FILE")
     if [[ "$phase_exists" != "true" ]]; then
       # If --add-phase flag is set, we'll create it later
       if [[ "$ADD_PHASE" == "true" ]]; then
@@ -410,7 +410,7 @@ validate_phase() {
 
       # Get list of valid phases for error message
       local valid_phases
-      valid_phases=$(jq -r '(.project.phases // {}) | keys | join(", ")' "$TODO_FILE")
+      valid_phases=$(jq -r '((if (.project | type) == "object" then .project.phases else null end) // {}) | keys | join(", ")' "$TODO_FILE")
 
       if [[ -n "$valid_phases" && "$valid_phases" != "null" ]]; then
         log_error "Phase '$phase' not found. Valid phases: $valid_phases. Use --add-phase to create new."
@@ -441,7 +441,7 @@ add_new_phase() {
 
   # Get next order number
   local next_order
-  next_order=$(jq '[.project.phases[].order // 0] | max + 1' "$TODO_FILE")
+  next_order=$(jq '[(if (.project | type) == "object" then .project.phases else {} end | .[].order) // 0] | if . == [] then 1 else max + 1 end' "$TODO_FILE")
   if [[ "$next_order" == "null" || -z "$next_order" ]]; then
     next_order=1
   fi
@@ -455,7 +455,7 @@ add_new_phase() {
   updated_content=$(jq --arg phase "$phase" \
                        --arg name "$phase_name" \
                        --argjson order "$next_order" \
-                       '.project.phases[$phase] = {name: $name, order: $order}' \
+                       'if (.project | type) == "object" then .project.phases[$phase] = {name: $name, order: $order} else . end' \
                        "$TODO_FILE")
 
   # Save using atomic write
@@ -752,7 +752,7 @@ PHASE_SOURCE=""
 if [[ -z "$PHASE" ]]; then
   # Try project.currentPhase first (v2.2.0+ feature)
   if [[ -f "$TODO_FILE" ]]; then
-    PHASE=$(jq -r '.project.currentPhase // empty' "$TODO_FILE" 2>/dev/null)
+    PHASE=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // empty' "$TODO_FILE" 2>/dev/null)
     if [[ -n "$PHASE" && "$PHASE" != "null" ]]; then
       PHASE_SOURCE="project"
       log_info "Using project phase: $PHASE"
