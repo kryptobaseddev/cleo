@@ -456,8 +456,8 @@ EOF
 # Error Handling Tests
 # =============================================================================
 
-@test "stats handles missing .claude directory" {
-    rm -rf .claude
+@test "stats handles missing .cleo directory" {
+    rm -rf .cleo
     run bash "$STATS_SCRIPT"
     assert_failure
     assert_output --partial "ERROR"
