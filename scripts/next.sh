@@ -167,7 +167,7 @@ get_current_focus() {
 get_current_phase() {
   # First try project.currentPhase (v2.2.0+)
   local project_phase
-  project_phase=$(jq -r '.project.currentPhase // empty' "$TODO_FILE" 2>/dev/null)
+  project_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // empty' "$TODO_FILE" 2>/dev/null)
 
   if [[ -n "$project_phase" && "$project_phase" != "null" ]]; then
     echo "$project_phase"
@@ -594,7 +594,7 @@ output_explain_format() {
   if [[ -n "$current_phase" ]]; then
     # Determine phase source (project.currentPhase or focused task)
     local project_phase
-    project_phase=$(jq -r '.project.currentPhase // empty' "$TODO_FILE" 2>/dev/null)
+    project_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // empty' "$TODO_FILE" 2>/dev/null)
 
     if [[ -n "$project_phase" && "$project_phase" != "null" ]]; then
       echo "Current project phase: $current_phase"

@@ -522,7 +522,7 @@ main() {
         injected_phase=$(jq -r '.injectedPhase // ""' "$STATE_FILE" 2>/dev/null || echo "")
 
         local current_phase
-        current_phase=$(jq -r '.project.currentPhase // ""' "$TODO_FILE" 2>/dev/null || echo "")
+        current_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // ""' "$TODO_FILE" 2>/dev/null || echo "")
 
         # Warn if phase changed during session
         if [[ -n "$injected_phase" && -n "$current_phase" && "$injected_phase" != "$current_phase" ]]; then

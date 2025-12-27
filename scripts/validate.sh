@@ -653,13 +653,13 @@ else
 fi
 
 # 9. Check for multiple active phases (phase validation)
-if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
-  ACTIVE_PHASE_COUNT=$(jq '[.project.phases | to_entries[] | select(.value.status == "active")] | length' "$TODO_FILE")
+if jq -e 'if (.project | type) == "object" then .project.phases else null end' "$TODO_FILE" >/dev/null 2>&1; then
+  ACTIVE_PHASE_COUNT=$(jq '[(if (.project | type) == "object" then .project.phases else null end // {}) | to_entries[] | select(.value.status == "active")] | length' "$TODO_FILE")
   if [[ "$ACTIVE_PHASE_COUNT" -gt 1 ]]; then
     if [[ "$FIX" == true ]]; then
       # Don't log error yet - try to fix first
       # Get all active phases with metadata
-      ACTIVE_PHASES_JSON=$(jq -c '[.project.phases | to_entries[] | select(.value.status == "active") | {key: .key, order: .value.order, name: .value.name}] | sort_by(.order)' "$TODO_FILE")
+      ACTIVE_PHASES_JSON=$(jq -c '[(if (.project | type) == "object" then .project.phases else null end // {}) | to_entries[] | select(.value.status == "active") | {key: .key, order: .value.order, name: .value.name}] | sort_by(.order)' "$TODO_FILE")
       ACTIVE_PHASES_COUNT=$(echo "$ACTIVE_PHASES_JSON" | jq 'length')
 
       # Determine if we should be interactive
@@ -729,11 +729,13 @@ if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
 
       # Apply the fix - set selected as active, others to completed (atomic write with locking)
       if safe_json_write "$TODO_FILE" '
-        .project.phases |= with_entries(
-          if .value.status == "active" and .key != $keep then
-            .value.status = "completed"
-          else . end
-        )
+        if (.project | type) == "object" then
+          .project.phases |= with_entries(
+            if .value.status == "active" and .key != $keep then
+              .value.status = "completed"
+            else . end
+          )
+        else . end
       ' --arg keep "$SELECTED_PHASE"; then
         # Log the recovery action
         if declare -f log_operation >/dev/null 2>&1; then
@@ -765,15 +767,15 @@ if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
   fi
 
   # Check phase status values are valid (pending/active/completed)
-  INVALID_STATUSES=$(jq -r '.project.phases | to_entries[] | select(.value.status != "pending" and .value.status != "active" and .value.status != "completed") | "\(.key): \(.value.status)"' "$TODO_FILE" 2>/dev/null)
+  INVALID_STATUSES=$(jq -r '(if (.project | type) == "object" then .project.phases else null end // {}) | to_entries[] | select(.value.status != "pending" and .value.status != "active" and .value.status != "completed") | "\(.key): \(.value.status)"' "$TODO_FILE" 2>/dev/null)
   if [[ -n "$INVALID_STATUSES" ]]; then
     log_error "Invalid phase status values found: $INVALID_STATUSES"
   fi
 
   # Check currentPhase references an existing phase
-  CURRENT_PHASE=$(jq -r '.project.currentPhase // ""' "$TODO_FILE")
+  CURRENT_PHASE=$(jq -r 'if (.project | type) == "object" then .project.currentPhase else null end // ""' "$TODO_FILE")
   if [[ -n "$CURRENT_PHASE" && "$CURRENT_PHASE" != "null" ]]; then
-    PHASE_EXISTS=$(jq --arg phase "$CURRENT_PHASE" '.project.phases | has($phase)' "$TODO_FILE")
+    PHASE_EXISTS=$(jq --arg phase "$CURRENT_PHASE" '(if (.project | type) == "object" then .project.phases else null end // {}) | has($phase)' "$TODO_FILE")
     if [[ "$PHASE_EXISTS" != "true" ]]; then
       log_error "currentPhase '$CURRENT_PHASE' does not exist in phases"
     fi
@@ -782,7 +784,7 @@ if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
   # Check for future timestamps in phases
   CURRENT_TIMESTAMP=$(date -u +%s)
   FUTURE_PHASES=$(jq --argjson now "$CURRENT_TIMESTAMP" '
-    .project.phases | to_entries[] |
+    (if (.project | type) == "object" then .project.phases else null end // {}) | to_entries[] |
     select(
       (.value.startedAt != null and (.value.startedAt | fromdateiso8601) > $now) or
       (.value.completedAt != null and (.value.completedAt | fromdateiso8601) > $now)
@@ -793,14 +795,14 @@ if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
   fi
 
   # Validate phaseHistory if present
-  PHASE_HISTORY_COUNT=$(jq '.project.phaseHistory // [] | length' "$TODO_FILE")
+  PHASE_HISTORY_COUNT=$(jq '(if (.project | type) == "object" then .project.phaseHistory else null end // []) | length' "$TODO_FILE")
   if [[ "$PHASE_HISTORY_COUNT" -gt 0 ]]; then
     log_info "Phase history entries: $PHASE_HISTORY_COUNT" "phase_history"
 
     # Check phaseHistory entries reference valid phases
     INVALID_PHASE_REFS=$(jq -r '
-      .project.phases as $phases |
-      .project.phaseHistory // [] |
+      (if (.project | type) == "object" then .project.phases else null end // {}) as $phases |
+      (if (.project | type) == "object" then .project.phaseHistory else null end // []) |
       map(select(.phase as $p | $phases | has($p) | not)) |
       .[].phase
     ' "$TODO_FILE" 2>/dev/null || echo "")
@@ -810,7 +812,7 @@ if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
 
     # Check phaseHistory entries have valid transition types
     INVALID_TRANSITIONS=$(jq -r '
-      .project.phaseHistory // [] |
+      (if (.project | type) == "object" then .project.phaseHistory else null end // []) |
       map(select(.transitionType != "started" and .transitionType != "completed" and .transitionType != "rollback")) |
       .[].transitionType
     ' "$TODO_FILE" 2>/dev/null || echo "")
@@ -820,7 +822,7 @@ if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
 
     # Check phaseHistory timestamps are not in future
     FUTURE_HISTORY=$(jq --argjson now "$CURRENT_TIMESTAMP" '
-      .project.phaseHistory // [] |
+      (if (.project | type) == "object" then .project.phaseHistory else null end // []) |
       map(select(.timestamp != null and (.timestamp | fromdateiso8601) > $now)) |
       .[].phase
     ' "$TODO_FILE" 2>/dev/null || echo "")
@@ -830,7 +832,7 @@ if jq -e '.project.phases' "$TODO_FILE" >/dev/null 2>&1; then
 
     # Check rollback entries have fromPhase
     MISSING_FROM_PHASE=$(jq -r '
-      .project.phaseHistory // [] |
+      (if (.project | type) == "object" then .project.phaseHistory else null end // []) |
       map(select(.transitionType == "rollback" and (.fromPhase == null or .fromPhase == ""))) |
       .[].phase
     ' "$TODO_FILE" 2>/dev/null || echo "")

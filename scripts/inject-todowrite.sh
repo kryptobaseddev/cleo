@@ -276,7 +276,7 @@ get_tasks_to_inject() {
     # Determine phase filter: explicit --phase > project.currentPhase > no filter
     local effective_phase="$phase_filter"
     if [[ -z "$effective_phase" ]]; then
-        effective_phase=$(jq -r '.project.currentPhase // ""' "$todo_file")
+        effective_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // ""' "$todo_file")
     fi
 
     if [[ "$focused_only" == "true" && -n "$focus_id" ]]; then
@@ -369,7 +369,7 @@ save_session_state() {
 
     # Get current project phase
     local current_phase
-    current_phase=$(jq -r '.project.currentPhase // ""' "$TODO_FILE" 2>/dev/null || echo "")
+    current_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // ""' "$TODO_FILE" 2>/dev/null || echo "")
 
     # Build task metadata map (id -> {phase, priority, status})
     local task_metadata
@@ -420,7 +420,7 @@ main() {
     # Determine effective phase filter
     local effective_phase="$PHASE_FILTER"
     if [[ -z "$effective_phase" ]]; then
-        effective_phase=$(jq -r '.project.currentPhase // ""' "$TODO_FILE")
+        effective_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // ""' "$TODO_FILE")
     fi
 
     if [[ -n "$effective_phase" ]]; then

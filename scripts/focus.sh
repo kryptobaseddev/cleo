@@ -554,7 +554,7 @@ cmd_set() {
   # Update project.currentPhase and focus.currentPhase if task has phase
   if [[ -n "$task_phase" && "$task_phase" != "null" ]]; then
     updated_todo=$(echo "$updated_todo" | jq --arg phase "$task_phase" '
-      .project.currentPhase = $phase |
+      (if (.project | type) == "object" then .project.currentPhase = $phase else . end) |
       .focus.currentPhase = $phase
     ')
     [[ "$FORMAT" != "json" ]] && log_info "Phase changed to: $task_phase"
@@ -804,7 +804,7 @@ cmd_show() {
     current_task=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
     session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE")
     next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE")
-    current_phase=$(jq -r '.project.currentPhase // ""' "$TODO_FILE")
+    current_phase=$(jq -r '(if (.project | type) == "object" then .project.currentPhase else null end) // ""' "$TODO_FILE")
 
     echo ""
     echo "=== Current Focus ==="
