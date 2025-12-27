@@ -1,82 +1,89 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Session Management Script
+# CLEO Session Management Script
 # Manage work sessions with automatic logging
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+
+# Source paths.sh for path resolution functions
+if [[ -f "$CLEO_HOME/lib/paths.sh" ]]; then
+    source "$CLEO_HOME/lib/paths.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/paths.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/paths.sh"
+fi
 
 # Source version - use central VERSION file
-VERSION=$(cat "$CLAUDE_TODO_HOME/VERSION" 2>/dev/null || cat "$SCRIPT_DIR/../VERSION" 2>/dev/null || echo "0.36.0")
+VERSION=$(cat "$CLEO_HOME/VERSION" 2>/dev/null || cat "$SCRIPT_DIR/../VERSION" 2>/dev/null || echo "0.36.0")
 
 # Source version library for proper version management
-if [[ -f "$CLAUDE_TODO_HOME/lib/version.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/version.sh"
+if [[ -f "$CLEO_HOME/lib/version.sh" ]]; then
+  source "$CLEO_HOME/lib/version.sh"
 elif [[ -f "$SCRIPT_DIR/../lib/version.sh" ]]; then
   source "$SCRIPT_DIR/../lib/version.sh"
 fi
 
 # Source libraries
-[[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]] && source "$CLAUDE_TODO_HOME/lib/logging.sh"
-[[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]] && source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+[[ -f "$CLEO_HOME/lib/logging.sh" ]] && source "$CLEO_HOME/lib/logging.sh"
+[[ -f "$CLEO_HOME/lib/file-ops.sh" ]] && source "$CLEO_HOME/lib/file-ops.sh"
 
 # Also try local lib directory if home installation not found
 LIB_DIR="${SCRIPT_DIR}/../lib"
-[[ ! -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" && -f "$LIB_DIR/file-ops.sh" ]] && source "$LIB_DIR/file-ops.sh"
+[[ ! -f "$CLEO_HOME/lib/file-ops.sh" && -f "$LIB_DIR/file-ops.sh" ]] && source "$LIB_DIR/file-ops.sh"
 
 # Source output-format library for format resolution
-if [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+if [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 elif [[ -f "$LIB_DIR/output-format.sh" ]]; then
   source "$LIB_DIR/output-format.sh"
 fi
 
 # Source exit codes and error-json libraries
-if [[ -f "$CLAUDE_TODO_HOME/lib/exit-codes.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/exit-codes.sh"
+if [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
+  source "$CLEO_HOME/lib/exit-codes.sh"
 elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
   source "$LIB_DIR/exit-codes.sh"
 fi
-if [[ -f "$CLAUDE_TODO_HOME/lib/error-json.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/error-json.sh"
+if [[ -f "$CLEO_HOME/lib/error-json.sh" ]]; then
+  source "$CLEO_HOME/lib/error-json.sh"
 elif [[ -f "$LIB_DIR/error-json.sh" ]]; then
   source "$LIB_DIR/error-json.sh"
 fi
 
 # Source config library for session settings
-if [[ -f "$CLAUDE_TODO_HOME/lib/config.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/config.sh"
+if [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
+  source "$CLEO_HOME/lib/config.sh"
 elif [[ -f "$LIB_DIR/config.sh" ]]; then
   source "$LIB_DIR/config.sh"
 fi
 
 # Source phase tracking library for phase capture (v2.2.0)
-if [[ -f "$CLAUDE_TODO_HOME/lib/phase-tracking.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/phase-tracking.sh"
+if [[ -f "$CLEO_HOME/lib/phase-tracking.sh" ]]; then
+  source "$CLEO_HOME/lib/phase-tracking.sh"
 elif [[ -f "$LIB_DIR/phase-tracking.sh" ]]; then
   source "$LIB_DIR/phase-tracking.sh"
 fi
 
 # Source backup library for scheduled backup support (T632)
-if [[ -f "$CLAUDE_TODO_HOME/lib/backup.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/backup.sh"
+if [[ -f "$CLEO_HOME/lib/backup.sh" ]]; then
+  source "$CLEO_HOME/lib/backup.sh"
 elif [[ -f "$LIB_DIR/backup.sh" ]]; then
   source "$LIB_DIR/backup.sh"
 fi
 
 # Source validation library for input validation (Part 5.3 compliance)
-if [[ -f "$CLAUDE_TODO_HOME/lib/validation.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/validation.sh"
+if [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
+  source "$CLEO_HOME/lib/validation.sh"
 elif [[ -f "$LIB_DIR/validation.sh" ]]; then
   source "$LIB_DIR/validation.sh"
 fi
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/todo-config.json}"
 # Note: LOG_FILE is set by lib/logging.sh (readonly) - don't reassign here
 # If library wasn't sourced, set a fallback
 if [[ -z "${LOG_FILE:-}" ]]; then
-  LOG_FILE=".claude/todo-log.json"
+  LOG_FILE=".cleo/todo-log.json"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
@@ -121,9 +128,9 @@ DRY_RUN=false
 
 usage() {
   cat << EOF
-Usage: claude-todo session <command> [OPTIONS]
+Usage: cleo session <command> [OPTIONS]
 
-Manage claude-todo work sessions.
+Manage cleo work sessions.
 
 Commands:
   start       Start a new session
@@ -145,19 +152,19 @@ Format Auto-Detection:
   - Interactive terminal (TTY): human-readable text format
   - Pipe/redirect/agent context: machine-readable JSON format
 
-Config Settings (in .claude/todo-config.json):
+Config Settings (in .cleo/todo-config.json):
   session.requireSessionNote   If true, require --note when ending session (default: false)
   session.warnOnNoFocus        If true, warn when starting without focus (default: true)
   session.sessionTimeoutHours  Warn if session exceeds this duration (default: 8)
   session.autoStartSession     If true, auto-start session on first command (default: false)
 
 Examples:
-  claude-todo session start                    # Start new session
-  claude-todo session end --note "Completed auth implementation"
-  claude-todo session status                   # Check current session
-  claude-todo session info --json              # Detailed info as JSON
-  claude-todo session status --format json     # Machine-readable status
-  claude-todo session start --dry-run          # Preview session start
+  cleo session start                    # Start new session
+  cleo session end --note "Completed auth implementation"
+  cleo session status                   # Check current session
+  cleo session info --json              # Detailed info as JSON
+  cleo session status --format json     # Machine-readable status
+  cleo session start --dry-run          # Preview session start
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -171,7 +178,7 @@ fi
 # Check todo.json exists
 check_todo_exists() {
   if [[ ! -f "$TODO_FILE" ]]; then
-    log_error "Todo file not found: $TODO_FILE. Run 'claude-todo init' first" "E_NOT_INITIALIZED" "$EXIT_NOT_FOUND" "Run 'claude-todo init' to initialize"
+    log_error "Todo file not found: $TODO_FILE. Run 'cleo init' first" "E_NOT_INITIALIZED" "$EXIT_NOT_FOUND" "Run 'cleo init' to initialize"
     exit "$EXIT_NOT_FOUND"
   fi
 }
@@ -250,7 +257,7 @@ cmd_start() {
   current_session=$(get_current_session)
 
   if [[ -n "$current_session" ]]; then
-    log_error "Session already active: $current_session" "E_SESSION_ACTIVE" "$EXIT_ALREADY_EXISTS" "Use 'claude-todo session end' first, or continue with current session"
+    log_error "Session already active: $current_session" "E_SESSION_ACTIVE" "$EXIT_ALREADY_EXISTS" "Use 'cleo session end' first, or continue with current session"
     exit "$EXIT_ALREADY_EXISTS"
   fi
 
@@ -262,7 +269,7 @@ cmd_start() {
     focus_task_check=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
     if [[ -z "$focus_task_check" ]]; then
       log_warn "Starting session without a focused task"
-      log_warn "Consider setting focus: claude-todo focus set <task-id>"
+      log_warn "Consider setting focus: cleo focus set <task-id>"
     fi
   fi
 
@@ -277,7 +284,7 @@ cmd_start() {
       jq -n \
         --arg sid "$session_id" \
         --arg ts "$timestamp" \
-        --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
         '{
           "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
           "_meta": {
@@ -378,14 +385,14 @@ cmd_start() {
   fi
 
   # Check if CLAUDE.md injection is outdated
-  if [[ -f "CLAUDE.md" ]] && [[ -f "$CLAUDE_TODO_HOME/templates/CLAUDE-INJECTION.md" ]]; then
+  if [[ -f "CLAUDE.md" ]] && [[ -f "$CLEO_HOME/templates/CLAUDE-INJECTION.md" ]]; then
     local current_version installed_version
     current_version=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
-    installed_version=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' "$CLAUDE_TODO_HOME/templates/CLAUDE-INJECTION.md" 2>/dev/null || echo "")
+    installed_version=$(grep -oP 'CLAUDE-TODO:START v\K[0-9.]+' "$CLEO_HOME/templates/CLAUDE-INJECTION.md" 2>/dev/null || echo "")
 
     if [[ -n "$installed_version" ]] && [[ "$current_version" != "$installed_version" ]]; then
       log_warn "CLAUDE.md injection outdated (${current_version:-unknown} → $installed_version)"
-      log_warn "Run: claude-todo init --update-claude-md"
+      log_warn "Run: cleo init --update-claude-md"
     fi
   fi
 }
@@ -468,7 +475,7 @@ cmd_end() {
       jq -n \
         --arg sid "$current_session" \
         --arg ts "$timestamp" \
-        --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
         --arg note "$note" \
         '{
           "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
@@ -572,7 +579,7 @@ cmd_end() {
 
   # Check and rotate log if needed (T214)
   if declare -f check_and_rotate_log >/dev/null 2>&1; then
-    local config_file="${CONFIG_FILE:-.claude/todo-config.json}"
+    local config_file="${CONFIG_FILE:-.cleo/todo-config.json}"
     [[ -f "$config_file" ]] && check_and_rotate_log "$config_file" "$LOG_FILE" 2>/dev/null || true
   fi
 }
@@ -613,7 +620,7 @@ cmd_status() {
 
     jq -n \
       --arg timestamp "$current_timestamp" \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg session "$session_id" \
       --arg focus "$focus_task" \
       --arg note "$session_note" \
@@ -753,7 +760,7 @@ case "$COMMAND" in
   info)   cmd_info "$@" ;;
   -h|--help|help) usage ;;
   *)
-    log_error "Unknown command: $COMMAND" "E_INPUT_INVALID" "$EXIT_INVALID_INPUT" "Run 'claude-todo session --help' for usage"
+    log_error "Unknown command: $COMMAND" "E_INPUT_INVALID" "$EXIT_INVALID_INPUT" "Run 'cleo session --help' for usage"
     exit "$EXIT_INVALID_INPUT"
     ;;
 esac

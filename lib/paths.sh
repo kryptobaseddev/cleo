@@ -73,16 +73,16 @@ get_todo_file() {
     echo "$(get_cleo_dir)/todo.json"
 }
 
-# Get the project todo-config.json file path
-# Returns: Path to cleo-config.json
+# Get the project config.json file path
+# Returns: Path to config.json
 get_config_file() {
-    echo "$(get_cleo_dir)/cleo-config.json"
+    echo "$(get_cleo_dir)/config.json"
 }
 
 # Get the project todo-log.json file path
-# Returns: Path to cleo-log.json
+# Returns: Path to todo-log.json
 get_log_file() {
-    echo "$(get_cleo_dir)/cleo-log.json"
+    echo "$(get_cleo_dir)/todo-log.json"
 }
 
 # Get the project todo-archive.json file path

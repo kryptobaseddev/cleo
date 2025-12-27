@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Focus Management Script
+# CLEO Focus Management Script
 # Manage task focus for single-task workflow
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+
+# Source paths.sh for path resolution functions
+if [[ -f "$CLEO_HOME/lib/paths.sh" ]]; then
+    source "$CLEO_HOME/lib/paths.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/paths.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/paths.sh"
+fi
 
 # Load VERSION from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -16,58 +23,58 @@ else
 fi
 
 # Source version library for proper version management
-if [[ -f "$CLAUDE_TODO_HOME/lib/version.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/version.sh"
+if [[ -f "$CLEO_HOME/lib/version.sh" ]]; then
+  source "$CLEO_HOME/lib/version.sh"
 elif [[ -f "$SCRIPT_DIR/../lib/version.sh" ]]; then
   source "$SCRIPT_DIR/../lib/version.sh"
 fi
 
 # Source libraries
-[[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]] && source "$CLAUDE_TODO_HOME/lib/logging.sh"
-[[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]] && source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+[[ -f "$CLEO_HOME/lib/logging.sh" ]] && source "$CLEO_HOME/lib/logging.sh"
+[[ -f "$CLEO_HOME/lib/file-ops.sh" ]] && source "$CLEO_HOME/lib/file-ops.sh"
 
 # Also try local lib directory if home installation not found
 LIB_DIR="${SCRIPT_DIR}/../lib"
-[[ ! -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" && -f "$LIB_DIR/file-ops.sh" ]] && source "$LIB_DIR/file-ops.sh"
+[[ ! -f "$CLEO_HOME/lib/file-ops.sh" && -f "$LIB_DIR/file-ops.sh" ]] && source "$LIB_DIR/file-ops.sh"
 
 # Source validation library for session note validation (v0.20.0+)
-if [[ -f "$CLAUDE_TODO_HOME/lib/validation.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/validation.sh"
+if [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
+  source "$CLEO_HOME/lib/validation.sh"
 elif [[ -f "$LIB_DIR/validation.sh" ]]; then
   source "$LIB_DIR/validation.sh"
 fi
 
 # Source output-format library for format resolution
-if [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+if [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 elif [[ -f "$LIB_DIR/output-format.sh" ]]; then
   source "$LIB_DIR/output-format.sh"
 fi
 
 # Source exit codes and error-json libraries
-if [[ -f "$CLAUDE_TODO_HOME/lib/exit-codes.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/exit-codes.sh"
+if [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
+  source "$CLEO_HOME/lib/exit-codes.sh"
 elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
   source "$LIB_DIR/exit-codes.sh"
 fi
-if [[ -f "$CLAUDE_TODO_HOME/lib/error-json.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/error-json.sh"
+if [[ -f "$CLEO_HOME/lib/error-json.sh" ]]; then
+  source "$CLEO_HOME/lib/error-json.sh"
 elif [[ -f "$LIB_DIR/error-json.sh" ]]; then
   source "$LIB_DIR/error-json.sh"
 fi
 
 # Source hierarchy library for hierarchy awareness (T345)
-if [[ -f "$CLAUDE_TODO_HOME/lib/hierarchy.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/hierarchy.sh"
+if [[ -f "$CLEO_HOME/lib/hierarchy.sh" ]]; then
+  source "$CLEO_HOME/lib/hierarchy.sh"
 elif [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
   source "$LIB_DIR/hierarchy.sh"
 fi
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 # Note: LOG_FILE is set by lib/logging.sh (readonly) - don't reassign here
 # If library wasn't sourced, set a fallback
 if [[ -z "${LOG_FILE:-}" ]]; then
-  LOG_FILE=".claude/todo-log.json"
+  LOG_FILE=".cleo/todo-log.json"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
@@ -93,7 +100,7 @@ COMMAND_NAME="focus"
 
 usage() {
   cat << EOF
-Usage: claude-todo focus <command> [OPTIONS]
+Usage: cleo focus <command> [OPTIONS]
 
 Manage task focus for single-task workflow.
 
@@ -117,12 +124,12 @@ Format Auto-Detection:
   - Pipe/redirect/agent context: machine-readable JSON format
 
 Examples:
-  claude-todo focus set T001
-  claude-todo focus note "Completed API endpoints, working on tests"
-  claude-todo focus next "Write unit tests for auth module"
-  claude-todo focus clear
-  claude-todo focus show --json
-  claude-todo focus show --format json
+  cleo focus set T001
+  cleo focus note "Completed API endpoints, working on tests"
+  cleo focus next "Write unit tests for auth module"
+  cleo focus clear
+  cleo focus show --json
+  cleo focus show --format json
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -141,10 +148,10 @@ fi
 check_todo_exists() {
   if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_NOT_INITIALIZED:-3}" true "Run 'claude-todo init' first"
+      output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_NOT_INITIALIZED:-3}" true "Run 'cleo init' first"
     else
       log_error "Todo file not found: $TODO_FILE"
-      log_error "Run 'claude-todo init' first"
+      log_error "Run 'cleo init' first"
     fi
     exit "${EXIT_NOT_INITIALIZED:-3}"
   fi
@@ -210,10 +217,10 @@ cmd_set() {
 
   if [[ -z "$task_id" ]]; then
     if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_INPUT_MISSING" "Task ID required" "${EXIT_USAGE_ERROR:-64}" false "Usage: claude-todo focus set <task-id>"
+      output_error "$E_INPUT_MISSING" "Task ID required" "${EXIT_USAGE_ERROR:-64}" false "Usage: cleo focus set <task-id>"
     else
       log_error "Task ID required"
-      echo "Usage: claude-todo focus set <task-id>"
+      echo "Usage: cleo focus set <task-id>"
     fi
     exit "${EXIT_USAGE_ERROR:-64}"
   fi
@@ -226,7 +233,7 @@ cmd_set() {
 
   if [[ "$task_exists" -eq 0 ]]; then
     if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_TASK_NOT_FOUND" "Task not found: $task_id" "${EXIT_NOT_FOUND:-1}" true "Use 'claude-todo list' to see available tasks"
+      output_error "$E_TASK_NOT_FOUND" "Task not found: $task_id" "${EXIT_NOT_FOUND:-1}" true "Use 'cleo list' to see available tasks"
     else
       log_error "Task not found: $task_id"
     fi
@@ -334,7 +341,7 @@ cmd_set() {
 
     jq -n \
       --arg timestamp "$current_timestamp" \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg task_id "$task_id" \
       --arg old_focus "${old_focus:-null}" \
       --argjson task "$task_details" \
@@ -371,7 +378,7 @@ cmd_clear() {
       current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
       jq -n \
         --arg timestamp "$current_timestamp" \
-        --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
         '{
           "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
           "_meta": {
@@ -423,7 +430,7 @@ cmd_clear() {
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     jq -n \
       --arg timestamp "$current_timestamp" \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg old_focus "$old_focus" \
       '{
         "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
@@ -528,7 +535,7 @@ cmd_show() {
 
     jq -n \
       --arg timestamp "$current_timestamp" \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --argjson focus "$focus_obj" \
       --argjson task "$task_details" \
       --argjson hierarchy "$hierarchy_context" \
@@ -627,10 +634,10 @@ cmd_note() {
 
   if [[ -z "$note" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_INPUT_MISSING" "Note text required" "${EXIT_USAGE_ERROR:-64}" false "Usage: claude-todo focus note \"Your progress note\""
+      output_error "$E_INPUT_MISSING" "Note text required" "${EXIT_USAGE_ERROR:-64}" false "Usage: cleo focus note \"Your progress note\""
     else
       log_error "Note text required"
-      echo "Usage: claude-todo focus note \"Your progress note\""
+      echo "Usage: cleo focus note \"Your progress note\""
     fi
     exit "${EXIT_USAGE_ERROR:-64}"
   fi
@@ -669,7 +676,7 @@ cmd_note() {
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     jq -n \
       --arg timestamp "$current_timestamp" \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg note "$note" \
       '{
         "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
@@ -695,10 +702,10 @@ cmd_next() {
 
   if [[ -z "$action" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_INPUT_MISSING" "Action text required" "${EXIT_USAGE_ERROR:-64}" false "Usage: claude-todo focus next \"Suggested next action\""
+      output_error "$E_INPUT_MISSING" "Action text required" "${EXIT_USAGE_ERROR:-64}" false "Usage: cleo focus next \"Suggested next action\""
     else
       log_error "Action text required"
-      echo "Usage: claude-todo focus next \"Suggested next action\""
+      echo "Usage: cleo focus next \"Suggested next action\""
     fi
     exit "${EXIT_USAGE_ERROR:-64}"
   fi
@@ -727,7 +734,7 @@ cmd_next() {
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     jq -n \
       --arg timestamp "$current_timestamp" \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg action "$action" \
       '{
         "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
@@ -803,10 +810,10 @@ case "$COMMAND" in
   -h|--help|help) usage ;;
   *)
     if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_INPUT_INVALID" "Unknown command: $COMMAND" "${EXIT_USAGE_ERROR:-64}" false "Run 'claude-todo focus --help' for usage"
+      output_error "$E_INPUT_INVALID" "Unknown command: $COMMAND" "${EXIT_USAGE_ERROR:-64}" false "Run 'cleo focus --help' for usage"
     else
       log_error "Unknown command: $COMMAND"
-      echo "Run 'claude-todo focus --help' for usage"
+      echo "Run 'cleo focus --help' for usage"
     fi
     exit "${EXIT_USAGE_ERROR:-64}"
     ;;
