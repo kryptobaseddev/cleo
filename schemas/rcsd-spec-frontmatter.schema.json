@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/rcsd-spec-frontmatter.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-spec-frontmatter.schema.json",
   "title": "RCSD Specification Frontmatter",
   "description": "YAML frontmatter schema for generated specifications in the RCSD pipeline. Provides structured metadata for spec documents including versioning, status tracking, and pipeline provenance.",
   "type": "object",

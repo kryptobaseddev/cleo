@@ -1,11 +1,11 @@
 # commands Command
 
-> List and query available claude-todo commands with native filtering
+> List and query available cleo commands with native filtering
 
 ## Usage
 
 ```bash
-claude-todo commands [OPTIONS] [COMMAND]
+cleo commands [OPTIONS] [COMMAND]
 ```
 
 **Output**: JSON by default (non-TTY), text with `--human`
@@ -47,13 +47,13 @@ claude-todo commands [OPTIONS] [COMMAND]
 ### List All Commands (JSON)
 
 ```bash
-claude-todo commands
+cleo commands
 ```
 
 Output:
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.20.0", "command": "commands", "timestamp": "..."},
   "success": true,
   "summary": {"totalCommands": 33, "categoryFilter": "all", "relevanceFilter": "all"},
@@ -64,33 +64,33 @@ Output:
 ### Human-Readable List
 
 ```bash
-claude-todo commands --human
+cleo commands --human
 ```
 
 ### Filter by Category
 
 ```bash
 # Write commands only
-claude-todo commands -c write
+cleo commands -c write
 
 # Sync commands
-claude-todo commands --category sync
+cleo commands --category sync
 ```
 
 ### Filter by Agent Relevance
 
 ```bash
 # Critical commands for agents
-claude-todo commands -r critical
+cleo commands -r critical
 
 # High + critical relevance
-claude-todo commands -r high
+cleo commands -r high
 ```
 
 ### Single Command Details
 
 ```bash
-claude-todo commands add
+cleo commands add
 ```
 
 Output:
@@ -113,7 +113,7 @@ Output:
 ### Agent Workflows
 
 ```bash
-claude-todo commands --workflows
+cleo commands --workflows
 ```
 
 Output:
@@ -133,7 +133,7 @@ Output:
 ### Quick Lookup (Intent → Command)
 
 ```bash
-claude-todo commands --lookup
+cleo commands --lookup
 ```
 
 Output:
@@ -170,13 +170,13 @@ Instead of parsing with jq, use native flags:
 
 ```bash
 # Get critical commands (no jq needed)
-claude-todo commands -r critical
+cleo commands -r critical
 
 # Get write commands
-claude-todo commands -c write
+cleo commands -c write
 
 # Lookup specific command
-claude-todo commands add
+cleo commands add
 ```
 
 ## Related Commands

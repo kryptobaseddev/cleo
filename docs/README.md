@@ -36,7 +36,7 @@ Learn how to use CLAUDE-TODO effectively:
   - Maintenance operations (validate, archive, backup)
 
 - **[CLI Reference (TODO_Task_Management.md)](TODO_Task_Management.md)** - Quick reference installed globally
-  - Installed to ~/.claude-todo/docs/ for global access
+  - Installed to ~/.cleo/docs/ for global access
   - CLI command quick reference
   - Anti-hallucination rules
   - Session protocols and common patterns
@@ -110,7 +110,7 @@ docs/
 ├── INDEX.md                     # Comprehensive navigation index
 ├── QUICK-REFERENCE.md           # Developer cheatsheet
 ├── PLUGINS.md                   # Plugin development guide
-├── TODO_Task_Management.md      # CLI reference (installed to ~/.claude-todo/)
+├── TODO_Task_Management.md      # CLI reference (installed to ~/.cleo/)
 ├── usage.md                     # Main usage guide
 ├── DOCS-MIGRATION-GUIDE.md      # Migration tracking (temporary)
 ├── architecture/

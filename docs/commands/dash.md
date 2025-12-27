@@ -7,7 +7,7 @@ Generate a comprehensive dashboard view of your todo system with task summaries,
 ## Usage
 
 ```bash
-claude-todo dash [OPTIONS]
+cleo dash [OPTIONS]
 ```
 
 ## Description
@@ -60,7 +60,7 @@ The dashboard is composed of modular sections that can be shown or hidden:
 
 ```bash
 # Full dashboard with all sections
-claude-todo dash
+cleo dash
 ```
 
 Output:
@@ -111,7 +111,7 @@ Output:
 
 ```bash
 # Single-line summary for scripting or status bars
-claude-todo dash --compact
+cleo dash --compact
 ```
 
 Output:
@@ -123,34 +123,34 @@ CLAUDE-TODO: 24 total | 12 pending | 1 active | 3 blocked | 8 done | Focus: T015
 
 ```bash
 # Show only focus and blocked tasks
-claude-todo dash --sections focus,blocked
+cleo dash --sections focus,blocked
 
 # Show only priority tasks and activity
-claude-todo dash --sections priority,activity
+cleo dash --sections priority,activity
 ```
 
 ### Extended Period
 
 ```bash
 # Show 14-day activity metrics instead of 7
-claude-todo dash --period 14
+cleo dash --period 14
 
 # Show 30-day activity trends
-claude-todo dash --period 30
+cleo dash --period 30
 ```
 
 ### No Charts
 
 ```bash
 # Disable ASCII charts and progress bars (plain text only)
-claude-todo dash --no-chart
+cleo dash --no-chart
 ```
 
 ### JSON Output
 
 ```bash
 # Machine-readable JSON format for scripting
-claude-todo dash --format json
+cleo dash --format json
 ```
 
 Output structure:
@@ -235,7 +235,7 @@ Output structure:
 
 ```bash
 # Quick overview at start of day
-claude-todo dash
+cleo dash
 ```
 
 Use this to understand what's blocked, what needs attention, and what to focus on next.
@@ -244,21 +244,21 @@ Use this to understand what's blocked, what needs attention, and what to focus o
 
 ```bash
 # Generate comprehensive status for team updates
-claude-todo dash --period 14 --format markdown > status-report.md
+cleo dash --period 14 --format markdown > status-report.md
 ```
 
 ### Focus Mode
 
 ```bash
 # See only what matters right now
-claude-todo dash --sections focus,priority,blocked
+cleo dash --sections focus,priority,blocked
 ```
 
 ### CI/CD Integration
 
 ```bash
 # Get machine-readable dashboard for build systems
-claude-todo dash --format json | jq '.blocked | length'
+cleo dash --format json | jq '.blocked | length'
 ```
 
 This can be used to fail builds if too many tasks are blocked, or track completion velocity over time.
@@ -267,7 +267,7 @@ This can be used to fail builds if too many tasks are blocked, or track completi
 
 ```bash
 # Add to your shell prompt (e.g., .bashrc or .zshrc)
-PROMPT_COMMAND='PS1="$(claude-todo dash --compact --quiet) \$ "'
+PROMPT_COMMAND='PS1="$(cleo dash --compact --quiet) \$ "'
 ```
 
 ## Color Output
@@ -276,22 +276,22 @@ The dashboard respects standard color environment variables:
 
 ```bash
 # Disable colors
-NO_COLOR=1 claude-todo dash
+NO_COLOR=1 cleo dash
 
 # Force colors even in pipes
-FORCE_COLOR=1 claude-todo dash | less -R
+FORCE_COLOR=1 cleo dash | less -R
 ```
 
 ## Related Commands
 
-- `claude-todo stats` - Detailed statistics and analytics
-- `claude-todo list --status pending` - List pending tasks
-- `claude-todo focus show` - Show current focus task
-- `claude-todo labels` - Analyze label distribution
+- `cleo stats` - Detailed statistics and analytics
+- `cleo list --status pending` - List pending tasks
+- `cleo focus show` - Show current focus task
+- `cleo labels` - Analyze label distribution
 
 ## Tips
 
-1. **Bookmark This View**: Start every work session with `claude-todo dash` to orient yourself
+1. **Bookmark This View**: Start every work session with `cleo dash` to orient yourself
 2. **Track Blockers**: The blocked section helps identify dependencies blocking progress
 3. **Monitor Velocity**: Use `--period` to track how completion rate changes over time
 4. **Custom Dashboards**: Use `--sections` to create focused views for different contexts

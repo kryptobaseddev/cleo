@@ -229,7 +229,7 @@ teardown_file() {
     result=$(output_error_json "E_TASK_NOT_FOUND" "Task not found" 4)
     run jq -e '."$schema"' <<< "$result"
     assert_success
-    assert_output '"https://claude-todo.dev/schemas/v1/error.schema.json"'
+    assert_output '"https://cleo-dev.com/schemas/v1/error.schema.json"'
 }
 
 @test "output_error_json includes _meta.command" {

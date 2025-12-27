@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Log Script
+# CLEO Log Script
 # Add entries to todo-log.json
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
 # Source version library for proper version management
@@ -41,7 +41,7 @@ if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
 fi
 
 # Set TODO_FILE after sourcing logging.sh (LOG_FILE is set by logging.sh)
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
@@ -91,7 +91,7 @@ get_valid_actions_string() {
 
 usage() {
   cat << EOF
-Usage: claude-todo log [SUBCOMMAND] [OPTIONS]
+Usage: cleo log [SUBCOMMAND] [OPTIONS]
 
 Manage todo-log.json entries.
 
@@ -129,23 +129,23 @@ Add entry options:
 
 Examples:
   # List log entries
-  claude-todo log list                              # Last 20 entries
-  claude-todo log list --limit 50                   # Last 50 entries
-  claude-todo log list --action task_created        # Filter by action
-  claude-todo log list --task-id T001               # Filter by task
-  claude-todo log list --since "2025-12-13"         # Since date
-  claude-todo log list --format json                # JSON output
+  cleo log list                              # Last 20 entries
+  cleo log list --limit 50                   # Last 50 entries
+  cleo log list --action task_created        # Filter by action
+  cleo log list --task-id T001               # Filter by task
+  cleo log list --since "2025-12-13"         # Since date
+  cleo log list --format json                # JSON output
 
   # Show specific entry
-  claude-todo log show log_abc123
+  cleo log show log_abc123
 
   # Migrate old log entries
-  claude-todo log migrate
+  cleo log migrate
 
   # Add log entries
-  claude-todo log --action session_start --session-id "session_20251205_..."
-  claude-todo log --action status_changed --task-id T001 --before '{"status":"pending"}' --after '{"status":"active"}'
-  claude-todo log --action task_created --task-id T005 --after '{"title":"New task"}'
+  cleo log --action session_start --session-id "session_20251205_..."
+  cleo log --action status_changed --task-id T001 --before '{"status":"pending"}' --after '{"status":"active"}'
+  cleo log --action task_created --task-id T005 --after '{"title":"New task"}'
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -198,7 +198,7 @@ case "$SUBCOMMAND" in
         -h|--help) usage ;;
         -*)
           if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_USAGE_ERROR:-64}" false "Run 'claude-todo log --help' for usage"
+            output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_USAGE_ERROR:-64}" false "Run 'cleo log --help' for usage"
           else
             output_error "$E_INPUT_INVALID" "Unknown option: $1"
           fi
@@ -214,7 +214,7 @@ case "$SUBCOMMAND" in
     # Validate log file exists
     if [[ ! -f "$LOG_FILE" ]]; then
       if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_FILE_NOT_FOUND" "Log file not found: $LOG_FILE" "${EXIT_FILE_ERROR:-4}" true "Initialize project with 'claude-todo init' first"
+        output_error "$E_FILE_NOT_FOUND" "Log file not found: $LOG_FILE" "${EXIT_FILE_ERROR:-4}" true "Initialize project with 'cleo init' first"
       else
         log_error "Log file not found: $LOG_FILE"
       fi
@@ -257,12 +257,12 @@ case "$SUBCOMMAND" in
 
       jq -n \
         --arg timestamp "$current_timestamp" \
-        --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
         --argjson entries "$entries" \
         --argjson count "$entry_count" \
         --argjson limit "$LIMIT" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "format": "json",
             "command": "log list",
@@ -292,9 +292,9 @@ case "$SUBCOMMAND" in
     # Show specific log entry
     if [[ $# -lt 1 ]]; then
       if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_INPUT_MISSING" "Log ID required" "${EXIT_USAGE_ERROR:-64}" false "Usage: claude-todo log show <log-id>"
+        output_error "$E_INPUT_MISSING" "Log ID required" "${EXIT_USAGE_ERROR:-64}" false "Usage: cleo log show <log-id>"
       else
-        log_error "Log ID required. Usage: claude-todo log show <log-id>"
+        log_error "Log ID required. Usage: cleo log show <log-id>"
       fi
       exit "${EXIT_USAGE_ERROR:-64}"
     fi
@@ -305,7 +305,7 @@ case "$SUBCOMMAND" in
     # Validate log file exists
     if [[ ! -f "$LOG_FILE" ]]; then
       if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_FILE_NOT_FOUND" "Log file not found: $LOG_FILE" "${EXIT_FILE_ERROR:-4}" true "Initialize project with 'claude-todo init' first"
+        output_error "$E_FILE_NOT_FOUND" "Log file not found: $LOG_FILE" "${EXIT_FILE_ERROR:-4}" true "Initialize project with 'cleo init' first"
       else
         log_error "Log file not found: $LOG_FILE"
       fi
@@ -317,7 +317,7 @@ case "$SUBCOMMAND" in
 
     if [[ -z "$ENTRY" ]]; then
       if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_TASK_NOT_FOUND" "Log entry not found: $LOG_ID" "${EXIT_NOT_FOUND:-1}" true "Use 'claude-todo log list' to see available entries"
+        output_error "$E_TASK_NOT_FOUND" "Log entry not found: $LOG_ID" "${EXIT_NOT_FOUND:-1}" true "Use 'cleo log list' to see available entries"
       else
         log_error "Log entry not found: $LOG_ID"
       fi
@@ -378,7 +378,7 @@ case "$SUBCOMMAND" in
       case $1 in
         --force) FORCE=true; shift ;;
         -h|--help)
-          echo "Usage: claude-todo log rotate [OPTIONS]"
+          echo "Usage: cleo log rotate [OPTIONS]"
           echo ""
           echo "Rotate log file if it exceeds configured threshold."
           echo ""
@@ -393,7 +393,7 @@ case "$SUBCOMMAND" in
 
     if [[ ! -f "$LOG_FILE" ]]; then
       if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_FILE_NOT_FOUND" "Log file not found: $LOG_FILE" "${EXIT_FILE_ERROR:-4}" true "Initialize project with 'claude-todo init' first"
+        output_error "$E_FILE_NOT_FOUND" "Log file not found: $LOG_FILE" "${EXIT_FILE_ERROR:-4}" true "Initialize project with 'cleo init' first"
       else
         log_error "Log file not found: $LOG_FILE"
       fi
@@ -403,7 +403,7 @@ case "$SUBCOMMAND" in
     current_size=$(stat -c%s "$LOG_FILE" 2>/dev/null || stat -f%z "$LOG_FILE" 2>/dev/null || echo "0")
     size_kb=$((current_size / 1024))
 
-    CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
+    CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
     if [[ "$FORCE" == "true" ]]; then
       log_info "Forcing log rotation..."
@@ -427,7 +427,7 @@ case "$SUBCOMMAND" in
     ;;
   *)
     if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_INPUT_INVALID" "Unknown subcommand: $SUBCOMMAND" "${EXIT_USAGE_ERROR:-64}" false "Run 'claude-todo log --help' for usage"
+      output_error "$E_INPUT_INVALID" "Unknown subcommand: $SUBCOMMAND" "${EXIT_USAGE_ERROR:-64}" false "Run 'cleo log --help' for usage"
     else
       output_error "$E_INPUT_INVALID" "Unknown subcommand: $SUBCOMMAND"
     fi
@@ -448,7 +448,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help) usage ;;
     -*)
       if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_USAGE_ERROR:-64}" false "Run 'claude-todo log --help' for usage"
+        output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_USAGE_ERROR:-64}" false "Run 'cleo log --help' for usage"
       else
         output_error "$E_INPUT_INVALID" "Unknown option: $1"
       fi

@@ -1,13 +1,13 @@
 # labels Command
 
-**Alias**: `tags` - Use `claude-todo tags` as shorthand for `claude-todo labels`
+**Alias**: `tags` - Use `cleo tags` as shorthand for `cleo labels`
 
 List and analyze labels (tags) across all tasks with distribution analytics and visual representations.
 
 ## Usage
 
 ```bash
-claude-todo labels [SUBCOMMAND] [OPTIONS]
+cleo labels [SUBCOMMAND] [OPTIONS]
 ```
 
 ## Description
@@ -42,7 +42,7 @@ This command helps you:
 
 ```bash
 # Show all labels with task counts
-claude-todo labels
+cleo labels
 ```
 
 Output:
@@ -63,7 +63,7 @@ LABELS (8 labels, 24 tasks)
 
 ```bash
 # List all tasks with the 'backend' label
-claude-todo labels show backend
+cleo labels show backend
 ```
 
 Output:
@@ -83,7 +83,7 @@ TASKS WITH LABEL: backend (14 tasks)
 
 ```bash
 # Show comprehensive label analytics
-claude-todo labels stats
+cleo labels stats
 ```
 
 Output:
@@ -116,7 +116,7 @@ LABEL COMBINATIONS (Most Common)
 
 ```bash
 # Machine-readable format for scripting
-claude-todo labels --format json
+cleo labels --format json
 ```
 
 Output structure:
@@ -158,37 +158,37 @@ Output structure:
 
 ```bash
 # See all tasks for a feature
-claude-todo labels show feature-auth
+cleo labels show feature-auth
 
 # Check progress on frontend work
-claude-todo labels show frontend
+cleo labels show frontend
 ```
 
 ### Sprint Planning
 
 ```bash
 # Analyze label distribution to understand work areas
-claude-todo labels stats
+cleo labels stats
 
 # Find all tasks in a specific area
-claude-todo labels show backend --format json | jq '.tasks[].priority'
+cleo labels show backend --format json | jq '.tasks[].priority'
 ```
 
 ### Prioritization
 
 ```bash
 # Find high-priority security tasks
-claude-todo labels show security | grep -E "critical|high"
+cleo labels show security | grep -E "critical|high"
 
 # See which labels have the most critical work
-claude-todo labels stats | grep "critical"
+cleo labels stats | grep "critical"
 ```
 
 ### Label Management
 
 ```bash
 # List all labels to find inconsistencies
-claude-todo labels
+cleo labels
 
 # Common issues to look for:
 #   - Similar labels (e.g., "backend" vs "back-end")
@@ -230,10 +230,10 @@ Organize labels into logical categories:
 
 ```bash
 # Add labels when creating tasks
-claude-todo add "Fix login bug" --labels bug,backend,security
+cleo add "Fix login bug" --labels bug,backend,security
 
 # Update labels on existing tasks
-claude-todo update T001 --labels backend,api,feature-auth
+cleo update T001 --labels backend,api,feature-auth
 
 # Labels are comma-separated, no spaces
 ```
@@ -242,7 +242,7 @@ claude-todo update T001 --labels backend,api,feature-auth
 
 ```bash
 # Use jq to find tasks without labels
-jq '.tasks[] | select(.labels == null or (.labels | length) == 0)' .claude/todo.json
+jq '.tasks[] | select(.labels == null or (.labels | length) == 0)' .cleo/todo.json
 ```
 
 ## Label Analytics Workflows
@@ -251,30 +251,30 @@ jq '.tasks[] | select(.labels == null or (.labels | length) == 0)' .claude/todo.
 
 ```bash
 # See which areas had most activity
-claude-todo labels stats
+cleo labels stats
 
 # Check if any labels are getting too large
-claude-todo labels | grep -E "\d{2,} tasks"
+cleo labels | grep -E "\d{2,} tasks"
 ```
 
 ### Focus Area Analysis
 
 ```bash
 # Show all backend tasks and their priorities
-claude-todo labels show backend
+cleo labels show backend
 
 # Export for external analysis
-claude-todo labels show backend --format json > backend-tasks.json
+cleo labels show backend --format json > backend-tasks.json
 ```
 
 ### Label Cleanup
 
 ```bash
 # Find rarely used labels
-claude-todo labels stats | grep -E "^\s+\w+\s+\([1-2] tasks\)"
+cleo labels stats | grep -E "^\s+\w+\s+\([1-2] tasks\)"
 
 # Review and consolidate similar labels
-claude-todo labels | sort
+cleo labels | sort
 ```
 
 ## Integration Examples
@@ -284,7 +284,7 @@ claude-todo labels | sort
 ```bash
 # Add to .bashrc or .zshrc
 ct-label() {
-  claude-todo labels show "$1" --format json | jq -r '.tasks[] | "\(.id) \(.title)"'
+  cleo labels show "$1" --format json | jq -r '.tasks[] | "\(.id) \(.title)"'
 }
 
 # Usage: ct-label backend
@@ -295,7 +295,7 @@ ct-label() {
 ```bash
 # .git/hooks/commit-msg
 # Ensure commit references labeled task
-LABELS=$(claude-todo labels --format json | jq -r '.labels[].name')
+LABELS=$(cleo labels --format json | jq -r '.labels[].name')
 # Validate commit message contains task with known label
 ```
 
@@ -303,12 +303,12 @@ LABELS=$(claude-todo labels --format json | jq -r '.labels[].name')
 
 ```bash
 # Combine with list command for advanced filtering
-claude-todo list --label backend --priority high --status pending
+cleo list --label backend --priority high --status pending
 
 # Export specific label tasks to TodoWrite
-claude-todo labels show backend --format json | \
+cleo labels show backend --format json | \
   jq '.tasks' | \
-  claude-todo export --format todowrite
+  cleo export --format todowrite
 ```
 
 ## Color Output
@@ -317,18 +317,18 @@ The labels command respects standard color controls:
 
 ```bash
 # Disable colors
-NO_COLOR=1 claude-todo labels
+NO_COLOR=1 cleo labels
 
 # Force colors in pipes
-FORCE_COLOR=1 claude-todo labels | less -R
+FORCE_COLOR=1 cleo labels | less -R
 ```
 
 ## Related Commands
 
-- `claude-todo list --label LABEL` - List tasks filtered by label
-- `claude-todo add --labels L1,L2` - Add task with labels
-- `claude-todo update ID --labels L1,L2` - Update task labels
-- `claude-todo dash` - Dashboard shows top labels
+- `cleo list --label LABEL` - List tasks filtered by label
+- `cleo add --labels L1,L2` - Add task with labels
+- `cleo update ID --labels L1,L2` - Update task labels
+- `cleo dash` - Dashboard shows top labels
 
 ## Tips
 

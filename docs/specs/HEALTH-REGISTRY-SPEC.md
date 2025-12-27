@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This specification defines a **comprehensive Health Registry System** for claude-todo that goes beyond simple version guards to provide:
+This specification defines a **comprehensive Health Registry System** for cleo that goes beyond simple version guards to provide:
 
 1. **Central Project Registry** - Track all initialized projects globally
 2. **Health Monitoring** - 36 checks across 6 dimensions with scoring
@@ -40,7 +40,7 @@ This specification defines a **comprehensive Health Registry System** for claude
 │                    HEALTH REGISTRY SYSTEM                            │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
-│  ~/.claude-todo/                                                     │
+│  ~/.cleo/                                                     │
 │  ├── registry/                                                       │
 │  │   ├── registry.json      ← Central project registry              │
 │  │   ├── registry.lock      ← Concurrent access lock                │
@@ -53,7 +53,7 @@ This specification defines a **comprehensive Health Registry System** for claude
 │      ├── registry.schema.json                                        │
 │      └── health.schema.json                                          │
 │                                                                      │
-│  Per-Project (.claude/)                                              │
+│  Per-Project (.cleo/)                                              │
 │  ├── project.json           ← Project UUID + metadata               │
 │  ├── todo.json              ← Extended with _meta.version           │
 │  └── health-history.json    ← Local health trend data               │
@@ -75,11 +75,11 @@ This specification defines a **comprehensive Health Registry System** for claude
 
 ### Registry Schema
 
-**Location**: `~/.claude-todo/registry/registry.json`
+**Location**: `~/.cleo/registry/registry.json`
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/registry.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/registry.schema.json",
   "version": "1.0.0",
   "_meta": {
     "checksum": "a7b3c9d2e1f4a7b3",
@@ -156,7 +156,7 @@ calculate_project_id() {
 
 ### Project Identity (for Git Sync)
 
-Each project gets a UUID stored in `.claude/project.json`:
+Each project gets a UUID stored in `.cleo/project.json`:
 
 ```json
 {
@@ -179,7 +179,7 @@ ct init
     │
     ▼
 ┌─────────────────────────────┐
-│ 1. Create .claude/ folder   │
+│ 1. Create .cleo/ folder   │
 │ 2. Generate project UUID    │
 │ 3. Create project.json      │
 │ 4. Calculate project ID     │
@@ -206,7 +206,7 @@ Health Status Flow:
          │                                                 │
          │ YES                                             │ NO
          ▼                                                 ▼
-    .claude/todo.json exists?                    Days since last access?
+    .cleo/todo.json exists?                    Days since last access?
          │                                                 │
     ├─ YES → HEALTHY                              ├─ < 7 days → POSSIBLY_MOVED
     │                                              ├─ < 30 days → ORPHAN_SUSPECTED
@@ -414,7 +414,7 @@ All commands output JSON when piped (non-TTY). Standard envelope:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.24.0",
@@ -532,7 +532,7 @@ All commands output JSON when piped (non-TTY). Standard envelope:
 
 ### Project UUID for Cross-Machine Identity
 
-Projects identified by UUID (in `.claude/project.json`), not path:
+Projects identified by UUID (in `.cleo/project.json`), not path:
 
 ```json
 {
@@ -548,10 +548,10 @@ Projects identified by UUID (in `.claude/project.json`), not path:
 
 ```bash
 # .gitattributes
-.claude/todo.json merge=claude-todo
+.cleo/todo.json merge=cleo
 
 # Git config
-git config merge.claude-todo.driver "claude-todo merge %O %A %B"
+git config merge.cleo.driver "cleo merge %O %A %B"
 ```
 
 ### Merge Strategy
@@ -585,7 +585,7 @@ Use version number + timestamp for conflict detection:
 | Add `_meta.version` (increment) to todo.json | Small | P0 |
 | Add `_meta.lastWriterVersion` tracking | Small | P0 |
 | Add exit codes 30-39 to lib/exit-codes.sh | Small | P0 |
-| Create `~/.claude-todo/registry/` structure | Small | P0 |
+| Create `~/.cleo/registry/` structure | Small | P0 |
 | Create lib/registry.sh with CRUD operations | Medium | P0 |
 | Modify init.sh to register projects | Small | P0 |
 | Add `ct registry list` command | Medium | P1 |
@@ -607,14 +607,14 @@ Use version number + timestamp for conflict detection:
 | Add fast_version_check to wrapper | Medium | P0 |
 | Add validate_version_with_policy to validation.sh | Medium | P0 |
 | Integrate version check in write scripts | Medium | P0 |
-| Add CLAUDE_TODO_VERSION_CHECK env override | Small | P1 |
+| Add CLEO_VERSION_CHECK env override | Small | P1 |
 | Add config: migration.policy, migration.checkOnWrite | Small | P1 |
 
 ### Phase 4: Git Sync (v0.26.0)
 
 | Task | Scope | Priority |
 |------|-------|----------|
-| Add project UUID to .claude/project.json | Small | P1 |
+| Add project UUID to .cleo/project.json | Small | P1 |
 | Add custom git merge driver | Medium | P2 |
 | Add registry reconciliation | Medium | P2 |
 

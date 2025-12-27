@@ -56,11 +56,11 @@ QUIET=false
 COMMAND_NAME="stats"
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
-ARCHIVE_FILE="${CLAUDE_DIR}/todo-archive.json"
-STATS_LOG_FILE="${CLAUDE_DIR}/todo-log.json"
-CONFIG_FILE="${CLAUDE_DIR}/todo-config.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
+ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
+STATS_LOG_FILE="${CLEO_DIR}/todo-log.json"
+CONFIG_FILE="${CLEO_DIR}/config.json"
 
 #####################################################################
 # Helper Functions
@@ -107,7 +107,7 @@ resolve_period() {
 
 usage() {
     cat << EOF
-Usage: claude-todo stats [OPTIONS]
+Usage: cleo stats [OPTIONS]
 
 Generate comprehensive statistics from todo system files.
 
@@ -122,11 +122,11 @@ Options:
     -h, --help            Show this help message
 
 Examples:
-    claude-todo stats                    # Full statistics (30 days)
-    claude-todo stats -p week            # Last week statistics
-    claude-todo stats -p 7               # Last 7 days (same as week)
-    claude-todo stats -p month -f json   # Last month in JSON format
-    claude-todo stats -p q               # Last quarter (90 days)
+    cleo stats                    # Full statistics (30 days)
+    cleo stats -p week            # Last week statistics
+    cleo stats -p 7               # Last 7 days (same as week)
+    cleo stats -p month -f json   # Last month in JSON format
+    cleo stats -p q               # Last quarter (90 days)
 
 Period Aliases:
     today, t      1 day
@@ -487,7 +487,7 @@ generate_statistics() {
 
     cat <<EOF
 {
-  "\$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "\$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "$version",
@@ -565,10 +565,10 @@ parse_arguments() {
                 ;;
             *)
                 if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-                    output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'claude-todo stats --help' for usage"
+                    output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'cleo stats --help' for usage"
                 else
                     output_error "$E_INPUT_INVALID" "Unknown option: $1"
-                    echo "Run 'claude-todo stats --help' for usage" >&2
+                    echo "Run 'cleo stats --help' for usage" >&2
                 fi
                 exit "${EXIT_INVALID_INPUT:-1}"
                 ;;
@@ -587,11 +587,11 @@ main() {
     FORMAT=$(resolve_format "${FORMAT:-}")
 
     # Check if in a todo-enabled project
-    if [[ ! -d "$CLAUDE_DIR" ]]; then
+    if [[ ! -d "$CLEO_DIR" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project" "${EXIT_NOT_INITIALIZED:-1}" true "Run 'claude-todo init' first"
+            output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project" "${EXIT_NOT_INITIALIZED:-1}" true "Run 'cleo init' first"
         else
-            output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project. Run 'claude-todo init' first."
+            output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project. Run 'cleo init' first."
         fi
         exit "${EXIT_NOT_INITIALIZED:-1}"
     fi

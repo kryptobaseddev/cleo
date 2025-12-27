@@ -7,7 +7,7 @@ Mark a task as complete with required completion notes and automatic logging.
 ## Usage
 
 ```bash
-claude-todo complete TASK_ID [OPTIONS]
+cleo complete TASK_ID [OPTIONS]
 ```
 
 ## Description
@@ -37,26 +37,26 @@ Completion notes are required by default to maintain audit trails. This ensures 
 
 ```bash
 # Complete with notes (recommended)
-claude-todo complete T001 --notes "Implemented auth middleware. Tested with unit tests."
+cleo complete T001 --notes "Implemented auth middleware. Tested with unit tests."
 
 # With PR reference
-claude-todo complete T042 --notes "Fixed bug #123. PR merged. See PR #456."
+cleo complete T042 --notes "Fixed bug #123. PR merged. See PR #456."
 ```
 
 ### Quick Completion
 
 ```bash
 # Skip notes for quick completions
-claude-todo complete T003 --skip-notes
+cleo complete T003 --skip-notes
 
 # Skip both notes and auto-archive
-claude-todo complete T005 --skip-notes --skip-archive
+cleo complete T005 --skip-notes --skip-archive
 ```
 
 ## Output
 
 ```
-[INFO] Backup created: .claude/backups/safety/todo.json.20251213_100000
+[INFO] Backup created: .cleo/backups/safety/todo.json.20251213_100000
 
 [INFO] Task T001 marked as complete
 

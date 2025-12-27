@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ Global: ~/.claude-todo/                             │
+│ Global: ~/.cleo/                             │
 │ ├── schemas/ (JSON Schema validation)              │
 │ ├── scripts/ (user-facing operations)              │
 │ ├── lib/ (shared functions)                        │
@@ -14,10 +14,10 @@
                       │ Provides to
                       ▼
 ┌─────────────────────────────────────────────────────┐
-│ Project: .claude/                                   │
+│ Project: .cleo/                                   │
 │ ├── todo.json (active tasks)                       │
 │ ├── todo-archive.json (completed)                  │
-│ ├── todo-config.json (settings)                    │
+│ ├── config.json (settings)                    │
 │ ├── todo-log.json (audit trail)                    │
 │ └── .backups/ (Tier 1: operational backups)        │
 └─────────────────────────────────────────────────────┘
@@ -28,94 +28,94 @@
 ```bash
 # SETUP
 ./install.sh                          # Install globally
-claude-todo init                      # Initialize project
+cleo init                      # Initialize project
 
 # TASKS
-claude-todo add "Task description"    # Create task
-claude-todo add "Task" --phase core   # Create task in specific phase
-claude-todo complete <id> --notes "What was done"  # Complete with notes (required)
-claude-todo complete <id> --skip-notes             # Quick complete (bypass notes)
-claude-todo list                      # List all tasks
-claude-todo list --status pending     # Filter by status
-claude-todo list --phase core         # Filter by phase
+cleo add "Task description"    # Create task
+cleo add "Task" --phase core   # Create task in specific phase
+cleo complete <id> --notes "What was done"  # Complete with notes (required)
+cleo complete <id> --skip-notes             # Quick complete (bypass notes)
+cleo list                      # List all tasks
+cleo list --status pending     # Filter by status
+cleo list --phase core         # Filter by phase
 
 # Note: complete command requires either --notes or --skip-notes flag
 
 # FOCUS MANAGEMENT
-claude-todo focus set <id>            # Set focus to task (marks active)
-claude-todo focus clear               # Clear current focus
-claude-todo focus show                # Show current focus
-claude-todo focus note "text"         # Set session progress note
-claude-todo focus next "text"         # Set suggested next action
+cleo focus set <id>            # Set focus to task (marks active)
+cleo focus clear               # Clear current focus
+cleo focus show                # Show current focus
+cleo focus note "text"         # Set session progress note
+cleo focus next "text"         # Set suggested next action
 
 # PHASE MANAGEMENT (Project-Level)
-claude-todo phase show                # Show current project phase
-claude-todo phase set <slug>          # Set current phase
-claude-todo phase start <slug>        # Start phase (pending → active)
-claude-todo phase complete <slug>     # Complete phase (active → completed)
-claude-todo phase advance             # Complete current & start next phase
-claude-todo phase list                # List all phases with status
+cleo phase show                # Show current project phase
+cleo phase set <slug>          # Set current phase
+cleo phase start <slug>        # Start phase (pending → active)
+cleo phase complete <slug>     # Complete phase (active → completed)
+cleo phase advance             # Complete current & start next phase
+cleo phase list                # List all phases with status
 
 # PHASE ANALYTICS (Task-Level)
-claude-todo phases                    # List phases with progress bars
-claude-todo phases show <phase>       # Show all tasks in phase
-claude-todo phases stats              # Detailed phase statistics
+cleo phases                    # List phases with progress bars
+cleo phases show <phase>       # Show all tasks in phase
+cleo phases stats              # Detailed phase statistics
 
 # DASHBOARD & ANALYTICS
-claude-todo analyze                   # Task triage with leverage scoring
-claude-todo analyze --json            # Machine-readable triage output
-claude-todo analyze --auto-focus      # Auto-set focus to top task
-claude-todo dash                      # Full dashboard overview
-claude-todo dash --compact            # Single-line summary
-claude-todo next                      # Suggest next task (priority + deps)
-claude-todo next --explain            # Show suggestion reasoning
-claude-todo labels                    # List all labels with counts
-claude-todo labels show backend       # Show tasks with specific label
-claude-todo labels stats              # Detailed label statistics
-claude-todo history                   # Completion history timeline (30 days)
-claude-todo history --days 7          # Last week's completions
-claude-todo history --since 2025-12-01  # Since specific date
+cleo analyze                   # Task triage with leverage scoring
+cleo analyze --json            # Machine-readable triage output
+cleo analyze --auto-focus      # Auto-set focus to top task
+cleo dash                      # Full dashboard overview
+cleo dash --compact            # Single-line summary
+cleo next                      # Suggest next task (priority + deps)
+cleo next --explain            # Show suggestion reasoning
+cleo labels                    # List all labels with counts
+cleo labels show backend       # Show tasks with specific label
+cleo labels stats              # Detailed label statistics
+cleo history                   # Completion history timeline (30 days)
+cleo history --days 7          # Last week's completions
+cleo history --since 2025-12-01  # Since specific date
 
 # DEPENDENCIES & BLOCKERS
-claude-todo deps                      # Dependency overview
-claude-todo deps <id>                 # Show dependencies for task
-claude-todo deps tree                 # Full dependency tree
-claude-todo blockers                  # Show blocked tasks
-claude-todo blockers analyze          # Critical path analysis
+cleo deps                      # Dependency overview
+cleo deps <id>                 # Show dependencies for task
+cleo deps tree                 # Full dependency tree
+cleo blockers                  # Show blocked tasks
+cleo blockers analyze          # Critical path analysis
 
 # EXPORT (TodoWrite Integration)
-claude-todo export --format todowrite # Export for Claude Code
-claude-todo export --format markdown  # Export as checklist
-claude-todo export --format json      # Export raw JSON
-claude-todo export --format csv       # Export as CSV
-claude-todo export --format tsv       # Export as TSV
-claude-todo export --format jsonl     # Export as JSONL (streaming)
+cleo export --format todowrite # Export for Claude Code
+cleo export --format markdown  # Export as checklist
+cleo export --format json      # Export raw JSON
+cleo export --format csv       # Export as CSV
+cleo export --format tsv       # Export as TSV
+cleo export --format jsonl     # Export as JSONL (streaming)
 
 # TASK VALIDATION & SCRIPTING
-claude-todo exists <id>               # Check if task ID exists (exit code)
-claude-todo exists <id> --quiet       # Silent check for scripting
-claude-todo exists <id> --include-archive  # Search archive too
+cleo exists <id>               # Check if task ID exists (exit code)
+cleo exists <id> --quiet       # Silent check for scripting
+cleo exists <id> --include-archive  # Search archive too
 
 # MAINTENANCE
-claude-todo archive                   # Archive completed tasks
-claude-todo validate                  # Validate all files
-claude-todo backup                    # Manual backup
-claude-todo backup --list             # List available backups
-claude-todo restore <backup-path>     # Restore from backup
-claude-todo restore <backup> --file todo.json  # Restore specific file
-claude-todo restore <backup> --force  # Skip confirmation prompt
-claude-todo stats                     # Show statistics
-claude-todo help                      # Show all commands
+cleo archive                   # Archive completed tasks
+cleo validate                  # Validate all files
+cleo backup                    # Manual backup
+cleo backup --list             # List available backups
+cleo restore <backup-path>     # Restore from backup
+cleo restore <backup> --file todo.json  # Restore specific file
+cleo restore <backup> --force  # Skip confirmation prompt
+cleo stats                     # Show statistics
+cleo help                      # Show all commands
 
 # CONFIGURATION
-claude-todo config show               # Show all config
-claude-todo config show output        # Show section
-claude-todo config get output.defaultFormat  # Get single value
-claude-todo config set output.defaultFormat json  # Update value
-claude-todo config set KEY VALUE --global  # Update global config
-claude-todo config list               # List all keys/values
-claude-todo config edit               # Interactive editor
-claude-todo config validate           # Validate config
+cleo config show               # Show all config
+cleo config show output        # Show section
+cleo config get output.defaultFormat  # Get single value
+cleo config set output.defaultFormat json  # Update value
+cleo config set KEY VALUE --global  # Update global config
+cleo config list               # List all keys/values
+cleo config edit               # Interactive editor
+cleo config validate           # Validate config
 ```
 
 ## Short Flags (v0.7.0+)
@@ -132,11 +132,11 @@ claude-todo config validate           # Validate config
 -h             --help                # Show help
 
 # Examples
-claude-todo list -s pending -p high  # Pending high-priority tasks
-claude-todo add "Task" -p critical -l bug,urgent -q  # Add quietly
-claude-todo export -f csv            # Export as CSV
-NO_COLOR=1 claude-todo list          # Disable colors
-FORCE_COLOR=1 claude-todo list       # Force colors in CI
+cleo list -s pending -p high  # Pending high-priority tasks
+cleo add "Task" -p critical -l bug,urgent -q  # Add quietly
+cleo export -f csv            # Export as CSV
+NO_COLOR=1 cleo list          # Disable colors
+FORCE_COLOR=1 cleo list       # Force colors in CI
 ```
 
 ## Output Formats
@@ -207,7 +207,7 @@ JSON → Schema Check → Anti-Hallucination → Cross-File → ✅ Valid
 
 ```
 Defaults → Global → Project → Environment → CLI
-           (~/.c-t)  (.claude)  (CLAUDE_TODO_*) (--flags)
+           (~/.c-t)  (.claude)  (CLEO_*) (--flags)
                                                     │
                                               Final Value
 ```
@@ -402,7 +402,7 @@ cache_get_phase_count <phase>        # Get task count in phase
 cache_stats                          # Get cache statistics (JSON)
 
 # Example usage
-cache_init .claude/todo.json
+cache_init .cleo/todo.json
 label_tasks=$(cache_get_tasks_by_label "bug")
 label_count=$(cache_get_label_count "bug")
 ```
@@ -430,9 +430,9 @@ calculate_impact <task_id> [todo_file]      # Count transitively dependent tasks
 generate_recommendations [todo_file]        # Generate task recommendations
 
 # Example usage
-critical_path=$(find_critical_path .claude/todo.json)
-bottlenecks=$(find_bottlenecks .claude/todo.json)
-impact=$(calculate_impact "T001" .claude/todo.json)
+critical_path=$(find_critical_path .cleo/todo.json)
+bottlenecks=$(find_bottlenecks .cleo/todo.json)
+impact=$(calculate_impact "T001" .cleo/todo.json)
 ```
 
 ### output-format.sh - Output Formatting
@@ -550,7 +550,7 @@ echo "Created: $formatted"
 ## Backup Rotation
 
 ```
-.claude/.backups/                    # Tier 1: Operational backups
+.cleo/.backups/                    # Tier 1: Operational backups
 ├── todo.json.1  ← Most recent (current backup)
 ├── todo.json.2
 ├── ...
@@ -576,7 +576,7 @@ On next operation:
 
 ### Adding Custom Validation
 ```bash
-# .claude/validators/my-validator.sh
+# .cleo/validators/my-validator.sh
 validate_custom() {
     local todo_file="$1"
     # Custom validation logic
@@ -586,7 +586,7 @@ validate_custom() {
 
 ### Event Hook
 ```bash
-# .claude/hooks/on-task-create.sh
+# .cleo/hooks/on-task-create.sh
 #!/usr/bin/env bash
 task_id="$1"
 # Custom action (notify, log, sync)
@@ -597,7 +597,7 @@ task_id="$1"
 # Custom jq filter for export
 # Note: list command doesn't support custom formatters
 # Use export command or jq for custom output
-claude-todo export -f json | jq -r '.tasks[] | [.id, .status, .title] | @csv'
+cleo export -f json | jq -r '.tasks[] | [.id, .status, .title] | @csv'
 ```
 
 ## Testing Quick Reference
@@ -617,13 +617,13 @@ claude-todo export -f json | jq -r '.tasks[] | [.id, .status, .title] | @csv'
 
 ```bash
 # Verbose mode
-CLAUDE_TODO_LOG_LEVEL=debug ./scripts/add-task.sh "Test"
+CLEO_LOG_LEVEL=debug ./scripts/add-task.sh "Test"
 
 # Trace execution
 bash -x ./scripts/archive.sh
 
 # Validate specific file
-jq -e . .claude/todo.json && echo "Valid JSON"
+jq -e . .cleo/todo.json && echo "Valid JSON"
 ```
 
 ## Performance Targets
@@ -652,7 +652,7 @@ jq -e . .claude/todo.json && echo "Valid JSON"
 
 ```bash
 # 1. Set up project phases (one-time)
-# Edit .claude/todo.json to define phases:
+# Edit .cleo/todo.json to define phases:
 # "phases": {
 #   "setup": {"name": "Setup", "order": 1},
 #   "core": {"name": "Core Development", "order": 2},
@@ -660,31 +660,31 @@ jq -e . .claude/todo.json && echo "Valid JSON"
 # }
 
 # 2. Start first phase
-claude-todo phase start setup
-claude-todo phase show                # Verify current phase
+cleo phase start setup
+cleo phase show                # Verify current phase
 
 # 3. Add tasks to phases
-claude-todo add "Configure DB" --phase setup
-claude-todo add "Build API" --phase core
-claude-todo add "Write tests" --phase polish
+cleo add "Configure DB" --phase setup
+cleo add "Build API" --phase core
+cleo add "Write tests" --phase polish
 
 # 4. Work within current phase
-claude-todo phases show setup         # See all setup tasks
-claude-todo next                      # Get suggested task
-claude-todo focus set T001            # Focus on task
+cleo phases show setup         # See all setup tasks
+cleo next                      # Get suggested task
+cleo focus set T001            # Focus on task
 
 # 5. Track progress
-claude-todo phases                    # Visual progress bars
-claude-todo dash                      # Full dashboard
+cleo phases                    # Visual progress bars
+cleo dash                      # Full dashboard
 
 # 6. Advance when phase complete
-claude-todo phase advance             # Complete setup, start core
+cleo phase advance             # Complete setup, start core
 # Or manually:
-claude-todo phase complete setup
-claude-todo phase start core
+cleo phase complete setup
+cleo phase start core
 
 # 7. Continue through phases
-claude-todo phases stats              # Detailed analytics
+cleo phases stats              # Detailed analytics
 ```
 
 ### Phase Options in Other Commands
@@ -721,28 +721,28 @@ claude-todo phases stats              # Detailed analytics
 ## Recommended Aliases
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc (optional - claude-todo is already short)
-alias ct='claude-todo'
-alias ct-add='claude-todo add'
-alias ct-list='claude-todo list'
-alias ct-complete='claude-todo complete'
-alias ct-archive='claude-todo archive'
-alias ct-stats='claude-todo stats'
-alias ct-validate='claude-todo validate'
+# Add to ~/.bashrc or ~/.zshrc (optional - cleo is already short)
+alias ct='cleo'
+alias ct-add='cleo add'
+alias ct-list='cleo list'
+alias ct-complete='cleo complete'
+alias ct-archive='cleo archive'
+alias ct-stats='cleo stats'
+alias ct-validate='cleo validate'
 ```
 
 ## Directory Permissions
 
 ```bash
 # Data files
-chmod 644 .claude/todo*.json
+chmod 644 .cleo/todo*.json
 
 # Scripts
-chmod 755 ~/.claude-todo/scripts/*.sh
+chmod 755 ~/.cleo/scripts/*.sh
 
 # Backups (owner only)
-chmod 700 .claude/.backups/
-chmod 600 .claude/.backups/*.json
+chmod 700 .cleo/.backups/
+chmod 600 .cleo/.backups/*.json
 ```
 
 ## Key Design Principles
@@ -757,10 +757,10 @@ chmod 600 .claude/.backups/*.json
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| **Validators** | `.claude/validators/` | Custom validation rules |
-| **Hooks** | `.claude/hooks/` | Event-triggered actions |
-| **Formatters** | `~/.claude-todo/formatters/` | Output formats |
-| **Integrations** | `~/.claude-todo/integrations/` | External system sync |
+| **Validators** | `.cleo/validators/` | Custom validation rules |
+| **Hooks** | `.cleo/hooks/` | Event-triggered actions |
+| **Formatters** | `~/.cleo/formatters/` | Output formats |
+| **Integrations** | `~/.cleo/integrations/` | External system sync |
 
 ## Documentation Links
 
@@ -785,10 +785,10 @@ chmod 600 .claude/.backups/*.json
 
 ```bash
 # Check current version
-cat ~/.claude-todo/VERSION
+cat ~/.cleo/VERSION
 
 # Upgrade to latest
-cd claude-todo
+cd cleo
 git pull
 ./install.sh --upgrade
 
@@ -813,43 +813,43 @@ Checks:
 
 ```bash
 # 1. Validate files
-claude-todo validate
+cleo validate
 
 # 2. Try auto-fix
-claude-todo validate --fix
+cleo validate --fix
 
 # 3. List backups
-claude-todo backup --list
+cleo backup --list
 
 # 4. Restore if needed
-claude-todo restore <backup-path>
+cleo restore <backup-path>
 # OR restore specific file
-claude-todo restore <backup> --file todo.json
+cleo restore <backup> --file todo.json
 
 # 5. Check logs
-jq '.entries[-10:]' .claude/todo-log.json
+jq '.entries[-10:]' .cleo/todo-log.json
 ```
 
 ## Installation Checklist
 
 - [ ] Clone repository
 - [ ] Run `./install.sh`
-- [ ] Verify `~/.claude-todo/` created
+- [ ] Verify `~/.cleo/` created
 - [ ] Source shell config or restart terminal
 - [ ] Navigate to project
-- [ ] Run `claude-todo init`
-- [ ] Verify `.claude/` created
+- [ ] Run `cleo init`
+- [ ] Verify `.cleo/` created
 - [ ] Check `.gitignore` updated
-- [ ] Run `claude-todo validate` to confirm
-- [ ] Run `claude-todo add "Test task"` to test
+- [ ] Run `cleo validate` to confirm
+- [ ] Run `cleo add "Test task"` to test
 
 ## Quick Troubleshooting
 
 **Problem**: "Permission denied"
-**Solution**: `chmod 755 ~/.claude-todo/scripts/*.sh`
+**Solution**: `chmod 755 ~/.cleo/scripts/*.sh`
 
 **Problem**: "Invalid JSON"
-**Solution**: `claude-todo validate --fix` or restore backup
+**Solution**: `cleo validate --fix` or restore backup
 
 **Problem**: "Duplicate ID"
 **Solution**: Edit JSON manually or restore backup

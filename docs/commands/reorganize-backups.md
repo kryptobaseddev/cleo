@@ -5,12 +5,12 @@ Migrate legacy backups to new unified taxonomy.
 ## Usage
 
 ```bash
-claude-todo reorganize-backups <option>
+cleo reorganize-backups <option>
 ```
 
 ## Description
 
-The `reorganize-backups` command migrates backups from the old `.claude/.backups/` location to the new unified taxonomy at `.claude/backups/`. This is a one-time migration for projects that were using claude-todo before the backup taxonomy was standardized.
+The `reorganize-backups` command migrates backups from the old `.cleo/.backups/` location to the new unified taxonomy at `.cleo/backups/`. This is a one-time migration for projects that were using cleo before the backup taxonomy was standardized.
 
 ## Options
 
@@ -28,7 +28,7 @@ The `reorganize-backups` command migrates backups from the old `.claude/.backups
 
 ```bash
 # List detected legacy backups
-claude-todo reorganize-backups --detect
+cleo reorganize-backups --detect
 ```
 
 Output:
@@ -36,17 +36,17 @@ Output:
 Detected 5 legacy backup(s):
 
 [snapshot backups]
-  .claude/.backups/backup_1702492800/
+  .cleo/.backups/backup_1702492800/
     Timestamp: 2023-12-13T10:00:00Z
     Size: 4096 bytes
 
 [safety backups]
-  .claude/.backups/todo.json.20231213_100000
+  .cleo/.backups/todo.json.20231213_100000
     Timestamp: 2023-12-13T10:00:00Z
     Size: 2048 bytes
 
 [migration backups]
-  .claude/.backups/pre-migration-20231212/
+  .cleo/.backups/pre-migration-20231212/
     Timestamp: 2023-12-12T15:30:00Z
     Size: 8192 bytes
 
@@ -62,7 +62,7 @@ Classification:
 
 ```bash
 # See what would happen without making changes
-claude-todo reorganize-backups --dry-run
+cleo reorganize-backups --dry-run
 ```
 
 Output:
@@ -71,9 +71,9 @@ DRY RUN MODE - No changes will be made
 
 Found 5 legacy backup(s) to migrate
 
-WOULD MIGRATE: .claude/.backups/backup_1702492800/ -> .claude/backups/snapshot/snapshot_20231213_100000_migrated/
-WOULD MIGRATE: .claude/.backups/todo.json.20231213_100000 -> .claude/backups/safety/safety_20231213_100000_migration_todo/
-WOULD MIGRATE: .claude/.backups/pre-migration-20231212/ -> .claude/backups/migration/migration_legacy_20231213_100000/
+WOULD MIGRATE: .cleo/.backups/backup_1702492800/ -> .cleo/backups/snapshot/snapshot_20231213_100000_migrated/
+WOULD MIGRATE: .cleo/.backups/todo.json.20231213_100000 -> .cleo/backups/safety/safety_20231213_100000_migration_todo/
+WOULD MIGRATE: .cleo/.backups/pre-migration-20231212/ -> .cleo/backups/migration/migration_legacy_20231213_100000/
 
 Migration summary:
   Migrated: 3
@@ -85,35 +85,35 @@ Migration summary:
 
 ```bash
 # Actually migrate the backups
-claude-todo reorganize-backups --run
+cleo reorganize-backups --run
 ```
 
 Output:
 ```
 Found 5 legacy backup(s) to migrate
 
-MIGRATED: .claude/.backups/backup_1702492800/ -> .claude/backups/snapshot/snapshot_20231213_100000_migrated/
-MIGRATED: .claude/.backups/todo.json.20231213_100000 -> .claude/backups/safety/safety_20231213_100000_migration_todo/
-MIGRATED: .claude/.backups/pre-migration-20231212/ -> .claude/backups/migration/migration_legacy_20231213_100000/
+MIGRATED: .cleo/.backups/backup_1702492800/ -> .cleo/backups/snapshot/snapshot_20231213_100000_migrated/
+MIGRATED: .cleo/.backups/todo.json.20231213_100000 -> .cleo/backups/safety/safety_20231213_100000_migration_todo/
+MIGRATED: .cleo/.backups/pre-migration-20231212/ -> .cleo/backups/migration/migration_legacy_20231213_100000/
 
 Migration summary:
   Migrated: 3
   Failed: 0
   Skipped (unknown): 2
-  Log: .claude/backup-migration.log
+  Log: .cleo/backup-migration.log
 ```
 
 ### Cleanup After Migration
 
 ```bash
 # Remove legacy backup directory after successful migration
-claude-todo reorganize-backups --cleanup
+cleo reorganize-backups --cleanup
 ```
 
 Output:
 ```
 WARNING: 0 legacy backup(s) still present
-Removing legacy backup directory: .claude/.backups
+Removing legacy backup directory: .cleo/.backups
 Cleanup complete
 ```
 
@@ -122,7 +122,7 @@ Cleanup complete
 The new unified backup taxonomy organizes backups by type:
 
 ```
-.claude/backups/
+.cleo/backups/
 ├── snapshot/      # Point-in-time complete snapshots
 ├── safety/        # Pre-operation safety backups
 ├── incremental/   # Delta-based incremental backups
@@ -154,14 +154,14 @@ Migrated backups include metadata indicating their origin:
   "operation": "migrate_legacy",
   "migrated": true,
   "originalTimestamp": "2023-12-13T10:00:00Z",
-  "originalPath": ".claude/.backups/backup_1702492800/"
+  "originalPath": ".cleo/.backups/backup_1702492800/"
 }
 ```
 
 ## Safety Features
 
 - **Verification**: Validates files after migration
-- **Logging**: All migrations logged to `.claude/backup-migration.log`
+- **Logging**: All migrations logged to `.cleo/backup-migration.log`
 - **Preservation**: Original files retained until explicit cleanup
 - **Skipping**: Unknown patterns skipped (not lost)
 

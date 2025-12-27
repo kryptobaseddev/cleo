@@ -27,7 +27,7 @@
 #   history.sh --format json             # JSON output
 #
 # Version: 0.10.2
-# Part of: claude-todo CLI Output Enhancement (Phase 3)
+# Part of: cleo CLI Output Enhancement (Phase 3)
 #####################################################################
 
 set -euo pipefail
@@ -35,11 +35,11 @@ set -euo pipefail
 # Script and library paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -49,14 +49,14 @@ fi
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/file-ops.sh"
 fi
 
 if [[ -f "${LIB_DIR}/logging.sh" ]]; then
   source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/logging.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
@@ -71,8 +71,8 @@ fi
 
 if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
   source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 fi
 
 # Default configuration
@@ -85,10 +85,10 @@ SHOW_CHARTS=true
 QUIET=false
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
-ARCHIVE_FILE="${CLAUDE_DIR}/todo-archive.json"
-HIST_LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
+ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
+HIST_LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 #####################################################################
 # Usage
@@ -96,7 +96,7 @@ HIST_LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo history [OPTIONS]
+Usage: cleo history [OPTIONS]
 
 Show completion timeline and analytics.
 
@@ -110,11 +110,11 @@ Options:
     -h, --help        Show this help message
 
 Examples:
-    claude-todo history                           # Last 30 days
-    claude-todo history --days 7                  # Last week
-    claude-todo history --since 2025-12-01        # From specific date
-    claude-todo history --since 2025-12-01 --until 2025-12-13
-    claude-todo history --format json             # JSON output
+    cleo history                           # Last 30 days
+    cleo history --days 7                  # Last week
+    cleo history --since 2025-12-01        # From specific date
+    cleo history --since 2025-12-01 --until 2025-12-13
+    cleo history --format json             # JSON output
 
 Output:
     - Completion counts by day with sparkline visualization
@@ -578,7 +578,7 @@ output_json_format() {
     --argjson velocity "$velocity" \
     --arg version "$VERSION" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -674,10 +674,10 @@ parse_arguments() {
         ;;
       *)
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-          output_error "$E_INPUT_INVALID" "Unknown option: $1" 1 true "Run 'claude-todo history --help' for usage"
+          output_error "$E_INPUT_INVALID" "Unknown option: $1" 1 true "Run 'cleo history --help' for usage"
         else
           output_error "$E_INPUT_INVALID" "Unknown option: $1"
-          echo "Run 'claude-todo history --help' for usage"
+          echo "Run 'cleo history --help' for usage"
         fi
         exit $EXIT_INVALID_INPUT
         ;;

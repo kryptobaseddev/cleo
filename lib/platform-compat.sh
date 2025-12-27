@@ -88,7 +88,7 @@ get_bash_version_info() {
     echo "${BASH_VERSION:-unknown}"
 }
 
-# Check all required tools for claude-todo
+# Check all required tools for cleo
 check_required_tools() {
     local missing_tools=()
     local outdated_tools=()
@@ -501,7 +501,7 @@ create_temp_file() {
     fi
 
     # Fallback: create in /tmp with unique name
-    temp_file="/tmp/claude-todo-$$-$(date +%s)"
+    temp_file="/tmp/cleo-$$-$(date +%s)"
     touch "$temp_file"
     echo "$temp_file"
 }

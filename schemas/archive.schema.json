@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v3.1/archive.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v3.1/archive.schema.json",
   "schemaVersion": "2.1.0",
   "title": "CLAUDE-TODO Archive Schema",
   "description": "Storage for completed and cancelled tasks. Archived tasks are IMMUTABLE - never modify after archival.",

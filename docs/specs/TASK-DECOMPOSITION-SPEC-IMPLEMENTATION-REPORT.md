@@ -263,24 +263,24 @@ When starting a session for a phase:
 
 ```bash
 # 1. Start session and set focus
-claude-todo session start
-claude-todo focus set <phase-task-id>
+cleo session start
+cleo focus set <phase-task-id>
 
 # 2. Review the phase task and subtasks
-claude-todo show <phase-task-id>
-claude-todo list --parent <phase-task-id>
+cleo show <phase-task-id>
+cleo list --parent <phase-task-id>
 
 # 3. Work on subtasks, updating notes as you go
-claude-todo focus set <subtask-id>
-claude-todo update <subtask-id> --notes "Starting work on..."
+cleo focus set <subtask-id>
+cleo update <subtask-id> --notes "Starting work on..."
 
 # 4. Complete subtasks when done
-claude-todo complete <subtask-id>
-claude-todo update <subtask-id> --notes "COMPLETE: <deliverables>"
+cleo complete <subtask-id>
+cleo update <subtask-id> --notes "COMPLETE: <deliverables>"
 
 # 5. End session with summary
-claude-todo focus note "Session summary: ..."
-claude-todo session end
+cleo focus note "Session summary: ..."
+cleo session end
 ```
 
 ---

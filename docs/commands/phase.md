@@ -5,7 +5,7 @@ Manage project-level phase lifecycle with status tracking and phase transitions.
 ## Usage
 
 ```bash
-claude-todo phase <command> [OPTIONS]
+cleo phase <command> [OPTIONS]
 ```
 
 ## Description
@@ -61,7 +61,7 @@ This command provides:
 
 ```bash
 # Show current project phase
-claude-todo phase show
+cleo phase show
 ```
 
 Output:
@@ -81,7 +81,7 @@ No current phase set
 
 ```bash
 # Set current phase (doesn't change status)
-claude-todo phase set polish
+cleo phase set polish
 ```
 
 Output:
@@ -97,7 +97,7 @@ Moving to a lower-order phase (e.g., `core` → `setup`) is detected as a rollba
 
 ```bash
 # Moving backward requires --rollback flag
-claude-todo phase set setup
+cleo phase set setup
 
 # Output:
 # ERROR: Rolling back from 'core' (order 2) to 'setup' (order 1) requires --rollback flag
@@ -105,7 +105,7 @@ claude-todo phase set setup
 
 **With confirmation prompt:**
 ```bash
-claude-todo phase set setup --rollback
+cleo phase set setup --rollback
 
 # Output:
 # WARNING: This will rollback from 'Core Development' (order 2) to 'Setup' (order 1).
@@ -114,7 +114,7 @@ claude-todo phase set setup --rollback
 
 **Skip confirmation with --force:**
 ```bash
-claude-todo phase set setup --rollback --force
+cleo phase set setup --rollback --force
 # Phase set to: setup
 ```
 
@@ -124,7 +124,7 @@ This safety mechanism prevents accidental phase regression while allowing intent
 
 ```bash
 # Start a phase (transitions pending → active)
-claude-todo phase start core
+cleo phase start core
 ```
 
 Output:
@@ -145,7 +145,7 @@ Started phase: core
 
 ```bash
 # Complete a phase (transitions active → completed)
-claude-todo phase complete setup
+cleo phase complete setup
 ```
 
 Output:
@@ -174,7 +174,7 @@ ERROR: Cannot complete phase 'setup' - 3 incomplete task(s) pending
 
 ```bash
 # Complete current phase and start next
-claude-todo phase advance
+cleo phase advance
 ```
 
 Output:
@@ -201,7 +201,7 @@ By default, advancing is blocked when tasks remain incomplete. The system uses c
 
 ```bash
 # When tasks are incomplete:
-claude-todo phase advance
+cleo phase advance
 
 # Output:
 # ERROR: Cannot advance - 8 incomplete task(s) in phase 'core'
@@ -211,7 +211,7 @@ claude-todo phase advance
 
 **Interactive prompt** (when threshold is met but tasks remain):
 ```bash
-claude-todo phase advance
+cleo phase advance
 
 # Output:
 # WARNING: 3 task(s) remain in phase 'core':
@@ -223,7 +223,7 @@ claude-todo phase advance
 
 **Force override** with `--force`:
 ```bash
-claude-todo phase advance --force
+cleo phase advance --force
 
 # Output:
 # WARNING: Forcing advance with 8 incomplete task(s)
@@ -242,21 +242,21 @@ See [Configuration](#phase-validation-configuration) for threshold settings.
 **Typical Workflows**:
 ```bash
 # Workflow 1: Advance completes and advances
-claude-todo phase advance  # Completes active phase, starts next
+cleo phase advance  # Completes active phase, starts next
 
 # Workflow 2: Explicit complete then advance
-claude-todo phase complete setup  # Manually complete
-claude-todo phase advance          # Only starts next (skips completion)
+cleo phase complete setup  # Manually complete
+cleo phase advance          # Only starts next (skips completion)
 
 # Workflow 3: Force advance with incomplete tasks
-claude-todo phase advance --force  # Skip threshold check and prompt
+cleo phase advance --force  # Skip threshold check and prompt
 ```
 
 ### List All Phases
 
 ```bash
 # List all phases with current indicator
-claude-todo phase list
+cleo phase list
 ```
 
 Output:
@@ -279,7 +279,7 @@ Rename a phase and atomically update all task references:
 
 ```bash
 # Rename 'core' to 'development'
-claude-todo phase rename core development
+cleo phase rename core development
 ```
 
 Output:
@@ -306,15 +306,15 @@ Phase renamed successfully
 **Validation Errors**:
 ```bash
 # Old phase doesn't exist
-claude-todo phase rename nonexistent newname
+cleo phase rename nonexistent newname
 # ERROR: Phase 'nonexistent' does not exist
 
 # New phase already exists
-claude-todo phase rename core setup
+cleo phase rename core setup
 # ERROR: Phase 'setup' already exists
 
 # Invalid new name format
-claude-todo phase rename core "Core Dev"
+cleo phase rename core "Core Dev"
 # ERROR: Invalid phase name 'Core Dev'
 # Phase names must be lowercase alphanumeric with hyphens, not starting/ending with hyphen
 ```
@@ -330,7 +330,7 @@ Delete a phase with safety protections:
 
 ```bash
 # Delete empty phase
-claude-todo phase delete old-phase --force
+cleo phase delete old-phase --force
 ```
 
 **Protection: Task Reassignment Required**
@@ -339,7 +339,7 @@ If the phase has tasks, you must specify where to reassign them:
 
 ```bash
 # Phase with tasks - error without reassignment
-claude-todo phase delete core --force
+cleo phase delete core --force
 
 # Output:
 # ERROR: Cannot delete 'core': 63 tasks would be orphaned
@@ -350,12 +350,12 @@ claude-todo phase delete core --force
 #   - 3 blocked
 #   - 10 done
 #
-# Use: claude-todo phase delete core --reassign-to <phase>
+# Use: cleo phase delete core --reassign-to <phase>
 ```
 
 **Delete with reassignment:**
 ```bash
-claude-todo phase delete old-phase --reassign-to setup --force
+cleo phase delete old-phase --reassign-to setup --force
 
 # Output:
 # Phase 'old-phase' has 12 tasks:
@@ -371,11 +371,11 @@ claude-todo phase delete old-phase --reassign-to setup --force
 
 ```bash
 # Trying to delete the current project phase
-claude-todo phase delete core --force
+cleo phase delete core --force
 
 # Output:
 # ERROR: Cannot delete current project phase 'core'
-# Use 'claude-todo phase set <other-phase>' to change the current phase first
+# Use 'cleo phase set <other-phase>' to change the current phase first
 ```
 
 **Protection: --force Required**
@@ -384,20 +384,20 @@ All deletions require the `--force` flag for safety:
 
 ```bash
 # Without --force
-claude-todo phase delete old-phase
+cleo phase delete old-phase
 
 # Output:
 # ERROR: Phase deletion requires --force flag for safety
-# Use: claude-todo phase delete old-phase --force
+# Use: cleo phase delete old-phase --force
 ```
 
 **Complete Example**:
 ```bash
 # Step 1: Change current phase if deleting current
-claude-todo phase set setup
+cleo phase set setup
 
 # Step 2: Delete with reassignment and force
-claude-todo phase delete deprecated-phase --reassign-to setup --force
+cleo phase delete deprecated-phase --reassign-to setup --force
 ```
 
 ## Phase Lifecycle
@@ -450,7 +450,7 @@ claude-todo phase delete deprecated-phase --reassign-to setup --force
 
 ## Phase Configuration
 
-Phases are defined in `.claude/todo.json` under the `project.phases` object:
+Phases are defined in `.cleo/todo.json` under the `project.phases` object:
 
 ```json
 {
@@ -496,7 +496,7 @@ Phases are defined in `.claude/todo.json` under the `project.phases` object:
 
 ### Phase Validation Configuration
 
-Configure phase advancement behavior in `.claude/todo.json`:
+Configure phase advancement behavior in `.cleo/todo.json`:
 
 ```json
 {
@@ -642,15 +642,15 @@ Phase history is automatically maintained when using:
 
 ```bash
 # Add task to current project phase automatically
-CURRENT_PHASE=$(claude-todo phase show | grep -oP '(?<=Current Phase: )\w+')
-claude-todo add "Implement feature X" --phase "$CURRENT_PHASE"
+CURRENT_PHASE=$(cleo phase show | grep -oP '(?<=Current Phase: )\w+')
+cleo add "Implement feature X" --phase "$CURRENT_PHASE"
 ```
 
 ### With focus Command
 
 ```bash
 # Show current phase with focus
-claude-todo focus show
+cleo focus show
 # Output includes:
 #   Current Phase: core
 ```
@@ -661,7 +661,7 @@ Focus state maintains `currentPhase` for context restoration across sessions.
 
 ```bash
 # Session start shows current phase
-claude-todo session start
+cleo session start
 # Output includes:
 #   [INFO] Current project phase: core (active)
 ```
@@ -671,7 +671,7 @@ claude-todo session start
 The dashboard shows project phase progress:
 
 ```bash
-claude-todo dash
+cleo dash
 ```
 
 Includes section:
@@ -688,15 +688,15 @@ The `phases` command shows task-level phase breakdown, while `phase` manages pro
 
 ```bash
 # View tasks organized by phase (task assignment)
-claude-todo phases show core
+cleo phases show core
 
 # View current project phase (project lifecycle)
-claude-todo phase show
+cleo phase show
 ```
 
 ## Audit Logging
 
-All phase operations are logged to `.claude/todo-log.json`:
+All phase operations are logged to `.cleo/todo-log.json`:
 
 ### Phase Changed
 
@@ -745,24 +745,24 @@ Duration is calculated automatically from `startedAt` to completion time.
 
 ```bash
 # Start project
-claude-todo phase start setup
+cleo phase start setup
 # ... work on setup tasks ...
-claude-todo phase advance  # → setup completed, core started
+cleo phase advance  # → setup completed, core started
 
 # ... work on core tasks ...
-claude-todo phase advance  # → core completed, polish started
+cleo phase advance  # → core completed, polish started
 
 # ... work on polish tasks ...
-claude-todo phase complete polish  # → polish completed
+cleo phase complete polish  # → polish completed
 ```
 
 ### Jumping Between Phases
 
 ```bash
 # Working on core, but need to fix setup issue
-claude-todo phase set setup
+cleo phase set setup
 # ... fix setup issue ...
-claude-todo phase set core  # Resume core work
+cleo phase set core  # Resume core work
 ```
 
 **Note**: Using `set` doesn't change status, so setup remains `completed`.
@@ -771,11 +771,11 @@ claude-todo phase set core  # Resume core work
 
 ```bash
 # Verify current phase before starting work
-claude-todo phase show
+cleo phase show
 
 # If no phase set, start first phase
-if ! claude-todo phase show > /dev/null 2>&1; then
-  claude-todo phase start setup
+if ! cleo phase show > /dev/null 2>&1; then
+  cleo phase start setup
 fi
 ```
 
@@ -783,15 +783,15 @@ fi
 
 ```bash
 # Start phase
-claude-todo phase start core
+cleo phase start core
 
 # ... time passes ...
 
 # Complete phase (duration logged automatically)
-claude-todo phase complete core
+cleo phase complete core
 
 # View duration in log
-claude-todo log --action phase_completed | grep -A3 "core"
+cleo log --action phase_completed | grep -A3 "core"
 ```
 
 ## Validation
@@ -801,7 +801,7 @@ claude-todo log --action phase_completed | grep -A3 "core"
 Only one phase can be `active` at a time. The `validate` command checks this:
 
 ```bash
-claude-todo validate
+cleo validate
 ```
 
 If multiple active phases exist:
@@ -809,14 +809,14 @@ If multiple active phases exist:
 ERROR: Multiple active phases detected (2)
 ```
 
-**Fix**: Manually edit `.claude/todo.json` to set only one phase to `active`.
+**Fix**: Manually edit `.cleo/todo.json` to set only one phase to `active`.
 
 ### Current Phase Consistency
 
 The `currentPhase` must match an active phase if set:
 
 ```bash
-claude-todo validate
+cleo validate
 ```
 
 If mismatch:
@@ -831,7 +831,7 @@ ERROR: Current phase 'setup' has status 'completed', expected 'active'
 ### Starting Non-Pending Phase
 
 ```bash
-claude-todo phase start core
+cleo phase start core
 ```
 
 If core is already `active` or `completed`:
@@ -844,7 +844,7 @@ ERROR: Can only start pending phases (current: active)
 ### Completing Non-Active Phase
 
 ```bash
-claude-todo phase complete setup
+cleo phase complete setup
 ```
 
 If setup is `pending` or already `completed`:
@@ -857,7 +857,7 @@ ERROR: Can only complete active phases (current: completed)
 ### Phase Not Found
 
 ```bash
-claude-todo phase set nonexistent
+cleo phase set nonexistent
 ```
 
 Output:
@@ -870,7 +870,7 @@ ERROR: Phase 'nonexistent' does not exist
 ### No Next Phase
 
 ```bash
-claude-todo phase advance
+cleo phase advance
 ```
 
 When on final phase:
@@ -886,21 +886,21 @@ INFO: No more phases after 'polish'
 
 ```bash
 # Good: Explicit start with timestamp
-claude-todo phase start core
+cleo phase start core
 
 # Avoid: Setting without starting (no timestamp)
-claude-todo phase set core
+cleo phase set core
 ```
 
 ### 2. Use Advance for Linear Workflows
 
 ```bash
 # Good: Automatic completion + start
-claude-todo phase advance
+cleo phase advance
 
 # Avoid: Manual completion + start
-claude-todo phase complete setup
-claude-todo phase start core
+cleo phase complete setup
+cleo phase start core
 ```
 
 ### 3. Track Phase Context in Focus
@@ -909,8 +909,8 @@ When setting focus, consider updating phase:
 
 ```bash
 # Set focus to task in different phase
-claude-todo focus set T025
-claude-todo phase set polish  # Match task's phase
+cleo focus set T025
+cleo phase set polish  # Match task's phase
 ```
 
 ### 4. Complete Phases Only When Done
@@ -919,20 +919,20 @@ Wait until all critical tasks in phase are complete:
 
 ```bash
 # Check phase progress before completing
-claude-todo phases show core
+cleo phases show core
 
 # Only complete if most tasks done
-claude-todo phase complete core
+cleo phase complete core
 ```
 
 ### 5. Use List for Overview
 
 ```bash
 # Quick phase status check
-claude-todo phase list
+cleo phase list
 
 # See current phase with detail
-claude-todo phase show
+cleo phase show
 ```
 
 ## Workflow Examples
@@ -941,46 +941,46 @@ claude-todo phase show
 
 ```bash
 # Start sprint
-claude-todo phase start sprint-1
+cleo phase start sprint-1
 
 # During sprint
-claude-todo add "Task X" --phase sprint-1
-claude-todo focus set T042
+cleo add "Task X" --phase sprint-1
+cleo focus set T042
 
 # End sprint
-claude-todo phase complete sprint-1
-claude-todo phase start sprint-2
+cleo phase complete sprint-1
+cleo phase start sprint-2
 ```
 
 ### Staged Deployment
 
 ```bash
 # Development phase
-claude-todo phase start development
+cleo phase start development
 # ... build features ...
-claude-todo phase advance  # → testing
+cleo phase advance  # → testing
 
 # Testing phase
 # ... run tests ...
-claude-todo phase advance  # → staging
+cleo phase advance  # → staging
 
 # Staging phase
 # ... deploy to staging ...
-claude-todo phase advance  # → production
+cleo phase advance  # → production
 ```
 
 ### Context Switching
 
 ```bash
 # Working on features (core)
-claude-todo phase show  # → core (active)
+cleo phase show  # → core (active)
 
 # Critical bug in production
-claude-todo phase set hotfix
+cleo phase set hotfix
 # ... fix bug ...
 
 # Resume feature work
-claude-todo phase set core
+cleo phase set core
 ```
 
 ## Shell Integration
@@ -990,8 +990,8 @@ claude-todo phase set core
 ```bash
 # Add to .bashrc or .zshrc
 ct_current_phase() {
-  if [[ -f .claude/todo.json ]]; then
-    jq -r '.project.currentPhase // "none"' .claude/todo.json
+  if [[ -f .cleo/todo.json ]]; then
+    jq -r '.project.currentPhase // "none"' .cleo/todo.json
   fi
 }
 
@@ -1003,8 +1003,8 @@ PS1='[\u@\h \W $(ct_current_phase)]\$ '
 
 ```bash
 # Show tasks in current project phase
-current_phase=$(claude-todo phase show | grep -oP '(?<=Current Phase: )\w+')
-claude-todo list --phase "$current_phase"
+current_phase=$(cleo phase show | grep -oP '(?<=Current Phase: )\w+')
+cleo list --phase "$current_phase"
 ```
 
 ### Automated Phase Advancement
@@ -1013,24 +1013,24 @@ claude-todo list --phase "$current_phase"
 # Advance phase when all tasks complete
 check_phase_complete() {
   local phase="$1"
-  local pending=$(claude-todo phases show "$phase" --format json | \
+  local pending=$(cleo phases show "$phase" --format json | \
     jq '[.tasks[] | select(.status != "done")] | length')
 
   if [[ $pending -eq 0 ]]; then
     echo "All tasks in $phase complete. Advancing..."
-    claude-todo phase advance
+    cleo phase advance
   fi
 }
 ```
 
 ## Related Commands
 
-- `claude-todo phases` - View task-level phase organization
-- `claude-todo phases show <phase>` - See tasks in specific phase
-- `claude-todo add --phase <phase>` - Add task to phase
-- `claude-todo update ID --phase <phase>` - Assign task to phase
-- `claude-todo focus set ID` - Set focus (syncs current phase)
-- `claude-todo dash` - Dashboard shows project phase progress
+- `cleo phases` - View task-level phase organization
+- `cleo phases show <phase>` - See tasks in specific phase
+- `cleo add --phase <phase>` - Add task to phase
+- `cleo update ID --phase <phase>` - Assign task to phase
+- `cleo focus set ID` - Set focus (syncs current phase)
+- `cleo dash` - Dashboard shows project phase progress
 
 ## Tips
 

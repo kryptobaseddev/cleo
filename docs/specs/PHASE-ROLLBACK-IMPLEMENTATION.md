@@ -6,7 +6,7 @@
 
 ## Overview
 
-Implements phase rollback detection with `--rollback` flag requirement for backwards phase movement in the `claude-todo phase set` command.
+Implements phase rollback detection with `--rollback` flag requirement for backwards phase movement in the `cleo phase set` command.
 
 ## Implementation
 
@@ -25,7 +25,7 @@ Implements phase rollback detection with `--rollback` flag requirement for backw
 #### Forward Movement (No Restrictions)
 ```bash
 # Moving to a higher order phase works normally
-claude-todo phase set polish
+cleo phase set polish
 # → Phase set to: polish
 ```
 
@@ -33,21 +33,21 @@ claude-todo phase set polish
 
 **Without --rollback flag** (blocked):
 ```bash
-claude-todo phase set setup
+cleo phase set setup
 # ERROR: Rolling back from 'Core Development' (order 2) to 'Setup & Foundation' (order 1) requires --rollback flag
 # Exit code: 6 (EXIT_VALIDATION_ERROR)
 ```
 
 **With --rollback flag** (requires confirmation):
 ```bash
-claude-todo phase set setup --rollback
+cleo phase set setup --rollback
 # WARNING: This will rollback from 'Core Development' (order 2) to 'Setup & Foundation' (order 1).
 # Continue? [y/N]
 ```
 
 **With --rollback --force** (no prompt):
 ```bash
-claude-todo phase set setup --rollback --force
+cleo phase set setup --rollback --force
 # Phase set to: setup
 ```
 
@@ -57,11 +57,11 @@ JSON mode requires `--force` for non-interactive rollback:
 
 ```bash
 # Without --force (blocked)
-claude-todo phase --json set setup --rollback
+cleo phase --json set setup --rollback
 # {"success": false, "error": {"code": "E_PHASE_ROLLBACK_REQUIRES_FORCE", ...}}
 
 # With --force (succeeds)
-claude-todo phase --json set setup --rollback --force
+cleo phase --json set setup --rollback --force
 # {"success": true, "currentPhase": "setup", ...}
 ```
 
@@ -91,24 +91,24 @@ All tests passing.
 ### Text Mode
 ```bash
 # Attempt rollback (blocked)
-$ claude-todo phase set setup
+$ cleo phase set setup
 ERROR: Rolling back from 'Core Development' (order 2) to 'Setup & Foundation' (order 1) requires --rollback flag
 
 # Rollback with confirmation
-$ claude-todo phase set setup --rollback
+$ cleo phase set setup --rollback
 WARNING: This will rollback from 'Core Development' (order 2) to 'Setup & Foundation' (order 1).
 Continue? [y/N] y
 Phase set to: setup
 
 # Rollback without confirmation
-$ claude-todo phase set setup --rollback --force
+$ cleo phase set setup --rollback --force
 Phase set to: setup
 ```
 
 ### JSON Mode
 ```bash
 # Attempt rollback without --force (blocked)
-$ claude-todo phase --json set setup --rollback
+$ cleo phase --json set setup --rollback
 {
   "_meta": {
     "command": "phase set",
@@ -122,7 +122,7 @@ $ claude-todo phase --json set setup --rollback
 }
 
 # Rollback with --force (succeeds)
-$ claude-todo phase --json set setup --rollback --force
+$ cleo phase --json set setup --rollback --force
 {
   "_meta": {
     "command": "phase set",

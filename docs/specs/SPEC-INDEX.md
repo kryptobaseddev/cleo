@@ -95,7 +95,7 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 | [**LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md**](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) | 1.0.0 FINAL | **IMMUTABLE** | 2025-01-17 | Task ID system design (T001 format). Flat sequential IDs with parentId for hierarchy. Six guarantees: unique, immutable, stable, sequential, referenceable, recoverable. |
 | [**LLM-AGENT-FIRST-SPEC.md**](LLM-AGENT-FIRST-SPEC.md) | 3.0 | **ACTIVE** | 2025-12-18 | CLI design standard for LLM agents. JSON output by default, TTY auto-detection, 32 commands, standardized exit/error codes, universal flags. |
 | [**PHASE-SYSTEM-SPEC.md**](PHASE-SYSTEM-SPEC.md) | v2.2.0+ | **ACTIVE** | 2025-12-17 | Dual-level phase model: project lifecycle phases vs task categorization. Defines phase transitions, history, validation rules. |
-| [**CONFIG-SYSTEM-SPEC.md**](CONFIG-SYSTEM-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-19 | Configuration system with global (~/.claude-todo/config.json) and project (.claude/todo-config.json) configs. Priority resolution, environment variables. |
+| [**CONFIG-SYSTEM-SPEC.md**](CONFIG-SYSTEM-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-19 | Configuration system with global (~/.cleo/config.json) and project (.cleo/config.json) configs. Priority resolution, environment variables. |
 | [**FILE-LOCKING-SPEC.md**](FILE-LOCKING-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-19 | File locking & concurrency safety. Exclusive locks via flock, 30s timeout, atomic write operations, error recovery. |
 
 ### Feature Specifications
@@ -103,7 +103,7 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 | Document | Version | Status | Last Updated | Synopsis |
 |----------|---------|--------|--------------|----------|
 | [**TASK-HIERARCHY-SPEC.md**](TASK-HIERARCHY-SPEC.md) | 1.2.0 | **APPROVED** | 2025-01-17 | Epic → Task → Subtask taxonomy with max depth 3, max 7 siblings. Flat ID + parentId design. Schema v2.3.0. |
-| [**TODOWRITE-SYNC-SPEC.md**](TODOWRITE-SYNC-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-18 | Bidirectional sync between claude-todo (durable) and Claude Code TodoWrite (ephemeral). Lossy by design with ID preservation via [T###] prefix. |
+| [**TODOWRITE-SYNC-SPEC.md**](TODOWRITE-SYNC-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-18 | Bidirectional sync between cleo (durable) and Claude Code TodoWrite (ephemeral). Lossy by design with ID preservation via [T###] prefix. |
 | [**FIND-COMMAND-SPEC.md**](FIND-COMMAND-SPEC.md) | 1.0 | **DRAFT** | 2025-12-18 | Fuzzy task search command. Context reduction 355KB→1KB (99.7%). ID prefix matching, match scoring, minimal output. |
 | [**RELEASE-VERSION-MANAGEMENT-SPEC.md**](RELEASE-VERSION-MANAGEMENT-SPEC.md) | 2.0.0 | **DRAFT** | 2025-12-18 | Release version tracking with 4-state lifecycle (planning→development→released/cancelled). VERSION file integration, git tags. |
 

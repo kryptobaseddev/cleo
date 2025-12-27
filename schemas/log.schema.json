@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/log.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v1/log.schema.json",
   "schemaVersion": "2.1.0",
   "title": "CLAUDE-TODO Change Log Schema",
   "description": "Immutable audit trail of all task operations. Used for debugging, history, and anti-hallucination verification.",
@@ -80,6 +80,14 @@
           "enum": [
             "session_start",
             "session_end",
+            "session_suspended",
+            "session_resumed",
+            "session_scope_defined",
+            "session_scope_conflict",
+            "session_focus_changed",
+            "session_timeout_warning",
+            "session_orphan_detected",
+            "session_auto_suspended",
             "task_created",
             "task_updated",
             "status_changed",
@@ -94,7 +102,7 @@
             "phase_completed",
             "phase_rollback"
           ],
-          "description": "Type of action logged. Phase actions: phase_changed (project phase modified), phase_started (phase activated), phase_completed (phase marked complete), phase_rollback (reverted to previous phase)."
+          "description": "Type of action logged. Session actions (multi-session): session_suspended (paused), session_resumed (continued), session_scope_defined (scope created), session_scope_conflict (overlap detected), session_focus_changed (focus within session), session_timeout_warning (stale session), session_orphan_detected (crashed session), session_auto_suspended (timeout suspend). Phase actions: phase_changed, phase_started, phase_completed, phase_rollback."
         },
         "actor": {
           "type": "string",
@@ -117,6 +125,41 @@
         "details": {
           "type": ["object", "string", "null"],
           "description": "Additional context about the action."
+        },
+        "scope": {
+          "type": ["object", "null"],
+          "description": "Session scope context for multi-session log entries. Null for single-session mode.",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["task", "taskGroup", "subtree", "epicPhase", "epic", "custom"],
+              "description": "Scope type from session definition."
+            },
+            "rootTaskId": {
+              "type": "string",
+              "pattern": "^T\\d{3,}$",
+              "description": "Root task defining the scope."
+            },
+            "phaseFilter": {
+              "type": ["string", "null"],
+              "description": "Phase filter if scope is phase-limited."
+            },
+            "taskCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of tasks in scope at log time."
+            }
+          }
+        },
+        "agentId": {
+          "type": ["string", "null"],
+          "description": "Agent identifier in multi-session mode (e.g., 'opus-1', 'haiku-2')."
+        },
+        "otherActiveSessions": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Count of other active sessions at log time. Useful for concurrency auditing."
         },
         "error": {
           "type": ["object", "null"],

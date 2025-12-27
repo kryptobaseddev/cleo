@@ -19,7 +19,7 @@ The question "Is using 12 agents to fix a 7-agent framework valid?" requires dis
 
 | Operation | Agent Count | Purpose |
 |-----------|-------------|---------|
-| **Framework Execution** | 7 (per spec) | Investigate claims about claude-todo |
+| **Framework Execution** | 7 (per spec) | Investigate claims about cleo |
 | **Framework Validation** | 12 (meta-investigation) | Review and fix the spec document |
 
 **Why This Is Valid**:
@@ -195,7 +195,7 @@ The methodology gaps are ACCEPTABLE because:
 
 3. **Versioning Strategy**: After remediation, what version number? The spec is currently v1.3.0. Should fixes be v1.3.1 (patch) or v2.0.0 (major rewrite)?
 
-4. **Task Tracking**: Should remediation be tracked in claude-todo? If so, under what label/phase?
+4. **Task Tracking**: Should remediation be tracked in cleo? If so, under what label/phase?
 
 ---
 

@@ -486,7 +486,7 @@ add_dependency_to_fixture() {
 
 # Create empty archive file
 create_empty_archive() {
-    local dest="${1:-${ARCHIVE_FILE:-${TEST_TEMP_DIR}/.claude/todo-archive.json}}"
+    local dest="${1:-${ARCHIVE_FILE:-${TEST_TEMP_DIR}/.cleo/todo-archive.json}}"
     cat > "$dest" << 'EOF'
 {
   "_meta": {"version": "2.3.0", "checksum": "placeholder"},
@@ -606,7 +606,7 @@ EOF
 
 # Create empty archive file with proper structure
 create_archive_empty() {
-    local dest="${1:-${ARCHIVE_FILE:-${TEST_TEMP_DIR}/.claude/todo-archive.json}}"
+    local dest="${1:-${ARCHIVE_FILE:-${TEST_TEMP_DIR}/.cleo/todo-archive.json}}"
     cat > "$dest" << 'EOF'
 {
   "version": "2.3.0",
@@ -621,7 +621,7 @@ EOF
 
 # Create archive with sample tasks for testing stats and unarchive
 create_archive_with_sample_tasks() {
-    local dest="${1:-${ARCHIVE_FILE:-${TEST_TEMP_DIR}/.claude/todo-archive.json}}"
+    local dest="${1:-${ARCHIVE_FILE:-${TEST_TEMP_DIR}/.cleo/todo-archive.json}}"
     cat > "$dest" << 'EOF'
 {
   "version": "2.3.0",

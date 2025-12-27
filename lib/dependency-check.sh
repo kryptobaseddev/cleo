@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dependency-check.sh - Centralized dependency validation for claude-todo
+# Centralized dependency validation for cleo
 #
 # LAYER: 1 (Core Infrastructure)
 # DEPENDENCIES: platform-compat.sh (optional)
@@ -15,7 +15,7 @@ set -euo pipefail
 # ============================================================================
 # DEPENDENCY CHECK MODULE
 # ============================================================================
-# This module provides centralized dependency validation for the claude-todo
+# This module provides centralized dependency validation for cleo
 # system. All dependency checks should be routed through this module.
 #
 # Dependencies are categorized as:
@@ -571,7 +571,7 @@ quick_dependency_check() {
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo "ERROR: Missing required tools: ${missing[*]}" >&2
-        echo "Run 'claude-todo --check-deps' for installation instructions." >&2
+        echo "Run 'cleo --check-deps' for installation instructions." >&2
         return 1
     fi
     return 0

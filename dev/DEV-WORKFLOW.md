@@ -1,6 +1,6 @@
 # Development Workflow
 
-**Canonical guide for ALL claude-todo development** - both main application and dev tooling.
+**Canonical guide for ALL CLEO development** - both main application and dev tooling.
 
 ---
 
@@ -60,7 +60,7 @@
 ### The Documentation Hierarchy
 
 ```
-Layer 1: CLAUDE-INJECTION.md    → Minimal (≤10 essential commands)
+Layer 1: AGENT-INJECTION.md    → Minimal (≤10 essential commands)
 Layer 2: TODO_Task_Management.md → Concise (all commands, brief usage)
 Layer 3: docs/commands/*.md      → Comprehensive (source of truth)
 Layer 4: docs/INDEX.md           → Master index (links everything)
@@ -84,7 +84,7 @@ Before committing code changes:
 - [ ] **Layer 3** (`docs/commands/<cmd>.md`): Create/update detailed docs
 - [ ] **Layer 4** (`docs/INDEX.md`): Add link if new command
 - [ ] **Layer 2** (`docs/TODO_Task_Management.md`): Add command syntax
-- [ ] **Layer 1** (`templates/CLAUDE-INJECTION.md`): Only if essential command
+- [ ] **Layer 1** (`templates/AGENT-INJECTION.md`): Only if essential command
 
 **Full details**: [docs/DOCUMENTATION-MAINTENANCE.md](../docs/DOCUMENTATION-MAINTENANCE.md)
 
@@ -122,7 +122,7 @@ Before committing code changes:
 - [ ] Update `CHANGELOG.md` with changes
 - [ ] Verify: `./dev/validate-version.sh`
 - [ ] Install: `./install.sh --force`
-- [ ] Test: `claude-todo version`
+- [ ] Test: `cleo version`
 
 **Full details**: [docs/reference/VERSION-MANAGEMENT.md](../docs/reference/VERSION-MANAGEMENT.md)
 
@@ -162,10 +162,6 @@ Detailed explanation of what changed and why.
 Files:
 - dev/check-compliance.sh (new feature)
 - dev/lib/dev-common.sh (updated)
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ```
 
 ## Directory Structure

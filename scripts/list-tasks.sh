@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO List Tasks Script
+# CLEO List Tasks Script
 # Display tasks with flexible filtering and formatting
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Capture start time for execution metrics (nanoseconds)
 START_TIME_NS=$(date +%s%N 2>/dev/null || echo "0")
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
   VERSION="unknown"
 fi
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
@@ -117,7 +117,7 @@ VALID_FORMATS="text json jsonl markdown table"
 
 usage() {
   cat << EOF
-Usage: claude-todo list [OPTIONS]
+Usage: cleo list [OPTIONS]
 
 Display tasks from todo.json with flexible filtering and formatting.
 
@@ -160,31 +160,31 @@ Display Options:
   -h, --help                Show this help
 
 Examples:
-  claude-todo list                          # List all active tasks
-  claude-todo list -s pending               # Only pending tasks (short flag)
-  claude-todo list --status pending         # Only pending tasks (long flag)
-  claude-todo list -p critical              # Only critical priority
-  claude-todo list --since 2025-12-01       # Tasks created after Dec 1
-  claude-todo list --sort createdAt --reverse  # Newest first
-  claude-todo list -f json                  # JSON output
-  claude-todo list --json                   # JSON output (shortcut)
-  claude-todo list --human                  # Human-readable text output
-  claude-todo list --all --limit 20         # Last 20 tasks including archive
-  claude-todo list --include-archive        # Same as --all (combines active + archived)
-  claude-todo list --archived               # Show only archived tasks
-  claude-todo list --archive-only           # Same as --archived
-  claude-todo list --archived -p high       # Archived high-priority tasks
-  claude-todo list --limit 50 --offset 50   # Second page (51-100)
-  claude-todo list -v                       # Verbose mode with all details
-  claude-todo list -s pending -p high -l backend  # Combined filters
-  claude-todo list -q -f json               # Quiet mode with JSON output
+  cleo list                          # List all active tasks
+  cleo list -s pending               # Only pending tasks (short flag)
+  cleo list --status pending         # Only pending tasks (long flag)
+  cleo list -p critical              # Only critical priority
+  cleo list --since 2025-12-01       # Tasks created after Dec 1
+  cleo list --sort createdAt --reverse  # Newest first
+  cleo list -f json                  # JSON output
+  cleo list --json                   # JSON output (shortcut)
+  cleo list --human                  # Human-readable text output
+  cleo list --all --limit 20         # Last 20 tasks including archive
+  cleo list --include-archive        # Same as --all (combines active + archived)
+  cleo list --archived               # Show only archived tasks
+  cleo list --archive-only           # Same as --archived
+  cleo list --archived -p high       # Archived high-priority tasks
+  cleo list --limit 50 --offset 50   # Second page (51-100)
+  cleo list -v                       # Verbose mode with all details
+  cleo list -s pending -p high -l backend  # Combined filters
+  cleo list -q -f json               # Quiet mode with JSON output
 
 Hierarchy Examples (v0.17.0):
-  claude-todo list --type epic              # Show only epics
-  claude-todo list --type subtask           # Show only subtasks
-  claude-todo list --children T001          # Show children of T001
-  claude-todo list --parent T001            # Show tasks with parent T001
-  claude-todo list --tree                   # Display as hierarchy tree
+  cleo list --type epic              # Show only epics
+  cleo list --type subtask           # Show only subtasks
+  cleo list --children T001          # Show children of T001
+  cleo list --parent T001            # Show tasks with parent T001
+  cleo list --tree                   # Display as hierarchy tree
 EOF
   exit 0
 }
@@ -236,7 +236,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help) usage ;;
     -*)
       if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'claude-todo list --help' for usage"
+        output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'cleo list --help' for usage"
       else
         output_error "$E_INPUT_INVALID" "Unknown option: $1"
       fi
@@ -279,7 +279,7 @@ fi
 
 # Check if todo.json exists
 if [[ ! -f "$TODO_FILE" ]]; then
-  output_error "$E_FILE_NOT_FOUND" "$TODO_FILE not found. Run 'claude-todo init' to initialize." "$EXIT_NOT_FOUND" true "Run: claude-todo init"
+  output_error "$E_FILE_NOT_FOUND" "$TODO_FILE not found. Run 'cleo init' to initialize." "$EXIT_NOT_FOUND" true "Run: cleo init"
   exit "$EXIT_NOT_FOUND"
 fi
 
@@ -353,7 +353,7 @@ if [[ "$SHOW_ARCHIVED" == true ]]; then
         --arg version "$VERSION" \
         --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "format": "json",
             "version": $version,
@@ -398,7 +398,7 @@ if [[ -z "$TASKS" ]]; then
       --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg source "$DATA_SOURCE" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "version": $version,
@@ -752,7 +752,7 @@ case "$FORMAT" in
       --argjson done "$DONE_COUNT" \
       --argjson show_tree "$(if [[ "$SHOW_TREE" == true ]]; then echo true; else echo false; fi)" \
       '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         format: "json",
         version: $version,

@@ -7,12 +7,12 @@ Export tasks to various formats including TodoWrite, JSON, Markdown, CSV, and TS
 ## Usage
 
 ```bash
-claude-todo export [OPTIONS]
+cleo export [OPTIONS]
 ```
 
 ## Description
 
-The `export` command exports claude-todo tasks to different formats for integration with external tools. The primary use case is exporting to TodoWrite format for Claude Code integration, but the command also supports exporting to JSON, Markdown, CSV, and TSV formats for analysis, reporting, and integration with other tools.
+The `export` command exports cleo tasks to different formats for integration with external tools. The primary use case is exporting to TodoWrite format for Claude Code integration, but the command also supports exporting to JSON, Markdown, CSV, and TSV formats for analysis, reporting, and integration with other tools.
 
 This command is ideal for:
 - Integrating with Claude Code's TodoWrite system
@@ -52,13 +52,13 @@ Filter tasks by one or more status values. Multiple statuses can be specified as
 **Examples**:
 ```bash
 # Single status
-claude-todo export --status active
+cleo export --status active
 
 # Multiple statuses (comma-separated, no spaces)
-claude-todo export --status pending,active
+cleo export --status pending,active
 
 # All statuses
-claude-todo export --status pending,active,blocked,done
+cleo export --status pending,active,blocked,done
 ```
 
 ### Priority Filter (`--priority`) 🆕
@@ -74,13 +74,13 @@ Filter tasks by priority level. Only tasks matching the specified priority will 
 **Examples**:
 ```bash
 # Export only critical priority tasks
-claude-todo export --priority critical
+cleo export --priority critical
 
 # Export high priority tasks
-claude-todo export --priority high
+cleo export --priority high
 
 # Export low priority tasks
-claude-todo export --priority low
+cleo export --priority low
 ```
 
 ### Label Filter (`--label`) 🆕
@@ -90,13 +90,13 @@ Filter tasks by label (tag). Only tasks that contain the specified label in thei
 **Examples**:
 ```bash
 # Export all tasks labeled 'bug'
-claude-todo export --label bug
+cleo export --label bug
 
 # Export all backend tasks
-claude-todo export --label backend
+cleo export --label backend
 
 # Export security-related tasks
-claude-todo export --label security
+cleo export --label security
 ```
 
 ## Combining Filters
@@ -107,19 +107,19 @@ Filters can be combined using AND logic. Only tasks matching ALL specified filte
 
 ```bash
 # Status + Priority: Export active high-priority tasks
-claude-todo export --status active --priority high
+cleo export --status active --priority high
 
 # Status + Label: Export pending bug tasks
-claude-todo export --status pending,active --label bug
+cleo export --status pending,active --label bug
 
 # Priority + Label: Export critical backend tasks
-claude-todo export --priority critical --label backend
+cleo export --priority critical --label backend
 
 # All Three Filters: Export active high-priority security tasks
-claude-todo export --status active --priority high --label security
+cleo export --status active --priority high --label security
 
 # Complex Filter: Export pending or blocked critical tasks with backend label
-claude-todo export --status pending,blocked --priority critical --label backend
+cleo export --status pending,blocked --priority critical --label backend
 ```
 
 ## Output Formats
@@ -157,7 +157,7 @@ The `activeForm` field is automatically generated from the task title using gram
 
 **Example**:
 ```bash
-claude-todo export --format todowrite --status pending,active
+cleo export --format todowrite --status pending,active
 ```
 
 ### JSON Format
@@ -167,7 +167,7 @@ Full JSON array of tasks with metadata envelope for programmatic detection.
 **Structure**:
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.8.3",
@@ -196,7 +196,7 @@ Full JSON array of tasks with metadata envelope for programmatic detection.
 
 **Example**:
 ```bash
-claude-todo export --format json --priority high --label backend
+cleo export --format json --priority high --label backend
 ```
 
 ### Markdown Format
@@ -224,7 +224,7 @@ Markdown checklist format suitable for documentation and issue tracking.
 
 **Example**:
 ```bash
-claude-todo export --format markdown --status pending,active
+cleo export --format markdown --status pending,active
 ```
 
 ### CSV Format
@@ -251,16 +251,16 @@ RFC 4180 compliant CSV with quoted fields for spreadsheet import.
 **Example**:
 ```bash
 # Standard CSV
-claude-todo export --format csv --status pending,active,done
+cleo export --format csv --status pending,active,done
 
 # Custom delimiter (semicolon)
-claude-todo export --format csv --delimiter ';'
+cleo export --format csv --delimiter ';'
 
 # No header row (for appending to existing CSV)
-claude-todo export --format csv --no-header
+cleo export --format csv --no-header
 
 # Export to file
-claude-todo export --format csv --output tasks.csv
+cleo export --format csv --output tasks.csv
 ```
 
 ### TSV Format
@@ -283,13 +283,13 @@ T002	active	high	core	Create user model	2025-12-09T11:00:00Z		backend,api
 **Example**:
 ```bash
 # Standard TSV
-claude-todo export --format tsv
+cleo export --format tsv
 
 # No header for data import
-claude-todo export --format tsv --no-header
+cleo export --format tsv --no-header
 
 # Export to file
-claude-todo export --format tsv --output tasks.tsv
+cleo export --format tsv --output tasks.tsv
 ```
 
 ## Examples
@@ -298,87 +298,87 @@ claude-todo export --format tsv --output tasks.tsv
 
 ```bash
 # Export active and pending tasks to TodoWrite (default)
-claude-todo export
+cleo export
 
 # Export only active tasks
-claude-todo export --status active
+cleo export --status active
 
 # Export with custom max count
-claude-todo export --max 20
+cleo export --max 20
 ```
 
 ### Priority-Based Export 🆕
 
 ```bash
 # Export only critical priority tasks
-claude-todo export --format todowrite --priority critical
+cleo export --format todowrite --priority critical
 
 # Export high priority tasks
-claude-todo export --priority high
+cleo export --priority high
 
 # Export medium priority tasks as markdown
-claude-todo export --format markdown --priority medium
+cleo export --format markdown --priority medium
 ```
 
 ### Label-Based Export 🆕
 
 ```bash
 # Export all bug tasks
-claude-todo export --label bug
+cleo export --label bug
 
 # Export backend tasks
-claude-todo export --label backend
+cleo export --label backend
 
 # Export security tasks as JSON
-claude-todo export --format json --label security
+cleo export --format json --label security
 ```
 
 ### Combined Filters
 
 ```bash
 # Active high-priority tasks
-claude-todo export --status active --priority high
+cleo export --status active --priority high
 
 # Pending or active critical tasks
-claude-todo export --status pending,active --priority critical
+cleo export --status pending,active --priority critical
 
 # Backend tasks with high priority
-claude-todo export --priority high --label backend
+cleo export --priority high --label backend
 
 # All filters: active critical backend tasks
-claude-todo export --status active --priority critical --label backend
+cleo export --status active --priority critical --label backend
 ```
 
 ### Format-Specific Examples
 
 ```bash
 # JSON with filters
-claude-todo export --format json --priority high --label bug
+cleo export --format json --priority high --label bug
 
 # Markdown report
-claude-todo export --format markdown --status pending,active,blocked
+cleo export --format markdown --status pending,active,blocked
 
 # CSV for spreadsheet
-claude-todo export --format csv --status done --output completed-tasks.csv
+cleo export --format csv --status done --output completed-tasks.csv
 
 # TSV without header for data import
-claude-todo export --format tsv --no-header --status pending
+cleo export --format tsv --no-header --status pending
 ```
 
 ### File Output
 
 ```bash
 # Export to TodoWrite file
-claude-todo export --format todowrite --output .claude/todowrite-tasks.json
+cleo export --format todowrite --output .cleo/todowrite-tasks.json
 
 # Export high-priority tasks to JSON file
-claude-todo export --format json --priority high --output high-priority.json
+cleo export --format json --priority high --output high-priority.json
 
 # Export all tasks to CSV file
-claude-todo export --format csv --status pending,active,blocked,done --output all-tasks.csv
+cleo export --format csv --status pending,active,blocked,done --output all-tasks.csv
 
 # Quiet mode (no status messages)
-claude-todo export --output tasks.json --quiet
+cleo export --output tasks.json --quiet
 ```
 
 ## Use Cases
@@ -387,68 +387,68 @@ claude-todo export --output tasks.json --quiet
 
 ```bash
 # Export active tasks to TodoWrite format
-claude-todo export --format todowrite --status active
+cleo export --format todowrite --status active
 
 # Export high-priority pending tasks
-claude-todo export --format todowrite --status pending --priority high
+cleo export --format todowrite --status pending --priority high
 
 # Export specific feature tasks
-claude-todo export --format todowrite --label feature-auth
+cleo export --format todowrite --label feature-auth
 ```
 
 ### Task Reports
 
 ```bash
 # Generate markdown task report
-claude-todo export --format markdown --status pending,active > task-report.md
+cleo export --format markdown --status pending,active > task-report.md
 
 # Export high-priority items for standup
-claude-todo export --format markdown --priority critical,high
+cleo export --format markdown --priority critical,high
 
 # Create bug report from labeled tasks
-claude-todo export --format markdown --label bug --output bugs.md
+cleo export --format markdown --label bug --output bugs.md
 ```
 
 ### Data Analysis
 
 ```bash
 # Export to CSV for spreadsheet analysis
-claude-todo export --format csv --status done --output completed-tasks.csv
+cleo export --format csv --status done --output completed-tasks.csv
 
 # Export backend tasks for analysis
-claude-todo export --format csv --label backend --output backend-tasks.csv
+cleo export --format csv --label backend --output backend-tasks.csv
 
 # TSV for database import
-claude-todo export --format tsv --no-header > tasks.tsv
+cleo export --format tsv --no-header > tasks.tsv
 ```
 
 ### Sprint Planning
 
 ```bash
 # Export pending high-priority tasks
-claude-todo export --status pending --priority high,critical
+cleo export --status pending --priority high,critical
 
 # Export tasks by feature label
-claude-todo export --label feature-payments --format markdown
+cleo export --label feature-payments --format markdown
 
 # Export all active work
-claude-todo export --status active --format json
+cleo export --status active --format json
 ```
 
 ### Automation and Scripting
 
 ```bash
 # Pipe to jq for processing
-claude-todo export --format json --priority high | jq '.tasks[].title'
+cleo export --format json --priority high | jq '.tasks[].title'
 
 # Count critical tasks
-claude-todo export --format json --priority critical | jq '.summary.exported'
+cleo export --format json --priority critical | jq '.summary.exported'
 
 # Get all backend task IDs
-claude-todo export --format json --label backend | jq -r '.tasks[].id'
+cleo export --format json --label backend | jq -r '.tasks[].id'
 
 # Export and process with awk
-claude-todo export --format tsv --no-header | awk -F'\t' '{print $1, $5}'
+cleo export --format tsv --no-header | awk -F'\t' '{print $1, $5}'
 ```
 
 ## Integration Examples
@@ -462,13 +462,13 @@ claude-todo export --format tsv --no-header | awk -F'\t' '{print $1, $5}'
 echo "# Daily Standup - $(date +%Y-%m-%d)"
 echo ""
 echo "## Active Tasks"
-claude-todo export --format markdown --status active
+cleo export --format markdown --status active
 echo ""
 echo "## Blocked Tasks"
-claude-todo export --format markdown --status blocked
+cleo export --format markdown --status blocked
 echo ""
 echo "## High Priority Pending"
-claude-todo export --format markdown --status pending --priority high
+cleo export --format markdown --status pending --priority high
 ```
 
 ### Export by Priority
@@ -479,7 +479,7 @@ claude-todo export --format markdown --status pending --priority high
 
 for priority in critical high medium low; do
   echo "Exporting $priority priority tasks..."
-  claude-todo export --format csv --priority "$priority" \
+  cleo export --format csv --priority "$priority" \
     --output "tasks-${priority}.csv"
 done
 ```
@@ -491,11 +491,11 @@ done
 # Export tasks for each label
 
 # Get all labels
-labels=$(claude-todo labels --format json | jq -r '.labels[].name')
+labels=$(cleo labels --format json | jq -r '.labels[].name')
 
 for label in $labels; do
   echo "Exporting tasks for label: $label"
-  claude-todo export --format json --label "$label" \
+  cleo export --format json --label "$label" \
     --output "tasks-${label}.json"
 done
 ```
@@ -504,7 +504,7 @@ done
 
 ```bash
 # Check for critical blockers
-blocked_count=$(claude-todo export --format json --status blocked --priority critical | jq '.summary.exported')
+blocked_count=$(cleo export --format json --status blocked --priority critical | jq '.summary.exported')
 
 if [ "$blocked_count" -gt 0 ]; then
   echo "FAILURE: $blocked_count critical tasks are blocked"
@@ -519,7 +519,7 @@ fi
 Multiple statuses are combined with OR logic:
 ```bash
 # Matches tasks with status=pending OR status=active
-claude-todo export --status pending,active
+cleo export --status pending,active
 ```
 
 ### Priority Filter Logic
@@ -527,13 +527,13 @@ claude-todo export --status pending,active
 Single priority value only:
 ```bash
 # Matches tasks with priority=high
-claude-todo export --priority high
+cleo export --priority high
 ```
 
 To export multiple priorities, use multiple commands:
 ```bash
-claude-todo export --priority critical > critical.json
-claude-todo export --priority high > high.json
+cleo export --priority critical > critical.json
+cleo export --priority high > high.json
 ```
 
 ### Label Filter Logic
@@ -541,13 +541,13 @@ claude-todo export --priority high > high.json
 Single label value, checks if label exists in task's labels array:
 ```bash
 # Matches tasks where labels array contains "backend"
-claude-todo export --label backend
+cleo export --label backend
 ```
 
 For multiple labels, use multiple commands or combine results:
 ```bash
-claude-todo export --label backend > backend.json
-claude-todo export --label frontend > frontend.json
+cleo export --label backend > backend.json
+cleo export --label frontend > frontend.json
 jq -s '.[0].tasks + .[1].tasks' backend.json frontend.json
 ```
 
@@ -556,7 +556,7 @@ jq -s '.[0].tasks + .[1].tasks' backend.json frontend.json
 All filters combine with AND logic:
 ```bash
 # Matches: (status=pending OR status=active) AND priority=high AND labels contains "backend"
-claude-todo export --status pending,active --priority high --label backend
+cleo export --status pending,active --priority high --label backend
 ```
 
 ## Output Control
@@ -567,11 +567,11 @@ Suppress informational messages (useful for scripting):
 
 ```bash
 # Normal output (shows filter info)
-claude-todo export --status active
+cleo export --status active
 # Output: [EXPORT] Format: todowrite, Status: active, Found: 5 tasks
 
 # Quiet mode (no messages to stderr)
-claude-todo export --status active --quiet
+cleo export --status active --quiet
 # Output: (only JSON to stdout)
 ```
 
@@ -579,13 +579,13 @@ claude-todo export --status active --quiet
 
 ```bash
 # Write to stdout (default)
-claude-todo export > output.json
+cleo export > output.json
 
 # Write to file with --output
-claude-todo export --output output.json
+cleo export --output output.json
 
 # Quiet + file for clean automation
-claude-todo export --output tasks.json --quiet
+cleo export --output tasks.json --quiet
 ```
 
 ## Color Output
@@ -594,19 +594,19 @@ The export command respects standard color environment variables:
 
 ```bash
 # Disable colors (for log files)
-NO_COLOR=1 claude-todo export
+NO_COLOR=1 cleo export
 
 # Force colors in pipes
-FORCE_COLOR=1 claude-todo export | less -R
+FORCE_COLOR=1 cleo export | less -R
 ```
 
 ## Related Commands
 
-- `claude-todo list` - List tasks with filtering options
-- `claude-todo labels` - Analyze label distribution
-- `claude-todo labels show LABEL` - Show tasks with specific label
-- `claude-todo dash` - Comprehensive dashboard overview
-- `claude-todo stats` - Detailed statistics and analytics
+- `cleo list` - List tasks with filtering options
+- `cleo labels` - Analyze label distribution
+- `cleo labels show LABEL` - Show tasks with specific label
+- `cleo dash` - Comprehensive dashboard overview
+- `cleo stats` - Detailed statistics and analytics
 
 ## Tips
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# research.sh - Web research aggregation command for claude-todo
+# Web research aggregation command for cleo
 #
 # Aggregates content from multiple sources (Tavily, Context7, Reddit, URLs)
 # and produces structured research outputs with citation tracking.
 #
 # Usage:
-#   claude-todo research "query"                    # Query mode
-#   claude-todo research --url URL [URL...]         # URL extraction
-#   claude-todo research --reddit "topic" -s sub    # Reddit search
-#   claude-todo research --library NAME -t TOPIC    # Library docs
-#   claude-todo research --execute                  # Execute stored plan
+#   cleo research "query"                    # Query mode
+#   cleo research --url URL [URL...]         # URL extraction
+#   cleo research --reddit "topic" -s sub    # Reddit search
+#   cleo research --library NAME -t TOPIC    # Library docs
+#   cleo research --execute                  # Execute stored plan
 #
 set -euo pipefail
 
@@ -19,9 +19,9 @@ set -euo pipefail
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-LIB_DIR="$CLAUDE_TODO_HOME/lib"
-VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0")"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+LIB_DIR="$CLEO_HOME/lib"
+VERSION="$(cat "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0")"
 
 # Source libraries
 source "$LIB_DIR/logging.sh" 2>/dev/null || true
@@ -49,7 +49,7 @@ LINK_TASK=""
 PLAN_ONLY="false"
 
 # Research storage
-RESEARCH_DIR=".claude/research"
+RESEARCH_DIR=".cleo/research"
 
 # ============================================================================
 # Usage
@@ -57,13 +57,13 @@ RESEARCH_DIR=".claude/research"
 
 usage() {
   cat << 'EOF'
-claude-todo research - Multi-source web research aggregation
+cleo research - Multi-source web research aggregation
 
 USAGE
-  claude-todo research [OPTIONS] "QUERY"
-  claude-todo research --url URL [URL...]
-  claude-todo research --reddit "TOPIC" --subreddit SUB
-  claude-todo research --library NAME [--topic TOPIC]
+  cleo research [OPTIONS] "QUERY"
+  cleo research --url URL [URL...]
+  cleo research --reddit "TOPIC" --subreddit SUB
+  cleo research --library NAME [--topic TOPIC]
 
 MODES
   (default)        Free-text query - comprehensive web research
@@ -73,7 +73,7 @@ MODES
 
 OPTIONS
   -d, --depth LEVEL      Search depth: quick, standard, deep (default: standard)
-  -o, --output DIR       Output directory (default: .claude/research/)
+  -o, --output DIR       Output directory (default: .cleo/research/)
   -t, --topic TOPIC      Topic filter for library mode
   -s, --subreddit SUB    Subreddit for Reddit mode
   --include-reddit       Include Reddit in query mode
@@ -86,28 +86,28 @@ OPTIONS
 
 EXAMPLES
   # Query mode - comprehensive research
-  claude-todo research "TypeScript decorators best practices"
+  cleo research "TypeScript decorators best practices"
 
   # With Reddit included
-  claude-todo research "React state management" --include-reddit -d deep
+  cleo research "React state management" --include-reddit -d deep
 
   # URL extraction
-  claude-todo research --url https://example.com/article1 https://example.com/article2
+  cleo research --url https://example.com/article1 https://example.com/article2
 
   # Reddit search
-  claude-todo research --reddit "authentication" --subreddit webdev
+  cleo research --reddit "authentication" --subreddit webdev
 
   # Library documentation
-  claude-todo research --library svelte --topic reactivity
+  cleo research --library svelte --topic reactivity
 
   # Link to task
-  claude-todo research "API design patterns" --link-task T042
+  cleo research "API design patterns" --link-task T042
 
   # Plan only (outputs what Claude should do)
-  claude-todo research "microservices" --plan-only
+  cleo research "microservices" --plan-only
 
 OUTPUT
-  Creates research files in .claude/research/:
+  Creates research files in .cleo/research/:
   - research_[id].json     Structured research plan/results
   - research_[id].md       Human-readable report (after execution)
 
@@ -216,7 +216,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -*)
       echo "Error: Unknown option: $1" >&2
-      echo "Run 'claude-todo research --help' for usage." >&2
+      echo "Run 'cleo research --help' for usage." >&2
       exit 2
       ;;
     *)
@@ -237,7 +237,7 @@ validate_inputs() {
   case $MODE in
     query)
       if [[ -z "$QUERY" ]]; then
-        echo '{"error": "Query required", "usage": "claude-todo research \"your query\""}' >&2
+        echo '{"error": "Query required", "usage": "cleo research \"your query\""}' >&2
         exit 2
       fi
       ;;
@@ -249,7 +249,7 @@ validate_inputs() {
       ;;
     reddit)
       if [[ -z "$REDDIT_TOPIC" ]]; then
-        echo '{"error": "Reddit topic required", "usage": "claude-todo research --reddit \"topic\" --subreddit sub"}' >&2
+        echo '{"error": "Reddit topic required", "usage": "cleo research --reddit \"topic\" --subreddit sub"}' >&2
         exit 2
       fi
       ;;
@@ -526,7 +526,7 @@ main() {
       --arg plan_file "$plan_file" \
       --argjson plan "$plan" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "version": $version,

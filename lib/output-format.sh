@@ -16,7 +16,7 @@ declare -r _OUTPUT_FORMAT_LOADED=1
 # ============================================================================
 
 # Configuration file path
-OUTPUT_CONFIG_FILE="${OUTPUT_CONFIG_FILE:-.claude/todo-config.json}"
+OUTPUT_CONFIG_FILE="${OUTPUT_CONFIG_FILE:-.cleo/config.json}"
 
 # Cached configuration values (loaded once per script execution)
 declare -g _OUTPUT_CONFIG_LOADED=""
@@ -30,7 +30,7 @@ declare -g _OUTPUT_CONFIG_MAX_TITLE_LENGTH=""
 
 # load_output_config - Load output configuration from config file
 #
-# Reads output.* settings from todo-config.json and caches them.
+# Reads output.* settings from config.json and caches them.
 # Safe to call multiple times - will only read file once.
 #
 # Returns: 0 (always succeeds, uses defaults if config missing)
@@ -218,7 +218,7 @@ validate_format() {
 # Priority order (CLI > env > config > JSON default):
 # 1. CLI argument (highest priority)
 # 2. CLAUDE_TODO_FORMAT environment variable
-# 3. config.output.defaultFormat from todo-config.json
+# 3. config.output.defaultFormat from config.json
 # 4. JSON default (LLM-Agent-First):
 #    - JSON is always the default output format
 #    - Use --human flag for human-readable text output
@@ -243,8 +243,8 @@ resolve_format() {
   elif [[ -n "${CLAUDE_TODO_FORMAT:-}" ]]; then
     resolved_format="$CLAUDE_TODO_FORMAT"
   # Config file setting (if jq available and config exists)
-  elif command -v jq &>/dev/null && [[ -f ".claude/todo-config.json" ]]; then
-    resolved_format=$(jq -r '.output.defaultFormat // empty' .claude/todo-config.json 2>/dev/null)
+  elif command -v jq &>/dev/null && [[ -f ".cleo/config.json" ]]; then
+    resolved_format=$(jq -r '.output.defaultFormat // empty' .cleo/config.json 2>/dev/null)
   fi
 
   # Default fallback: JSON (LLM-Agent-First)

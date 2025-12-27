@@ -1,6 +1,6 @@
 # Workflow Patterns Guide
 
-Comprehensive patterns and workflows for effective task management with claude-todo.
+Comprehensive patterns and workflows for effective task management with cleo.
 
 ---
 
@@ -23,16 +23,16 @@ Comprehensive patterns and workflows for effective task management with claude-t
 
 ```bash
 # 1. Start work session
-claude-todo session start
+cleo session start
 
 # 2. Review current state
-claude-todo list
+cleo list
 
 # 3. Check focus and session notes
-claude-todo focus show
+cleo focus show
 
 # 4. Identify today's priorities
-claude-todo list --priority critical,high --status pending
+cleo list --priority critical,high --status pending
 ```
 
 **What to look for**:
@@ -45,19 +45,19 @@ claude-todo list --priority critical,high --status pending
 
 ```bash
 # 1. Set focus to ONE task only
-claude-todo focus set T001
+cleo focus set T001
 
 # 2. Add related subtasks as needed
-claude-todo add "Implement validation logic" --depends T001
+cleo add "Implement validation logic" --depends T001
 
 # 3. Track progress with task notes
-claude-todo update T001 --notes "Completed database schema"
+cleo update T001 --notes "Completed database schema"
 
 # 4. Update session progress
-claude-todo focus note "Working on authentication validation"
+cleo focus note "Working on authentication validation"
 
 # 5. Complete tasks as finished
-claude-todo complete T001
+cleo complete T001
 ```
 
 **Key Rules**:
@@ -70,19 +70,19 @@ claude-todo complete T001
 
 ```bash
 # 1. Complete all finished tasks
-claude-todo complete T002
+cleo complete T002
 
 # 2. Archive completed tasks
-claude-todo archive
+cleo archive
 
 # 3. Update blocked tasks with current status
-claude-todo update T003 --blocked-by "Waiting for API design approval"
+cleo update T003 --blocked-by "Waiting for API design approval"
 
 # 4. End work session
-claude-todo session end
+cleo session end
 
 # 5. Optional: Create session backup
-claude-todo backup --name "session-$(date -Idate)"
+cleo backup --name "session-$(date -Idate)"
 ```
 
 **Cleanup checklist**:
@@ -202,49 +202,49 @@ claude-todo backup --name "session-$(date -Idate)"
 
 ### Project Instructions Pattern
 
-Add to `.claude/CLAUDE.md`:
+Add to `.cleo/CLAUDE.md`:
 
 ```markdown
 # Project Instructions for Claude Code
 
 ## Task Management
 
-Use `claude-todo` CLI for all task operations.
+Use `cleo` CLI for all task operations.
 
 ### Session Protocol
 
 **START**:
 ```bash
-claude-todo session start
-claude-todo list
-claude-todo focus show
+cleo session start
+cleo list
+cleo focus show
 ```
 
 **WORK**:
 ```bash
-claude-todo focus set <task-id>    # ONE task only
-claude-todo add "Subtask"          # Add related tasks
-claude-todo update <id> --notes "Progress"
-claude-todo focus note "Working on X"
+cleo focus set <task-id>    # ONE task only
+cleo add "Subtask"          # Add related tasks
+cleo update <id> --notes "Progress"
+cleo focus note "Working on X"
 ```
 
 **END**:
 ```bash
-claude-todo complete <task-id>
-claude-todo archive
-claude-todo session end
+cleo complete <task-id>
+cleo archive
+cleo session end
 ```
 
 ### Current Sprint
 
 <!-- CLAUDE-TODO-START -->
-Run: claude-todo list --status pending,active --format markdown
+Run: cleo list --status pending,active --format markdown
 <!-- CLAUDE-TODO-END -->
 ```
 
 ### TodoWrite Integration Pattern
 
-When Claude Code creates internal todos, sync to claude-todo:
+When Claude Code creates internal todos, sync to cleo:
 
 ```typescript
 // Claude Code internal todo
@@ -257,11 +257,11 @@ TodoWrite([
 ])
 
 // Sync to persistent system
-// → claude-todo add "Implement JWT middleware" --status active
+// → cleo add "Implement JWT middleware" --status active
 ```
 
 **Status mapping**:
-| TodoWrite | claude-todo |
+| TodoWrite | cleo |
 |-----------|-------------|
 | `pending` | `pending` |
 | `in_progress` | `active` |
@@ -271,19 +271,19 @@ TodoWrite([
 
 ```bash
 #!/bin/bash
-# .claude/hooks/on-commit.sh - Link commits to tasks
+# .cleo/hooks/on-commit.sh - Link commits to tasks
 
 # Extract task IDs from commit message
 TASK_IDS=$(git log -1 --pretty=%B | grep -oE 'T[0-9]{3}' | sort -u)
 
 for task_id in $TASK_IDS; do
   # Check if task exists and is active
-  STATUS=$(claude-todo list --format json | \
+  STATUS=$(cleo list --format json | \
     jq -r ".tasks[] | select(.id == \"$task_id\") | .status")
 
   if [[ "$STATUS" == "active" ]]; then
     echo "Completing task: $task_id"
-    claude-todo complete "$task_id"
+    cleo complete "$task_id"
   fi
 done
 ```
@@ -315,7 +315,7 @@ done
 
 5. **Define acceptance criteria for complex tasks**
    ```bash
-   claude-todo add "Implement payment processing" \
+   cleo add "Implement payment processing" \
      --acceptance "Successful test payment,Error handling verified,Refund flow working"
    ```
 
@@ -328,13 +328,13 @@ done
 
 2. **Track progress with notes**
    ```bash
-   claude-todo update T001 --notes "Completed database schema design"
-   claude-todo update T001 --notes "Implemented migration scripts"
+   cleo update T001 --notes "Completed database schema design"
+   cleo update T001 --notes "Implemented migration scripts"
    ```
 
 3. **Use session notes for interruptions**
    ```bash
-   claude-todo focus note "Completed validation logic, next: error handling"
+   cleo focus note "Completed validation logic, next: error handling"
    ```
 
 ### Dependency Management Best Practices
@@ -342,13 +342,13 @@ done
 1. **Model actual dependencies**
    ```bash
    # API design must complete before implementation
-   API_TASK=$(claude-todo add "Design REST API schema" --format json | jq -r '.id')
-   claude-todo add "Implement API endpoints" --depends "$API_TASK"
+   API_TASK=$(cleo add "Design REST API schema" --format json | jq -r '.id')
+   cleo add "Implement API endpoints" --depends "$API_TASK"
    ```
 
 2. **Use blocked-by for external dependencies**
    ```bash
-   claude-todo add "Deploy to production" \
+   cleo add "Deploy to production" \
      --blocked-by "Waiting for security review approval"
    ```
 
@@ -361,8 +361,8 @@ done
 1. **Regular archive maintenance**
    ```bash
    # Weekly cleanup
-   claude-todo archive --dry-run  # Preview first
-   claude-todo archive             # Apply
+   cleo archive --dry-run  # Preview first
+   cleo archive             # Apply
    ```
 
 2. **Preserve important completed tasks**
@@ -376,8 +376,8 @@ done
 
 3. **Export before major archiving**
    ```bash
-   claude-todo export --format json --output backup-$(date -Idate).json
-   claude-todo archive --all
+   cleo export --format json --output backup-$(date -Idate).json
+   cleo archive --all
    ```
 
 ---
@@ -406,16 +406,16 @@ echo "Creating tasks for $SPRINT..."
 
 for task_spec in "${TASKS[@]}"; do
   IFS='|' read -r title priority labels <<< "$task_spec"
-  claude-todo add "$title" \
+  cleo add "$title" \
     --status pending \
     --priority "$priority" \
     --labels "$labels,$SPRINT"
 done
 
 # Generate sprint checklist
-claude-todo list --label "$SPRINT" --format markdown > "SPRINT-$SPRINT.md"
+cleo list --label "$SPRINT" --format markdown > "SPRINT-$SPRINT.md"
 
-echo "Sprint tasks created: $(claude-todo list --label $SPRINT --format json | jq '.tasks | length')"
+echo "Sprint tasks created: $(cleo list --label $SPRINT --format json | jq '.tasks | length')"
 ```
 
 ### Recipe 2: Bug Triage Workflow
@@ -435,7 +435,7 @@ for bug_spec in "${BUGS[@]}"; do
   IFS='|' read -r bug_id title priority <<< "$bug_spec"
 
   # Create investigation task
-  claude-todo add "Investigate $bug_id: $title" \
+  cleo add "Investigate $bug_id: $title" \
     --status pending \
     --priority "$priority" \
     --labels "bug,investigation" \
@@ -445,7 +445,7 @@ done
 
 # List all bugs by priority
 echo "Bug Triage Report:"
-claude-todo list --label bug --sort priority --reverse --format table
+cleo list --label bug --sort priority --reverse --format table
 ```
 
 ### Recipe 3: Daily Standup Report
@@ -462,7 +462,7 @@ cat > "$REPORT_FILE" << EOF
 ## Yesterday (Completed)
 EOF
 
-claude-todo list \
+cleo list \
   --status done \
   --since $(date -d '1 day ago' -Idate) \
   --format markdown >> "$REPORT_FILE"
@@ -472,7 +472,7 @@ cat >> "$REPORT_FILE" << EOF
 ## Today (In Progress)
 EOF
 
-claude-todo list \
+cleo list \
   --status active \
   --format markdown >> "$REPORT_FILE"
 
@@ -481,7 +481,7 @@ cat >> "$REPORT_FILE" << EOF
 ## Blockers
 EOF
 
-claude-todo list \
+cleo list \
   --status blocked \
   --format markdown >> "$REPORT_FILE"
 
@@ -491,7 +491,7 @@ cat >> "$REPORT_FILE" << EOF
 \`\`\`
 EOF
 
-claude-todo stats --period 7 >> "$REPORT_FILE"
+cleo stats --period 7 >> "$REPORT_FILE"
 
 echo "\`\`\`" >> "$REPORT_FILE"
 
@@ -529,14 +529,14 @@ for task_spec in "${RELEASE_TASKS[@]}"; do
 
   # Create task with dependency on previous task
   if [[ -n "$PREV_TASK_ID" ]]; then
-    TASK_ID=$(claude-todo add "$title" \
+    TASK_ID=$(cleo add "$title" \
       --status pending \
       --priority "$priority" \
       --labels "$labels,$RELEASE_VERSION" \
       --depends "$PREV_TASK_ID" \
       --format json | jq -r '.id')
   else
-    TASK_ID=$(claude-todo add "$title" \
+    TASK_ID=$(cleo add "$title" \
       --status pending \
       --priority "$priority" \
       --labels "$labels,$RELEASE_VERSION" \
@@ -547,7 +547,7 @@ for task_spec in "${RELEASE_TASKS[@]}"; do
 done
 
 # Generate release checklist
-claude-todo list \
+cleo list \
   --label "$RELEASE_VERSION" \
   --sort createdAt \
   --format markdown > "RELEASE-$RELEASE_VERSION.md"
@@ -570,16 +570,16 @@ echo "========================================="
 # Generate completion report
 echo ""
 echo "Sprint Completion Summary:"
-claude-todo list --label "$SPRINT_LABEL" --format json | \
+cleo list --label "$SPRINT_LABEL" --format json | \
   jq -r '.tasks | group_by(.status) | map({status: .[0].status, count: length}) | .[] | "\(.status): \(.count)"'
 
 # Archive completed tasks
 echo ""
 echo "Archiving completed tasks..."
-claude-todo archive --force
+cleo archive --force
 
 # Report incomplete tasks for next sprint
-INCOMPLETE=$(claude-todo list \
+INCOMPLETE=$(cleo list \
   --label "$SPRINT_LABEL" \
   --status pending,active,blocked \
   --format json | jq '.tasks | length')
@@ -587,7 +587,7 @@ INCOMPLETE=$(claude-todo list \
 if [[ "$INCOMPLETE" -gt 0 ]]; then
   echo ""
   echo "Incomplete Sprint Tasks (carry over to next sprint):"
-  claude-todo list \
+  cleo list \
     --label "$SPRINT_LABEL" \
     --status pending,active,blocked \
     --format markdown
@@ -596,12 +596,12 @@ fi
 # Generate statistics
 echo ""
 echo "Sprint Statistics:"
-claude-todo stats --period 14
+cleo stats --period 14
 
 # Create backup
 echo ""
 echo "Creating sprint backup..."
-claude-todo backup --name "sprint-$SPRINT_LABEL-end"
+cleo backup --name "sprint-$SPRINT_LABEL-end"
 
 echo ""
 echo "Cleanup complete!"
@@ -619,7 +619,7 @@ echo "Cleanup complete!"
 
 # Read from CSV file
 while IFS=',' read -r title priority labels; do
-  claude-todo add "$title" \
+  cleo add "$title" \
     --priority "$priority" \
     --labels "$labels"
 done < tasks.csv
@@ -630,7 +630,7 @@ jq -c '.[]' tasks.json | while read -r task; do
   PRIORITY=$(echo "$task" | jq -r '.priority')
   LABELS=$(echo "$task" | jq -r '.labels | join(",")')
 
-  claude-todo add "$TITLE" \
+  cleo add "$TITLE" \
     --priority "$PRIORITY" \
     --labels "$LABELS"
 done
@@ -656,11 +656,11 @@ PREV_ID=""
 
 for task_title in "${PIPELINE[@]}"; do
   if [[ -n "$PREV_ID" ]]; then
-    TASK_ID=$(claude-todo add "$task_title" \
+    TASK_ID=$(cleo add "$task_title" \
       --depends "$PREV_ID" \
       --format json | jq -r '.id')
   else
-    TASK_ID=$(claude-todo add "$task_title" \
+    TASK_ID=$(cleo add "$task_title" \
       --format json | jq -r '.id')
   fi
 
@@ -676,18 +676,18 @@ done
 # bulk-update.sh - Update multiple tasks
 
 # Mark all pending backend tasks as blocked
-claude-todo list --status pending --label backend --format json | \
+cleo list --status pending --label backend --format json | \
   jq -r '.tasks[].id' | \
   while read -r task_id; do
-    claude-todo update "$task_id" \
+    cleo update "$task_id" \
       --blocked-by "Waiting for API specification"
   done
 
 # Add label to all high-priority tasks
-claude-todo list --priority high --format json | \
+cleo list --priority high --format json | \
   jq -r '.tasks[].id' | \
   while read -r task_id; do
-    claude-todo update "$task_id" --labels "urgent"
+    cleo update "$task_id" --labels "urgent"
   done
 ```
 
@@ -698,20 +698,20 @@ claude-todo list --priority high --format json | \
 # export-tasks.sh - Export to various formats
 
 # Export to GitHub Issues format
-claude-todo list --format json | \
+cleo list --format json | \
   jq -r '.tasks[] | "## \(.title)\n\n\(.description // "")\n\nPriority: \(.priority)\nLabels: \(.labels | join(", "))\n"' \
   > github-issues.md
 
 # Export to CSV for spreadsheet (via export command)
-claude-todo export --format csv > tasks.csv
+cleo export --format csv > tasks.csv
 
 # Export to JIRA import format
-claude-todo list --format json | \
+cleo list --format json | \
   jq -r '.tasks[] | [.title, .description, .priority, (.labels | join(";"))] | @csv' \
   > jira-import.csv
 
 # Export to Trello checklist
-claude-todo list --status pending --format json | \
+cleo list --status pending --format json | \
   jq -r '.tasks[] | "- [ ] \(.title)"' > trello-checklist.md
 ```
 
@@ -722,29 +722,29 @@ claude-todo list --status pending --format json | \
 # archive-utils.sh - Archive management utilities
 
 # Check archive size
-ARCHIVE_COUNT=$(cat .claude/todo-archive.json | jq '.tasks | length')
+ARCHIVE_COUNT=$(cat .cleo/todo-archive.json | jq '.tasks | length')
 echo "Archive contains $ARCHIVE_COUNT tasks"
 
 # Extract specific archived task
-cat .claude/todo-archive.json | \
+cat .cleo/todo-archive.json | \
   jq '.tasks[] | select(.id == "T008")'
 
 # List archived tasks from specific date range
-cat .claude/todo-archive.json | \
+cat .cleo/todo-archive.json | \
   jq '.tasks[] | select(.completedAt >= "2025-11-01" and .completedAt <= "2025-11-30")'
 
 # Export old archived tasks and prune
 CUTOFF_DATE="2025-10-01"
 jq --arg date "$CUTOFF_DATE" \
   '.tasks | map(select(.completedAt < $date))' \
-  .claude/todo-archive.json > old-archive-backup.json
+  .cleo/todo-archive.json > old-archive-backup.json
 
 # Keep only recent archives
 jq --arg date "$CUTOFF_DATE" \
   '.tasks = (.tasks | map(select(.completedAt >= $date)))' \
-  .claude/todo-archive.json > .claude/todo-archive.json.new
+  .cleo/todo-archive.json > .cleo/todo-archive.json.new
 
-mv .claude/todo-archive.json.new .claude/todo-archive.json
+mv .cleo/todo-archive.json.new .cleo/todo-archive.json
 ```
 
 ### Log Analysis
@@ -756,30 +756,30 @@ mv .claude/todo-archive.json.new .claude/todo-archive.json
 # Count operations by type
 echo "Operation counts:"
 jq '[.entries[] | .operation] | group_by(.) | map({key: .[0], count: length}) | from_entries' \
-  .claude/todo-log.json
+  .cleo/todo-log.json
 
 # Find tasks with most changes
 echo "Tasks with most changes:"
 jq '[.entries[] | .task_id] | group_by(.) | map({task: .[0], changes: length}) | sort_by(.changes) | reverse | .[0:5]' \
-  .claude/todo-log.json
+  .cleo/todo-log.json
 
 # Tasks completed in last 7 days
 SEVEN_DAYS_AGO=$(date -d '7 days ago' -Iseconds)
 echo "Recent completions:"
 jq --arg since "$SEVEN_DAYS_AGO" \
   '.entries[] | select(.operation == "complete" and .timestamp > $since) | .task_id' \
-  .claude/todo-log.json
+  .cleo/todo-log.json
 
 # Average time between task creation and completion
-jq -r '.entries[] | select(.operation == "create") | .task_id' .claude/todo-log.json | \
+jq -r '.entries[] | select(.operation == "create") | .task_id' .cleo/todo-log.json | \
   while read -r task_id; do
     CREATE_TIME=$(jq -r --arg id "$task_id" \
       '.entries[] | select(.operation == "create" and .task_id == $id) | .timestamp' \
-      .claude/todo-log.json)
+      .cleo/todo-log.json)
 
     COMPLETE_TIME=$(jq -r --arg id "$task_id" \
       '.entries[] | select(.operation == "complete" and .task_id == $id) | .timestamp' \
-      .claude/todo-log.json)
+      .cleo/todo-log.json)
 
     if [[ -n "$COMPLETE_TIME" && "$COMPLETE_TIME" != "null" ]]; then
       echo "$task_id: $CREATE_TIME → $COMPLETE_TIME"

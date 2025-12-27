@@ -1,6 +1,6 @@
 # Development Scripts Overview
 
-> Index of development tools for claude-todo contributors
+> Index of development tools for cleo contributors
 
 This document provides comprehensive documentation for all development scripts in the `dev/` directory. These scripts are **not shipped to users** and are used exclusively for development, testing, and release management.
 
@@ -132,7 +132,7 @@ Validates that version numbers are consistent across all project files.
 **JSON Output Structure:**
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/validate-version.schema.json",
+  "$schema": "https://cleo.dev/schemas/validate-version.schema.json",
   "_meta": {
     "format": "json",
     "command": "validate-version",
@@ -155,7 +155,7 @@ Validates that version numbers are consistent across all project files.
 
 ### check-compliance.sh
 
-LLM-Agent-First compliance validator for claude-todo commands.
+LLM-Agent-First compliance validator for cleo commands.
 
 **Purpose:** Automated checking of scripts against the LLM-AGENT-FIRST-SPEC.md requirements.
 
@@ -266,7 +266,7 @@ fi
 
 ### benchmark-performance.sh
 
-Performance testing for claude-todo commands with varying dataset sizes.
+Performance testing for cleo commands with varying dataset sizes.
 
 **Purpose:** Measure and validate command performance against defined targets.
 
@@ -321,7 +321,7 @@ Performance testing for claude-todo commands with varying dataset sizes.
 **JSON Output Structure:**
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/benchmark-report.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/benchmark-report.schema.json",
   "_meta": {
     "format": "json",
     "command": "benchmark-performance",
@@ -403,7 +403,7 @@ Manual test script for the phase rollback feature.
 **JSON Output Structure:**
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/test-results.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/test-results.schema.json",
   "_meta": {
     "format": "json",
     "command": "test-rollback",

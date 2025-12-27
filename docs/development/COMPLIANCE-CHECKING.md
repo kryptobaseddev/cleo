@@ -1,10 +1,10 @@
 # Compliance Checking System
 
-> Automated validation of LLM-Agent-First compliance for claude-todo scripts
+> Automated validation of LLM-Agent-First compliance for cleo scripts
 
 ## Overview
 
-The compliance checking system validates that all claude-todo commands adhere to the [LLM-Agent-First specification](../specs/LLM-AGENT-FIRST-SPEC.md). This ensures consistent behavior across all commands for agent automation, including JSON output by default for non-TTY contexts, structured error handling, and documented exit codes.
+The compliance checking system validates that all cleo commands adhere to the [LLM-Agent-First specification](../specs/LLM-AGENT-FIRST-SPEC.md). This ensures consistent behavior across all commands for agent automation, including JSON output by default for non-TTY contexts, structured error handling, and documented exit codes.
 
 ### Why LLM-Agent-First Compliance Matters
 
@@ -65,16 +65,16 @@ Validates core infrastructure requirements.
 | Check | Pattern | Purpose |
 |-------|---------|---------|
 | **Library Sourcing** | `source.*exit-codes.sh`, `source.*error-json.sh`, `source.*output-format.sh` | Required libraries loaded |
-| **Dual-Path Fallback** | `source.*\$LIB_DIR.*\.sh\|source.*CLAUDE_TODO_HOME.*\.sh` | Works from install or repo |
+| **Dual-Path Fallback** | `source.*\$LIB_DIR.*\.sh\|source.*CLEO_HOME.*\.sh` | Works from install or repo |
 | **COMMAND_NAME** | `^COMMAND_NAME=` | Command identifier for JSON output |
-| **VERSION Loading** | `VERSION=.*CLAUDE_TODO_HOME/VERSION` | Central version consistency |
+| **VERSION Loading** | `VERSION=.*CLEO_HOME/VERSION` | Central version consistency |
 
 **Example compliant pattern:**
 
 ```bash
 # Dual-path library loading
-if [[ -n "${CLAUDE_TODO_HOME:-}" ]]; then
-    LIB_DIR="$CLAUDE_TODO_HOME/lib"
+if [[ -n "${CLEO_HOME:-}" ]]; then
+    LIB_DIR="$CLEO_HOME/lib"
 else
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     LIB_DIR="$SCRIPT_DIR/../lib"
@@ -174,7 +174,7 @@ fi
 
 # Using output_error
 output_error "E_INVALID_ID" "Invalid task ID: $task_id" "$EXIT_INVALID_INPUT" \
-    true "Use 'claude-todo list' to see valid IDs"
+    true "Use 'cleo list' to see valid IDs"
 ```
 
 ### JSON Envelope Checks (Runtime)
@@ -191,7 +191,7 @@ Validates actual JSON output structure. These are runtime checks that execute th
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.19.1",

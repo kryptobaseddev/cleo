@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# inject-todowrite.sh - Prepare claude-todo tasks for TodoWrite injection
+# inject-todowrite.sh - Prepare cleo tasks for TodoWrite injection
 # =============================================================================
-# Transforms claude-todo tasks into TodoWrite JSON format with ID prefix
+# Transforms cleo tasks into TodoWrite JSON format with ID prefix
 # embedding for round-trip tracking. Used at session start.
 #
 # Research: T227 (todowrite-sync-research.md)
@@ -13,7 +13,7 @@
 #   - [BLOCKED] = Blocked status marker (optional)
 #
 # Usage:
-#   claude-todo sync --inject
+#   cleo sync --inject
 #   ./inject-todowrite.sh [OPTIONS]
 #
 # Options:
@@ -37,9 +37,9 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
 fi
 
 # Source version from central location (fallback)
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -90,8 +90,8 @@ log_info() { [[ "${QUIET:-false}" != "true" ]] && echo -e "${GREEN}[INFO]${NC} $
 # =============================================================================
 # Configuration
 # =============================================================================
-TODO_FILE=".claude/todo.json"
-SYNC_DIR=".claude/sync"
+TODO_FILE=".cleo/todo.json"
+SYNC_DIR=".cleo/sync"
 STATE_FILE="${SYNC_DIR}/todowrite-session.json"
 MAX_TASKS=8
 FOCUSED_ONLY=false
@@ -111,11 +111,11 @@ show_help() {
 inject-todowrite.sh - Prepare tasks for TodoWrite injection
 
 USAGE
-    claude-todo sync --inject [OPTIONS]
+    cleo sync --inject [OPTIONS]
     ./inject-todowrite.sh [OPTIONS]
 
 DESCRIPTION
-    Transforms claude-todo tasks into TodoWrite JSON format with embedded
+    Transforms cleo tasks into TodoWrite JSON format with embedded
     task IDs for round-trip tracking. Called at session start to populate
     Claude's ephemeral todo list.
 
@@ -153,16 +153,16 @@ CONTENT PREFIX FORMAT
 
 EXAMPLES
     # Inject focused task and dependencies
-    claude-todo sync --inject
+    cleo sync --inject
 
     # Inject only focused task
-    claude-todo sync --inject --focused-only
+    cleo sync --inject --focused-only
 
     # Inject tasks for specific phase
-    claude-todo sync --inject --phase core
+    cleo sync --inject --phase core
 
     # Save to file for debugging
-    claude-todo sync --inject --output /tmp/inject.json
+    cleo sync --inject --output /tmp/inject.json
 
 EOF
     exit "$EXIT_SUCCESS"
@@ -410,7 +410,7 @@ main() {
     # Validate todo.json exists
     if [[ ! -f "$TODO_FILE" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "$E_NOT_INITIALIZED" "todo.json not found at $TODO_FILE" 1 true "Run 'claude-todo init' first"
+            output_error "$E_NOT_INITIALIZED" "todo.json not found at $TODO_FILE" 1 true "Run 'cleo init' first"
         else
             output_error "$E_NOT_INITIALIZED" "todo.json not found at $TODO_FILE"
         fi
@@ -438,9 +438,9 @@ main() {
         log_warn "No tasks to inject"
         # Get VERSION for JSON output
         local version
-        CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-        if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-            version=$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')
+        CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+        if [[ -f "$CLEO_HOME/VERSION" ]]; then
+            version=$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')
         elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
             version=$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')
         else
@@ -452,7 +452,7 @@ main() {
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -486,9 +486,9 @@ main() {
     if [[ "$DRY_RUN" == true ]]; then
         # Get VERSION for JSON output
         local version
-        CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-        if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-            version=$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')
+        CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+        if [[ -f "$CLEO_HOME/VERSION" ]]; then
+            version=$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')
         elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
             version=$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')
         else
@@ -503,7 +503,7 @@ main() {
                 --argjson injectedIds "$injected_ids" \
                 --argjson todos "$output_json" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -538,9 +538,9 @@ main() {
 
     # Get VERSION for JSON output
     local version
-    CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-    if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-        version=$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')
+    CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+    if [[ -f "$CLEO_HOME/VERSION" ]]; then
+        version=$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')
     elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
         version=$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')
     else
@@ -557,7 +557,7 @@ main() {
             --argjson injectedIds "$injected_ids" \
             --argjson todos "$output_json" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,

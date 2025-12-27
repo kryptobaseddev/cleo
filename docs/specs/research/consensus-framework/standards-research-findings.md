@@ -52,7 +52,7 @@ From IETF and OASIS guidelines:
 
 The CONSENSUS-FRAMEWORK-SPEC.md:
 - **Does NOT include RFC 2119 boilerplate** (violation of best practice)
-- Uses "MUST" informally (e.g., "All tasks logged in claude-todo with label `consensus-framework`" uses imperative without formal keywords)
+- Uses "MUST" informally (e.g., "All tasks logged in cleo with label `consensus-framework`" uses imperative without formal keywords)
 - Mixes normative requirements with tracking/status information
 - "CRITICAL" annotations used instead of proper RFC 2119 terminology
 
@@ -215,7 +215,7 @@ Methods:
 **Anti-Pattern**: Using imperative statements without RFC 2119 keywords.
 
 **Examples from current spec**:
-- "All tasks logged in claude-todo" - Is this MUST or SHOULD?
+- "All tasks logged in cleo" - Is this MUST or SHOULD?
 - "Task Orchestrator uses subagents organized in blocks" - Requirement or description?
 - "Every claim requires file:line citation" - MUST or recommendation?
 
@@ -291,7 +291,7 @@ Convert informal imperatives to RFC 2119:
 
 | Current Text | Recommended |
 |--------------|-------------|
-| "All tasks logged in claude-todo" | "All tasks MUST be logged in claude-todo" |
+| "All tasks logged in cleo" | "All tasks MUST be logged in cleo" |
 | "Task Orchestrator does NOT read subagent output files directly" | "Task Orchestrator MUST NOT read subagent output files directly" |
 | "Evidence citations required" | "Evidence citations MUST be provided" |
 | "Challenge Agent attacks all findings" | "Challenge Agent SHOULD challenge all findings" |

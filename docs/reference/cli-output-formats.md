@@ -1,6 +1,6 @@
 # CLI Output Reference
 
-Comprehensive reference for all output formats available in claude-todo CLI.
+Comprehensive reference for all output formats available in cleo CLI.
 
 ---
 
@@ -134,13 +134,13 @@ Claude-todo supports multiple output formats for different use cases:
 **jq Integration Examples**:
 ```bash
 # Extract task IDs
-claude-todo list -f json | jq -r '.tasks[].id'
+cleo list -f json | jq -r '.tasks[].id'
 
 # Filter by label in jq
-claude-todo list -f json | jq '.tasks[] | select(.labels | contains(["backend"]))'
+cleo list -f json | jq '.tasks[] | select(.labels | contains(["backend"]))'
 
 # Count tasks by status
-claude-todo list -f json | jq '.tasks | group_by(.status) | map({status: .[0].status, count: length})'
+cleo list -f json | jq '.tasks | group_by(.status) | map({status: .[0].status, count: length})'
 ```
 
 ---
@@ -170,16 +170,16 @@ claude-todo list -f json | jq '.tasks | group_by(.status) | map({status: .[0].st
 **Use Cases**:
 ```bash
 # Stream processing with jq
-claude-todo list -f jsonl | jq -c 'select(.priority == "high")'
+cleo list -f jsonl | jq -c 'select(.priority == "high")'
 
 # Log file analysis
 cat tasks.jsonl | grep '"status":"active"'
 
 # Pipe to other tools
-claude-todo list -f jsonl | parallel --pipe process-task.sh
+cleo list -f jsonl | parallel --pipe process-task.sh
 
 # Append to log file
-claude-todo list -f jsonl >> task-history.jsonl
+cleo list -f jsonl >> task-history.jsonl
 ```
 
 ---
@@ -214,16 +214,16 @@ T003,"Add user dashboard",pending,medium,"frontend;ui","",2025-12-05T10:15:00Z
 **Use Cases**:
 ```bash
 # Export to Excel-compatible CSV
-claude-todo export -f csv > tasks.csv
+cleo export -f csv > tasks.csv
 
 # Custom delimiter (pipe-separated)
-claude-todo export -f csv --delimiter '|' > tasks.psv
+cleo export -f csv --delimiter '|' > tasks.psv
 
 # Import to PostgreSQL
-claude-todo export -f csv | psql -c "COPY tasks FROM STDIN CSV HEADER"
+cleo export -f csv | psql -c "COPY tasks FROM STDIN CSV HEADER"
 
 # No header for scripts
-claude-todo export -f csv --no-header | while IFS=, read -r id title status; do
+cleo export -f csv --no-header | while IFS=, read -r id title status; do
   echo "Task $id: $title ($status)"
 done
 ```
@@ -254,16 +254,16 @@ T003	Add user dashboard	pending	medium	frontend;ui		2025-12-05T10:15:00Z
 **Use Cases**:
 ```bash
 # Cut columns with cut command
-claude-todo export -f tsv | cut -f1,2,3
+cleo export -f tsv | cut -f1,2,3
 
 # AWK processing
-claude-todo export -f tsv | awk -F'\t' '$3 == "active" {print $2}'
+cleo export -f tsv | awk -F'\t' '$3 == "active" {print $2}'
 
 # Sort by priority
-claude-todo export -f tsv --no-header | sort -t$'\t' -k4
+cleo export -f tsv --no-header | sort -t$'\t' -k4
 
 # Import to SQLite
-.import "|claude-todo export -f tsv" tasks
+.import "|cleo export -f tsv" tasks
 ```
 
 ---
@@ -307,14 +307,14 @@ claude-todo export -f tsv --no-header | sort -t$'\t' -k4
 **Use Cases**:
 ```bash
 # Export to README
-claude-todo list -f markdown > TODO.md
+cleo list -f markdown > TODO.md
 
 # GitHub issue template
-claude-todo list -s pending -f markdown | gh issue create --title "Sprint Tasks" --body-file -
+cleo list -s pending -f markdown | gh issue create --title "Sprint Tasks" --body-file -
 
 # Documentation generation
 echo "# Project Tasks" > docs/tasks.md
-claude-todo list -f markdown >> docs/tasks.md
+cleo list -f markdown >> docs/tasks.md
 ```
 
 ---
@@ -346,13 +346,13 @@ claude-todo list -f markdown >> docs/tasks.md
 **Use Cases**:
 ```bash
 # Quick overview
-claude-todo list -f table
+cleo list -f table
 
 # Report generation
-claude-todo list -s active -f table > report.txt
+cleo list -s active -f table > report.txt
 
 # Email reports
-claude-todo stats --format table | mail -s "Weekly Report" team@example.com
+cleo stats --format table | mail -s "Weekly Report" team@example.com
 ```
 
 ---
@@ -376,19 +376,19 @@ claude-todo stats --format table | mail -s "Weekly Report" team@example.com
 
 ```bash
 # High-priority backend tasks in JSON
-claude-todo list -p high -l backend -f json
+cleo list -p high -l backend -f json
 
 # Compact view of pending tasks
-claude-todo list -s pending -c
+cleo list -s pending -c
 
 # Quiet CSV export
-claude-todo export -f csv -q > tasks.csv
+cleo export -f csv -q > tasks.csv
 
 # Verbose table view
-claude-todo list -v -f table
+cleo list -v -f table
 
 # Multiple filters with short flags
-claude-todo list -s active -p critical -l security -f json
+cleo list -s active -p critical -l security -f json
 ```
 
 ---
@@ -402,10 +402,10 @@ Claude-todo follows the [NO_COLOR](https://no-color.org/) standard:
 ```bash
 # Disable all colors
 export NO_COLOR=1
-claude-todo list
+cleo list
 
 # Or per-command
-NO_COLOR=1 claude-todo list
+NO_COLOR=1 cleo list
 ```
 
 ### FORCE_COLOR
@@ -415,10 +415,10 @@ Force colors even when stdout is not a TTY (useful for CI/CD with color-aware lo
 ```bash
 # Force colors
 export FORCE_COLOR=1
-claude-todo list | tee output.log
+cleo list | tee output.log
 
 # Or per-command
-FORCE_COLOR=1 claude-todo list > report.txt
+FORCE_COLOR=1 cleo list > report.txt
 ```
 
 ### Color Detection Logic
@@ -449,8 +449,8 @@ FORCE_COLOR=1 claude-todo list > report.txt
 ### Interactive CLI Usage
 **Format**: `text` (default)
 ```bash
-claude-todo list
-claude-todo list -s active
+cleo list
+cleo list -s active
 ```
 
 ### API Integration
@@ -460,14 +460,14 @@ claude-todo list -s active
 curl -s http://localhost:3000/tasks | jq '._meta.count'
 
 # Webhook payload
-claude-todo list -f json | curl -X POST -H "Content-Type: application/json" -d @- https://webhook.site/...
+cleo list -f json | curl -X POST -H "Content-Type: application/json" -d @- https://webhook.site/...
 ```
 
 ### Log Processing
 **Format**: `jsonl`
 ```bash
 # Stream to log aggregator
-claude-todo list -f jsonl | logger -t claude-todo
+cleo list -f jsonl | logger -t cleo
 
 # Real-time monitoring
 tail -f tasks.jsonl | jq -c 'select(.priority == "critical")'
@@ -477,40 +477,40 @@ tail -f tasks.jsonl | jq -c 'select(.priority == "critical")'
 **Format**: `csv`
 ```bash
 # Excel import
-claude-todo export -f csv > tasks.csv
+cleo export -f csv > tasks.csv
 
 # Google Sheets import
-claude-todo export -f csv | gsheet-import --sheet "Tasks"
+cleo export -f csv | gsheet-import --sheet "Tasks"
 ```
 
 ### Unix Pipeline Processing
 **Format**: `tsv`
 ```bash
 # AWK processing
-claude-todo export -f tsv | awk -F'\t' '$3 == "active" {print $2}'
+cleo export -f tsv | awk -F'\t' '$3 == "active" {print $2}'
 
 # Cut specific columns
-claude-todo export -f tsv | cut -f1,2,4
+cleo export -f tsv | cut -f1,2,4
 ```
 
 ### Documentation Generation
 **Format**: `markdown`
 ```bash
 # Project README
-claude-todo list -f markdown > docs/TASKS.md
+cleo list -f markdown > docs/TASKS.md
 
 # GitHub wiki
-claude-todo list -s pending -f markdown | gh api repos/{owner}/{repo}/wiki/pages -F title="Tasks" -F body=@-
+cleo list -s pending -f markdown | gh api repos/{owner}/{repo}/wiki/pages -F title="Tasks" -F body=@-
 ```
 
 ### Terminal Reports
 **Format**: `table`
 ```bash
 # Daily standup
-claude-todo list -s active -f table
+cleo list -s active -f table
 
 # Team dashboard
-watch -n 60 'claude-todo list -f table'
+watch -n 60 'cleo list -f table'
 ```
 
 ---
@@ -613,7 +613,7 @@ watch -n 60 'claude-todo list -f table'
 # api-endpoint.sh - Return JSON for API
 echo "Content-Type: application/json"
 echo ""
-claude-todo list -f json -q
+cleo list -f json -q
 ```
 
 #### Daily Report Email
@@ -624,9 +624,9 @@ claude-todo list -f json -q
   echo "Daily Task Report"
   echo "================="
   echo ""
-  claude-todo list -s active -f table
+  cleo list -s active -f table
   echo ""
-  claude-todo stats --period 1
+  cleo stats --period 1
 } | mail -s "Daily Report" team@example.com
 ```
 
@@ -634,7 +634,7 @@ claude-todo list -f json -q
 ```bash
 #!/bin/bash
 # export-to-sheets.sh - Google Sheets export
-claude-todo export -f csv | \
+cleo export -f csv | \
   gsheet-import \
     --spreadsheet "Team Tasks" \
     --sheet "Current Sprint" \
@@ -645,7 +645,7 @@ claude-todo export -f csv | \
 ```bash
 #!/bin/bash
 # log-tasks.sh - Send to centralized logging
-claude-todo list -f jsonl | \
+cleo list -f jsonl | \
   while read -r task; do
     echo "$task" | \
       curl -X POST \
@@ -667,7 +667,7 @@ CREATE TABLE tasks (
   created_at TIMESTAMP
 );
 
-\copy tasks FROM PROGRAM 'claude-todo export -f csv --no-header' CSV
+\copy tasks FROM PROGRAM 'cleo export -f csv --no-header' CSV
 ```
 
 ---
@@ -688,7 +688,7 @@ unset NO_COLOR
 [ -t 1 ] && echo "TTY" || echo "Not a TTY"
 
 # Force colors
-FORCE_COLOR=1 claude-todo list
+FORCE_COLOR=1 cleo list
 ```
 
 ### CSV Escaping Issues
@@ -698,10 +698,10 @@ FORCE_COLOR=1 claude-todo list
 **Solution**: Claude-todo follows RFC 4180 strictly. If issues persist:
 ```bash
 # Use TSV instead
-claude-todo export -f tsv
+cleo export -f tsv
 
 # Or custom delimiter
-claude-todo export -f csv --delimiter '|'
+cleo export -f csv --delimiter '|'
 ```
 
 ### JSONL Parsing Errors
@@ -726,13 +726,13 @@ cat tasks.jsonl | jq -c '.'
 **Solutions**:
 ```bash
 # Use limit flag
-claude-todo list --limit 100 -f text
+cleo list --limit 100 -f text
 
 # Use streaming format
-claude-todo list -f jsonl | head -n 50
+cleo list -f jsonl | head -n 50
 
 # Use compact view
-claude-todo list -c
+cleo list -c
 ```
 
 ---

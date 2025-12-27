@@ -302,7 +302,7 @@ After all phases complete, the following MUST be true:
 
 ## Approval & Sign-Off
 
-**Specification Authority**: Keaton Hoskins (claude-todo maintainer)
+**Specification Authority**: Keaton Hoskins (cleo maintainer)
 **Created**: 2025-12-24
 **Status**: Ready for implementation
 

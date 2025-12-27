@@ -1,0 +1,391 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://claude-todo.dev/schemas/v1/sessions.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLAUDE-TODO Sessions Registry Schema",
+  "description": "Multi-session management for concurrent LLM agents. Enables parallel work on different task groups (epic, taskGroup, phase-filtered) within the same project. Each session maintains isolated focus state and scope boundaries.",
+  "type": "object",
+  "required": ["version", "project", "sessions", "_meta"],
+  "additionalProperties": false,
+
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version (semver)."
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Project identifier. MUST match todo.json project.name."
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Registry metadata for integrity and configuration.",
+      "required": ["checksum", "lastModified"],
+      "additionalProperties": false,
+      "properties": {
+        "checksum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{16}$",
+          "description": "SHA-256 truncated hash of sessions array. Verify before writes."
+        },
+        "lastModified": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last modification."
+        },
+        "totalSessionsCreated": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Running count of all sessions ever created (for unique ID generation)."
+        },
+        "lastSessionId": {
+          "type": ["string", "null"],
+          "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
+          "description": "Most recently created/modified session ID."
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "Session registry runtime configuration (mirrors config.schema.json multiSession section).",
+      "additionalProperties": false,
+      "properties": {
+        "maxConcurrentSessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 5,
+          "description": "Maximum active sessions allowed simultaneously."
+        },
+        "maxActiveTasksPerScope": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 1,
+          "description": "Maximum active tasks within a single session scope."
+        },
+        "scopeValidation": {
+          "type": "string",
+          "enum": ["strict", "warn", "none"],
+          "default": "strict",
+          "description": "strict=error on overlap, warn=allow with warning, none=no validation."
+        },
+        "allowNestedScopes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow session scopes that are subsets of other session scopes."
+        },
+        "allowScopeOverlap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow sessions with partially overlapping scopes. Risky but sometimes needed."
+        }
+      }
+    },
+    "sessions": {
+      "type": "array",
+      "description": "Active and suspended sessions. Ended sessions move to sessionHistory.",
+      "items": { "$ref": "#/definitions/session" }
+    },
+    "sessionHistory": {
+      "type": "array",
+      "description": "Ended sessions preserved for resume capability and audit. Subject to retention policy.",
+      "items": { "$ref": "#/definitions/sessionHistoryEntry" }
+    }
+  },
+
+  "definitions": {
+    "session": {
+      "type": "object",
+      "description": "An active or suspended work session with defined scope and focus state.",
+      "required": ["id", "status", "scope", "focus", "startedAt", "lastActivity"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
+          "description": "Unique session ID. Format: session_YYYYMMDD_HHMMSS_6hex. NEVER reuse."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended"],
+          "description": "active=currently working, suspended=paused but resumable."
+        },
+        "agentId": {
+          "type": ["string", "null"],
+          "maxLength": 50,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Optional identifier for the agent running this session (e.g., 'opus-1', 'haiku-worker-2')."
+        },
+        "name": {
+          "type": ["string", "null"],
+          "maxLength": 100,
+          "description": "Optional human-readable session name for easy identification (e.g., 'Auth Implementation')."
+        },
+        "scope": {
+          "$ref": "#/definitions/sessionScope"
+        },
+        "focus": {
+          "$ref": "#/definitions/sessionFocus"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When session was created."
+        },
+        "lastActivity": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Most recent activity timestamp. Used for timeout detection."
+        },
+        "suspendedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When session was suspended. Null if active."
+        },
+        "resumeCount": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of times this session has been resumed."
+        },
+        "stats": {
+          "$ref": "#/definitions/sessionStats"
+        }
+      }
+    },
+
+    "sessionScope": {
+      "type": "object",
+      "description": "Defines the task boundary this session can work within. Tasks outside scope cannot be focused.",
+      "required": ["type", "rootTaskId"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["task", "taskGroup", "subtree", "epicPhase", "epic", "custom"],
+          "description": "Scope granularity: task=single task, taskGroup=parent+direct children, subtree=parent+all descendants, epicPhase=epic filtered by phase, epic=full epic tree, custom=explicit list."
+        },
+        "rootTaskId": {
+          "type": "string",
+          "pattern": "^T\\d{3,}$",
+          "description": "The anchor task (epic or parent) defining this scope. MUST exist in todo.json."
+        },
+        "phaseFilter": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Optional phase filter to narrow scope. Only tasks matching this phase are included."
+        },
+        "labelFilter": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9.-]*$"
+          },
+          "description": "Optional label filter. Tasks must have ALL specified labels to be in scope."
+        },
+        "includeDescendants": {
+          "type": "boolean",
+          "default": true,
+          "description": "For subtree/epic types: include all descendants. False = direct children only."
+        },
+        "maxDepth": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Optional depth limit from rootTaskId. Null = unlimited."
+        },
+        "explicitTaskIds": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
+          "uniqueItems": true,
+          "description": "For type=custom: explicit list of task IDs in scope. Ignores other filters."
+        },
+        "excludeTaskIds": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
+          "uniqueItems": true,
+          "description": "Task IDs explicitly excluded from this scope. Applied after other filters."
+        },
+        "computedTaskIds": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
+          "description": "Cached list of task IDs in scope. Recomputed on scope validation. Read-only."
+        },
+        "computedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When computedTaskIds was last calculated."
+        }
+      }
+    },
+
+    "sessionFocus": {
+      "type": "object",
+      "description": "Session-local focus state. Each session maintains its own independent focus.",
+      "additionalProperties": false,
+      "properties": {
+        "currentTask": {
+          "type": ["string", "null"],
+          "pattern": "^T\\d{3,}$",
+          "description": "Task ID being worked on in this session. MUST be within scope. Null if no active focus."
+        },
+        "currentPhase": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Phase of currently focused task. Cached for quick reference."
+        },
+        "previousTask": {
+          "type": ["string", "null"],
+          "pattern": "^T\\d{3,}$",
+          "description": "Previously focused task. Useful for quick switching back."
+        },
+        "sessionNote": {
+          "type": ["string", "null"],
+          "maxLength": 2000,
+          "description": "Context and progress notes for this session. Updated throughout work."
+        },
+        "nextAction": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "Specific next step when resuming this session (e.g., 'Add validation to auth.ts:45')."
+        },
+        "blockedReason": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "Why this session is blocked, if applicable. Set when focus cannot proceed."
+        },
+        "focusHistory": {
+          "type": ["array", "null"],
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": ["taskId", "timestamp"],
+            "properties": {
+              "taskId": { "type": "string", "pattern": "^T\\d{3,}$" },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "action": { "type": "string", "enum": ["focused", "completed", "switched", "cleared"] }
+            }
+          },
+          "description": "Recent focus changes within this session for context continuity."
+        }
+      }
+    },
+
+    "sessionStats": {
+      "type": "object",
+      "description": "Session activity statistics for analytics and progress tracking.",
+      "additionalProperties": false,
+      "properties": {
+        "tasksCompleted": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Tasks marked done during this session."
+        },
+        "tasksCreated": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Tasks created during this session."
+        },
+        "tasksUpdated": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Tasks modified during this session."
+        },
+        "focusChanges": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of focus switches during this session."
+        },
+        "totalActiveMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Cumulative active time (excluding suspended periods)."
+        },
+        "suspendCount": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of times this session was suspended."
+        }
+      }
+    },
+
+    "sessionHistoryEntry": {
+      "type": "object",
+      "description": "Archived session for resume capability and audit trail.",
+      "required": ["id", "scope", "startedAt", "endedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$"
+        },
+        "name": {
+          "type": ["string", "null"],
+          "maxLength": 100
+        },
+        "agentId": {
+          "type": ["string", "null"],
+          "maxLength": 50
+        },
+        "scope": {
+          "$ref": "#/definitions/sessionScope"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endReason": {
+          "type": "string",
+          "enum": ["completed", "timeout", "user_ended", "error", "superseded"],
+          "description": "Why session ended: completed=work done, timeout=auto-ended, user_ended=manual end, error=crashed, superseded=replaced by new session."
+        },
+        "endNote": {
+          "type": ["string", "null"],
+          "maxLength": 2000,
+          "description": "Final session note capturing work completed and any handoff context."
+        },
+        "lastFocusedTask": {
+          "type": ["string", "null"],
+          "pattern": "^T\\d{3,}$",
+          "description": "Last task that was focused when session ended."
+        },
+        "stats": {
+          "$ref": "#/definitions/sessionStats"
+        },
+        "resumable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this session can be resumed (scope still valid, tasks still exist)."
+        },
+        "resumedAs": {
+          "type": ["string", "null"],
+          "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
+          "description": "If resumed, the new session ID that continues this work."
+        }
+      }
+    }
+  }
+}

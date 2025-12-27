@@ -44,7 +44,7 @@ teardown_file() {
     assert_success
 
     # Verify todo.json was created
-    [ -f "$TEST_TEMP_DIR/.claude/todo.json" ]
+    [ -f "$TEST_TEMP_DIR/.cleo/todo.json" ]
 
     # Run validate script
     cd "$TEST_TEMP_DIR"
@@ -59,10 +59,10 @@ teardown_file() {
     bash "$INIT_SCRIPT" --no-claude-md test-project
 
     local stored_checksum
-    stored_checksum=$(jq -r '._meta.checksum' .claude/todo.json)
+    stored_checksum=$(jq -r '._meta.checksum' .cleo/todo.json)
 
     local tasks_array calculated_checksum
-    tasks_array=$(jq -c '.tasks' .claude/todo.json)
+    tasks_array=$(jq -c '.tasks' .cleo/todo.json)
     calculated_checksum=$(echo "$tasks_array" | sha256sum | cut -c1-16)
 
     [ "$stored_checksum" = "$calculated_checksum" ]
@@ -74,7 +74,7 @@ teardown_file() {
     bash "$INIT_SCRIPT" --no-claude-md test-project
 
     local checksum
-    checksum=$(jq -r '._meta.checksum' .claude/todo.json)
+    checksum=$(jq -r '._meta.checksum' .cleo/todo.json)
     [[ "$checksum" =~ ^[a-f0-9]{16}$ ]]
 }
 
@@ -84,12 +84,12 @@ teardown_file() {
     bash "$INIT_SCRIPT" --no-claude-md test-project
 
     local tasks_count
-    tasks_count=$(jq '.tasks | length' .claude/todo.json)
+    tasks_count=$(jq '.tasks | length' .cleo/todo.json)
     [ "$tasks_count" -eq 0 ]
 
     local stored_checksum expected_checksum
-    stored_checksum=$(jq -r '._meta.checksum' .claude/todo.json)
-    expected_checksum=$(jq -c '.tasks' .claude/todo.json | sha256sum | cut -c1-16)
+    stored_checksum=$(jq -r '._meta.checksum' .cleo/todo.json)
+    expected_checksum=$(jq -c '.tasks' .cleo/todo.json | sha256sum | cut -c1-16)
     [ "$stored_checksum" = "$expected_checksum" ]
 }
 
@@ -122,15 +122,15 @@ teardown_file() {
     cd "$TEST_TEMP_DIR"
     bash "$INIT_SCRIPT" --no-claude-md test-project
 
-    run jq empty .claude/todo.json
+    run jq empty .cleo/todo.json
     assert_success
 
-    run jq empty .claude/todo-archive.json
+    run jq empty .cleo/todo-archive.json
     assert_success
 
-    run jq empty .claude/todo-config.json
+    run jq empty .cleo/config.json
     assert_success
 
-    run jq empty .claude/todo-log.json
+    run jq empty .cleo/todo-log.json
     assert_success
 }

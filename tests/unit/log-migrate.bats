@@ -33,7 +33,7 @@ teardown_file() {
 
 @test "migrate: successfully migrates old schema entries" {
   # Create log file with old schema entries
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "test-project",
@@ -84,41 +84,41 @@ EOF
   assert_output --partial "Successfully migrated 3 entries"
 
   # Verify no old schema fields remain
-  run jq '[.entries[] | select(has("operation"))] | length' .claude/todo-log.json
+  run jq '[.entries[] | select(has("operation"))] | length' .cleo/todo-log.json
   assert_output "0"
 
   # Verify new schema fields exist
-  run jq '[.entries[] | select(has("action") and has("actor") and has("taskId"))] | length' .claude/todo-log.json
+  run jq '[.entries[] | select(has("action") and has("actor") and has("taskId"))] | length' .cleo/todo-log.json
   assert_output "3"
 
   # Verify action value mapping
-  run jq '.entries[0].action' .claude/todo-log.json
+  run jq '.entries[0].action' .cleo/todo-log.json
   assert_output '"task_created"'
 
-  run jq '.entries[1].action' .claude/todo-log.json
+  run jq '.entries[1].action' .cleo/todo-log.json
   assert_output '"task_updated"'
 
-  run jq '.entries[2].action' .claude/todo-log.json
+  run jq '.entries[2].action' .cleo/todo-log.json
   assert_output '"config_changed"'
 
   # Verify actor mapping
-  run jq '.entries[0].actor' .claude/todo-log.json
+  run jq '.entries[0].actor' .cleo/todo-log.json
   assert_output '"system"'
 
-  run jq '.entries[1].actor' .claude/todo-log.json
+  run jq '.entries[1].actor' .cleo/todo-log.json
   assert_output '"claude"'
 
   # Verify taskId mapping
-  run jq '.entries[0].taskId' .claude/todo-log.json
+  run jq '.entries[0].taskId' .cleo/todo-log.json
   assert_output '"T001"'
 
-  run jq '.entries[2].taskId' .claude/todo-log.json
+  run jq '.entries[2].taskId' .cleo/todo-log.json
   assert_output "null"
 }
 
 @test "migrate: preserves all data during migration" {
   # Create log with detailed data
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "test-project",
@@ -154,25 +154,25 @@ EOF
   assert_success
 
   # Verify all fields preserved
-  run jq '.entries[0].id' .claude/todo-log.json
+  run jq '.entries[0].id' .cleo/todo-log.json
   assert_output '"log-001"'
 
-  run jq '.entries[0].timestamp' .claude/todo-log.json
+  run jq '.entries[0].timestamp' .cleo/todo-log.json
   assert_output '"2025-12-13T07:00:00Z"'
 
-  run jq '.entries[0].sessionId' .claude/todo-log.json
+  run jq '.entries[0].sessionId' .cleo/todo-log.json
   assert_output '"session-123"'
 
-  run jq '.entries[0].details.nested.data' .claude/todo-log.json
+  run jq '.entries[0].details.nested.data' .cleo/todo-log.json
   assert_output '"value"'
 
-  run jq '.entries[0].after.priority' .claude/todo-log.json
+  run jq '.entries[0].after.priority' .cleo/todo-log.json
   assert_output '"high"'
 }
 
 @test "migrate: creates backup before migration" {
   # Create simple log
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "test-project",
@@ -197,19 +197,19 @@ EOF
   assert_output --partial "Created backup:"
 
   # Verify backup exists
-  run bash -c 'ls -1 .claude/todo-log.json.pre-migration.* | wc -l'
+  run bash -c 'ls -1 .cleo/todo-log.json.pre-migration.* | wc -l'
   assert_output --partial "1"
 
   # Verify backup contains old schema
   local backup_file
-  backup_file=$(ls .claude/todo-log.json.pre-migration.* | head -1)
+  backup_file=$(ls .cleo/todo-log.json.pre-migration.* | head -1)
   run jq '[.entries[] | select(has("operation"))] | length' "$backup_file"
   assert_output "1"
 }
 
 @test "migrate: idempotent - safe to run multiple times" {
   # Create log with old schema
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "test-project",
@@ -240,17 +240,17 @@ EOF
   assert_output --partial "No entries need migration"
 
   # Verify only one entry exists
-  run jq '.entries | length' .claude/todo-log.json
+  run jq '.entries | length' .cleo/todo-log.json
   assert_output "1"
 
   # Verify new schema
-  run jq '.entries[0].action' .claude/todo-log.json
+  run jq '.entries[0].action' .cleo/todo-log.json
   assert_output '"task_created"'
 }
 
 @test "migrate: handles empty log file" {
   # Create empty log
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "test-project",
@@ -270,7 +270,7 @@ EOF
 
 @test "migrate: handles mixed old and new schema entries" {
   # Create log with both schemas
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "test-project",
@@ -316,10 +316,10 @@ EOF
   assert_output --partial "Found 2 entries to migrate"
 
   # Verify all entries now use new schema
-  run jq '[.entries[] | select(has("action"))] | length' .claude/todo-log.json
+  run jq '[.entries[] | select(has("action"))] | length' .cleo/todo-log.json
   assert_output "3"
 
-  run jq '[.entries[] | select(has("operation"))] | length' .claude/todo-log.json
+  run jq '[.entries[] | select(has("operation"))] | length' .cleo/todo-log.json
   assert_output "0"
 }
 
@@ -328,7 +328,7 @@ EOF
 # ============================================================================
 
 @test "migrate: fails gracefully if log file doesn't exist" {
-  rm -f .claude/todo-log.json
+  rm -f .cleo/todo-log.json
 
   run bash "$LOG_SCRIPT" migrate
   assert_failure
@@ -338,7 +338,7 @@ EOF
 @test "migrate: validates JSON after migration" {
   # This is implicitly tested by all successful migrations
   # as they all call jq to validate the result
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "test-project",
@@ -362,7 +362,7 @@ EOF
   assert_success
 
   # Verify result is valid JSON
-  run jq empty .claude/todo-log.json
+  run jq empty .cleo/todo-log.json
   assert_success
 }
 
@@ -372,7 +372,7 @@ EOF
 
 @test "migrate: works with actual log structure from fixtures" {
   # Test with realistic log data
-  cat > .claude/todo-log.json << 'EOF'
+  cat > .cleo/todo-log.json << 'EOF'
 {
   "version": "2.1.0",
   "project": "claude-todo",
@@ -445,12 +445,12 @@ EOF
   assert_output --partial "Found 3 entries to migrate"
 
   # Verify all 5 entries now use new schema
-  run jq '.entries | length' .claude/todo-log.json
+  run jq '.entries | length' .cleo/todo-log.json
   assert_output "5"
 
-  run jq '[.entries[] | select(has("action"))] | length' .claude/todo-log.json
+  run jq '[.entries[] | select(has("action"))] | length' .cleo/todo-log.json
   assert_output "5"
 
-  run jq '[.entries[] | select(has("operation"))] | length' .claude/todo-log.json
+  run jq '[.entries[] | select(has("operation"))] | length' .cleo/todo-log.json
   assert_output "0"
 }

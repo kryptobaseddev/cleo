@@ -27,11 +27,11 @@ set -euo pipefail
 # Source library functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -63,8 +63,8 @@ COMMAND_NAME="deps"
 QUIET=false
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
 
 #####################################################################
 # Helper Functions
@@ -72,7 +72,7 @@ TODO_FILE="${CLAUDE_DIR}/todo.json"
 
 usage() {
     cat << EOF
-Usage: claude-todo deps [TASK_ID|tree] [OPTIONS]
+Usage: cleo deps [TASK_ID|tree] [OPTIONS]
 
 Visualize task dependency relationships.
 
@@ -93,10 +93,10 @@ Format Auto-Detection:
     - Pipe/redirect/agent context: machine-readable JSON format
 
 Examples:
-    claude-todo deps                  # Overview of all dependencies
-    claude-todo deps T001             # Dependencies for task T001
-    claude-todo deps tree             # ASCII tree visualization
-    claude-todo deps --format json    # JSON output for scripting
+    cleo deps                  # Overview of all dependencies
+    cleo deps T001             # Dependencies for task T001
+    cleo deps tree             # ASCII tree visualization
+    cleo deps --format json    # JSON output for scripting
 
 Output Modes:
     Overview: Shows all tasks with dependencies and their dependency counts
@@ -257,7 +257,7 @@ output_overview_text() {
     if [[ "$total_with_deps" -eq 0 ]]; then
         echo "No tasks with dependencies found."
         echo ""
-        echo "Use 'claude-todo add --depends T001,T002' to create dependencies."
+        echo "Use 'cleo add --depends T001,T002' to create dependencies."
         return
     fi
 
@@ -601,7 +601,7 @@ output_json_format() {
                 --argjson reverse "$reverse_graph" \
                 --arg timestamp "$current_timestamp" \
                 --arg version "$VERSION" '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -629,7 +629,7 @@ output_json_format() {
                 --argjson dependents "$dependents" \
                 --arg timestamp "$current_timestamp" \
                 --arg version "$VERSION" '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -669,7 +669,7 @@ output_json_format() {
             ([$node_ids[] as $id | $lookup[$id] // {id: $id, title: "Unknown", status: "unknown", type: "task"}]) as $nodes |
 
             {
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -733,7 +733,7 @@ parse_arguments() {
                     output_error "$E_INPUT_INVALID" "Unknown argument: $1"
                 else
                     echo "[ERROR] Unknown argument: $1" >&2
-                    echo "Run 'claude-todo deps --help' for usage"
+                    echo "Run 'cleo deps --help' for usage"
                 fi
                 exit "${EXIT_USAGE_ERROR:-64}"
                 ;;
@@ -752,11 +752,11 @@ main() {
     FORMAT=$(resolve_format "$FORMAT" "true" "text,json,markdown")
 
     # Check if in a todo-enabled project
-    if [[ ! -d "$CLAUDE_DIR" ]]; then
+    if [[ ! -d "$CLEO_DIR" ]]; then
         if declare -f output_error &>/dev/null; then
             output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project"
         else
-            echo "[ERROR] Not in a todo-enabled project. Run 'claude-todo init' first." >&2
+            echo "[ERROR] Not in a todo-enabled project. Run 'cleo init' first." >&2
         fi
         exit "${EXIT_NOT_INITIALIZED:-3}"
     fi

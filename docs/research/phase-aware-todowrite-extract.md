@@ -143,7 +143,7 @@ This document analyzes integration of project-level phase management with TodoWr
 
 ```json
 {
-  "project": "claude-todo",
+  "project": "cleo",
   "projectMetadata": {
     "currentPhase": "core",
     "phaseHistory": [
@@ -318,9 +318,9 @@ fi
 
 ```bash
 # Command flag
-claude-todo sync --extract --auto-advance
+cleo sync --extract --auto-advance
 
-# Config option (.claude/todo-config.json)
+# Config option (.cleo/config.json)
 {
   "sync": {
     "autoAdvancePhase": false,  # default
@@ -588,7 +588,7 @@ get_session_phase(): No phases exist
 
 ## Configuration Options
 
-**New Section**: `.claude/todo-config.json`
+**New Section**: `.cleo/config.json`
 
 ```json
 {

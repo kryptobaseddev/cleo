@@ -15,7 +15,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Preamble
 
-This specification defines the file locking and concurrency safety requirements for claude-todo, ensuring data integrity when multiple processes access shared JSON files simultaneously.
+This specification defines the file locking and concurrency safety requirements for cleo, ensuring data integrity when multiple processes access shared JSON files simultaneously.
 
 > **Authority**: This specification is AUTHORITATIVE for file locking behavior.
 > Implementation status is tracked separately in [FILE-LOCKING-IMPLEMENTATION-REPORT.md](FILE-LOCKING-IMPLEMENTATION-REPORT.md).
@@ -469,7 +469,7 @@ fi
 **Solutions**:
 - Wait for other process to complete
 - Increase timeout if legitimate long operation
-- Check for deadlocks or stuck processes: `lsof +D /path/to/.claude/`
+- Check for deadlocks or stuck processes: `lsof +D /path/to/.cleo/`
 
 ### E.2 "File descriptor X already in use"
 
@@ -486,7 +486,7 @@ fi
 
 **Explanation**: The lock itself is released when the file descriptor closes. The lock file is just a marker.
 
-**Cleanup**: Lock files can be safely deleted anytime: `rm .claude/*.lock`
+**Cleanup**: Lock files can be safely deleted anytime: `rm .cleo/*.lock`
 
 ---
 

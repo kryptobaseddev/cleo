@@ -5,12 +5,12 @@ Create timestamped backups of all todo system files with optional compression an
 ## Usage
 
 ```bash
-claude-todo backup [OPTIONS]
-claude-todo backup status [OPTIONS]
-claude-todo backup verify <ID|PATH>
-claude-todo backup find [OPTIONS]
-claude-todo backup search [OPTIONS]    # Alias for find with enhanced options
-claude-todo backup --auto              # Run scheduled backup if due
+cleo backup [OPTIONS]
+cleo backup status [OPTIONS]
+cleo backup verify <ID|PATH>
+cleo backup find [OPTIONS]
+cleo backup search [OPTIONS]    # Alias for find with enhanced options
+cleo backup --auto              # Run scheduled backup if due
 ```
 
 ## Description
@@ -32,14 +32,14 @@ All backups are validated during creation to ensure integrity, and automatic ret
 Show backup system health and overall status.
 
 ```bash
-claude-todo backup status [--json|--human]
+cleo backup status [--json|--human]
 ```
 
 ### verify
 Verify backup integrity by recalculating and comparing checksums.
 
 ```bash
-claude-todo backup verify <ID|PATH>
+cleo backup verify <ID|PATH>
 ```
 
 - `ID`: Backup ID (e.g., `snapshot_20251215`)
@@ -49,8 +49,8 @@ claude-todo backup verify <ID|PATH>
 Search backups by date, type, name, content, or task ID.
 
 ```bash
-claude-todo backup find [OPTIONS]
-claude-todo backup search [OPTIONS]   # Alias with enhanced options
+cleo backup find [OPTIONS]
+cleo backup search [OPTIONS]   # Alias with enhanced options
 ```
 
 | Option | Description | Example |
@@ -77,7 +77,7 @@ claude-todo backup search [OPTIONS]   # Alias with enhanced options
 Run scheduled backup if interval has elapsed.
 
 ```bash
-claude-todo backup --auto [--json|--quiet]
+cleo backup --auto [--json|--quiet]
 ```
 
 Checks if a scheduled backup is due based on `backup.scheduled.intervalMinutes` configuration. If the interval has elapsed since the last backup, creates a snapshot backup.
@@ -88,7 +88,7 @@ Returns JSON with `performed: true/false` indicating whether a backup was create
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--destination DIR` | | Custom backup location | `.claude/backups` |
+| `--destination DIR` | | Custom backup location | `.cleo/backups` |
 | `--compress` | | Create compressed tarball (.tar.gz) | `false` |
 | `--name NAME` | `-n` | Custom name appended to timestamp | (none) |
 | `--list` | `-l` | **List all available backups** | `false` |
@@ -102,7 +102,7 @@ Each backup includes:
 
 - `todo.json` - Active tasks and focus state
 - `todo-archive.json` - Completed and archived tasks
-- `todo-config.json` - Configuration and settings
+- `config.json` - Configuration and settings
 - `todo-log.json` - Audit trail and session history
 - `backup-metadata.json` - Backup metadata (timestamp, file count, size)
 
@@ -111,11 +111,11 @@ Each backup includes:
 ### Standard Backup (Directory)
 
 ```
-.claude/backups/snapshot/
+.cleo/backups/snapshot/
 ├── snapshot_20251213_120000/
 │   ├── todo.json
 │   ├── todo-archive.json
-│   ├── todo-config.json
+│   ├── config.json
 │   ├── todo-log.json
 │   └── backup-metadata.json
 ```
@@ -123,14 +123,14 @@ Each backup includes:
 ### Compressed Backup (Tarball)
 
 ```
-.claude/backups/snapshot/
+.cleo/backups/snapshot/
 └── snapshot_20251213_120000.tar.gz
 ```
 
 ### Named Backup
 
 ```
-.claude/backups/snapshot/
+.cleo/backups/snapshot/
 └── snapshot_20251213_120000_before-refactor/
     ├── todo.json
     ├── ...
@@ -142,7 +142,7 @@ Each backup includes:
 
 ```bash
 # Create standard timestamped backup
-claude-todo backup
+cleo backup
 ```
 
 Output:
@@ -157,12 +157,12 @@ Output:
 ╚══════════════════════════════════════════════════════════╝
 
   Backup Location:
-    .claude/backups/snapshot/snapshot_20251213_120000
+    .cleo/backups/snapshot/snapshot_20251213_120000
 
   Files Included:
     ✓ todo.json
     ✓ todo-archive.json
-    ✓ todo-config.json
+    ✓ config.json
     ✓ todo-log.json
 
   Total Size: 12.4KiB
@@ -172,10 +172,10 @@ Output:
 
 ```bash
 # Create backup with custom name for context
-claude-todo backup --name "before-refactor"
+cleo backup --name "before-refactor"
 ```
 
-Creates: `.claude/backups/snapshot/snapshot_20251213_120000_before-refactor/`
+Creates: `.cleo/backups/snapshot/snapshot_20251213_120000_before-refactor/`
 
 Use cases:
 - Before major refactoring
@@ -187,7 +187,7 @@ Use cases:
 
 ```bash
 # Create space-saving compressed tarball
-claude-todo backup --compress
+cleo backup --compress
 ```
 
 Output:
@@ -197,19 +197,19 @@ Output:
 [INFO] Validating backup integrity...
 [INFO] Backup validation successful
 [INFO] Compressing backup...
-[INFO] Created compressed archive: .claude/backups/snapshot/snapshot_20251213_120000.tar.gz (3.2KiB)
+[INFO] Created compressed archive: .cleo/backups/snapshot/snapshot_20251213_120000.tar.gz (3.2KiB)
 
 ╔══════════════════════════════════════════════════════════╗
 ║              BACKUP COMPLETED SUCCESSFULLY               ║
 ╚══════════════════════════════════════════════════════════╝
 
   Backup Location:
-    .claude/backups/snapshot/snapshot_20251213_120000.tar.gz
+    .cleo/backups/snapshot/snapshot_20251213_120000.tar.gz
 
   Files Included:
     ✓ todo.json
     ✓ todo-archive.json
-    ✓ todo-config.json
+    ✓ config.json
     ✓ todo-log.json
 
   Total Size: 12.4KiB
@@ -221,7 +221,7 @@ Output:
 
 ```bash
 # Show all backups with metadata
-claude-todo backup --list
+cleo backup --list
 ```
 
 Output:
@@ -233,17 +233,17 @@ Output:
   ▸ snapshot_20251213_120000
     Timestamp: 2025-12-13T12:00:00Z
     Files: 4 | Size: 12.4KiB
-    Path: .claude/backups/snapshot/snapshot_20251213_120000
+    Path: .cleo/backups/snapshot/snapshot_20251213_120000
 
   ▸ snapshot_20251213_093000_before-refactor
     Timestamp: 2025-12-13T09:30:00Z
     Files: 4 | Size: 11.8KiB
-    Path: .claude/backups/snapshot/snapshot_20251213_093000_before-refactor
+    Path: .cleo/backups/snapshot/snapshot_20251213_093000_before-refactor
 
   ▸ snapshot_20251212_180000.tar.gz (compressed)
     Modified: 2025-12-12 18:00:00
     Size: 3.2KiB
-    Path: .claude/backups/snapshot/snapshot_20251212_180000.tar.gz
+    Path: .cleo/backups/snapshot/snapshot_20251212_180000.tar.gz
 ```
 
 **Use cases**:
@@ -256,21 +256,21 @@ Output:
 
 ```bash
 # Show detailed debug information
-claude-todo backup --verbose
+cleo backup --verbose
 ```
 
 Output:
 ```
 [INFO] Creating backup: snapshot_20251213_120000
-[DEBUG] Created backup directory: .claude/backups
-[DEBUG] Created backup path: .claude/backups/snapshot/snapshot_20251213_120000
+[DEBUG] Created backup directory: .cleo/backups
+[DEBUG] Created backup path: .cleo/backups/snapshot/snapshot_20251213_120000
 [INFO] Backing up files...
 [DEBUG] todo.json validated successfully
 [DEBUG] Backed up todo.json (4.2KiB)
 [DEBUG] todo-archive.json validated successfully
 [DEBUG] Backed up todo-archive.json (3.8KiB)
-[DEBUG] todo-config.json validated successfully
-[DEBUG] Backed up todo-config.json (1.1KiB)
+[DEBUG] config.json validated successfully
+[DEBUG] Backed up config.json (1.1KiB)
 [DEBUG] todo-log.json validated successfully
 [DEBUG] Backed up todo-log.json (3.3KiB)
 [DEBUG] Created metadata file
@@ -294,10 +294,10 @@ Output:
 
 ```bash
 # Named, compressed, verbose backup to custom location
-claude-todo backup \
+cleo backup \
   --name "migration-snapshot" \
   --compress \
-  --destination ~/backups/claude-todo \
+  --destination ~/backups/cleo \
   --verbose
 ```
 
@@ -305,7 +305,7 @@ claude-todo backup \
 
 ```bash
 # Show backup system health
-claude-todo backup status
+cleo backup status
 ```
 
 Output:
@@ -329,10 +329,10 @@ Output:
 
 ```bash
 # Verify by backup ID
-claude-todo backup verify snapshot_20251215
+cleo backup verify snapshot_20251215
 
 # Verify by full path
-claude-todo backup verify .claude/backups/safety/safety_20251215_120000
+cleo backup verify .cleo/backups/safety/safety_20251215_120000
 ```
 
 Output:
@@ -340,7 +340,7 @@ Output:
 ✓ Verifying backup: snapshot_20251215
 ✓ todo.json: checksum valid
 ✓ todo-archive.json: checksum valid
-✓ todo-config.json: checksum valid
+✓ config.json: checksum valid
 ✓ todo-log.json: checksum valid
 
 Backup integrity: VERIFIED
@@ -350,31 +350,31 @@ Backup integrity: VERIFIED
 
 ```bash
 # Find backups from last 7 days
-claude-todo backup find --since 7d
+cleo backup find --since 7d
 
 # Find snapshots from last week
-claude-todo backup find --since 1w --type snapshot
+cleo backup find --since 1w --type snapshot
 
 # Find backups by name pattern
-claude-todo backup find --name "*session*"
+cleo backup find --name "*session*"
 
 # Search backup contents for a pattern
-claude-todo backup search --contains "important"
+cleo backup search --contains "important"
 
 # Find backups from exact date (v0.30.0+)
-claude-todo backup search --on 2025-12-20
+cleo backup search --on 2025-12-20
 
 # Find backups containing specific task (v0.30.0+)
-claude-todo backup search --task-id T045
+cleo backup search --task-id T045
 
 # Combined filters with task search
-claude-todo backup search --on today --task-id T001 --type snapshot
+cleo backup search --on today --task-id T001 --type snapshot
 
 # Show matched content snippets (v0.30.0+)
-claude-todo backup search --task-id T045 --verbose
+cleo backup search --task-id T045 --verbose
 
 # Combined search with limit
-claude-todo backup find --since 30d --type safety --limit 5
+cleo backup find --since 30d --type safety --limit 5
 ```
 
 Output:
@@ -384,12 +384,12 @@ Found 3 backups matching criteria:
   ▸ snapshot_20251223_100000
     Type: snapshot | Created: 2025-12-23T10:00:00Z
     Size: 12.4 KiB | Files: 4
-    Path: .claude/backups/snapshot/snapshot_20251223_100000
+    Path: .cleo/backups/snapshot/snapshot_20251223_100000
 
   ▸ safety_20251222_180000
     Type: safety | Created: 2025-12-22T18:00:00Z
     Size: 11.8 KiB | Files: 4
-    Path: .claude/backups/safety/safety_20251222_180000
+    Path: .cleo/backups/safety/safety_20251222_180000
 ```
 
 ## Restore Procedures
@@ -398,56 +398,56 @@ Found 3 backups matching criteria:
 
 ```bash
 # 1. List available backups
-claude-todo backup --list
+cleo backup --list
 
 # 2. Copy files from backup to restore
-BACKUP_DIR=".claude/backups/snapshot/snapshot_20251213_120000"
-cp "$BACKUP_DIR/todo.json" .claude/
-cp "$BACKUP_DIR/todo-archive.json" .claude/
-cp "$BACKUP_DIR/todo-config.json" .claude/
-cp "$BACKUP_DIR/todo-log.json" .claude/
+BACKUP_DIR=".cleo/backups/snapshot/snapshot_20251213_120000"
+cp "$BACKUP_DIR/todo.json" .cleo/
+cp "$BACKUP_DIR/todo-archive.json" .cleo/
+cp "$BACKUP_DIR/config.json" .cleo/
+cp "$BACKUP_DIR/todo-log.json" .cleo/
 
 # 3. Validate restored files
-claude-todo validate
+cleo validate
 ```
 
 ### Restore from Compressed Backup
 
 ```bash
 # 1. Extract tarball
-cd .claude/backups
+cd .cleo/backups
 tar -xzf snapshot_20251213_120000.tar.gz
 
 # 2. Copy extracted files
 cp snapshot_20251213_120000/*.json ../
 
 # 3. Validate
-claude-todo validate
+cleo validate
 ```
 
 ### Selective Restore
 
 ```bash
 # Restore only specific files
-BACKUP_DIR=".claude/backups/snapshot/snapshot_20251213_120000"
+BACKUP_DIR=".cleo/backups/snapshot/snapshot_20251213_120000"
 
 # Restore just active tasks
-cp "$BACKUP_DIR/todo.json" .claude/
+cp "$BACKUP_DIR/todo.json" .cleo/
 
 # Restore just config
-cp "$BACKUP_DIR/todo-config.json" .claude/
+cp "$BACKUP_DIR/config.json" .cleo/
 
 # Validate after partial restore
-claude-todo validate
+cleo validate
 ```
 
 ### Emergency Recovery
 
 ```bash
 # If current files are corrupted, restore last good backup
-LATEST_BACKUP=$(ls -td .claude/backups/snapshot/snapshot_* | head -1)
-cp "$LATEST_BACKUP"/*.json .claude/
-claude-todo validate
+LATEST_BACKUP=$(ls -td .cleo/backups/snapshot/snapshot_* | head -1)
+cp "$LATEST_BACKUP"/*.json .cleo/
+cleo validate
 ```
 
 ## Retention Policy
@@ -456,7 +456,7 @@ Automatic cleanup of old backups is controlled by configuration:
 
 ```bash
 # View current retention setting
-jq '.backups.maxBackups' .claude/todo-config.json
+jq '.backups.maxBackups' .cleo/config.json
 # Output: 10 (default)
 ```
 
@@ -464,10 +464,10 @@ jq '.backups.maxBackups' .claude/todo-config.json
 
 ```bash
 # Update max backups kept
-claude-todo config set backups.maxBackups 20
+cleo config set backups.maxBackups 20
 
 # Disable automatic cleanup (keep all backups)
-claude-todo config set backups.maxBackups 0
+cleo config set backups.maxBackups 0
 ```
 
 ### Retention Behavior
@@ -529,7 +529,7 @@ Each backup includes `backup-metadata.json`:
   "files": [
     "todo.json",
     "todo-archive.json",
-    "todo-config.json",
+    "config.json",
     "todo-log.json"
   ],
   "totalSize": 12688,
@@ -557,7 +557,7 @@ Each backup includes `backup-metadata.json`:
 
 ```bash
 # Before risky operations
-claude-todo backup --name "before-bulk-delete"
+cleo backup --name "before-bulk-delete"
 # ... perform bulk operations ...
 # Restore if needed
 ```
@@ -566,21 +566,21 @@ claude-todo backup --name "before-bulk-delete"
 
 ```bash
 # Add to cron or systemd timer
-0 0 * * * cd ~/projects/myapp && claude-todo backup --compress
+0 0 * * * cd ~/projects/myapp && cleo backup --compress
 ```
 
 ### Migration Workflows
 
 ```bash
 # Export from old system
-claude-todo backup --compress --destination ~/export
+cleo backup --compress --destination ~/export
 
 # Transfer tarball to new system
 scp ~/export/snapshot_*.tar.gz newhost:~/import/
 
 # Import on new system
 cd ~/new-project
-tar -xzf ~/import/snapshot_*.tar.gz -C .claude/backups/snapshot/
+tar -xzf ~/import/snapshot_*.tar.gz -C .cleo/backups/snapshot/
 # Restore as needed
 ```
 
@@ -588,8 +588,8 @@ tar -xzf ~/import/snapshot_*.tar.gz -C .claude/backups/snapshot/
 
 ```bash
 # Create restore point before experimental changes
-alias ct-save='claude-todo backup --name "checkpoint"'
-alias ct-restore='cp .claude/backups/snapshot/snapshot_*_checkpoint/*.json .claude/'
+alias ct-save='cleo backup --name "checkpoint"'
+alias ct-restore='cp .cleo/backups/snapshot/snapshot_*_checkpoint/*.json .cleo/'
 
 # Work session
 ct-save
@@ -602,10 +602,10 @@ ct-restore
 
 ```bash
 # List backups and verify integrity
-claude-todo backup --list
+cleo backup --list
 
 # Check metadata for corruption indicators
-jq '.validationErrors' .claude/backups/snapshot/*/backup-metadata.json
+jq '.validationErrors' .cleo/backups/snapshot/*/backup-metadata.json
 # Should output 0 for all backups
 ```
 
@@ -615,7 +615,7 @@ jq '.validationErrors' .claude/backups/snapshot/*/backup-metadata.json
 
 ```bash
 # Use verbose mode to identify problematic files
-claude-todo backup --verbose
+cleo backup --verbose
 
 # Output shows:
 # [WARN] todo-archive.json not found, skipping
@@ -625,47 +625,47 @@ claude-todo backup --verbose
 **Solution**: Fix source files before backup
 ```bash
 # Validate current files
-claude-todo validate --fix
+cleo validate --fix
 
 # Retry backup
-claude-todo backup
+cleo backup
 ```
 
 ### Insufficient Disk Space
 
 ```bash
 # Check backup directory size
-du -sh .claude/backups
+du -sh .cleo/backups
 
 # Reduce retention or use compression
-claude-todo config set backups.maxBackups 5
-claude-todo backup --compress
+cleo config set backups.maxBackups 5
+cleo backup --compress
 ```
 
 ### Restore Doesn't Work
 
 ```bash
 # Verify backup integrity
-jq empty .claude/backups/snapshot/snapshot_20251213_120000/*.json
+jq empty .cleo/backups/snapshot/snapshot_20251213_120000/*.json
 
 # Check metadata
-jq '.validationErrors' .claude/backups/snapshot/snapshot_20251213_120000/backup-metadata.json
+jq '.validationErrors' .cleo/backups/snapshot/snapshot_20251213_120000/backup-metadata.json
 
 # If corrupted, try older backup
-claude-todo backup --list
+cleo backup --list
 ```
 
 ### Cannot Find Backups
 
 ```bash
 # Check backup directory exists
-ls -la .claude/backups/snapshot/
+ls -la .cleo/backups/snapshot/
 
 # Verify correct directory
-echo "$BACKUP_DIR"  # Should be .claude/backups
+echo "$BACKUP_DIR"  # Should be .cleo/backups
 
 # List with absolute path
-claude-todo backup --list
+cleo backup --list
 ```
 
 ## Automation Examples
@@ -677,9 +677,9 @@ claude-todo backup --list
 # .git/hooks/pre-commit
 
 # Backup before committing todo changes
-if git diff --cached --name-only | grep -q '.claude/'; then
+if git diff --cached --name-only | grep -q '.cleo/'; then
   echo "Backing up todo system..."
-  claude-todo backup --name "pre-commit" --compress
+  cleo backup --name "pre-commit" --compress
 fi
 ```
 
@@ -690,17 +690,17 @@ fi
 # ct-session - Wrapper for safe todo sessions
 
 # Backup at session start
-claude-todo backup --name "session-start-$(date +%H%M)" --compress
+cleo backup --name "session-start-$(date +%H%M)" --compress
 
 # Start session
-claude-todo session start
+cleo session start
 
 # Interactive work
 $SHELL
 
 # Backup at session end
-claude-todo backup --name "session-end-$(date +%H%M)" --compress
-claude-todo session end
+cleo backup --name "session-end-$(date +%H%M)" --compress
+cleo session end
 ```
 
 ### Scheduled Rotation
@@ -710,10 +710,10 @@ claude-todo session end
 # Daily backup with rotation
 
 # Create compressed daily backup
-claude-todo backup --compress --name "daily-$(date +%A)"
+cleo backup --compress --name "daily-$(date +%A)"
 
 # Keep only last 7 days (one per weekday)
-find .claude/backups -name "snapshot_*_daily-*" -mtime +7 -delete
+find .cleo/backups -name "snapshot_*_daily-*" -mtime +7 -delete
 ```
 
 ## Color Output
@@ -722,18 +722,18 @@ The backup command respects standard color controls:
 
 ```bash
 # Disable colors
-NO_COLOR=1 claude-todo backup
+NO_COLOR=1 cleo backup
 
 # Force colors even in pipes
-FORCE_COLOR=1 claude-todo backup | tee backup.log
+FORCE_COLOR=1 cleo backup | tee backup.log
 ```
 
 ## Related Commands
 
-- `claude-todo validate` - Validate current todo system files
-- `claude-todo archive` - Archive completed tasks (creates auto-backup)
-- `claude-todo session start` - Begin work session (recommended to backup first)
-- `claude-todo export` - Export tasks to other formats
+- `cleo validate` - Validate current todo system files
+- `cleo archive` - Archive completed tasks (creates auto-backup)
+- `cleo session start` - Begin work session (recommended to backup first)
+- `cleo export` - Export tasks to other formats
 
 ## Tips
 
@@ -741,7 +741,7 @@ FORCE_COLOR=1 claude-todo backup | tee backup.log
 2. **Use Compression for Archival**: Compressed backups save 60-80% disk space
 3. **Set Appropriate Retention**: Balance disk space vs. recovery window needs
 4. **Name Critical Backups**: Use `--name` for important restore points
-5. **Verify After Restore**: Always run `claude-todo validate` after restoring
+5. **Verify After Restore**: Always run `cleo validate` after restoring
 6. **Automate Daily Backups**: Set up cron/systemd timers for regular snapshots
 7. **Test Restore Procedures**: Periodically practice restoring from backups
 8. **Use Verbose for Debugging**: Enable `--verbose` when troubleshooting issues
@@ -776,18 +776,18 @@ backup --name "temp"
 
 ```bash
 # Monitor backup disk usage
-du -sh .claude/backups
+du -sh .cleo/backups
 
 # Aggressive retention for space-constrained systems
-claude-todo config set backups.maxBackups 3
+cleo config set backups.maxBackups 3
 
 # External backup location for critical data
-claude-todo backup --compress --destination ~/Dropbox/claude-todo-backups
+cleo backup --compress --destination ~/Dropbox/cleo-backups
 ```
 
 ## Scheduled Backups (v0.30.0+)
 
-Configure automatic backups via `todo-config.json`:
+Configure automatic backups via `config.json`:
 
 ```json
 {
@@ -815,10 +815,10 @@ Configure automatic backups via `todo-config.json`:
 
 ```bash
 # Run scheduled backup if due (based on intervalMinutes)
-claude-todo backup --auto
+cleo backup --auto
 
 # Check in CI/automation
-if result=$(claude-todo backup --auto --json); then
+if result=$(cleo backup --auto --json); then
   performed=$(echo "$result" | jq -r '.performed')
   echo "Backup performed: $performed"
 fi
@@ -830,7 +830,7 @@ When `onArchive` is `true` (default), the archive command automatically creates 
 
 ## Manifest Tracking (v0.30.0+)
 
-Backups are tracked in a manifest file (`.claude/backups/backup-manifest.json`) for O(1) lookups. The manifest is automatically maintained when backups are created, rotated, or pruned.
+Backups are tracked in a manifest file (`.cleo/backups/backup-manifest.json`) for O(1) lookups. The manifest is automatically maintained when backups are created, rotated, or pruned.
 
 ## Version History
 
@@ -845,12 +845,12 @@ Backups are tracked in a manifest file (`.claude/backups/backup-manifest.json`) 
 Backups contain all task data including potentially sensitive information:
 
 - **File Permissions**: Backups inherit source file permissions
-- **Storage Location**: Default `.claude/backups` in project directory
+- **Storage Location**: Default `.cleo/backups` in project directory
 - **Compression**: `.tar.gz` files are not encrypted
 - **Metadata**: Includes hostname and username
 
 **Recommendations**:
-- Set restrictive permissions: `chmod 700 .claude/backups`
+- Set restrictive permissions: `chmod 700 .cleo/backups`
 - Use encrypted external storage for sensitive projects
-- Exclude `.claude/backups/snapshot/` from version control (add to `.gitignore`)
+- Exclude `.cleo/backups/snapshot/` from version control (add to `.gitignore`)
 - Consider encrypting compressed backups for archival storage

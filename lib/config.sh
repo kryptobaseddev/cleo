@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# config.sh - Central configuration loading and management for claude-todo
+# config.sh - Central configuration loading and management for cleo
 #
 # LAYER: 1 (Core Infrastructure)
 # DEPENDENCIES: exit-codes.sh, platform-compat.sh
@@ -37,25 +37,25 @@ fi
 
 # Config file locations - use functions for dynamic path resolution
 # This allows scripts to change cwd and have paths resolve correctly
-GLOBAL_CONFIG_DIR="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+GLOBAL_CONFIG_DIR="${CLEO_HOME:-$HOME/.cleo}"
 GLOBAL_CONFIG_FILE="${GLOBAL_CONFIG_DIR}/config.json"
 
-# PROJECT_CONFIG_FILE can be set before sourcing, or defaults to .claude/todo-config.json
+# PROJECT_CONFIG_FILE can be set before sourcing, or defaults to .cleo/config.json
 # This supports test environments that set CONFIG_FILE before sourcing
 if [[ -z "${PROJECT_CONFIG_FILE:-}" ]]; then
     if [[ -n "${CONFIG_FILE:-}" ]]; then
         PROJECT_CONFIG_FILE="$CONFIG_FILE"
     else
-        PROJECT_CONFIG_FILE="${CLAUDE_TODO_DIR:-.claude}/todo-config.json"
+        PROJECT_CONFIG_FILE="${CLEO_DIR:-.cleo}/config.json"
     fi
 fi
 
 # Schema locations
 GLOBAL_CONFIG_SCHEMA="${GLOBAL_CONFIG_DIR}/schemas/global-config.schema.json"
-PROJECT_CONFIG_SCHEMA="${CLAUDE_TODO_DIR:-.claude}/../schemas/config.schema.json"
+PROJECT_CONFIG_SCHEMA="${CLEO_DIR:-.cleo}/../schemas/config.schema.json"
 
 # Environment variable prefix
-ENV_PREFIX="CLAUDE_TODO"
+ENV_PREFIX="CLEO"
 
 # ============================================================================
 # ENVIRONMENT VARIABLE MAPPING

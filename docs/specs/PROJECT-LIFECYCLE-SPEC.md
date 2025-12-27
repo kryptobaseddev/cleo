@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-claude-todo is a task management system designed for software projects across their entire lifecycle. It works for **greenfield** (new) projects, **brownfield** (existing) projects, and **grayfield** (hybrid) transitions.
+cleo is a task management system designed for software projects across their entire lifecycle. It works for **greenfield** (new) projects, **brownfield** (existing) projects, and **grayfield** (hybrid) transitions.
 
 ### The Two-Dimensional Model
 
@@ -52,9 +52,9 @@ All projects follow the same lifecycle stages, but execute them differently:
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 Mapping to claude-todo Phases
+### 1.2 Mapping to cleo Phases
 
-| Lifecycle Stage | claude-todo Phase | Primary Activities |
+| Lifecycle Stage | cleo Phase | Primary Activities |
 |-----------------|-------------------|-------------------|
 | Discovery | `setup` | Define problem, identify users, validate need |
 | Planning | `setup` | Choose stack, define architecture, create roadmap |
@@ -637,4 +637,4 @@ ct tree <epic-id>            # Subtree
 
 ---
 
-*This specification is part of the claude-todo documentation suite.*
+*This specification is part of the cleo documentation suite.*

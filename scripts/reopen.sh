@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Reopen Script (Restore from Done)
+# CLEO Reopen Script (Restore from Done)
 # Restore completed tasks back to pending status
 #
 # This script implements the restore-from-done functionality.
@@ -16,9 +16,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
 
 # Command name for error-json library
@@ -129,7 +129,7 @@ QUIET=false
 
 usage() {
     cat << 'EOF'
-Usage: claude-todo reopen TASK_ID --reason "..." [OPTIONS]
+Usage: cleo reopen TASK_ID --reason "..." [OPTIONS]
 
 Restore a completed task back to pending (or other) status.
 
@@ -162,7 +162,7 @@ Behavior:
 Auto-Complete Warning:
   If reopening an epic where all children are still done, the epic may
   auto-complete again. Consider reopening a child task first, or disabling
-  auto-complete via: claude-todo config set hierarchy.autoCompleteMode off
+  auto-complete via: cleo config set hierarchy.autoCompleteMode off
 
 Exit Codes:
   0   = Success
@@ -186,10 +186,10 @@ JSON Output Structure:
   }
 
 Examples:
-  claude-todo reopen T001 --reason "Child task incomplete"
-  claude-todo reopen T001 --reason "Need more work" --status active
-  claude-todo reopen T001 --reason "Testing" --dry-run
-  claude-todo reopen T001 --reason "..." --json
+  cleo reopen T001 --reason "Child task incomplete"
+  cleo reopen T001 --reason "Need more work" --status active
+  cleo reopen T001 --reason "Testing" --dry-run
+  cleo reopen T001 --reason "..." --json
 EOF
     exit 0
 }
@@ -316,10 +316,10 @@ fi
 # Validate task ID provided
 if [[ -z "$TASK_ID" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: claude-todo reopen TASK_ID --reason \"...\""
+        output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: cleo reopen TASK_ID --reason \"...\""
     else
         log_error "Task ID is required"
-        echo "Usage: claude-todo reopen TASK_ID --reason \"...\"" >&2
+        echo "Usage: cleo reopen TASK_ID --reason \"...\"" >&2
         echo "Use --help for more information" >&2
     fi
     exit "$EXIT_INVALID_INPUT"
@@ -328,10 +328,10 @@ fi
 # Validate reason is provided (required for audit trail)
 if [[ -z "$REASON" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_INPUT_MISSING" "--reason is required for reopening tasks" "$EXIT_INVALID_INPUT" true "Provide reason: claude-todo reopen $TASK_ID --reason \"Why reopening\""
+        output_error "$E_INPUT_MISSING" "--reason is required for reopening tasks" "$EXIT_INVALID_INPUT" true "Provide reason: cleo reopen $TASK_ID --reason \"Why reopening\""
     else
         log_error "--reason is required for reopening tasks"
-        echo "Usage: claude-todo reopen TASK_ID --reason \"Why reopening\"" >&2
+        echo "Usage: cleo reopen TASK_ID --reason \"Why reopening\"" >&2
     fi
     exit "$EXIT_INVALID_INPUT"
 fi
@@ -372,10 +372,10 @@ fi
 # Check todo file exists
 if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'claude-todo init' first"
+        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'cleo init' first"
     else
         log_error "Todo file not found: $TODO_FILE"
-        echo "Run claude-todo init first to initialize the todo system" >&2
+        echo "Run cleo init first to initialize the todo system" >&2
     fi
     exit "$EXIT_FILE_ERROR"
 fi
@@ -388,7 +388,7 @@ fi
 TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 if [[ -z "$TASK" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Use 'claude-todo list' to see available tasks"
+        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Use 'cleo list' to see available tasks"
     else
         log_error "Task $TASK_ID not found"
     fi
@@ -404,22 +404,22 @@ COMPLETED_AT=$(echo "$TASK" | jq -r '.completedAt // ""')
 # Check if task is done (only done tasks can be reopened)
 if [[ "$CURRENT_STATUS" != "done" ]]; then
     if [[ "$CURRENT_STATUS" == "cancelled" ]]; then
-        SUGGESTION="Use 'claude-todo uncancel $TASK_ID' to restore cancelled tasks"
+        SUGGESTION="Use 'cleo uncancel $TASK_ID' to restore cancelled tasks"
     else
-        SUGGESTION="Use 'claude-todo update $TASK_ID --status ...' to change status of non-done tasks"
+        SUGGESTION="Use 'cleo update $TASK_ID --status ...' to change status of non-done tasks"
     fi
 
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --arg currentStatus "$CURRENT_STATUS" \
             --arg suggestion "$SUGGESTION" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "reopen",
@@ -474,7 +474,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --arg reason "$REASON" \
@@ -484,7 +484,7 @@ if [[ "$DRY_RUN" == true ]]; then
             --arg warning "$AUTO_COMPLETE_WARNING" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "reopen",
@@ -533,14 +533,14 @@ fi
 if declare -f create_safety_backup >/dev/null 2>&1; then
     BACKUP_PATH=$(create_safety_backup "$TODO_FILE" "reopen" 2>&1) || {
         [[ "$FORMAT" != "json" ]] && log_warn "Backup library failed, using fallback"
-        BACKUP_DIR=".claude/backups/safety"
+        BACKUP_DIR=".cleo/backups/safety"
         mkdir -p "$BACKUP_DIR"
         BACKUP_PATH="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
         cp "$TODO_FILE" "$BACKUP_PATH"
     }
     [[ "$FORMAT" != "json" ]] && log_info "Backup created: $BACKUP_PATH"
 else
-    BACKUP_DIR=".claude/backups/safety"
+    BACKUP_DIR=".cleo/backups/safety"
     mkdir -p "$BACKUP_DIR"
     BACKUP_PATH="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
     cp "$TODO_FILE" "$BACKUP_PATH"
@@ -618,7 +618,7 @@ REOPENED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FI
 
 if [[ "$FORMAT" == "json" ]]; then
     jq -n \
-        --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+        --arg version "${CLEO_VERSION:-unknown}" \
         --arg timestamp "$TIMESTAMP" \
         --arg taskId "$TASK_ID" \
         --arg reason "$REASON" \
@@ -628,7 +628,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --arg warning "$AUTO_COMPLETE_WARNING" \
         --argjson task "$REOPENED_TASK" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
                 "format": "json",
                 "command": "reopen",

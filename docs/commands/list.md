@@ -7,7 +7,7 @@ Display tasks with filtering and multiple output formats.
 ## Usage
 
 ```bash
-claude-todo list [OPTIONS]
+cleo list [OPTIONS]
 ```
 
 ## Description
@@ -58,10 +58,10 @@ By default, completed tasks are hidden. Use `--status done` or `--all` to includ
 
 ```bash
 # List all active (non-done) tasks
-claude-todo list
+cleo list
 
 # Short alias
-claude-todo ls
+cleo ls
 ```
 
 Output:
@@ -86,46 +86,46 @@ TASKS (4 pending, 1 active, 0 blocked)
 
 ```bash
 # By status
-claude-todo list -s pending
-claude-todo list --status blocked
+cleo list -s pending
+cleo list --status blocked
 
 # By priority
-claude-todo list -p critical
-claude-todo list --priority high
+cleo list -p critical
+cleo list --priority high
 
 # By label
-claude-todo list -l security
-claude-todo list --label backend
+cleo list -l security
+cleo list --label backend
 
 # By phase
-claude-todo list --phase setup
-claude-todo list --phase core
+cleo list --phase setup
+cleo list --phase core
 
 # By date range
-claude-todo list --since 2025-12-01
-claude-todo list --until 2025-12-31
+cleo list --since 2025-12-01
+cleo list --until 2025-12-31
 
 # Combined filters
-claude-todo list -s pending -p high --phase core
+cleo list -s pending -p high --phase core
 ```
 
 ### Hierarchy Filtering (v0.17.0)
 
 ```bash
 # List only epics
-claude-todo list --type epic
+cleo list --type epic
 
 # List only subtasks
-claude-todo list --type subtask
+cleo list --type subtask
 
 # List children of a specific task
-claude-todo list --children T001
+cleo list --children T001
 
 # Filter by parent
-claude-todo list --parent T001
+cleo list --parent T001
 
 # Tree view (hierarchical display)
-claude-todo list --tree
+cleo list --tree
 ```
 
 **Tree View Example** (v0.30.0):
@@ -147,25 +147,25 @@ Tree features:
 
 ```bash
 # Show task notes inline
-claude-todo list --notes
+cleo list --notes
 
 # Show file references
-claude-todo list --files
+cleo list --files
 
 # Show acceptance criteria
-claude-todo list --acceptance
+cleo list --acceptance
 
 # Combine display options
-claude-todo list --notes --files --acceptance
+cleo list --notes --files --acceptance
 
 # Verbose mode (all details)
-claude-todo list --verbose
+cleo list --verbose
 
 # Flat list (no priority grouping)
-claude-todo list --flat
+cleo list --flat
 
 # Compact view (one line per task)
-claude-todo list --compact
+cleo list --compact
 ```
 
 ### Output Formats
@@ -173,24 +173,24 @@ claude-todo list --compact
 **LLM-Agent-First**: JSON is automatic when output is piped (non-TTY). No `--format` flag needed:
 ```bash
 # Auto-detected JSON when piped
-claude-todo list | jq '.tasks[0]'
+cleo list | jq '.tasks[0]'
 
 # Explicit format override
-claude-todo list --format json     # Force JSON
-claude-todo list --format jsonl    # JSON Lines (one task per line)
-claude-todo list --format markdown # Markdown (for documentation)
-claude-todo list --format table    # Table view
-claude-todo list --human           # Force human-readable text
+cleo list --format json     # Force JSON
+cleo list --format jsonl    # JSON Lines (one task per line)
+cleo list --format markdown # Markdown (for documentation)
+cleo list --format table    # Table view
+cleo list --human           # Force human-readable text
 ```
 
 **Prefer native filters over jq post-processing**:
 ```bash
 # ✅ Native (recommended - fewer tokens, no shell quoting issues)
-claude-todo list --status pending --label bug
+cleo list --status pending --label bug
 
 # ⚠️ jq (only when native filters insufficient)
 # Use SINGLE quotes to prevent shell interpretation
-claude-todo list | jq '.tasks[] | select(.type != "epic")'
+cleo list | jq '.tasks[] | select(.type != "epic")'
 ```
 
 ### JSON Output Example
@@ -229,13 +229,13 @@ claude-todo list | jq '.tasks[] | select(.type != "epic")'
 
 ```bash
 # Sort by priority (critical first)
-claude-todo list --sort priority
+cleo list --sort priority
 
 # Sort by creation date (newest first)
-claude-todo list --sort createdAt --reverse
+cleo list --sort createdAt --reverse
 
 # Limit results
-claude-todo list --limit 5
+cleo list --limit 5
 ```
 
 ### Display Options
@@ -246,7 +246,7 @@ By default, tasks are grouped by priority level with section headers. Use `--fla
 
 ```bash
 # Default: grouped by priority with headers
-claude-todo list
+cleo list
 
 # Output:
 # 🔴 CRITICAL (2)
@@ -259,7 +259,7 @@ claude-todo list
 #   T005 ○ Implement JWT middleware
 
 # Flat list: no grouping
-claude-todo list --flat
+cleo list --flat
 
 # Output:
 #   T001 ○ Fix security vulnerability
@@ -274,7 +274,7 @@ claude-todo list --flat
 Show timestamped notes added to tasks via `update --notes`.
 
 ```bash
-claude-todo list --notes
+cleo list --notes
 
 # Output:
 #   T005 ◉ Implement authentication
@@ -294,7 +294,7 @@ Notes are displayed with:
 Show file paths associated with tasks.
 
 ```bash
-claude-todo list --files
+cleo list --files
 
 # Output:
 #   T012 ○ Refactor authentication module
@@ -311,7 +311,7 @@ Files are displayed with:
 Show acceptance criteria checklist for tasks.
 
 ```bash
-claude-todo list --acceptance
+cleo list --acceptance
 
 # Output:
 #   T008 ○ Add user registration
@@ -334,7 +334,7 @@ Enables all display options automatically: `--notes`, `--files`, `--acceptance`,
 
 ```bash
 # Equivalent to: --notes --files --acceptance
-claude-todo list --verbose
+cleo list --verbose
 
 # Output:
 #   T005 ◉ Implement authentication
@@ -379,13 +379,13 @@ Verbose mode shows:
 
 ```bash
 # Get task IDs (JSON auto-detected when piped)
-claude-todo list | jq -r '.tasks[].id'
+cleo list | jq -r '.tasks[].id'
 
 # BETTER: Use native filters instead of jq
-claude-todo list --status pending   # No jq needed
+cleo list --status pending   # No jq needed
 
 # When jq IS needed, use single quotes
-claude-todo list | jq '.tasks[] | select(.type != "epic")'
+cleo list | jq '.tasks[] | select(.type != "epic")'
 ```
 
 ## See Also

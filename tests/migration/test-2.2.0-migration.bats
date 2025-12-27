@@ -601,7 +601,7 @@ EOF
     create_v2_1_0_todo "backup-test"
 
     # Track backup directory
-    local backup_dir="${TEST_TEMP_DIR}/.claude/backups"
+    local backup_dir="${TEST_TEMP_DIR}/.cleo/backups"
     mkdir -p "$backup_dir"
 
     migrate_file "$TODO_FILE" "todo" "2.1.0" "2.2.0"

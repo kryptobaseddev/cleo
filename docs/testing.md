@@ -1,6 +1,6 @@
 # Testing Guide
 
-Comprehensive BATS test suite for claude-todo CLI.
+Comprehensive BATS test suite for cleo CLI.
 
 ## Quick Start
 

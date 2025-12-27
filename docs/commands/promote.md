@@ -5,14 +5,14 @@ Remove parent from a task, making it a root-level task.
 ## Usage
 
 ```bash
-claude-todo promote TASK_ID [OPTIONS]
+cleo promote TASK_ID [OPTIONS]
 ```
 
 ## Description
 
 The `promote` command removes the parent relationship from a task, making it a root-level task. If the task was a subtask, its type is automatically changed to `task` unless `--no-type-update` is specified.
 
-This command is equivalent to `claude-todo reparent TASK --to ""` but provides a simpler interface for the common operation of making tasks root-level.
+This command is equivalent to `cleo reparent TASK --to ""` but provides a simpler interface for the common operation of making tasks root-level.
 
 ## Arguments
 
@@ -33,22 +33,22 @@ This command is equivalent to `claude-todo reparent TASK --to ""` but provides a
 
 ### Basic promotion
 ```bash
-claude-todo promote T002       # Make T002 a root task
+cleo promote T002       # Make T002 a root task
 ```
 
 ### Quiet promotion
 ```bash
-claude-todo promote T005 -q    # Promote with minimal output
+cleo promote T005 -q    # Promote with minimal output
 ```
 
 ### Keep original type
 ```bash
-claude-todo promote T003 --no-type-update  # Keep as subtask type
+cleo promote T003 --no-type-update  # Keep as subtask type
 ```
 
 ### JSON output
 ```bash
-claude-todo promote T002 --format json
+cleo promote T002 --format json
 ```
 
 ## Behavior

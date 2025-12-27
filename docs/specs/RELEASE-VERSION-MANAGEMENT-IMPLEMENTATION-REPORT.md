@@ -80,7 +80,7 @@ User-driven refinement session addressing real-world observations:
 | Epic handling | No shippedRelease on epics | Epics are organizational, children ship individually |
 | VERSION integration | Suggest NEXT version, bump on ship | Prevents drift between tasks and VERSION file |
 | Git tags | Included in v1, prompt-based | Low complexity, high value |
-| Config location | .claude/todo-config.json | Consistent with existing config pattern |
+| Config location | .cleo/config.json | Consistent with existing config pattern |
 | Release scope | Empty releases allowed | Industry standard (GitHub, Jira, Linear) |
 | Opt-in + Strict | Disabled by default, strict once enabled | Gradual adoption path |
 

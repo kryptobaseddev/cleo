@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# extract-todowrite.sh - Merge TodoWrite state back to claude-todo
+# extract-todowrite.sh - Merge TodoWrite state back to cleo
 # =============================================================================
 # Parses TodoWrite JSON state, recovers task IDs from content prefix,
-# and merges changes back to claude-todo. Used at session end.
+# and merges changes back to cleo. Used at session end.
 #
 # Research: T227 (todowrite-sync-research.md)
 #
 # Diff Detection:
-#   - completed: Task marked completed in TodoWrite → mark done in claude-todo
+#   - completed: Task marked completed in TodoWrite → mark done in cleo
 #   - progressed: Task moved to in_progress → update notes
-#   - new_tasks: Items without [T###] prefix → create in claude-todo
+#   - new_tasks: Items without [T###] prefix → create in cleo
 #   - removed: Injected task not in TodoWrite → log only (no delete)
 #
 # Usage:
-#   claude-todo sync --extract [FILE]
+#   cleo sync --extract [FILE]
 #   ./extract-todowrite.sh <todowrite-state.json>
 #
 # Options:
@@ -27,11 +27,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Load VERSION from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -61,8 +61,8 @@ fi
 if [[ -f "$LIB_DIR/validation.sh" ]]; then
   # shellcheck source=../lib/validation.sh
   source "$LIB_DIR/validation.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/validation.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/validation.sh"
+elif [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
+  source "$CLEO_HOME/lib/validation.sh"
 fi
 
 # =============================================================================
@@ -84,10 +84,10 @@ log_info() { [[ "${QUIET:-false}" != "true" ]] && echo -e "${GREEN}[INFO]${NC} $
 # =============================================================================
 # Configuration
 # =============================================================================
-TODO_FILE=".claude/todo.json"
-SYNC_DIR=".claude/sync"
+TODO_FILE=".cleo/todo.json"
+SYNC_DIR=".cleo/sync"
 STATE_FILE="${SYNC_DIR}/todowrite-session.json"
-LOG_FILE=".claude/todo-log.json"
+LOG_FILE=".cleo/todo-log.json"
 TODOWRITE_INPUT=""
 DRY_RUN=false
 QUIET=false
@@ -100,25 +100,25 @@ FORMAT=""
 # =============================================================================
 show_help() {
     cat << 'EOF'
-extract-todowrite.sh - Merge TodoWrite state back to claude-todo
+extract-todowrite.sh - Merge TodoWrite state back to cleo
 
 USAGE
-    claude-todo sync --extract [FILE]
+    cleo sync --extract [FILE]
     ./extract-todowrite.sh <todowrite-state.json>
 
 DESCRIPTION
     Parses TodoWrite JSON state from Claude's session, recovers task IDs
     from content prefixes, detects changes, and merges updates back to
-    the persistent claude-todo system.
+    the persistent cleo system.
 
 DIFF DETECTION
-    completed    Task status=completed → mark done in claude-todo
+    completed    Task status=completed → mark done in cleo
     progressed   Task status=in_progress (was pending) → update to active
-    new_tasks    No [T###] prefix → create new task in claude-todo
+    new_tasks    No [T###] prefix → create new task in cleo
     removed      Injected ID missing → log only (no deletion)
 
 CONFLICT RESOLUTION
-    - claude-todo is authoritative for task existence
+    - cleo is authoritative for task existence
     - TodoWrite is authoritative for session progress
     - Warn but don't fail on conflicts
 
@@ -138,13 +138,13 @@ INPUT FORMAT
 
 EXAMPLES
     # Extract from file
-    claude-todo sync --extract /tmp/todowrite-state.json
+    cleo sync --extract /tmp/todowrite-state.json
 
     # Dry run to preview changes
-    claude-todo sync --extract --dry-run /tmp/todowrite-state.json
+    cleo sync --extract --dry-run /tmp/todowrite-state.json
 
     # Override default phase for new tasks
-    claude-todo sync --extract --default-phase polish /tmp/todowrite-state.json
+    cleo sync --extract --default-phase polish /tmp/todowrite-state.json
 
 EOF
     exit "$EXIT_SUCCESS"
@@ -298,7 +298,7 @@ analyze_changes() {
         '{completed: $completed, progressed: $progressed, new_tasks: $new_tasks, removed: $removed}'
 }
 
-# Apply changes to claude-todo
+# Apply changes to cleo
 apply_changes() {
     local changes_json="$1"
     local todo_file="$2"
@@ -366,7 +366,7 @@ apply_changes() {
         current_status=$(jq -r ".tasks[] | select(.id == \"$task_id\") | .status" "$todo_file" 2>/dev/null || echo "")
 
         if [[ -z "$current_status" ]]; then
-            log_warn "Task $task_id not found in claude-todo (may have been deleted)"
+            log_warn "Task $task_id not found in cleo (may have been deleted)"
             continue
         fi
 
@@ -493,7 +493,7 @@ main() {
 
     if [[ ! -f "$TODO_FILE" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "E_NOT_INITIALIZED" "todo.json not found at $TODO_FILE" 1 true "Run 'claude-todo init' first"
+            output_error "E_NOT_INITIALIZED" "todo.json not found at $TODO_FILE" 1 true "Run 'cleo init' first"
         else
             log_error "todo.json not found at $TODO_FILE"
         fi
@@ -555,7 +555,7 @@ main() {
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -600,7 +600,7 @@ main() {
                 --argjson removed "$removed_count" \
                 --argjson applied "$changes_made" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -633,7 +633,7 @@ main() {
                 --argjson removed "$removed_count" \
                 --argjson applied "$changes_made" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,

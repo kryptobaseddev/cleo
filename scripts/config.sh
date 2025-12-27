@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# config.sh - Configuration management for claude-todo
-# Usage: claude-todo config <subcommand> [args] [options]
+# Configuration management for cleo
+# Usage: cleo config <subcommand> [args] [options]
 #
 # Subcommands:
 #   show [PATH]      Show config values (all, section, or single key)
@@ -12,7 +12,7 @@
 #   validate         Validate config against schema
 #
 # Options:
-#   --global         Target global config (~/.claude-todo/config.json)
+#   --global         Target global config (~/.cleo/config.json)
 #   --format FMT     Output format: text (default) or json
 #   --json           Shorthand for --format json
 #   --human          Shorthand for --format text
@@ -33,9 +33,9 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
 fi
 
 # Source version from central location (fallback)
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -77,9 +77,9 @@ SCOPE="project"  # project or global
 
 usage() {
     cat << 'EOF'
-Usage: claude-todo config <subcommand> [args] [options]
+Usage: cleo config <subcommand> [args] [options]
 
-View and modify claude-todo configuration settings.
+View and modify cleo configuration settings.
 
 Subcommands:
   show [PATH]      Show config values
@@ -107,8 +107,8 @@ Subcommands:
   validate         Validate config against schema
 
 Options:
-  --global         Target global config (~/.claude-todo/config.json)
-                   instead of project config (.claude/todo-config.json)
+  --global         Target global config (~/.cleo/config.json)
+                   instead of project config (.cleo/config.json)
   -f, --format FMT Output format: text (default in TTY) or json
   --json           Shorthand for --format json
   --human          Shorthand for --format text
@@ -127,17 +127,17 @@ Environment Variables:
   (See docs/reference/configuration.md for full list)
 
 Examples:
-  claude-todo config show                    # Show all config
-  claude-todo config show output             # Show output section
-  claude-todo config set output.defaultFormat json
-  claude-todo config set output.showColor false --global
-  claude-todo config edit                    # Interactive editor
-  claude-todo config reset output            # Reset output to defaults
-  claude-todo config validate                # Check config validity
+  cleo config show                    # Show all config
+  cleo config show output             # Show output section
+  cleo config set output.defaultFormat json
+  cleo config set output.showColor false --global
+  cleo config edit                    # Interactive editor
+  cleo config reset output            # Reset output to defaults
+  cleo config validate                # Check config validity
 
 JSON Output Format:
   {
-    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
     "_meta": {"command": "config", "timestamp": "..."},
     "success": true,
     "scope": "project",
@@ -156,12 +156,12 @@ output_json() {
     timestamp=$(get_iso_timestamp 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     jq -n \
-        --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
         --arg scope "$SCOPE" \
         --arg ts "$timestamp" \
         --argjson data "$data" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
                 "format": "json",
                 "version": $version,
@@ -182,14 +182,14 @@ output_change_json() {
     timestamp=$(get_iso_timestamp 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     jq -n \
-        --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
         --arg scope "$SCOPE" \
         --arg ts "$timestamp" \
         --arg path "$path" \
         --arg old "$old_value" \
         --arg new "$new_value" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
                 "format": "json",
                 "version": $version,
@@ -224,7 +224,7 @@ cmd_show() {
 
     if ! config_file_exists "$config_file"; then
         output_error "E_FILE_NOT_FOUND" "Config file not found: $config_file" $EXIT_FILE_ERROR true \
-            "Run 'claude-todo init' to create project config or install to create global config"
+            "Run 'cleo init' to create project config or install to create global config"
         exit $EXIT_FILE_ERROR
     fi
 
@@ -278,9 +278,9 @@ cmd_get() {
             --arg path "$path" \
             --arg value "$value" \
             --arg timestamp "$timestamp" \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -312,7 +312,7 @@ cmd_set() {
 
     if ! config_file_exists "$config_file"; then
         output_error "E_FILE_NOT_FOUND" "Config file not found: $config_file" $EXIT_FILE_ERROR true \
-            "Run 'claude-todo init' to create project config"
+            "Run 'cleo init' to create project config"
         exit $EXIT_FILE_ERROR
     fi
 
@@ -369,7 +369,7 @@ cmd_list() {
 
     if ! config_file_exists "$config_file"; then
         output_error "E_FILE_NOT_FOUND" "Config file not found: $config_file" $EXIT_FILE_ERROR true \
-            "Run 'claude-todo init' to create project config"
+            "Run 'cleo init' to create project config"
         exit $EXIT_FILE_ERROR
     fi
 
@@ -400,7 +400,7 @@ cmd_reset() {
     if [[ "$SCOPE" == "global" ]]; then
         template_file="${GLOBAL_CONFIG_DIR}/templates/global-config.template.json"
     else
-        template_file="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/templates/config.template.json"
+        template_file="${CLEO_HOME:-$HOME/.cleo}/templates/config.template.json"
     fi
 
     if [[ ! -f "$template_file" ]]; then
@@ -474,7 +474,7 @@ cmd_validate() {
     if [[ "$SCOPE" == "global" ]]; then
         schema_file="${GLOBAL_CONFIG_DIR}/schemas/global-config.schema.json"
     else
-        schema_file="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/schemas/config.schema.json"
+        schema_file="${CLEO_HOME:-$HOME/.cleo}/schemas/config.schema.json"
     fi
 
     if command -v jsonschema &>/dev/null && [[ -f "$schema_file" ]]; then
@@ -750,7 +750,7 @@ main() {
             echo ""
             echo "Available subcommands: show, get, set, list, reset, edit, validate"
             echo ""
-            echo "Run 'claude-todo config --help' for usage."
+            echo "Run 'cleo config --help' for usage."
             exit $EXIT_INVALID_INPUT
             ;;
     esac

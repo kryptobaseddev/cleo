@@ -392,7 +392,7 @@ preview_delete() {
             "error": {
                 "code": "E_TASK_COMPLETED",
                 "message": ("Task is completed, use archive instead: " + $id),
-                "suggestion": "Use \"claude-todo archive\" to archive completed tasks"
+                "suggestion": "Use \"cleo archive\" to archive completed tasks"
             }
         }'
         return 0

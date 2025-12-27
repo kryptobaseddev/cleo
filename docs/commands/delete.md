@@ -7,8 +7,8 @@ Cancel/soft-delete a task with configurable child handling strategies.
 ## Synopsis
 
 ```bash
-claude-todo delete TASK_ID --reason "..." [OPTIONS]
-claude-todo cancel TASK_ID --reason "..." [OPTIONS]  # alias
+cleo delete TASK_ID --reason "..." [OPTIONS]
+cleo cancel TASK_ID --reason "..." [OPTIONS]  # alias
 ```
 
 ## Description
@@ -63,7 +63,7 @@ Cancelled tasks retain their cancellation reason and timestamp for audit purpose
 Prevents deletion if the task has any children. This is the safest option and requires explicitly handling children first.
 
 ```bash
-claude-todo delete T001 --reason "No longer needed" --children block
+cleo delete T001 --reason "No longer needed" --children block
 # ERROR: Task T001 has 3 child task(s)
 ```
 
@@ -72,7 +72,7 @@ claude-todo delete T001 --reason "No longer needed" --children block
 Removes the parent reference from all children, making them root-level tasks. Children remain active and workable.
 
 ```bash
-claude-todo delete T001 --reason "Scope reduced" --children orphan
+cleo delete T001 --reason "Scope reduced" --children orphan
 # Task T001 cancelled, children T002, T003 are now root tasks
 ```
 
@@ -81,7 +81,7 @@ claude-todo delete T001 --reason "Scope reduced" --children orphan
 Deletes the task and all its descendants. Subject to the cascade limit for safety.
 
 ```bash
-claude-todo delete T001 --reason "Epic cancelled" --children cascade
+cleo delete T001 --reason "Epic cancelled" --children cascade
 # Task T001 and all descendants cancelled
 ```
 
@@ -89,15 +89,15 @@ claude-todo delete T001 --reason "Epic cancelled" --children cascade
 
 ```bash
 # Cascade with higher limit
-claude-todo delete T001 --reason "Full cleanup" --children cascade --limit 25
+cleo delete T001 --reason "Full cleanup" --children cascade --limit 25
 
 # Force cascade (bypasses limit)
-claude-todo delete T001 --reason "Full cleanup" --children cascade --force
+cleo delete T001 --reason "Full cleanup" --children cascade --force
 ```
 
 ## Configuration
 
-Configure cancellation behavior in `.claude/todo-config.json`:
+Configure cancellation behavior in `.cleo/config.json`:
 
 ```json
 {
@@ -139,13 +139,13 @@ When a task has children and `--children block` (default) is used:
 
 ```bash
 # First attempt fails
-claude-todo delete T001 --reason "Scope change"
+cleo delete T001 --reason "Scope change"
 # Exit code 16: Task T001 has 3 child task(s)
 
 # Resolve by choosing a strategy
-claude-todo delete T001 --reason "Scope change" --children orphan
+cleo delete T001 --reason "Scope change" --children orphan
 # or
-claude-todo delete T001 --reason "Scope change" --children cascade
+cleo delete T001 --reason "Scope change" --children cascade
 ```
 
 ### Handling Exit Code 17 (TASK_COMPLETED)
@@ -154,11 +154,11 @@ Completed tasks cannot be deleted - use archive instead:
 
 ```bash
 # Attempt to delete completed task
-claude-todo delete T001 --reason "Cleanup"
+cleo delete T001 --reason "Cleanup"
 # Exit code 17: Task is already completed - use archive instead
 
 # Use archive for completed tasks
-claude-todo archive
+cleo archive
 ```
 
 ## Examples
@@ -167,31 +167,31 @@ claude-todo archive
 
 ```bash
 # Delete a single task with reason
-claude-todo delete T042 --reason "Requirements changed after sprint planning"
+cleo delete T042 --reason "Requirements changed after sprint planning"
 ```
 
 ### Cascade Deletion
 
 ```bash
 # Delete epic and all children
-claude-todo delete T001 --reason "Epic cancelled by stakeholder" --children cascade
+cleo delete T001 --reason "Epic cancelled by stakeholder" --children cascade
 
 # Delete with higher cascade limit
-claude-todo delete T001 --reason "Project cancelled" --children cascade --limit 50
+cleo delete T001 --reason "Project cancelled" --children cascade --limit 50
 ```
 
 ### Orphan Children
 
 ```bash
 # Remove parent but keep children as independent tasks
-claude-todo delete T010 --reason "Reorganizing task structure" --children orphan
+cleo delete T010 --reason "Reorganizing task structure" --children orphan
 ```
 
 ### Dry-Run Preview
 
 ```bash
 # Preview what would be deleted
-claude-todo delete T001 --reason "Testing" --children cascade --dry-run
+cleo delete T001 --reason "Testing" --children cascade --dry-run
 ```
 
 Output:
@@ -212,7 +212,7 @@ No changes made (dry-run mode)
 
 ```bash
 # Force JSON output for agent workflows
-claude-todo delete T001 --reason "Automated cleanup" --force --json
+cleo delete T001 --reason "Automated cleanup" --force --json
 ```
 
 ## JSON Output
@@ -221,7 +221,7 @@ claude-todo delete T001 --reason "Automated cleanup" --force --json
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "command": "delete",
@@ -252,7 +252,7 @@ claude-todo delete T001 --reason "Automated cleanup" --force --json
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "command": "delete",
@@ -274,7 +274,7 @@ claude-todo delete T001 --reason "Automated cleanup" --force --json
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "command": "delete",
@@ -304,7 +304,7 @@ claude-todo delete T001 --reason "Automated cleanup" --force --json
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "command": "delete",
@@ -325,25 +325,25 @@ claude-todo delete T001 --reason "Automated cleanup" --force --json
 
 ```bash
 # 1. Verify task exists and check for children
-claude-todo show T042 --format json | jq '.task.childCount // 0'
+cleo show T042 --format json | jq '.task.childCount // 0'
 
 # 2. Delete the task
-claude-todo delete T042 --reason "Superseded by T100" --force --json
+cleo delete T042 --reason "Superseded by T100" --force --json
 
 # 3. Verify deletion
-claude-todo exists T042 --quiet || echo "Task deleted"
+cleo exists T042 --quiet || echo "Task deleted"
 ```
 
 ### Cascade Delete with Validation
 
 ```bash
 # 1. Preview cascade scope
-COUNT=$(claude-todo delete T001 --reason "test" --children cascade --dry-run --json \
+COUNT=$(cleo delete T001 --reason "test" --children cascade --dry-run --json \
   | jq '.wouldDelete.totalAffected')
 
 # 2. Proceed if acceptable
 if [[ "$COUNT" -le 20 ]]; then
-  claude-todo delete T001 --reason "Epic cancelled" --children cascade --force --json
+  cleo delete T001 --reason "Epic cancelled" --children cascade --force --json
 fi
 ```
 
@@ -351,12 +351,12 @@ fi
 
 ```bash
 # Check for children and select strategy
-RESULT=$(claude-todo delete T001 --reason "Cleanup" --json 2>&1)
+RESULT=$(cleo delete T001 --reason "Cleanup" --json 2>&1)
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 16 ]]; then
   # Has children - use orphan strategy
-  claude-todo delete T001 --reason "Cleanup" --children orphan --force --json
+  cleo delete T001 --reason "Cleanup" --children orphan --force --json
 fi
 ```
 

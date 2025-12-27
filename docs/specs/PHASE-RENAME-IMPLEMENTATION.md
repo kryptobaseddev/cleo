@@ -1,13 +1,13 @@
 # Phase Rename Implementation
 
 ## Overview
-Implemented atomic phase rename operation for claude-todo that safely renames phases and updates all task references without orphaning data.
+Implemented atomic phase rename operation for cleo that safely renames phases and updates all task references without orphaning data.
 
 ## Implementation
 
 ### Command
 ```bash
-claude-todo phase rename <old-name> <new-name>
+cleo phase rename <old-name> <new-name>
 ```
 
 ### Location
@@ -138,7 +138,7 @@ The implementation leverages existing file operations that automatically:
 - Create backups before modification
 - Validate JSON syntax after transformation
 - Use atomic file replacement (temp → validate → rename)
-- Maintain .claude/.backups/ directory with numbered backups (Tier 1)
+- Maintain .cleo/.backups/ directory with numbered backups (Tier 1)
 
 ## Integration
 
@@ -167,7 +167,7 @@ Subcommands:
 
 ### Examples Added
 ```bash
-claude-todo phase rename core development       # Rename phase and update tasks
+cleo phase rename core development       # Rename phase and update tasks
 ```
 
 ## Logging

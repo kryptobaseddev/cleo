@@ -173,7 +173,7 @@ declare -A VERB_TO_ACTIVE=(
 # -----------------------------------------------------------------------------
 # STATUS MAPPING
 # -----------------------------------------------------------------------------
-# Maps claude-todo status values to TodoWrite status values
+# Maps cleo status values to TodoWrite status values
 # -----------------------------------------------------------------------------
 declare -A STATUS_TO_TODOWRITE=(
     ["pending"]="pending"
@@ -182,7 +182,7 @@ declare -A STATUS_TO_TODOWRITE=(
     ["done"]="completed"
 )
 
-# Reverse mapping: TodoWrite status to claude-todo status
+# Reverse mapping: TodoWrite status to cleo status
 declare -A STATUS_FROM_TODOWRITE=(
     ["pending"]="pending"
     ["in_progress"]="active"
@@ -385,10 +385,10 @@ is_consonant() {
 # -----------------------------------------------------------------------------
 # map_status_to_todowrite
 # -----------------------------------------------------------------------------
-# Maps claude-todo status to TodoWrite status
+# Maps cleo status to TodoWrite status
 #
 # Arguments:
-#   $1 - claude-todo status (pending/active/blocked/done)
+#   $1 - cleo status (pending/active/blocked/done)
 #
 # Returns:
 #   TodoWrite status (pending/in_progress/completed)
@@ -401,13 +401,13 @@ map_status_to_todowrite() {
 # -----------------------------------------------------------------------------
 # map_status_from_todowrite
 # -----------------------------------------------------------------------------
-# Maps TodoWrite status back to claude-todo status
+# Maps TodoWrite status back to cleo status
 #
 # Arguments:
 #   $1 - TodoWrite status (pending/in_progress/completed)
 #
 # Returns:
-#   claude-todo status (pending/active/done)
+#   cleo status (pending/active/done)
 # -----------------------------------------------------------------------------
 map_status_from_todowrite() {
     local status="$1"
@@ -417,7 +417,7 @@ map_status_from_todowrite() {
 # -----------------------------------------------------------------------------
 # task_to_todowrite
 # -----------------------------------------------------------------------------
-# Converts a claude-todo task to TodoWrite format
+# Converts a cleo task to TodoWrite format
 #
 # Arguments:
 #   $1 - Task JSON object (from jq)
@@ -444,7 +444,7 @@ task_to_todowrite() {
 # -----------------------------------------------------------------------------
 # export_to_todowrite
 # -----------------------------------------------------------------------------
-# Exports claude-todo tasks to TodoWrite format
+# Exports cleo tasks to TodoWrite format
 #
 # Arguments:
 #   $1 - Path to todo.json
@@ -455,7 +455,7 @@ task_to_todowrite() {
 #   TodoWrite JSON: { "todos": [...] }
 # -----------------------------------------------------------------------------
 export_to_todowrite() {
-    local todo_file="${1:-.claude/todo.json}"
+    local todo_file="${1:-.cleo/todo.json}"
     local status_filter="${2:-pending,active}"
     local max_tasks="${3:-10}"
 

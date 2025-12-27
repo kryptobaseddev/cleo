@@ -1,6 +1,6 @@
 # Log Viewing Commands
 
-The `claude-todo log` command provides subcommands for viewing and analyzing log entries.
+The `cleo log` command provides subcommands for viewing and analyzing log entries.
 
 ## Commands
 
@@ -9,7 +9,7 @@ The `claude-todo log` command provides subcommands for viewing and analyzing log
 List log entries with filtering and formatting options.
 
 ```bash
-claude-todo log list [OPTIONS]
+cleo log list [OPTIONS]
 ```
 
 **Options:**
@@ -25,33 +25,33 @@ claude-todo log list [OPTIONS]
 
 ```bash
 # Last 20 entries (default)
-claude-todo log list
+cleo log list
 
 # Last 50 entries
-claude-todo log list --limit 50
+cleo log list --limit 50
 
 # All entries
-claude-todo log list --limit 0
+cleo log list --limit 0
 
 # Filter by action type
-claude-todo log list --action task_created
-claude-todo log list --action status_changed
+cleo log list --action task_created
+cleo log list --action status_changed
 
 # Filter by task
-claude-todo log list --task-id T001
+cleo log list --task-id T001
 
 # Filter by actor
-claude-todo log list --actor system
-claude-todo log list --actor claude
+cleo log list --actor system
+cleo log list --actor claude
 
 # Filter by date
-claude-todo log list --since "2025-12-13"
+cleo log list --since "2025-12-13"
 
 # JSON output
-claude-todo log list --format json
+cleo log list --format json
 
 # Combined filters
-claude-todo log list --action task_created --since "2025-12-13" --limit 10
+cleo log list --action task_created --since "2025-12-13" --limit 10
 ```
 
 **Text Output Format:**
@@ -86,18 +86,18 @@ claude-todo log list --action task_created --since "2025-12-13" --limit 10
 Display detailed information about a specific log entry.
 
 ```bash
-claude-todo log show <log-id>
+cleo log show <log-id>
 ```
 
 **Examples:**
 
 ```bash
 # Show specific log entry
-claude-todo log show log_abc123
+cleo log show log_abc123
 
 # Find and show recent task creation
-LOG_ID=$(claude-todo log list --action task_created --format json | jq -r '.[0].id')
-claude-todo log show $LOG_ID
+LOG_ID=$(cleo log list --action task_created --format json | jq -r '.[0].id')
+cleo log show $LOG_ID
 ```
 
 **Output Format:**
@@ -143,7 +143,7 @@ Valid action types for filtering:
 View all changes to a specific task:
 
 ```bash
-claude-todo log list --task-id T001 --limit 0
+cleo log list --task-id T001 --limit 0
 ```
 
 ### Session Review
@@ -152,10 +152,10 @@ View all actions in a specific session:
 
 ```bash
 # Get session ID from todo.json
-SESSION_ID=$(jq -r '._meta.activeSession // ._meta.lastSession' .claude/todo.json)
+SESSION_ID=$(jq -r '._meta.activeSession // ._meta.lastSession' .cleo/todo.json)
 
 # Filter log by session (requires jq)
-claude-todo log list --format json | jq --arg sid "$SESSION_ID" '.[] | select(.sessionId == $sid)'
+cleo log list --format json | jq --arg sid "$SESSION_ID" '.[] | select(.sessionId == $sid)'
 ```
 
 ### Daily Activity Report
@@ -163,7 +163,7 @@ claude-todo log list --format json | jq --arg sid "$SESSION_ID" '.[] | select(.s
 View all activity for a specific day:
 
 ```bash
-claude-todo log list --since "2025-12-13" --limit 0
+cleo log list --since "2025-12-13" --limit 0
 ```
 
 ### Task Creation Timeline
@@ -171,7 +171,7 @@ claude-todo log list --since "2025-12-13" --limit 0
 View when tasks were created:
 
 ```bash
-claude-todo log list --action task_created --limit 0
+cleo log list --action task_created --limit 0
 ```
 
 ### Debug Status Changes
@@ -179,7 +179,7 @@ claude-todo log list --action task_created --limit 0
 Find status change entries with before/after state:
 
 ```bash
-claude-todo log list --action status_changed --format json | \
+cleo log list --action status_changed --format json | \
   jq '.[] | select(.before != null and .after != null)'
 ```
 
@@ -188,21 +188,21 @@ claude-todo log list --action status_changed --format json | \
 ### Export to CSV
 
 ```bash
-claude-todo log list --format json | \
+cleo log list --format json | \
   jq -r '.[] | [.timestamp, .action, .taskId // "", .actor] | @csv' > log.csv
 ```
 
 ### Count Actions by Type
 
 ```bash
-claude-todo log list --limit 0 --format json | \
+cleo log list --limit 0 --format json | \
   jq -r '.[].action' | sort | uniq -c | sort -rn
 ```
 
 ### Find Recent Errors
 
 ```bash
-claude-todo log list --action error_occurred --limit 10
+cleo log list --action error_occurred --limit 10
 ```
 
 ## See Also

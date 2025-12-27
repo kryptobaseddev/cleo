@@ -28,7 +28,7 @@
 | `inject-todowrite.sh` script | COMPLETE | v0.14.0 | 346 lines, tiered selection |
 | `extract-todowrite.sh` script | COMPLETE | v0.14.0 | 403 lines, change detection |
 | `lib/todowrite-integration.sh` | COMPLETE | v0.14.0 | Status mapping, activeForm |
-| Session state file | COMPLETE | v0.14.0 | `.claude/sync/todowrite-session.json` |
+| Session state file | COMPLETE | v0.14.0 | `.cleo/sync/todowrite-session.json` |
 | JSON envelope output | COMPLETE | v0.19.0 | LLM-Agent-First compliant |
 
 ### Injection Features (Part 3)
@@ -108,7 +108,7 @@
 
 ### Phase 1: Core Implementation - COMPLETE
 
-- [x] T227: Research TodoWrite ↔ claude-todo Bidirectional Sync (completed 2025-12-15)
+- [x] T227: Research TodoWrite ↔ cleo Bidirectional Sync (completed 2025-12-15)
 - [x] T228-T233: Research subtasks (schema, injection, extraction, lossy, conflict, hooks)
 - [x] T234: Implement inject-todowrite.sh (completed 2025-12-15)
 - [x] T235: Implement extract-todowrite.sh (completed 2025-12-15)
@@ -188,7 +188,7 @@
 |------|-------|---------|
 | `scripts/sync-todowrite.sh` | 190 | Subcommand orchestrator |
 | `scripts/inject-todowrite.sh` | 346 | Task → TodoWrite transformation |
-| `scripts/extract-todowrite.sh` | 403 | TodoWrite → claude-todo merge |
+| `scripts/extract-todowrite.sh` | 403 | TodoWrite → cleo merge |
 | `lib/todowrite-integration.sh` | ~250 | Shared functions, verb mapping |
 
 ### Pending Files (v2)

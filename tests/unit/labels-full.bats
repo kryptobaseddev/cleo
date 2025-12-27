@@ -55,7 +55,7 @@ EOF
     run bash "$LABELS_SCRIPT" --help
     assert_success
     assert_output --partial "Usage:"
-    assert_output --partial "claude-todo labels"
+    assert_output --partial "cleo labels"
 }
 
 @test "labels -h shows usage" {

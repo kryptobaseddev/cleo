@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# backup.sh - Unified backup management for claude-todo
+# Unified backup management for cleo
 #
 # LAYER: 2 (Core Services)
 # DEPENDENCIES: file-ops.sh, logging.sh
@@ -19,7 +19,7 @@ declare -r _BACKUP_LOADED=1
 # different backup types with specific purposes and retention policies.
 #
 # Directory Structure:
-#   .claude/backups/
+#   .cleo/backups/
 #   ├── snapshot/      Point-in-time snapshots (frequent, short retention)
 #   ├── safety/        Pre-operation safety backups (auto-created before changes)
 #   ├── incremental/   Delta-based backups (efficient storage, version history)
@@ -30,8 +30,8 @@ declare -r _BACKUP_LOADED=1
 #
 # 1. SNAPSHOT (snapshot/)
 #    - Purpose: Complete system state capture at a point in time
-#    - Trigger: Manual user request via `claude-todo backup`
-#    - Contains: All system files (todo.json, todo-archive.json, todo-config.json, todo-log.json)
+#    - Trigger: Manual user request via `cleo backup`
+#    - Contains: All system files (todo.json, todo-archive.json, config.json, todo-log.json)
 #    - Retention: Configurable (default: keep last 10)
 #    - Use Case: Regular backups, before major changes, scheduled snapshots
 #    - Naming: snapshot_YYYYMMDD_HHMMSS[_custom_name]
@@ -78,11 +78,11 @@ declare -r _BACKUP_LOADED=1
 #   - migration:    NEVER deleted automatically
 #
 # Configuration:
-#   All retention policies are configurable via todo-config.json:
+#   All retention policies are configurable via config.json:
 #   {
 #     "backup": {
 #       "enabled": true,
-#       "directory": ".claude/backups",
+#       "directory": ".cleo/backups",
 #       "maxSnapshots": 10,
 #       "maxSafetyBackups": 5,
 #       "maxIncremental": 10,
@@ -133,7 +133,7 @@ readonly BACKUP_TYPE_MIGRATION="migration"
 
 # Default configuration values
 readonly DEFAULT_BACKUP_ENABLED=true
-readonly DEFAULT_BACKUP_DIR=".claude/backups"
+readonly DEFAULT_BACKUP_DIR=".cleo/backups"
 readonly DEFAULT_MAX_SNAPSHOTS=10
 readonly DEFAULT_MAX_SAFETY_BACKUPS=5
 readonly DEFAULT_MAX_INCREMENTAL=10
@@ -175,7 +175,7 @@ _init_manifest() {
         local timestamp
         timestamp=$(get_iso_timestamp)
         jq -n \
-            --arg schema "https://claude-todo.dev/schemas/v1/backup-manifest.schema.json" \
+            --arg schema "https://cleo-dev.com/schemas/v1/backup-manifest.schema.json" \
             --arg version "$MANIFEST_VERSION" \
             --arg created "$timestamp" \
             --arg modified "$timestamp" \
@@ -448,7 +448,7 @@ _rebuild_manifest() {
     temp_manifest=$(mktemp)
 
     jq -n \
-        --arg schema "https://claude-todo.dev/schemas/v1/backup-manifest.schema.json" \
+        --arg schema "https://cleo-dev.com/schemas/v1/backup-manifest.schema.json" \
         --arg version "$MANIFEST_VERSION" \
         --arg created "$timestamp" \
         --arg modified "$timestamp" \
@@ -647,11 +647,11 @@ _ensure_backup_type_dir() {
     return 0
 }
 
-# Load backup configuration from todo-config.json or use defaults
+# Load backup configuration from config.json or use defaults
 # Args: $1 = config file path (optional)
 # Returns: 0 on success, 1 on error
 _load_backup_config() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Initialize with defaults
     BACKUP_ENABLED="$DEFAULT_BACKUP_ENABLED"
@@ -669,7 +669,7 @@ _load_backup_config() {
     # Override with config file values if available
     if [[ -f "$config_file" ]]; then
         BACKUP_ENABLED=$(jq -r '.backup.enabled // true' "$config_file" 2>/dev/null || echo "$DEFAULT_BACKUP_ENABLED")
-        BACKUP_DIR=$(jq -r '.backup.directory // ".claude/backups"' "$config_file" 2>/dev/null || echo "$DEFAULT_BACKUP_DIR")
+        BACKUP_DIR=$(jq -r '.backup.directory // ".cleo/backups"' "$config_file" 2>/dev/null || echo "$DEFAULT_BACKUP_DIR")
         MAX_SNAPSHOTS=$(jq -r '.backup.maxSnapshots // 10' "$config_file" 2>/dev/null || echo "$DEFAULT_MAX_SNAPSHOTS")
         MAX_SAFETY_BACKUPS=$(jq -r '.backup.maxSafetyBackups // 5' "$config_file" 2>/dev/null || echo "$DEFAULT_MAX_SAFETY_BACKUPS")
         MAX_INCREMENTAL=$(jq -r '.backup.maxIncremental // 10' "$config_file" 2>/dev/null || echo "$DEFAULT_MAX_INCREMENTAL")
@@ -697,7 +697,7 @@ _create_backup_metadata() {
     local version
 
     timestamp=$(get_iso_timestamp)
-    version="${CLAUDE_TODO_VERSION:-0.9.8}"
+    version="${CLEO_VERSION:-0.9.8}"
 
     jq -n \
         --arg type "$backup_type" \
@@ -813,9 +813,9 @@ create_snapshot_backup() {
     backup_path="$BACKUP_DIR/$BACKUP_TYPE_SNAPSHOT/$backup_id"
     ensure_directory "$backup_path" || return 1
 
-    # Backup all system files
-    local source_dir="${CLAUDE_TODO_DIR:-.claude}"
-    local files=("todo.json" "todo-archive.json" "todo-config.json" "todo-log.json")
+    # Backup all system files (including sessions.json for multi-session support)
+    local source_dir="${CLEO_DIR:-.cleo}"
+    local files=("todo.json" "todo-archive.json" "config.json" "todo-log.json" "sessions.json")
     local file
 
     for file in "${files[@]}"; do
@@ -1080,7 +1080,7 @@ create_archive_backup() {
     ensure_directory "$backup_path" || return 1
 
     # Backup relevant files
-    local source_dir="${CLAUDE_TODO_DIR:-.claude}"
+    local source_dir="${CLEO_DIR:-.cleo}"
     local files=("todo.json" "todo-archive.json")
     local file
 
@@ -1163,9 +1163,9 @@ create_migration_backup() {
     backup_path="$BACKUP_DIR/$BACKUP_TYPE_MIGRATION/$backup_id"
     ensure_directory "$backup_path" || return 1
 
-    # Backup all system files
-    local source_dir="${CLAUDE_TODO_DIR:-.claude}"
-    local files=("todo.json" "todo-archive.json" "todo-config.json" "todo-log.json")
+    # Backup all system files (including sessions.json for multi-session support)
+    local source_dir="${CLEO_DIR:-.cleo}"
+    local files=("todo.json" "todo-archive.json" "config.json" "todo-log.json" "sessions.json")
     local file
 
     for file in "${files[@]}"; do
@@ -1478,7 +1478,7 @@ restore_typed_backup() {
     fi
 
     # Restore each file
-    local dest_dir="${CLAUDE_TODO_DIR:-.claude}"
+    local dest_dir="${CLEO_DIR:-.cleo}"
     local file
 
     # Extract just the backup filenames
@@ -1936,7 +1936,7 @@ find_backups() {
 # Output: Backup path if created, empty if skipped
 # Returns: 0 on success, 1 on error
 auto_backup_on_session_start() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Load config to check scheduled settings
     _load_backup_config "$config_file"
@@ -1968,7 +1968,7 @@ auto_backup_on_session_start() {
 # Output: Backup path if created, empty if skipped
 # Returns: 0 on success, 1 on error
 auto_backup_on_session_end() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Load config to check scheduled settings
     _load_backup_config "$config_file"
@@ -1984,7 +1984,7 @@ auto_backup_on_session_end() {
     fi
 
     # Create safety backup for the main todo file
-    local todo_file="${CLAUDE_TODO_DIR:-.claude}/todo.json"
+    local todo_file="${CLEO_DIR:-.cleo}/todo.json"
     if [[ ! -f "$todo_file" ]]; then
         return 0  # No todo file to backup
     fi
@@ -2024,7 +2024,7 @@ export -f prune_backups
 # Output: Backup path if created, empty if skipped
 # Returns: 0 on success, 1 on error
 auto_backup_on_archive() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Load config to check scheduled settings
     _load_backup_config "$config_file"
@@ -2064,7 +2064,7 @@ _get_schedule_state_path() {
 # Output: ISO timestamp of last backup, or empty if never backed up
 # Returns: 0 on success
 get_last_backup_time() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Load config to get backup directory
     _load_backup_config "$config_file"
@@ -2088,7 +2088,7 @@ get_last_backup_time() {
 # Args: $1 = config file path (optional)
 # Returns: 0 on success, 1 on error
 schedule_backup() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Load config to get backup directory
     _load_backup_config "$config_file"
@@ -2140,7 +2140,7 @@ schedule_backup() {
 # Output: "true" if backup is due, "false" otherwise
 # Returns: 0 always
 should_auto_backup() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Load config to check scheduled settings
     _load_backup_config "$config_file"
@@ -2194,7 +2194,7 @@ should_auto_backup() {
 # Output: Backup path if created, empty if skipped
 # Returns: 0 on success, 1 on error
 perform_scheduled_backup() {
-    local config_file="${1:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${1:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Check if backup is due
     local is_due

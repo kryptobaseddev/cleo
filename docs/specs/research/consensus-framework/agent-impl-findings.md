@@ -38,7 +38,7 @@
 
 **Lines 17-79: Complete Task Tracking Section**
 ```
-All tasks logged in claude-todo with label `consensus-framework`:
+All tasks logged in cleo with label `consensus-framework`:
 - Phase Structure table (T184, T189, T195, T199)
 - Phase 1 Subtasks (T185-T188)
 - Phase 2 Subtasks (T190-T194)
@@ -51,7 +51,7 @@ All tasks logged in claude-todo with label `consensus-framework`:
 **Violations per SPEC-BIBLE-GUIDELINES**:
 - Contains specific task IDs (coupling to task system)
 - Contains "Initial Assessment" status (LIKELY FALSE, FALSE, PARTIAL, etc.)
-- References claude-todo label (implementation detail)
+- References cleo label (implementation detail)
 
 ### 2.2 Status Content
 
@@ -79,15 +79,15 @@ All tasks logged in claude-todo with label `consensus-framework`:
 mcp__serena__read_memory consensus-framework-investigation.md
 
 # 2. Check task status
-claude-todo labels show consensus-framework
+cleo labels show consensus-framework
 ...
 ```
 
 **Lines 599-621: Phase Progression Pattern**
 ```bash
 # === STARTING A PHASE ===
-claude-todo session start
-claude-todo focus set T184
+cleo session start
+cleo focus set T184
 ...
 ```
 
@@ -98,8 +98,8 @@ claude-todo focus set T184
 
 **Lines 745-757: Dashboard Monitoring**
 ```bash
-claude-todo dash --compact
-claude-todo phases
+cleo dash --compact
+cleo phases
 ...
 ```
 
@@ -113,14 +113,14 @@ cat claudedocs/CONSENSUS-FRAMEWORK-SPEC.md
 **Lines 785-802: Session End Protocol**
 ```bash
 # 1. Update current task with progress
-claude-todo update <task-id> --notes "Progress: completed X, next: Y"
+cleo update <task-id> --notes "Progress: completed X, next: Y"
 ...
 ```
 
 **Lines 883-905: Quick Start Section**
 ```bash
 # View all consensus framework tasks
-claude-todo labels show consensus-framework
+cleo labels show consensus-framework
 ...
 ```
 
@@ -280,17 +280,17 @@ questions:
 
 ### Session Start
 ```bash
-claude-todo session start
-claude-todo list --label consensus-framework
-claude-todo focus show
+cleo session start
+cleo list --label consensus-framework
+cleo focus show
 ls claudedocs/consensus/
 ```
 
 ### Session End
 ```bash
-claude-todo update <task-id> --notes "Progress: <summary>"
-claude-todo focus note "Phase N, working on <task>"
-claude-todo session end
+cleo update <task-id> --notes "Progress: <summary>"
+cleo focus note "Phase N, working on <task>"
+cleo session end
 ```
 
 ---
@@ -299,18 +299,18 @@ claude-todo session end
 
 ### Phase Progression
 ```bash
-claude-todo focus set <phase-task>
-claude-todo update <subtask> --status active
+cleo focus set <phase-task>
+cleo update <subtask> --status active
 # ... do work ...
-claude-todo update <subtask> --notes "DOC: <output-path>"
-claude-todo complete <subtask>
+cleo update <subtask> --notes "DOC: <output-path>"
+cleo complete <subtask>
 ```
 
 ### Monitoring
 ```bash
-claude-todo dash --compact
-claude-todo labels show consensus-framework
-claude-todo blockers
+cleo dash --compact
+cleo labels show consensus-framework
+cleo blockers
 ```
 
 ---

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/rcsd-research-output.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-research-output.schema.json",
   "title": "RCSD Research Output",
   "description": "Schema for research phase output in the RCSD pipeline. Captures multi-source research findings, evidence chains, and confidence assessments.",
   "type": "object",
@@ -10,7 +10,7 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "const": "https://claude-todo.dev/schemas/v1/rcsd-research-output.schema.json",
+      "const": "https://cleo-dev.com/schemas/v1/rcsd-research-output.schema.json",
       "description": "Self-referencing schema URI for validation"
     },
     "_meta": {

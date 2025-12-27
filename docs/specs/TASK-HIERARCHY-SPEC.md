@@ -26,7 +26,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Executive Summary
 
-This specification defines hierarchical task management for claude-todo, designed for **LLM agents as primary users**. All design decisions optimize for agent cognition, context management, and anti-hallucination—NOT human time estimates.
+This specification defines hierarchical task management for cleo, designed for **LLM agents as primary users**. All design decisions optimize for agent cognition, context management, and anti-hallucination—NOT human time estimates.
 
 ### Core Principles
 
@@ -348,7 +348,7 @@ Error messages MUST be structured for agent recovery:
   "context": { "requestedParent": "T999", "taskTitle": "New task" },
   "fix": {
     "action": "use_valid_parent",
-    "command": "claude-todo list --type epic,task --format json"
+    "command": "cleo list --type epic,task --format json"
   }
 }
 ```
@@ -501,19 +501,19 @@ All major design questions have been resolved. See [LLM-TASK-ID-SYSTEM-DESIGN-SP
 
 ```bash
 # Create epic
-claude-todo add "User Authentication" --type epic
+cleo add "User Authentication" --type epic
 # → T001 [epic]
 
 # Add tasks under epic
-claude-todo add "Implement JWT validation" --parent T001
+cleo add "Implement JWT validation" --parent T001
 # → T002 [task] under T001
 
 # Add subtask
-claude-todo add "Configure bcrypt rounds" --parent T003
+cleo add "Configure bcrypt rounds" --parent T003
 # → T004 [subtask] under T003
 
 # View hierarchy
-claude-todo tree
+cleo tree
 ```
 
 ---
@@ -547,26 +547,26 @@ claude-todo tree
 
 ```bash
 # Type and parent
-claude-todo add "Title" --type epic|task|subtask --parent TXXX
+cleo add "Title" --type epic|task|subtask --parent TXXX
 
 # Size classification
-claude-todo add "Title" --size small|medium|large
+cleo add "Title" --size small|medium|large
 
 # List variants
-claude-todo list --tree [--depth N]
-claude-todo list --children TXXX
-claude-todo list --descendants TXXX
-claude-todo list --root
-claude-todo list --leaf
-claude-todo list --type epic|task|subtask
+cleo list --tree [--depth N]
+cleo list --children TXXX
+cleo list --descendants TXXX
+cleo list --root
+cleo list --leaf
+cleo list --type epic|task|subtask
 
 # Hierarchy management
-claude-todo tree [TXXX]
-claude-todo reparent TXXX --to TYYY
-claude-todo promote TXXX
+cleo tree [TXXX]
+cleo reparent TXXX --to TYYY
+cleo promote TXXX
 
 # Validation
-claude-todo validate --fix-orphans [--unlink|--delete]
+cleo validate --fix-orphans [--unlink|--delete]
 ```
 
 ---

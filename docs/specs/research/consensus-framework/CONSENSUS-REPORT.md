@@ -555,7 +555,7 @@ However, the **specification document requires major refactoring** to separate n
 
 ### Appendix B: Evidence File Inventory
 
-All evidence files located in: `/mnt/projects/claude-todo/docs/specs/research/`
+All evidence files located in: `/mnt/projects/cleo/docs/specs/research/`
 
 - [x] standards-research-findings.md (386 lines)
 - [x] documentation-audit-findings.md (329 lines)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hierarchy.sh - Hierarchy validation and helper functions for claude-todo
+# Hierarchy validation and helper functions for cleo
 #
 # LAYER: 2 (Data Layer)
 # DEPENDENCIES: config.sh
@@ -34,7 +34,7 @@ fi
 # LLM-Agent-First Design Rationale:
 # ---------------------------------
 # The original 7-sibling limit was based on Miller's 7±2 law for human short-term
-# memory. However, claude-todo is designed for LLM agents as primary users:
+# memory. However, cleo is designed for LLM agents as primary users:
 #
 # - LLM agents have 200K+ token context windows, not 4-5 item working memory
 # - Agents don't experience cognitive fatigue

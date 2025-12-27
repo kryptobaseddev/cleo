@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v1/output.schema.json",
   "title": "Claude-TODO Response Envelope",
   "description": "Standard JSON envelope for all successful claude-todo command responses",
   "type": "object",
@@ -9,7 +9,7 @@
     "$schema": {
       "type": "string",
       "description": "Schema URL for validation",
-      "const": "https://claude-todo.dev/schemas/v1/output.schema.json"
+      "const": "https://cleo-dev.com/schemas/v1/output.schema.json"
     },
     "_meta": {
       "type": "object",

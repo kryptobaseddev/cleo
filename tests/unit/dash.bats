@@ -38,7 +38,7 @@ teardown_file() {
     run bash "$DASH_SCRIPT" --help
     assert_success
     assert_output --partial "Usage:"
-    assert_output --partial "claude-todo dash"
+    assert_output --partial "cleo dash"
 }
 
 @test "dash -h shows usage" {

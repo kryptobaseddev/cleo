@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# validation.sh - Core validation library for claude-todo system
+# validation.sh - Core validation library for cleo system
 #
 # LAYER: 2 (Core Services)
 # DEPENDENCIES: platform-compat.sh, config.sh
@@ -367,10 +367,10 @@ validate_schema() {
     local schema_file
 
     # Determine schema file location
-    if [[ -n "${CLAUDE_TODO_HOME:-}" ]]; then
-        schema_file="$CLAUDE_TODO_HOME/schemas/todo-${schema_type}.schema.json"
-    elif [[ -f "$HOME/.claude-todo/schemas/todo-${schema_type}.schema.json" ]]; then
-        schema_file="$HOME/.claude-todo/schemas/todo-${schema_type}.schema.json"
+    if [[ -n "${CLEO_HOME:-}" ]]; then
+        schema_file="$CLEO_HOME/schemas/todo-${schema_type}.schema.json"
+    elif [[ -f "$HOME/.cleo/schemas/todo-${schema_type}.schema.json" ]]; then
+        schema_file="$HOME/.cleo/schemas/todo-${schema_type}.schema.json"
     else
         schema_file="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/schemas/todo-${schema_type}.schema.json"
     fi
@@ -528,7 +528,7 @@ validate_version() {
             echo "  Expected: v$expected_version" >&2
             echo "" >&2
             echo "Automatic migration available." >&2
-            echo "Run: claude-todo migrate" >&2
+            echo "Run: cleo migrate" >&2
             echo "" >&2
 
             # For now, warn but don't fail
@@ -1370,7 +1370,7 @@ validate_single_active_phase() {
 
     if [[ "$active_count" -gt 1 ]]; then
         echo "ERROR: Multiple phases marked as active ($active_count found, only 1 allowed)" >&2
-        echo "Fix: Use 'claude-todo phase set <slug>' to set a single active phase" >&2
+        echo "Fix: Use 'cleo phase set <slug>' to set a single active phase" >&2
         return 1
     fi
 

@@ -1,7 +1,7 @@
 # LLM-Agent-First Task Management Design Patterns
 
 **Research Date:** 2025-12-16
-**Context:** claude-todo is primarily for LLM agents (Claude Code + subagents), with humans as initiators/decision-makers.
+**Context:** cleo is primarily for LLM agents (Claude Code + subagents), with humans as initiators/decision-makers.
 
 ---
 
@@ -135,7 +135,7 @@ Research shows **91% of ML systems experience performance degradation** through 
 - One LLM evaluates another LLM's output
 - Matches user input against LLM output
 - Validates task completion claims vs actual state
-- **Applied to claude-todo:** `validate.sh` as mechanical supervisor
+- **Applied to cleo:** `validate.sh` as mechanical supervisor
 
 ### 2.2 Chain-of-Verification (CoVe) Method
 
@@ -145,10 +145,10 @@ Process:
 3. Answer questions independently
 4. Generate final verified response
 
-**Applied to claude-todo:**
+**Applied to cleo:**
 ```bash
 # Step 1: Agent proposes task completion
-claude-todo complete T045
+cleo complete T045
 
 # Step 2: Verification questions (built-in)
 # - Does T045 exist? (exists.sh)
@@ -166,7 +166,7 @@ Amazon Bedrock Guardrails achieve **99% verification accuracy** using:
 - Definitive rules and parameters for response validation
 - Domain knowledge as ground truth
 
-**claude-todo Implementation:**
+**cleo Implementation:**
 ```bash
 # Formal verification in lib/validation.sh
 VALID_STATUSES=("pending" "active" "blocked" "done")  # Enumerated domain
@@ -179,7 +179,7 @@ check_timestamp_sanity()  # Temporal logic validation
 
 ID verification systems perform **75+ algorithmic security checks** for document validation. Similar pattern for task IDs:
 
-**claude-todo Pattern:**
+**cleo Pattern:**
 ```bash
 # scripts/exists.sh - Pre-operation validation
 EXIT_EXISTS=0
@@ -188,8 +188,8 @@ EXIT_INVALID_ID=2
 EXIT_FILE_ERROR=3
 
 # Usage in agent workflows:
-if claude-todo exists T042 --quiet; then
-  claude-todo update T042 --priority high
+if cleo exists T042 --quiet; then
+  cleo update T042 --priority high
 else
   echo "ERROR: Task T042 not found" >&2
   exit 1
@@ -207,18 +207,18 @@ fi
 **Bad: Implicit Validation**
 ```bash
 # Agent assumes task exists
-claude-todo update T999 --notes "Progress update"
+cleo update T999 --notes "Progress update"
 # Silently fails or creates invalid state
 ```
 
 **Good: Explicit Validation**
 ```bash
 # Agent verifies before operation
-if ! claude-todo exists T999 --quiet; then
+if ! cleo exists T999 --quiet; then
   log_error "Task T999 not found, cannot update"
   exit 1
 fi
-claude-todo update T999 --notes "Progress update"
+cleo update T999 --notes "Progress update"
 ```
 
 ### 2.6 Scope Boundaries for Hallucination Prevention
@@ -228,7 +228,7 @@ AWS Agentic AI Security Scoping Matrix emphasizes:
 - **Behavioral anomaly monitoring** detects drift from original intent
 - **Trusted identity propagation** ensures agent actions traceable
 
-**Applied to claude-todo:**
+**Applied to cleo:**
 - Task `phase` field enforces workflow boundaries
 - `dependencies` array prevents out-of-order execution
 - `todo-log.json` provides complete audit trail
@@ -255,8 +255,8 @@ Research identifies **single biggest agent failure mode:** Goal drift during mul
 **Pattern:** Only ONE task can have `status: "active"` at any time.
 
 ```bash
-# claude-todo enforces single focus
-claude-todo focus set T045
+# cleo enforces single focus
+cleo focus set T045
 # Automatically marks all other tasks as "pending"
 
 # Anti-pattern: Multiple active tasks
@@ -282,19 +282,19 @@ AWS recommends:
 3. **Budget limits** - Hard quotas on API calls, token usage
 4. **Role-based restrictions** - Least privilege for tool access
 
-**claude-todo Implementation:**
+**cleo Implementation:**
 ```bash
 # Budget limit: Max tasks per phase
-claude-todo add "Task X" --phase core
+cleo add "Task X" --phase core
 # Validation: Check if phase already has 20+ tasks (configurable limit)
 
 # Role restriction: Dependencies enforce ordering
-claude-todo add "Deploy" --depends T001,T002,T005
+cleo add "Deploy" --depends T001,T002,T005
 # Cannot execute until prerequisites complete
 
 # Kill switch: Session protocol
-claude-todo session start  # Begin bounded work session
-claude-todo session end    # Clear context, force checkpoint
+cleo session start  # Begin bounded work session
+cleo session end    # Clear context, force checkpoint
 ```
 
 #### **3.2.3 Well-Scoped Agent Jobs**
@@ -309,7 +309,7 @@ claude-todo session end    # Clear context, force checkpoint
 - Defined responsibilities
 - Measurable success criteria
 
-**claude-todo Pattern:**
+**cleo Pattern:**
 ```json
 {
   "id": "T042",
@@ -335,20 +335,20 @@ Anthropic's guidance on effective context engineering:
 2. **Just-In-Time Retrieval** - Agent navigates environment via glob/grep
 3. **Note-Taking** - Agent maintains session-specific working memory
 
-**claude-todo Application:**
+**cleo Application:**
 ```bash
 # Session start: Load critical context
-claude-todo session start
-claude-todo focus show          # Current task
-claude-todo dash                # Project overview
-claude-todo deps --tree         # Dependency graph
+cleo session start
+cleo focus show          # Current task
+cleo dash                # Project overview
+cleo deps --tree         # Dependency graph
 
 # During work: Just-in-time updates
-claude-todo focus note "Completed auth middleware setup"
-claude-todo update T042 --notes "JWT library installed, config created"
+cleo focus note "Completed auth middleware setup"
+cleo update T042 --notes "JWT library installed, config created"
 
 # Session end: Checkpoint and clear
-claude-todo session end
+cleo session end
 ```
 
 ### 3.4 Preventing Multi-Agent Role Confusion
@@ -360,9 +360,9 @@ claude-todo session end
 **Solution: Label-Based Role Assignment**
 ```bash
 # Separate agents by label domains
-claude-todo list --label backend     # Backend agent's tasks
-claude-todo list --label frontend    # Frontend agent's tasks
-claude-todo list --label devops      # DevOps agent's tasks
+cleo list --label backend     # Backend agent's tasks
+cleo list --label frontend    # Frontend agent's tasks
+cleo list --label devops      # DevOps agent's tasks
 
 # Prevent cross-domain work
 # Backend agent should NEVER work on frontend-labeled tasks
@@ -403,11 +403,11 @@ Research identifies three drift mechanisms in autonomous agents:
 T041 [done] → T042 [active] → T043 [pending]
 
 # If agent tries to work on T043 while T042 active:
-$ claude-todo focus set T043
+$ cleo focus set T043
 ERROR: Cannot set focus to T043 (depends on incomplete T042)
 
 # Focus enforcement prevents drift
-$ claude-todo focus show
+$ cleo focus show
 [FOCUS] T042: Implement JWT middleware
 Session Note: Setting up token validation
 Next Action: Write middleware tests
@@ -421,7 +421,7 @@ Next Action: Write middleware tests
 **Prevention:**
 ```bash
 # Immutable task history prevents prompt drift
-$ claude-todo show T042 --history
+$ cleo show T042 --history
 Created:  2025-12-10T14:23:00Z by user (manual)
 Updated:  2025-12-11T09:15:00Z by claude-code (auto)
   - Added labels: feature-auth, backend
@@ -436,7 +436,7 @@ Completed: Never
 
 Research warns: "Self-adapting systems without validation filters risk memory poisoning vulnerabilities."
 
-**claude-todo Protection:**
+**cleo Protection:**
 ```bash
 # All write operations go through validation
 # lib/file-ops.sh: atomic_write()
@@ -463,10 +463,10 @@ atomic_write() {
 
 **Research Finding:** "State can get lost or drift between agents, breaking workflows."
 
-**claude-todo Solution: Session State Persistence**
+**cleo Solution: Session State Persistence**
 ```bash
 # Session lifecycle management
-claude-todo session start
+cleo session start
 # Creates session checkpoint in todo-log.json:
 {
   "operation": "session_start",
@@ -480,7 +480,7 @@ claude-todo session start
 
 # Work happens across multiple agent calls...
 
-claude-todo session end
+cleo session end
 # Records final state, enables recovery:
 {
   "operation": "session_end",
@@ -497,21 +497,21 @@ claude-todo session end
 
 Research: "Designing rollback mechanisms and audit logs integral to making agents viable in high-stakes industries."
 
-**claude-todo Implementation:**
+**cleo Implementation:**
 ```bash
 # Automatic backups before every write
-.claude/.backups/
+.cleo/.backups/
 ├── todo.json.1    # Most recent (pre-last-write)
 ├── todo.json.2
 ├── todo.json.3
 └── todo.json.10   # Oldest retained
 
 # Manual restore
-$ claude-todo restore todo.json.3
-Restored from backup: .claude/.backups/todo.json.3
+$ cleo restore todo.json.3
+Restored from backup: .cleo/.backups/todo.json.3
 
 # List available backups
-$ claude-todo backup --list
+$ cleo backup --list
 Available backups:
   1. todo.json.1  (2025-12-16 12:30:00) - 5 minutes ago
   2. todo.json.2  (2025-12-16 11:45:00) - 50 minutes ago
@@ -538,7 +538,7 @@ Research finding: "JSON Schema is most widely-used structured format for LLM-bas
 
 **Solution:** JSON Schema validation enforces consistency.
 
-**claude-todo Schema (v2.2.0):**
+**cleo Schema (v2.2.0):**
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -616,7 +616,7 @@ Research on agent development: "The instruction parameter tells the agent:
 4. How/when to use tools
 5. Desired output format"
 
-**claude-todo Application:**
+**cleo Application:**
 ```bash
 # Example agent instruction for task execution
 You are a focused implementation agent.
@@ -629,9 +629,9 @@ Constraints:
 - All changes require tests with 90% coverage
 
 Tools Available:
-- claude-todo update T042 --notes "progress note"
-- claude-todo focus note "session update"
-- claude-todo complete T042 (when acceptance criteria met)
+- cleo update T042 --notes "progress note"
+- cleo focus note "session update"
+- cleo complete T042 (when acceptance criteria met)
 
 Output Format:
 On completion, provide:
@@ -825,14 +825,14 @@ Agent cannot hallucinate implementation details – all specified explicitly.
 **Implementation:**
 ```bash
 # Anti-pattern: Optimistic execution
-claude-todo update T999 --priority high
+cleo update T999 --priority high
 # Silently fails if T999 doesn't exist
 
 # Agent-native: Pessimistic validation
-if ! claude-todo exists T999 --quiet; then
+if ! cleo exists T999 --quiet; then
   exit 1  # Fail fast with clear exit code
 fi
-claude-todo update T999 --priority high
+cleo update T999 --priority high
 ```
 
 **Why:** Agents cannot handle ambiguous failures. Exit codes enable programmatic error handling.
@@ -844,16 +844,16 @@ claude-todo update T999 --priority high
 **Implementation:**
 ```bash
 # Human output (default)
-$ claude-todo list
+$ cleo list
 [T042] [active] high - Implement JWT middleware
 
 # Agent output
-$ claude-todo list --format json | jq -r '.tasks[] | select(.status == "active") | .id'
+$ cleo list --format json | jq -r '.tasks[] | select(.status == "active") | .id'
 T042
 
 # Enables agent scripting
-ACTIVE_TASK=$(claude-todo list --format json | jq -r '.tasks[] | select(.status == "active") | .id')
-claude-todo update "$ACTIVE_TASK" --notes "Progress update"
+ACTIVE_TASK=$(cleo list --format json | jq -r '.tasks[] | select(.status == "active") | .id')
+cleo update "$ACTIVE_TASK" --notes "Progress update"
 ```
 
 **Why:** Agents consume structured data, not ANSI-colored text.
@@ -954,9 +954,9 @@ EXIT_INVALID_ID=2   # Malformed ID
 EXIT_FILE_ERROR=3   # System error
 
 # Agent script
-claude-todo exists T042 --quiet
+cleo exists T042 --quiet
 case $? in
-  0) claude-todo update T042 --notes "Found, updating" ;;
+  0) cleo update T042 --notes "Found, updating" ;;
   1) echo "Task not found" >&2; exit 1 ;;
   2) echo "Invalid task ID" >&2; exit 2 ;;
   *) echo "System error" >&2; exit 3 ;;
@@ -972,7 +972,7 @@ esac
 **Implementation:**
 ```bash
 # Cannot activate task with incomplete dependencies
-$ claude-todo focus set T043
+$ cleo focus set T043
 ERROR: Cannot focus on T043 (depends on incomplete T042)
 
 # Validation in lib/validation.sh
@@ -991,13 +991,13 @@ check_circular_dependencies() {
 **Implementation:**
 ```bash
 # Backend agent
-BACKEND_TASKS=$(claude-todo list --label backend --format json)
+BACKEND_TASKS=$(cleo list --label backend --format json)
 
 # Frontend agent
-FRONTEND_TASKS=$(claude-todo list --label frontend --format json)
+FRONTEND_TASKS=$(cleo list --label frontend --format json)
 
 # Security agent (cross-cutting)
-SECURITY_TASKS=$(claude-todo list --label security --format json)
+SECURITY_TASKS=$(cleo list --label security --format json)
 
 # Prevents role confusion: backend agent ignores frontend tasks
 ```
@@ -1011,11 +1011,11 @@ SECURITY_TASKS=$(claude-todo list --label security --format json)
 **Implementation:**
 ```bash
 # Session protocol
-claude-todo session start     # Checkpoint current state
-claude-todo focus set T042    # Set work boundary
+cleo session start     # Checkpoint current state
+cleo focus set T042    # Set work boundary
 # ... agent works on T042 ...
-claude-todo focus note "Progress update"
-claude-todo session end       # Record completion, clear context
+cleo focus note "Progress update"
+cleo session end       # Record completion, clear context
 
 # Session data in todo-log.json enables recovery
 {
@@ -1036,14 +1036,14 @@ claude-todo session end       # Record completion, clear context
 
 | Scenario | Agent-Compatible | Agent-Native |
 |----------|------------------|--------------|
-| **Add New Task** | `POST /api/tasks {"title": "..."}` | `claude-todo add "title" --format json` |
-| **Check Existence** | `GET /api/tasks/T042` (200 or 404) | `claude-todo exists T042 --quiet; echo $?` |
-| **Update Task** | `PATCH /api/tasks/T042 {"status": "done"}` | `claude-todo complete T042 --format json` |
-| **Query Tasks** | `GET /api/tasks?status=active` | `claude-todo list --status active --format json` |
-| **Validate State** | Manual schema checks in agent code | `claude-todo validate; echo $?` |
+| **Add New Task** | `POST /api/tasks {"title": "..."}` | `cleo add "title" --format json` |
+| **Check Existence** | `GET /api/tasks/T042` (200 or 404) | `cleo exists T042 --quiet; echo $?` |
+| **Update Task** | `PATCH /api/tasks/T042 {"status": "done"}` | `cleo complete T042 --format json` |
+| **Query Tasks** | `GET /api/tasks?status=active` | `cleo list --status active --format json` |
+| **Validate State** | Manual schema checks in agent code | `cleo validate; echo $?` |
 | **Error Handling** | Parse HTTP status + JSON error body | Check exit code + stderr message |
 | **Audit Trail** | Separate logging service | Built-in `todo-log.json` |
-| **Rollback** | Database transaction rollback | `claude-todo restore backup` |
+| **Rollback** | Database transaction rollback | `cleo restore backup` |
 
 **Key Difference:** Agent-native systems provide **CLI-first interface with JSON output**, not HTTP API with SDK wrappers.
 
@@ -1056,13 +1056,13 @@ claude-todo session end       # Record completion, clear context
 
 ---
 
-## 8. Specific Recommendations for claude-todo
+## 8. Specific Recommendations for cleo
 
 ### 8.1 Current Strengths (Already Agent-Native)
 
 ✅ **1. Exists Command with Exit Codes**
 ```bash
-claude-todo exists T042 --quiet
+cleo exists T042 --quiet
 # Exit 0 = exists, 1 = not found, 2 = invalid ID
 # Perfect for agent scripting
 ```
@@ -1091,14 +1091,14 @@ todo-log.json (append-only)
 
 ✅ **5. JSON Output Mode**
 ```bash
-claude-todo list --format json
-claude-todo show T042 --format json
+cleo list --format json
+cleo show T042 --format json
 # Agents parse structured output
 ```
 
 ✅ **6. Single Active Task Enforcement**
 ```bash
-claude-todo focus set T042
+cleo focus set T042
 # Automatically marks all other tasks pending
 # Prevents multi-task confusion
 ```
@@ -1143,14 +1143,14 @@ claude-todo focus set T042
 **Implementation:**
 ```bash
 # Add acceptance criteria
-claude-todo update T042 --acceptance "Protected routes validate JWT"
-claude-todo update T042 --acceptance "Invalid tokens return 401"
+cleo update T042 --acceptance "Protected routes validate JWT"
+cleo update T042 --acceptance "Invalid tokens return 401"
 
 # Show criteria
-claude-todo show T042 --format json | jq '.acceptanceCriteria[]'
+cleo show T042 --format json | jq '.acceptanceCriteria[]'
 
 # Mark criteria as met (optional future feature)
-claude-todo criteria T042 check 0  # Mark first criterion as complete
+cleo criteria T042 check 0  # Mark first criterion as complete
 ```
 
 #### **Enhancement 2: Task Verification Scripts**
@@ -1171,11 +1171,11 @@ claude-todo criteria T042 check 0  # Mark first criterion as complete
 **Usage:**
 ```bash
 # Agent runs verification before marking complete
-claude-todo verify T042
+cleo verify T042
 # Executes verification script, exits 0 if all criteria met
 
 # Only allow completion if verification passes
-claude-todo complete T042 --verify
+cleo complete T042 --verify
 # Internally runs: verify T042 && complete T042
 ```
 
@@ -1204,11 +1204,11 @@ claude-todo complete T042 --verify
 **Implementation:**
 ```bash
 # Assign task to role
-claude-todo update T042 --role backend --role security
+cleo update T042 --role backend --role security
 
 # Agent checks role assignment
 AGENT_ROLE="backend"
-ASSIGNED_ROLES=$(claude-todo show T042 --format json | jq -r '.agentRoles[]')
+ASSIGNED_ROLES=$(cleo show T042 --format json | jq -r '.agentRoles[]')
 if ! echo "$ASSIGNED_ROLES" | grep -q "$AGENT_ROLE"; then
   echo "Task T042 not assigned to $AGENT_ROLE agent" >&2
   exit 1
@@ -1228,7 +1228,7 @@ fi
 
 ```bash
 # Define templates
-$ claude-todo template create feature-implementation
+$ cleo template create feature-implementation
 Template: feature-implementation
 Required fields: title, component
 Acceptance criteria:
@@ -1240,7 +1240,7 @@ Labels: feature, needs-review
 Phase: core
 
 # Create from template
-$ claude-todo add --template feature-implementation \
+$ cleo add --template feature-implementation \
   --title "JWT middleware" \
   --component "authentication"
 
@@ -1293,10 +1293,10 @@ $ claude-todo add --template feature-implementation \
 **Implementation:**
 ```bash
 # Add dependency with reason
-claude-todo update T042 --depends T041 --reason "Requires user model schema"
+cleo update T042 --depends T041 --reason "Requires user model schema"
 
 # Show dependencies with reasons
-claude-todo deps T042
+cleo deps T042
 T042 depends on:
   - T041: Requires user model schema
   - T035: Depends on Express app setup
@@ -1324,10 +1324,10 @@ T042 depends on:
 **Implementation:**
 ```bash
 # Set complexity
-claude-todo update T042 --complexity medium --risk security-critical
+cleo update T042 --complexity medium --risk security-critical
 
 # Auto-suggest decomposition
-claude-todo analyze T042
+cleo analyze T042
 Task T042 has complexity: large
 Recommendation: Consider decomposing into smaller tasks
 Estimated subtasks: 5
@@ -1356,7 +1356,7 @@ Risk factors: security-critical, external-dependency
 **Implementation:**
 ```bash
 # Agent updates session state
-claude-todo session state \
+cleo session state \
   --current "implementing middleware" \
   --completed "installed library" \
   --completed "created config" \
@@ -1364,7 +1364,7 @@ claude-todo session state \
   --files "src/middleware/jwt.ts"
 
 # Agent resumes session
-claude-todo session state --show
+cleo session state --show
 Current Step: implementing middleware
 Completed: 2/4 steps
 Next Actions:
@@ -1397,20 +1397,20 @@ Files Modified:
 **Implementation:**
 ```bash
 # Create parallel task group
-claude-todo group create auth-feature
+cleo group create auth-feature
 
 # Add tasks to group
-claude-todo update T042 --group auth-feature
-claude-todo update T043 --group auth-feature
+cleo update T042 --group auth-feature
+cleo update T043 --group auth-feature
 
 # Set active with group awareness
-claude-todo focus set T042
+cleo focus set T042
 WARNING: T043 also active in group auth-feature
 Shared resources: src/models/user.ts
 Conflict resolution: last-write-wins
 
 # Agent checks for conflicts before write
-claude-todo group check auth-feature --file src/models/user.ts
+cleo group check auth-feature --file src/models/user.ts
 CONFLICT: T043 also modifying src/models/user.ts
 Recommendation: Coordinate with T043 agent or defer changes
 ```
@@ -1503,7 +1503,7 @@ If you answered "yes" to all 8, your system is agent-native.
 
 If you answered "no" to any, your system is agent-compatible at best.
 
-**claude-todo currently scores 7/8** (missing: parallel work without conflicts).
+**cleo currently scores 7/8** (missing: parallel work without conflicts).
 
 ---
 

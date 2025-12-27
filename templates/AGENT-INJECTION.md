@@ -1,15 +1,15 @@
-<!-- CLAUDE-TODO:START v0.36.8 -->
-## Task Management (claude-todo)
+<!-- CLEO:START v0.38.0 -->
+## Task Management (cleo)
 
-Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`
+Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
 
 ### ALWAYS USE Data Integrity
 - **JSON auto-detection**: Piped output → JSON (no `--format` needed)
 - **Native filters**: Use `--status`, `--label`, `--phase` instead of jq
 - **Context-efficient**: Prefer `find` over `list` for task discovery
 - **Command discovery**: `ct commands -r critical` (no jq needed)
-- **CLI only** - NEVER edit `.claude/*.json` directly
-- **Verify state** - Use `claude-todo list` before assuming
+- **CLI only** - NEVER edit `.cleo/*.json` directly
+- **Verify state** - Use `cleo list` before assuming
 - **Session discipline** - ALWAYS Start/end sessions properly
 
 ### Essential Commands
@@ -31,13 +31,13 @@ ct uncancel <id>           # Restore cancelled task
 
 ### Command Discovery
 ```bash
-claude-todo commands -r critical    # Show critical commands (no jq needed)
+cleo commands -r critical    # Show critical commands (no jq needed)
 ```
 
 ### MUST use Session Protocol
 ```bash
-claude-todo session start           # Start work session
-claude-todo session end             # End work session
+cleo session start           # Start work session
+cleo session end             # End work session
 ```
 
 ### Phase Tracking
@@ -50,7 +50,7 @@ ct list --phase core       # Filter tasks by phase
 ### Phase Integration
 - Tasks can be assigned to project phases
 - Phases provide progress tracking and organization
-- Use `claude-todo list --phase <slug>` to filter by phase
+- Use `cleo list --phase <slug>` to filter by phase
 
 ### Phase Discipline
 **Check phase context before work:**
@@ -66,7 +66,7 @@ ct list --phase $(ct phase show -q)  # Focus on current phase tasks
 
 **Phase progression awareness:**
 - Core phase: Feature development and main implementation
-- Testing phase: Validation, testing, and quality assurance  
+- Testing phase: Validation, testing, and quality assurance
 - Polish phase: Refinement, documentation, and final touches
 - Maintenance phase: Bug fixes and ongoing support
 
@@ -76,6 +76,7 @@ ct list --phase $(ct phase show -q)  # Focus on current phase tasks
 - **Tree view**: `ct tree` or `ct list --tree` (equivalent). Subtree: `ct tree --parent T001`
 - **Reparent**: `ct reparent T005 --to T001` (move to different parent)
 - **Promote**: `ct promote T005` (remove parent, make root)
+- **Populate hierarchy**: `ct populate-hierarchy` (infer parentId from naming conventions)
 
 **Enable auto-complete:**
 ```bash
@@ -98,7 +99,7 @@ ct validate --fix-orphans delete     # Delete orphaned tasks
 ```
 
 ### Data Integrity
-- **CLI only** - Never edit `.claude/*.json` directly
+- **CLI only** - Never edit `.cleo/*.json` directly
 - **Verify state** - Use `ct list` before assuming
 - **Session discipline** - Start/end sessions properly
-<!-- CLAUDE-TODO:END -->
+<!-- CLEO:END -->

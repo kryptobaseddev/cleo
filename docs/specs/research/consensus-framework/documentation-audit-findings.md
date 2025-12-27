@@ -49,7 +49,7 @@ The CONSENSUS-FRAMEWORK-SPEC.md document exhibits **severe non-compliance** with
 | NO timeline estimates or dates | VIOLATION - "24 hours", "48 hours", "24-48 hours" response times; dates in changelog | Lines 487, 496, 505, 513-514; Lines 911-935 | HIGH |
 | NO assignee names | COMPLIANT - No personal assignees found | N/A | OK |
 | NO task IDs | VIOLATION - 31 explicit task IDs: T184-T214, T185-T188, T190-T194, T196-T198, T200-T203, T204-T205 | Lines 22-78 | CRITICAL |
-| NO implementation code | VIOLATION - Extensive bash command snippets (claude-todo commands, mcp calls, cat/ls commands) | Lines 573-803, 887-905 | CRITICAL |
+| NO implementation code | VIOLATION - Extensive bash command snippets (cleo commands, mcp calls, cat/ls commands) | Lines 573-803, 887-905 | CRITICAL |
 
 ---
 
@@ -90,7 +90,7 @@ Entire section including:
 
 ### 4. Quick Start Section (Lines 884-906)
 Contains implementation commands:
-- claude-todo bash commands
+- cleo bash commands
 - Session start workflow
 
 ### 5. Changelog Section (Lines 909-935)
@@ -139,7 +139,7 @@ The document uses informal requirement language inconsistently:
 
 | Current Text | Line | Issue |
 |--------------|------|-------|
-| "MUST be tracked via claude-todo" | 595 | Uses UPPERCASE but no RFC 2119 conformance declared |
+| "MUST be tracked via cleo" | 595 | Uses UPPERCASE but no RFC 2119 conformance declared |
 | "MUST include" | 429 | Same issue - normative keyword without framework |
 | "DO NOT do direct analysis work" | 145 | Informal prohibition, not RFC 2119 compliant |
 | "Cannot amend" | 257 | Informal prohibition |
@@ -149,7 +149,7 @@ Normative requirements should use proper RFC 2119 keywords:
 
 | Current | Should Be |
 |---------|-----------|
-| "MUST be tracked via claude-todo" | Move to Implementation Report (procedural, not behavioral) |
+| "MUST be tracked via cleo" | Move to Implementation Report (procedural, not behavioral) |
 | "Each worker agent prompt MUST include" | "Each worker agent prompt SHALL include" (in spec context) |
 | "DO NOT do direct analysis work" | "The Task Orchestrator MUST NOT perform direct analysis" |
 | "Cannot amend" | "IMMUTABLE status MUST NOT be amended" |
@@ -178,7 +178,7 @@ Normative requirements should use proper RFC 2119 keywords:
 | Line | Content | Issue |
 |------|---------|-------|
 | 17 | `## Task Tracking` | VIOLATION: Entire section is implementation tracking |
-| 19 | `All tasks logged in claude-todo with label...` | Implementation detail, not spec |
+| 19 | `All tasks logged in cleo with label...` | Implementation detail, not spec |
 | 22-27 | Phase Structure table with T184, T189, T195, T199 | VIOLATION: Task IDs |
 | 29-36 | Phase 1 Subtasks table | VIOLATION: Task IDs |
 | 38-45 | Phase 2 Subtasks table | VIOLATION: Task IDs |

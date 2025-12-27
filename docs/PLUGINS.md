@@ -1,19 +1,19 @@
 # Plugin Architecture
 
-Plugin system architecture and development guide for extending claude-todo functionality.
+Plugin system architecture and development guide for extending cleo functionality.
 
 ---
 
 ## Overview
 
-The claude-todo plugin system enables extensibility through auto-discovered shell scripts. Plugins can add new commands without modifying the core CLI, enabling project-specific workflows and third-party integrations.
+The cleo plugin system enables extensibility through auto-discovered shell scripts. Plugins can add new commands without modifying the core CLI, enabling project-specific workflows and third-party integrations.
 
 ### Design Goals
 
 1. **Zero-Dependency Extension**: Plugins are standalone shell scripts - no compilation or installation
 2. **Auto-Discovery**: Drop scripts in plugin directories and they're immediately available
 3. **Future-Proof Foundation**: Architecture supports evolution toward a robust microservice CLI
-4. **Configuration Integration**: Plugins respect and can extend `todo-config.json`
+4. **Configuration Integration**: Plugins respect and can extend `config.json`
 5. **Non-Invasive**: Core commands are never modified by plugins
 
 ---
@@ -24,8 +24,8 @@ Plugins are discovered from two locations (in order of precedence):
 
 | Directory | Scope | Priority | Use Case |
 |-----------|-------|----------|----------|
-| `./.claude/plugins/` | Project | Higher | Project-specific workflows |
-| `~/.claude-todo/plugins/` | Global | Lower | User-wide utilities |
+| `./.cleo/plugins/` | Project | Higher | Project-specific workflows |
+| `~/.cleo/plugins/` | Global | Lower | User-wide utilities |
 
 **Precedence Rule**: If the same plugin name exists in both locations, the project-local version is used.
 
@@ -37,7 +37,7 @@ Plugins are discovered from two locations (in order of precedence):
 
 ```bash
 #!/usr/bin/env bash
-# ~/.claude-todo/plugins/my-command.sh
+# ~/.cleo/plugins/my-command.sh
 
 echo "Hello from my-command!"
 ```
@@ -68,7 +68,7 @@ echo "My command with metadata"
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | No | Override command name (default: filename) |
-| `description` | Yes | Short description shown in `claude-todo help` |
+| `description` | Yes | Short description shown in `cleo help` |
 | `version` | No | Plugin version for tracking |
 | `author` | No | Plugin author |
 | `requires` | No | Comma-separated external dependencies |
@@ -88,7 +88,7 @@ END_DATE="${2:-$(date -Idate)}"
 echo "Report: $START_DATE to $END_DATE"
 
 # Access todo.json
-TODO_FILE=".claude/todo.json"
+TODO_FILE=".cleo/todo.json"
 if [[ -f "$TODO_FILE" ]]; then
   jq --arg start "$START_DATE" --arg end "$END_DATE" \
     '.tasks[] | select(.createdAt >= $start and .createdAt <= $end)' \
@@ -96,7 +96,7 @@ if [[ -f "$TODO_FILE" ]]; then
 fi
 ```
 
-**Usage**: `claude-todo my-report 2025-12-01 2025-12-10`
+**Usage**: `cleo my-report 2025-12-01 2025-12-10`
 
 ---
 
@@ -113,7 +113,7 @@ fi
 
 set -euo pipefail
 
-TODO_FILE=".claude/todo.json"
+TODO_FILE=".cleo/todo.json"
 [[ ! -f "$TODO_FILE" ]] && { echo "No todo.json found"; exit 1; }
 
 echo "# Daily Standup - $(date -Idate)"
@@ -141,7 +141,7 @@ jq -r '.tasks[] | select(.status == "blocked") | "- \(.title): \(.blockedBy)"' "
 ###END
 
 SPRINT_LABEL="${1:-sprint}"
-TODO_FILE=".claude/todo.json"
+TODO_FILE=".cleo/todo.json"
 
 total=$(jq "[.tasks[] | select(.labels // [] | index(\"$SPRINT_LABEL\"))] | length" "$TODO_FILE")
 done=$(jq "[.tasks[] | select(.labels // [] | index(\"$SPRINT_LABEL\")) | select(.status == \"done\")] | length" "$TODO_FILE")
@@ -161,7 +161,7 @@ echo "Active: $active"
 # requires: jq, gh
 ###END
 
-TODO_FILE=".claude/todo.json"
+TODO_FILE=".cleo/todo.json"
 
 jq -r '.tasks[] | select(.status == "pending") |
   "gh issue create --title \"\(.title)\" --body \"\(.description // \"No description\")\" --label \"\(.labels // [] | join(\",\"))\""
@@ -172,7 +172,7 @@ jq -r '.tasks[] | select(.status == "pending") |
 
 ## Plugin Configuration
 
-Plugins can be configured in `todo-config.json`:
+Plugins can be configured in `config.json`:
 
 ```json
 {
@@ -180,8 +180,8 @@ Plugins can be configured in `todo-config.json`:
     "plugins": {
       "enabled": true,
       "directories": [
-        "~/.claude-todo/plugins",
-        "./.claude/plugins"
+        "~/.cleo/plugins",
+        "./.cleo/plugins"
       ],
       "autoDiscover": true
     }
@@ -194,7 +194,7 @@ Plugins can be configured in `todo-config.json`:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable/disable plugin system |
-| `directories` | array | `["~/.claude-todo/plugins", "./.claude/plugins"]` | Plugin search paths |
+| `directories` | array | `["~/.cleo/plugins", "./.cleo/plugins"]` | Plugin search paths |
 | `autoDiscover` | boolean | `true` | Auto-discover plugins on startup |
 
 ---
@@ -212,9 +212,9 @@ Plugins can source library functions:
 ###END
 
 # Source core libraries
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-source "$CLAUDE_TODO_HOME/lib/logging.sh"
-source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+source "$CLEO_HOME/lib/logging.sh"
+source "$CLEO_HOME/lib/file-ops.sh"
 
 # Use logging functions
 log_info "Starting plugin operation..."
@@ -243,12 +243,12 @@ log_success "Plugin completed!"
 set -euo pipefail
 
 # Configuration
-TODO_FILE=".claude/todo.json"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+TODO_FILE=".cleo/todo.json"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Help
 if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
-  echo "Usage: claude-todo $(basename "$0" .sh) [OPTIONS]"
+  echo "Usage: cleo $(basename "$0" .sh) [OPTIONS]"
   echo ""
   echo "Description here..."
   exit 0
@@ -302,10 +302,10 @@ main "$@"
 
 ```bash
 # List discovered plugins
-claude-todo --list-commands
+cleo --list-commands
 
 # Debug mode shows plugin paths
-claude-todo --validate
+cleo --validate
 ```
 
 ### Common Issues
@@ -321,7 +321,7 @@ claude-todo --validate
 
 ```bash
 # Enable verbose plugin output
-CLAUDE_TODO_DEBUG=1 claude-todo my-plugin
+CLEO_DEBUG=1 cleo my-plugin
 ```
 
 ---
@@ -343,7 +343,7 @@ To contribute plugins to the community:
 1. Follow the plugin template structure
 2. Include comprehensive metadata
 3. Add help documentation (`-h` flag)
-4. Test with `claude-todo --validate`
+4. Test with `cleo --validate`
 5. Submit to plugin registry (future feature)
 
 ---

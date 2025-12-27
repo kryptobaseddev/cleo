@@ -15,7 +15,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Preamble
 
-This specification establishes the design for **Release Version Management** in claude-todo. It addresses the problem of version drift where tasks become associated with versions that never actually ship those tasks, and where there is no reliable tracking of what actually shipped in which release.
+This specification establishes the design for **Release Version Management** in cleo. It addresses the problem of version drift where tasks become associated with versions that never actually ship those tasks, and where there is no reliable tracking of what actually shipped in which release.
 
 **Problem Statement:**
 1. Version numbers shift as scope changes during development
@@ -26,7 +26,7 @@ This specification establishes the design for **Release Version Management** in 
 6. No integration with project VERSION file for semver workflow
 
 **Design Goal:**
-Enable claude-todo to track release versions with lifecycle management, distinguishing planned release targets from actual shipped releases, with referential integrity validation for LLM anti-hallucination, and optional VERSION file integration.
+Enable cleo to track release versions with lifecycle management, distinguishing planned release targets from actual shipped releases, with referential integrity validation for LLM anti-hallucination, and optional VERSION file integration.
 
 ---
 
@@ -80,7 +80,7 @@ Release management is **opt-in**. When disabled, the feature has zero impact on 
 
 ### 1.2 Full Configuration Schema
 
-Config location: `.claude/todo-config.json` under `releases` key.
+Config location: `.cleo/config.json` under `releases` key.
 
 ```json
 {
@@ -601,7 +601,7 @@ ct list --shipped-release 0.19.0
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "command": "release list",
     "timestamp": "2025-12-18T10:00:00Z",
@@ -644,7 +644,7 @@ ct list --shipped-release 0.19.0
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "command": "release suggest",
     "timestamp": "2025-12-18T10:00:00Z",
@@ -706,8 +706,8 @@ ct list --shipped-release 0.19.0
 
 ### 11.1 Schema Version
 
-- **Current**: `claude-todo-schema-v2.3`
-- **Target**: `claude-todo-schema-v2.4`
+- **Current**: `cleo-schema-v2.3`
+- **Target**: `cleo-schema-v2.4`
 
 ### 11.2 Migration from Labels
 
@@ -874,7 +874,7 @@ Epics are **organizational units** (grouping related work), not **shippable unit
 
 ### A.4 Why VERSION File Integration?
 
-Real-world observation: claude-todo's own version labels became stale because there was no connection between task tracking and the VERSION file. Integration:
+Real-world observation: cleo's own version labels became stale because there was no connection between task tracking and the VERSION file. Integration:
 - Ensures consistency between what's tracked and what's released
 - Reduces manual version management errors
 - Provides semver suggestion based on task scope

@@ -3,7 +3,7 @@
 ## Investigation: CONSENSUS-FRAMEWORK-SPEC Meta-Validation
 
 **Date**: 2025-12-19
-**Document Analyzed**: `/mnt/projects/claude-todo/docs/specs/CONSENSUS-FRAMEWORK-SPEC.md`
+**Document Analyzed**: `/mnt/projects/cleo/docs/specs/CONSENSUS-FRAMEWORK-SPEC.md`
 **Version**: 1.3.0
 
 ---
@@ -141,10 +141,10 @@ A consolidated table would reduce navigation overhead.
 3. **Fix File Extension Reference**: Change L690 from `.diff` to `.md`:
    ```markdown
    # BEFORE
-   claude-todo update T202 --notes "DOC: claudedocs/consensus/doc-corrections.diff"
+   cleo update T202 --notes "DOC: claudedocs/consensus/doc-corrections.diff"
 
    # AFTER
-   claude-todo update T202 --notes "DOC: claudedocs/consensus/doc-corrections.md"
+   cleo update T202 --notes "DOC: claudedocs/consensus/doc-corrections.md"
    ```
 
 ### Important Improvements

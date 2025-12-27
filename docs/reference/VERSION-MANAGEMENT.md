@@ -4,7 +4,7 @@
 
 ## Overview
 
-claude-todo uses a **dual-track versioning system** to independently manage application features and data structure:
+cleo uses a **dual-track versioning system** to independently manage application features and data structure:
 
 - **APP VERSION**: Feature releases following semantic versioning (e.g., 0.15.0)
   - Tracks user-facing changes, new commands, CLI improvements
@@ -28,7 +28,7 @@ claude-todo uses a **dual-track versioning system** to independently manage appl
 **Primary Location**: `VERSION` file (single source of truth)
 
 ```
-/mnt/projects/claude-todo/VERSION
+/mnt/projects/cleo/VERSION
 ```
 
 **Content Format**: Semver (X.Y.Z) with trailing newline
@@ -39,7 +39,7 @@ claude-todo uses a **dual-track versioning system** to independently manage appl
 **Modified By**: `dev/bump-version.sh` (automated)
 
 **Consumed By**:
-- `lib/version.sh` - Provides `get_version()` and `$CLAUDE_TODO_VERSION`
+- `lib/version.sh` - Provides `get_version()` and `$CLEO_VERSION`
 - All scripts via `source lib/version.sh`
 - Installation process (`install.sh`)
 - Documentation generation
@@ -293,10 +293,10 @@ Get current installed version.
 
 **Usage**:
 ```bash
-claude-todo version
+cleo version
 # Output: 0.15.0
 
-claude-todo --version
+cleo --version
 # Output: 0.15.0
 ```
 
@@ -304,7 +304,7 @@ claude-todo --version
 ```bash
 # Any script can get version via:
 source "${SCRIPT_DIR}/../lib/version.sh"
-echo "$CLAUDE_TODO_VERSION"
+echo "$CLEO_VERSION"
 ```
 
 ### Migration Commands
@@ -313,20 +313,20 @@ Schema version operations (see [migration-guide.md](migration-guide.md) for deta
 
 **Check Schema Status**:
 ```bash
-claude-todo migrate status
+cleo migrate status
 # Shows current and target schema versions for all files
 ```
 
 **Run Migrations**:
 ```bash
-claude-todo migrate run
+cleo migrate run
 # Upgrades data files to latest schema versions
 ```
 
 **Repair Schema Issues**:
 ```bash
-claude-todo migrate repair --dry-run   # Preview fixes
-claude-todo migrate repair --auto      # Apply fixes
+cleo migrate repair --dry-run   # Preview fixes
+cleo migrate repair --auto      # Apply fixes
 ```
 
 ## When to Bump Versions
@@ -440,14 +440,14 @@ git tag -a vX.Y.Z -m "Release vX.Y.Z"
 ./install.sh --force
 
 # Verify installation
-claude-todo version  # Should show X.Y.Z
+cleo version  # Should show X.Y.Z
 
 # Smoke test
 cd /tmp
 mkdir test-project && cd test-project
-claude-todo init
-claude-todo add "Test task"
-claude-todo list
+cleo init
+cleo add "Test task"
+cleo list
 ```
 
 ### 6. Push
@@ -459,7 +459,7 @@ git push origin vX.Y.Z  # If tagged
 
 ### 7. Post-Release
 
-- [ ] Update project installations: `claude-todo init --update-claude-md`
+- [ ] Update project installations: `cleo init --update-claude-md`
 - [ ] Monitor for issues
 - [ ] Update documentation site (if applicable)
 
@@ -469,13 +469,13 @@ git push origin vX.Y.Z  # If tagged
 
 **Wrong**:
 ```bash
-echo "claude-todo v0.15.0"  # Hardcoded, will become stale
+echo "cleo v0.15.0"  # Hardcoded, will become stale
 ```
 
 **Correct**:
 ```bash
 source "${SCRIPT_DIR}/../lib/version.sh"
-echo "claude-todo v$CLAUDE_TODO_VERSION"
+echo "cleo v$CLEO_VERSION"
 ```
 
 ### DON'T: Edit VERSION File Manually
@@ -564,30 +564,30 @@ sed -i 's/version-0.14.0-/version-0.15.0-/' README.md
 
 ### Issue: "unknown" Version Reported
 
-**Symptom**: `claude-todo version` returns "unknown"
+**Symptom**: `cleo version` returns "unknown"
 
 **Cause**: `VERSION` file not found or not readable
 
 **Diagnosis**:
 ```bash
 # Check if VERSION file exists
-ls -la ~/.claude-todo/VERSION
+ls -la ~/.cleo/VERSION
 
 # Check if version.sh can find it
-source ~/.claude-todo/lib/version.sh
-echo "$CLAUDE_TODO_VERSION"
+source ~/.cleo/lib/version.sh
+echo "$CLEO_VERSION"
 ```
 
 **Fix**:
 ```bash
 # Reinstall if VERSION missing
-cd /path/to/claude-todo
+cd /path/to/cleo
 ./install.sh --force
 ```
 
 ### Issue: Old Version After Install
 
-**Symptom**: `claude-todo version` shows old version after running `bump-version.sh`
+**Symptom**: `cleo version` shows old version after running `bump-version.sh`
 
 **Cause**: Installed version not updated
 
@@ -597,7 +597,7 @@ cd /path/to/claude-todo
 ./install.sh --force
 
 # Verify
-claude-todo version
+cleo version
 ```
 
 ### Issue: Migration Not Running
@@ -609,16 +609,16 @@ claude-todo version
 **Diagnosis**:
 ```bash
 # Check current schema version
-cat ~/.claude/<project>/.claude/todo.json | jq '.schemaVersion'
+cat ~/.cleo/<project>/.cleo/todo.json | jq '.schemaVersion'
 
 # Check target version
-grep SCHEMA_VERSION_TODO ~/.claude-todo/lib/migrate.sh
+grep SCHEMA_VERSION_TODO ~/.cleo/lib/migrate.sh
 ```
 
 **Fix**:
 ```bash
 # Run migration with verbose output
-CLAUDE_TODO_DEBUG=1 claude-todo migrate run
+CLEO_DEBUG=1 cleo migrate run
 ```
 
 ### Issue: Schema Versions Out of Sync
@@ -630,13 +630,13 @@ CLAUDE_TODO_DEBUG=1 claude-todo migrate run
 **Fix**:
 ```bash
 # Check all schema versions
-claude-todo migrate status
+cleo migrate status
 
 # Run full migration
-claude-todo migrate run
+cleo migrate run
 
 # Validate integrity
-claude-todo validate
+cleo validate
 ```
 
 ## Related Documentation

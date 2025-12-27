@@ -1,6 +1,6 @@
 # Claude Code Integration Guide
 
-> LLM-optimized reference for Claude Code sessions with claude-todo
+> LLM-optimized reference for Claude Code sessions with cleo
 
 ---
 
@@ -21,9 +21,9 @@
 
 **Validation Commands**:
 ```bash
-claude-todo validate          # Standard validation
-claude-todo validate --strict # Warnings are errors
-claude-todo validate --fix    # Auto-fix simple issues
+cleo validate          # Standard validation
+cleo validate --strict # Warnings are errors
+cleo validate --fix    # Auto-fix simple issues
 ```
 
 ---
@@ -33,7 +33,7 @@ claude-todo validate --fix    # Auto-fix simple issues
 ### Session Start
 
 ```
-1. Read todo-config.json
+1. Read config.json
 2. Read todo.json
 3. Verify _meta.checksum (log if mismatch, don't block)
 4. Generate session ID: session_YYYYMMDD_HHMMSS_<random>
@@ -46,19 +46,19 @@ claude-todo validate --fix    # Auto-fix simple issues
 
 **CLI Command**:
 ```bash
-claude-todo session start
+cleo session start
 ```
 
 ### During Session
 
 | Action | How To |
 |--------|--------|
-| Activate task | `claude-todo focus set <ID>` |
-| Add progress note | `claude-todo update <ID> --notes "Progress text"` |
-| Add new task | `claude-todo add "Task title" [options]` |
-| Mark blocked | `claude-todo update <ID> --blocked-by "Reason"` |
-| Complete task | `claude-todo complete <ID>` |
-| Check status | `claude-todo list` or `claude-todo focus show` |
+| Activate task | `cleo focus set <ID>` |
+| Add progress note | `cleo update <ID> --notes "Progress text"` |
+| Add new task | `cleo add "Task title" [options]` |
+| Mark blocked | `cleo update <ID> --blocked-by "Reason"` |
+| Complete task | `cleo complete <ID>` |
+| Check status | `cleo list` or `cleo focus show` |
 
 **Focus Object** (in todo.json):
 ```json
@@ -85,7 +85,7 @@ claude-todo session start
 
 **CLI Command**:
 ```bash
-claude-todo session end
+cleo session end
 ```
 
 ---
@@ -123,7 +123,7 @@ claude-todo session end
 ### Task Creation
 
 ```bash
-claude-todo add "Implement authentication" \
+cleo add "Implement authentication" \
   --priority high \
   --labels "backend,security" \
   --description "Add JWT-based authentication" \
@@ -136,7 +136,7 @@ claude-todo add "Implement authentication" \
 ### Task Completion
 
 ```bash
-claude-todo complete T001
+cleo complete T001
 ```
 
 **Auto-Updates**: `status → done`, `completedAt → now`, clears `focus.currentTask`
@@ -149,7 +149,7 @@ claude-todo complete T001
 
 Detect external modifications to todo.json. **Detection-only** - does not block operations.
 
-**Why Detection-Only**: Both claude-todo CLI and TodoWrite modify todo.json. Blocking on mismatch would break normal Claude Code workflows.
+**Why Detection-Only**: Both cleo CLI and TodoWrite modify todo.json. Blocking on mismatch would break normal Claude Code workflows.
 
 ### Calculate
 
@@ -181,9 +181,9 @@ After ANY modification to tasks array:
 
 ### Schema Mapping
 
-**claude-todo (Persistent)** → **TodoWrite (Ephemeral)**
+**cleo (Persistent)** → **TodoWrite (Ephemeral)**
 
-| claude-todo | TodoWrite | Notes |
+| cleo | TodoWrite | Notes |
 |-------------|-----------|-------|
 | `title` | `content` | Direct mapping |
 | `status` | `status` | Value transformation (see below) |
@@ -197,7 +197,7 @@ After ANY modification to tasks array:
 
 **Status Translation**:
 
-| claude-todo | TodoWrite |
+| cleo | TodoWrite |
 |-------------|-----------|
 | `pending` | `pending` |
 | `active` | `in_progress` |
@@ -208,13 +208,13 @@ After ANY modification to tasks array:
 
 ```bash
 # Generate TodoWrite-compatible JSON
-claude-todo export --format todowrite
+cleo export --format todowrite
 
 # Filter by status
-claude-todo export --format todowrite --status pending,active
+cleo export --format todowrite --status pending,active
 
 # Limit task count
-claude-todo export --format todowrite --max 10
+cleo export --format todowrite --max 10
 ```
 
 **Output Format**:
@@ -251,7 +251,7 @@ Title (imperative) → activeForm (present continuous)
 
 ```
 ┌─────────────────┐                    ┌─────────────────┐
-│    claude-todo  │    One-Way Export  │    TodoWrite    │
+│    cleo  │    One-Way Export  │    TodoWrite    │
 │   (persistent)  │───────────────────►│   (ephemeral)   │
 │                 │                    │                 │
 │  todo.json      │◄───────────────────│  Session state  │
@@ -273,21 +273,21 @@ Title (imperative) → activeForm (present continuous)
 
 ```bash
 # Task Management
-claude-todo add "Task title"       # Create task
-claude-todo list                   # View tasks
-claude-todo complete <ID>          # Mark complete
-claude-todo update <ID> [options]  # Update task
+cleo add "Task title"       # Create task
+cleo list                   # View tasks
+cleo complete <ID>          # Mark complete
+cleo update <ID> [options]  # Update task
 
 # Focus & Session
-claude-todo focus set <ID>         # Set active task
-claude-todo focus show             # Show current focus
-claude-todo session start          # Start session
-claude-todo session end            # End session
+cleo focus set <ID>         # Set active task
+cleo focus show             # Show current focus
+cleo session start          # Start session
+cleo session end            # End session
 
 # Maintenance
-claude-todo validate               # Check integrity
-claude-todo archive                # Archive completed tasks
-claude-todo export --format todowrite  # Export for Claude Code
+cleo validate               # Check integrity
+cleo archive                # Archive completed tasks
+cleo export --format todowrite  # Export for Claude Code
 ```
 
 ### Status Values
@@ -312,9 +312,9 @@ claude-todo export --format todowrite  # Export for Claude Code
 
 | File | Purpose | Modify Via |
 |------|---------|------------|
-| `todo.json` | Active tasks | claude-todo CLI |
+| `todo.json` | Active tasks | cleo CLI |
 | `todo-archive.json` | Completed tasks | archive command only |
-| `todo-config.json` | Configuration | Manual edit |
+| `config.json` | Configuration | Manual edit |
 | `todo-log.json` | Audit trail | Automatic (append-only) |
 
 ---

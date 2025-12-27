@@ -15,9 +15,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Preamble
 
-This specification defines the architecture, organization, and behavioral contracts for shell libraries in the claude-todo system. It establishes patterns for dependency management, source guards, layered architecture, and testability that ensure libraries are predictable, maintainable, and LLM-agent-friendly.
+This specification defines the architecture, organization, and behavioral contracts for shell libraries in the cleo system. It establishes patterns for dependency management, source guards, layered architecture, and testability that ensure libraries are predictable, maintainable, and LLM-agent-friendly.
 
-**Authority**: This specification is AUTHORITATIVE for all library architecture decisions in claude-todo.
+**Authority**: This specification is AUTHORITATIVE for all library architecture decisions in cleo.
 
 **Motivation**: Research across mature Bash projects (bats-core, oh-my-bash, asdf-vm), Google's Shell Style Guide, and LLM-agent integration patterns reveals consistent best practices that this specification codifies.
 

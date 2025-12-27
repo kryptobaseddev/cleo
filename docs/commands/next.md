@@ -5,7 +5,7 @@ Intelligently suggest the next task to work on based on priority, dependencies, 
 ## Usage
 
 ```bash
-claude-todo next [OPTIONS]
+cleo next [OPTIONS]
 ```
 
 ## Description
@@ -58,7 +58,7 @@ The recommendation engine works as follows:
 
 ```bash
 # Get the single best next task
-claude-todo next
+cleo next
 ```
 
 Output:
@@ -77,7 +77,7 @@ Ready to start (all dependencies satisfied)
 
 ```bash
 # Show why this task was chosen
-claude-todo next --explain
+cleo next --explain
 ```
 
 Output:
@@ -113,7 +113,7 @@ BLOCKING:
 
 ```bash
 # Show top 3 task suggestions
-claude-todo next --count 3
+cleo next --count 3
 ```
 
 Output:
@@ -140,7 +140,7 @@ NEXT TASK SUGGESTIONS (Top 3)
 
 ```bash
 # Machine-readable format
-claude-todo next --format json
+cleo next --format json
 ```
 
 Output structure:
@@ -182,8 +182,8 @@ Output structure:
 
 ```bash
 # Get suggestion and immediately set it as focus
-TASK_ID=$(claude-todo next --format json | jq -r '.suggestions[0].id')
-claude-todo focus set "$TASK_ID"
+TASK_ID=$(cleo next --format json | jq -r '.suggestions[0].id')
+cleo focus set "$TASK_ID"
 ```
 
 ## Use Cases
@@ -194,7 +194,7 @@ When you have many pending tasks and aren't sure what to tackle next:
 
 ```bash
 # Let the algorithm decide
-claude-todo next --explain
+cleo next --explain
 ```
 
 The explanation helps you understand the recommendation and make an informed decision.
@@ -203,15 +203,15 @@ The explanation helps you understand the recommendation and make an informed dec
 
 ```bash
 # Auto-select next task after completing current one
-claude-todo complete T015 --notes "Done"
-claude-todo next | grep "T[0-9]" | head -1
+cleo complete T015 --notes "Done"
+cleo next | grep "T[0-9]" | head -1
 ```
 
 ### Sprint Planning
 
 ```bash
 # Get top 5 tasks for sprint planning
-claude-todo next --count 5 --format json | \
+cleo next --count 5 --format json | \
   jq '.suggestions[] | "\(.priority) - \(.title)"'
 ```
 
@@ -219,7 +219,7 @@ claude-todo next --count 5 --format json | \
 
 ```bash
 # If next returns nothing, check what's blocking
-claude-todo next || claude-todo list --status blocked
+cleo next || cleo list --status blocked
 ```
 
 ## Understanding Scores
@@ -250,7 +250,7 @@ The `next` command only suggests tasks where all dependencies are satisfied:
 # T020 will NOT be suggested until both T015 and T018 are done
 
 # Check dependencies
-claude-todo next --explain
+cleo next --explain
 # Shows: "Dependencies: 2 pending (T015, T018)"
 ```
 
@@ -258,7 +258,7 @@ To see what's blocking a task from being suggested:
 
 ```bash
 # List all tasks with their dependency status
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.depends != null) | {id, title, depends}'
 ```
 
@@ -270,11 +270,11 @@ claude-todo list --format json | \
 # Add to .bashrc or .zshrc
 ct-start() {
   local task_id
-  task_id=$(claude-todo next --format json | jq -r '.suggestions[0].id')
+  task_id=$(cleo next --format json | jq -r '.suggestions[0].id')
 
   if [[ -n "$task_id" && "$task_id" != "null" ]]; then
     echo "Starting task: $task_id"
-    claude-todo focus set "$task_id"
+    cleo focus set "$task_id"
   else
     echo "No available tasks"
   fi
@@ -290,17 +290,17 @@ ct-start() {
 echo "=== Morning Standup ==="
 echo ""
 echo "Dashboard:"
-claude-todo dash --compact
+cleo dash --compact
 echo ""
 echo "Suggested next task:"
-claude-todo next --explain
+cleo next --explain
 ```
 
 ### CI/CD Task Validation
 
 ```bash
 # Fail build if no tasks are ready to work
-claude-todo next --format json | \
+cleo next --format json | \
   jq -e '.suggestions | length > 0' || \
   (echo "ERROR: No tasks ready to start" && exit 1)
 ```
@@ -309,7 +309,7 @@ claude-todo next --format json | \
 
 ```bash
 # Slack/Discord bot integration
-SUGGESTION=$(claude-todo next --explain)
+SUGGESTION=$(cleo next --explain)
 curl -X POST "$WEBHOOK_URL" -d "{\"text\":\"$SUGGESTION\"}"
 ```
 
@@ -319,22 +319,22 @@ If `next` doesn't suggest any tasks, check:
 
 1. **All tasks blocked**:
    ```bash
-   claude-todo list --status blocked
+   cleo list --status blocked
    ```
 
 2. **All tasks have pending dependencies**:
    ```bash
-   claude-todo list --format json | jq '.tasks[] | select(.depends != null)'
+   cleo list --format json | jq '.tasks[] | select(.depends != null)'
    ```
 
 3. **No pending tasks**:
    ```bash
-   claude-todo list --status pending
+   cleo list --status pending
    ```
 
 4. **All tasks completed**:
    ```bash
-   claude-todo stats
+   cleo stats
    ```
 
 ## Tips
@@ -351,29 +351,29 @@ While the scoring algorithm is built-in, you can influence recommendations by:
 
 **Setting Appropriate Priorities**:
 ```bash
-claude-todo update T015 --priority critical  # Will be suggested first
+cleo update T015 --priority critical  # Will be suggested first
 ```
 
 **Using Phases**:
 ```bash
 # Tasks in same phase as focus get +30 bonus
-claude-todo add "Backend work" --phase core
-claude-todo focus set T015  # Also in core phase
-claude-todo next  # Will strongly prefer core phase tasks
+cleo add "Backend work" --phase core
+cleo focus set T015  # Also in core phase
+cleo next  # Will strongly prefer core phase tasks
 ```
 
 **Managing Dependencies**:
 ```bash
 # Ensure dependencies are set correctly
-claude-todo update T020 --depends T015,T018
+cleo update T020 --depends T015,T018
 ```
 
 ## Related Commands
 
-- `claude-todo focus set ID` - Set focus to a specific task
-- `claude-todo list --status pending` - See all pending tasks
-- `claude-todo dash` - View comprehensive dashboard
-- `claude-todo update ID --priority PRIORITY` - Change task priority
+- `cleo focus set ID` - Set focus to a specific task
+- `cleo list --status pending` - See all pending tasks
+- `cleo dash` - View comprehensive dashboard
+- `cleo update ID --priority PRIORITY` - Change task priority
 
 ## Hierarchy-Aware Scoring (v0.27.0+)
 
@@ -385,10 +385,10 @@ When a task is focused, tasks in the same epic receive a significant bonus:
 
 ```bash
 # Focus on Auth Epic
-claude-todo focus set T001  # Auth Epic
+cleo focus set T001  # Auth Epic
 
 # Tasks within T001's hierarchy get +30 bonus
-claude-todo next --explain
+cleo next --explain
 # "Implement JWT" (T002, under T001) gets epic context bonus
 ```
 
@@ -398,7 +398,7 @@ Tasks without children are preferred to encourage bottom-up completion:
 
 ```bash
 # Prefers "Write tests" (no children) over "Auth Epic" (has children)
-claude-todo next --explain
+cleo next --explain
 ```
 
 ### Sibling Momentum Bonus (+5)
@@ -408,7 +408,7 @@ When 50% or more siblings are complete, remaining siblings get a bonus:
 ```bash
 # Epic has 4 tasks: 2 done, 2 pending
 # The 2 pending tasks get +5 momentum bonus
-claude-todo next --explain
+cleo next --explain
 ```
 
 ### Parent Context Display

@@ -1,9 +1,9 @@
-# CLAUDE-TODO
+# CLEO
 
 > **The task management protocol for solo developers and their AI coding agents**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.36.8-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.38.1-blue.svg)](CHANGELOG.md)
 [![LLM-Agent-First](https://img.shields.io/badge/design-LLM--Agent--First-purple.svg)](docs/specs/LLM-AGENT-FIRST-SPEC.md)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 
@@ -39,11 +39,11 @@
 
 ## One Developer. One Agent. One Source of Truth.
 
-Claude-TODO is the **contract between you and your AI coding agent**. It's not just a task tracker—it's a structured protocol designed for the unique challenges of AI-assisted development:
+CLEO is the **contract between you and your AI coding agent**. It's not just a task tracker—it's a structured protocol designed for the unique challenges of AI-assisted development:
 
-- **Agents hallucinate**. Claude-TODO validates every operation before execution.
-- **Agents lose context**. Claude-TODO persists state across sessions with immutable audit trails.
-- **Agents need structure**. Claude-TODO outputs JSON by default, with human-readable formatting opt-in.
+- **Agents hallucinate**. CLEO validates every operation before execution.
+- **Agents lose context**. CLEO persists state across sessions with immutable audit trails.
+- **Agents need structure**. CLEO outputs JSON by default, with human-readable formatting opt-in.
 
 Built specifically for [Claude Code](https://claude.ai/claude-code), but the principles apply to any LLM-agent workflow.
 
@@ -61,7 +61,7 @@ Traditional task management assumes human users. But when your primary "user" is
 | Trust | Validation |
 | Memory | Persistence |
 
-**Claude-TODO is built for agents first.** The `--human` flag is for you—the developer reviewing what your agent sees.
+**CLEO is built for agents first.** The `--human` flag is for you—the developer reviewing what your agent sees.
 
 ---
 
@@ -73,14 +73,14 @@ Every command follows a consistent pattern:
 
 ```bash
 # JSON by default (agent-first)
-claude-todo list                              # Returns JSON
-claude-todo list | jq '.tasks[0].id'          # Parse with jq
+cleo list                              # Returns JSON
+cleo list | jq '.tasks[0].id'          # Parse with jq
 
 # Human-readable when you need it (developer-friendly)
-claude-todo list --human                      # Formatted text output
+cleo list --human                      # Formatted text output
 
 # Exit codes for programmatic branching (17 documented codes)
-claude-todo exists T042 --quiet && echo "Found"
+cleo exists T042 --quiet && echo "Found"
 ```
 
 ### Anti-Hallucination Protection
@@ -142,17 +142,17 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 
 ```bash
 # 1. Clone and install globally
-git clone https://github.com/kryptobaseddev/claude-todo.git
-cd claude-todo
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo
 ./install.sh
 
 # 2. Verify installation
-claude-todo version
-claude-todo --validate
+cleo version
+cleo --validate
 
 # 3. Initialize in your project
 cd /path/to/your/project
-claude-todo init
+cleo init
 ```
 
 > **Note**: The installer creates symlinks in `~/.local/bin/`, which works immediately with Claude Code and most modern shells.
@@ -160,21 +160,21 @@ claude-todo init
 ### Upgrade Existing Installation
 
 ```bash
-cd claude-todo
+cd cleo
 git pull origin main
 ./install.sh --upgrade
 
 # For project schema migrations
-claude-todo migrate status
-claude-todo migrate run
+cleo migrate status
+cleo migrate run
 ```
 
 ### The `ct` Shortcut
 
 ```bash
-ct list        # Same as claude-todo list
-ct add "Task"  # Same as claude-todo add "Task"
-ct done T001   # Same as claude-todo complete T001
+ct list        # Same as cleo list
+ct add "Task"  # Same as cleo add "Task"
+ct done T001   # Same as cleo complete T001
 ct find "auth" # Fast fuzzy search (99% less tokens than list)
 ```
 
@@ -186,12 +186,12 @@ Enable shell completion for faster command entry and context-aware suggestions:
 
 **Bash** (add to `~/.bashrc`):
 ```bash
-source ~/.claude-todo/completions/bash-completion.sh
+source ~/.cleo/completions/bash-completion.sh
 ```
 
 **Zsh** (add to `~/.zshrc`):
 ```bash
-fpath=(~/.claude-todo/completions $fpath)
+fpath=(~/.cleo/completions $fpath)
 autoload -Uz compinit && compinit
 ```
 
@@ -203,9 +203,9 @@ autoload -Uz compinit && compinit
 
 ```bash
 # Example usage
-claude-todo add --parent <TAB>     # Shows T001, T002 (epic/task only)
-claude-todo list --status <TAB>    # Shows pending, active, blocked, done
-claude-todo focus set <TAB>        # Shows pending/active task IDs
+cleo add --parent <TAB>     # Shows T001, T002 (epic/task only)
+cleo list --status <TAB>    # Shows pending, active, blocked, done
+cleo focus set <TAB>        # Shows pending/active task IDs
 ```
 
 ---
@@ -225,52 +225,52 @@ claude-todo focus set <TAB>        # Shows pending/active task IDs
 
 ```bash
 # Task lifecycle
-claude-todo add "Implement authentication" --priority high
-claude-todo list                     # View all tasks (JSON default)
-claude-todo list --status pending    # Filter by status
-claude-todo update T001 --labels "backend,security"
-claude-todo complete T001
-claude-todo archive
+cleo add "Implement authentication" --priority high
+cleo list                     # View all tasks (JSON default)
+cleo list --status pending    # Filter by status
+cleo update T001 --labels "backend,security"
+cleo complete T001
+cleo archive
 
 # Session workflow
-claude-todo session start
-claude-todo focus set T001           # Only ONE active task allowed
-claude-todo focus note "Working on JWT validation"
-claude-todo session end
+cleo session start
+cleo focus set T001           # Only ONE active task allowed
+cleo focus note "Working on JWT validation"
+cleo session end
 
 # Analysis & planning
-claude-todo dash                     # Project overview
-claude-todo analyze                  # Task triage with leverage scoring
-claude-todo analyze --auto-focus     # Auto-set focus to highest leverage task
-claude-todo next --explain           # What should I work on?
-claude-todo blockers analyze         # Critical path analysis
+cleo dash                     # Project overview
+cleo analyze                  # Task triage with leverage scoring
+cleo analyze --auto-focus     # Auto-set focus to highest leverage task
+cleo next --explain           # What should I work on?
+cleo blockers analyze         # Critical path analysis
 
 # Context-efficient search (v0.19.2+)
-claude-todo find "auth"              # Fuzzy search (~1KB vs 355KB for full list)
-claude-todo find --id 42             # Find T42, T420, T421...
-claude-todo find "api" --status pending --field title
+cleo find "auth"              # Fuzzy search (~1KB vs 355KB for full list)
+cleo find --id 42             # Find T42, T420, T421...
+cleo find "api" --status pending --field title
 
 # Single task inspection
-claude-todo show T001                # Full task details
-claude-todo show T001 --history      # Include audit trail
-claude-todo exists T001 --quiet      # Exit 0 if exists, 1 if not
+cleo show T001                # Full task details
+cleo show T001 --history      # Include audit trail
+cleo exists T001 --quiet      # Exit 0 if exists, 1 if not
 
 # Research & discovery (v0.23.0+)
-claude-todo research "TypeScript patterns"           # Multi-source web research
-claude-todo research --library svelte --topic state  # Official docs via Context7
-claude-todo research --url https://example.com       # Extract from URL
+cleo research "TypeScript patterns"           # Multi-source web research
+cleo research --library svelte --topic state  # Official docs via Context7
+cleo research --url https://example.com       # Extract from URL
 ```
 
 ### Command Discovery (v0.21.0+)
 
 ```bash
 # Native filters - no jq needed
-claude-todo commands                     # List all (JSON by default)
-claude-todo commands --human             # Human-readable
-claude-todo commands --category write    # Filter by category
-claude-todo commands --relevance critical # Filter by agent relevance
-claude-todo commands --workflows         # Agent workflow sequences
-claude-todo commands add                 # Details for specific command
+cleo commands                     # List all (JSON by default)
+cleo commands --human             # Human-readable
+cleo commands --category write    # Filter by category
+cleo commands --relevance critical # Filter by agent relevance
+cleo commands --workflows         # Agent workflow sequences
+cleo commands add                 # Details for specific command
 ```
 
 ### Agent-Friendly Output
@@ -279,16 +279,16 @@ claude-todo commands add                 # Details for specific command
 
 ```bash
 # Default behavior (JSON everywhere)
-claude-todo list                    # JSON output (LLM-Agent-First default)
-claude-todo analyze                 # JSON output
-claude-todo show T001               # JSON output
+cleo list                    # JSON output (LLM-Agent-First default)
+cleo analyze                 # JSON output
+cleo show T001               # JSON output
 
 # Human-readable when you need it
-claude-todo list --human            # Human-readable text
-claude-todo dash --human            # Formatted dashboard
+cleo list --human            # Human-readable text
+cleo dash --human            # Formatted dashboard
 
 # Pipe to jq for parsing
-claude-todo list | jq '.tasks[0].id'
+cleo list | jq '.tasks[0].id'
 ```
 
 #### JSON Envelope Structure
@@ -297,7 +297,7 @@ All commands return a consistent envelope with `$schema`, `_meta`, and `success`
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "command": "list",
@@ -315,7 +315,7 @@ Errors return structured JSON with error codes, exit codes, and recovery suggest
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/error.schema.json",
   "_meta": {
     "format": "json",
     "command": "show",
@@ -347,21 +347,21 @@ Epic (strategic initiative)
 
 ```bash
 # Create hierarchy
-claude-todo add "Auth System" --type epic --size large
-claude-todo add "JWT middleware" --parent T001 --size medium
-claude-todo add "Validate tokens" --parent T002 --type subtask
+cleo add "Auth System" --type epic --size large
+cleo add "JWT middleware" --parent T001 --size medium
+cleo add "Validate tokens" --parent T002 --type subtask
 
 # View tree
-claude-todo list --tree
+cleo list --tree
 T001 [epic] Auth System
 ├── T002 [task] JWT middleware
 │   └── T003 [subtask] Validate tokens
 └── T004 [task] Session management
 
 # Filter by hierarchy
-claude-todo list --type epic
-claude-todo list --parent T001
-claude-todo list --children T001
+cleo list --type epic
+cleo list --parent T001
+cleo list --children T001
 ```
 
 ### Hierarchy Constraints
@@ -390,18 +390,18 @@ Agents lose context between invocations. Sessions provide checkpoints:
 
 ```bash
 # Morning routine
-claude-todo session start
-claude-todo dash              # Where am I?
-claude-todo focus show        # What was I working on?
+cleo session start
+cleo dash              # Where am I?
+cleo focus show        # What was I working on?
 
 # Work session
-claude-todo focus set T042
-claude-todo focus note "Implementing validation logic"
-claude-todo update T042 --notes "Tests passing"
+cleo focus set T042
+cleo focus note "Implementing validation logic"
+cleo update T042 --notes "Tests passing"
 
 # End of day
-claude-todo complete T042
-claude-todo session end
+cleo complete T042
+cleo session end
 ```
 
 **Single active task enforcement**: Only ONE task can be `active` at a time. This prevents context confusion and scope creep.
@@ -428,9 +428,9 @@ All commands output **JSON by default**. This is the core LLM-Agent-First princi
 
 ```bash
 # JSON is always the default
-claude-todo list                    # JSON
-claude-todo list --human            # Human-readable text
-claude-todo list --format text      # Same as --human
+cleo list                    # JSON
+cleo list --human            # Human-readable text
+cleo list --format text      # Same as --human
 ```
 
 ### Exit Codes
@@ -446,7 +446,7 @@ claude-todo list --format text      # Same as --human
 | `100+` | Special conditions | No data (100), Already exists (101), No change (102) |
 
 ```bash
-claude-todo exists T042 --quiet
+cleo exists T042 --quiet
 case $? in
   0) echo "Found" ;;
   1) echo "Not found" ;;
@@ -475,8 +475,8 @@ Every file modification follows this exact sequence:
 
 ```bash
 # SHA256 checksum of .tasks array
-claude-todo validate           # Check integrity
-claude-todo validate --fix     # Repair checksum mismatches
+cleo validate           # Check integrity
+cleo validate --fix     # Repair checksum mismatches
 ```
 
 Checksums detect corruption but don't block multi-writer scenarios (CLI + TodoWrite).
@@ -485,7 +485,7 @@ Checksums detect corruption but don't block multi-writer scenarios (CLI + TodoWr
 
 - **Automatic**: Safety backup before every write
 - **Rotation**: 10 versioned backups (`.backups/todo.json.1` through `.10`)
-- **Recovery**: `claude-todo restore` or `claude-todo backup --list`
+- **Recovery**: `cleo restore` or `cleo backup --list`
 
 ---
 
@@ -495,17 +495,17 @@ Organize work into project phases:
 
 ```bash
 # Define phases
-claude-todo add "Design API" --phase planning --add-phase
-claude-todo add "Implement core" --phase development
+cleo add "Design API" --phase planning --add-phase
+cleo add "Implement core" --phase development
 
 # Manage phases
-claude-todo phase set development    # Set current project phase
-claude-todo phase show               # Show current phase details
-claude-todo phases                   # View all phases with progress
-claude-todo phases stats             # Detailed breakdown
+cleo phase set development    # Set current project phase
+cleo phase show               # Show current phase details
+cleo phases                   # View all phases with progress
+cleo phases stats             # Detailed breakdown
 
 # Filter by phase
-claude-todo list --phase core
+cleo list --phase core
 ```
 
 **Phase lifecycle**: `pending` → `active` → `completed` (only ONE can be active)
@@ -519,7 +519,7 @@ claude-todo list --phase core
 Values resolved in order (later overrides earlier):
 
 ```
-Defaults → Global (~/.claude-todo/config.json) → Project (.claude/todo-config.json) → Environment (CLAUDE_TODO_*) → CLI Flags
+Defaults → Global (~/.cleo/config.json) → Project (.cleo/config.json) → Environment (CLEO_*) → CLI Flags
 ```
 
 ### Key Options
@@ -550,18 +550,18 @@ Defaults → Global (~/.claude-todo/config.json) → Project (.claude/todo-confi
 ### Configuration Commands
 
 ```bash
-claude-todo config show              # View merged configuration
-claude-todo config get hierarchy.maxDepth
-claude-todo config set archive.daysUntilArchive 14
-claude-todo config set --global validation.strictMode true
+cleo config show              # View merged configuration
+cleo config get hierarchy.maxDepth
+cleo config set archive.daysUntilArchive 14
+cleo config set --global validation.strictMode true
 ```
 
 ### Environment Variables
 
 ```bash
-CLAUDE_TODO_HOME=/custom/path        # Installation directory
-CLAUDE_TODO_DEBUG=1                  # Verbose output
-CLAUDE_TODO_FORMAT=json              # Force output format
+CLEO_HOME=/custom/path        # Installation directory
+CLEO_DEBUG=1                  # Verbose output
+CLEO_FORMAT=json              # Force output format
 ```
 
 ---
@@ -569,18 +569,18 @@ CLAUDE_TODO_FORMAT=json              # Force output format
 ## Project Structure
 
 ```
-~/.claude-todo/              # Global installation
+~/.cleo/              # Global installation
 ├── scripts/                 # Command implementations (35 scripts)
 ├── lib/                     # Shared libraries (validation, file-ops, logging, phase-tracking)
 ├── schemas/                 # JSON Schema definitions
 ├── templates/               # Starter templates
 └── docs/                    # Documentation
 
-your-project/.claude/        # Per-project instance
+your-project/.cleo/        # Per-project instance
 ├── todo.json               # Active tasks (source of truth)
 ├── todo-archive.json       # Completed tasks (immutable)
 ├── todo-log.json           # Audit trail (append-only)
-├── todo-config.json        # Project configuration
+├── config.json        # Project configuration
 └── .backups/               # Automatic versioned backups
 ```
 
@@ -588,64 +588,64 @@ your-project/.claude/        # Per-project instance
 
 ## For Claude Code Users
 
-Claude-TODO integrates seamlessly with Claude Code:
+CLEO integrates seamlessly with Claude Code:
 
 ### CLAUDE.md Integration
 
 ```bash
 # Update your project's CLAUDE.md with task instructions
-claude-todo init --update-claude-md
+cleo init --update-claude-md
 ```
 
-This injects the essential commands and protocols between `<!-- CLAUDE-TODO:START -->` and `<!-- CLAUDE-TODO:END -->` markers.
+This injects the essential commands and protocols between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
 
 ### TodoWrite Sync
 
 Bidirectional sync with Claude Code's ephemeral todo system:
 
 ```bash
-claude-todo sync --inject              # Push to TodoWrite (session start)
-claude-todo sync --inject --focused-only  # Only push focused task
-claude-todo sync --extract             # Pull from TodoWrite (session end)
-claude-todo sync --extract --dry-run   # Preview changes
+cleo sync --inject              # Push to TodoWrite (session start)
+cleo sync --inject --focused-only  # Only push focused task
+cleo sync --extract             # Pull from TodoWrite (session end)
+cleo sync --extract --dry-run   # Preview changes
 ```
 
 ### Agent Workflow Pattern
 
 ```bash
 # Agent verifies before operating (anti-hallucination)
-if claude-todo exists T042 --quiet; then
-  claude-todo update T042 --notes "Progress update"
+if cleo exists T042 --quiet; then
+  cleo update T042 --notes "Progress update"
 else
   echo "ERROR: Task T042 not found" >&2
   exit 1
 fi
 
 # Agent parses structured output
-ACTIVE=$(claude-todo list | jq -r '.tasks[] | select(.status=="active") | .id')
-claude-todo focus note "Working on $ACTIVE"
+ACTIVE=$(cleo list | jq -r '.tasks[] | select(.status=="active") | .id')
+cleo focus note "Working on $ACTIVE"
 
 # Context-efficient task discovery
-claude-todo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
+cleo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
 ```
 
 ---
 
 ## Extensibility
 
-Claude-TODO supports extension points for custom workflows:
+CLEO supports extension points for custom workflows:
 
 ```bash
-.claude/validators/           # Custom validation scripts
-.claude/hooks/                # Event hooks (on-complete, on-archive, etc.)
-~/.claude-todo/formatters/    # Custom output formatters
-~/.claude-todo/integrations/  # External system integrations
+.cleo/validators/           # Custom validation scripts
+.cleo/hooks/                # Event hooks (on-complete, on-archive, etc.)
+~/.cleo/formatters/    # Custom output formatters
+~/.cleo/integrations/  # External system integrations
 ```
 
 ### Event Hooks Example
 
 ```bash
-# .claude/hooks/on-task-complete.sh
+# .cleo/hooks/on-task-complete.sh
 #!/usr/bin/env bash
 task_id="$1"
 # Send notification, update external tracker, etc.
@@ -662,19 +662,19 @@ See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
 | Problem | Solution |
 |---------|----------|
 | `command not found` | Check `~/.local/bin` in PATH, run `source ~/.bashrc` |
-| `Permission denied` | `chmod 755 ~/.claude-todo/scripts/*.sh` |
-| `Invalid JSON` | `claude-todo validate --fix` or `claude-todo restore` |
-| `Duplicate ID` | `claude-todo restore .claude/.backups/todo.json.1` |
-| `Checksum mismatch` | `claude-todo validate --fix` |
-| `Multiple active tasks` | `claude-todo focus set <correct-id>` (resets others) |
-| `Schema outdated` | `claude-todo migrate run` |
+| `Permission denied` | `chmod 755 ~/.cleo/scripts/*.sh` |
+| `Invalid JSON` | `cleo validate --fix` or `cleo restore` |
+| `Duplicate ID` | `cleo restore .cleo/.backups/todo.json.1` |
+| `Checksum mismatch` | `cleo validate --fix` |
+| `Multiple active tasks` | `cleo focus set <correct-id>` (resets others) |
+| `Schema outdated` | `cleo migrate run` |
 
 ### Debug Mode
 
 ```bash
-CLAUDE_TODO_DEBUG=1 claude-todo list  # Verbose output
-claude-todo --validate                # Check CLI integrity
-claude-todo --list-commands           # Show all available commands
+CLEO_DEBUG=1 cleo list  # Verbose output
+cleo --validate                # Check CLI integrity
+cleo --list-commands           # Show all available commands
 ```
 
 ---
@@ -709,7 +709,7 @@ Target metrics (optimized for 1000+ tasks):
 
 ## The Philosophy
 
-Claude-TODO is built on three pillars:
+CLEO is built on three pillars:
 
 ### 1. Agent-First, Human-Accessible
 JSON output by default. Exit codes for branching. Structured errors. The `--human` flag is opt-in for developer visibility.
@@ -736,14 +736,14 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 ./tests/test-validation.sh
 
 # Validate installation
-claude-todo --validate
+cleo --validate
 ```
 
 ---
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=kryptobaseddev/claude-todo&type=Date)](https://star-history.com/#kryptobaseddev/claude-todo&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=kryptobaseddev/cleo&type=Date)](https://star-history.com/#kryptobaseddev/cleo&Date)
 
 ---
 
@@ -755,7 +755,7 @@ MIT License — See [LICENSE](LICENSE)
 
 <p align="center">
   <strong>Ready to build with your AI agent?</strong><br>
-  <code>./install.sh && claude-todo init</code>
+  <code>./install.sh && cleo init</code>
 </p>
 
 <p align="center">

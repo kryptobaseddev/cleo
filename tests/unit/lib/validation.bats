@@ -471,9 +471,9 @@ setup() {
 }
 
 @test "sanitize_file_path accepts valid relative path" {
-    run sanitize_file_path ".claude/todo.json"
+    run sanitize_file_path ".cleo/todo.json"
     assert_success
-    assert_output ".claude/todo.json"
+    assert_output ".cleo/todo.json"
 }
 
 @test "sanitize_file_path accepts path with dots" {

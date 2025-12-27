@@ -15,9 +15,9 @@ declare -r _CACHE_LOADED=1
 
 # Set VERSION if not already set (should be set by sourcing script)
 if [[ -z "${VERSION:-}" ]]; then
-  CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-  if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-    VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+  CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+  if [[ -f "$CLEO_HOME/VERSION" ]]; then
+    VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
   else
     VERSION="unknown"
   fi
@@ -42,7 +42,7 @@ _CACHE_VALID=false
 
 # Calculate checksum of todo.json
 _cache_calculate_checksum() {
-  local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+  local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
   if [[ ! -f "$todo_file" ]]; then
     echo ""
@@ -62,7 +62,7 @@ _cache_calculate_checksum() {
 
 # Check if cache is stale
 _cache_is_stale() {
-  local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+  local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
   # No cache directory means stale
   if [[ ! -d "$CACHE_DIR" ]]; then
@@ -93,7 +93,7 @@ _cache_is_stale() {
 
 # Build label index from todo.json
 _cache_build_label_index() {
-  local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+  local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
   jq -c '
     reduce .tasks[] as $task ({};
@@ -110,7 +110,7 @@ _cache_build_label_index() {
 
 # Build phase index from todo.json
 _cache_build_phase_index() {
-  local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+  local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
   jq -c '
     reduce .tasks[] as $task ({};
@@ -125,7 +125,7 @@ _cache_build_phase_index() {
 
 # Write cache files
 _cache_write_files() {
-  local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+  local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
   # Create cache directory
   mkdir -p "$CACHE_DIR"
@@ -179,7 +179,7 @@ _cache_load_memory() {
 # Initialize cache system (call at script start)
 # Returns: 0 if cache was valid, 1 if cache was rebuilt
 cache_init() {
-  local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+  local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
   if [[ "$_CACHE_INITIALIZED" == "true" && "$_CACHE_VALID" == "true" ]]; then
     return 0
@@ -267,7 +267,7 @@ cache_get_phase_count() {
 
 # Force cache invalidation and rebuild
 cache_invalidate() {
-  local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+  local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
   _CACHE_VALID=false
   _CACHE_INITIALIZED=false
@@ -319,7 +319,7 @@ cache_get_metadata() {
 # Args: $1 = todo file path
 # Returns: JSON object {phase_slug: [task_ids]}
 build_phase_index() {
-    local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq '
         .tasks |
@@ -337,7 +337,7 @@ build_phase_index() {
 # Returns: JSON array of task IDs
 get_phase_tasks() {
     local phase="$1"
-    local todo_file="${2:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${2:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq --arg phase "$phase" '
         [.tasks[] | select(.phase == $phase) | .id]
@@ -348,7 +348,7 @@ get_phase_tasks() {
 # Args: $1 = todo file path
 # Returns: JSON object {phase_slug: count}
 count_tasks_by_phase() {
-    local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq '
         .tasks |
@@ -366,7 +366,7 @@ count_tasks_by_phase() {
 # Returns: JSON object {pending: n, active: n, blocked: n, done: n}
 get_phase_stats() {
     local phase="$1"
-    local todo_file="${2:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${2:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq --arg phase "$phase" '
         .tasks |
@@ -386,7 +386,7 @@ get_phase_stats() {
 # Returns: percentage (0-100)
 get_phase_progress() {
     local phase="$1"
-    local todo_file="${2:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${2:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq -r --arg phase "$phase" '
         .tasks |
@@ -427,7 +427,7 @@ _HIERARCHY_CACHE_VALID=false
 
 # Build hierarchy index from todo.json
 _cache_build_hierarchy_index() {
-    local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq -c '
         reduce .tasks[] as $task ({};
@@ -441,7 +441,7 @@ _cache_build_hierarchy_index() {
 
 # Build children index (parent -> list of children)
 _cache_build_children_index() {
-    local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq -c '
         reduce .tasks[] as $task ({};
@@ -454,7 +454,7 @@ _cache_build_children_index() {
 
 # Build depth index (task -> depth in hierarchy)
 _cache_build_depth_index() {
-    local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
     jq -c '
         # Build parent lookup
@@ -477,7 +477,7 @@ _cache_build_depth_index() {
 
 # Write hierarchy cache files
 _cache_write_hierarchy_files() {
-    local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
     # Create cache directory
     mkdir -p "$CACHE_DIR"
@@ -528,7 +528,7 @@ _cache_load_hierarchy_memory() {
 
 # Initialize hierarchy cache system
 cache_init_hierarchy() {
-    local todo_file="${1:-${TODO_FILE:-.claude/todo.json}}"
+    local todo_file="${1:-${TODO_FILE:-.cleo/todo.json}}"
 
     if [[ "$_HIERARCHY_CACHE_VALID" == "true" ]]; then
         return 0

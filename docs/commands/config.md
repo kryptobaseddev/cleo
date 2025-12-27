@@ -1,25 +1,25 @@
 # config Command
 
-View and modify claude-todo configuration settings.
+View and modify cleo configuration settings.
 
 ## Synopsis
 
 ```bash
-claude-todo config <subcommand> [args] [options]
+cleo config <subcommand> [args] [options]
 ct cfg <subcommand> [args] [options]  # Alias
 ```
 
 ## Description
 
-The `config` command provides a unified interface for viewing and modifying claude-todo configuration settings. It supports both project-level configuration (`.claude/todo-config.json`) and global user-level configuration (`~/.claude-todo/config.json`).
+The `config` command provides a unified interface for viewing and modifying cleo configuration settings. It supports both project-level configuration (`.cleo/config.json`) and global user-level configuration (`~/.cleo/config.json`).
 
 ### Configuration Priority
 
 Settings are resolved in this order (highest to lowest priority):
 1. **CLI flags** - Command-line arguments
-2. **Environment variables** - `CLAUDE_TODO_*` variables
-3. **Project config** - `.claude/todo-config.json`
-4. **Global config** - `~/.claude-todo/config.json`
+2. **Environment variables** - `CLEO_*` variables
+3. **Project config** - `.cleo/config.json`
+4. **Global config** - `~/.cleo/config.json`
 5. **Built-in defaults** - Schema defaults
 
 ## Subcommands
@@ -30,15 +30,15 @@ Display configuration values.
 
 ```bash
 # Show all config
-claude-todo config show
+cleo config show
 
 # Show a section
-claude-todo config show output
-claude-todo config show archive
+cleo config show output
+cleo config show archive
 
 # Show a specific value
-claude-todo config show output.defaultFormat
-claude-todo config show validation.strictMode
+cleo config show output.defaultFormat
+cleo config show validation.strictMode
 ```
 
 ### set PATH VALUE
@@ -47,16 +47,16 @@ Update a configuration value.
 
 ```bash
 # Set output format to JSON
-claude-todo config set output.defaultFormat json
+cleo config set output.defaultFormat json
 
 # Enable strict validation
-claude-todo config set validation.strictMode true
+cleo config set validation.strictMode true
 
 # Change archive retention
-claude-todo config set archive.daysUntilArchive 14
+cleo config set archive.daysUntilArchive 14
 
 # Update global config
-claude-todo config set output.showColor false --global
+cleo config set output.showColor false --global
 ```
 
 ### get PATH
@@ -65,7 +65,7 @@ Get a single value (useful for scripting).
 
 ```bash
 # Get format setting
-format=$(claude-todo config get output.defaultFormat)
+format=$(cleo config get output.defaultFormat)
 
 # Use in conditions
 if [[ $(ct config get validation.strictMode) == "true" ]]; then
@@ -78,8 +78,8 @@ fi
 List all configuration keys with current values.
 
 ```bash
-claude-todo config list
-claude-todo config list --global
+cleo config list
+cleo config list --global
 ```
 
 ### reset [SECTION]
@@ -88,11 +88,11 @@ Reset configuration to defaults.
 
 ```bash
 # Reset entire config
-claude-todo config reset
+cleo config reset
 
 # Reset specific section
-claude-todo config reset output
-claude-todo config reset archive
+cleo config reset output
+cleo config reset archive
 ```
 
 ### edit
@@ -100,8 +100,8 @@ claude-todo config reset archive
 Launch interactive configuration editor.
 
 ```bash
-claude-todo config edit
-claude-todo config edit --global
+cleo config edit
+cleo config edit --global
 ```
 
 The editor provides a menu-based interface for browsing and modifying settings.
@@ -111,8 +111,8 @@ The editor provides a menu-based interface for browsing and modifying settings.
 Validate configuration against schema.
 
 ```bash
-claude-todo config validate
-claude-todo config validate --global
+cleo config validate
+cleo config validate --global
 ```
 
 ## Options
@@ -133,15 +133,15 @@ The following environment variables override configuration settings:
 
 | Variable | Config Path | Description |
 |----------|-------------|-------------|
-| `CLAUDE_TODO_FORMAT` | `output.defaultFormat` | Output format (text/json) |
-| `CLAUDE_TODO_OUTPUT_SHOW_COLOR` | `output.showColor` | Enable colors |
-| `CLAUDE_TODO_OUTPUT_SHOW_UNICODE` | `output.showUnicode` | Enable Unicode |
-| `CLAUDE_TODO_ARCHIVE_ENABLED` | `archive.enabled` | Enable archiving |
-| `CLAUDE_TODO_ARCHIVE_DAYS_UNTIL_ARCHIVE` | `archive.daysUntilArchive` | Archive threshold |
-| `CLAUDE_TODO_LOGGING_LEVEL` | `logging.level` | Log verbosity |
-| `CLAUDE_TODO_VALIDATION_STRICT_MODE` | `validation.strictMode` | Strict validation |
-| `CLAUDE_TODO_SESSION_REQUIRE_SESSION_NOTE` | `session.requireSessionNote` | Require notes |
-| `CLAUDE_TODO_DEBUG` | `cli.debug.enabled` | Debug mode |
+| `CLEO_FORMAT` | `output.defaultFormat` | Output format (text/json) |
+| `CLEO_OUTPUT_SHOW_COLOR` | `output.showColor` | Enable colors |
+| `CLEO_OUTPUT_SHOW_UNICODE` | `output.showUnicode` | Enable Unicode |
+| `CLEO_ARCHIVE_ENABLED` | `archive.enabled` | Enable archiving |
+| `CLEO_ARCHIVE_DAYS_UNTIL_ARCHIVE` | `archive.daysUntilArchive` | Archive threshold |
+| `CLEO_LOGGING_LEVEL` | `logging.level` | Log verbosity |
+| `CLEO_VALIDATION_STRICT_MODE` | `validation.strictMode` | Strict validation |
+| `CLEO_SESSION_REQUIRE_SESSION_NOTE` | `session.requireSessionNote` | Require notes |
+| `CLEO_DEBUG` | `cli.debug.enabled` | Debug mode |
 
 ## JSON Output
 
@@ -149,7 +149,7 @@ When using `--format json`, output follows the standard envelope:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.17.0",
@@ -171,7 +171,7 @@ For `set` operations:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.17.0",
@@ -250,21 +250,21 @@ Default values for new tasks.
 
 ### LLM Agent Configuration
 
-Set up claude-todo for automated agent use:
+Set up cleo for automated agent use:
 
 ```bash
 # Force JSON output globally
-claude-todo config set output.defaultFormat json --global
+cleo config set output.defaultFormat json --global
 
 # Or use environment variable
-export CLAUDE_TODO_FORMAT=json
+export CLEO_FORMAT=json
 ```
 
 ### Disable Colors for CI/CD
 
 ```bash
 # Disable colors in global config
-claude-todo config set output.showColor false --global
+cleo config set output.showColor false --global
 
 # Or use NO_COLOR standard
 export NO_COLOR=1
@@ -276,7 +276,7 @@ export NO_COLOR=1
 #!/usr/bin/env bash
 
 # Get current format
-current_format=$(claude-todo config get output.defaultFormat)
+current_format=$(cleo config get output.defaultFormat)
 
 # Check if strict mode is on
 if [[ $(ct config get validation.strictMode) == "true" ]]; then
@@ -291,10 +291,10 @@ ct config show --format json | jq '.config.archive'
 
 ```bash
 # Launch the menu-based editor
-claude-todo config edit
+cleo config edit
 
 # Edit global settings
-claude-todo config edit --global
+cleo config edit --global
 ```
 
 ## Exit Codes

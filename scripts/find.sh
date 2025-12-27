@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Find Command
+# CLEO Find Command
 # Fuzzy task search for LLM agents with minimal context output
 #
 # Provides efficient task discovery with:
@@ -20,7 +20,7 @@ set -euo pipefail
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Capture start time for execution metrics (nanoseconds)
 START_TIME_NS=$(date +%s%N 2>/dev/null || echo "0")
@@ -33,8 +33,8 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
 fi
 
 # File paths
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
 
 # Command name for error reporting
 COMMAND_NAME="find"
@@ -49,8 +49,8 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
     # shellcheck source=../lib/exit-codes.sh
     source "$LIB_DIR/exit-codes.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/exit-codes.sh" ]]; then
-    source "$CLAUDE_TODO_HOME/lib/exit-codes.sh"
+elif [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
+    source "$CLEO_HOME/lib/exit-codes.sh"
 else
     # Fallback exit codes
     EXIT_SUCCESS=0
@@ -64,24 +64,24 @@ fi
 if [[ -f "$LIB_DIR/error-json.sh" ]]; then
     # shellcheck source=../lib/error-json.sh
     source "$LIB_DIR/error-json.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/error-json.sh" ]]; then
-    source "$CLAUDE_TODO_HOME/lib/error-json.sh"
+elif [[ -f "$CLEO_HOME/lib/error-json.sh" ]]; then
+    source "$CLEO_HOME/lib/error-json.sh"
 fi
 
 # Source output format library
 if [[ -f "$LIB_DIR/output-format.sh" ]]; then
     # shellcheck source=../lib/output-format.sh
     source "$LIB_DIR/output-format.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-    source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+    source "$CLEO_HOME/lib/output-format.sh"
 fi
 
 # Source logging library for color support
 if [[ -f "$LIB_DIR/logging.sh" ]]; then
     # shellcheck source=../lib/logging.sh
     source "$LIB_DIR/logging.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]]; then
-    source "$CLAUDE_TODO_HOME/lib/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
+    source "$CLEO_HOME/lib/logging.sh"
 fi
 
 # ============================================================================
@@ -131,8 +131,8 @@ fi
 
 usage() {
     cat << 'EOF'
-Usage: claude-todo find <query> [OPTIONS]
-       claude-todo find --id <id-pattern> [OPTIONS]
+Usage: cleo find <query> [OPTIONS]
+       cleo find --id <id-pattern> [OPTIONS]
 
 Fuzzy search tasks by title, description, or ID pattern.
 Returns minimal match objects for efficient LLM context usage.
@@ -367,7 +367,7 @@ fi
 # Check todo.json exists
 if [[ ! -f "$TODO_FILE" ]]; then
     if declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'claude-todo init' to initialize project"
+        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'cleo init' to initialize project"
     else
         echo "[ERROR] Todo file not found: $TODO_FILE" >&2
     fi
@@ -661,7 +661,7 @@ case "$FORMAT" in
     json)
         # JSON output with LLM-Agent-First envelope
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg timestamp "$CURRENT_TIMESTAMP" \
             --argjson execution_ms "$EXECUTION_MS" \
             --arg query "${QUERY:-$ID_PATTERN}" \
@@ -673,7 +673,7 @@ case "$FORMAT" in
             --argjson truncated "$TRUNCATED" \
             --argjson matches "$MATCHES" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,

@@ -7,7 +7,7 @@ Analyze blocked tasks and their dependency chains to understand what's preventin
 ## Usage
 
 ```bash
-claude-todo blockers [SUBCOMMAND] [OPTIONS]
+cleo blockers [SUBCOMMAND] [OPTIONS]
 ```
 
 ## Description
@@ -43,10 +43,10 @@ This command is ideal for:
 
 ```bash
 # List all blocked tasks
-claude-todo blockers
+cleo blockers
 
 # Same as above (explicit)
-claude-todo blockers list
+cleo blockers list
 ```
 
 Output:
@@ -79,7 +79,7 @@ The text output uses these status indicators:
 
 ```bash
 # Detailed analysis with recommendations
-claude-todo blockers analyze
+cleo blockers analyze
 ```
 
 Output:
@@ -110,10 +110,10 @@ Recommendations:
 
 ```bash
 # JSON output for scripting
-claude-todo blockers --format json
+cleo blockers --format json
 
 # Markdown output for documentation
-claude-todo blockers --format markdown
+cleo blockers --format markdown
 ```
 
 JSON output example:
@@ -140,7 +140,7 @@ JSON output example:
 
 ```bash
 # Suppress info messages (for scripts)
-claude-todo blockers --quiet --format json
+cleo blockers --quiet --format json
 ```
 
 ## Integration with Other Commands
@@ -149,30 +149,30 @@ claude-todo blockers --quiet --format json
 
 ```bash
 # See full dependency graph
-claude-todo deps tree
+cleo deps tree
 
 # Then analyze blockers
-claude-todo blockers analyze
+cleo blockers analyze
 ```
 
 ### With focus command
 
 ```bash
 # Find what to work on next
-claude-todo blockers analyze
+cleo blockers analyze
 
 # Set focus to the bottleneck task
-claude-todo focus set T003
+cleo focus set T003
 ```
 
 ### With complete command
 
 ```bash
 # Complete a blocker
-claude-todo complete T003 --notes "Authentication backend ready"
+cleo complete T003 --notes "Authentication backend ready"
 
 # Verify blocked tasks are unblocked
-claude-todo blockers
+cleo blockers
 ```
 
 ## Best Practices
@@ -188,15 +188,15 @@ claude-todo blockers
 
 If `blockers` shows no results but you expect blocked tasks:
 - Check that blocked tasks have `status: blocked` and `blockedBy` reason
-- Verify dependencies are set with `claude-todo deps`
-- Run `claude-todo validate` to check data integrity
+- Verify dependencies are set with `cleo deps`
+- Run `cleo validate` to check data integrity
 
 ### Incorrect blocking information
 
 If blocking chains seem wrong:
-- Verify dependency relationships with `claude-todo deps T001`
+- Verify dependency relationships with `cleo deps T001`
 - Check for completed dependencies that should have unblocked tasks
-- Run `claude-todo validate` to detect circular dependencies
+- Run `cleo validate` to detect circular dependencies
 
 ## See Also
 

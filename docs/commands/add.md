@@ -7,7 +7,7 @@ Add a new task to the todo system with validation and logging.
 ## Usage
 
 ```bash
-claude-todo add "Task Title" [OPTIONS]
+cleo add "Task Title" [OPTIONS]
 ```
 
 ## Description
@@ -67,44 +67,44 @@ This command includes:
 
 ```bash
 # Simple task with defaults
-claude-todo add "Implement user authentication"
+cleo add "Implement user authentication"
 
 # With priority
-claude-todo add "Fix critical login bug" -p critical
+cleo add "Fix critical login bug" -p critical
 
 # With labels
-claude-todo add "Add form validation" -l frontend,ui
+cleo add "Add form validation" -l frontend,ui
 ```
 
 ### Task with Dependencies
 
 ```bash
 # Task that depends on other tasks
-claude-todo add "Deploy to production" -D T001,T002 -p high
+cleo add "Deploy to production" -D T001,T002 -p high
 
 # With phase assignment
-claude-todo add "Write unit tests" -P testing -D T003
+cleo add "Write unit tests" -P testing -D T003
 ```
 
 ### Phase Management
 
 ```bash
 # Assign to existing phase
-claude-todo add "Design API" -P setup
+cleo add "Design API" -P setup
 
 # Create new phase if needed
-claude-todo add "Performance tuning" -P optimization --add-phase
+cleo add "Performance tuning" -P optimization --add-phase
 ```
 
 ### Scripting and Automation
 
 ```bash
 # Quiet mode - returns only task ID
-TASK_ID=$(claude-todo add "Automated task" -q)
+TASK_ID=$(cleo add "Automated task" -q)
 echo "Created task: $TASK_ID"
 
 # With acceptance criteria
-claude-todo add "Implement search" \
+cleo add "Implement search" \
   --acceptance "Returns results in <200ms,Supports fuzzy matching"
 ```
 
@@ -112,23 +112,23 @@ claude-todo add "Implement search" \
 
 ```bash
 # Create blocked task (requires description)
-claude-todo add "Waiting for API spec" -s blocked -d "Blocked by external team"
+cleo add "Waiting for API spec" -s blocked -d "Blocked by external team"
 ```
 
 ### Hierarchy (v0.17.0)
 
 ```bash
 # Create an epic
-claude-todo add "User Authentication System" --type epic --size large
+cleo add "User Authentication System" --type epic --size large
 
 # Create a task under the epic
-claude-todo add "Login endpoint" --parent T001 --size medium
+cleo add "Login endpoint" --parent T001 --size medium
 
 # Create a subtask under the task
-claude-todo add "Validate email format" --parent T002 --type subtask --size small
+cleo add "Validate email format" --parent T002 --type subtask --size small
 
 # Type is inferred based on parent
-claude-todo add "Session management" --parent T001  # Inferred as task
+cleo add "Session management" --parent T001  # Inferred as task
 ```
 
 ## Output
@@ -144,7 +144,7 @@ Title: Implement user authentication
 Status: pending
 Priority: medium
 
-View with: jq '.tasks[] | select(.id == "T042")' .claude/todo.json
+View with: jq '.tasks[] | select(.id == "T042")' .cleo/todo.json
 ```
 
 ### Quiet Mode Output

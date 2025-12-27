@@ -5,7 +5,7 @@ Show completion history timeline with analytics and velocity metrics.
 ## Usage
 
 ```bash
-claude-todo history [OPTIONS]
+cleo history [OPTIONS]
 ```
 
 ## Description
@@ -46,23 +46,23 @@ This command is ideal for:
 
 ```bash
 # Show last 30 days of completions
-claude-todo history
+cleo history
 
 # Show last week
-claude-todo history --days 7
+cleo history --days 7
 
 # Show specific date range
-claude-todo history --since 2025-12-01 --until 2025-12-15
+cleo history --since 2025-12-01 --until 2025-12-15
 ```
 
 ### Output Format
 
 ```bash
 # JSON output for scripting
-claude-todo history --format json
+cleo history --format json
 
 # Text output without charts (for terminals without Unicode)
-claude-todo history --no-chart
+cleo history --no-chart
 ```
 
 ## Sample Output
@@ -139,21 +139,21 @@ claude-todo history --no-chart
 
 ```bash
 # Get completion stats for a 2-week sprint
-claude-todo history --since 2025-12-01 --until 2025-12-14 --format json
+cleo history --since 2025-12-01 --until 2025-12-14 --format json
 ```
 
 ### Productivity Analysis
 
 ```bash
 # Analyze completion patterns over the last month
-claude-todo history --days 30
+cleo history --days 30
 ```
 
 ### CI/CD Integration
 
 ```bash
 # Export completion metrics for reporting
-claude-todo history --format json | jq '.velocity'
+cleo history --format json | jq '.velocity'
 ```
 
 ## Related Commands

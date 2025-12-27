@@ -218,7 +218,7 @@ FUNCTION analyze_scope(input: ScopeInput) -> ScopeAssessment:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/decomposition/scope.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/decomposition/scope.schema.json",
   "_meta": {
     "phase": "scope-analysis",
     "version": "1.0.0",
@@ -342,7 +342,7 @@ Per CONSENSUS-FRAMEWORK-SPEC Part 5.5, decomposition MUST be challenged:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/decomposition/goals.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/decomposition/goals.schema.json",
   "_meta": {
     "phase": "goal-decomposition",
     "version": "1.0.0",
@@ -474,7 +474,7 @@ FUNCTION build_dependency_graph(goal_tree: TaskTree) -> DAG:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/decomposition/dag.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/decomposition/dag.schema.json",
   "_meta": {
     "phase": "dependency-graph",
     "version": "1.0.0",
@@ -524,7 +524,7 @@ FUNCTION build_dependency_graph(goal_tree: TaskTree) -> DAG:
 
 ### 8.1 Purpose
 
-Generate schema-compliant task objects ready for insertion into claude-todo.
+Generate schema-compliant task objects ready for insertion into cleo.
 
 ### 8.2 Field Mapping
 
@@ -607,7 +607,7 @@ FOR each task IN tasks:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/decomposition/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/decomposition/output.schema.json",
   "_meta": {
     "command": "decompose",
     "version": "0.22.0",
@@ -676,12 +676,12 @@ FOR each task IN tasks:
 ### 9.1 Command Syntax
 
 ```bash
-claude-todo decompose <request> [OPTIONS]
+cleo decompose <request> [OPTIONS]
 
 # Examples
-claude-todo decompose "Implement user authentication"
-claude-todo decompose --file requirements.md
-claude-todo decompose "Add dark mode" --phase ui --dry-run
+cleo decompose "Implement user authentication"
+cleo decompose --file requirements.md
+cleo decompose "Add dark mode" --phase ui --dry-run
 ```
 
 ### 9.2 Command Options
@@ -755,7 +755,7 @@ INPUT_FILE=""
 
 show_help() {
     cat << 'EOF'
-Usage: claude-todo decompose <request> [OPTIONS]
+Usage: cleo decompose <request> [OPTIONS]
 
 Decompose a high-level request into atomic, executable tasks.
 
@@ -782,9 +782,9 @@ Exit Codes:
   31  Challenge rejected decomposition
 
 Examples:
-  claude-todo decompose "Add user authentication"
-  claude-todo decompose --file requirements.md --phase core
-  claude-todo decompose "Fix login bug" --dry-run --format json
+  cleo decompose "Add user authentication"
+  cleo decompose --file requirements.md --phase core
+  cleo decompose "Fix login bug" --dry-run --format json
 EOF
 }
 
@@ -1115,7 +1115,7 @@ Decomposition MUST trigger HITL when:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/decomposition/hitl-gate.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/decomposition/hitl-gate.schema.json",
   "_meta": {
     "command": "decompose",
     "gateId": "HITL-DEC-001",
@@ -1170,18 +1170,18 @@ Decomposition MUST trigger HITL when:
 }
 
 @test "decompose rejects request with cycles" {
-    run claude-todo decompose "Task A depends on B, B depends on C, C depends on A"
+    run cleo decompose "Task A depends on B, B depends on C, C depends on A"
     [[ "$status" -eq 14 ]]  # EXIT_CIRCULAR_REFERENCE
 }
 
 @test "decompose respects max depth" {
-    result=$(claude-todo decompose "Deeply nested task" --format json 2>&1)
+    result=$(cleo decompose "Deeply nested task" --format json 2>&1)
     max_depth=$(echo "$result" | jq -r '.summary.maxDepth')
     [[ "$max_depth" -le 3 ]]
 }
 
 @test "decompose respects max siblings" {
-    result=$(claude-todo decompose "Task with many subtasks" --format json 2>&1)
+    result=$(cleo decompose "Task with many subtasks" --format json 2>&1)
     # Check no parent has >7 children
     over_limit=$(echo "$result" | jq '[.tasks[] | select(.parentId != null)] | group_by(.parentId) | map(length) | max')
     [[ "$over_limit" -le 7 ]]
@@ -1195,28 +1195,28 @@ Decomposition MUST trigger HITL when:
 
 @test "decompose creates valid tasks" {
     # Decompose
-    result=$(claude-todo decompose "Add email validation" --format json)
+    result=$(cleo decompose "Add email validation" --format json)
     [[ $(echo "$result" | jq -r '.success') == "true" ]]
 
     # Verify tasks exist
     task_id=$(echo "$result" | jq -r '.tasks[0].id')
-    claude-todo exists "$task_id" --quiet
+    cleo exists "$task_id" --quiet
     [[ $? -eq 0 ]]
 }
 
 @test "decompose dry-run creates no tasks" {
-    count_before=$(claude-todo list --format json | jq '.tasks | length')
-    claude-todo decompose "Add feature X" --dry-run
-    count_after=$(claude-todo list --format json | jq '.tasks | length')
+    count_before=$(cleo list --format json | jq '.tasks | length')
+    cleo decompose "Add feature X" --dry-run
+    count_after=$(cleo list --format json | jq '.tasks | length')
     [[ "$count_before" -eq "$count_after" ]]
 }
 
 @test "decompose with parent sets parentId" {
     # Create parent
-    parent=$(claude-todo add "Parent epic" --type epic --format json | jq -r '.task.id')
+    parent=$(cleo add "Parent epic" --type epic --format json | jq -r '.task.id')
 
     # Decompose under parent
-    result=$(claude-todo decompose "Subtask work" --parent "$parent" --format json)
+    result=$(cleo decompose "Subtask work" --parent "$parent" --format json)
 
     # Verify parentId
     child_parent=$(echo "$result" | jq -r '.tasks[0].parentId')
@@ -1908,14 +1908,14 @@ compute_blocked_by() {
 For performance, computed fields MAY be materialized:
 - **On write**: Update `children`/`dependents` when `parentId`/`depends` changes
 - **On read**: Always compute `blockedBy` (status-dependent)
-- **Cache**: Store in separate `.claude/computed-cache.json` with TTL
+- **Cache**: Store in separate `.cleo/computed-cache.json` with TTL
 
 ### 23.4 Backward Compatibility
 
 New fields MUST be:
 - Optional in schema (not `required`)
 - Handled gracefully by older CLI versions
-- Migrated via `claude-todo migrate run`
+- Migrated via `cleo migrate run`
 
 ---
 

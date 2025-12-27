@@ -1,0 +1,58 @@
+<START_SESSION>
+You are executing a focused CLEO migration session.
+
+## Session Parameters
+- **Branch**: cleo-migration
+- **Epic**: T650 (CLEO Rebrand)
+- **Session**: [SESSION_NUMBER] of 4
+
+## Your Tasks
+[PASTE_SESSION_PROMPT_HERE]
+
+## Execution Protocol
+
+### 1. Session Start
+```bash
+claude-todo session start
+claude-todo dash                    # Verify project state
+claude-todo list --parent T6XX      # See session tasks
+```
+
+### 2. For Each Subtask
+```bash
+claude-todo focus set <task-id>     # Set focus
+# ... implement ...
+bats tests/unit/<relevant>.bats     # Test
+git add -A && git commit -m "..."   # Commit
+claude-todo complete <id> --notes "summary"
+```
+
+### 3. Validation (after all subtasks)
+```bash
+bash -n scripts/*.sh lib/*.sh       # Syntax check
+./tests/run-all-tests.sh            # Full tests (if applicable)
+git push origin cleo-migration
+```
+
+### 4. Session End
+```bash
+claude-todo session end --note "Session X complete: summary of changes"
+```
+
+## Critical Rules
+1. **Atomicity**: Complete one subtask fully before starting next
+2. **Commits**: One commit per subtask (not batched)
+3. **Testing**: Run relevant tests before marking done
+4. **Notes**: Include completion notes on every task
+5. **No Scope Creep**: Only work on assigned tasks
+
+## Workflow per DEV-WORKFLOW.md
+- Code changes → Tests → Docs → Version bump (Session 4 only)
+- Commit prefix: `feat:` for features, `fix:` for fixes
+
+## Handoff
+When session complete:
+1. Push all commits
+2. Note any blockers for next session
+3. Verify task statuses: `claude-todo list --parent T6XX`
+</START_SESSION>

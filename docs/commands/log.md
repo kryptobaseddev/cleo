@@ -1,4 +1,4 @@
-# Log Command (`claude-todo log`)
+# Log Command (`cleo log`)
 
 Manage todo-log.json entries with listing, filtering, and schema migrations.
 
@@ -18,7 +18,7 @@ List log entries with flexible filtering options.
 
 **Usage:**
 ```bash
-claude-todo log list [OPTIONS]
+cleo log list [OPTIONS]
 ```
 
 **Options:**
@@ -39,22 +39,22 @@ claude-todo log list [OPTIONS]
 **Examples:**
 ```bash
 # List last 20 entries
-claude-todo log list
+cleo log list
 
 # List last 50 entries
-claude-todo log list --limit 50
+cleo log list --limit 50
 
 # Filter by action type
-claude-todo log list --action task_created
+cleo log list --action task_created
 
 # Filter by task ID
-claude-todo log list --task-id T001
+cleo log list --task-id T001
 
 # Filter by date
-claude-todo log list --since "2025-12-13"
+cleo log list --since "2025-12-13"
 
 # JSON output for scripting
-claude-todo log list --format json
+cleo log list --format json
 ```
 
 ### `show` - Show Entry Details
@@ -63,13 +63,13 @@ Show details of a specific log entry by ID.
 
 **Usage:**
 ```bash
-claude-todo log show <log-id>
+cleo log show <log-id>
 ```
 
 **Examples:**
 ```bash
 # Show specific log entry
-claude-todo log show log_abc123def456
+cleo log show log_abc123def456
 ```
 
 ### `migrate` - Schema Migration
@@ -82,7 +82,7 @@ Migrates old log entries to the current schema format.
 
 **Usage:**
 ```bash
-claude-todo log migrate
+cleo log migrate
 ```
 
 **What it does:**
@@ -97,13 +97,13 @@ claude-todo log migrate
 ```
 [INFO] Starting log migration...
 Found 50 entries to migrate (49 schema changes, 1 action mappings)
-Created backup: .claude/todo-log.json.pre-migration.20251213-164257
+Created backup: .cleo/todo-log.json.pre-migration.20251213-164257
 Successfully migrated 50 entries
 [INFO] Migration completed successfully
 ```
 
 **Safety:**
-- Creates backup before migration: `.claude/todo-log.json.pre-migration.<timestamp>`
+- Creates backup before migration: `.cleo/todo-log.json.pre-migration.<timestamp>`
 - Atomic file replacement (temp → validate → rename)
 - Validates JSON after migration
 - Idempotent (safe to run multiple times)
@@ -114,7 +114,7 @@ Manually add an entry to the audit log. Most log entries are created automatical
 
 **Usage:**
 ```bash
-claude-todo log --action ACTION [OPTIONS]
+cleo log --action ACTION [OPTIONS]
 ```
 
 **Required:**
@@ -132,15 +132,15 @@ claude-todo log --action ACTION [OPTIONS]
 
 ```bash
 # Log session start
-claude-todo log --action session_start --session-id "session_20251213_164257"
+cleo log --action session_start --session-id "session_20251213_164257"
 
 # Log status change
-claude-todo log --action status_changed --task-id T001 \
+cleo log --action status_changed --task-id T001 \
   --before '{"status":"pending"}' \
   --after '{"status":"active"}'
 
 # Log task creation
-claude-todo log --action task_created --task-id T005 \
+cleo log --action task_created --task-id T005 \
   --after '{"title":"New feature"}' \
   --actor human
 ```
@@ -191,7 +191,7 @@ claude-todo log --action task_created --task-id T005 \
 
 ## When to Migrate
 
-You should run `claude-todo log migrate` if:
+You should run `cleo log migrate` if:
 
 1. **After upgrading** from versions before v0.10.2
 2. **Schema validation fails** with old field names
@@ -212,20 +212,20 @@ You should run `claude-todo log migrate` if:
 
 **Backup location:**
 ```
-.claude/todo-log.json.pre-migration.YYYYMMDD-HHMMSS
+.cleo/todo-log.json.pre-migration.YYYYMMDD-HHMMSS
 ```
 
 **Recovery:**
 If migration fails or produces incorrect results:
 ```bash
 # Find latest backup
-ls -lt .claude/todo-log.json.pre-migration.*
+ls -lt .cleo/todo-log.json.pre-migration.*
 
 # Restore from backup
-cp .claude/todo-log.json.pre-migration.YYYYMMDD-HHMMSS .claude/todo-log.json
+cp .cleo/todo-log.json.pre-migration.YYYYMMDD-HHMMSS .cleo/todo-log.json
 
 # Verify
-claude-todo validate
+cleo validate
 ```
 
 ## Implementation Details
@@ -255,29 +255,29 @@ mv temp_file log.json  # atomic on same filesystem
 
 ## Related Commands
 
-- [`claude-todo validate`](../reference/validation.md) - Includes log schema validation
-- [`claude-todo backup`](backup.md) - Creates full backups (includes logs)
-- [`claude-todo restore`](restore.md) - Restore from backup (includes logs)
+- [`cleo validate`](../reference/validation.md) - Includes log schema validation
+- [`cleo backup`](backup.md) - Creates full backups (includes logs)
+- [`cleo restore`](restore.md) - Restore from backup (includes logs)
 
 ## Troubleshooting
 
 **"No entries need migration" but validation fails:**
-- Check schema version: `jq '.version' .claude/todo-log.json`
-- Manually inspect entries: `jq '.entries[0:3]' .claude/todo-log.json`
+- Check schema version: `jq '.version' .cleo/todo-log.json`
+- Manually inspect entries: `jq '.entries[0:3]' .cleo/todo-log.json`
 - May be a different validation issue
 
 **Migration fails with "Invalid JSON":**
-- Check original file: `jq empty .claude/todo-log.json`
-- If corrupted, restore from backup: `claude-todo restore`
+- Check original file: `jq empty .cleo/todo-log.json`
+- If corrupted, restore from backup: `cleo restore`
 - Or restore from pre-migration backup (see above)
 
 **Want to see what will be migrated:**
 ```bash
 # Count old schema entries
-jq '[.entries[] | select(has("operation"))] | length' .claude/todo-log.json
+jq '[.entries[] | select(has("operation"))] | length' .cleo/todo-log.json
 
 # Count old action values
-jq '[.entries[] | select(.action == "create" or .action == "update" or .action == "system_initialized")] | length' .claude/todo-log.json
+jq '[.entries[] | select(.action == "create" or .action == "update" or .action == "system_initialized")] | length' .cleo/todo-log.json
 ```
 
 ## See Also

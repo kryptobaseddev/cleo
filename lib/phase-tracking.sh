@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# phase-tracking.sh - Project-level phase tracking for claude-todo
+# Project-level phase tracking for cleo
 #
 # LAYER: 3 (Domain Logic)
 # DEPENDENCIES: file-ops.sh (transitive: platform-compat.sh)
@@ -281,7 +281,7 @@ validate_current_phase_consistency() {
 # Get phase validation config options
 # Returns: JSON object with warnPhaseContext and enforcePhaseOrder
 get_phase_validation_config() {
-    local config_file="${CONFIG_FILE:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${CONFIG_FILE:-${CLEO_DIR:-.cleo}/config.json}"
 
     # Default values per PHASE-SYSTEM-SPEC.md (permissive by default)
     local warn_phase_context="false"
@@ -298,7 +298,7 @@ get_phase_validation_config() {
 # Check if phase context warnings are enabled
 # Returns: 0 (success) if enabled, 1 (failure) if disabled
 is_phase_warning_enabled() {
-    local config_file="${CONFIG_FILE:-${CLAUDE_TODO_DIR:-.claude}/todo-config.json}"
+    local config_file="${CONFIG_FILE:-${CLEO_DIR:-.cleo}/config.json}"
 
     if [[ -f "$config_file" ]]; then
         local warn_enabled

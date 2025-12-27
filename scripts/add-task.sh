@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Add Task Script
+# CLEO Add Task Script
 # Add new task to todo.json with validation and logging
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="${SCRIPT_DIR}/../lib"
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
-LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
+# Source paths.sh for path resolution functions
+if [[ -f "$LIB_DIR/paths.sh" ]]; then
+    source "$LIB_DIR/paths.sh"
+fi
+
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Source logging library for should_use_color function
-LIB_DIR="${SCRIPT_DIR}/../lib"
 if [[ -f "$LIB_DIR/version.sh" ]]; then
   # shellcheck source=../lib/version.sh
   source "$LIB_DIR/version.sh"
@@ -98,7 +103,7 @@ SIZE=""          # small|medium|large - optional scope-based size (NOT time)
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo add "Task Title" [OPTIONS]
+Usage: cleo add "Task Title" [OPTIONS]
 
 Add a new task to todo.json with validation.
 
@@ -145,18 +150,18 @@ Output Formats:
     - Pipe/redirect/agent context → JSON format
 
 Examples:
-  claude-todo add "Implement authentication"
-  claude-todo add "Fix login bug" -p high -l bug,security
-  claude-todo add "Add tests" -D T001,T002 -P testing
-  claude-todo add "Add tests" -P new-phase --add-phase
-  claude-todo add "Implement auth" --acceptance "User can login,Session persists"
-  claude-todo add "Quick task" -q  # Outputs only: T042
-  claude-todo add "New task" --json  # JSON output with full task object
+  cleo add "Implement authentication"
+  cleo add "Fix login bug" -p high -l bug,security
+  cleo add "Add tests" -D T001,T002 -P testing
+  cleo add "Add tests" -P new-phase --add-phase
+  cleo add "Implement auth" --acceptance "User can login,Session persists"
+  cleo add "Quick task" -q  # Outputs only: T042
+  cleo add "New task" --json  # JSON output with full task object
 
 Hierarchy Examples (v0.17.0):
-  claude-todo add "Auth System" --type epic --size large
-  claude-todo add "Login endpoint" --parent T001 --size medium
-  claude-todo add "Validate email" --parent T002 --type subtask --size small
+  cleo add "Auth System" --type epic --size large
+  cleo add "Login endpoint" --parent T001 --size medium
+  cleo add "Validate email" --parent T002 --type subtask --size small
 
 Duplicate Detection (v0.31.0):
   Tasks with same title+phase created within 60s are detected as duplicates.
@@ -284,7 +289,7 @@ output_duplicate_json() {
   local duplicate_task="$1"
   local seconds_ago="${2:-0}"
 
-  local version="${CLAUDE_TODO_VERSION:-$(get_version 2>/dev/null || echo '0.30.0')}"
+  local version="${CLEO_VERSION:-$(get_version 2>/dev/null || echo '0.30.0')}"
   local timestamp
   timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -294,7 +299,7 @@ output_duplicate_json() {
     --argjson task "$duplicate_task" \
     --argjson seconds_ago "$seconds_ago" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -709,7 +714,7 @@ COMMAND_NAME="add"
 # Validate required arguments
 if [[ -z "$TITLE" ]]; then
   log_error "Task title is required"
-  echo "Usage: claude-todo add \"Task Title\" [OPTIONS]" >&2
+  echo "Usage: cleo add \"Task Title\" [OPTIONS]" >&2
   echo "Use --help for more information" >&2
   exit "${EXIT_INVALID_INPUT:-2}"
 fi
@@ -910,7 +915,7 @@ fi
 # Check if todo.json exists
 if [[ ! -f "$TODO_FILE" ]]; then
   log_error "Todo file not found: $TODO_FILE"
-  echo "Run claude-todo init first to initialize the todo system" >&2
+  echo "Run cleo init first to initialize the todo system" >&2
   exit "${EXIT_NOT_FOUND:-4}"
 fi
 
@@ -1079,11 +1084,11 @@ if [[ "$DRY_RUN" == true ]]; then
 
   if [[ "$FORMAT" == "json" ]]; then
     jq -n \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --argjson task "$TASK_JSON" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "version": $version,
@@ -1192,11 +1197,11 @@ if [[ "$FORMAT" == "json" ]]; then
   TASK_JSON_OUTPUT=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 
   jq -n \
-    --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+    --arg version "${CLEO_VERSION:-$(get_version)}" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson task "$TASK_JSON_OUTPUT" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,

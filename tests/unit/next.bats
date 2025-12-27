@@ -44,7 +44,7 @@ teardown_file() {
     run bash "$NEXT_SCRIPT" --help
     assert_success
     assert_output --partial "Usage:"
-    assert_output --partial "claude-todo next"
+    assert_output --partial "cleo next"
 }
 
 @test "next -h shows usage" {
@@ -401,14 +401,14 @@ teardown_file() {
     create_independent_tasks
     run bash "$NEXT_SCRIPT"
     assert_success
-    assert_output --partial "claude-todo focus set"
+    assert_output --partial "cleo focus set"
 }
 
 @test "next JSON includes command in recommendation" {
     create_independent_tasks
     run bash "$NEXT_SCRIPT" --format json
     assert_success
-    run jq -e '.recommendation.command | startswith("claude-todo focus set")' <<< "$output"
+    run jq -e '.recommendation.command | startswith("cleo focus set")' <<< "$output"
     assert_success
 }
 

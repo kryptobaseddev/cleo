@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v3.1/todo.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
   "schemaVersion": "2.4.0",
   "title": "CLAUDE-TODO Task Schema",
   "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
@@ -114,19 +114,35 @@
         },
         "activeSession": {
           "type": ["string", "null"],
-          "description": "Currently active session. Null if no session active. Detects orphaned sessions."
+          "description": "Currently active session (single-session mode). Null if no session active or in multi-session mode."
+        },
+        "multiSessionEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether multi-session mode is active. When true, session state is in sessions.json."
+        },
+        "activeSessionCount": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of active sessions (multi-session mode). Quick check without reading sessions.json."
+        },
+        "sessionsFile": {
+          "type": ["string", "null"],
+          "default": "sessions.json",
+          "description": "Relative path to sessions registry file. Null if multi-session disabled."
         }
       }
     },
     "focus": {
       "type": "object",
-      "description": "Session continuity state. CRITICAL for LLM agents to resume work correctly.",
+      "description": "Session continuity state. CRITICAL for LLM agents to resume work correctly. NOTE: In multi-session mode (_meta.multiSessionEnabled=true), focus state moves to sessions.json. This object is read-only or null in multi-session mode.",
       "additionalProperties": false,
       "properties": {
         "currentTask": {
           "type": ["string", "null"],
           "pattern": "^T\\d{3,}$",
-          "description": "Task ID being worked on. MUST match the only task with status='active'. Null if no active task."
+          "description": "Task ID being worked on (single-session mode). MUST match the only task with status='active'. Null if no active task or in multi-session mode."
         },
         "currentPhase": {
           "type": ["string", "null"],
@@ -140,12 +156,17 @@
         "sessionNote": {
           "type": ["string", "null"],
           "maxLength": 1000,
-          "description": "Context from last session. Update at session end. Read at session start for continuity."
+          "description": "Context from last session (single-session mode). In multi-session mode, notes are per-session in sessions.json."
         },
         "nextAction": {
           "type": ["string", "null"],
           "maxLength": 500,
           "description": "Specific next step when resuming (e.g., 'Add validation to auth.ts:45')."
+        },
+        "primarySession": {
+          "type": ["string", "null"],
+          "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
+          "description": "In multi-session mode: the 'default' session for CLI commands without explicit --session. Null in single-session mode."
         }
       }
     },

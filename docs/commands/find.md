@@ -5,8 +5,8 @@
 ## Usage
 
 ```bash
-claude-todo find <query> [OPTIONS]
-claude-todo find --id <id-pattern> [OPTIONS]
+cleo find <query> [OPTIONS]
+cleo find --id <id-pattern> [OPTIONS]
 ```
 
 ## Description
@@ -163,7 +163,7 @@ ct find "auth" --format json
 Output:
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.19.0",
@@ -359,7 +359,7 @@ ct find
 Output:
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {"command": "find", "timestamp": "...", "version": "..."},
   "success": false,
   "error": {
@@ -382,7 +382,7 @@ ct find "zzzznonexistent"
 Output:
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"command": "find", "timestamp": "...", "version": "..."},
   "success": true,
   "query": {"text": "zzzznonexistent", "mode": "fuzzy"},

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# exit-codes.sh - Standardized exit codes for claude-todo CLI
+# exit-codes.sh - Standardized exit codes for cleo CLI
 #
 # LAYER: 0 (Foundation)
 # DEPENDENCIES: none

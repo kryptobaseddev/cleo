@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # reorganize-backups.sh - Reorganize legacy backups to new taxonomy
-# Part of claude-todo system
+# Part of cleo system
 #
 # Reorganizes backups from old locations to new unified taxonomy:
-#   Old: .claude/.backups/ (various naming patterns)
-#   New: .claude/backups/{snapshot,safety,incremental,archive,migration}/
+#   Old: .cleo/.backups/ (various naming patterns)
+#   New: .cleo/backups/{snapshot,safety,incremental,archive,migration}/
 #
 # NOTE: This is a one-time backup DIRECTORY reorganization, separate from
-#       schema migration (claude-todo migrate). Use this when upgrading
-#       from older claude-todo versions with legacy backup locations.
+#       schema migration (cleo migrate). Use this when upgrading
+#       from older cleo versions with legacy backup locations.
 #
 # Usage:
 #   reorganize-backups.sh --detect     # List detected legacy backups
@@ -26,11 +26,11 @@ IFS=$'\n\t'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$PROJECT_ROOT/lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Load VERSION from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$PROJECT_ROOT/VERSION" ]]; then
   VERSION="$(cat "$PROJECT_ROOT/VERSION" | tr -d '[:space:]')"
 else
@@ -65,9 +65,9 @@ fi
 # CONFIGURATION
 # ============================================================================
 
-readonly LEGACY_BACKUP_DIR=".claude/.backups"
-readonly NEW_BACKUP_DIR=".claude/backups"
-readonly MIGRATION_LOG=".claude/backup-migration.log"
+readonly LEGACY_BACKUP_DIR=".cleo/.backups"
+readonly NEW_BACKUP_DIR=".cleo/backups"
+readonly MIGRATION_LOG=".cleo/backup-migration.log"
 COMMAND_NAME="reorganize-backups"
 FORMAT=""
 QUIET=false
@@ -363,7 +363,7 @@ migrate_single_backup() {
     metadata=$(jq -n \
         --arg type "$backup_type" \
         --arg ts "$(get_iso_timestamp)" \
-        --arg ver "${CLAUDE_TODO_VERSION:-0.9.8}" \
+        --arg ver "${CLEO_VERSION:-0.9.8}" \
         --arg trigger "migration" \
         --arg op "migrate_legacy" \
         --argjson files "$files_json" \
@@ -469,7 +469,7 @@ migrate_all_backups() {
                 --argjson dryRun "$dry_run" \
                 --arg legacyDir "$LEGACY_BACKUP_DIR" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -536,7 +536,7 @@ migrate_all_backups() {
             --argjson failed "$failed" \
             --argjson skipped "$skipped" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -593,7 +593,7 @@ cleanup_legacy_backups() {
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 --arg legacyDir "$legacy_dir" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -667,7 +667,7 @@ cleanup_legacy_backups() {
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg legacyDir "$legacy_dir" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -713,7 +713,7 @@ display_detected_backups() {
             --argjson backups "$backups" \
             --arg legacyDir "$LEGACY_BACKUP_DIR" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -794,8 +794,8 @@ EXAMPLES:
     $(basename "$0") --cleanup
 
 BACKUP TAXONOMY:
-    Legacy location: .claude/.backups/
-    New location:    .claude/backups/{type}/
+    Legacy location: .cleo/.backups/
+    New location:    .cleo/backups/{type}/
 
     Types:
         snapshot/      - Point-in-time snapshots

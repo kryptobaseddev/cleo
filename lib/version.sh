@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# version.sh - Version management for claude-todo
+# Version management for cleo
 #
 # LAYER: 0 (Foundation)
 # DEPENDENCIES: none
-# PROVIDES: get_version, _get_version_file, CLAUDE_TODO_VERSION
+# PROVIDES: get_version, _get_version_file, CLEO_VERSION
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_VERSION_LOADED:-}" ]] && return 0
@@ -15,8 +15,8 @@ _get_version_file() {
   script_dir="$(cd "$(dirname "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")" && pwd)"
 
   # Check if running from installed location
-  if [[ -f "${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/VERSION" ]]; then
-    echo "${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/VERSION"
+  if [[ -f "${CLEO_HOME:-$HOME/.cleo}/VERSION" ]]; then
+    echo "${CLEO_HOME:-$HOME/.cleo}/VERSION"
   # Check if running from repo (lib/../VERSION)
   elif [[ -f "$script_dir/../VERSION" ]]; then
     echo "$script_dir/../VERSION"
@@ -40,4 +40,4 @@ get_version() {
 }
 
 # Export for use in scripts
-CLAUDE_TODO_VERSION="$(get_version)"
+CLEO_VERSION="$(get_version)"

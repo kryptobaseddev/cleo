@@ -44,7 +44,7 @@
 #   dash.sh --format json                # JSON output for scripting
 #
 # Version: 0.8.3
-# Part of: claude-todo CLI Output Enhancement (Phase 2)
+# Part of: cleo CLI Output Enhancement (Phase 2)
 # Enhanced: Added current phase display (T254)
 #####################################################################
 
@@ -53,11 +53,11 @@ set -euo pipefail
 # Script and library paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -67,26 +67,26 @@ fi
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/file-ops.sh"
 fi
 
 if [[ -f "${LIB_DIR}/logging.sh" ]]; then
   source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/logging.sh"
 fi
 
 if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
   source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 fi
 
 if [[ -f "${LIB_DIR}/exit-codes.sh" ]]; then
   source "${LIB_DIR}/exit-codes.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/exit-codes.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/exit-codes.sh"
+elif [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
+  source "$CLEO_HOME/lib/exit-codes.sh"
 fi
 
 # Source error JSON library
@@ -99,8 +99,8 @@ fi
 if [[ -f "${LIB_DIR}/config.sh" ]]; then
   # shellcheck source=../lib/config.sh
   source "${LIB_DIR}/config.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/config.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/config.sh"
+elif [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
+  source "$CLEO_HOME/lib/config.sh"
 fi
 
 # Local log_error wrapper for simple error messages
@@ -120,11 +120,11 @@ QUIET=false
 COMMAND_NAME="dash"
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
-ARCHIVE_FILE="${CLAUDE_DIR}/todo-archive.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
+ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
 # LOG_FILE is set by logging.sh - use fallback if not set
-DASH_LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
+DASH_LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 #####################################################################
 # Usage
@@ -132,7 +132,7 @@ DASH_LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo dash [OPTIONS]
+Usage: cleo dash [OPTIONS]
 
 Generate a comprehensive dashboard view of your todo system.
 
@@ -148,11 +148,11 @@ Options:
     -h, --help        Show this help message
 
 Examples:
-    claude-todo dash                              # Full dashboard
-    claude-todo dash --compact                    # Single-line summary
-    claude-todo dash --period 14                  # 14-day activity metrics
-    claude-todo dash --sections focus,blocked     # Only focus and blocked sections
-    claude-todo dash --format json                # JSON output
+    cleo dash                              # Full dashboard
+    cleo dash --compact                    # Single-line summary
+    cleo dash --period 14                  # 14-day activity metrics
+    cleo dash --sections focus,blocked     # Only focus and blocked sections
+    cleo dash --format json                # JSON output
 
 Sections:
     focus        - Current focus task and session note
@@ -1164,7 +1164,7 @@ output_json_format() {
     --arg session "$session_id" \
     --arg version "$VERSION" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -1264,10 +1264,10 @@ parse_arguments() {
         ;;
       *)
         if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-          output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'claude-todo dash --help' for usage"
+          output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'cleo dash --help' for usage"
         else
           log_error "Unknown option: $1"
-          echo "Run 'claude-todo dash --help' for usage" >&2
+          echo "Run 'cleo dash --help' for usage" >&2
         fi
         exit "${EXIT_INVALID_INPUT:-2}"
         ;;
@@ -1288,10 +1288,10 @@ main() {
   # Check if in a todo-enabled project
   if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-      output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_FILE_ERROR:-3}" true "Run 'claude-todo init' to initialize project"
+      output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_FILE_ERROR:-3}" true "Run 'cleo init' to initialize project"
     else
       log_error "Todo file not found: $TODO_FILE"
-      echo "Run 'claude-todo init' first" >&2
+      echo "Run 'cleo init' first" >&2
     fi
     exit "${EXIT_FILE_ERROR:-3}"
   fi

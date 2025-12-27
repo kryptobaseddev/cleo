@@ -25,7 +25,7 @@
 #   Full (--full):    Comprehensive human-readable report
 #
 # Version: 0.16.0
-# Part of: claude-todo Advanced Analysis System
+# Part of: cleo Advanced Analysis System
 #####################################################################
 
 set -euo pipefail
@@ -33,11 +33,11 @@ set -euo pipefail
 # Script and library paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -47,14 +47,14 @@ fi
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/file-ops.sh"
 fi
 
 if [[ -f "${LIB_DIR}/logging.sh" ]]; then
   source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/logging.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
@@ -69,14 +69,14 @@ fi
 
 if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
   source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 fi
 
 if [[ -f "${LIB_DIR}/analysis.sh" ]]; then
   source "${LIB_DIR}/analysis.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/analysis.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/analysis.sh"
+elif [[ -f "$CLEO_HOME/lib/analysis.sh" ]]; then
+  source "$CLEO_HOME/lib/analysis.sh"
 fi
 
 # Default configuration - JSON output for LLM agents
@@ -86,8 +86,8 @@ QUIET=false
 COMMAND_NAME="analyze"
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
 
 #####################################################################
 # Usage
@@ -95,7 +95,7 @@ TODO_FILE="${CLAUDE_DIR}/todo.json"
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo analyze [OPTIONS]
+Usage: cleo analyze [OPTIONS]
 
 Analyze task dependencies and identify high-leverage work.
 Default output is LLM-optimized JSON with comprehensive analysis.
@@ -121,10 +121,10 @@ Output Modes:
     Full (--full):    Comprehensive human-readable report
 
 Examples:
-    claude-todo analyze                    # JSON output (LLM default)
-    claude-todo analyze --human            # Brief human-readable
-    claude-todo analyze --full             # Detailed human-readable
-    claude-todo analyze --auto-focus       # Analyze and set focus
+    cleo analyze                    # JSON output (LLM default)
+    cleo analyze --human            # Brief human-readable
+    cleo analyze --full             # Detailed human-readable
+    cleo analyze --auto-focus       # Analyze and set focus
 
 Exit Codes:
     0:  Success
@@ -388,7 +388,7 @@ run_complete_analysis() {
     # ================================================================
 
     {
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -448,7 +448,7 @@ output_json() {
 
   if [[ "$pending_count" -eq 0 ]]; then
     jq -n --arg version "$VERSION" '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {"format": "json", "command": "analyze", "version": $version, "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))},
       "success": true,
       "summary": {"total_pending": 0, "actionable": 0, "blocked": 0},
@@ -703,10 +703,10 @@ parse_arguments() {
         ;;
       *)
         if [[ "${OUTPUT_MODE:-}" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-          output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'claude-todo analyze --help' for usage"
+          output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'cleo analyze --help' for usage"
         else
           log_error "Unknown option: $1"
-          echo "Run 'claude-todo analyze --help' for usage" >&2
+          echo "Run 'cleo analyze --help' for usage" >&2
         fi
         exit "${EXIT_INVALID_INPUT:-2}"
         ;;
@@ -728,10 +728,10 @@ main() {
   # Check if in a todo-enabled project
   if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$OUTPUT_MODE" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-      output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_FILE_ERROR:-3}" true "Run 'claude-todo init' to initialize project"
+      output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_FILE_ERROR:-3}" true "Run 'cleo init' to initialize project"
     else
       log_error "Todo file not found: $TODO_FILE"
-      echo "Run 'claude-todo init' first" >&2
+      echo "Run 'cleo init' first" >&2
     fi
     exit "${EXIT_FILE_ERROR:-3}"
   fi
@@ -787,7 +787,7 @@ main() {
       if [[ "$OUTPUT_MODE" == "json" ]]; then
         echo ""
         jq -n --arg task "$rec_task" '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "auto_focus": {"set": $task, "status": "success"}
         }'
       fi

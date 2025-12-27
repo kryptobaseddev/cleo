@@ -325,7 +325,7 @@ EOF
 # Sets TODO_FILE environment variable
 mock_todo_file() {
     local content="$1"
-    local dest="${BATS_TEST_TMPDIR}/.claude/todo.json"
+    local dest="${BATS_TEST_TMPDIR}/.cleo/todo.json"
 
     mkdir -p "$(dirname "$dest")"
     echo "$content" > "$dest"
@@ -374,7 +374,7 @@ mock_todo_with_tasks() {
 # Usage: mock_config_file '{"validation": {"strictMode": true}}'
 mock_config_file() {
     local content="$1"
-    local dest="${BATS_TEST_TMPDIR}/.claude/todo-config.json"
+    local dest="${BATS_TEST_TMPDIR}/.cleo/config.json"
 
     mkdir -p "$(dirname "$dest")"
     echo "$content" > "$dest"
@@ -396,7 +396,7 @@ mock_default_config() {
 # Usage: mock_log_file '{"entries": [], "_meta": {"version": "2.1.0"}}'
 mock_log_file() {
     local content="$1"
-    local dest="${BATS_TEST_TMPDIR}/.claude/todo-log.json"
+    local dest="${BATS_TEST_TMPDIR}/.cleo/todo-log.json"
 
     mkdir -p "$(dirname "$dest")"
     echo "$content" > "$dest"
@@ -419,7 +419,7 @@ mock_empty_log() {
 # Usage: mock_archive_file '{"archivedTasks": []}'
 mock_archive_file() {
     local content="$1"
-    local dest="${BATS_TEST_TMPDIR}/.claude/todo-archive.json"
+    local dest="${BATS_TEST_TMPDIR}/.cleo/todo-archive.json"
 
     mkdir -p "$(dirname "$dest")"
     echo "$content" > "$dest"

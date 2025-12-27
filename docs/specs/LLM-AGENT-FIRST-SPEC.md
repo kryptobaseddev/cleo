@@ -133,7 +133,7 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 ```json
 // ct add "Task" --parent T001 --format json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"command": "add", "timestamp": "...", "version": "..."},
   "success": true,
   "task": {
@@ -149,7 +149,7 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 
 // ct update T042 --priority high --format json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"command": "update", "timestamp": "..."},
   "success": true,
   "taskId": "T042",
@@ -165,7 +165,7 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 
 // ct complete T042 --format json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"command": "complete", "timestamp": "..."},
   "success": true,
   "taskId": "T042",
@@ -201,7 +201,7 @@ fi
 ```json
 // Task not found
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {"command": "show", "timestamp": "...", "version": "..."},
   "success": false,
   "error": {
@@ -215,7 +215,7 @@ fi
 
 // Hierarchy error
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {"command": "add", "timestamp": "...", "version": "..."},
   "success": false,
   "error": {
@@ -237,7 +237,7 @@ fi
 ```json
 // phase show --format json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"command": "phase show", "timestamp": "..."},
   "success": true,
   "currentPhase": {
@@ -400,7 +400,7 @@ Commands **MUST** use the following exit codes:
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$id": "https://cleo.dev/schemas/v1/output.schema.json",
   "title": "Claude-TODO Response Envelope",
   "type": "object",
   "required": ["_meta", "success"],
@@ -433,7 +433,7 @@ Commands **MUST** use the following exit codes:
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$id": "https://cleo.dev/schemas/v1/error.schema.json",
   "title": "Claude-TODO Error Envelope",
   "type": "object",
   "required": ["_meta", "success", "error"],
@@ -472,7 +472,7 @@ All JSON outputs **MUST** follow this envelope:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "<version>",
@@ -492,7 +492,7 @@ All JSON outputs **MUST** follow this envelope:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `format` | string | **MUST** | Always `"json"` for JSON output |
-| `version` | string | **MUST** | claude-todo version (e.g., `"0.17.0"`) |
+| `version` | string | **MUST** | cleo version (e.g., `"0.17.0"`) |
 | `command` | string | **MUST** | Command name (e.g., `"add"`, `"list"`) |
 | `timestamp` | string | **MUST** | ISO-8601 UTC timestamp |
 | `checksum` | string | MAY | SHA256 of file for integrity |
@@ -571,7 +571,7 @@ COMMAND_NAME="<command>"
 #### `add` Command Output
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.17.0", "command": "add", "timestamp": "..."},
   "success": true,
   "task": {"id": "T042", "type": "task", "parentId": null, "title": "...", "status": "pending"}
@@ -581,7 +581,7 @@ COMMAND_NAME="<command>"
 #### `update` Command Output
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.17.0", "command": "update", "timestamp": "..."},
   "success": true,
   "taskId": "T042",
@@ -593,7 +593,7 @@ COMMAND_NAME="<command>"
 #### `complete` Command Output
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.17.0", "command": "complete", "timestamp": "..."},
   "success": true,
   "taskId": "T042",
@@ -656,7 +656,7 @@ Commands with `--dry-run` **MUST** follow these semantics:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.17.0", "command": "add"},
   "success": true,
   "dryRun": true,
@@ -703,7 +703,7 @@ Example response:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.17.0", "command": "complete"},
   "success": true,
   "noChange": true,
@@ -821,7 +821,7 @@ output=$(ct list --human | head -1)
 [[ "$output" != "{" ]] || echo "FAIL: --human should output text"
 
 # Environment variable should work
-CLAUDE_TODO_FORMAT=json ct list | jq -e '._meta' || echo "FAIL: env var should work"
+CLEO_FORMAT=json ct list | jq -e '._meta' || echo "FAIL: env var should work"
 ```
 
 ### 6.4 Test Coverage Requirements
@@ -842,9 +842,9 @@ CLAUDE_TODO_FORMAT=json ct list | jq -e '._meta' || echo "FAIL: env var should w
 
 ```bash
 # Agent-optimized environment
-export CLAUDE_TODO_FORMAT=json
+export CLEO_FORMAT=json
 export NO_COLOR=1
-export CLAUDE_TODO_AGENT_MODE=1
+export CLEO_AGENT_MODE=1
 ```
 
 ### Query Patterns (Work Today)
@@ -959,7 +959,7 @@ All commands **MUST** meet these requirements:
 
 ### Adding a New Command
 
-When adding a new command to claude-todo, **MUST** follow this checklist:
+When adding a new command to cleo, **MUST** follow this checklist:
 
 #### 1. Foundation
 
@@ -1029,8 +1029,8 @@ source "${LIB_DIR}/error-json.sh"
 source "${LIB_DIR}/output-format.sh"
 
 # Load VERSION from central location
-if [[ -n "${CLAUDE_TODO_HOME:-}" ]] && [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-    VERSION=$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')
+if [[ -n "${CLEO_HOME:-}" ]] && [[ -f "$CLEO_HOME/VERSION" ]]; then
+    VERSION=$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')
 elif [[ -f "${SCRIPT_DIR}/../VERSION" ]]; then
     VERSION=$(cat "${SCRIPT_DIR}/../VERSION" | tr -d '[:space:]')
 else
@@ -1104,7 +1104,7 @@ main() {
       --arg cmd "$COMMAND_NAME" \
       --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "version": $version,
@@ -1334,7 +1334,7 @@ General:    E_UNKNOWN, E_NOT_INITIALIZED, E_DEPENDENCY_MISSING, E_DEPENDENCY_VER
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.17.0", "command": "add", "timestamp": "2025-12-17T12:00:00Z"},
   "success": true,
   "task": {"id": "T001", "type": "task", "parentId": null, "size": null, ...}
@@ -1344,5 +1344,5 @@ General:    E_UNKNOWN, E_NOT_INITIALIZED, E_DEPENDENCY_MISSING, E_DEPENDENCY_VER
 ---
 
 *Specification v3.0 - Authoritative Standard for LLM-Agent-First CLI Design*
-*Applicable to: claude-todo and any LLM-agent-first CLI project*
+*Applicable to: cleo and any LLM-agent-first CLI project*
 *Last updated: 2025-12-18*

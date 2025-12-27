@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Delete Task Script (Cancel/Delete)
+# CLEO Delete Task Script (Cancel/Delete)
 # Cancel and archive tasks with configurable child handling strategies
 #
 # This script implements the task deletion/cancellation system per
@@ -10,12 +10,12 @@
 
 set -euo pipefail
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Command name for error-json library
 COMMAND_NAME="delete"
@@ -145,7 +145,7 @@ QUIET=false
 
 usage() {
     cat << 'EOF'
-Usage: claude-todo delete TASK_ID --reason "..." [OPTIONS]
+Usage: cleo delete TASK_ID --reason "..." [OPTIONS]
 
 Cancel/delete a task and optionally handle child tasks.
 
@@ -178,7 +178,7 @@ Flags:
   -q, --quiet           Suppress non-essential output
   -h, --help            Show this help
 
-Configuration (from todo-config.json):
+Configuration (from config.json):
   - cancellation.requireReason: Require reason (default: true)
   - cancellation.defaultChildStrategy: Default strategy (default: "block")
   - cancellation.cascadeConfirmThreshold: Confirm above N tasks (default: 10)
@@ -210,14 +210,14 @@ JSON Output Structure:
   }
 
 Examples:
-  claude-todo delete T001 --reason "Requirements changed"
-  claude-todo delete T001 --reason "Superseded" --children orphan
-  claude-todo delete T001 --reason "Epic cancelled" --children cascade --limit 20
-  claude-todo delete T001 --reason "Testing" --dry-run
-  claude-todo delete T001 --reason "Script" --force --json
+  cleo delete T001 --reason "Requirements changed"
+  cleo delete T001 --reason "Superseded" --children orphan
+  cleo delete T001 --reason "Epic cancelled" --children cascade --limit 20
+  cleo delete T001 --reason "Testing" --dry-run
+  cleo delete T001 --reason "Script" --force --json
 
 Aliases:
-  claude-todo cancel T001 --reason "..."
+  cleo cancel T001 --reason "..."
 EOF
     exit 0
 }
@@ -363,10 +363,10 @@ fi
 # Validate task ID provided
 if [[ -z "$TASK_ID" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: claude-todo delete TASK_ID --reason '...'"
+        output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: cleo delete TASK_ID --reason '...'"
     else
         log_error "Task ID is required"
-        echo "Usage: claude-todo delete TASK_ID --reason '...'" >&2
+        echo "Usage: cleo delete TASK_ID --reason '...'" >&2
         echo "Use --help for more information" >&2
     fi
     exit "$EXIT_INVALID_INPUT"
@@ -385,10 +385,10 @@ fi
 # Check todo file exists
 if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'claude-todo init' first"
+        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'cleo init' first"
     else
         log_error "Todo file not found: $TODO_FILE"
-        echo "Run claude-todo init first to initialize the todo system" >&2
+        echo "Run cleo init first to initialize the todo system" >&2
     fi
     exit "$EXIT_FILE_ERROR"
 fi
@@ -420,10 +420,10 @@ esac
 # Check cascade is allowed
 if [[ "$CHILDREN_STRATEGY" == "cascade" && "$ALLOW_CASCADE" != "true" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        output_error "$E_INPUT_INVALID" "Cascade deletion is disabled in configuration" "$EXIT_VALIDATION_ERROR" false "Enable with: claude-todo config set cancellation.allowCascade true"
+        output_error "$E_INPUT_INVALID" "Cascade deletion is disabled in configuration" "$EXIT_VALIDATION_ERROR" false "Enable with: cleo config set cancellation.allowCascade true"
     else
         log_error "Cascade deletion is disabled in configuration"
-        log_info "Enable with: claude-todo config set cancellation.allowCascade true"
+        log_info "Enable with: cleo config set cancellation.allowCascade true"
     fi
     exit "$EXIT_VALIDATION_ERROR"
 fi
@@ -480,7 +480,7 @@ fi
 TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 if [[ -z "$TASK" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Use 'claude-todo list' to see available tasks or 'claude-todo exists $TASK_ID --include-archive' to check archive"
+        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Use 'cleo list' to see available tasks or 'cleo exists $TASK_ID --include-archive' to check archive"
     else
         log_error "Task $TASK_ID not found"
     fi
@@ -497,13 +497,13 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --arg completedAt "$COMPLETED_AT" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "delete",
@@ -516,7 +516,7 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
                     "message": "Task is already completed - use archive instead",
                     "exitCode": 17,
                     "recoverable": true,
-                    "suggestion": "Use '\''claude-todo archive'\'' to archive completed tasks"
+                    "suggestion": "Use '\''cleo archive'\'' to archive completed tasks"
                 },
                 "taskId": $taskId,
                 "completedAt": $completedAt,
@@ -525,7 +525,7 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
     else
         log_error "Task $TASK_ID is already completed"
         log_info "Completed at: $COMPLETED_AT"
-        log_info "Use 'claude-todo archive' to archive completed tasks"
+        log_info "Use 'cleo archive' to archive completed tasks"
     fi
     exit "$EXIT_TASK_COMPLETED"
 fi
@@ -536,13 +536,13 @@ if [[ "$CURRENT_STATUS" == "cancelled" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --arg cancelledAt "$CANCELLED_AT" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "delete",
@@ -714,7 +714,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --arg reason "$REASON" \
@@ -723,7 +723,7 @@ if [[ "$DRY_RUN" == true ]]; then
             --argjson childCount "$CHILDREN_COUNT" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "delete",
@@ -769,14 +769,14 @@ fi
 if declare -f create_safety_backup >/dev/null 2>&1; then
     BACKUP_PATH=$(create_safety_backup "$TODO_FILE" "delete" 2>&1) || {
         [[ "$FORMAT" != "json" ]] && log_warn "Backup library failed, using fallback"
-        BACKUP_DIR=".claude/backups/safety"
+        BACKUP_DIR=".cleo/backups/safety"
         mkdir -p "$BACKUP_DIR"
         BACKUP_PATH="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
         cp "$TODO_FILE" "$BACKUP_PATH"
     }
     [[ "$FORMAT" != "json" ]] && log_info "Backup created: $BACKUP_PATH"
 else
-    BACKUP_DIR=".claude/backups/safety"
+    BACKUP_DIR=".cleo/backups/safety"
     mkdir -p "$BACKUP_DIR"
     BACKUP_PATH="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
     cp "$TODO_FILE" "$BACKUP_PATH"
@@ -1003,7 +1003,7 @@ DELETED_COUNT=$(echo "$DELETED_TASKS" | jq 'length')
 
 if [[ "$FORMAT" == "json" ]]; then
     jq -n \
-        --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+        --arg version "${CLEO_VERSION:-unknown}" \
         --arg timestamp "$TIMESTAMP" \
         --arg taskId "$TASK_ID" \
         --arg reason "$REASON" \
@@ -1014,7 +1014,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson focusCleared "$FOCUS_CLEARED" \
         --argjson task "$CANCELLED_TASK" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
                 "format": "json",
                 "command": "delete",

@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Complete Task Script
+# CLEO Complete Task Script
 # Mark a task as complete and optionally trigger archive
 set -euo pipefail
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="${SCRIPT_DIR}/../lib"
 LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
 ARCHIVE_SCRIPT="${SCRIPT_DIR}/archive.sh"
 
+# Source paths.sh for path resolution functions
+if [[ -f "$LIB_DIR/paths.sh" ]]; then
+    source "$LIB_DIR/paths.sh"
+fi
 
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
 # Command name for error-json library
 COMMAND_NAME="complete"
 
 # Source logging library for should_use_color function
-LIB_DIR="${SCRIPT_DIR}/../lib"
 if [[ -f "$LIB_DIR/version.sh" ]]; then
   # shellcheck source=../lib/version.sh
   source "$LIB_DIR/version.sh"
@@ -94,7 +98,7 @@ QUIET=false
 
 usage() {
   cat << EOF
-Usage: claude-todo complete TASK_ID [OPTIONS]
+Usage: cleo complete TASK_ID [OPTIONS]
 
 Mark a task as complete (status='done') and set completedAt timestamp.
 
@@ -135,11 +139,11 @@ JSON Output Structure:
   }
 
 Examples:
-  claude-todo complete T001 --notes "Implemented auth middleware. Tested with unit tests."
-  claude-todo complete T042 --notes "Fixed bug #123. PR merged."
-  claude-todo complete T042 --skip-notes --skip-archive
-  claude-todo complete T001 --json --notes "Done"     # JSON output for agents
-  claude-todo complete T001 --format json             # Same as --json
+  cleo complete T001 --notes "Implemented auth middleware. Tested with unit tests."
+  cleo complete T042 --notes "Fixed bug #123. PR merged."
+  cleo complete T042 --skip-notes --skip-archive
+  cleo complete T001 --json --notes "Done"     # JSON output for agents
+  cleo complete T001 --format json             # Same as --json
 
 After completion, if autoArchiveOnComplete is enabled in config,
 the archive script will run automatically.
@@ -207,14 +211,14 @@ fi
 if [[ -z "$NOTES" && "$SKIP_NOTES" == false ]]; then
   if declare -f output_error >/dev/null 2>&1; then
     output_error "$E_INPUT_MISSING" "Completion notes required. Use --notes 'description' or --skip-notes to bypass." \
-      "${EXIT_INVALID_INPUT:-2}" true "Example: claude-todo complete $TASK_ID --notes 'Implemented feature. Tests passing.'"
+      "${EXIT_INVALID_INPUT:-2}" true "Example: cleo complete $TASK_ID --notes 'Implemented feature. Tests passing.'"
     exit "${EXIT_INVALID_INPUT:-2}"
   else
     log_error "Completion notes required. Use --notes 'description' or --skip-notes to bypass."
     echo "" >&2
     echo "Example:" >&2
-    echo "  claude-todo complete $TASK_ID --notes 'Implemented feature. Tests passing.'" >&2
-    echo "  claude-todo complete $TASK_ID --skip-notes" >&2
+    echo "  cleo complete $TASK_ID --notes 'Implemented feature. Tests passing.'" >&2
+    echo "  cleo complete $TASK_ID --skip-notes" >&2
     exit "$EXIT_INVALID_INPUT"
   fi
 fi
@@ -236,22 +240,22 @@ fi
 # Check files exist
 if [[ ! -f "$TODO_FILE" ]]; then
   if declare -f output_error >/dev/null 2>&1; then
-    output_error "$E_NOT_INITIALIZED" "$TODO_FILE not found. Run claude-todo init first." \
-      "${EXIT_FILE_ERROR:-3}" true "Run 'claude-todo init' to initialize the project"
+    output_error "$E_NOT_INITIALIZED" "$TODO_FILE not found. Run cleo init first." \
+      "${EXIT_FILE_ERROR:-3}" true "Run 'cleo init' to initialize the project"
     exit "${EXIT_FILE_ERROR:-3}"
   else
-    log_error "$TODO_FILE not found. Run claude-todo init first."
+    log_error "$TODO_FILE not found. Run cleo init first."
     exit "$EXIT_FILE_ERROR"
   fi
 fi
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
   if declare -f output_error >/dev/null 2>&1; then
-    output_error "$E_NOT_INITIALIZED" "$CONFIG_FILE not found. Run claude-todo init first." \
-      "${EXIT_FILE_ERROR:-3}" true "Run 'claude-todo init' to initialize the project"
+    output_error "$E_NOT_INITIALIZED" "$CONFIG_FILE not found. Run cleo init first." \
+      "${EXIT_FILE_ERROR:-3}" true "Run 'cleo init' to initialize the project"
     exit "${EXIT_FILE_ERROR:-3}"
   else
-    log_error "$CONFIG_FILE not found. Run claude-todo init first."
+    log_error "$CONFIG_FILE not found. Run cleo init first."
     exit "$EXIT_FILE_ERROR"
   fi
 fi
@@ -273,7 +277,7 @@ TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 if [[ -z "$TASK" ]]; then
   if declare -f output_error >/dev/null 2>&1; then
     output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" \
-      "${EXIT_NOT_FOUND:-4}" true "Use 'claude-todo list' to see available tasks or 'claude-todo exists $TASK_ID --include-archive' to check archive"
+      "${EXIT_NOT_FOUND:-4}" true "Use 'cleo list' to see available tasks or 'cleo exists $TASK_ID --include-archive' to check archive"
     exit "${EXIT_NOT_FOUND:-4}"
   else
     log_error "Task $TASK_ID not found"
@@ -298,14 +302,14 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
     # JSON output with noChange: true per spec Part 5.6
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     jq -n \
-      --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+      --arg version "${CLEO_VERSION:-unknown}" \
       --arg timestamp "$TIMESTAMP" \
       --arg taskId "$TASK_ID" \
       --arg completedAt "$COMPLETED_AT" \
       --arg message "Task $TASK_ID is already complete" \
       --argjson task "$TASK" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "command": "complete",
@@ -362,7 +366,7 @@ if [[ "$DRY_RUN" == true ]]; then
 
   if [[ "$FORMAT" == "json" ]]; then
     jq -n \
-      --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+      --arg version "${CLEO_VERSION:-unknown}" \
       --arg timestamp "$DRY_TIMESTAMP" \
       --arg taskId "$TASK_ID" \
       --arg completedAt "$DRY_TIMESTAMP" \
@@ -370,7 +374,7 @@ if [[ "$DRY_RUN" == true ]]; then
       --arg currentStatus "$CURRENT_STATUS" \
       --argjson task "$TASK" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "command": "complete",
@@ -412,7 +416,7 @@ if declare -f create_safety_backup >/dev/null 2>&1; then
   BACKUP_PATH=$(create_safety_backup "$TODO_FILE" "complete" 2>&1) || {
     [[ "$FORMAT" != "json" ]] && log_warn "Backup library failed, using fallback backup method"
     # Fallback to inline backup if library fails
-    BACKUP_DIR=".claude/backups/safety"
+    BACKUP_DIR=".cleo/backups/safety"
     mkdir -p "$BACKUP_DIR"
     BACKUP_FILE="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
     cp "$TODO_FILE" "$BACKUP_FILE"
@@ -421,7 +425,7 @@ if declare -f create_safety_backup >/dev/null 2>&1; then
   [[ "$FORMAT" != "json" ]] && log_info "Backup created: $BACKUP_PATH"
 else
   # Fallback if backup library not available
-  BACKUP_DIR=".claude/backups/safety"
+  BACKUP_DIR=".cleo/backups/safety"
   mkdir -p "$BACKUP_DIR"
   BACKUP_FILE="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
   cp "$TODO_FILE" "$BACKUP_FILE"
@@ -885,7 +889,7 @@ if [[ "$FORMAT" == "json" ]]; then
   AUTO_COMPLETED_JSON=$(printf '%s\n' "${AUTO_COMPLETED_PARENTS[@]}" | jq -R . | jq -s .)
   
   jq -n \
-    --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+    --arg version "${CLEO_VERSION:-unknown}" \
     --arg timestamp "$TIMESTAMP" \
     --arg taskId "$TASK_ID" \
     --arg completedAt "$TIMESTAMP" \
@@ -895,7 +899,7 @@ if [[ "$FORMAT" == "json" ]]; then
     --argjson task "$COMPLETED_TASK" \
     --argjson autoCompletedParents "$AUTO_COMPLETED_JSON" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "command": "complete",

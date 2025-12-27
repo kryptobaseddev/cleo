@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# logging.sh - Change log functions for CLAUDE-TODO system
+# logging.sh - Change log functions for CLEO system
 #
 # LAYER: 2 (Data Layer)
 # DEPENDENCIES: atomic-write.sh
@@ -32,24 +32,24 @@ fi
 # VERSION
 # ============================================================================
 
-_CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+_CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
-if [[ -f "$_CLAUDE_TODO_HOME/VERSION" ]]; then
-  CLAUDE_TODO_VERSION="$(cat "$_CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$_CLEO_HOME/VERSION" ]]; then
+  CLEO_VERSION="$(cat "$_CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$_LIB_DIR/../VERSION" ]]; then
-  CLAUDE_TODO_VERSION="$(cat "$_LIB_DIR/../VERSION" | tr -d '[:space:]')"
+  CLEO_VERSION="$(cat "$_LIB_DIR/../VERSION" | tr -d '[:space:]')"
 else
-  CLAUDE_TODO_VERSION="0.1.0"
+  CLEO_VERSION="0.1.0"
 fi
 
 # ============================================================================
 # CONFIGURATION AND GLOBALS
 # ============================================================================
 
-# Default log file location (relative to project .claude directory)
+# Default log file location (relative to project .cleo directory)
 # Only set if not already defined (prevent re-sourcing errors)
 if [[ -z "${LOG_FILE:-}" ]]; then
-    readonly LOG_FILE="${CLAUDE_TODO_DIR:-.claude}/todo-log.json"
+    readonly LOG_FILE="${CLEO_DIR:-.cleo}/todo-log.json"
 fi
 
 # Log entry ID format: log_<12-hex-chars>
@@ -184,7 +184,7 @@ init_log_file() {
 
         cat > "$log_path" <<EOF
 {
-  "version": "${CLAUDE_TODO_VERSION}",
+  "version": "${CLEO_VERSION}",
   "project": "${project_name}",
   "_meta": {
     "totalEntries": 0,
@@ -791,7 +791,7 @@ migrate_log_entries() {
     fi
 
     # Transform entries using jq - build updated content in memory
-    updated_log=$(jq --arg version "$CLAUDE_TODO_VERSION" '
+    updated_log=$(jq --arg version "$CLEO_VERSION" '
         # Define action value mappings from old to new schema
         def map_action_value:
             if . == "create" then "task_created"

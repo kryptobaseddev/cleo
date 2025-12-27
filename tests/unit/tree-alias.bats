@@ -10,7 +10,7 @@
 # - Error handling
 #
 # Note: Since tree is an alias handled by the installed dispatcher, these tests
-# use the installed claude-todo command directly. For unit testing of list --tree,
+# use the installed cleo command directly. For unit testing of list --tree,
 # see hierarchy.bats.
 #
 # Reference: T648 implementation plan, T647 decision
@@ -27,14 +27,14 @@ setup() {
     load '../test_helper/fixtures'
     common_setup_per_test
 
-    # Use the installed claude-todo command for alias tests
-    # Fall back to ct if claude-todo not in PATH
-    if command -v claude-todo &>/dev/null; then
-        CLAUDE_TODO_CMD="claude-todo"
+    # Use the installed cleo command for alias tests
+    # Fall back to ct if cleo not in PATH
+    if command -v cleo &>/dev/null; then
+        CLAUDE_TODO_CMD="cleo"
     elif command -v ct &>/dev/null; then
         CLAUDE_TODO_CMD="ct"
     else
-        skip "claude-todo not installed - run ./install.sh first"
+        skip "cleo not installed - run ./install.sh first"
     fi
 }
 

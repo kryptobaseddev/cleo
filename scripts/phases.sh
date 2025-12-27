@@ -28,7 +28,7 @@
 #   phases.sh --format json        # JSON output
 #
 # Version: 0.9.0
-# Part of: claude-todo CLI (Phase 3 - T069)
+# Part of: cleo CLI (Phase 3 - T069)
 #####################################################################
 
 set -euo pipefail
@@ -36,11 +36,11 @@ set -euo pipefail
 # Script and library paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -50,20 +50,20 @@ fi
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/file-ops.sh"
 fi
 
 if [[ -f "${LIB_DIR}/logging.sh" ]]; then
   source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/logging.sh"
 fi
 
 if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
   source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
@@ -80,8 +80,8 @@ fi
 if [[ -f "$LIB_DIR/validation.sh" ]]; then
   # shellcheck source=../lib/validation.sh
   source "$LIB_DIR/validation.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/validation.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/validation.sh"
+elif [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
+  source "$CLEO_HOME/lib/validation.sh"
 fi
 
 # Default configuration
@@ -92,8 +92,8 @@ PHASE_ARG=""
 QUIET_MODE=false
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${TODO_FILE:-${CLAUDE_DIR}/todo.json}"
+CLEO_DIR=".cleo"
+TODO_FILE="${TODO_FILE:-${CLEO_DIR}/todo.json}"
 
 #####################################################################
 # Usage
@@ -101,7 +101,7 @@ TODO_FILE="${TODO_FILE:-${CLAUDE_DIR}/todo.json}"
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo phases [SUBCOMMAND] [OPTIONS]
+Usage: cleo phases [SUBCOMMAND] [OPTIONS]
 
 Manage and display workflow phases with progress tracking.
 
@@ -118,10 +118,10 @@ Options:
     -h, --help            Show this help message
 
 Examples:
-    claude-todo phases                      # List all phases with progress
-    claude-todo phases show core            # Show tasks in 'core' phase
-    claude-todo phases stats                # Show detailed statistics
-    claude-todo phases --format json        # JSON output
+    cleo phases                      # List all phases with progress
+    cleo phases show core            # Show tasks in 'core' phase
+    cleo phases stats                # Show detailed statistics
+    cleo phases --format json        # JSON output
 
 Output:
     Shows phases with task counts, progress bars, and completion status.
@@ -258,7 +258,8 @@ get_phase_status() {
 get_phase_stats() {
   jq -r '
     # Get phase definitions from project.phases (v2.2.0+) or .phases (legacy)
-    (.project.phases // .phases // {}) as $phase_defs |
+    # Handle case where .project is still a string (pre-v2.2.0 format)
+    (if (.project | type) == "object" then .project.phases else null end // .phases // {}) as $phase_defs |
 
     # Get all tasks
     .tasks as $tasks |
@@ -316,12 +317,12 @@ list_phases() {
   fi
 
   if [[ "$FORMAT" == "json" ]]; then
-    # Get currentPhase from todo.json
+    # Get currentPhase from todo.json (handle legacy string .project format)
     local current_phase
-    current_phase=$(jq -r '.focus.currentPhase // .project.currentPhase // null' "$TODO_FILE")
+    current_phase=$(jq -r '.focus.currentPhase // (if (.project | type) == "object" then .project.currentPhase else null end) // null' "$TODO_FILE")
 
     echo "$phase_stats" | jq --arg cp "$current_phase" --arg version "$VERSION" '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -355,7 +356,7 @@ list_phases() {
   if [[ $count -eq 0 ]]; then
     echo "No phases defined."
     echo ""
-    echo "Add phases to .claude/todo.json under \"phases\" key:"
+    echo "Add phases to .cleo/todo.json under \"phases\" key:"
     echo '  "phases": {'
     echo '    "setup": {"name": "Setup", "description": "Initial setup", "order": 1},'
     echo '    "core": {"name": "Core", "description": "Core features", "order": 2}'
@@ -426,20 +427,23 @@ show_phase() {
   local phase_slug="$1"
 
   # Check if phase exists (support v2.2.0 project.phases and legacy .phases)
+  # Handle case where .project is still a string (pre-v2.2.0 format)
   local phase_exists
   phase_exists=$(jq --arg p "$phase_slug" '
-    ((.project.phases // .phases)[$p] != null) or ([.tasks[].phase] | index($p) != null)
+    (if (.project | type) == "object" then .project.phases else null end // .phases // {}) as $phases |
+    ($phases[$p] != null) or ([.tasks[].phase] | index($p) != null)
   ' "$TODO_FILE")
 
   if [[ "$phase_exists" != "true" ]]; then
-    log_error "Phase '$phase_slug' not found" "E_PHASE_NOT_FOUND" 1 "Run 'claude-todo phases' to see available phases"
+    log_error "Phase '$phase_slug' not found" "E_PHASE_NOT_FOUND" 1 "Run 'cleo phases' to see available phases"
     exit "$EXIT_NOT_FOUND"
   fi
 
   # Get phase info (support v2.2.0 project.phases and legacy .phases)
+  # Handle case where .project is still a string (pre-v2.2.0 format)
   local phase_info
   phase_info=$(jq --arg p "$phase_slug" '
-    (.project.phases // .phases // {}) as $phases |
+    (if (.project | type) == "object" then .project.phases else null end // .phases // {}) as $phases |
     {
       slug: $p,
       name: ($phases[$p].name // $p),
@@ -450,7 +454,7 @@ show_phase() {
 
   if [[ "$FORMAT" == "json" ]]; then
     echo "$phase_info" | jq --arg version "$VERSION" '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -510,7 +514,7 @@ show_stats() {
 
   if [[ "$FORMAT" == "json" ]]; then
     echo "$phase_stats" | jq --arg version "$VERSION" '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -673,7 +677,7 @@ check_deps
 
 # Check if todo.json exists
 if [[ ! -f "$TODO_FILE" ]]; then
-  log_error "todo.json not found. Run 'claude-todo init' first." "E_NOT_INITIALIZED" 1 "Run 'claude-todo init' to initialize"
+  log_error "todo.json not found. Run 'cleo init' first." "E_NOT_INITIALIZED" 1 "Run 'cleo init' to initialize"
   exit "$EXIT_NOT_INITIALIZED"
 fi
 
@@ -684,7 +688,7 @@ case "$SUBCOMMAND" in
     ;;
   show)
     if [[ -z "$PHASE_ARG" ]]; then
-      log_error "Phase slug required. Usage: claude-todo phases show <phase>" "E_INPUT_MISSING" 1 "Provide a phase slug: claude-todo phases show core"
+      log_error "Phase slug required. Usage: cleo phases show <phase>" "E_INPUT_MISSING" 1 "Provide a phase slug: cleo phases show core"
       exit "$EXIT_INVALID_INPUT"
     fi
     show_phase "$PHASE_ARG"

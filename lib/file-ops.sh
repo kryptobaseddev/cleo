@@ -635,10 +635,120 @@ list_backups() {
     return $FO_SUCCESS
 }
 
+# ============================================================================
+# MULTI-FILE LOCKING (Multi-Session Support)
+# ============================================================================
+
+#######################################
+# Acquire exclusive locks on multiple files in order
+# Arguments:
+#   $@ - File paths to lock (in order)
+# Outputs:
+#   Space-separated file descriptors to stdout
+# Returns:
+#   0 on success, FO_LOCK_FAILED if any lock fails
+# Notes:
+#   Locks are acquired in the order provided to prevent deadlock.
+#   Per MULTI-SESSION-SPEC.md, always lock: sessions.json → todo.json → todo-log.json
+#   On failure, any acquired locks are released before returning.
+# Security:
+#   File paths are sanitized by lock_file before use
+#######################################
+lock_multi_file() {
+    local files=("$@")
+    local fds=()
+    local fd_var
+
+    for file in "${files[@]}"; do
+        fd_var="MULTI_LOCK_FD_${#fds[@]}"
+
+        if ! lock_file "$file" "$fd_var" 30; then
+            # Release any locks we already acquired
+            for acquired_fd in "${fds[@]}"; do
+                unlock_file "$acquired_fd"
+            done
+            echo "Error: Failed to acquire lock on $file" >&2
+            return $FO_LOCK_FAILED
+        fi
+
+        # Get the FD value from the variable
+        eval "fds+=(\"\$$fd_var\")"
+    done
+
+    # Output all FDs space-separated
+    printf '%s\n' "${fds[*]}"
+    return $FO_SUCCESS
+}
+
+#######################################
+# Release multiple file locks
+# Arguments:
+#   $@ - File descriptors to unlock (order doesn't matter)
+# Returns:
+#   Always 0 (errors are suppressed)
+# Notes:
+#   Safe to call even if some locks aren't held
+#######################################
+unlock_multi_file() {
+    local fds=("$@")
+
+    for fd in "${fds[@]}"; do
+        unlock_file "$fd"
+    done
+
+    return $FO_SUCCESS
+}
+
+#######################################
+# Execute a function with multiple file locks held
+# Arguments:
+#   $1 - Function to execute
+#   $@ (remaining) - Files to lock (in order)
+# Returns:
+#   Return value of the executed function
+# Notes:
+#   Automatically acquires locks, executes function, releases locks.
+#   Function is called with no arguments; use closures or globals for state.
+# Example:
+#   with_multi_lock my_update_function sessions.json todo.json
+#######################################
+with_multi_lock() {
+    local func="$1"
+    shift
+    local files=("$@")
+
+    local fds_str
+    if ! fds_str=$(lock_multi_file "${files[@]}"); then
+        return $FO_LOCK_FAILED
+    fi
+
+    # Convert space-separated string to array
+    read -ra fds <<< "$fds_str"
+
+    # Set up trap to release locks on exit/error
+    trap "unlock_multi_file ${fds[*]}" EXIT ERR INT TERM
+
+    # Execute the function
+    local result
+    "$func"
+    result=$?
+
+    # Release locks
+    unlock_multi_file "${fds[@]}"
+
+    # Clear trap
+    trap - EXIT ERR INT TERM
+
+    return $result
+}
+
 # Export functions
 export -f ensure_directory
 export -f lock_file
 export -f unlock_file
+export -f lock_multi_file
+export -f unlock_multi_file
+export -f with_multi_lock
 export -f backup_file
 export -f _rotate_numbered_backups
 export -f atomic_write

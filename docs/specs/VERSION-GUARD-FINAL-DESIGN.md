@@ -39,7 +39,7 @@ After sequential thinking analysis and 5 parallel challenge agents (Performance,
 - **Never add interactive prompts** without `--interactive` flag
 - **All warnings to STDERR** - preserves JSON output integrity
 - **Default to non-blocking** - warn, don't fail
-- **Environment variable escape hatch**: `CLAUDE_TODO_VERSION_CHECK=0`
+- **Environment variable escape hatch**: `CLEO_VERSION_CHECK=0`
 - **Add `_meta.lastWriterVersion`** field for team collaboration tracking
 
 ---
@@ -62,7 +62,7 @@ After sequential thinking analysis and 5 parallel challenge agents (Performance,
 LAYER 1: FAST VERSION CHECK (in wrapper, before dispatch)
 ├── Only for WRITE commands (add, update, complete, archive)
 ├── Use head+grep (not jq) - constant 1ms
-├── Respects CLAUDE_TODO_VERSION_CHECK env var
+├── Respects CLEO_VERSION_CHECK env var
 └── Returns: 0=OK, 1=WARN, 2=BLOCK
 
 LAYER 2: WRITE-TIME VALIDATION (in existing scripts)
@@ -84,7 +84,7 @@ LAYER 3: FULL VALIDATION (existing validate.sh)
 ### 1. Fast Version Check (wrapper addition)
 
 ```bash
-# In ~/.claude-todo/scripts/claude-todo (wrapper)
+# In ~/.cleo/scripts/cleo (wrapper)
 # Add after load_config_aliases, before command dispatch
 
 # Write commands that need version check
@@ -92,17 +92,17 @@ WRITE_COMMANDS="add update complete archive focus session sync"
 
 fast_version_check() {
     # Skip if disabled via env
-    [[ "${CLAUDE_TODO_VERSION_CHECK:-1}" == "0" ]] && return 0
+    [[ "${CLEO_VERSION_CHECK:-1}" == "0" ]] && return 0
 
     # Skip if not a write command
     [[ " $WRITE_COMMANDS " != *" $1 "* ]] && return 0
 
     # Skip if no project
-    [[ ! -f ".claude/todo.json" ]] && return 0
+    [[ ! -f ".cleo/todo.json" ]] && return 0
 
     # Fast version extraction (no jq, constant time)
     local project_version
-    project_version=$(head -n 5 .claude/todo.json 2>/dev/null | \
+    project_version=$(head -n 5 .cleo/todo.json 2>/dev/null | \
                       grep -oP '"version"\s*:\s*"\K[^"]+' | head -1)
     project_version="${project_version:-1.0.0}"
 
@@ -248,7 +248,7 @@ export EXIT_MIGRATION_REQUIRED
 update_last_writer_version() {
     local file="$1"
     local cli_version
-    cli_version=$(cat "${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/VERSION" 2>/dev/null || echo "unknown")
+    cli_version=$(cat "${CLEO_HOME:-$HOME/.cleo}/VERSION" 2>/dev/null || echo "unknown")
 
     jq --arg v "$cli_version" \
        --arg t "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
@@ -271,7 +271,7 @@ update_last_writer_version() {
 ### Phase 2: Integration (v0.25.0)
 - [ ] Add fast version check to wrapper (write commands only)
 - [ ] Integrate `validate_version_with_policy()` into write scripts
-- [ ] Add `CLAUDE_TODO_VERSION_CHECK` env var override
+- [ ] Add `CLEO_VERSION_CHECK` env var override
 - [ ] Add JSON error output for non-TTY mode
 
 ### Phase 3: Polish (v0.26.0)
@@ -290,7 +290,7 @@ update_last_writer_version() {
 @test "fast_version_check returns 1 for minor mismatch" { ... }
 @test "fast_version_check returns 2 for major mismatch" { ... }
 @test "fast_version_check skips for read commands" { ... }
-@test "CLAUDE_TODO_VERSION_CHECK=0 disables checks" { ... }
+@test "CLEO_VERSION_CHECK=0 disables checks" { ... }
 ```
 
 ### Integration Tests

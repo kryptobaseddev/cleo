@@ -9,16 +9,16 @@ source "${LIB_DIR}/exit-codes.sh"
 source "${LIB_DIR}/error-json.sh"
 source "${LIB_DIR}/output-format.sh"
 
-VERSION="${CLAUDE_TODO_VERSION:-0.23.1}"
+VERSION="${CLEO_VERSION:-0.23.1}"
 COMMAND_NAME="populate-hierarchy"
 FORMAT=""
 QUIET=false
 DRY_RUN=false
-TODO_FILE="${CLAUDE_TODO_DIR:-.claude}/todo.json"
+TODO_FILE="${CLEO_DIR:-.cleo}/todo.json"
 
 show_help() {
     cat << 'EOF'
-Usage: claude-todo populate-hierarchy [OPTIONS]
+Usage: cleo populate-hierarchy [OPTIONS]
 
 Populate parentId field based on:
 1. Naming convention: "T001.1" in title → parentId: "T001"
@@ -139,7 +139,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson depends "$depends_changes" \
         --argjson skipped "$skipped" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
                 "format": "json",
                 "version": $version,

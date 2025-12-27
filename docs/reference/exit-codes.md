@@ -3,7 +3,7 @@
 > **Version**: 1.0 | **Updated**: 2025-12-23
 > **Spec**: [LLM-AGENT-FIRST-SPEC.md](../specs/LLM-AGENT-FIRST-SPEC.md) Parts 4, 5.6, 5.7
 
-This document defines all exit codes used by claude-todo CLI and the retry protocol for LLM agents.
+This document defines all exit codes used by cleo CLI and the retry protocol for LLM agents.
 
 ---
 
@@ -120,7 +120,7 @@ Exit code 102 indicates a valid command that made no state changes.
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.31.1", "command": "complete"},
   "success": true,
   "noChange": true,
@@ -143,7 +143,7 @@ All errors return structured JSON with the following envelope:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.31.1",
@@ -156,7 +156,7 @@ All errors return structured JSON with the following envelope:
     "message": "Task T999 not found",
     "exitCode": 4,
     "recoverable": false,
-    "suggestion": "Use 'claude-todo list' to see available tasks"
+    "suggestion": "Use 'cleo list' to see available tasks"
   }
 }
 ```

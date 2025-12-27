@@ -31,8 +31,8 @@ setup() {
     mkdir -p "$CLAUDE_TODO_DIR"
 
     # Set BACKUP_DIR that will be used by config (relative to project)
-    # The library reads from todo-config.json
-    BACKUP_DIR_REL=".claude/backups"
+    # The library reads from config.json
+    BACKUP_DIR_REL=".cleo/backups"
 
     # Create backup directory structure
     mkdir -p "$TEST_DIR/$BACKUP_DIR_REL"/{snapshot,safety,incremental,archive,migration}
@@ -43,7 +43,7 @@ setup() {
     echo '{"entries": [], "_meta": {"version": "2.1.0"}}' > "$CLAUDE_TODO_DIR/todo-log.json"
 
     # Create config with explicit backup directory
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -55,6 +55,7 @@ EOF
 
     # Set environment
     export CLAUDE_TODO_DIR
+    export CLEO_DIR="$CLAUDE_TODO_DIR"
     export CLAUDE_TODO_VERSION="0.27.0"
 
     # Change to test directory for relative path resolution
@@ -241,7 +242,7 @@ teardown_file() {
 
     [[ -f "$backup_path/todo.json" ]]
     [[ -f "$backup_path/todo-archive.json" ]]
-    [[ -f "$backup_path/todo-config.json" ]]
+    [[ -f "$backup_path/config.json" ]]
     [[ -f "$backup_path/todo-log.json" ]]
 }
 
@@ -1174,14 +1175,14 @@ _setup_manifest_test() {
     # Ensure no schedule file exists
     rm -f "$BACKUP_DIR_ABS/.schedule"
 
-    run get_last_backup_time "$CLAUDE_TODO_DIR/todo-config.json"
+    run get_last_backup_time "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ "$output" == "" ]]
 }
 
 @test "schedule_backup creates schedule state file" {
-    run schedule_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    run schedule_backup "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ -f "$BACKUP_DIR_ABS/.schedule" ]]
@@ -1193,9 +1194,9 @@ _setup_manifest_test() {
 }
 
 @test "get_last_backup_time returns timestamp after schedule_backup" {
-    schedule_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    schedule_backup "$CLAUDE_TODO_DIR/config.json"
 
-    run get_last_backup_time "$CLAUDE_TODO_DIR/todo-config.json"
+    run get_last_backup_time "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ "$output" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
@@ -1203,7 +1204,7 @@ _setup_manifest_test() {
 
 @test "should_auto_backup returns false when interval not configured" {
     # Config has no intervalMinutes (defaults to 0 = disabled)
-    run should_auto_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    run should_auto_backup "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ "$output" == "false" ]]
@@ -1211,7 +1212,7 @@ _setup_manifest_test() {
 
 @test "should_auto_backup returns true when never backed up and interval configured" {
     # Update config with interval
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1226,7 +1227,7 @@ EOF
     # Remove any existing schedule
     rm -f "$BACKUP_DIR_ABS/.schedule"
 
-    run should_auto_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    run should_auto_backup "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ "$output" == "true" ]]
@@ -1234,7 +1235,7 @@ EOF
 
 @test "should_auto_backup returns false when interval not elapsed" {
     # Update config with interval
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1247,9 +1248,9 @@ EOF
 }
 EOF
     # Record a recent backup
-    schedule_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    schedule_backup "$CLAUDE_TODO_DIR/config.json"
 
-    run should_auto_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    run should_auto_backup "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ "$output" == "false" ]]
@@ -1257,7 +1258,7 @@ EOF
 
 @test "auto_backup_on_archive creates backup when onArchive is true" {
     # Config with onArchive enabled (default)
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1271,7 +1272,7 @@ EOF
 EOF
 
     local backup_path
-    backup_path=$(auto_backup_on_archive "$CLAUDE_TODO_DIR/todo-config.json")
+    backup_path=$(auto_backup_on_archive "$CLAUDE_TODO_DIR/config.json")
     local result=$?
 
     [[ $result -eq 0 ]]
@@ -1281,7 +1282,7 @@ EOF
 
 @test "auto_backup_on_archive skips backup when onArchive is false" {
     # Config with onArchive disabled
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1295,7 +1296,7 @@ EOF
 EOF
 
     local backup_path
-    backup_path=$(auto_backup_on_archive "$CLAUDE_TODO_DIR/todo-config.json")
+    backup_path=$(auto_backup_on_archive "$CLAUDE_TODO_DIR/config.json")
     local result=$?
 
     [[ $result -eq 0 ]]
@@ -1304,7 +1305,7 @@ EOF
 
 @test "auto_backup_on_session_start creates backup when configured" {
     # Config with onSessionStart enabled
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1318,7 +1319,7 @@ EOF
 EOF
 
     local backup_path
-    backup_path=$(auto_backup_on_session_start "$CLAUDE_TODO_DIR/todo-config.json")
+    backup_path=$(auto_backup_on_session_start "$CLAUDE_TODO_DIR/config.json")
     local result=$?
 
     [[ $result -eq 0 ]]
@@ -1328,7 +1329,7 @@ EOF
 
 @test "auto_backup_on_session_end creates backup when configured" {
     # Config with onSessionEnd enabled
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1341,7 +1342,7 @@ EOF
 }
 EOF
 
-    run auto_backup_on_session_end "$CLAUDE_TODO_DIR/todo-config.json"
+    run auto_backup_on_session_end "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ -n "$output" ]]  # Should return backup path
@@ -1349,7 +1350,7 @@ EOF
 
 @test "perform_scheduled_backup creates backup and records timestamp" {
     # Config with interval
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1364,7 +1365,7 @@ EOF
     # Remove any existing schedule
     rm -f "$BACKUP_DIR_ABS/.schedule"
 
-    run perform_scheduled_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    run perform_scheduled_backup "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ -n "$output" ]]  # Should return backup path
@@ -1373,7 +1374,7 @@ EOF
 
 @test "perform_scheduled_backup skips when not due" {
     # Config with interval
-    cat > "$CLAUDE_TODO_DIR/todo-config.json" << EOF
+    cat > "$CLAUDE_TODO_DIR/config.json" << EOF
 {
   "version": "2.1.0",
   "backup": {
@@ -1386,9 +1387,9 @@ EOF
 }
 EOF
     # Record a recent backup
-    schedule_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    schedule_backup "$CLAUDE_TODO_DIR/config.json"
 
-    run perform_scheduled_backup "$CLAUDE_TODO_DIR/todo-config.json"
+    run perform_scheduled_backup "$CLAUDE_TODO_DIR/config.json"
 
     [[ $status -eq 0 ]]
     [[ -z "$output" ]]  # Should return empty (not due)

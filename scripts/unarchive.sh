@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Unarchive Script
+# CLEO Unarchive Script
 # Restore archived tasks back to todo.json
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version library for proper version management
 LIB_DIR="${SCRIPT_DIR}/../lib"
@@ -13,10 +13,10 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
     source "$LIB_DIR/version.sh"
 fi
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
-LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Source logging library for should_use_color function
 if [[ -f "$LIB_DIR/logging.sh" ]]; then
@@ -79,7 +79,7 @@ declare -a TASK_IDS=()
 
 usage() {
     cat << EOF
-Usage: claude-todo unarchive [OPTIONS] <TASK_IDS...>
+Usage: cleo unarchive [OPTIONS] <TASK_IDS...>
 
 Restore archived tasks back to todo.json.
 
@@ -107,10 +107,10 @@ JSON Output (--format json):
   archive statistics. Useful for LLM agent automation workflows.
 
 Examples:
-  claude-todo unarchive T001 T002      # Restore specific tasks
-  claude-todo unarchive --dry-run T001 # Preview restoration
-  claude-todo unarchive --status active T001  # Restore as active
-  claude-todo unarchive --preserve-status T001  # Keep original status
+  cleo unarchive T001 T002      # Restore specific tasks
+  cleo unarchive --dry-run T001 # Preview restoration
+  cleo unarchive --status active T001  # Restore as active
+  cleo unarchive --preserve-status T001  # Keep original status
 EOF
     exit 0
 }
@@ -228,10 +228,10 @@ fi
 # Require at least one task ID
 if [[ ${#TASK_IDS[@]} -eq 0 ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "E_INPUT_MISSING" "At least one task ID is required" "${EXIT_INVALID_INPUT:-1}" true "Usage: claude-todo unarchive <TASK_IDS...>"
+        output_error "E_INPUT_MISSING" "At least one task ID is required" "${EXIT_INVALID_INPUT:-1}" true "Usage: cleo unarchive <TASK_IDS...>"
     else
         log_error "At least one task ID is required"
-        echo "Usage: claude-todo unarchive <TASK_IDS...>" >&2
+        echo "Usage: cleo unarchive <TASK_IDS...>" >&2
     fi
     exit "${EXIT_INVALID_INPUT:-1}"
 fi
@@ -239,7 +239,7 @@ fi
 # Check files exist
 if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "E_FILE_NOT_FOUND" "$TODO_FILE not found" "${EXIT_FILE_ERROR:-3}" false "Run 'claude-todo init' to initialize project"
+        output_error "E_FILE_NOT_FOUND" "$TODO_FILE not found" "${EXIT_FILE_ERROR:-3}" false "Run 'cleo init' to initialize project"
     else
         log_error "$TODO_FILE not found"
     fi
@@ -273,10 +273,10 @@ if [[ "$ALREADY_ACTIVE_COUNT" -eq "${#TASK_IDS[@]}" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
             --arg ts "$TIMESTAMP" \
-            --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg ver "${CLEO_VERSION:-$(get_version)}" \
             --argjson taskIds "$ALREADY_ACTIVE_IDS" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {"format": "json", "command": "unarchive", "timestamp": $ts, "version": $ver},
                 "success": true,
                 "noChange": true,
@@ -318,10 +318,10 @@ if [[ "$FOUND_COUNT" -eq 0 ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq -n \
             --arg ts "$TIMESTAMP" \
-            --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg ver "${CLEO_VERSION:-$(get_version)}" \
             --argjson requestedIds "$TASK_IDS_JSON" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {"format": "json", "command": "unarchive", "timestamp": $ts, "version": $ver},
                 "success": false,
                 "error": {
@@ -399,7 +399,7 @@ if [[ "$DRY_RUN" == true ]]; then
 
         jq -n \
             --arg ts "$TIMESTAMP" \
-            --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg ver "${CLEO_VERSION:-$(get_version)}" \
             --arg status "$RESTORE_STATUS" \
             --argjson count "$FOUND_COUNT" \
             --argjson ids "$RESTORED_IDS_JSON" \
@@ -408,7 +408,7 @@ if [[ "$DRY_RUN" == true ]]; then
             --argjson remainingArchived "$REMAINING_ARCHIVED" \
             --argjson newTodoTotal "$NEW_TODO_TOTAL" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {"format": "json", "command": "unarchive", "timestamp": $ts, "version": $ver},
                 "success": true,
                 "dryRun": true,
@@ -597,7 +597,7 @@ if [[ "$FORMAT" == "json" ]]; then
 
     jq -n \
         --arg ts "$OUTPUT_TIMESTAMP" \
-        --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg ver "${CLEO_VERSION:-$(get_version)}" \
         --arg status "$RESTORE_STATUS" \
         --argjson count "$FOUND_COUNT" \
         --argjson ids "$RESTORED_IDS_JSON" \
@@ -608,7 +608,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson remainingArchived "$REMAINING_ARCHIVED" \
         --argjson todoTotal "$TODO_TOTAL" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {"format": "json", "command": "unarchive", "timestamp": $ts, "version": $ver},
             "success": true,
             "restored": {"count": $count, "taskIds": $ids, "status": $status},

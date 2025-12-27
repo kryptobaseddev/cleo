@@ -5,6 +5,177 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1] - 2025-12-27
+
+### Fixed
+- **claude-migrate arithmetic bug** - Fixed `((files_moved++))` causing exit with `set -e`
+  - Added `|| true` to prevent exit code 1 when incrementing from 0
+  - Empty `.claude/` directory now removed after successful migration
+  - Tests updated to match new behavior (non-CLEO files preserved in .claude/)
+
+- **Schema migration detection** - Fixed incorrect status code handling in `scripts/migrate.sh`
+  - Status code 3 (major version upgrade like 0.x → 2.x) was falling through to unknown/no-migration
+  - Now properly requires `--force` flag for major version upgrades
+  - Added status code 4 for "data newer than schema" (cannot migrate, upgrade cleo instead)
+  - `cleo migrate status` now shows correct migration needs for all version differences
+
+- **Project migration preserves .claude/** - `cleo claude-migrate --project` no longer removes `.claude/`
+  - Only migrates CLEO-specific files: todo.json, todo-config.json, todo-log.json, todo-archive.json
+  - Other files in `.claude/` (Claude Code settings, MCP configs, etc.) are preserved
+  - JSON output includes `claudeDirPreserved: true` and `remainingInClaude` count
+  - Detects if `.claude/` contains no CLEO files and reports "nothing to migrate"
+
+- **v2.2.0 migration preserves existing phases** - `migrate_todo_to_2_2_0()` properly merges phases
+  - Existing top-level `.phases` are moved into `.project.phases` (not replaced with defaults)
+  - User's custom phases take precedence over template defaults
+  - Removes top-level `.phases` after migration
+
+- **Structural version detection** - `detect_file_version()` checks structure, not just version field
+  - Catches cases where `.version` claims "2.4.0" but data is still pre-v2.2.0 format
+  - Detects string `.project` field and top-level `.phases` as needing migration
+  - Returns "2.1.0" for files needing v2.2.0 migration regardless of claimed version
+
+- **Migration path execution** - `find_migration_path()` runs all intermediate migrations
+  - For 0.2.1 → 2.4.0: runs v2.2.0, v2.3.0, v2.4.0 migrations in sequence
+  - Previously jumped directly to target, skipping crucial transformations
+
+- **phases.sh legacy format support** - Fixed jq errors when `.project` is a string
+  - Added type checks before accessing `.project.phases` and `.project.currentPhase`
+  - Falls back to top-level `.phases` for legacy data
+
+### Changed
+- **Migration status codes** - Improved semantic clarity in `lib/migrate.sh`
+  - `check_compatibility()` now returns: 0=current, 1=patch, 2=minor, 3=major, 4=data_newer
+  - Major version migrations (e.g., 0.2.1 → 2.4.0) are now allowed with `--force`
+  - Data newer than schema is now clearly separated as an upgrade-cleo scenario
+
+- **Documentation updates** - Updated AGENT-INJECTION.md and TODO_Task_Management.md
+  - Added `populate-hierarchy` command to hierarchy section
+  - Updated version marker to v0.38.0
+
+## [0.38.0] - 2025-12-27
+
+### Added
+- **populate-hierarchy command** - Registered in CLI dispatcher for direct invocation
+  - Populates parentId field based on naming conventions (T001.1 → parentId: T001)
+  - Can also infer from epic dependencies
+
+### Fixed
+- **next.sh jq performance** - Fixed "Argument list too long" error on large projects
+  - Changed `--argjson tasks_data` to `--slurpfile` approach
+  - Avoids shell argument size limits when computing hierarchy scores
+
+### Changed
+- **Script headers rebrand** - Updated 16 script headers from "CLAUDE-TODO" to "CLEO"
+  - Consistent branding across all user-facing scripts
+  - No functional changes, cosmetic consistency only
+
+## [0.37.1] - 2025-12-27
+
+### Added
+- **Multi-Session Implementation** - Full concurrent agent support (Phases 2-5 of MULTI-SESSION-SPEC.md)
+  - `lib/sessions.sh` - Core session management library (1,009 lines)
+    - Session lifecycle: start, suspend, resume, end
+    - Scope computation for 6 types: task, taskGroup, subtree, epicPhase, epic, custom
+    - Conflict detection: HARD, IDENTICAL, NESTED, PARTIAL, NONE
+    - Per-scope focus validation with task claiming
+  - `lib/file-ops.sh` - Multi-file locking functions
+    - `lock_multi_file()` - Ordered lock acquisition (prevents deadlock)
+    - `unlock_multi_file()` - Safe release
+    - `with_multi_lock()` - Transactional patterns
+  - `scripts/session.sh` - New multi-session commands
+    - `cleo session start --scope TYPE:ID --focus ID` or `--auto-focus`
+    - `cleo session suspend/resume/list/show/switch`
+    - Session context via `--session` flag, `CLEO_SESSION` env, or `.current-session` file
+  - `scripts/focus.sh` - Session-aware focus management
+    - `--session ID` flag for multi-session context
+    - Per-scope task validation in multi-session mode
+
+- **Migration --force flag** - Handle pre-existing target directories
+  - `cleo claude-migrate --project --force` - Merge when `.cleo/` already exists
+  - Backs up existing target to `.cleo.backup.YYYYMMDD_HHMMSS`
+  - Merges legacy files into target, removes legacy after success
+  - Fixes issue when `cleo init` was run before migration
+
+### Changed
+- `lib/backup.sh` - Added `sessions.json` to snapshot and migration backups
+
+### Fixed
+- `lib/paths.sh` - Fixed legacy project warning (was showing `.cleo` instead of `.claude`)
+- `scripts/migrate.sh` - Fixed `.claude` → `.cleo` directory references
+
+## [0.37.0] - 2025-12-27 (CLEO v1.0.0 Rebrand)
+
+### Major Changes
+- **CLEO Rebrand** - Complete rebrand from `claude-todo` to `CLEO` (T650 Epic)
+  - All directories: `.claude/` → `.cleo/`, `~/.claude-todo/` → `~/.cleo/`
+  - All environment variables: `CLAUDE_TODO_*` → `CLEO_*`
+  - CLI command: `claude-todo` → `cleo` (with `ct` shortcut)
+  - TRUE CLEAN BREAK: No legacy fallbacks, explicit migration required
+
+- **New Migration Command** - `cleo claude-migrate`
+  - `--check`: Detect legacy installations without modification
+  - `--global`: Migrate `~/.claude-todo/` → `~/.cleo/`
+  - `--project`: Migrate `.claude/` → `.cleo/`
+  - `--all`: Full migration (global + project + environment advice)
+  - Creates timestamped backups before any changes
+  - Once-per-session migration warnings with clear guidance
+
+- **lib/paths.sh** - Centralized path resolution library
+  - `get_cleo_home()`, `get_cleo_dir()`, `get_todo_file()`, etc.
+  - `has_legacy_*()` detection functions for migration
+  - `emit_migration_warning()` for user guidance
+  - NO legacy fallbacks (clean break philosophy)
+
+### Added
+- **Multi-Session Architecture Schema** (DRAFT)
+  - New `schemas/sessions.schema.json` - Session registry for concurrent LLM agents
+  - Session scope types: `task`, `taskGroup`, `subtree`, `epicPhase`, `epic`, `custom`
+  - Per-session focus state (independent `currentTask`, `sessionNote`, `nextAction`)
+  - Session lifecycle: `active`, `suspended`, `ended` with full history preservation
+  - Conflict detection: HARD (task-level) and SOFT (scope overlap) conflicts
+  - Session stats tracking: tasksCompleted, focusChanges, totalActiveMinutes
+
+- **Config Schema: multiSession section** (`config.schema.json`)
+  - `multiSession.enabled`: Opt-in multi-session mode (default: false)
+  - `multiSession.maxConcurrentSessions`: Limit concurrent sessions (default: 5)
+  - `multiSession.maxActiveTasksPerScope`: Per-scope active task limit (default: 1)
+  - `multiSession.scopeValidation`: strict/warn/none for overlap handling
+  - `multiSession.allowNestedScopes`, `allowScopeOverlap`: Scope conflict policies
+  - `multiSession.sessionTimeoutHours`, `autoSuspendOnTimeout`: Timeout handling
+  - `multiSession.historyRetentionDays`: Ended session retention
+
+- **Todo Schema: Multi-session fields** (`todo.schema.json`)
+  - `_meta.multiSessionEnabled`: Mode indicator
+  - `_meta.activeSessionCount`: Quick session count
+  - `_meta.sessionsFile`: Reference to sessions.json
+  - `focus.primarySession`: Default session for CLI commands
+
+- **Log Schema: Session actions** (`log.schema.json`)
+  - New actions: `session_suspended`, `session_resumed`, `session_scope_defined`, `session_scope_conflict`, `session_focus_changed`, `session_timeout_warning`, `session_orphan_detected`, `session_auto_suspended`
+  - New fields: `scope` (type, rootTaskId, phaseFilter, taskCount), `agentId`, `otherActiveSessions`
+
+- **MULTI-SESSION-SPEC.md** - Comprehensive implementation specification
+  - 11 parts: Architecture, Scope Model, Conflict Detection, Lifecycle, Focus, Locking, Backup, CLI, Migration, Error Codes, Implementation Phases
+  - RFC 2119 compliant
+
+### Documentation
+- Updated `docs/INDEX.md` with MULTI-SESSION-SPEC.md link
+- Updated `docs/specs/SPEC-INDEX.json` with multi-session authority
+
+## [0.36.9] - 2025-12-27
+
+### Changed
+- **CLEO Migration: File naming cleanup** (T926)
+  - Renamed `todo-config.json` → `config.json` throughout codebase
+  - Renamed `todo-log.json` → `log.json` in migration script
+  - Cleaner naming since `.cleo/` directory provides namespace isolation
+  - `claude-migrate` script now renames files during both global and project migration
+
+### Fixed
+- **claude-migrate.sh .gitignore update bug** - Fixed sed command that was replacing `.cleo` with `.cleo` instead of `.claude` with `.cleo`
+- **Global migration missing config rename** - Added `rename_project_configs()` call to global migration flow
+
 ## [0.36.8] - 2025-12-27
 
 ### Fixed

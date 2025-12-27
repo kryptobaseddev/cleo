@@ -44,7 +44,7 @@ setup() {
     mkdir -p "$CLAUDE_TODO_DIR"
 
     # Create minimal config and todo files for libraries that need them
-    echo '{}' > "$CLAUDE_TODO_DIR/todo-config.json"
+    echo '{}' > "$CLAUDE_TODO_DIR/config.json"
     echo '{"tasks": [], "_meta": {"schemaVersion": "2.4.0"}}' > "$CLAUDE_TODO_DIR/todo.json"
     echo '{"entries": []}' > "$CLAUDE_TODO_DIR/todo-log.json"
 

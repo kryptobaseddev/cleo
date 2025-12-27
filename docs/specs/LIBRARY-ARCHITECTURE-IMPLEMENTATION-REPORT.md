@@ -224,7 +224,7 @@ All 21 library files have LAYER/DEPENDENCIES/PROVIDES headers.
 | file-ops.sh | file-ops.sh | Kept |
 | logging.sh | *(removed)* | Was never actually sourced (header incorrect) |
 | platform-compat.sh | *(removed)* | Was never actually sourced (header incorrect) |
-| version.sh | *(removed)* | Replaced with `${CLAUDE_TODO_VERSION:-2.4.0}` |
+| version.sh | *(removed)* | Replaced with `${CLEO_VERSION:-2.4.0}` |
 
 **Pattern Used**: Header correction + constant substitution
 

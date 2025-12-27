@@ -3,7 +3,7 @@
 **Version:** 1.0.0
 **Status:** Draft
 **Created:** 2025-12-23
-**Purpose:** Simplified, SOLID, DRY migration system for claude-todo schema evolution
+**Purpose:** Simplified, SOLID, DRY migration system for cleo schema evolution
 
 ---
 
@@ -40,7 +40,7 @@ The current migration system has accumulated complexity:
 |--------------|----------|---------|---------|
 | **App Version** | `VERSION` file | Release tracking, user-facing | `0.32.4` |
 | **Schema Version** | `schemas/*.schema.json` | Data structure compatibility | `2.5.0` |
-| **Data Version** | `.claude/todo.json#.version` | Records schema data conforms to | `2.4.0` |
+| **Data Version** | `.cleo/todo.json#.version` | Records schema data conforms to | `2.4.0` |
 | **Spec Version** | Schema `$id` field | Specification document version | `v3.1` |
 
 ### 2.2 Single Source of Truth
@@ -50,7 +50,7 @@ The current migration system has accumulated complexity:
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v3.1/todo.schema.json",
+  "$id": "https://cleo.dev/schemas/v3.1/todo.schema.json",
   "schemaVersion": "2.5.0",
   ...
 }
@@ -274,7 +274,7 @@ Each step is atomic with its own backup point.
 
 ### 5.3 Backup Taxonomy Migration (Separate System)
 
-The backup directory reorganization (`.claude/.backups/` to `.claude/backups/{type}/`) is a **completely separate concern** from schema migration:
+The backup directory reorganization (`.cleo/.backups/` to `.cleo/backups/{type}/`) is a **completely separate concern** from schema migration:
 
 - **Different trigger:** Legacy directory exists vs schema version mismatch
 - **Different frequency:** One-time operation vs ongoing schema evolution
@@ -366,29 +366,29 @@ migrate_{type}_v{from_major}_{from_minor}_to_v{to_major}_{to_minor}() {
 
 ```bash
 # Check migration status
-claude-todo migrate status
+cleo migrate status
 
 # Check if migration needed (exit code 0 = current, 1 = needed)
-claude-todo migrate check
+cleo migrate check
 
 # Execute migrations
-claude-todo migrate run [--auto] [--no-backup]
+cleo migrate run [--auto] [--no-backup]
 
 # Migrate specific file
-claude-todo migrate file <path> <type>
+cleo migrate file <path> <type>
 
 # Rollback from backup
-claude-todo migrate rollback [--backup-id <id>]
+cleo migrate rollback [--backup-id <id>]
 
 # Repair structural issues (separate from migration)
-claude-todo migrate repair [--dry-run] [--auto]
+cleo migrate repair [--dry-run] [--auto]
 ```
 
 ### 7.2 JSON Output
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "command": "migrate",
     "subcommand": "status",
@@ -398,7 +398,7 @@ claude-todo migrate repair [--dry-run] [--auto]
   "files": [
     {
       "type": "todo",
-      "file": ".claude/todo.json",
+      "file": ".cleo/todo.json",
       "currentVersion": "2.4.0",
       "schemaVersion": "2.5.0",
       "status": "migration_needed",

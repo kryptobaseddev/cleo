@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get productive with claude-todo in 5 minutes.
+Get productive with cleo in 5 minutes.
 
 ## Prerequisites
 
@@ -29,14 +29,14 @@ Before installing, ensure you have:
 
 ```bash
 # Clone repository
-git clone https://github.com/kryptobaseddev/claude-todo.git
-cd claude-todo
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo
 
 # Run installer
 ./install.sh
 ```
 
-This installs to `~/.claude-todo/` and creates symlinks in `~/.local/bin/` for immediate access.
+This installs to `~/.cleo/` and creates symlinks in `~/.local/bin/` for immediate access.
 
 ### 2. Initialize Your Project
 
@@ -45,23 +45,23 @@ This installs to `~/.claude-todo/` and creates symlinks in `~/.local/bin/` for i
 cd /path/to/your/project
 
 # Initialize todo system
-claude-todo init
+cleo init
 ```
 
-This creates `.claude/` directory with:
+This creates `.cleo/` directory with:
 - `todo.json` - Active tasks
 - `todo-archive.json` - Completed tasks
-- `todo-config.json` - Configuration
+- `config.json` - Configuration
 - `todo-log.json` - Change history
 
 ### 3. Verify Installation
 
 ```bash
 # Check version
-claude-todo version
+cleo version
 
 # Validate setup
-claude-todo validate
+cleo validate
 ```
 
 ## Your First Task
@@ -70,10 +70,10 @@ claude-todo validate
 
 ```bash
 # Simple task
-claude-todo add "Fix login bug"
+cleo add "Fix login bug"
 
 # Task with details
-claude-todo add "Implement authentication" \
+cleo add "Implement authentication" \
   --priority high \
   --labels backend,security \
   --description "Add JWT-based authentication"
@@ -83,23 +83,23 @@ claude-todo add "Implement authentication" \
 
 ```bash
 # View all tasks
-claude-todo list
+cleo list
 
 # High-priority tasks only
-claude-todo list --priority high
+cleo list --priority high
 
 # Compact view
-claude-todo list --compact
+cleo list --compact
 ```
 
 ### Complete a Task
 
 ```bash
 # Mark task complete
-claude-todo complete T001
+cleo complete T001
 
 # View statistics
-claude-todo stats
+cleo stats
 ```
 
 ## Daily Workflow Pattern
@@ -108,39 +108,39 @@ claude-todo stats
 
 ```bash
 # Start work session
-claude-todo session start
+cleo session start
 
 # Review pending tasks
-claude-todo list --status pending
+cleo list --status pending
 
 # Set focus on one task
-claude-todo focus set T002
+cleo focus set T002
 ```
 
 ### During Work
 
 ```bash
 # Add new tasks as discovered
-claude-todo add "Fix navigation bug" --priority medium
+cleo add "Fix navigation bug" --priority medium
 
 # Update task progress
-claude-todo update T002 --notes "Implementing JWT middleware"
+cleo update T002 --notes "Implementing JWT middleware"
 
 # Complete finished tasks
-claude-todo complete T001
+cleo complete T001
 ```
 
 ### Evening: Session End
 
 ```bash
 # Archive completed tasks
-claude-todo archive
+cleo archive
 
 # End work session
-claude-todo session end
+cleo session end
 
 # Review day's progress
-claude-todo stats --period 1
+cleo stats --period 1
 ```
 
 ## Common Commands
@@ -149,61 +149,61 @@ claude-todo stats --period 1
 
 ```bash
 # Create task
-claude-todo add "Task title" --priority high --labels tag1,tag2
+cleo add "Task title" --priority high --labels tag1,tag2
 
 # List tasks
-claude-todo list                           # All active tasks
-claude-todo list --status pending          # Pending only
-claude-todo list --priority high           # High priority
-claude-todo list --label backend           # By label
+cleo list                           # All active tasks
+cleo list --status pending          # Pending only
+cleo list --priority high           # High priority
+cleo list --label backend           # By label
 
 # Update task
-claude-todo update T001 --priority critical
-claude-todo update T001 --labels bug,urgent
-claude-todo update T001 --notes "Progress update"
+cleo update T001 --priority critical
+cleo update T001 --labels bug,urgent
+cleo update T001 --notes "Progress update"
 
 # Complete task
-claude-todo complete T001
+cleo complete T001
 
 # Archive old tasks
-claude-todo archive
+cleo archive
 
 # Validate system
-claude-todo validate
+cleo validate
 
 # View statistics
-claude-todo stats
+cleo stats
 ```
 
 ### Command Aliases (Faster Workflows)
 
 ```bash
-claude-todo ls              # Same as: list
-claude-todo done T001       # Same as: complete T001
-claude-todo new "Task"      # Same as: add "Task"
-claude-todo edit T001       # Same as: update T001
-claude-todo check           # Same as: validate
+cleo ls              # Same as: list
+cleo done T001       # Same as: complete T001
+cleo new "Task"      # Same as: add "Task"
+cleo edit T001       # Same as: update T001
+cleo check           # Same as: validate
 ```
 
 ## Output Formats
 
 ```bash
 # Human-readable (default)
-claude-todo list
+cleo list
 
 # JSON for scripting
-claude-todo list --format json
+cleo list --format json
 
 # CSV export (via export command)
-claude-todo export --format csv > tasks.csv
+cleo export --format csv > tasks.csv
 
 # Markdown checklist
-claude-todo list --format markdown
+cleo list --format markdown
 ```
 
 ## Essential Configuration
 
-Edit `.claude/todo-config.json`:
+Edit `.cleo/config.json`:
 
 ```json
 {
@@ -225,28 +225,28 @@ Edit `.claude/todo-config.json`:
 
 1. **One Active Task**: Set focus to maintain clarity
    ```bash
-   claude-todo focus set T002
+   cleo focus set T002
    ```
 
 2. **Use Labels**: Organize with labels
    ```bash
-   claude-todo add "Fix bug" --labels bug,backend,urgent
+   cleo add "Fix bug" --labels bug,backend,urgent
    ```
 
 3. **Regular Archiving**: Keep active list clean
    ```bash
-   claude-todo archive --dry-run   # Preview
-   claude-todo archive              # Execute
+   cleo archive --dry-run   # Preview
+   cleo archive              # Execute
    ```
 
 4. **Track Progress**: Add notes for context
    ```bash
-   claude-todo update T001 --notes "Implemented JWT validation"
+   cleo update T001 --notes "Implemented JWT validation"
    ```
 
 5. **Disable Colors When Needed**: Follow NO_COLOR standard
    ```bash
-   NO_COLOR=1 claude-todo list
+   NO_COLOR=1 cleo list
    ```
 
 ## Next Steps
@@ -265,7 +265,7 @@ Now that you're up and running:
 
 ```bash
 # Check symlink
-ls -l ~/.local/bin/claude-todo
+ls -l ~/.local/bin/cleo
 
 # If missing, verify PATH
 echo $PATH | grep ".local/bin"
@@ -278,13 +278,13 @@ source ~/.bashrc  # or ~/.zshrc
 
 ```bash
 # Check file integrity
-claude-todo validate
+cleo validate
 
 # Attempt automatic fix
-claude-todo validate --fix
+cleo validate --fix
 
 # Restore from backup if needed
-claude-todo restore .claude/.backups/todo.json.1
+cleo restore .cleo/.backups/todo.json.1
 ```
 
 ### jq Not Installed
@@ -302,10 +302,10 @@ jq --version
 
 ## Support
 
-- **Documentation**: `~/.claude-todo/docs/`
+- **Documentation**: `~/.cleo/docs/`
 - **GitHub Issues**: Report bugs and request features
-- **Quick Help**: `claude-todo help`
-- **Command Help**: `claude-todo <command> --help`
+- **Quick Help**: `cleo help`
+- **Command Help**: `cleo <command> --help`
 
 ---
 

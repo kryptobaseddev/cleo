@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Exists Command
+# CLEO Exists Command
 # Check if a task ID exists without listing all tasks
 # Provides clean exit codes for scripting and CI/CD integration
 set -euo pipefail
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source libraries
@@ -56,7 +56,7 @@ COMMAND_NAME="exists"
 
 usage() {
   cat << EOF
-Usage: claude-todo exists <task-id> [OPTIONS]
+Usage: cleo exists <task-id> [OPTIONS]
 
 Check if a task ID exists without listing all tasks.
 
@@ -80,18 +80,18 @@ Exit Codes:
 
 Examples:
   # Basic check
-  claude-todo exists T001
+  cleo exists T001
 
   # Silent check for scripting
-  if claude-todo exists T001 --quiet; then
+  if cleo exists T001 --quiet; then
     echo "Task exists"
   fi
 
   # Check with archive
-  claude-todo exists T050 --include-archive
+  cleo exists T050 --include-archive
 
   # JSON output
-  claude-todo exists T001 --format json
+  cleo exists T001 --format json
 EOF
 }
 
@@ -157,7 +157,7 @@ main() {
         ;;
       -*)
         if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-          output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'claude-todo exists --help' for usage"
+          output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'cleo exists --help' for usage"
         else
           log_error "Unknown option: $1"
           usage >&2
@@ -187,7 +187,7 @@ main() {
   if [[ -z "$task_id" ]]; then
     if [[ "$QUIET" == false ]]; then
       if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "E_INPUT_MISSING" "Task ID required" "${EXIT_INVALID_INPUT:-2}" true "Usage: claude-todo exists <task-id>"
+        output_error "E_INPUT_MISSING" "Task ID required" "${EXIT_INVALID_INPUT:-2}" true "Usage: cleo exists <task-id>"
       else
         log_error "Task ID required"
         usage >&2
@@ -212,7 +212,7 @@ main() {
   if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$QUIET" == false ]]; then
       if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_FILE_ERROR:-3}" true "Run 'claude-todo init' to initialize project"
+        output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_FILE_ERROR:-3}" true "Run 'cleo init' to initialize project"
       else
         log_error "Todo file not found: $TODO_FILE"
       fi
@@ -241,9 +241,9 @@ main() {
 
   # Get VERSION for JSON output
   local version
-  CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-  if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-    version=$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')
+  CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+  if [[ -f "$CLEO_HOME/VERSION" ]]; then
+    version=$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')
   elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
     version=$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')
   else
@@ -256,7 +256,7 @@ main() {
       if [[ "$FORMAT" == "json" ]]; then
         jq -n --arg id "$task_id" --arg loc "$location" --arg ver "$version" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
               "format": "json",
               "version": $ver,
@@ -280,7 +280,7 @@ main() {
       if [[ "$FORMAT" == "json" ]]; then
         jq -n --arg id "$task_id" --argjson archive "$INCLUDE_ARCHIVE" --arg ver "$version" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
               "format": "json",
               "version": $ver,

@@ -19,7 +19,7 @@ All schemas use JSON Schema Draft-07 with strict `additionalProperties: false` t
 
 ## Task Schema (todo.schema.json)
 
-**Schema ID**: `claude-todo-schema-v2.2`
+**Schema ID**: `cleo-schema-v2.2`
 **Current Version**: `2.2.0`
 
 ### Root Object
@@ -190,7 +190,7 @@ Ordered from highest to lowest:
 | Field | Type | Description |
 |-------|------|-------------|
 | `checksum` | string | SHA-256 truncated hash of tasks array (pattern: `^[a-f0-9]{16}$`) |
-| `configVersion` | string | Version of todo-config.json used |
+| `configVersion` | string | Version of config.json used |
 | `lastSessionId` | string or null | Session ID that last modified this file |
 | `activeSession` | string or null | Currently active session (null if none) |
 
@@ -242,7 +242,7 @@ Example:
 
 ## Archive Schema (archive.schema.json)
 
-**Schema ID**: `claude-todo-archive-schema-v2.2`
+**Schema ID**: `cleo-archive-schema-v2.2`
 
 ### Root Object
 
@@ -309,7 +309,7 @@ Computed during archive operations:
 
 ## Config Schema (config.schema.json)
 
-**Schema ID**: `claude-todo-config-schema-v2.2`
+**Schema ID**: `cleo-config-schema-v2.2`
 
 ### Root Object
 
@@ -433,13 +433,13 @@ Plugin system configuration for extending CLI with custom commands.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | boolean | true | Enable plugin discovery and loading |
-| `directories` | array[string] | `["~/.claude-todo/plugins", "./.claude/plugins"]` | Directories to scan for plugins (in priority order) |
+| `directories` | array[string] | `["~/.cleo/plugins", "./.cleo/plugins"]` | Directories to scan for plugins (in priority order) |
 | `autoDiscover` | boolean | true | Auto-discover plugins from configured directories |
 
 **Plugin Discovery**:
 - Plugins are executable scripts (`.sh`, `.py`, etc.) with `###PLUGIN` marker
-- Search order: project-local (`./.claude/plugins`) then global (`~/.claude-todo/plugins`)
-- Plugin name derived from filename (e.g., `my-report.sh` → `claude-todo my-report`)
+- Search order: project-local (`./.cleo/plugins`) then global (`~/.cleo/plugins`)
+- Plugin name derived from filename (e.g., `my-report.sh` → `cleo my-report`)
 
 #### Debug (cli.debug)
 
@@ -454,14 +454,14 @@ Debug and validation settings for CLI operations.
 
 **Debug Mode Triggers**:
 - `cli.debug.enabled: true` in config
-- `CLAUDE_TODO_DEBUG=1` environment variable
+- `CLEO_DEBUG=1` environment variable
 - `--debug` CLI flag (if implemented)
 
 ---
 
 ## Log Schema (log.schema.json)
 
-**Schema ID**: `claude-todo-log-schema-v2.2`
+**Schema ID**: `cleo-log-schema-v2.2`
 
 ### Root Object
 
@@ -860,7 +860,7 @@ ajv validate -s schemas/todo.schema.json -d todo.json --strict
 ajv validate -s schemas/archive.schema.json -d archive.json --strict
 
 # Validate config
-ajv validate -s schemas/config.schema.json -d todo-config.json --strict
+ajv validate -s schemas/config.schema.json -d config.json --strict
 
 # Validate log
 ajv validate -s schemas/log.schema.json -d todo-log.json --strict

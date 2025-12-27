@@ -23,7 +23,7 @@ setup() {
     common_setup_per_test
 
     # Create archive for tests
-    export ARCHIVE_FILE="${TEST_TEMP_DIR}/.claude/todo-archive.json"
+    export ARCHIVE_FILE="${TEST_TEMP_DIR}/.cleo/todo-archive.json"
     create_empty_archive "$ARCHIVE_FILE"
 }
 

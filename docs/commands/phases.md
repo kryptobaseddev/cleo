@@ -5,7 +5,7 @@ Manage and visualize workflow phases with progress tracking, task counts, and co
 ## Usage
 
 ```bash
-claude-todo phases [SUBCOMMAND] [OPTIONS]
+cleo phases [SUBCOMMAND] [OPTIONS]
 ```
 
 ## Description
@@ -48,7 +48,7 @@ This command is particularly useful for:
 
 ```bash
 # Show all phases with progress bars and completion percentage
-claude-todo phases
+cleo phases
 ```
 
 Output:
@@ -68,7 +68,7 @@ Overall Progress: 9/19 tasks (47%)
 
 ```bash
 # List all tasks in the 'core' phase
-claude-todo phases show core
+cleo phases show core
 ```
 
 Output:
@@ -94,7 +94,7 @@ Tasks (10):
 
 ```bash
 # Show comprehensive phase analytics with priority breakdown
-claude-todo phases stats
+cleo phases stats
 ```
 
 Output:
@@ -130,7 +130,7 @@ OVERALL SUMMARY
 
 ```bash
 # Machine-readable format for scripting
-claude-todo phases --format json
+cleo phases --format json
 ```
 
 Output structure:
@@ -174,7 +174,7 @@ Output structure:
 
 ```bash
 # Get detailed statistics in JSON format
-claude-todo phases stats --format json
+cleo phases stats --format json
 ```
 
 Output structure:
@@ -210,7 +210,7 @@ Output structure:
 
 ## Phase Configuration (v2.2.0)
 
-Since v2.2.0, phases are defined in `.claude/todo.json` under the `project.phases` key with project-level tracking:
+Since v2.2.0, phases are defined in `.cleo/todo.json` under the `project.phases` key with project-level tracking:
 
 ```json
 {
@@ -294,30 +294,30 @@ pending → active → completed
 
 ```bash
 # See overall project progress across phases
-claude-todo phases
+cleo phases
 
 # Identify which phase needs most attention
-claude-todo phases stats | grep "Pending"
+cleo phases stats | grep "Pending"
 ```
 
 ### Sprint Focus
 
 ```bash
 # Show all tasks in current sprint phase
-claude-todo phases show core
+cleo phases show core
 
 # Export phase tasks for sprint planning
-claude-todo phases show core --format json > sprint-tasks.json
+cleo phases show core --format json > sprint-tasks.json
 ```
 
 ### Progress Reporting
 
 ```bash
 # Generate phase progress report
-claude-todo phases stats
+cleo phases stats
 
 # Track completion velocity
-claude-todo phases --format json | \
+cleo phases --format json | \
   jq '.summary | "Completed: \(.completedTasks)/\(.totalTasks) (\((.completedTasks * 100 / .totalTasks))%)"'
 ```
 
@@ -325,10 +325,10 @@ claude-todo phases --format json | \
 
 ```bash
 # See visual progress bars for all phases
-claude-todo phases
+cleo phases
 
 # Check if any phase is blocked
-claude-todo phases stats | grep -E "Blocked: [1-9]"
+cleo phases stats | grep -E "Blocked: [1-9]"
 ```
 
 ## Phase Best Practices
@@ -393,15 +393,15 @@ Organize phases to match your workflow:
 
 ```bash
 # Add task with phase
-claude-todo add "Implement login" --phase core
+cleo add "Implement login" --phase core
 
 # Update task phase
-claude-todo update T015 --phase polish
+cleo update T015 --phase polish
 
 # Move all tasks from one phase to another
-claude-todo phases show setup --format json | \
+cleo phases show setup --format json | \
   jq -r '.tasks[].id' | \
-  xargs -I {} claude-todo update {} --phase core
+  xargs -I {} cleo update {} --phase core
 ```
 
 ## Progress Indicators
@@ -447,7 +447,7 @@ When viewing tasks in a phase (`show` command):
 ct-phase() {
   local phase="$1"
   echo "Tasks in $phase phase:"
-  claude-todo phases show "$phase" --format json | \
+  cleo phases show "$phase" --format json | \
     jq -r '.tasks[] | "\(.id) [\(.status)] \(.title)"'
 }
 
@@ -462,10 +462,10 @@ ct-phase() {
 
 echo "=== Weekly Phase Progress Report ==="
 echo ""
-claude-todo phases stats
+cleo phases stats
 echo ""
 echo "=== Phase-by-Phase Details ==="
-claude-todo phases --format json | \
+cleo phases --format json | \
   jq -r '.phases[] | "Phase: \(.name) - \(.done)/\(.total) tasks (\(.percent)%)"'
 ```
 
@@ -473,7 +473,7 @@ claude-todo phases --format json | \
 
 ```bash
 # Fail build if setup phase not complete
-SETUP_COMPLETE=$(claude-todo phases show setup --format json | \
+SETUP_COMPLETE=$(cleo phases show setup --format json | \
   jq '.tasks | map(select(.status != "done")) | length')
 
 if [[ $SETUP_COMPLETE -gt 0 ]]; then
@@ -486,7 +486,7 @@ fi
 
 ```bash
 # Notify when phase completes
-PHASE_PROGRESS=$(claude-todo phases --format json | \
+PHASE_PROGRESS=$(cleo phases --format json | \
   jq -r '.phases[] | select(.percent == 100) | .name')
 
 if [[ -n "$PHASE_PROGRESS" ]]; then
@@ -501,7 +501,7 @@ fi
 
 ```bash
 # List phases with no tasks
-claude-todo phases --format json | \
+cleo phases --format json | \
   jq -r '.phases[] | select(.total == 0) | .slug'
 ```
 
@@ -509,7 +509,7 @@ claude-todo phases --format json | \
 
 ```bash
 # Tasks completed per phase
-claude-todo phases stats --format json | \
+cleo phases stats --format json | \
   jq '.phases[] | "\(.name): \(.done) done / \(.total) total"'
 ```
 
@@ -517,7 +517,7 @@ claude-todo phases stats --format json | \
 
 ```bash
 # Find phases with most blocked tasks
-claude-todo phases stats --format json | \
+cleo phases stats --format json | \
   jq -r '.phases[] | select(.blocked > 0) | "\(.name): \(.blocked) blocked"'
 ```
 
@@ -525,7 +525,7 @@ claude-todo phases stats --format json | \
 
 ```bash
 # Export all tasks from a phase to CSV
-claude-todo phases show core --format json | \
+cleo phases show core --format json | \
   jq -r '.tasks[] | [.id, .status, .priority, .title] | @csv' > core-tasks.csv
 ```
 
@@ -535,26 +535,26 @@ claude-todo phases show core --format json | \
 
 ```bash
 # See current phase progress
-claude-todo phases
+cleo phases
 
 # Get next task in current focus phase
-claude-todo next --explain
+cleo next --explain
 
 # Set focus to highest priority task in phase
-TASK_ID=$(claude-todo phases show core --format json | \
+TASK_ID=$(cleo phases show core --format json | \
   jq -r '.tasks[] | select(.status == "pending") | .id' | head -1)
-claude-todo focus set "$TASK_ID"
+cleo focus set "$TASK_ID"
 ```
 
 ### Phase + Labels
 
 ```bash
 # Show tasks with specific label in a phase
-claude-todo phases show core --format json | \
+cleo phases show core --format json | \
   jq '.tasks[] | select(.labels | index("backend"))'
 
 # Count tasks by label in each phase
-claude-todo list --format json | \
+cleo list --format json | \
   jq 'group_by(.phase) | map({phase: .[0].phase, count: length})'
 ```
 
@@ -563,11 +563,11 @@ claude-todo list --format json | \
 ```bash
 # Comprehensive phase-focused dashboard
 echo "=== Phase Dashboard ==="
-claude-todo phases
+cleo phases
 echo ""
 echo "=== Current Focus Phase ==="
-FOCUS_PHASE=$(claude-todo focus show --format json | jq -r '.phase')
-claude-todo phases show "$FOCUS_PHASE"
+FOCUS_PHASE=$(cleo focus show --format json | jq -r '.phase')
+cleo phases show "$FOCUS_PHASE"
 ```
 
 ## Color Output
@@ -576,19 +576,19 @@ The phases command respects standard color controls:
 
 ```bash
 # Disable colors
-NO_COLOR=1 claude-todo phases
+NO_COLOR=1 cleo phases
 
 # Force colors in pipes
-FORCE_COLOR=1 claude-todo phases | less -R
+FORCE_COLOR=1 cleo phases | less -R
 ```
 
 ## Related Commands
 
-- `claude-todo add --phase PHASE` - Add task to specific phase
-- `claude-todo update ID --phase PHASE` - Move task to different phase
-- `claude-todo list --phase PHASE` - List tasks filtered by phase
-- `claude-todo dash` - Dashboard shows phase progress section
-- `claude-todo stats` - Overall statistics including phase metrics
+- `cleo add --phase PHASE` - Add task to specific phase
+- `cleo update ID --phase PHASE` - Move task to different phase
+- `cleo list --phase PHASE` - List tasks filtered by phase
+- `cleo dash` - Dashboard shows phase progress section
+- `cleo stats` - Overall statistics including phase metrics
 
 ## Tips
 
@@ -604,34 +604,34 @@ FORCE_COLOR=1 claude-todo phases | less -R
 
 ### No Phases Displayed
 
-If `claude-todo phases` shows no phases:
+If `cleo phases` shows no phases:
 
 ```bash
 # Check if phases are defined in todo.json
-jq '.phases' .claude/todo.json
+jq '.phases' .cleo/todo.json
 
 # If null or empty, add phase definitions:
-# Edit .claude/todo.json and add phases object
+# Edit .cleo/todo.json and add phases object
 ```
 
 ### Phase Not Found Error
 
 ```bash
 # List available phases
-claude-todo phases --format json | jq -r '.phases[].slug'
+cleo phases --format json | jq -r '.phases[].slug'
 
 # Verify task phase assignment
-jq '.tasks[] | {id, phase}' .claude/todo.json
+jq '.tasks[] | {id, phase}' .cleo/todo.json
 ```
 
 ### Incorrect Progress Percentages
 
 ```bash
 # Validate task statuses
-claude-todo validate
+cleo validate
 
 # Check for tasks with invalid status values
-jq '.tasks[] | select(.status != "pending" and .status != "active" and .status != "blocked" and .status != "done")' .claude/todo.json
+jq '.tasks[] | select(.status != "pending" and .status != "active" and .status != "blocked" and .status != "done")' .cleo/todo.json
 ```
 
 ## Managing Phases with `phase` Command (v2.2.0)
@@ -640,22 +640,22 @@ v2.2.0 introduces the `phase` command for project-level phase management:
 
 ```bash
 # Set/create a phase
-claude-todo phase set <slug> --name "Phase Name" --description "Phase description"
+cleo phase set <slug> --name "Phase Name" --description "Phase description"
 
 # Start a phase (marks as active)
-claude-todo phase start <slug>
+cleo phase start <slug>
 
 # Complete a phase (marks as completed, requires all tasks done)
-claude-todo phase complete <slug>
+cleo phase complete <slug>
 
 # Advance to next phase in sequence
-claude-todo phase advance
+cleo phase advance
 
 # Show phase details
-claude-todo phase show <slug>
+cleo phase show <slug>
 
 # List all phases
-claude-todo phase list
+cleo phase list
 ```
 
 See `docs/commands/phase.md` for complete `phase` command documentation.

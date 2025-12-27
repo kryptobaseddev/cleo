@@ -498,6 +498,6 @@ fi
 
 ## See Also
 
-- [Architecture Documentation](/mnt/projects/claude-todo/docs/architecture/ARCHITECTURE.md) - System design overview
-- [Schema Reference](/mnt/projects/claude-todo/docs/architecture/SCHEMAS.md) - Task JSON structure
-- [File Operations Library](/mnt/projects/claude-todo/lib/file-ops.sh) - Atomic write patterns
+- [Architecture Documentation](/mnt/projects/cleo/docs/architecture/ARCHITECTURE.md) - System design overview
+- [Schema Reference](/mnt/projects/cleo/docs/architecture/SCHEMAS.md) - Task JSON structure
+- [File Operations Library](/mnt/projects/cleo/lib/file-ops.sh) - Atomic write patterns

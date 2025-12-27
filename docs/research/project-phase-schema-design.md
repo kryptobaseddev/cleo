@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-This document analyzes schema changes needed to support project-level "current phase" tracking in claude-todo. The proposed design introduces a structured project metadata object that unifies phase definitions with project-level phase state tracking while maintaining backward compatibility.
+This document analyzes schema changes needed to support project-level "current phase" tracking in cleo. The proposed design introduces a structured project metadata object that unifies phase definitions with project-level phase state tracking while maintaining backward compatibility.
 
 ---
 
@@ -98,7 +98,7 @@ get_current_phase() {
 {
   "version": "2.2.0",
   "project": {
-    "name": "claude-todo",
+    "name": "cleo",
     "currentPhase": "core",
     "phases": {
       "setup": {
@@ -235,7 +235,7 @@ get_current_phase() {
 ```json
 {
   "version": "2.2.0",
-  "project": "claude-todo",
+  "project": "cleo",
   "currentPhase": "core",
   "phases": {
     "setup": {
@@ -444,7 +444,7 @@ fi
     "transitionType": "completion",
     "completedPhase": "setup",
     "activatedPhase": "core",
-    "command": "claude-todo phase activate core"
+    "command": "cleo phase activate core"
   }
 }
 ```
@@ -490,39 +490,39 @@ fi
 
 ```bash
 # Phase activation
-claude-todo phase activate <slug>        # Set phase as active, mark previous as completed
-claude-todo phase set <slug>             # Alias for activate
+cleo phase activate <slug>        # Set phase as active, mark previous as completed
+cleo phase set <slug>             # Alias for activate
 
 # Phase status queries
-claude-todo phase current                # Show current active phase
-claude-todo phase status                 # Show all phases with status
+cleo phase current                # Show current active phase
+cleo phase status                 # Show all phases with status
 
 # Phase lifecycle
-claude-todo phase start <slug>           # Mark phase as active (from pending)
-claude-todo phase complete <slug>        # Mark phase as completed
-claude-todo phase rollback <slug>        # Mark active phase back to pending (rare)
+cleo phase start <slug>           # Mark phase as active (from pending)
+cleo phase complete <slug>        # Mark phase as completed
+cleo phase rollback <slug>        # Mark active phase back to pending (rare)
 
 # Phase metadata
-claude-todo phase update <slug> --name "New Name"
-claude-todo phase update <slug> --description "Details"
+cleo phase update <slug> --name "New Name"
+cleo phase update <slug> --description "Details"
 ```
 
 ### Modified Commands
 
-**`claude-todo phases`** (existing):
+**`cleo phases`** (existing):
 - Add status column to output
 - Show current phase indicator (★ or highlight)
 - Filter by status: `--status active`
 
-**`claude-todo next`** (existing):
+**`cleo next`** (existing):
 - Use `project.currentPhase` instead of deriving from focus
 - Give bonus score to tasks in current phase
 
-**`claude-todo dash`** (existing):
+**`cleo dash`** (existing):
 - Display current phase prominently
 - Show phase progress section
 
-**`claude-todo add`** (existing):
+**`cleo add`** (existing):
 - Default new tasks to current phase if not specified
 - Option: `--phase auto` uses current phase
 
@@ -859,7 +859,7 @@ When initializing new projects with v2.2.0:
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "claude-todo-schema-v2.2",
+  "$id": "cleo-schema-v2.2",
   "title": "CLAUDE-TODO Task Schema with Project Phases",
   "version": "2.2.0",
 

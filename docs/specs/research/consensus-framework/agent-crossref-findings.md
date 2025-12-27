@@ -29,7 +29,7 @@
         ▼                          ▼                         ▼
    ┌─────────────────┐      ┌─────────────────┐      ┌───────────────┐
    │ HIERARCHY-      │      │ CONFIG-SYSTEM   │      │ Uses:         │
-   │ ENHANCEMENT     │      │ FILE-LOCKING    │      │ - claude-todo │
+   │ ENHANCEMENT     │      │ FILE-LOCKING    │      │ - cleo │
    │ PHASE-SYSTEM    │      │ TODOWRITE-SYNC  │      │ - Serena MCP  │
    │ FIND-COMMAND    │      │ RELEASE-MGMT    │      │ - Task tool   │
    └─────────────────┘      └─────────────────┘      └───────────────┘
@@ -94,7 +94,7 @@
 | **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for specification structure and standards. This spec MUST follow the guidelines defined there. |
 | **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | **Related**: Shares agent-first philosophy. Agents deployed by this framework SHOULD follow LLM-Agent-First design principles. |
 | **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | **Defers to** for task ID format. Task IDs (T184-T214) in this spec follow the ID contract defined there. |
-| **[PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md)** | **Related**: Framework defines internal phases (Phase 1-4) that parallel claude-todo's phase system. |
+| **[PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md)** | **Related**: Framework defines internal phases (Phase 1-4) that parallel cleo's phase system. |
 | *(Implementation Report)* | Tracks implementation status for this specification. |
 
 ### Authority Clarifications
@@ -137,7 +137,7 @@ This specification **defers to**:
 | Task ID format | LLM-TASK-ID-SYSTEM-DESIGN-SPEC |
 | Specification structure | SPEC-BIBLE-GUIDELINES |
 | CLI output format | LLM-AGENT-FIRST-SPEC |
-| Phase lifecycle (claude-todo) | PHASE-SYSTEM-SPEC |
+| Phase lifecycle (cleo) | PHASE-SYSTEM-SPEC |
 
 ---
 
@@ -207,7 +207,7 @@ Level 4: Implementation Guides
 
 The spec uses "MUST" in several places:
 - "Each worker agent prompt MUST include..."
-- "All phases MUST be tracked via claude-todo"
+- "All phases MUST be tracked via cleo"
 
 But it lacks the required boilerplate:
 

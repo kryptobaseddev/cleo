@@ -15,7 +15,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Preamble
 
-This specification defines the requirements for abstracting the claude-todo CLI to support multiple AI coding agents. The goal is to transform a Claude Code-specific tool into an agent-agnostic CLI that works with Claude Code, Gemini CLI, Codex CLI, Kimi CLI, and future agents.
+This specification defines the requirements for abstracting the cleo CLI to support multiple AI coding agents. The goal is to transform a Claude Code-specific tool into an agent-agnostic CLI that works with Claude Code, Gemini CLI, Codex CLI, Kimi CLI, and future agents.
 
 > **Implementation Status**: See [MULTI-AGENT-ABSTRACTION-IMPLEMENTATION-REPORT.md](../../claudedocs/rebrand/MULTI-AGENT-ABSTRACTION-IMPLEMENTATION-REPORT.md)
 
@@ -25,7 +25,7 @@ This specification defines the requirements for abstracting the claude-todo CLI 
 
 ### Mission
 
-Enable claude-todo to operate as an agent-agnostic task management CLI while maintaining full backwards compatibility with existing Claude Code installations.
+Enable cleo to operate as an agent-agnostic task management CLI while maintaining full backwards compatibility with existing Claude Code installations.
 
 ### Core Principles
 
@@ -64,9 +64,9 @@ The system MUST support legacy naming during transition:
 
 | Legacy | New | Support Level |
 |--------|-----|---------------|
-| `claude-todo` | `cleo` | MUST work with deprecation warning |
+| `cleo` | `cleo` | MUST work with deprecation warning |
 | `ct` | `ct` | MUST continue working (no change) |
-| `CLAUDE_TODO_*` | `CLEO_*` | MUST work with deprecation warning |
+| `CLEO_*` | `CLEO_*` | MUST work with deprecation warning |
 
 ---
 
@@ -77,19 +77,19 @@ The system MUST support legacy naming during transition:
 The system MUST resolve environment variables in priority order:
 
 1. New variable (e.g., `CLEO_HOME`)
-2. Legacy variable (e.g., `CLAUDE_TODO_HOME`)
+2. Legacy variable (e.g., `CLEO_HOME`)
 3. Default value
 
 ### 2.2 Core Variables
 
 | New Variable | Legacy Variable | Default | Purpose |
 |--------------|-----------------|---------|---------|
-| `CLEO_HOME` | `CLAUDE_TODO_HOME` | `$HOME/.cleo` | Global installation directory |
-| `CLEO_VERSION` | `CLAUDE_TODO_VERSION` | (from VERSION file) | CLI version |
-| `CLEO_DIR` | `CLAUDE_TODO_DIR` | `$(pwd)/.cleo` | Project data directory |
+| `CLEO_HOME` | `CLEO_HOME` | `$HOME/.cleo` | Global installation directory |
+| `CLEO_VERSION` | `CLEO_VERSION` | (from VERSION file) | CLI version |
+| `CLEO_DIR` | `CLEO_DIR` | `$(pwd)/.cleo` | Project data directory |
 | `CLEO_DATA` | `CLAUDE_DIR` | `.cleo` | Data directory basename |
-| `CLEO_FORMAT` | `CLAUDE_TODO_FORMAT` | `text` | Output format |
-| `CLEO_DEBUG` | `CLAUDE_TODO_DEBUG` | `0` | Debug mode |
+| `CLEO_FORMAT` | `CLEO_FORMAT` | `text` | Output format |
+| `CLEO_DEBUG` | `CLEO_DEBUG` | `0` | Debug mode |
 
 ### 2.3 Configuration Variables
 
@@ -97,11 +97,11 @@ The system MUST support these optional configuration variables:
 
 | New Variable | Legacy Variable | Type | Default |
 |--------------|-----------------|------|---------|
-| `CLEO_COLOR` | `CLAUDE_TODO_OUTPUT_SHOW_COLOR` | boolean | `1` |
-| `CLEO_UNICODE` | `CLAUDE_TODO_OUTPUT_SHOW_UNICODE` | boolean | `1` |
-| `CLEO_STRICT_MODE` | `CLAUDE_TODO_VALIDATION_STRICT_MODE` | boolean | `0` |
-| `CLEO_ARCHIVE_ENABLED` | `CLAUDE_TODO_ARCHIVE_ENABLED` | boolean | `1` |
-| `CLEO_LOGGING_ENABLED` | `CLAUDE_TODO_LOGGING_ENABLED` | boolean | `1` |
+| `CLEO_COLOR` | `CLEO_OUTPUT_SHOW_COLOR` | boolean | `1` |
+| `CLEO_UNICODE` | `CLEO_OUTPUT_SHOW_UNICODE` | boolean | `1` |
+| `CLEO_STRICT_MODE` | `CLEO_VALIDATION_STRICT_MODE` | boolean | `0` |
+| `CLEO_ARCHIVE_ENABLED` | `CLEO_ARCHIVE_ENABLED` | boolean | `1` |
+| `CLEO_LOGGING_ENABLED` | `CLEO_LOGGING_ENABLED` | boolean | `1` |
 
 ### 2.4 Deprecation Behavior
 
@@ -118,24 +118,24 @@ When a legacy variable is used:
 
 | Path Type | New Path | Legacy Path |
 |-----------|----------|-------------|
-| Global install | `~/.cleo/` | `~/.claude-todo/` |
-| Scripts | `~/.cleo/scripts/` | `~/.claude-todo/scripts/` |
-| Libraries | `~/.cleo/lib/` | `~/.claude-todo/lib/` |
-| Templates | `~/.cleo/templates/` | `~/.claude-todo/templates/` |
-| Schemas | `~/.cleo/schemas/` | `~/.claude-todo/schemas/` |
-| Plugins | `~/.cleo/plugins/` | `~/.claude-todo/plugins/` |
+| Global install | `~/.cleo/` | `~/.cleo/` |
+| Scripts | `~/.cleo/scripts/` | `~/.cleo/scripts/` |
+| Libraries | `~/.cleo/lib/` | `~/.cleo/lib/` |
+| Templates | `~/.cleo/templates/` | `~/.cleo/templates/` |
+| Schemas | `~/.cleo/schemas/` | `~/.cleo/schemas/` |
+| Plugins | `~/.cleo/plugins/` | `~/.cleo/plugins/` |
 
 ### 3.2 Project Data Paths
 
 | Path Type | New Path | Legacy Path |
 |-----------|----------|-------------|
-| Data directory | `.cleo/` | `.claude/` |
-| Todo file | `.cleo/todo.json` | `.claude/todo.json` |
-| Archive file | `.cleo/todo-archive.json` | `.claude/todo-archive.json` |
-| Log file | `.cleo/todo-log.json` | `.claude/todo-log.json` |
-| Config file | `.cleo/config.json` | `.claude/todo-config.json` |
-| Backups | `.cleo/backups/` | `.claude/backups/` |
-| Sync state | `.cleo/sync/` | `.claude/sync/` |
+| Data directory | `.cleo/` | `.cleo/` |
+| Todo file | `.cleo/todo.json` | `.cleo/todo.json` |
+| Archive file | `.cleo/todo-archive.json` | `.cleo/todo-archive.json` |
+| Log file | `.cleo/todo-log.json` | `.cleo/todo-log.json` |
+| Config file | `.cleo/config.json` | `.cleo/config.json` |
+| Backups | `.cleo/backups/` | `.cleo/backups/` |
+| Sync state | `.cleo/sync/` | `.cleo/sync/` |
 
 ### 3.3 Path Resolution Requirements
 
@@ -143,14 +143,14 @@ The system MUST resolve paths as follows:
 
 1. **Installation Path**:
    - Check `$CLEO_HOME` if set
-   - Check `$CLAUDE_TODO_HOME` if set (with deprecation warning)
+   - Check `$CLEO_HOME` if set (with deprecation warning)
    - Check if `~/.cleo/` exists
-   - Check if `~/.claude-todo/` exists (legacy support)
+   - Check if `~/.cleo/` exists (legacy support)
    - Default to `~/.cleo/`
 
 2. **Project Data Path**:
    - Check if `.cleo/` exists in project root
-   - Check if `.claude/` exists in project root (legacy support)
+   - Check if `.cleo/` exists in project root (legacy support)
    - Default to `.cleo/` for new projects
 
 ### 3.4 Migration Requirements
@@ -158,8 +158,8 @@ The system MUST resolve paths as follows:
 The system SHOULD provide a migration command:
 - `cleo migrate` MUST detect legacy installations
 - `cleo migrate --check` MUST report migration status without changes
-- `cleo migrate --global` MUST migrate `~/.claude-todo/` to `~/.cleo/`
-- `cleo migrate --project` MUST migrate `.claude/` to `.cleo/`
+- `cleo migrate --global` MUST migrate `~/.cleo/` to `~/.cleo/`
+- `cleo migrate --project` MUST migrate `.cleo/` to `.cleo/`
 - Migration MUST create backups before modifying files
 
 ---
@@ -298,7 +298,7 @@ The following data formats MUST remain unchanged:
 - `todo.json` schema
 - `todo-archive.json` schema
 - `todo-log.json` schema
-- `todo-config.json` schema (renamed to `config.json`)
+- `config.json` schema (renamed to `config.json`)
 
 ### 7.2 Schema Location
 
@@ -342,9 +342,9 @@ The `init` command MUST:
 
 ### 9.1 Backwards Compatibility
 
-- [ ] Existing `CLAUDE_TODO_*` environment variables work
-- [ ] Existing `~/.claude-todo/` installations work
-- [ ] Existing `.claude/` project directories work
+- [ ] Existing `CLEO_*` environment variables work
+- [ ] Existing `~/.cleo/` installations work
+- [ ] Existing `.cleo/` project directories work
 - [ ] No data loss during operation
 - [ ] Deprecation warnings are emitted for legacy usage
 
@@ -379,44 +379,44 @@ The `init` command MUST:
 
 | Legacy Variable | New Variable | Default |
 |-----------------|--------------|---------|
-| `CLAUDE_TODO_HOME` | `CLEO_HOME` | `$HOME/.cleo` |
-| `CLAUDE_TODO_VERSION` | `CLEO_VERSION` | (VERSION file) |
-| `CLAUDE_TODO_DIR` | `CLEO_DIR` | `$(pwd)/.cleo` |
+| `CLEO_HOME` | `CLEO_HOME` | `$HOME/.cleo` |
+| `CLEO_VERSION` | `CLEO_VERSION` | (VERSION file) |
+| `CLEO_DIR` | `CLEO_DIR` | `$(pwd)/.cleo` |
 | `CLAUDE_DIR` | `CLEO_DATA` | `.cleo` |
-| `CLAUDE_TODO_FORMAT` | `CLEO_FORMAT` | `text` |
-| `CLAUDE_TODO_DEBUG` | `CLEO_DEBUG` | `0` |
-| `CLAUDE_TODO_OUTPUT_SHOW_COLOR` | `CLEO_COLOR` | `1` |
-| `CLAUDE_TODO_OUTPUT_SHOW_UNICODE` | `CLEO_UNICODE` | `1` |
-| `CLAUDE_TODO_OUTPUT_SHOW_PROGRESS_BARS` | `CLEO_PROGRESS_BARS` | `1` |
-| `CLAUDE_TODO_OUTPUT_DEFAULT_FORMAT` | `CLEO_DEFAULT_FORMAT` | `text` |
-| `CLAUDE_TODO_OUTPUT_DATE_FORMAT` | `CLEO_DATE_FORMAT` | `%Y-%m-%d` |
-| `CLAUDE_TODO_ARCHIVE_ENABLED` | `CLEO_ARCHIVE_ENABLED` | `1` |
-| `CLAUDE_TODO_ARCHIVE_DAYS_UNTIL_ARCHIVE` | `CLEO_ARCHIVE_DAYS` | `7` |
-| `CLAUDE_TODO_ARCHIVE_MAX_COMPLETED_TASKS` | `CLEO_ARCHIVE_MAX` | `100` |
-| `CLAUDE_TODO_VALIDATION_STRICT_MODE` | `CLEO_STRICT_MODE` | `0` |
-| `CLAUDE_TODO_VALIDATION_REQUIRE_DESCRIPTION` | `CLEO_REQUIRE_DESCRIPTION` | `0` |
-| `CLAUDE_TODO_VALIDATION_CHECKSUM_ENABLED` | `CLEO_CHECKSUM_ENABLED` | `1` |
-| `CLAUDE_TODO_SESSION_WARN_ON_NO_FOCUS` | `CLEO_SESSION_WARN_NO_FOCUS` | `1` |
-| `CLAUDE_TODO_SESSION_TIMEOUT_HOURS` | `CLEO_SESSION_TIMEOUT` | `8` |
-| `CLAUDE_TODO_LOGGING_ENABLED` | `CLEO_LOGGING_ENABLED` | `1` |
-| `CLAUDE_TODO_LOGGING_LEVEL` | `CLEO_LOGGING_LEVEL` | `info` |
-| `CLAUDE_TODO_LOGGING_RETENTION_DAYS` | `CLEO_LOG_RETENTION` | `30` |
+| `CLEO_FORMAT` | `CLEO_FORMAT` | `text` |
+| `CLEO_DEBUG` | `CLEO_DEBUG` | `0` |
+| `CLEO_OUTPUT_SHOW_COLOR` | `CLEO_COLOR` | `1` |
+| `CLEO_OUTPUT_SHOW_UNICODE` | `CLEO_UNICODE` | `1` |
+| `CLEO_OUTPUT_SHOW_PROGRESS_BARS` | `CLEO_PROGRESS_BARS` | `1` |
+| `CLEO_OUTPUT_DEFAULT_FORMAT` | `CLEO_DEFAULT_FORMAT` | `text` |
+| `CLEO_OUTPUT_DATE_FORMAT` | `CLEO_DATE_FORMAT` | `%Y-%m-%d` |
+| `CLEO_ARCHIVE_ENABLED` | `CLEO_ARCHIVE_ENABLED` | `1` |
+| `CLEO_ARCHIVE_DAYS_UNTIL_ARCHIVE` | `CLEO_ARCHIVE_DAYS` | `7` |
+| `CLEO_ARCHIVE_MAX_COMPLETED_TASKS` | `CLEO_ARCHIVE_MAX` | `100` |
+| `CLEO_VALIDATION_STRICT_MODE` | `CLEO_STRICT_MODE` | `0` |
+| `CLEO_VALIDATION_REQUIRE_DESCRIPTION` | `CLEO_REQUIRE_DESCRIPTION` | `0` |
+| `CLEO_VALIDATION_CHECKSUM_ENABLED` | `CLEO_CHECKSUM_ENABLED` | `1` |
+| `CLEO_SESSION_WARN_ON_NO_FOCUS` | `CLEO_SESSION_WARN_NO_FOCUS` | `1` |
+| `CLEO_SESSION_TIMEOUT_HOURS` | `CLEO_SESSION_TIMEOUT` | `8` |
+| `CLEO_LOGGING_ENABLED` | `CLEO_LOGGING_ENABLED` | `1` |
+| `CLEO_LOGGING_LEVEL` | `CLEO_LOGGING_LEVEL` | `info` |
+| `CLEO_LOGGING_RETENTION_DAYS` | `CLEO_LOG_RETENTION` | `30` |
 
 ---
 
 ## Appendix B: Audit Summary
 
-This specification is based on audit data collected from the claude-todo codebase:
+This specification is based on audit data collected from the cleo codebase:
 
 | Pattern | Occurrences | Scope |
 |---------|-------------|-------|
-| `CLAUDE_TODO_HOME` | 214 | 40+ scripts/libs |
-| `CLAUDE_TODO_VERSION` | 40 | 30+ scripts |
-| `CLAUDE_TODO_DIR` | 23 | 15+ scripts |
+| `CLEO_HOME` | 214 | 40+ scripts/libs |
+| `CLEO_VERSION` | 40 | 30+ scripts |
+| `CLEO_DIR` | 23 | 15+ scripts |
 | `CLAUDE_DIR` | 22 | 10 scripts |
 | Other `CLAUDE_*` vars | ~40 | Various |
-| `.claude-todo` paths | 150+ | 50+ files |
-| `.claude/` paths | 200+ | 60+ files |
+| `.cleo` paths | 150+ | 50+ files |
+| `.cleo/` paths | 200+ | 60+ files |
 
 ---
 

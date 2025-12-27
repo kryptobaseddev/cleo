@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/config.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
   "schemaVersion": "2.2.0",
   "title": "CLAUDE-TODO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
@@ -628,6 +628,88 @@
           "enum": ["auto", "suggest", "off"],
           "default": "off",
           "description": "Auto-complete behavior: auto=silent completion, suggest=prompt user, off=disabled."
+        }
+      }
+    },
+
+    "multiSession": {
+      "type": "object",
+      "description": "Multi-session concurrent agent configuration. Enables multiple LLM agents to work on different task groups simultaneously with isolated focus and scope boundaries.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable multi-session mode. When false, classic single-session behavior. When true, sessions.json is created and used."
+        },
+        "maxConcurrentSessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 5,
+          "description": "Maximum active sessions allowed simultaneously."
+        },
+        "maxActiveTasksPerScope": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 1,
+          "description": "Maximum active tasks within a single session scope. Replaces global validation.maxActiveTasks."
+        },
+        "scopeValidation": {
+          "type": "string",
+          "enum": ["strict", "warn", "none"],
+          "default": "strict",
+          "description": "strict=error on scope overlap, warn=allow with warning, none=no validation."
+        },
+        "allowNestedScopes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow session scopes that are subsets of other session scopes (e.g., taskGroup within epic)."
+        },
+        "allowScopeOverlap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow sessions with partially overlapping scopes. Risky but sometimes needed for collaborative work."
+        },
+        "requireScopeOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require explicit scope when starting session. If false, defaults to full-project scope."
+        },
+        "sessionTimeoutHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 168,
+          "default": 24,
+          "description": "Hours before a session is considered orphaned/stale."
+        },
+        "autoSuspendOnTimeout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically suspend sessions that exceed timeout instead of ending them."
+        },
+        "historyRetentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 30,
+          "description": "Days to retain ended sessions in sessionHistory before cleanup."
+        },
+        "autoResumeLastSession": {
+          "type": "boolean",
+          "default": false,
+          "description": "When starting without explicit session, auto-resume most recent suspended session for the scope."
+        },
+        "trackSessionStats": {
+          "type": "boolean",
+          "default": true,
+          "description": "Track session statistics (tasks completed, focus changes, active time)."
+        },
+        "backupOnSessionEvents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create safety backup on session start/end/suspend events."
         }
       }
     }

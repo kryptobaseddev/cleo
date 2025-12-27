@@ -1,6 +1,6 @@
 # Tab Completion
 
-> Shell completion for claude-todo CLI commands, options, and task IDs
+> Shell completion for cleo CLI commands, options, and task IDs
 
 ## Overview
 
@@ -13,12 +13,12 @@ Tab completion provides intelligent suggestions for commands, options, and value
 Add to `~/.bashrc`:
 
 ```bash
-source ~/.claude-todo/completions/bash-completion.sh
+source ~/.cleo/completions/bash-completion.sh
 ```
 
 **Alternative (system-wide):**
 ```bash
-sudo cp ~/.claude-todo/completions/bash-completion.sh /etc/bash_completion.d/claude-todo
+sudo cp ~/.cleo/completions/bash-completion.sh /etc/bash_completion.d/cleo
 ```
 
 ### Zsh
@@ -26,14 +26,14 @@ sudo cp ~/.claude-todo/completions/bash-completion.sh /etc/bash_completion.d/cla
 Add to `~/.zshrc`:
 
 ```bash
-fpath=(~/.claude-todo/completions $fpath)
+fpath=(~/.cleo/completions $fpath)
 autoload -Uz compinit && compinit
 ```
 
 **Alternative (explicit copy):**
 ```bash
 mkdir -p ~/.zsh/completions
-cp ~/.claude-todo/completions/zsh-completion.zsh ~/.zsh/completions/_claude-todo
+cp ~/.cleo/completions/zsh-completion.zsh ~/.zsh/completions/_cleo
 ```
 
 Then add to `~/.zshrc`:
@@ -49,7 +49,7 @@ autoload -Uz compinit && compinit
 All 30+ commands are supported with descriptions:
 
 ```bash
-claude-todo <TAB>  # Shows: add, update, complete, list, show, focus...
+cleo <TAB>  # Shows: add, update, complete, list, show, focus...
 ct <TAB>           # Same (alias supported)
 ```
 
@@ -226,7 +226,7 @@ ct promote T001 --<TAB>
 
 3. **Check file exists:**
    ```bash
-   ls -la ~/.claude-todo/completions/
+   ls -la ~/.cleo/completions/
    ```
 
 4. **Verify jq is installed (required for task ID completion):**
@@ -236,11 +236,11 @@ ct promote T001 --<TAB>
 
 ### Task IDs Not Appearing
 
-The completion scripts read from `.claude/todo.json` in the current directory. Ensure you're in a project with initialized claude-todo.
+The completion scripts read from `.cleo/todo.json` in the current directory. Ensure you're in a project with initialized cleo.
 
 ```bash
 cd /path/to/your/project
-claude-todo list  # Verify tasks exist
+cleo list  # Verify tasks exist
 ct add --parent <TAB>  # Should now show task IDs
 ```
 
@@ -271,7 +271,7 @@ fi
 If you use a custom todo file location, set the environment variable:
 
 ```bash
-export TODO_FILE="/custom/path/.claude/todo.json"
+export TODO_FILE="/custom/path/.cleo/todo.json"
 ```
 
 ### Adding Custom Completions
@@ -291,7 +291,7 @@ Both scripts can be extended. The key functions are:
 ### Bash Implementation
 - Uses `complete -F` with `COMPREPLY` array
 - Function: `_claude_todo_completions`
-- Registers for both `claude-todo` and `ct` commands
+- Registers for both `cleo` and `ct` commands
 - Uses `compgen -W` for word generation
 
 ### Zsh Implementation

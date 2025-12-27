@@ -29,7 +29,7 @@ setup() {
     # Export delete and uncancel scripts
     export DELETE_SCRIPT="${SCRIPTS_DIR}/delete.sh"
     export UNCANCEL_SCRIPT="${SCRIPTS_DIR}/uncancel.sh"
-    export ARCHIVE_FILE="${TEST_TEMP_DIR}/.claude/todo-archive.json"
+    export ARCHIVE_FILE="${TEST_TEMP_DIR}/.cleo/todo-archive.json"
 
     # Create empty archive for tests
     create_empty_archive "$ARCHIVE_FILE"
@@ -540,12 +540,12 @@ EOF
 
     # Verify backup was created (check for backup directory content)
     local backup_count
-    backup_count=$(find "${TEST_TEMP_DIR}/.claude/backups" -name "*.json*" 2>/dev/null | wc -l || echo "0")
+    backup_count=$(find "${TEST_TEMP_DIR}/.cleo/backups" -name "*.json*" 2>/dev/null | wc -l || echo "0")
 
     # At minimum, some backup should exist (safety backup)
     [[ "$backup_count" -gt 0 ]] || {
         # Alternative: check .backups directory (Tier 1 backups)
-        backup_count=$(ls -1 "${TEST_TEMP_DIR}/.claude/.backups/" 2>/dev/null | wc -l || echo "0")
+        backup_count=$(ls -1 "${TEST_TEMP_DIR}/.cleo/.backups/" 2>/dev/null | wc -l || echo "0")
         [[ "$backup_count" -ge 0 ]]  # May be 0 if backups disabled
     }
 }

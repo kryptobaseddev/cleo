@@ -21,7 +21,7 @@
 
 ## Task Tracking
 
-All tasks logged in claude-todo with label `consensus-framework`.
+All tasks logged in cleo with label `consensus-framework`.
 
 ### Phase Structure
 
@@ -93,7 +93,7 @@ All tasks logged in claude-todo with label `consensus-framework`.
 | T213 | Self-validation is circular | CONTESTED | MEDIUM | Challenge Agent vs Meta-Validator |
 | T214 | Challenge Agent may be compromised by LLM training | PROVEN | MEDIUM | Challenge Agent (self-aware paradox) |
 
-**Note**: Original investigation focused on claude-todo system claims. Meta-investigation repurposed framework to validate the spec itself. Claims T205-T214 here represent spec compliance findings, not original claims.
+**Note**: Original investigation focused on cleo system claims. Meta-investigation repurposed framework to validate the spec itself. Claims T205-T214 here represent spec compliance findings, not original claims.
 
 ### Future Feature
 
@@ -178,13 +178,13 @@ All tasks logged in claude-todo with label `consensus-framework`.
 
 ```bash
 # 1. Start tracking session
-claude-todo session start
+cleo session start
 
 # 2. Check current phase
-claude-todo list --label consensus-framework
+cleo list --label consensus-framework
 
 # 3. Check current focus
-claude-todo focus show
+cleo focus show
 
 # 4. List output files
 ls docs/specs/research/
@@ -197,16 +197,16 @@ ls docs/specs/research/
 
 ```bash
 # 1. Update current task with progress
-claude-todo update <task-id> --notes "Progress: completed X, next: Y"
+cleo update <task-id> --notes "Progress: completed X, next: Y"
 
 # 2. Update focus note
-claude-todo focus note "Phase N, working on <task>"
+cleo focus note "Phase N, working on <task>"
 
 # 3. Archive completed tasks (optional)
-claude-todo archive
+cleo archive
 
 # 4. End session
-claude-todo session end
+cleo session end
 ```
 
 ---
@@ -217,35 +217,35 @@ claude-todo session end
 
 ```bash
 # 1. Start session
-claude-todo session start
+cleo session start
 
 # 2. Set focus to phase task
-claude-todo focus set T184  # Phase 1
+cleo focus set T184  # Phase 1
 # OR
-claude-todo focus set T189  # Phase 2
+cleo focus set T189  # Phase 2
 # OR
-claude-todo focus set T195  # Phase 3
+cleo focus set T195  # Phase 3
 # OR
-claude-todo focus set T199  # Phase 4
+cleo focus set T199  # Phase 4
 
 # 3. Update phase task to active
-claude-todo update T184 --status active --notes "Starting Phase 1"
+cleo update T184 --status active --notes "Starting Phase 1"
 
 # 4. Read spec
 cat docs/specs/CONSENSUS-FRAMEWORK-SPEC-v2.md
 
 # 5. Check dependencies
-claude-todo deps T184
+cleo deps T184
 ```
 
 ### During a Phase
 
 ```bash
 # Work on subtasks
-claude-todo update T185 --status active
+cleo update T185 --status active
 # ... do work ...
-claude-todo update T185 --notes "DOC: docs/specs/research/consensus-framework/standards-research-findings.md"
-claude-todo complete T185
+cleo update T185 --notes "DOC: docs/specs/research/consensus-framework/standards-research-findings.md"
+cleo complete T185
 
 # Repeat for T186, T187, T188
 ```
@@ -254,16 +254,16 @@ claude-todo complete T185
 
 ```bash
 # 1. Verify all subtasks done
-claude-todo list --phase phase-1 --status done
+cleo list --phase phase-1 --status done
 
 # 2. Complete phase task
-claude-todo complete T184 --notes "Phase 1 complete: all evidence collected"
+cleo complete T184 --notes "Phase 1 complete: all evidence collected"
 
 # 3. Clear focus
-claude-todo focus clear
+cleo focus clear
 
 # 4. Session checkpoint
-claude-todo session end
+cleo session end
 ```
 
 ---
@@ -274,41 +274,41 @@ claude-todo session end
 
 ```bash
 # Add notes as evidence is gathered
-claude-todo update T185 --notes "DOC: Found 15 spec violations in audit"
-claude-todo update T186 --notes "CODE: Analyzed 42 bash scripts, 2 JSON schemas"
-claude-todo update T187 --notes "TEST: Reproduced 3/10 claimed bugs"
-claude-todo update T188 --notes "METRIC: 935 lines, 57% extractable content"
+cleo update T185 --notes "DOC: Found 15 spec violations in audit"
+cleo update T186 --notes "CODE: Analyzed 42 bash scripts, 2 JSON schemas"
+cleo update T187 --notes "TEST: Reproduced 3/10 claimed bugs"
+cleo update T188 --notes "METRIC: 935 lines, 57% extractable content"
 ```
 
 ### Phase 2: Specialist Analysis
 
 ```bash
 # Deploy agents with claim assignments
-claude-todo update T190 --notes "AGENT: Technical Validator analyzing T210-T211"
-claude-todo update T191 --notes "AGENT: Design Philosophy analyzing T207-T208"
+cleo update T190 --notes "AGENT: Technical Validator analyzing T210-T211"
+cleo update T191 --notes "AGENT: Design Philosophy analyzing T207-T208"
 # etc.
 
 # Log agent completions
-claude-todo complete T190 --notes "DOC: agent-technical-findings.md (223 lines, VALID verdict)"
+cleo complete T190 --notes "DOC: agent-technical-findings.md (223 lines, VALID verdict)"
 ```
 
 ### Phase 3: Challenge & Consensus
 
 ```bash
 # Track voting rounds
-claude-todo update T196 --notes "ROUND-1: Initial presentation to Synthesis Agent"
-claude-todo update T197 --notes "ROUND-2: Cross-examination, 4 critical flaws found"
-claude-todo update T198 --notes "VOTING: 9/10 agents report critical issues"
+cleo update T196 --notes "ROUND-1: Initial presentation to Synthesis Agent"
+cleo update T197 --notes "ROUND-2: Cross-examination, 4 critical flaws found"
+cleo update T198 --notes "VOTING: 9/10 agents report critical issues"
 ```
 
 ### Phase 4: Synthesis
 
 ```bash
 # Track artifact generation
-claude-todo update T200 --notes "DOC: CONSENSUS-REPORT.md (680 lines)"
-claude-todo update T201 --notes "DOC: CONSENSUS-FRAMEWORK-SPEC-v2.md (562 lines)"
-claude-todo update T202 --notes "DOC: CONSENSUS-FRAMEWORK-IMPLEMENTATION-REPORT.md (this file)"
-claude-todo update T203 --notes "DOC: 10 agent findings + synthesis documents"
+cleo update T200 --notes "DOC: CONSENSUS-REPORT.md (680 lines)"
+cleo update T201 --notes "DOC: CONSENSUS-FRAMEWORK-SPEC-v2.md (562 lines)"
+cleo update T202 --notes "DOC: CONSENSUS-FRAMEWORK-IMPLEMENTATION-REPORT.md (this file)"
+cleo update T203 --notes "DOC: 10 agent findings + synthesis documents"
 ```
 
 ---
@@ -334,32 +334,32 @@ claude-todo update T203 --notes "DOC: 10 agent findings + synthesis documents"
 
 ```bash
 # Single-line summary
-claude-todo dash --compact
+cleo dash --compact
 
 # Full dashboard
-claude-todo dash
+cleo dash
 
 # Phase progress
-claude-todo phases
+cleo phases
 
 # Label-specific view
-claude-todo labels show consensus-framework
+cleo labels show consensus-framework
 
 # Show blockers
-claude-todo blockers
+cleo blockers
 ```
 
 ### Finding Specific Tasks
 
 ```bash
 # Find by ID prefix
-claude-todo find --id T19  # Shows T190-T199
+cleo find --id T19  # Shows T190-T199
 
 # Find by description
-claude-todo find "Synthesis"
+cleo find "Synthesis"
 
 # Show task details with history
-claude-todo show T200 --history
+cleo show T200 --history
 ```
 
 ---
@@ -399,8 +399,8 @@ If session interrupted, resume by:
 # mcp__serena__read_memory consensus-framework-investigation.md
 
 # 2. Check task status
-claude-todo labels show consensus-framework
-claude-todo focus show
+cleo labels show consensus-framework
+cleo focus show
 
 # 3. Read spec
 cat docs/specs/CONSENSUS-FRAMEWORK-SPEC-v2.md
@@ -409,10 +409,10 @@ cat docs/specs/CONSENSUS-FRAMEWORK-SPEC-v2.md
 ls docs/specs/research/
 
 # 5. Identify last completed phase
-claude-todo list --label consensus-framework --status done
+cleo list --label consensus-framework --status done
 
 # 6. Resume from next pending task
-claude-todo list --label consensus-framework --status pending
+cleo list --label consensus-framework --status pending
 ```
 
 ---
@@ -434,56 +434,56 @@ claude-todo list --label consensus-framework --status pending
 
 ```bash
 # Add task
-claude-todo add "Task title" --phase core --priority high
+cleo add "Task title" --phase core --priority high
 
 # Update task
-claude-todo update T001 --status active --notes "Working on X"
+cleo update T001 --status active --notes "Working on X"
 
 # Complete task
-claude-todo complete T001 --notes "Finished with result Y"
+cleo complete T001 --notes "Finished with result Y"
 
 # Find tasks
-claude-todo find "keyword"
-claude-todo find --id T19  # Prefix search
+cleo find "keyword"
+cleo find --id T19  # Prefix search
 
 # Show details
-claude-todo show T001 --history
+cleo show T001 --history
 ```
 
 ### Focus Management
 
 ```bash
 # Set focus
-claude-todo focus set T001
+cleo focus set T001
 
 # Show current focus
-claude-todo focus show
+cleo focus show
 
 # Update focus note
-claude-todo focus note "Working on Phase 2"
+cleo focus note "Working on Phase 2"
 
 # Clear focus
-claude-todo focus clear
+cleo focus clear
 ```
 
 ### Monitoring
 
 ```bash
 # Dashboard
-claude-todo dash
-claude-todo dash --compact
+cleo dash
+cleo dash --compact
 
 # Phases
-claude-todo phases
-claude-todo phases show core
+cleo phases
+cleo phases show core
 
 # Labels
-claude-todo labels
-claude-todo labels show consensus-framework
+cleo labels
+cleo labels show consensus-framework
 
 # Dependencies
-claude-todo deps T001
-claude-todo blockers
+cleo deps T001
+cleo blockers
 ```
 
 ---
@@ -492,11 +492,11 @@ claude-todo blockers
 
 ### T204: Reusable Framework Plugin
 
-**Vision**: Package consensus framework as reusable claude-todo plugin.
+**Vision**: Package consensus framework as reusable cleo plugin.
 
 **Proposed Invocation**:
 ```bash
-claude-todo consensus init "Investigation Title"
+cleo consensus init "Investigation Title"
 # Creates task structure T{base}-T{base+30}
 # Initializes output directory
 # Provides session start script

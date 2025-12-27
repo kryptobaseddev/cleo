@@ -117,8 +117,8 @@
 
 - [ ] All existing tests pass (1124+)
 - [ ] New hierarchy tests pass (target: 100+)
-- [ ] `claude-todo add --parent T001` works
-- [ ] `claude-todo list --tree` displays hierarchy
+- [ ] `cleo add --parent T001` works
+- [ ] `cleo list --tree` displays hierarchy
 - [ ] Validation catches invalid hierarchy operations
 - [ ] Migration from v2.2.0 preserves all data
 - [ ] Documentation updated
@@ -134,7 +134,7 @@
 
 ### Production Ready When:
 
-- [ ] Used successfully on claude-todo's own task tracking
+- [ ] Used successfully on cleo's own task tracking
 - [ ] No data loss in any scenario
 - [ ] All edge cases handled gracefully
 - [ ] Documentation complete and accurate

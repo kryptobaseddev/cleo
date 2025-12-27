@@ -8,7 +8,7 @@
 │                                                                     │
 │  ┌────────────────────────────────────────────────────────────┐   │
 │  │                   Global Installation                       │   │
-│  │              ~/.claude-todo/                                │   │
+│  │              ~/.cleo/                                │   │
 │  │                                                             │   │
 │  │  ┌──────────┐  ┌───────────┐  ┌────────┐  ┌──────────┐   │   │
 │  │  │ schemas/ │  │ templates/│  │scripts/│  │   lib/   │   │   │
@@ -22,7 +22,7 @@
 │                            ▼                                       │
 │  ┌────────────────────────────────────────────────────────────┐   │
 │  │                  Per-Project Instance                      │   │
-│  │              your-project/.claude/                         │   │
+│  │              your-project/.cleo/                         │   │
 │  │                                                            │   │
 │  │  ┌──────────────┐  ┌─────────────────┐  ┌──────────────┐ │   │
 │  │  │  todo.json   │  │todo-archive.json│  │todo-log.json │ │   │
@@ -30,7 +30,7 @@
 │  │  └──────┬───────┘  └────────┬────────┘  └──────┬───────┘ │   │
 │  │         │                   │                   │         │   │
 │  │  ┌──────┴──────────────┐    │                   │         │   │
-│  │  │ todo-config.json    │    │                   │         │   │
+│  │  │ config.json    │    │                   │         │   │
 │  │  │  (configuration)    │    │                   │         │   │
 │  │  └─────────────────────┘    │                   │         │   │
 │  │                              │                   │         │   │
@@ -368,7 +368,7 @@
 
 ```
 ┌──────────────────┬─────────────┬──────────────────┬──────────────────┬──────────────────┐
-│  OPERATION       │  todo.json  │ todo-archive.json│ todo-config.json │ todo-log.json    │
+│  OPERATION       │  todo.json  │ todo-archive.json│ config.json │ todo-log.json    │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
 │  init.sh         │   W (new)   │   W (new)        │   W (new)        │   W (new)        │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
@@ -434,7 +434,7 @@ Legend:
            ┌─────────┐          ┌──────────────────┐
            │ Delete  │          │ Create Backup    │
            │  Temp   │          │ todo.json →      │
-           │  ERROR  │          │ .claude/.backups/│
+           │  ERROR  │          │ .cleo/.backups/│
            └─────────┘          │ todo.json.N      │
                                 └────────┬─────────┘
                                          │
@@ -561,7 +561,7 @@ Purpose (Detection & Audit):
 
 Design Note:
   Checksum is for DETECTION, not BLOCKING. In multi-writer
-  scenarios (claude-todo CLI + TodoWrite), external modifications
+  scenarios (cleo CLI + TodoWrite), external modifications
   are expected and legitimate. Real data protection comes from:
   - Schema validation (Layer 1)
   - Semantic validation (Layer 2)
@@ -570,7 +570,7 @@ Design Note:
 Commands:
   Compute:  jq -c '.tasks' todo.json | sha256sum | cut -c1-16
   Verify:   jq -r '._meta.checksum' todo.json
-  Fix:      claude-todo validate --fix
+  Fix:      cleo validate --fix
 ```
 
 ---
@@ -582,7 +582,7 @@ Commands:
                   (max_backups: 10)
 
 Current State (Tier 1 - Operational Backups):
-.claude/.backups/
+.cleo/.backups/
 ├── todo.json.1  (most recent)
 ├── todo.json.2
 ├── todo.json.3
@@ -627,7 +627,7 @@ Current State (Tier 1 - Operational Backups):
                 └──────────────────────┘
 
 Result:
-.claude/.backups/
+.cleo/.backups/
 ├── todo.json.1  (NEW - just backed up)
 ├── todo.json.2  (was .1)
 ├── todo.json.3  (was .2)
@@ -653,8 +653,8 @@ Result:
                            ▼
                 ┌────────────────────┐
                 │  Load Global       │
-                │  ~/.claude-todo/   │
-                │  todo-config.json  │
+                │  ~/.cleo/   │
+                │  config.json  │
                 │  (if exists)       │
                 └──────────┬─────────┘
                            │
@@ -662,15 +662,15 @@ Result:
                            ▼
                 ┌────────────────────┐
                 │  Load Project      │
-                │  .claude/          │
-                │  todo-config.json  │
+                │  .cleo/          │
+                │  config.json  │
                 └──────────┬─────────┘
                            │
                            │ Merge (override global)
                            ▼
                 ┌────────────────────┐
                 │  Check Environment │
-                │  CLAUDE_TODO_*     │
+                │  CLEO_*     │
                 │  variables         │
                 └──────────┬─────────┘
                            │
@@ -693,7 +693,7 @@ Example:
   Default:     archive_after_days = 7
   Global:      archive_after_days = 14  (overrides default)
   Project:     archive_after_days = 3   (overrides global)
-  Environment: CLAUDE_TODO_ARCHIVE_DAYS=30 (overrides project)
+  Environment: CLEO_ARCHIVE_DAYS=30 (overrides project)
   CLI Flag:    --archive-days=1   (overrides environment)
 
   Final Value: 1 day
@@ -936,7 +936,7 @@ This ensures todo + archive are ALWAYS in sync.
 
 ```
                      PHASE SET REQUEST
-                     (claude-todo phase set <slug>)
+                     (cleo phase set <slug>)
                               │
                               ▼
                    ┌────────────────────┐
@@ -999,7 +999,7 @@ This ensures todo + archive are ALWAYS in sync.
 
 ```
                       ADD TASK REQUEST
-                      (claude-todo add "Task title")
+                      (cleo add "Task title")
                                │
                                ▼
                     ┌────────────────────┐
@@ -1056,7 +1056,7 @@ Key Points:
 
 ```
                      PHASES COMMAND
-                     (claude-todo phases)
+                     (cleo phases)
                               │
                               ▼
                    ┌────────────────────┐
@@ -1113,7 +1113,7 @@ Key Points:
 
 ```
                     INJECT COMMAND
-                    (claude-todo sync --inject --focused-only)
+                    (cleo sync --inject --focused-only)
                               │
                               ▼
                    ┌────────────────────┐
@@ -1144,7 +1144,7 @@ Key Points:
                    └──────────────────────┘
 
                     EXTRACT COMMAND
-                    (claude-todo sync --extract)
+                    (cleo sync --extract)
                               │
                               ▼
                    ┌────────────────────┐
@@ -1180,7 +1180,7 @@ Key Points:
 
 ```
 ┌──────────────────┬─────────────┬──────────────────┬──────────────────┬──────────────────┐
-│  OPERATION       │  todo.json  │ todo-archive.json│ todo-config.json │ todo-log.json    │
+│  OPERATION       │  todo.json  │ todo-archive.json│ config.json │ todo-log.json    │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤
 │  phase.sh set    │   R + W     │      -           │      R           │      W           │
 ├──────────────────┼─────────────┼──────────────────┼──────────────────┼──────────────────┤

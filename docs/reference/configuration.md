@@ -8,19 +8,19 @@ Use the `config` command to view and modify settings:
 
 ```bash
 # View configuration
-claude-todo config show               # Show all config
-claude-todo config show output        # Show section
-claude-todo config get output.defaultFormat  # Get single value
+cleo config show               # Show all config
+cleo config show output        # Show section
+cleo config get output.defaultFormat  # Get single value
 
 # Modify configuration
-claude-todo config set output.defaultFormat json  # Update project config
-claude-todo config set KEY VALUE --global        # Update global config
+cleo config set output.defaultFormat json  # Update project config
+cleo config set KEY VALUE --global        # Update global config
 
 # Other operations
-claude-todo config list               # List all keys/values
-claude-todo config edit               # Interactive menu editor
-claude-todo config validate           # Validate config against schema
-claude-todo config reset              # Reset to defaults
+cleo config list               # List all keys/values
+cleo config edit               # Interactive menu editor
+cleo config validate           # Validate config against schema
+cleo config reset              # Reset to defaults
 ```
 
 For full command documentation, see [commands/config.md](../commands/config.md).
@@ -28,17 +28,17 @@ For full command documentation, see [commands/config.md](../commands/config.md).
 ## Configuration Files
 
 ### Default Configuration Template
-Location: `~/.claude-todo/templates/config.template.json`
+Location: `~/.cleo/templates/config.template.json`
 
 This file contains the default configuration that serves as the starting point for all projects.
 
 ### Global Configuration (Optional)
-Location: `~/.claude-todo/config.json`
+Location: `~/.cleo/config.json`
 
 Create this file to override defaults across all projects. Useful for personal preferences like logging levels or display settings.
 
 ### Project Configuration
-Location: `.claude/todo-config.json`
+Location: `.cleo/config.json`
 
 Project-specific configuration. Created automatically during initialization from the default template.
 
@@ -47,9 +47,9 @@ Project-specific configuration. Created automatically during initialization from
 Configuration values are resolved in this order (later overrides earlier):
 
 1. **Defaults** - Built-in defaults from schema
-2. **Global** - `~/.claude-todo/config.json` (if exists)
-3. **Project** - `.claude/todo-config.json`
-4. **Environment** - `CLAUDE_TODO_*` environment variables
+2. **Global** - `~/.cleo/config.json` (if exists)
+3. **Project** - `.cleo/config.json`
+4. **Environment** - `CLEO_*` environment variables
 5. **CLI Flags** - Command-line arguments (highest priority)
 
 ## Configuration Schema
@@ -99,7 +99,7 @@ Configuration values are resolved in this order (later overrides earlier):
   },
   "backup": {
     "enabled": true,
-    "directory": ".claude/backups",
+    "directory": ".cleo/backups",
     "maxSnapshots": 10,
     "maxSafetyBackups": 5,
     "maxIncremental": 10,
@@ -129,7 +129,7 @@ Controls automatic archiving behavior for completed tasks.
 - Archive runs when completed tasks exceed `maxCompletedTasks`
 - Most recent `preserveRecentCount` completed tasks are always preserved
 - Can be triggered:
-  - Manually via `claude-todo archive`
+  - Manually via `cleo archive`
   - At session end (if `archiveOnSessionEnd: true`)
   - Immediately on task completion (if `autoArchiveOnComplete: true`)
 
@@ -435,7 +435,7 @@ Controls CLI behavior, command aliases, and plugin discovery.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable plugin discovery |
-| `directories` | array | `["~/.claude-todo/plugins", "./.claude/plugins"]` | Plugin search paths |
+| `directories` | array | `["~/.cleo/plugins", "./.cleo/plugins"]` | Plugin search paths |
 | `autoDiscover` | boolean | `true` | Auto-discover plugins on startup |
 
 **Plugin Configuration:**
@@ -445,8 +445,8 @@ Controls CLI behavior, command aliases, and plugin discovery.
     "plugins": {
       "enabled": true,
       "directories": [
-        "~/.claude-todo/plugins",
-        "./.claude/plugins"
+        "~/.cleo/plugins",
+        "./.cleo/plugins"
       ],
       "autoDiscover": true
     }
@@ -480,13 +480,13 @@ Controls CLI behavior, command aliases, and plugin discovery.
 **Debug Mode Usage:**
 ```bash
 # Run debug validation
-claude-todo --validate
+cleo --validate
 
 # Enable debug for single command
-CLAUDE_TODO_DEBUG=1 claude-todo list
+CLEO_DEBUG=1 cleo list
 
 # List all available commands
-claude-todo --list-commands
+cleo --list-commands
 ```
 
 ### Backup Settings (v0.9.8+)
@@ -496,7 +496,7 @@ Controls the backup system for task data protection and recovery.
 | Field | Type | Default | Range | Description |
 |-------|------|---------|-------|-------------|
 | `enabled` | boolean | `true` | - | Enable backup system globally |
-| `directory` | string | `".claude/backups"` | - | Root directory for all backup types |
+| `directory` | string | `".cleo/backups"` | - | Root directory for all backup types |
 | `maxSnapshots` | integer | `10` | 0-100 | Maximum snapshot backups (count-based retention) |
 | `maxSafetyBackups` | integer | `5` | 0-50 | Maximum safety backups (count + time retention) |
 | `maxIncremental` | integer | `10` | 0-100 | Maximum incremental backups (count-based retention) |
@@ -524,7 +524,7 @@ Controls the backup system for task data protection and recovery.
 {
   "backup": {
     "enabled": true,
-    "directory": ".claude/backups",
+    "directory": ".cleo/backups",
     "maxSnapshots": 20,
     "maxSafetyBackups": 10,
     "maxIncremental": 20,
@@ -537,7 +537,7 @@ Controls the backup system for task data protection and recovery.
 {
   "backup": {
     "enabled": true,
-    "directory": ".claude/backups",
+    "directory": ".cleo/backups",
     "maxSnapshots": 3,
     "maxSafetyBackups": 2,
     "maxIncremental": 5,
@@ -550,7 +550,7 @@ Controls the backup system for task data protection and recovery.
 {
   "backup": {
     "enabled": true,
-    "directory": ".claude/backups",
+    "directory": ".cleo/backups",
     "maxSnapshots": 5,
     "maxSafetyBackups": 3,
     "maxIncremental": 15,  // Use incremental more
@@ -571,9 +571,9 @@ Controls the backup system for task data protection and recovery.
 
 The backup system is integrated into all write operations:
 - **Automatic**: Safety backups created before all file modifications
-- **Manual**: Use `claude-todo backup` command
-- **Recovery**: Use `claude-todo restore [backup]` command
-- **Listing**: Use `claude-todo backup --list` command
+- **Manual**: Use `cleo backup` command
+- **Recovery**: Use `cleo restore [backup]` command
+- **Listing**: Use `cleo backup --list` command
 
 **Disk Usage Considerations:**
 
@@ -591,48 +591,48 @@ With defaults (10 snapshots, 5 safety, 10 incremental, 3 archive):
 - Migration backups are NEVER deleted (rollback protection)
 - Setting retention to 0 disables that backup type
 - Safety backups use BOTH time and count retention (whichever triggers first)
-- Backup directory can be absolute or relative to `.claude/`
+- Backup directory can be absolute or relative to `.cleo/`
 
 ## Environment Variables
 
-Override configuration using environment variables with `CLAUDE_TODO_` prefix:
+Override configuration using environment variables with `CLEO_` prefix:
 
 ```bash
 # Archive settings
-export CLAUDE_TODO_ARCHIVE_ENABLED=true
-export CLAUDE_TODO_ARCHIVE_DAYS_UNTIL_ARCHIVE=14
-export CLAUDE_TODO_ARCHIVE_MAX_COMPLETED_TASKS=20
-export CLAUDE_TODO_ARCHIVE_PRESERVE_RECENT_COUNT=5
+export CLEO_ARCHIVE_ENABLED=true
+export CLEO_ARCHIVE_DAYS_UNTIL_ARCHIVE=14
+export CLEO_ARCHIVE_MAX_COMPLETED_TASKS=20
+export CLEO_ARCHIVE_PRESERVE_RECENT_COUNT=5
 
 # Logging settings
-export CLAUDE_TODO_LOGGING_ENABLED=true
-export CLAUDE_TODO_LOGGING_LEVEL=verbose
-export CLAUDE_TODO_LOGGING_RETENTION_DAYS=60
+export CLEO_LOGGING_ENABLED=true
+export CLEO_LOGGING_LEVEL=verbose
+export CLEO_LOGGING_RETENTION_DAYS=60
 
 # Validation settings
-export CLAUDE_TODO_VALIDATION_STRICT_MODE=true
-export CLAUDE_TODO_VALIDATION_CHECKSUM_ENABLED=true
-export CLAUDE_TODO_VALIDATION_MAX_ACTIVE_TASKS=1
+export CLEO_VALIDATION_STRICT_MODE=true
+export CLEO_VALIDATION_CHECKSUM_ENABLED=true
+export CLEO_VALIDATION_MAX_ACTIVE_TASKS=1
 
 # Session settings
-export CLAUDE_TODO_SESSION_REQUIRE_SESSION_NOTE=true
-export CLAUDE_TODO_SESSION_AUTO_START_SESSION=true
+export CLEO_SESSION_REQUIRE_SESSION_NOTE=true
+export CLEO_SESSION_AUTO_START_SESSION=true
 
 # Display settings
-export CLAUDE_TODO_DISPLAY_WARN_STALE_DAYS=7
+export CLEO_DISPLAY_WARN_STALE_DAYS=7
 
 # Backup settings
-export CLAUDE_TODO_BACKUP_ENABLED=true
-export CLAUDE_TODO_BACKUP_DIRECTORY=".claude/backups"
-export CLAUDE_TODO_BACKUP_MAX_SNAPSHOTS=10
-export CLAUDE_TODO_BACKUP_MAX_SAFETY_BACKUPS=5
-export CLAUDE_TODO_BACKUP_MAX_INCREMENTAL=10
-export CLAUDE_TODO_BACKUP_MAX_ARCHIVE_BACKUPS=3
-export CLAUDE_TODO_BACKUP_SAFETY_RETENTION_DAYS=7
+export CLEO_BACKUP_ENABLED=true
+export CLEO_BACKUP_DIRECTORY=".cleo/backups"
+export CLEO_BACKUP_MAX_SNAPSHOTS=10
+export CLEO_BACKUP_MAX_SAFETY_BACKUPS=5
+export CLEO_BACKUP_MAX_INCREMENTAL=10
+export CLEO_BACKUP_MAX_ARCHIVE_BACKUPS=3
+export CLEO_BACKUP_SAFETY_RETENTION_DAYS=7
 ```
 
 **Environment Variable Naming Convention:**
-- Prefix: `CLAUDE_TODO_`
+- Prefix: `CLEO_`
 - Section: Uppercase section name (e.g., `ARCHIVE`, `LOGGING`)
 - Field: Uppercase field name with underscores (e.g., `DAYS_UNTIL_ARCHIVE`)
 - Values: `true`/`false` for booleans, numbers for integers, strings for text
@@ -643,17 +643,17 @@ Most configuration values can be overridden via command-line flags:
 
 ```bash
 # Override archive settings
-claude-todo add --no-archive-on-complete "Task description"
+cleo add --no-archive-on-complete "Task description"
 
 # Override validation settings
-claude-todo add --no-strict "Task description"
-claude-todo complete --allow-multiple-active T001
+cleo add --no-strict "Task description"
+cleo complete --allow-multiple-active T001
 
 # Override logging settings
-claude-todo add --log-level=verbose "Task description"
+cleo add --log-level=verbose "Task description"
 
 # Override display settings
-claude-todo list --no-show-archive-count
+cleo list --no-show-archive-count
 ```
 
 See individual command documentation for available flags.
@@ -783,8 +783,8 @@ See individual command documentation for available flags.
 ## Configuration Validation
 
 Configuration files are validated against `config.schema.json` during:
-- Project initialization (`claude-todo init`)
-- Manual validation (`claude-todo validate`)
+- Project initialization (`cleo init`)
+- Manual validation (`cleo validate`)
 - Command execution (if validation enabled)
 
 ### Valid Value Ranges
@@ -812,7 +812,7 @@ Configuration files are validated against `config.schema.json` during:
 
 For complete schema definition including all constraints and validation rules:
 ```bash
-cat ~/.claude-todo/schemas/config.schema.json
+cat ~/.cleo/schemas/config.schema.json
 ```
 
 See also: [schema-reference.md](../architecture/SCHEMAS.md)
@@ -824,18 +824,18 @@ See also: [schema-reference.md](../architecture/SCHEMAS.md)
 **Check override hierarchy:**
 ```bash
 # Verify project config exists
-cat .claude/todo-config.json
+cat .cleo/config.json
 
 # Check environment variables
-env | grep CLAUDE_TODO
+env | grep CLEO_
 
 # Test with explicit CLI flags
-claude-todo list --help
+cleo list --help
 ```
 
 **Validate configuration:**
 ```bash
-claude-todo validate .claude/todo-config.json
+cleo validate .cleo/config.json
 ```
 
 ### Invalid Configuration Values
@@ -865,16 +865,16 @@ If operations are slow:
 When upgrading between versions:
 ```bash
 # Backup current config
-cp .claude/todo-config.json .claude/todo-config.backup.json
+cp .cleo/config.json .cleo/todo-config.backup.json
 
 # Re-initialize to get new defaults (preserves existing data)
-claude-todo init --force
+cleo init --force
 
 # Validate migrated config
-claude-todo validate .claude/todo-config.json
+cleo validate .cleo/config.json
 ```
 
-> **Note**: For automated schema migrations, see the [Migration Guide](migration-guide.md). The `claude-todo migrate` command handles version upgrades automatically with backup and rollback support.
+> **Note**: For automated schema migrations, see the [Migration Guide](migration-guide.md). The `cleo migrate` command handles version upgrades automatically with backup and rollback support.
 
 ## Best Practices
 
@@ -884,7 +884,7 @@ claude-todo validate .claude/todo-config.json
 4. **Enforce focus** - Keep `maxActiveTasks: 1` unless you have compelling reason
 5. **Regular archiving** - Set reasonable `daysUntilArchive` (7-14 days typical)
 6. **Log appropriately** - Use `standard` logging unless you need `verbose` for auditing
-7. **Version control** - Commit `.claude/todo-config.json` to share team standards
+7. **Version control** - Commit `.cleo/config.json` to share team standards
 8. **Test changes** - Validate configuration after editing
 9. **Document overrides** - Comment why you changed defaults (JSON doesn't support comments, use separate docs)
 10. **Review periodically** - Adjust settings as project needs evolve

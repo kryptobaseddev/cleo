@@ -148,7 +148,7 @@ ct find "bug" --field labels,notes
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.19.0",
@@ -402,7 +402,7 @@ ct help find
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {"command": "find", "timestamp": "...", "version": "..."},
   "success": false,
   "error": {
@@ -419,7 +419,7 @@ ct help find
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"command": "find", "timestamp": "...", "version": "..."},
   "success": true,
   "query": {"text": "nonexistent", "mode": "fuzzy"},

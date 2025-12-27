@@ -6,7 +6,7 @@
 
 ## Overview
 
-Implemented `claude-todo phase delete` command with comprehensive protection against orphaning tasks and safety features.
+Implemented `cleo phase delete` command with comprehensive protection against orphaning tasks and safety features.
 
 ## Implementation Details
 
@@ -24,7 +24,7 @@ Implemented `claude-todo phase delete` command with comprehensive protection aga
 ### Command Signature
 
 ```bash
-claude-todo phase delete <slug> [--reassign-to <phase>] [--force]
+cleo phase delete <slug> [--reassign-to <phase>] [--force]
 ```
 
 ### Safety Features
@@ -163,17 +163,17 @@ Comprehensive integration tests created (`/tmp/test_phase_delete.sh`):
 
 ### Delete empty phase
 ```bash
-claude-todo phase delete old-phase --force
+cleo phase delete old-phase --force
 ```
 
 ### Delete phase with task reassignment
 ```bash
-claude-todo phase delete core --reassign-to development --force
+cleo phase delete core --reassign-to development --force
 ```
 
 ### JSON output
 ```bash
-claude-todo phase --json delete testing --force
+cleo phase --json delete testing --force
 ```
 
 ## Design Decisions

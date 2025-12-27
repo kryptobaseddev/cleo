@@ -98,7 +98,7 @@ These properties must **ALWAYS** be true:
 ### Repository Structure
 
 ```
-claude-todo/                        # Git repository (system files only)
+cleo/                        # Git repository (system files only)
 ├── README.md                       # User documentation
 ├── LICENSE                         # MIT License
 ├── install.sh                      # Global installation script
@@ -166,7 +166,7 @@ claude-todo/                        # Git repository (system files only)
 ### Global Installation
 
 ```
-~/.claude-todo/                     # Global installation directory
+~/.cleo/                     # Global installation directory
 ├── schemas/                        # Copied from repo
 ├── templates/                      # Copied from repo
 ├── scripts/                        # Copied from repo (executable)
@@ -176,10 +176,10 @@ claude-todo/                        # Git repository (system files only)
 ### Per-Project Files
 
 ```
-your-project/.claude/               # Per-project instance (NOT in git)
+your-project/.cleo/               # Per-project instance (NOT in git)
 ├── todo.json                       # Active tasks
 ├── todo-archive.json               # Completed tasks
-├── todo-config.json                # Project configuration
+├── config.json                # Project configuration
 ├── todo-log.json                   # Change history
 └── .backups/                       # Tier 1: Operational backups (atomic writes)
     ├── todo.json.1                 # Most recent
@@ -195,7 +195,7 @@ your-project/.claude/               # Per-project instance (NOT in git)
 ┌─────────────────────────────────────────────────────────┐
 │                  Configuration Layer                    │
 │                                                         │
-│  todo-config.json ──► Controls behavior of all scripts │
+│  config.json ──► Controls behavior of all scripts │
 │    ├─ daysUntilArchive: 7                             │
 │    ├─ strictMode: true                                │
 │    └─ maxBackups: 10                                  │
@@ -233,7 +233,7 @@ your-project/.claude/               # Per-project instance (NOT in git)
 |------|---------|------------|-------------------|
 | `todo.json` | list, stats, complete, archive | add-task, complete-task, archive | todo.schema.json |
 | `todo-archive.json` | stats, list (--all) | archive | archive.schema.json |
-| `todo-config.json` | ALL scripts | init, user edit | config.schema.json |
+| `config.json` | ALL scripts | init, user edit | config.schema.json |
 | `todo-log.json` | stats, troubleshooting | add-task, complete-task, archive | log.schema.json |
 
 ---
@@ -263,8 +263,8 @@ The phase tracking system provides project-level workflow organization with auto
 │                      TASK INHERITANCE                           │
 │                                                                 │
 │  New tasks inherit currentPhase automatically:                 │
-│  claude-todo add "Task" ──► phase: "core" (from currentPhase)  │
-│  claude-todo add "Task" --phase setup ──► explicit override    │
+│  cleo add "Task" ──► phase: "core" (from currentPhase)  │
+│  cleo add "Task" --phase setup ──► explicit override    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -283,8 +283,8 @@ The phase tracking system provides project-level workflow organization with auto
 ```
 
 **State Transitions**:
-- `pending → active`: `claude-todo phase set <slug>` or `phase start <slug>`
-- `active → completed`: `claude-todo phase complete <slug>`
+- `pending → active`: `cleo phase set <slug>` or `phase start <slug>`
+- `active → completed`: `cleo phase complete <slug>`
 - Only ONE phase can be active at a time
 
 ### Phase Schema Structure
@@ -320,11 +320,11 @@ The phase tracking system provides project-level workflow organization with auto
 
 | Command | Purpose |
 |---------|---------|
-| `claude-todo phases` | List all phases with progress |
-| `claude-todo phases show <slug>` | Show tasks in phase |
-| `claude-todo phases stats` | Detailed phase statistics |
-| `claude-todo phase set <slug>` | Set current project phase |
-| `claude-todo phase show` | Show current phase details |
+| `cleo phases` | List all phases with progress |
+| `cleo phases show <slug>` | Show tasks in phase |
+| `cleo phases stats` | Detailed phase statistics |
+| `cleo phase set <slug>` | Set current project phase |
+| `cleo phase show` | Show current phase details |
 
 ### Phase Integration Points
 
@@ -333,8 +333,8 @@ The phase tracking system provides project-level workflow organization with auto
 | **Task creation** | New tasks inherit `project.currentPhase` |
 | **Focus tracking** | `focus.currentPhase` syncs with project phase |
 | **TodoWrite sync** | `--inject --focused-only` filters by current phase |
-| **Dashboard** | `claude-todo dash` shows current phase status |
-| **Next task** | `claude-todo next` considers phase priority |
+| **Dashboard** | `cleo dash` shows current phase status |
+| **Next task** | `cleo next` considers phase priority |
 
 ### Library: lib/phase-tracking.sh
 
@@ -478,14 +478,14 @@ The system implements multiple layers of protection against AI-generated errors:
 User Input → Validate → Generate ID → Add to todo.json → Backup → Log
              │           │            │                  │        │
              │           │            │                  │        └─► todo-log.json
-             │           │            │                  └─────────► .claude/.backups/
+             │           │            │                  └─────────► .cleo/.backups/
              │           │            └────────────────────────────► todo.json (atomic)
              │           └─────────────────────────────────────────► Timestamp + Random
              └─────────────────────────────────────────────────────► Schema + Anti-H
 ```
 
 **Workflow Steps**:
-1. Load todo-config.json for settings
+1. Load config.json for settings
 2. Parse command arguments
 3. Validate inputs (anti-hallucination)
 4. Load current todo.json
@@ -510,7 +510,7 @@ User Request → Find Task → Update Status → Validate → Write → Log → 
 ```
 
 **Workflow Steps**:
-1. Load todo-config.json
+1. Load config.json
 2. Load todo.json
 3. Find task by ID
 4. Validate task exists
@@ -538,7 +538,7 @@ Trigger → Load Config → Filter Tasks → Validate → Update Both Files → 
 ```
 
 **Workflow Steps**:
-1. Load todo-config.json
+1. Load config.json
 2. Read archive policy (daysUntilArchive)
 3. Load todo.json
 4. Filter completed tasks older than threshold
@@ -563,7 +563,7 @@ Trigger → Load Config → Filter Tasks → Validate → Update Both Files → 
 3. Validate temp file (schema + anti-hallucination)
 4. IF INVALID: Delete temp → Abort → Error
 5. IF VALID:
-   a. Backup current file → .claude/.backups/todo.json.N
+   a. Backup current file → .cleo/.backups/todo.json.N
    b. Atomic rename: .tmp → .json (OS-level guarantee)
    c. IF RENAME FAILS: Restore backup → Error
    d. IF SUCCESS: Rotate old backups → Success
@@ -580,7 +580,7 @@ Trigger → Load Config → Filter Tasks → Validate → Update Both Files → 
 
 ## Configuration System
 
-### Default Configuration (todo-config.json)
+### Default Configuration (config.json)
 
 ```json
 {
@@ -623,11 +623,11 @@ Configuration values are resolved in this order (later overrides earlier):
 ```
 1. Hardcoded Defaults (in scripts)
          ↓
-2. Global Config (~/.claude-todo/config.json)
+2. Global Config (~/.cleo/config.json)
          ↓
-3. Project Config (.claude/todo-config.json)
+3. Project Config (.cleo/config.json)
          ↓
-4. Environment Variables (CLAUDE_TODO_*)
+4. Environment Variables (CLEO_*)
          ↓
 5. CLI Flags (--option=value)
          ↓
@@ -638,7 +638,7 @@ Configuration values are resolved in this order (later overrides earlier):
 - Default: `daysUntilArchive = 7`
 - Global: `daysUntilArchive = 14` (overrides default)
 - Project: `daysUntilArchive = 3` (overrides global)
-- Env: `CLAUDE_TODO_ARCHIVE_DAYS=30` (overrides project)
+- Env: `CLEO_ARCHIVE_DAYS=30` (overrides project)
 - CLI: `--archive-days=1` (overrides all, final value = 1)
 
 ---
@@ -648,7 +648,7 @@ Configuration values are resolved in this order (later overrides earlier):
 ### Automatic Backup Rotation
 
 ```
-.claude/.backups/                    # Tier 1: Operational backups
+.cleo/.backups/                    # Tier 1: Operational backups
 ├── todo.json.1  (most recent - current backup)
 ├── todo.json.2  (1 operation ago)
 ├── todo.json.3  (2 operations ago)
@@ -686,13 +686,13 @@ After new operation:
 **Manual Recovery**:
 ```bash
 # List available backups
-ls -lh .claude/.backups/
+ls -lh .cleo/.backups/
 
 # Validate specific backup
-claude-todo validate .claude/.backups/todo.json.3
+cleo validate .cleo/.backups/todo.json.3
 
 # Restore from backup
-claude-todo restore .claude/.backups/todo.json.3
+cleo restore .cleo/.backups/todo.json.3
 ```
 
 ---
@@ -748,7 +748,7 @@ Every operation is logged to `todo-log.json` with complete before/after state ca
 ```
 
 **What it does**:
-1. Creates `~/.claude-todo/` directory
+1. Creates `~/.cleo/` directory
 2. Copies `schemas/`, `templates/`, `scripts/`, `lib/`
 3. Makes all scripts executable
 4. Validates installation integrity
@@ -757,16 +757,16 @@ Every operation is logged to `todo-log.json` with complete before/after state ca
 ### Per-Project Initialization
 
 ```bash
-claude-todo init
+cleo init
 ```
 
 **What it does**:
-1. Creates `.claude/` directory in project root
-2. Copies templates → `.claude/`
+1. Creates `.cleo/` directory in project root
+2. Copies templates → `.cleo/`
 3. Renames `.template.json` → `.json`
 4. Initializes empty `todo-log.json`
-5. Creates `.claude/.backups/` directory
-6. Adds `.claude/todo*.json` to `.gitignore`
+5. Creates `.cleo/.backups/` directory
+6. Adds `.cleo/todo*.json` to `.gitignore`
 7. Validates all created files
 
 ---
@@ -776,7 +776,7 @@ claude-todo init
 ### Core Operations
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `init.sh` | Initialize project | `claude-todo init` |
+| `init.sh` | Initialize project | `cleo init` |
 | `add-task.sh` | Create new task | `add-task.sh "Task description"` |
 | `update-task.sh` | Update existing task | `update-task.sh <task-id> [OPTIONS]` |
 | `complete-task.sh` | Mark task done | `complete-task.sh <task-id>` |
@@ -905,7 +905,7 @@ claude-todo init
 ./tests/test-archive.sh
 
 # Test with verbose output
-CLAUDE_TODO_LOG_LEVEL=debug ./tests/run-all-tests.sh
+CLEO_LOG_LEVEL=debug ./tests/run-all-tests.sh
 ```
 
 ---
@@ -951,14 +951,14 @@ CLAUDE_TODO_LOG_LEVEL=debug ./tests/run-all-tests.sh
 ### File Permissions
 ```bash
 # Data files: owner read/write, group/other read
-chmod 644 .claude/todo*.json
+chmod 644 .cleo/todo*.json
 
 # Scripts: owner all, group/other read+execute
-chmod 755 ~/.claude-todo/scripts/*.sh
+chmod 755 ~/.cleo/scripts/*.sh
 
 # Backups: owner only
-chmod 700 .claude/.backups/
-chmod 600 .claude/.backups/*.json
+chmod 700 .cleo/.backups/
+chmod 600 .cleo/.backups/*.json
 ```
 
 ### Input Validation
@@ -978,27 +978,27 @@ chmod 600 .claude/.backups/*.json
 ## Extension Points
 
 ### Custom Validators
-Place in `.claude/validators/`:
+Place in `.cleo/validators/`:
 - Called after schema validation
 - Add project-specific rules
 - Integrate with team standards
 
 ### Event Hooks
-Place in `.claude/hooks/`:
+Place in `.cleo/hooks/`:
 - `on-task-create.sh`
 - `on-task-complete.sh`
 - `on-archive.sh`
 - Trigger external actions
 
 ### Custom Formatters
-Place in `~/.claude-todo/formatters/`:
+Place in `~/.cleo/formatters/`:
 - `html-report.sh`
 - `csv-export.sh`
 - `slack-message.sh`
 - Used by list-tasks and stats
 
 ### Integration APIs
-Place in `~/.claude-todo/integrations/`:
+Place in `~/.cleo/integrations/`:
 - `jira-sync.sh`
 - `github-issues.sh`
 - `trello-board.sh`
@@ -1044,7 +1044,7 @@ Place in `~/.claude-todo/integrations/`:
 
 **Decision**: Checksum mismatches log information but don't block operations.
 
-**Context**: Both `claude-todo` CLI and `TodoWrite` modify todo.json. TodoWrite doesn't know about checksums.
+**Context**: Both `cleo` CLI and `TodoWrite` modify todo.json. TodoWrite doesn't know about checksums.
 
 | Rationale | Trade-offs |
 |-----------|------------|
@@ -1074,7 +1074,7 @@ Place in `~/.claude-todo/integrations/`:
 | Rationale | Implementation |
 |-----------|----------------|
 | Single source of truth (title written once) | Grammar transformation in lib/grammar.sh |
-| No schema changes required | Export: `claude-todo export --format todowrite` |
+| No schema changes required | Export: `cleo export --format todowrite` |
 | Clean bidirectional mapping | Fallback: "Working on X" for edge cases |
 
 ---
@@ -1096,7 +1096,7 @@ Major.Minor.Patch
 Migrations run automatically on upgrade:
 
 ```
-~/.claude-todo/migrations/
+~/.cleo/migrations/
 ├── migrate-1.0-to-1.1.sh
 ├── migrate-1.1-to-2.0.sh
 └── rollback-2.0-to-1.1.sh

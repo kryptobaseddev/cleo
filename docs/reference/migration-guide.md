@@ -2,7 +2,7 @@
 
 ## Overview
 
-The claude-todo system uses semantic versioning for schemas to ensure data compatibility across updates. When schemas change, the migration system automatically handles data transformations while preserving your task history.
+The cleo system uses semantic versioning for schemas to ensure data compatibility across updates. When schemas change, the migration system automatically handles data transformations while preserving your task history.
 
 ## Version Compatibility
 
@@ -17,7 +17,7 @@ Schema versions follow semantic versioning (MAJOR.MINOR.PATCH):
 ### Current Schema Versions
 
 - **todo.json**: 2.4.0 (hierarchy fields: type, parentId, size)
-- **todo-config.json**: 2.1.0
+- **config.json**: 2.1.0
 - **todo-archive.json**: 2.1.0
 - **todo-log.json**: 2.1.0
 
@@ -55,7 +55,7 @@ versus when data transformation is required. For PATCH-level changes:
 ### View Current Versions
 
 ```bash
-claude-todo migrate status
+cleo migrate status
 ```
 
 Output:
@@ -72,7 +72,7 @@ Schema Version Status
 ### Check If Migration Needed
 
 ```bash
-claude-todo migrate check
+cleo migrate check
 ```
 
 Exit codes:
@@ -87,7 +87,7 @@ Exit codes:
 Migrate all files to latest schema versions:
 
 ```bash
-claude-todo migrate run
+cleo migrate run
 ```
 
 Interactive workflow:
@@ -100,13 +100,13 @@ Interactive workflow:
 ### Auto-Migration (No Confirmation)
 
 ```bash
-claude-todo migrate run --auto
+cleo migrate run --auto
 ```
 
 ### Skip Backup Creation
 
 ```bash
-claude-todo migrate run --no-backup
+cleo migrate run --no-backup
 ```
 
 **Warning**: Only use `--no-backup` if you have external backups.
@@ -114,7 +114,7 @@ claude-todo migrate run --no-backup
 ### Migrate Specific File
 
 ```bash
-claude-todo migrate file .claude/todo.json todo
+cleo migrate file .cleo/todo.json todo
 ```
 
 Arguments:
@@ -125,7 +125,7 @@ Arguments:
 
 ### What Happens During Migration
 
-1. **Pre-Migration Backup**: Complete backup created in `.claude/backups/migration/`
+1. **Pre-Migration Backup**: Complete backup created in `.cleo/backups/migration/`
 2. **Version Detection**: Current and target versions identified
 3. **Migration Path**: Intermediate versions calculated if needed
 4. **Data Transformation**: Fields added, removed, or renamed as needed
@@ -213,7 +213,7 @@ archive_after_days → daysUntilArchive
 The validation system automatically checks versions:
 
 ```bash
-claude-todo validate
+cleo validate
 ```
 
 Output includes version check:
@@ -231,12 +231,12 @@ Output includes version check:
 If version mismatch detected:
 ```
 ⚠ Schema version mismatch detected
-  File: .claude/todo.json
+  File: .cleo/todo.json
   Current: v2.3.0
   Expected: v2.4.0
 
 Automatic migration available.
-Run: claude-todo migrate
+Run: cleo migrate
 ```
 
 ## Backward Compatibility
@@ -261,7 +261,7 @@ The system can **read** files from older minor versions:
 
 ```
 ERROR: Incompatible schema version
-  File: .claude/todo.json
+  File: .cleo/todo.json
   Current: v1.0.0
   Expected: v2.4.0
   Major version mismatch - manual intervention required
@@ -270,26 +270,26 @@ ERROR: Incompatible schema version
 **Resolution**:
 1. Review changelog for breaking changes
 2. Export data from old version
-3. Re-initialize with `claude-todo init`
+3. Re-initialize with `cleo init`
 4. Manually migrate critical data
 
 ### Migration Failure
 
 ```
 ERROR: Migration failed
-Backups available in: .claude/backups/migration/
+Backups available in: .cleo/backups/migration/
 ```
 
 **Recovery Steps**:
 ```bash
 # List available migration backups
-ls -la .claude/backups/migration/
+ls -la .cleo/backups/migration/
 
 # Restore from backup
-cp .claude/backups/migration/pre-migration-*/todo.json .claude/
+cp .cleo/backups/migration/pre-migration-*/todo.json .cleo/
 
 # Validate restoration
-claude-todo validate
+cleo validate
 ```
 
 ### Corrupted File Detection
@@ -318,12 +318,12 @@ If file corrupted during migration:
 
 2. **Export Critical Data**:
    ```bash
-   jq '.tasks' .claude/todo.json > tasks-export.json
+   jq '.tasks' .cleo/todo.json > tasks-export.json
    ```
 
 3. **Re-Initialize**:
    ```bash
-   claude-todo init --force
+   cleo init --force
    ```
 
 4. **Import Data**:
@@ -331,7 +331,7 @@ If file corrupted during migration:
 
 5. **Validate**:
    ```bash
-   claude-todo validate
+   cleo validate
    ```
 
 ## Migration History
@@ -339,7 +339,7 @@ If file corrupted during migration:
 ### View Migration Log
 
 ```bash
-cat .claude/.migration.log
+cat .cleo/.migration.log
 ```
 
 Format:
@@ -354,10 +354,10 @@ After successful migration and validation:
 
 ```bash
 # Archive old backups
-tar -czf backups-$(date +%Y%m%d).tar.gz .claude/backups/
+tar -czf backups-$(date +%Y%m%d).tar.gz .cleo/backups/
 
 # Remove old backups (optional)
-find .claude/backups -type d -mtime +30 -exec rm -rf {} \;
+find .cleo/backups -type d -mtime +30 -exec rm -rf {} \;
 ```
 
 ## Best Practices
@@ -392,10 +392,10 @@ find .claude/backups -type d -mtime +30 -exec rm -rf {} \;
 **Solution**:
 ```bash
 # Force version detection
-claude-todo migrate status --verbose
+cleo migrate status --verbose
 
 # Check file content
-jq '.version' .claude/todo.json
+jq '.version' .cleo/todo.json
 ```
 
 ### Issue: Migration fails with "field not found"
@@ -405,7 +405,7 @@ jq '.version' .claude/todo.json
 **Solution**:
 ```bash
 # Identify missing field
-claude-todo validate
+cleo validate
 
 # Add field manually or restore from backup
 ```
@@ -429,7 +429,7 @@ For constraint relaxation or optional field additions:
 1. **Update Schema Version** in `schemas/todo.schema.json`:
    ```json
    {
-     "$id": "claude-todo-schema-v2.4.1"
+     "$id": "cleo-schema-v2.4.1"
    }
    ```
 
@@ -453,7 +453,7 @@ For required field additions, renames, or structural changes:
 1. **Update Schema Version**:
    ```json
    {
-     "$id": "claude-todo-schema-v2.5.0"
+     "$id": "cleo-schema-v2.5.0"
    }
    ```
 
@@ -516,10 +516,10 @@ All helpers are idempotent and safe to run multiple times.
 
 **Commands**:
 ```bash
-claude-todo migrate status      # Check versions
-claude-todo migrate check       # Test if migration needed
-claude-todo migrate run         # Perform migration
-claude-todo migrate file <path> <type>  # Migrate specific file
+cleo migrate status      # Check versions
+cleo migrate check       # Test if migration needed
+cleo migrate run         # Perform migration
+cleo migrate file <path> <type>  # Migrate specific file
 ```
 
 **Safety First**:

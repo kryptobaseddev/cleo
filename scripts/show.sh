@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Show Command
+# CLEO Show Command
 # Display detailed view of a single task with all fields
 # Includes dependencies, notes, and related information
 set -euo pipefail
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
-LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source libraries
@@ -68,7 +68,7 @@ COMMAND_NAME="show"
 
 usage() {
   cat << EOF
-Usage: claude-todo show <task-id> [OPTIONS]
+Usage: cleo show <task-id> [OPTIONS]
 
 Display detailed view of a single task.
 
@@ -86,11 +86,11 @@ Options:
   -h, --help          Show this help message
 
 Examples:
-  claude-todo show T001                    # Show task details
-  claude-todo show T001 --history          # Include task history
-  claude-todo show T001 --related          # Show related tasks
-  claude-todo show T001 --format json      # JSON output
-  claude-todo show T050 --include-archive  # Search archive too
+  cleo show T001                    # Show task details
+  cleo show T001 --history          # Include task history
+  cleo show T001 --related          # Show related tasks
+  cleo show T001 --format json      # JSON output
+  cleo show T050 --include-archive  # Search archive too
 EOF
 }
 
@@ -491,9 +491,9 @@ display_json() {
   # Get version
   local version=""
   local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local claude_todo_home="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-  if [[ -f "$claude_todo_home/VERSION" ]]; then
-    version=$(cat "$claude_todo_home/VERSION" | tr -d '[:space:]')
+  local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
+  if [[ -f "$cleo_home/VERSION" ]]; then
+    version=$(cat "$cleo_home/VERSION" | tr -d '[:space:]')
   elif [[ -f "$script_dir/../VERSION" ]]; then
     version=$(cat "$script_dir/../VERSION" | tr -d '[:space:]')
   else
@@ -534,7 +534,7 @@ display_json() {
     --arg timestamp "$timestamp" \
     --argjson task "$task_data" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "command": "show",
@@ -584,7 +584,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -*)
       if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "E_INPUT_INVALID" "Unknown option: $1" "$EXIT_INVALID_INPUT" true "Run 'claude-todo show --help' for usage"
+        output_error "E_INPUT_INVALID" "Unknown option: $1" "$EXIT_INVALID_INPUT" true "Run 'cleo show --help' for usage"
       else
         echo "Error: Unknown option: $1" >&2
       fi
@@ -612,10 +612,10 @@ FORMAT=$(resolve_format "${FORMAT:-}")
 # Validate task ID provided
 if [[ -z "$TASK_ID" ]]; then
   if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-    output_error "E_INPUT_MISSING" "Task ID required" "$EXIT_INVALID_ID" true "Usage: claude-todo show <task-id>"
+    output_error "E_INPUT_MISSING" "Task ID required" "$EXIT_INVALID_ID" true "Usage: cleo show <task-id>"
   else
     echo "Error: Task ID required" >&2
-    echo "Usage: claude-todo show <task-id>" >&2
+    echo "Usage: cleo show <task-id>" >&2
   fi
   exit $EXIT_INVALID_ID
 fi
@@ -634,10 +634,10 @@ fi
 # Check todo file exists
 if [[ ! -f "$TODO_FILE" ]]; then
   if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-    output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'claude-todo init' to initialize"
+    output_error "E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'cleo init' to initialize"
   else
     echo "Error: Todo file not found: $TODO_FILE" >&2
-    echo "Run 'claude-todo init' to initialize." >&2
+    echo "Run 'cleo init' to initialize." >&2
   fi
   exit $EXIT_FILE_ERROR
 fi

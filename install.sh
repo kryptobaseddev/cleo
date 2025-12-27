@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Global Installer
-# Installs the claude-todo system to ~/.claude-todo
+# CLEO Global Installer (formerly claude-todo)
+# Installs the CLEO task management system to ~/.cleo
+# TRUE CLEAN BREAK: NO claude-todo symlink, NO legacy fallback
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION="$(cat "$SCRIPT_DIR/VERSION" | tr -d '[:space:]')"
-INSTALL_DIR="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+INSTALL_DIR="${CLEO_HOME:-$HOME/.cleo}"
+LEGACY_INSTALL_DIR="$HOME/.claude-todo"
 
 # Parse arguments
 FORCE=false
@@ -25,11 +27,21 @@ for arg in "$@"; do
     -h|--help)
       echo "Usage: ./install.sh [OPTIONS]"
       echo ""
+      echo "CLEO Installer - Task management for AI agents"
+      echo ""
       echo "Options:"
       echo "  -f, --force, -y, --yes   Skip confirmation prompts"
       echo "  --check-deps             Check dependencies only, don't install"
-      echo "  --install-deps           Attempt to install missing dependencies (T169)"
+      echo "  --install-deps           Attempt to install missing dependencies"
       echo "  -h, --help               Show this help"
+      echo ""
+      echo "Installation:"
+      echo "  Default location: ~/.cleo"
+      echo "  Commands: 'cleo' (primary), 'ct' (shortcut)"
+      echo ""
+      echo "Migration from claude-todo:"
+      echo "  If you have an existing ~/.claude-todo installation,"
+      echo "  run 'cleo claude-migrate --global' after installing."
       echo ""
       echo "Dependencies:"
       echo "  Critical: jq, bash 4+"
@@ -42,7 +54,7 @@ done
 
 # Handle --check-deps mode
 if [[ "$CHECK_DEPS_ONLY" == "true" ]]; then
-  echo "Checking claude-todo dependencies..."
+  echo "Checking CLEO dependencies..."
   echo ""
   if [[ -f "$SCRIPT_DIR/lib/dependency-check.sh" ]]; then
     source "$SCRIPT_DIR/lib/dependency-check.sh"
@@ -250,9 +262,29 @@ if [[ -d "$INSTALL_DIR" ]]; then
   rm -rf "$INSTALL_DIR"
 fi
 
+# ============================================
+# CHECK FOR LEGACY INSTALLATION
+# ============================================
+if [[ -d "$LEGACY_INSTALL_DIR" ]]; then
+  echo ""
+  log_warn "Legacy claude-todo installation detected at $LEGACY_INSTALL_DIR"
+  echo ""
+  echo "  After installation, run: cleo claude-migrate --global"
+  echo "  This will migrate your data from ~/.claude-todo to ~/.cleo"
+  echo ""
+  if [[ "$FORCE" != "true" ]]; then
+    read -p "Continue with CLEO installation? (y/N) " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Installation cancelled."
+      exit 0
+    fi
+  fi
+fi
+
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   CLAUDE-TODO Installer v$VERSION      ║${NC}"
+echo -e "${GREEN}║   CLEO Installer v$VERSION             ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -368,25 +400,26 @@ fi
 log_step "Installing scripts..."
 
 # Create wrapper script for PATH
-cat > "$INSTALL_DIR/scripts/claude-todo" << 'WRAPPER_EOF'
+cat > "$INSTALL_DIR/scripts/cleo" << 'WRAPPER_EOF'
 #!/usr/bin/env bash
-# CLAUDE-TODO CLI Wrapper v3 - Enhanced with config-driven aliases, plugins, and debug support
+# CLEO CLI Wrapper v4 - Task management for AI agents
+# TRUE CLEAN BREAK: Uses CLEO_* env vars only, NO claude-todo fallback
 set -uo pipefail
 
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-SCRIPT_DIR="$CLAUDE_TODO_HOME/scripts"
-LIB_DIR="$CLAUDE_TODO_HOME/lib"
-PLUGIN_DIR="$CLAUDE_TODO_HOME/plugins"
-GLOBAL_CONFIG="$CLAUDE_TODO_HOME/config.json"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+SCRIPT_DIR="$CLEO_HOME/scripts"
+LIB_DIR="$CLEO_HOME/lib"
+PLUGIN_DIR="$CLEO_HOME/plugins"
+GLOBAL_CONFIG="$CLEO_HOME/config.json"
 
 # ============================================
 # CONFIG-DRIVEN DEBUG MODE
-# Priority: CLAUDE_TODO_DEBUG env var > cli.debug.enabled config > default (0)
+# Priority: CLEO_DEBUG env var > cli.debug.enabled config > default (0)
 # ============================================
 load_debug_mode() {
   # If env var is explicitly set, use it (highest priority)
-  if [[ -n "${CLAUDE_TODO_DEBUG:-}" ]]; then
-    DEBUG="$CLAUDE_TODO_DEBUG"
+  if [[ -n "${CLEO_DEBUG:-}" ]]; then
+    DEBUG="$CLEO_DEBUG"
     return
   fi
 
@@ -404,7 +437,7 @@ load_debug_mode() {
   fi
 
   # Export for child scripts
-  export CLAUDE_TODO_DEBUG="$DEBUG"
+  export CLEO_DEBUG="$DEBUG"
 }
 
 # Initialize debug mode early
@@ -454,6 +487,8 @@ declare -A CMD_MAP=(
   [delete]="delete.sh"
   [uncancel]="uncancel.sh"
   [reopen]="reopen.sh"
+  [claude-migrate]="claude-migrate.sh"
+  [populate-hierarchy]="populate-hierarchy.sh"
 )
 
 # Brief descriptions for main help
@@ -497,6 +532,8 @@ declare -A CMD_DESC=(
   [delete]="Cancel/delete a task with child handling strategies"
   [uncancel]="Restore cancelled tasks back to pending status"
   [reopen]="Restore completed tasks back to pending status"
+  [claude-migrate]="Migrate legacy .claude/ and ~/.claude-todo to CLEO"
+  [populate-hierarchy]="Populate hierarchy fields (type, parentId) for migrated tasks"
 )
 
 # ============================================
@@ -588,7 +625,7 @@ declare -A PLUGIN_MAP=()
 declare -A PLUGIN_DESC=()
 
 discover_plugins() {
-  local plugin_dirs=("$PLUGIN_DIR" "./.claude/plugins")
+  local plugin_dirs=("$PLUGIN_DIR" "./.cleo/plugins")
 
   for dir in "${plugin_dirs[@]}"; do
     [[ ! -d "$dir" ]] && continue
@@ -625,8 +662,8 @@ debug_validate() {
 
   # Show debug mode source
   echo "[DEBUG] Debug mode source:"
-  if [[ -n "${CLAUDE_TODO_DEBUG:-}" ]]; then
-    echo "  Source: CLAUDE_TODO_DEBUG environment variable"
+  if [[ -n "${CLEO_DEBUG:-}" ]]; then
+    echo "  Source: CLEO_DEBUG environment variable"
   elif [[ -f "$GLOBAL_CONFIG" ]] && command -v jq &>/dev/null; then
     local config_debug
     config_debug=$(jq -r '.cli.debug.enabled // false' "$GLOBAL_CONFIG" 2>/dev/null)
@@ -670,9 +707,9 @@ debug_validate() {
   done
 
   # Checksum verification (if enabled)
-  if [[ -f "$CLAUDE_TODO_HOME/checksums.sha256" ]]; then
+  if [[ -f "$CLEO_HOME/checksums.sha256" ]]; then
     echo "[DEBUG] Verifying script checksums..."
-    if cd "$SCRIPT_DIR" && sha256sum -c "$CLAUDE_TODO_HOME/checksums.sha256" --quiet 2>/dev/null; then
+    if cd "$SCRIPT_DIR" && sha256sum -c "$CLEO_HOME/checksums.sha256" --quiet 2>/dev/null; then
       echo "[DEBUG] Checksum verification: PASSED"
     else
       echo "[WARN] Checksum verification: FAILED (scripts may have been modified)" >&2
@@ -730,10 +767,10 @@ resolve_command() {
 # HELP DISPLAY
 # ============================================
 show_main_help() {
-  echo "CLAUDE-TODO v$(cat "$CLAUDE_TODO_HOME/VERSION" 2>/dev/null || echo "unknown")"
+  echo "CLEO v$(cat "$CLEO_HOME/VERSION" 2>/dev/null || echo "unknown")"
   echo ""
-  echo "Usage: claude-todo <command> [options]"
-  echo "       claude-todo help <command>    Show detailed command help"
+  echo "Usage: cleo <command> [options]"
+  echo "       cleo help <command>    Show detailed command help"
   echo ""
   echo "Commands:"
   for cmd in init add update complete delete uncancel reopen list find focus session archive unarchive validate stats backup restore export migrate reorganize-backups log dash next labels deps blockers phases phase exists history show analyze config commands; do
@@ -762,22 +799,22 @@ show_main_help() {
   fi
 
   echo ""
-  echo "Run 'claude-todo help <command>' for detailed options."
+  echo "Run 'cleo help <command>' for detailed options."
   echo ""
   echo "Examples:"
-  echo "  claude-todo init my-project"
-  echo "  claude-todo add \"Implement feature\""
-  echo "  claude-todo ls                        # alias for list"
-  echo "  claude-todo done T001                 # alias for complete"
-  echo "  claude-todo focus set T001"
+  echo "  cleo init my-project"
+  echo "  cleo add \"Implement feature\""
+  echo "  cleo ls                        # alias for list"
+  echo "  cleo done T001                 # alias for complete"
+  echo "  cleo focus set T001"
   echo ""
   echo "Debug:"
-  echo "  CLAUDE_TODO_DEBUG=1 claude-todo <cmd>  # Enable debug via env var"
-  echo "  Set cli.debug.enabled=true in config   # Enable debug via config"
-  echo "  claude-todo --validate                 # Validate CLI configuration"
+  echo "  CLEO_DEBUG=1 cleo <cmd>        # Enable debug via env var"
+  echo "  Set cli.debug.enabled=true     # Enable debug via config"
+  echo "  cleo --validate                # Validate CLI configuration"
   echo ""
   echo "Custom Aliases:"
-  echo "  Add custom aliases in ~/.claude-todo/config.json under cli.aliases"
+  echo "  Add custom aliases in ~/.cleo/config.json under cli.aliases"
   echo "  Example: {\"cli\": {\"aliases\": {\"t\": \"list\", \"a\": \"add\"}}}"
 }
 
@@ -816,7 +853,7 @@ CMD="${1:-help}"
 
 case "$CMD" in
   version|--version|-v)
-    cat "$CLAUDE_TODO_HOME/VERSION" 2>/dev/null || echo "unknown"
+    cat "$CLEO_HOME/VERSION" 2>/dev/null || echo "unknown"
     ;;
   help|--help|-h)
     if [[ -n "${2:-}" ]]; then
@@ -924,7 +961,7 @@ if [[ "$DEBUG" == "1" ]] && [[ -n "${START_TIME:-}" ]]; then
 fi
 WRAPPER_EOF
 
-chmod +x "$INSTALL_DIR/scripts/claude-todo"
+chmod +x "$INSTALL_DIR/scripts/cleo"
 
 # Copy actual scripts from repo
 if [[ -d "$SCRIPT_DIR/scripts" ]]; then
@@ -963,7 +1000,7 @@ mkdir -p "$INSTALL_DIR/plugins"
 
 # Create example plugin template
 cat > "$INSTALL_DIR/plugins/README.md" << 'PLUGIN_README'
-# CLAUDE-TODO Plugins
+# CLEO Plugins
 
 Place custom command scripts here. Each `.sh` file becomes a command.
 
@@ -981,13 +1018,13 @@ echo "Hello from my plugin!"
 
 ## Usage
 
-1. Create a script: `~/.claude-todo/plugins/my-command.sh`
-2. Make it executable: `chmod +x ~/.claude-todo/plugins/my-command.sh`
-3. Run it: `claude-todo my-command`
+1. Create a script: `~/.cleo/plugins/my-command.sh`
+2. Make it executable: `chmod +x ~/.cleo/plugins/my-command.sh`
+3. Run it: `cleo my-command`
 
 ## Project-Local Plugins
 
-You can also place plugins in `./.claude/plugins/` for project-specific commands.
+You can also place plugins in `./.cleo/plugins/` for project-specific commands.
 PLUGIN_README
 log_info "Plugins directory ready: $INSTALL_DIR/plugins"
 
@@ -1060,21 +1097,28 @@ log_step "Creating symlinks for global access..."
 LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$LOCAL_BIN"
 
-# Create symlink for claude-todo command
-SYMLINK_TARGET="$LOCAL_BIN/claude-todo"
+# Create symlink for 'cleo' command (PRIMARY)
+SYMLINK_TARGET="$LOCAL_BIN/cleo"
 if [[ -L "$SYMLINK_TARGET" ]] || [[ -e "$SYMLINK_TARGET" ]]; then
   rm -f "$SYMLINK_TARGET"
 fi
-ln -sf "$INSTALL_DIR/scripts/claude-todo" "$SYMLINK_TARGET"
+ln -sf "$INSTALL_DIR/scripts/cleo" "$SYMLINK_TARGET"
 log_info "Created symlink: $SYMLINK_TARGET"
 
-# Also create 'ct' shortcut symlink
+# Create 'ct' shortcut symlink
 CT_SYMLINK="$LOCAL_BIN/ct"
 if [[ -L "$CT_SYMLINK" ]] || [[ -e "$CT_SYMLINK" ]]; then
   rm -f "$CT_SYMLINK"
 fi
-ln -sf "$INSTALL_DIR/scripts/claude-todo" "$CT_SYMLINK"
+ln -sf "$INSTALL_DIR/scripts/cleo" "$CT_SYMLINK"
 log_info "Created shortcut: $CT_SYMLINK"
+
+# Remove legacy 'claude-todo' symlink if exists (TRUE CLEAN BREAK)
+LEGACY_SYMLINK="$LOCAL_BIN/claude-todo"
+if [[ -L "$LEGACY_SYMLINK" ]] || [[ -e "$LEGACY_SYMLINK" ]]; then
+  rm -f "$LEGACY_SYMLINK"
+  log_info "Removed legacy symlink: $LEGACY_SYMLINK"
+fi
 
 # ============================================
 # CONFIGURE PATH
@@ -1083,7 +1127,7 @@ log_step "Configuring shell PATH..."
 
 # Ensure ~/.local/bin is in PATH (standard XDG location)
 PATH_EXPORT="export PATH=\"\$HOME/.local/bin:\$PATH:$INSTALL_DIR/scripts\""
-PATH_MARKER="# CLAUDE-TODO PATH"
+PATH_MARKER="# CLEO PATH"
 SHELL_CONFIG=""
 SHELL_NAME=""
 
@@ -1131,8 +1175,8 @@ detect_shell_config() {
 
 detect_shell_config
 
-# Check if PATH already configured
-if grep -q "claude-todo" "$SHELL_CONFIG" 2>/dev/null; then
+# Check if PATH already configured (check both old and new)
+if grep -q "cleo\|claude-todo" "$SHELL_CONFIG" 2>/dev/null; then
   log_info "PATH already configured in $SHELL_CONFIG"
 else
   # Add PATH export to shell config
@@ -1143,7 +1187,7 @@ else
 fi
 
 # ============================================
-# INSTALL TASK MANAGEMENT DOCS TO ~/.claude/
+# INSTALL TASK MANAGEMENT DOCS TO ~/.claude/ (for Claude Code integration)
 # ============================================
 if [[ -d "$HOME/.claude" ]]; then
   log_step "Installing Task Management documentation to ~/.claude/..."
@@ -1180,7 +1224,7 @@ fi
 # ============================================
 log_step "Configuring convenience aliases..."
 
-ALIAS_MARKER="# CLAUDE-TODO ALIASES"
+ALIAS_MARKER="# CLEO ALIASES"
 
 # Check if aliases already configured
 if grep -q "$ALIAS_MARKER" "$SHELL_CONFIG" 2>/dev/null; then
@@ -1235,7 +1279,7 @@ echo -e "${GREEN}║   Installation Complete!               ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
 echo ""
 echo "Installed to: $INSTALL_DIR"
-echo "Symlinks:     $LOCAL_BIN/claude-todo"
+echo "Symlinks:     $LOCAL_BIN/cleo (primary)"
 echo "              $LOCAL_BIN/ct (shortcut)"
 echo "Shell config: $SHELL_CONFIG"
 echo ""
@@ -1243,32 +1287,36 @@ echo ""
 # Check if ~/.local/bin is already in PATH
 if echo "$PATH" | grep -q "$LOCAL_BIN"; then
   echo -e "${GREEN}✓ Ready to use immediately!${NC}"
-  echo "  (Claude Code and most shells already have ~/.local/bin in PATH)"
 else
   echo -e "${YELLOW}To activate now, run:${NC}"
   echo ""
-  if [[ "$SHELL_NAME" == "fish" ]]; then
-    echo "  source $SHELL_CONFIG"
-  else
-    echo "  source $SHELL_CONFIG"
-  fi
+  echo "  source $SHELL_CONFIG"
   echo ""
   echo "Or open a new terminal."
 fi
 echo ""
 echo "Usage:"
 echo "  cd your-project"
-echo "  claude-todo init"
+echo "  cleo init"
 echo ""
 echo "Verify installation:"
-echo "  claude-todo version"
+echo "  cleo version"
 echo "  ct version          # shortcut"
 echo ""
+
+# Show migration info if legacy detected
+if [[ -d "$LEGACY_INSTALL_DIR" ]]; then
+  echo -e "${YELLOW}Migration Required:${NC}"
+  echo "  cleo claude-migrate --global    # Migrate ~/.claude-todo → ~/.cleo"
+  echo "  cleo claude-migrate --project   # Migrate .claude/ → .cleo/"
+  echo ""
+fi
+
 echo "Tab Completion (optional):"
 echo "  Bash: Add to ~/.bashrc:"
-echo "    source ~/.claude-todo/completions/bash-completion.sh"
+echo "    source ~/.cleo/completions/bash-completion.sh"
 echo ""
 echo "  Zsh: Add to ~/.zshrc:"
-echo "    fpath=(~/.claude-todo/completions \$fpath)"
+echo "    fpath=(~/.cleo/completions \$fpath)"
 echo "    autoload -Uz compinit && compinit"
 echo ""

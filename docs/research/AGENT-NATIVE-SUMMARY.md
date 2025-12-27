@@ -7,7 +7,7 @@
 **Agent-Compatible:** Human tool + API wrapper
 **Agent-Native:** Designed for AI consumption first, human usability second
 
-## What Makes claude-todo Agent-Native (Already)
+## What Makes cleo Agent-Native (Already)
 
 1. ✅ **Validation-First:** `exists` command with exit codes for pre-operation validation
 2. ✅ **Atomic Operations:** `lib/file-ops.sh` ensures all-or-nothing state changes
@@ -30,10 +30,10 @@
 - Answer independently
 - Generate verified response
 
-**claude-todo Implementation:**
+**cleo Implementation:**
 ```bash
 # Step 1: Agent proposes
-claude-todo complete T045
+cleo complete T045
 
 # Step 2-4: Built-in verification
 # - exists.sh validates ID
@@ -86,8 +86,8 @@ Add structured checklist for completion verification.
 
 **Command:**
 ```bash
-claude-todo update T042 --acceptance "Protected routes validate JWT"
-claude-todo show T042 --criteria  # Display checklist
+cleo update T042 --acceptance "Protected routes validate JWT"
+cleo show T042 --criteria  # Display checklist
 ```
 
 ### Priority 2: Verification Scripts (High Impact, Low Effort)
@@ -101,8 +101,8 @@ Add automated completion verification.
 
 **Command:**
 ```bash
-claude-todo verify T042  # Runs verification script
-claude-todo complete T042 --verify  # Only completes if verification passes
+cleo verify T042  # Runs verification script
+cleo complete T042 --verify  # Only completes if verification passes
 ```
 
 ### Priority 3: Agent Role Metadata (Medium Impact, Low Effort)
@@ -120,8 +120,8 @@ Enable multi-agent coordination.
 
 **Command:**
 ```bash
-claude-todo update T042 --role backend --role security
-claude-todo list --role backend  # Show tasks for this agent
+cleo update T042 --role backend --role security
+cleo list --role backend  # Show tasks for this agent
 ```
 
 ## The Litmus Test
@@ -137,7 +137,7 @@ claude-todo list --role backend  # Show tasks for this agent
 - ✅ Can agent prove what it did?
 - ✅ Can agent fail fast without corrupting state?
 
-**claude-todo: 7/8** (missing: parallel work coordination)
+**cleo: 7/8** (missing: parallel work coordination)
 
 ## Key Patterns from Industry
 
@@ -177,7 +177,7 @@ claude-todo list --role backend  # Show tasks for this agent
 9. **Role-based task routing** - Labels assign agents
 10. **Session-bounded work** - Checkpoints prevent drift
 
-## Next Steps for claude-todo
+## Next Steps for cleo
 
 1. **Add `acceptanceCriteria` array to schema** (v2.3.0)
 2. **Implement `verification` command** for automated checks

@@ -3,10 +3,10 @@ TodoWrite Sync System - Complete Investigation Report
   Confirmed Architecture Overview
 
   The sync system provides bidirectional synchronization between:
-  - claude-todo: Durable, feature-rich task persistence (10+ fields per task)
+  - cleo: Durable, feature-rich task persistence (10+ fields per task)
   - TodoWrite: Claude Code's ephemeral session tracking (3 fields: content, status, activeForm)
 
-  Core Design Principle: Lossy by design - only ID and status are round-trippable; full metadata preserved in claude-todo.
+  Core Design Principle: Lossy by design - only ID and status are round-trippable; full metadata preserved in cleo.
 
   ---
   1. Complete File Map (Confirmed)
@@ -14,8 +14,8 @@ TodoWrite Sync System - Complete Investigation Report
   | File                              | Purpose                                 | Lines |
   |-----------------------------------|-----------------------------------------|-------|
   | scripts/sync-todowrite.sh         | Main orchestrator & subcommand router   | 337   |
-  | scripts/inject-todowrite.sh       | Session start: claude-todo → TodoWrite  | 565   |
-  | scripts/extract-todowrite.sh      | Session end: TodoWrite → claude-todo    | 654   |
+  | scripts/inject-todowrite.sh       | Session start: cleo → TodoWrite  | 565   |
+  | scripts/extract-todowrite.sh      | Session end: TodoWrite → cleo    | 654   |
   | lib/todowrite-integration.sh      | Grammar transformation & status mapping | 554   |
   | docs/specs/TODOWRITE-SYNC-SPEC.md | Authoritative specification             | 512   |
 
@@ -25,9 +25,9 @@ TodoWrite Sync System - Complete Investigation Report
   ┌─────────────────────────────────────────────────────────────────┐
   │                      SESSION START                               │
   ├─────────────────────────────────────────────────────────────────┤
-  │  1. claude-todo session start        # Start durable session    │
-  │  2. claude-todo sync --inject        # Export tasks → TodoWrite │
-  │     → Creates .claude/sync/todowrite-session.json              │
+  │  1. cleo session start        # Start durable session    │
+  │  2. cleo sync --inject        # Export tasks → TodoWrite │
+  │     → Creates .cleo/sync/todowrite-session.json              │
   │     → Outputs TodoWrite JSON with [T###] prefixes              │
   │  3. Claude Code receives JSON for TodoWrite tool               │
   └─────────────────────────────────────────────────────────────────┘
@@ -47,12 +47,12 @@ TodoWrite Sync System - Complete Investigation Report
   │                      SESSION END                                 │
   ├─────────────────────────────────────────────────────────────────┤
   │  1. Export TodoWrite state to file                              │
-  │  2. claude-todo sync --extract <file>  # Merge → claude-todo    │
+  │  2. cleo sync --extract <file>  # Merge → cleo    │
   │     → Parses [T###] prefixes to recover IDs                    │
   │     → Detects completed/progressed/new/removed tasks           │
   │     → Applies changes via complete-task.sh, update-task.sh     │
   │     → Deletes session state file                               │
-  │  3. claude-todo session end            # End durable session    │
+  │  3. cleo session end            # End durable session    │
   └─────────────────────────────────────────────────────────────────┘
 
   ---
@@ -105,11 +105,11 @@ TodoWrite Sync System - Complete Investigation Report
     - double consonant for CVC (run → running)
   5. Fallback: "Working on: " for non-verbs
 
-  3.4 Status Mapping: claude-todo → TodoWrite (Confirmed)
+  3.4 Status Mapping: cleo → TodoWrite (Confirmed)
 
   Location: lib/todowrite-integration.sh:177-182
 
-  | claude-todo | TodoWrite   | Notes                         |
+  | cleo | TodoWrite   | Notes                         |
   |-------------|-------------|-------------------------------|
   | pending     | pending     | Direct                        |
   | active      | in_progress | Renamed                       |
@@ -118,7 +118,7 @@ TodoWrite Sync System - Complete Investigation Report
 
   3.5 Session State File (Confirmed)
 
-  Location: .claude/sync/todowrite-session.json
+  Location: .cleo/sync/todowrite-session.json
 
   {
     "session_id": "session_20251215_143022_a1b2c3",
@@ -175,18 +175,18 @@ TodoWrite Sync System - Complete Investigation Report
 
   | Conflict                                     | Resolution                            |
   |----------------------------------------------|---------------------------------------|
-  | Task exists in claude-todo but not TodoWrite | Log as "removed", no action           |
-  | Task in TodoWrite not in claude-todo         | Warn "task not found", skip           |
-  | Task already done in claude-todo             | Log "already done" (idempotent), skip |
+  | Task exists in cleo but not TodoWrite | Log as "removed", no action           |
+  | Task in TodoWrite not in cleo         | Warn "task not found", skip           |
+  | Task already done in cleo             | Log "already done" (idempotent), skip |
   | Status conflict                              | TodoWrite wins (session progress)     |
 
   Principle: Warn but don't fail on conflicts.
 
-  4.5 Status Mapping: TodoWrite → claude-todo (Confirmed)
+  4.5 Status Mapping: TodoWrite → cleo (Confirmed)
 
   Location: lib/todowrite-integration.sh:185-189
 
-  | TodoWrite   | claude-todo | Notes                |
+  | TodoWrite   | cleo | Notes                |
   |-------------|-------------|----------------------|
   | pending     | pending     | Direct               |
   | in_progress | active      | Renamed              |
@@ -219,7 +219,7 @@ TodoWrite Sync System - Complete Investigation Report
 
   5.3 Output Format Resolution
 
-  Priority: CLI arg (--json) > CLAUDE_TODO_FORMAT env > config file > JSON default
+  Priority: CLI arg (--json) > CLEO_FORMAT env > config file > JSON default
 
   ---
   6. Export vs Sync (Confirmed Difference)
@@ -228,7 +228,7 @@ TodoWrite Sync System - Complete Investigation Report
   |---------------|---------------------------|------------------------|
   | Purpose       | One-way export            | Bidirectional sync     |
   | Task IDs      | No ID embedding           | Embeds [T###] prefix   |
-  | Session State | None                      | Saves to .claude/sync/ |
+  | Session State | None                      | Saves to .cleo/sync/ |
   | Round-trip    | No                        | Yes                    |
   | Use Case      | Reports, external tools   | Claude Code sessions   |
 
@@ -276,7 +276,7 @@ TodoWrite Sync System - Complete Investigation Report
   │                         INJECTION FLOW                                    │
   ├──────────────────────────────────────────────────────────────────────────┤
   │                                                                          │
-  │  .claude/todo.json                                                       │
+  │  .cleo/todo.json                                                       │
   │  ┌─────────────────────────────────────────┐                            │
   │  │ tasks: [                                │                            │
   │  │   {id: "T001", title: "Impl auth",      │                            │
@@ -300,7 +300,7 @@ TodoWrite Sync System - Complete Investigation Report
   │        ┌────────────┴────────────┐                                      │
   │        ▼                         ▼                                      │
   │  Session State              TodoWrite JSON                               │
-  │  (.claude/sync/)            (stdout)                                    │
+  │  (.cleo/sync/)            (stdout)                                    │
   │  ┌──────────────┐           ┌──────────────────────────────┐            │
   │  │session_id    │           │{"todos": [                   │            │
   │  │injected_at   │           │  {"content": "[T001] [!]...  │            │
@@ -317,7 +317,7 @@ TodoWrite Sync System - Complete Investigation Report
   ├──────────────────────────────────────────────────────────────────────────┤
   │                                                                          │
   │  TodoWrite Final State                 Session State                     │
-  │  (from Claude session)                 (.claude/sync/)                   │
+  │  (from Claude session)                 (.cleo/sync/)                   │
   │  ┌──────────────────────────┐          ┌──────────────┐                 │
   │  │{"todos": [               │          │injected_tasks│                 │
   │  │  {"content": "[T001]..." │          │task_metadata │                 │
@@ -341,7 +341,7 @@ TodoWrite Sync System - Complete Investigation Report
   │                     │                                                    │
   │                     ▼                                                    │
   │  ┌─────────────────────────────────────────┐                            │
-  │  │ .claude/todo.json (updated)             │                            │
+  │  │ .cleo/todo.json (updated)             │                            │
   │  │ - T001: status → done                   │                            │
   │  │ - T010: NEW (title: "New task",         │                            │
   │  │         labels: ["session-created"],    │                            │
@@ -361,7 +361,7 @@ TodoWrite Sync System - Complete Investigation Report
   5. ✅ Status mapping with intentional blocked → pending downgrade
   6. ✅ ActiveForm generation via 147-verb lookup + grammar rules + fallback
   7. ✅ Change detection: completed, progressed, new_tasks, removed
-  8. ✅ Conflict resolution: claude-todo authoritative for existence, TodoWrite for progress
+  8. ✅ Conflict resolution: cleo authoritative for existence, TodoWrite for progress
   9. ✅ New tasks inherit phase from focused task metadata
   10. ✅ Comprehensive test coverage (23+ integration tests)
 

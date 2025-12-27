@@ -15,7 +15,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Preamble
 
-This specification defines the configuration system for claude-todo, including global and project-level configuration, priority resolution, environment variable integration, and the `config` command interface.
+This specification defines the configuration system for cleo, including global and project-level configuration, priority resolution, environment variable integration, and the `config` command interface.
 
 > **Authority**: This specification is AUTHORITATIVE for configuration system behavior.
 > Implementation status is tracked separately in [CONFIG-SYSTEM-IMPLEMENTATION-REPORT.md](CONFIG-SYSTEM-IMPLEMENTATION-REPORT.md).
@@ -24,11 +24,11 @@ This specification defines the configuration system for claude-todo, including g
 
 ## Executive Summary
 
-The claude-todo configuration system provides:
-- **Global Configuration**: User preferences at `~/.claude-todo/config.json`
-- **Project Configuration**: Project-specific settings at `.claude/todo-config.json`
+The cleo configuration system provides:
+- **Global Configuration**: User preferences at `~/.cleo/config.json`
+- **Project Configuration**: Project-specific settings at `.cleo/config.json`
 - **Priority Resolution**: Deterministic override hierarchy
-- **Environment Variables**: Runtime overrides via `CLAUDE_TODO_*` variables
+- **Environment Variables**: Runtime overrides via `CLEO_*` variables
 - **Config Command**: LLM-agent-friendly interface for reading/modifying settings
 
 ---
@@ -42,9 +42,9 @@ Configuration values MUST be resolved in this priority order (highest to lowest)
 | Priority | Source | Description |
 |----------|--------|-------------|
 | 1 (Highest) | CLI Flags | Command-line arguments |
-| 2 | Environment Variables | `CLAUDE_TODO_*` variables |
-| 3 | Project Config | `.claude/todo-config.json` |
-| 4 | Global Config | `~/.claude-todo/config.json` |
+| 2 | Environment Variables | `CLEO_*` variables |
+| 3 | Project Config | `.cleo/config.json` |
+| 4 | Global Config | `~/.cleo/config.json` |
 | 5 (Lowest) | Defaults | Schema-defined defaults |
 
 ### 1.2 Resolution Behavior
@@ -60,7 +60,7 @@ Configuration values MUST be resolved in this priority order (highest to lowest)
 
 ### 2.1 Location
 
-- Global config MUST be stored at `~/.claude-todo/config.json`
+- Global config MUST be stored at `~/.cleo/config.json`
 - Global config MUST be created during installation if not present
 - Global config MUST use the template at `templates/global-config.template.json`
 
@@ -91,7 +91,7 @@ Global config MUST validate against `schemas/global-config.schema.json`.
 
 ### 3.1 Location
 
-- Project config MUST be stored at `.claude/todo-config.json`
+- Project config MUST be stored at `.cleo/config.json`
 - Project config MUST be created during `ct init` if not present
 - Project config MUST use the template at `templates/config.template.json`
 
@@ -124,7 +124,7 @@ Project config MUST validate against `schemas/config.schema.json`.
 
 Environment variables MUST follow this pattern:
 ```
-CLAUDE_TODO_{SECTION}_{KEY}
+CLEO_{SECTION}_{KEY}
 ```
 
 Where:
@@ -135,15 +135,15 @@ Where:
 
 | Environment Variable | Config Path |
 |---------------------|-------------|
-| `CLAUDE_TODO_FORMAT` | `output.defaultFormat` (special case) |
-| `CLAUDE_TODO_OUTPUT_DEFAULT_FORMAT` | `output.defaultFormat` |
-| `CLAUDE_TODO_OUTPUT_SHOW_COLOR` | `output.showColor` |
-| `CLAUDE_TODO_OUTPUT_SHOW_UNICODE` | `output.showUnicode` |
-| `CLAUDE_TODO_OUTPUT_DATE_FORMAT` | `output.dateFormat` |
-| `CLAUDE_TODO_ARCHIVE_ENABLED` | `archive.enabled` |
-| `CLAUDE_TODO_ARCHIVE_DAYS_UNTIL_ARCHIVE` | `archive.daysUntilArchive` |
-| `CLAUDE_TODO_LOGGING_ENABLED` | `logging.enabled` |
-| `CLAUDE_TODO_VALIDATION_STRICT_MODE` | `validation.strictMode` |
+| `CLEO_FORMAT` | `output.defaultFormat` (special case) |
+| `CLEO_OUTPUT_DEFAULT_FORMAT` | `output.defaultFormat` |
+| `CLEO_OUTPUT_SHOW_COLOR` | `output.showColor` |
+| `CLEO_OUTPUT_SHOW_UNICODE` | `output.showUnicode` |
+| `CLEO_OUTPUT_DATE_FORMAT` | `output.dateFormat` |
+| `CLEO_ARCHIVE_ENABLED` | `archive.enabled` |
+| `CLEO_ARCHIVE_DAYS_UNTIL_ARCHIVE` | `archive.daysUntilArchive` |
+| `CLEO_LOGGING_ENABLED` | `logging.enabled` |
+| `CLEO_VALIDATION_STRICT_MODE` | `validation.strictMode` |
 
 ### 4.3 Type Conversion
 
@@ -184,7 +184,7 @@ JSON output MUST follow the standard envelope format:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "command": "config",
     "subcommand": "set",

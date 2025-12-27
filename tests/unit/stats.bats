@@ -67,7 +67,7 @@ EOF
     run bash "$STATS_SCRIPT" --help
     assert_success
     assert_output --partial "Usage:"
-    assert_output --partial "claude-todo stats"
+    assert_output --partial "cleo stats"
 }
 
 @test "stats -h shows usage" {
@@ -456,8 +456,8 @@ EOF
 # Error Handling Tests
 # =============================================================================
 
-@test "stats handles missing .claude directory" {
-    rm -rf .claude
+@test "stats handles missing .cleo directory" {
+    rm -rf .cleo
     run bash "$STATS_SCRIPT"
     assert_failure
     assert_output --partial "ERROR"

@@ -1,6 +1,6 @@
 # Documentation Maintenance Guide
 
-> Structured workflow for maintaining layered documentation in claude-todo
+> Structured workflow for maintaining layered documentation in cleo
 
 ## Documentation Hierarchy
 
@@ -59,7 +59,7 @@ When adding or modifying a command:
 
 ## Usage
 \`\`\`bash
-claude-todo <command> [args] [OPTIONS]
+cleo <command> [args] [OPTIONS]
 \`\`\`
 
 ## Options
@@ -69,7 +69,7 @@ claude-todo <command> [args] [OPTIONS]
 ## Examples
 \`\`\`bash
 # Common use case
-claude-todo <command> example
+cleo <command> example
 \`\`\`
 
 ## Exit Codes

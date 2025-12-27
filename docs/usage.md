@@ -1,6 +1,6 @@
 # Usage Guide
 
-Complete guide to using the claude-todo task management system.
+Complete guide to using the cleo task management system.
 
 ---
 
@@ -34,22 +34,22 @@ Complete guide to using the claude-todo task management system.
 
 **Dashboard Command**:
 ```bash
-claude-todo dash              # Comprehensive project overview
-claude-todo dash --compact    # Single-line summary
+cleo dash              # Comprehensive project overview
+cleo dash --compact    # Single-line summary
 ```
 
 **Label Analytics**:
 ```bash
-claude-todo labels            # List all labels
-claude-todo labels show LABEL # Tasks with specific label
-claude-todo labels stats      # Detailed statistics
+cleo labels            # List all labels
+cleo labels show LABEL # Tasks with specific label
+cleo labels stats      # Detailed statistics
 ```
 
 **Smart Task Suggestion**:
 ```bash
-claude-todo next              # Get next task suggestion
-claude-todo next --explain    # Show reasoning
-claude-todo next --count 3    # Top 3 suggestions
+cleo next              # Get next task suggestion
+cleo next --explain    # Show reasoning
+cleo next --count 3    # Top 3 suggestions
 ```
 
 See detailed documentation:
@@ -75,13 +75,13 @@ All commands support short flags for faster workflows:
 **Examples**:
 ```bash
 # List high-priority backend tasks in JSON
-claude-todo list -p high -l backend -f json
+cleo list -p high -l backend -f json
 
 # Add critical security task quietly
-claude-todo add "Security audit" -p critical -l security -q
+cleo add "Security audit" -p critical -l security -q
 
 # Compact view of pending tasks
-claude-todo list -s pending -c
+cleo list -s pending -c
 ```
 
 ### First-Time Setup
@@ -94,10 +94,10 @@ claude-todo list -s pending -c
 cd /path/to/your/project
 
 # 3. Initialize todo system
-claude-todo init
+cleo init
 
 # 4. Create your first task
-claude-todo add "Implement user authentication" \
+cleo add "Implement user authentication" \
   --status pending \
   --priority high \
   --description "Add JWT-based authentication with email/password login"
@@ -107,16 +107,16 @@ claude-todo add "Implement user authentication" \
 
 ```bash
 # List current tasks
-claude-todo list
+cleo list
 
 # Mark task complete (with notes)
-claude-todo complete <task-id> --notes "Description of what was done"
+cleo complete <task-id> --notes "Description of what was done"
 
 # Quick complete (skip notes)
-claude-todo complete <task-id> --skip-notes
+cleo complete <task-id> --skip-notes
 
 # View statistics
-claude-todo stats
+cleo stats
 ```
 
 ### Command Aliases (v0.6.0+)
@@ -124,15 +124,15 @@ claude-todo stats
 Built-in aliases for faster workflows:
 
 ```bash
-claude-todo ls              # Same as: list
-claude-todo done T001       # Same as: complete T001
-claude-todo new "Task"      # Same as: add "Task"
-claude-todo edit T001       # Same as: update T001
-claude-todo rm              # Same as: archive
-claude-todo check           # Same as: validate
+cleo ls              # Same as: list
+cleo done T001       # Same as: complete T001
+cleo new "Task"      # Same as: add "Task"
+cleo edit T001       # Same as: update T001
+cleo rm              # Same as: archive
+cleo check           # Same as: validate
 ```
 
-Aliases can be customized in `~/.claude-todo/config.json`:
+Aliases can be customized in `~/.cleo/config.json`:
 
 ```json
 {
@@ -152,22 +152,22 @@ Validate your CLI installation and troubleshoot issues:
 
 ```bash
 # Run comprehensive validation
-claude-todo --validate
+cleo --validate
 
 # Show all available commands (core + aliases + plugins)
-claude-todo --list-commands
+cleo --list-commands
 
 # Enable debug output for any command
-CLAUDE_TODO_DEBUG=1 claude-todo list
+CLEO_DEBUG=1 cleo list
 ```
 
 ### Plugins (v0.6.0+)
 
-Create custom commands by adding scripts to `~/.claude-todo/plugins/`:
+Create custom commands by adding scripts to `~/.cleo/plugins/`:
 
 ```bash
 # Create a custom command
-cat > ~/.claude-todo/plugins/my-report.sh << 'EOF'
+cat > ~/.cleo/plugins/my-report.sh << 'EOF'
 #!/usr/bin/env bash
 ###PLUGIN
 # description: Generate my custom report
@@ -175,13 +175,13 @@ cat > ~/.claude-todo/plugins/my-report.sh << 'EOF'
 echo "My custom report!"
 EOF
 
-chmod +x ~/.claude-todo/plugins/my-report.sh
+chmod +x ~/.cleo/plugins/my-report.sh
 
 # Use it
-claude-todo my-report
+cleo my-report
 ```
 
-Project-local plugins can be placed in `./.claude/plugins/`.
+Project-local plugins can be placed in `./.cleo/plugins/`.
 
 ---
 
@@ -193,15 +193,15 @@ Project-local plugins can be placed in `./.claude/plugins/`.
 
 ```bash
 # Minimal task (title only)
-claude-todo add "Fix login bug"
+cleo add "Fix login bug"
 
 # Task with status and priority
-claude-todo add "Add user dashboard" \
+cleo add "Add user dashboard" \
   --status pending \
   --priority high
 
 # Complete task with all fields
-claude-todo add "Implement payment processing" \
+cleo add "Implement payment processing" \
   --status pending \
   --priority critical \
   --description "Integrate Stripe API for subscription payments" \
@@ -231,38 +231,38 @@ claude-todo add "Implement payment processing" \
 
 ```bash
 # List all active tasks (default)
-claude-todo list
+cleo list
 
 # List tasks with specific status
-claude-todo list --status pending
+cleo list --status pending
 
 # List all tasks including archived
-claude-todo list --all
+cleo list --all
 ```
 
 #### Output Formats
 
 ```bash
 # Human-readable terminal output (default)
-claude-todo list --format text
+cleo list --format text
 
 # JSON with _meta envelope for scripting
-claude-todo list --format json
+cleo list --format json
 
 # JSONL streaming format (one JSON object per line)
-claude-todo list --format jsonl
+cleo list --format jsonl
 
 # Markdown format for documentation
-claude-todo list --format markdown
+cleo list --format markdown
 
 # ASCII table format
-claude-todo list --format table
+cleo list --format table
 
 # CSV export (RFC 4180 compliant) - via export command
-claude-todo export --format csv
+cleo export --format csv
 
 # TSV export (tab-separated values) - via export command
-claude-todo export --format tsv
+cleo export --format tsv
 ```
 
 **JSON Format Structure**:
@@ -292,30 +292,30 @@ claude-todo export --format tsv
 
 ```bash
 # Filter by priority
-claude-todo list --priority high
+cleo list --priority high
 
 # Filter by label
-claude-todo list --label backend
+cleo list --label backend
 
 # Tasks created after specific date
-claude-todo list --since 2025-12-01
+cleo list --since 2025-12-01
 
 # Limit number of results
-claude-todo list --limit 10
+cleo list --limit 10
 ```
 
 ### Completing Tasks
 
 ```bash
 # Complete a task with notes (required by default)
-claude-todo complete T001 --notes "Implemented feature. Tests passing."
-claude-todo complete T001 -n "Fixed bug, verified with unit tests."
+cleo complete T001 --notes "Implemented feature. Tests passing."
+cleo complete T001 -n "Fixed bug, verified with unit tests."
 
 # Complete without notes (for quick completions)
-claude-todo complete T001 --skip-notes
+cleo complete T001 --skip-notes
 
 # Complete without triggering auto-archive
-claude-todo complete T001 --notes "Done" --skip-archive
+cleo complete T001 --notes "Done" --skip-archive
 ```
 
 **Completion Notes (v0.7.2+)**:
@@ -338,19 +338,19 @@ and preserved when the task is archived.
 
 ```bash
 # Archive completed tasks based on config retention
-claude-todo archive
+cleo archive
 
 # Preview what would be archived
-claude-todo archive --dry-run
+cleo archive --dry-run
 
 # Force archive all completed (respects preserveRecentCount)
-claude-todo archive --force
+cleo archive --force
 
 # Archive ALL completed tasks (ignores preserve setting)
-claude-todo archive --all
+cleo archive --all
 ```
 
-**Automatic Archive** - Configure in `.claude/todo-config.json`:
+**Automatic Archive** - Configure in `.cleo/config.json`:
 
 ```json
 {
@@ -368,69 +368,69 @@ claude-todo archive --all
 
 ```bash
 # Full dashboard at session start
-claude-todo dash
+cleo dash
 
 # Quick status check
-claude-todo dash --compact
+cleo dash --compact
 
 # Focus on specific sections
-claude-todo dash --sections focus,blocked,priority
+cleo dash --sections focus,blocked,priority
 
 # Extended activity period
-claude-todo dash --period 14
+cleo dash --period 14
 ```
 
 #### Label-Based Organization
 
 ```bash
 # List all labels
-claude-todo labels
+cleo labels
 
 # See all backend tasks
-claude-todo labels show backend
+cleo labels show backend
 
 # Detailed label analytics
-claude-todo labels stats
+cleo labels stats
 
 # Find tasks by label
-claude-todo list --label security --priority high
+cleo list --label security --priority high
 ```
 
 #### Intelligent Task Selection
 
 ```bash
 # Get next task suggestion
-claude-todo next
+cleo next
 
 # Understand why task is suggested
-claude-todo next --explain
+cleo next --explain
 
 # See top 3 options
-claude-todo next --count 3
+cleo next --count 3
 
 # Auto-start suggested task
-claude-todo next --format json | \
+cleo next --format json | \
   jq -r '.suggestions[0].id' | \
-  xargs -I {} claude-todo focus set {}
+  xargs -I {} cleo focus set {}
 ```
 
 #### Combined Workflow
 
 ```bash
 # Morning routine
-claude-todo dash                    # Review status
-claude-todo next --explain          # Get suggestion
-claude-todo focus set T015          # Start work
-claude-todo focus note "Starting"   # Add session note
+cleo dash                    # Review status
+cleo next --explain          # Get suggestion
+cleo focus set T015          # Start work
+cleo focus note "Starting"   # Add session note
 
 # During work
-claude-todo dash --compact          # Quick check
-claude-todo labels show backend     # Review related tasks
+cleo dash --compact          # Quick check
+cleo labels show backend     # Review related tasks
 
 # End of day
-claude-todo complete T015 --notes "Implemented feature"
-claude-todo next                    # What's next?
-claude-todo dash --sections activity  # Review progress
+cleo complete T015 --notes "Implemented feature"
+cleo next                    # What's next?
+cleo dash --sections activity  # Review progress
 ```
 
 ---
@@ -504,7 +504,7 @@ Complete configuration documentation covering:
 
 ### Configuration File Location
 
-`.claude/todo-config.json` (per-project)
+`.cleo/config.json` (per-project)
 
 ### Configuration Options
 
@@ -554,14 +554,14 @@ Override config with environment variables:
 
 ```bash
 # Archive settings
-export CLAUDE_TODO_ARCHIVE_DAYS=14
-export CLAUDE_TODO_MAX_ARCHIVE_SIZE=5000
+export CLEO_ARCHIVE_DAYS=14
+export CLEO_MAX_ARCHIVE_SIZE=5000
 
 # Validation
-export CLAUDE_TODO_STRICT_MODE=false
+export CLEO_STRICT_MODE=false
 
 # Display
-export CLAUDE_TODO_COLORS=false
+export CLEO_COLORS=false
 ```
 
 ### Color Output Control
@@ -571,14 +571,14 @@ Control color output using standard environment variables:
 ```bash
 # Disable all colors (NO_COLOR standard)
 export NO_COLOR=1
-claude-todo list
+cleo list
 
 # Force colors even without TTY (CI/CD)
 export FORCE_COLOR=1
-claude-todo list | tee output.log
+cleo list | tee output.log
 
 # Per-command color control
-NO_COLOR=1 claude-todo list
+NO_COLOR=1 cleo list
 ```
 
 **Color Detection Logic**:
@@ -600,10 +600,10 @@ This follows the [NO_COLOR](https://no-color.org/) standard for maximum compatib
 **Solution**:
 ```bash
 # Validate and attempt automatic fixes
-claude-todo validate --fix
+cleo validate --fix
 
 # If automatic fix fails, restore from backup
-claude-todo restore .claude/.backups/todo.json.1
+cleo restore .cleo/.backups/todo.json.1
 ```
 
 **Issue**: Task not found by ID
@@ -611,10 +611,10 @@ claude-todo restore .claude/.backups/todo.json.1
 **Solution**:
 ```bash
 # Check if task was archived
-claude-todo list --all | grep <task-id>
+cleo list --all | grep <task-id>
 
 # Search in archive file directly
-cat .claude/todo-archive.json | jq '.tasks[] | select(.id == "<task-id>")'
+cat .cleo/todo-archive.json | jq '.tasks[] | select(.id == "<task-id>")'
 ```
 
 **Issue**: Archive not working
@@ -622,10 +622,10 @@ cat .claude/todo-archive.json | jq '.tasks[] | select(.id == "<task-id>")'
 **Solution**:
 ```bash
 # Check archive configuration
-cat .claude/todo-config.json | jq '.archive'
+cat .cleo/config.json | jq '.archive'
 
 # Force archive all completed tasks
-claude-todo archive --force
+cleo archive --force
 ```
 
 **Issue**: Backup restoration failed
@@ -633,13 +633,13 @@ claude-todo archive --force
 **Solution**:
 ```bash
 # Verify backup integrity first
-claude-todo validate --file .claude/.backups/todo.json.1
+cleo validate --file .cleo/.backups/todo.json.1
 
 # List all available backups
-ls -lah .claude/.backups/
+ls -lah .cleo/.backups/
 
 # Restore from Tier 2 snapshot backup
-claude-todo restore .claude/backups/snapshot/snapshot_20251205_100000/
+cleo restore .cleo/backups/snapshot/snapshot_20251205_100000/
 ```
 
 **For complete troubleshooting guide, see [troubleshooting.md](reference/troubleshooting.md)**
@@ -713,10 +713,10 @@ NO_COLOR=1           # Disable colors
 FORCE_COLOR=1        # Force colors
 
 # Quick Examples
-claude-todo list -p high -l backend -f json
-claude-todo add "Task" -p critical -l security -q
-claude-todo export -f csv > tasks.csv
-NO_COLOR=1 claude-todo list -s pending -c
+cleo list -p high -l backend -f json
+cleo add "Task" -p critical -l security -q
+cleo export -f csv > tasks.csv
+NO_COLOR=1 cleo list -s pending -c
 ```
 
 ---

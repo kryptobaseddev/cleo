@@ -1,16 +1,17 @@
 # Template Files
 
-Template files used by `init.sh` to initialize new projects with the claude-todo system.
+Template files used by `init.sh` to initialize new projects with the CLEO task management system.
 
 ## Template Files
 
 | File | Target File | Description |
 |------|-------------|-------------|
-| `todo.template.json` | `.claude/todo.json` | Active tasks storage with focus management and metadata |
-| `archive.template.json` | `.claude/todo-archive.json` | Completed tasks archive (immutable after archival) |
-| `log.template.json` | `.claude/todo-log.json` | Append-only change log for audit trail |
-| `config.template.json` | `.claude/todo-config.json` | Project configuration (archive, validation, display settings) |
-| `CLAUDE.todo.md` | (documentation) | CLAUDE.md section template for task management integration |
+| `todo.template.json` | `.cleo/todo.json` | Active tasks storage with focus management and metadata |
+| `archive.template.json` | `.cleo/todo-archive.json` | Completed tasks archive (immutable after archival) |
+| `log.template.json` | `.cleo/todo-log.json` | Append-only change log for audit trail |
+| `config.template.json` | `.cleo/config.json` | Project configuration (archive, validation, display settings) |
+| `CLEO.todo.md` | (documentation) | Agent markdown section template for task management integration |
+| `AGENT-INJECTION.md` | CLAUDE.md | Default injection template for CLAUDE.md (works with any agent doc) |
 
 ## Placeholder Contract
 
@@ -33,7 +34,7 @@ During `init.sh`, templates are processed as follows:
 
 ```bash
 # 1. Copy template to target location
-cp "$CLAUDE_TODO_HOME/templates/todo.template.json" "$TODO_DIR/todo.json"
+cp "$CLEO_HOME/templates/todo.template.json" "$TODO_DIR/todo.json"
 
 # 2. Replace placeholders using sed
 sed -i "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TODO_DIR/todo.json"
@@ -70,10 +71,15 @@ ajv validate -s "$TODO_DIR/schemas/todo.schema.json" -d "$TODO_DIR/todo.json"
 - Placeholders: NONE
 - Schema: `../schemas/config.schema.json`
 
-### CLAUDE.todo.md
-- Contains: markdown documentation for claude-todo CLI integration with session protocol
+### CLEO.todo.md
+- Contains: markdown documentation for CLEO CLI integration with session protocol
 - Placeholders: NONE
-- Usage: Template for CLAUDE.md integration, shows CLI commands and anti-hallucination rules
+- Usage: Extended template for agent docs integration, shows CLI commands and anti-hallucination rules
+
+### AGENT-INJECTION.md
+- Contains: concise CLEO CLI instructions with session protocol
+- Placeholders: NONE
+- Usage: Default injection template for CLAUDE.md (or any agent doc via --target flag)
 
 ## Schema Path Rewriting
 
@@ -81,7 +87,7 @@ All templates use repo-relative schema paths (`../schemas/*.schema.json`) which 
 
 1. Templates to validate in the repo context
 2. Initialized files to validate in the project context
-3. Schema files to be copied to `.claude/schemas/` for portability
+3. Schema files to be copied to `.cleo/schemas/` for portability
 
 ## Adding New Templates
 

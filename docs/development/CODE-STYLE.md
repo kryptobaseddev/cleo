@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document defines coding conventions for the claude-todo project. For normative requirements, see the relevant specification documents in `docs/specs/`.
+This document defines coding conventions for the cleo project. For normative requirements, see the relevant specification documents in `docs/specs/`.
 
 ---
 
@@ -30,8 +30,8 @@ source "$(dirname "$0")/../lib/validation.sh"
 source "$(dirname "$0")/../lib/logging.sh"
 
 # Constants (UPPERCASE)
-readonly CLAUDE_TODO_DIR="${HOME}/.claude-todo"
-readonly TODO_FILE=".claude/todo.json"
+readonly CLEO_DIR="${HOME}/.cleo"
+readonly TODO_FILE=".cleo/todo.json"
 
 # Functions before main logic
 function main() {
@@ -48,9 +48,9 @@ main "$@"
 |---------|------------|---------|
 | Scripts | kebab-case | `add-task.sh`, `archive.sh` |
 | Functions | snake_case | `validate_schema`, `atomic_write` |
-| Constants | UPPERCASE_UNDERSCORES | `CLAUDE_TODO_DIR` |
+| Constants | UPPERCASE_UNDERSCORES | `CLEO_DIR` |
 | Local variables | lowercase_underscores | `task_id`, `output_format` |
-| Environment vars | CLAUDE_TODO_ prefix | `CLAUDE_TODO_ARCHIVE_DAYS` |
+| Environment vars | CLEO_ prefix | `CLEO_ARCHIVE_DAYS` |
 
 ### Function Documentation
 
@@ -178,9 +178,9 @@ Per `LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md`:
 Override precedence (highest to lowest):
 
 1. CLI flags (`--option=value`)
-2. Environment variables (`CLAUDE_TODO_*`)
-3. Project config (`.claude/todo-config.json`)
-4. Global config (`~/.claude-todo/config.json`)
+2. Environment variables (`CLEO_*`)
+3. Project config (`.cleo/config.json`)
+4. Global config (`~/.cleo/config.json`)
 5. Hardcoded defaults
 
 See `docs/specs/CONFIG-SYSTEM-SPEC.md` for full details.

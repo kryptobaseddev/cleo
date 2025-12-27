@@ -7,7 +7,7 @@ Validate todo.json against schema and business rules.
 ## Usage
 
 ```bash
-claude-todo validate [OPTIONS]
+cleo validate [OPTIONS]
 ```
 
 ## Description
@@ -32,7 +32,7 @@ Run validation after manual JSON edits or when troubleshooting issues.
 ### Basic Validation
 
 ```bash
-claude-todo validate
+cleo validate
 ```
 
 Output:
@@ -58,7 +58,7 @@ Validation passed (0 warnings)
 ### Auto-Fix Issues
 
 ```bash
-claude-todo validate --fix
+cleo validate --fix
 ```
 
 Output:
@@ -77,7 +77,7 @@ Validation passed (0 warnings)
 ### JSON Output
 
 ```bash
-claude-todo validate --format json
+cleo validate --format json
 ```
 
 ```json
@@ -99,7 +99,7 @@ claude-todo validate --format json
 
 ```bash
 # Fail on warnings too
-claude-todo validate --strict
+cleo validate --strict
 ```
 
 ## Validations Performed

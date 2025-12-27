@@ -7,7 +7,7 @@ Update existing task fields with validation and logging.
 ## Usage
 
 ```bash
-claude-todo update TASK_ID [OPTIONS]
+cleo update TASK_ID [OPTIONS]
 ```
 
 ## Description
@@ -88,52 +88,52 @@ Array fields support three operations:
 
 ```bash
 # Update priority
-claude-todo update T001 --priority high
+cleo update T001 --priority high
 
 # Update status
-claude-todo update T002 --status active
+cleo update T002 --status active
 
 # Update title
-claude-todo update T003 --title "New improved title"
+cleo update T003 --title "New improved title"
 
 # Set blocked with reason
-claude-todo update T004 --blocked-by "Waiting for API spec"
+cleo update T004 --blocked-by "Waiting for API spec"
 ```
 
 ### Array Operations
 
 ```bash
 # Append labels
-claude-todo update T001 --labels bug,urgent
+cleo update T001 --labels bug,urgent
 
 # Replace all labels
-claude-todo update T002 --set-labels "frontend,ui"
+cleo update T002 --set-labels "frontend,ui"
 
 # Clear labels
-claude-todo update T003 --clear-labels
+cleo update T003 --clear-labels
 
 # Add dependencies
-claude-todo update T004 --depends T001,T002
+cleo update T004 --depends T001,T002
 
 # Replace dependencies
-claude-todo update T005 --set-depends T003
+cleo update T005 --set-depends T003
 ```
 
 ### Phase Management
 
 ```bash
 # Change to existing phase
-claude-todo update T001 --phase core
+cleo update T001 --phase core
 
 # Create new phase
-claude-todo update T002 --phase optimization --add-phase
+cleo update T002 --phase optimization --add-phase
 ```
 
 ### Adding Notes
 
 ```bash
 # Add progress note
-claude-todo update T001 --notes "Started implementation"
+cleo update T001 --notes "Started implementation"
 
 # Notes are timestamped automatically:
 # "2025-12-13 10:00:00 UTC: Started implementation"
@@ -143,7 +143,7 @@ claude-todo update T001 --notes "Started implementation"
 
 ```bash
 # Multiple updates at once
-claude-todo update T001 \
+cleo update T001 \
   --priority high \
   --labels urgent,backend \
   --notes "Escalated per client request"
@@ -160,7 +160,7 @@ Changes:
   - labels: added [urgent, backend]
   - notes: added entry
 
-View with: jq '.tasks[] | select(.id == "T001")' .claude/todo.json
+View with: jq '.tasks[] | select(.id == "T001")' .cleo/todo.json
 ```
 
 ## Validation Rules

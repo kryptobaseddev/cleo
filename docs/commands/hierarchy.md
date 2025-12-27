@@ -58,7 +58,7 @@ The hierarchy system enforces strict constraints for maintainability:
 Use `add` command with hierarchy options:
 
 ```bash
-claude-todo add "Task Title" [--type TYPE] [--parent ID] [--size SIZE]
+cleo add "Task Title" [--type TYPE] [--parent ID] [--size SIZE]
 ```
 
 | Option | Short | Description | Default |
@@ -72,7 +72,7 @@ claude-todo add "Task Title" [--type TYPE] [--parent ID] [--size SIZE]
 Use `list` command with hierarchy filters:
 
 ```bash
-claude-todo list [--type TYPE] [--parent ID] [--children ID] [--tree]
+cleo list [--type TYPE] [--parent ID] [--children ID] [--tree]
 ```
 
 | Option | Short | Description |
@@ -87,7 +87,7 @@ claude-todo list [--type TYPE] [--parent ID] [--children ID] [--tree]
 For convenience, the `tree` command provides direct access to hierarchical tree view:
 
 ```bash
-claude-todo tree              # Same as: claude-todo list --tree
+cleo tree              # Same as: cleo list --tree
 ct tree                       # Short form
 ct tree --status pending      # Tree with status filter
 ct tree --type epic           # Show only epics in tree format
@@ -101,7 +101,7 @@ The `tree` alias accepts all `list` command filters and options.
 The `show` command displays hierarchy context:
 
 ```bash
-claude-todo show T001
+cleo show T001
 ```
 
 Output includes:
@@ -116,21 +116,21 @@ Output includes:
 
 ```bash
 # Create the epic
-claude-todo add "User Authentication System" --type epic --size large
+cleo add "User Authentication System" --type epic --size large
 # Created: T001
 
 # Create tasks under the epic
-claude-todo add "Implement login endpoint" --parent T001 --size medium
+cleo add "Implement login endpoint" --parent T001 --size medium
 # Created: T002 (type inferred as "task")
 
-claude-todo add "Implement logout endpoint" --parent T001 --size small
+cleo add "Implement logout endpoint" --parent T001 --size small
 # Created: T003 (type inferred as "task")
 
 # Create subtasks under a task
-claude-todo add "Validate email format" --parent T002 --size small
+cleo add "Validate email format" --parent T002 --size small
 # Created: T004 (type inferred as "subtask")
 
-claude-todo add "Hash password securely" --parent T002 --size small
+cleo add "Hash password securely" --parent T002 --size small
 # Created: T005 (type inferred as "subtask")
 ```
 
@@ -147,30 +147,30 @@ T001 [epic] User Authentication System
 
 ```bash
 # List only epics
-claude-todo list --type epic
+cleo list --type epic
 
 # List only subtasks
-claude-todo list --type subtask
+cleo list --type subtask
 
 # List tasks (excludes epics and subtasks)
-claude-todo list --type task
+cleo list --type task
 ```
 
 ### Viewing Children of a Task
 
 ```bash
 # Show all children of T001
-claude-todo list --children T001
+cleo list --children T001
 
 # Equivalent: filter by parent
-claude-todo list --parent T001
+cleo list --parent T001
 ```
 
 ### Tree View Display
 
 ```bash
 # Display full hierarchy tree
-claude-todo list --tree
+cleo list --tree
 ```
 
 Output:
@@ -192,10 +192,10 @@ T010 [task] Fix navigation bug
 
 ```bash
 # High-priority tasks under a specific epic
-claude-todo list --parent T001 --priority high
+cleo list --parent T001 --priority high
 
 # Pending subtasks with a specific label
-claude-todo list --type subtask --status pending --label backend
+cleo list --type subtask --status pending --label backend
 ```
 
 ## Type Inference
@@ -210,13 +210,13 @@ When `--type` is not specified, it is inferred from context:
 
 ```bash
 # Type inferred as "task" (no parent)
-claude-todo add "Standalone task"
+cleo add "Standalone task"
 
 # Type inferred as "task" (parent is epic)
-claude-todo add "Feature work" --parent T001  # T001 is epic
+cleo add "Feature work" --parent T001  # T001 is epic
 
 # Type inferred as "subtask" (parent is task)
-claude-todo add "Small fix" --parent T002  # T002 is task
+cleo add "Small fix" --parent T002  # T002 is task
 ```
 
 ## Validation Errors
@@ -224,17 +224,17 @@ claude-todo add "Small fix" --parent T002  # T002 is task
 ### Parent Not Found (Exit Code 10)
 
 ```bash
-claude-todo add "Task" --parent T999
+cleo add "Task" --parent T999
 # ERROR: Parent task T999 not found
 ```
 
-**Fix**: Verify the parent task ID exists with `claude-todo exists T999`.
+**Fix**: Verify the parent task ID exists with `cleo exists T999`.
 
 ### Maximum Depth Exceeded (Exit Code 11)
 
 ```bash
 # T005 is already a subtask (depth 2)
-claude-todo add "Too deep" --parent T005
+cleo add "Too deep" --parent T005
 # ERROR: Maximum hierarchy depth (3) exceeded
 ```
 
@@ -244,7 +244,7 @@ claude-todo add "Too deep" --parent T005
 
 ```bash
 # T001 already has 7 children
-claude-todo add "Eighth child" --parent T001
+cleo add "Eighth child" --parent T001
 # ERROR: Maximum siblings (7) exceeded for parent T001
 ```
 
@@ -254,7 +254,7 @@ claude-todo add "Eighth child" --parent T001
 
 ```bash
 # T005 is a subtask
-claude-todo add "Child of subtask" --parent T005
+cleo add "Child of subtask" --parent T005
 # ERROR: Subtask T005 cannot have children
 ```
 
@@ -263,7 +263,7 @@ claude-todo add "Child of subtask" --parent T005
 ### Epic Cannot Have Parent (Validation Error)
 
 ```bash
-claude-todo add "Nested epic" --type epic --parent T001
+cleo add "Nested epic" --type epic --parent T001
 # ERROR: Epics cannot have a parent (must be root-level)
 ```
 
@@ -307,13 +307,13 @@ When using `--format json`, hierarchy fields are included:
 
 ```bash
 # Get all epics
-claude-todo list -f json | jq '.tasks[] | select(.type == "epic")'
+cleo list -f json | jq '.tasks[] | select(.type == "epic")'
 
 # Get children of a specific parent
-claude-todo list -f json | jq '.tasks[] | select(.parentId == "T001")'
+cleo list -f json | jq '.tasks[] | select(.parentId == "T001")'
 
 # Count tasks by type
-claude-todo list -f json | jq '.tasks | group_by(.type) | map({type: .[0].type, count: length})'
+cleo list -f json | jq '.tasks | group_by(.type) | map({type: .[0].type, count: length})'
 ```
 
 ## Best Practices
@@ -351,10 +351,10 @@ To upgrade an existing project to schema v2.3.0 with hierarchy support:
 
 ```bash
 # Check current schema version
-claude-todo migrate status
+cleo migrate status
 
 # Run migration (adds type/parentId/size fields)
-claude-todo migrate run
+cleo migrate run
 ```
 
 Existing tasks receive default values:
@@ -392,7 +392,7 @@ The hierarchy system is implemented in `lib/hierarchy.sh`:
 The `populate-hierarchy` command automatically sets `parentId` for existing tasks based on conventions:
 
 ```bash
-claude-todo populate-hierarchy [OPTIONS]
+cleo populate-hierarchy [OPTIONS]
 ```
 
 ### Detection Strategies
@@ -416,13 +416,13 @@ claude-todo populate-hierarchy [OPTIONS]
 
 ```bash
 # Preview changes
-claude-todo populate-hierarchy --dry-run
+cleo populate-hierarchy --dry-run
 
 # Apply changes
-claude-todo populate-hierarchy
+cleo populate-hierarchy
 
 # JSON output for agents
-claude-todo populate-hierarchy --json
+cleo populate-hierarchy --json
 ```
 
 ### JSON Output
@@ -451,7 +451,7 @@ claude-todo populate-hierarchy --json
 Move a task to a different parent:
 
 ```bash
-claude-todo reparent TASK_ID --to PARENT_ID
+cleo reparent TASK_ID --to PARENT_ID
 ```
 
 | Option | Description |
@@ -464,10 +464,10 @@ claude-todo reparent TASK_ID --to PARENT_ID
 **Examples:**
 ```bash
 # Move task under different epic
-claude-todo reparent T005 --to T001
+cleo reparent T005 --to T001
 
 # Remove parent (make root)
-claude-todo reparent T005 --to ""
+cleo reparent T005 --to ""
 ```
 
 **Validation:**
@@ -481,7 +481,7 @@ claude-todo reparent T005 --to ""
 Remove parent from a task, making it root-level:
 
 ```bash
-claude-todo promote TASK_ID [OPTIONS]
+cleo promote TASK_ID [OPTIONS]
 ```
 
 | Option | Description |
@@ -493,10 +493,10 @@ claude-todo promote TASK_ID [OPTIONS]
 **Examples:**
 ```bash
 # Make task root-level
-claude-todo promote T005
+cleo promote T005
 
 # Promote but keep subtask type
-claude-todo promote T005 --no-type-update
+cleo promote T005 --no-type-update
 ```
 
 **Behavior:**
@@ -518,8 +518,8 @@ When all children of a parent task are completed, the parent can automatically c
 ### Configuration
 
 ```bash
-claude-todo config set hierarchy.autoCompleteParent true
-claude-todo config set hierarchy.autoCompleteMode auto
+cleo config set hierarchy.autoCompleteParent true
+cleo config set hierarchy.autoCompleteMode auto
 ```
 
 | Setting | Values | Description |
@@ -546,20 +546,20 @@ claude-todo config set hierarchy.autoCompleteMode auto
 
 ```bash
 # Enable auto-complete
-claude-todo config set hierarchy.autoCompleteParent true
-claude-todo config set hierarchy.autoCompleteMode auto
+cleo config set hierarchy.autoCompleteParent true
+cleo config set hierarchy.autoCompleteMode auto
 
 # Create hierarchy
-claude-todo add "Feature Epic" --type epic
-claude-todo add "Task 1" --parent T001
-claude-todo add "Task 2" --parent T001
+cleo add "Feature Epic" --type epic
+cleo add "Task 1" --parent T001
+cleo add "Task 2" --parent T001
 
 # Complete children - parent auto-completes after last child
-claude-todo complete T002
-claude-todo complete T003  # T001 auto-completes
+cleo complete T002
+cleo complete T003  # T001 auto-completes
 
 # Verify
-claude-todo show T001 --format json | jq '.task.status'
+cleo show T001 --format json | jq '.task.status'
 # "done"
 ```
 
@@ -571,7 +571,7 @@ Detect and repair tasks with invalid parent references.
 
 ```bash
 # Check for orphaned tasks
-claude-todo validate --check-orphans
+cleo validate --check-orphans
 ```
 
 Orphaned tasks have a `parentId` that references a non-existent task.
@@ -580,10 +580,10 @@ Orphaned tasks have a `parentId` that references a non-existent task.
 
 ```bash
 # Unlink orphans (remove invalid parentId, make root)
-claude-todo validate --fix-orphans unlink
+cleo validate --fix-orphans unlink
 
 # Delete orphans (remove the orphaned tasks entirely)
-claude-todo validate --fix-orphans delete
+cleo validate --fix-orphans delete
 ```
 
 | Mode | Effect |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Archive Statistics/Analytics
+# CLEO Archive Statistics/Analytics
 # Generate reports and insights from archived tasks
 #
 # Provides detailed analytics including:
@@ -10,7 +10,7 @@
 # - Cycle time analysis with distribution
 # - Archiving trends over time
 #
-# Version: 0.1.0 (part of claude-todo v0.31.0+)
+# Version: 0.1.0 (part of cleo v0.31.0+)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,7 +39,7 @@ elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
 fi
 
 # File paths
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
 COMMAND_NAME="archive-stats"
 
 # Options
@@ -51,7 +51,7 @@ QUIET=false
 
 usage() {
     cat << EOF
-Usage: claude-todo archive-stats [OPTIONS]
+Usage: cleo archive-stats [OPTIONS]
 
 Generate analytics and reports from archived tasks.
 
@@ -83,11 +83,11 @@ Date Filtering:
   Tasks are filtered by their archivedAt timestamp
 
 Examples:
-  claude-todo archive-stats                    # Summary statistics
-  claude-todo archive-stats --by-phase         # Phase breakdown
-  claude-todo archive-stats --cycle-times      # Cycle time analysis
-  claude-todo archive-stats --trends --json    # Trend data as JSON
-  claude-todo archive-stats --since 2025-01-01 # Tasks archived in 2025
+  cleo archive-stats                    # Summary statistics
+  cleo archive-stats --by-phase         # Phase breakdown
+  cleo archive-stats --cycle-times      # Cycle time analysis
+  cleo archive-stats --trends --json    # Trend data as JSON
+  cleo archive-stats --since 2025-01-01 # Tasks archived in 2025
 
 JSON Output Structure:
   {
@@ -149,10 +149,10 @@ if [[ ! -f "$ARCHIVE_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
             --arg ts "$TIMESTAMP" \
-            --arg ver "${CLAUDE_TODO_VERSION:-$(get_version 2>/dev/null || echo unknown)}" \
+            --arg ver "${CLEO_VERSION:-$(get_version 2>/dev/null || echo unknown)}" \
             --arg report "$REPORT_TYPE" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {"format": "json", "command": "archive-stats", "timestamp": $ts, "version": $ver},
                 "success": true,
                 "report": $report,
@@ -414,7 +414,7 @@ generate_report() {
 # Get report data
 REPORT_DATA=$(generate_report)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-VERSION="${CLAUDE_TODO_VERSION:-$(get_version 2>/dev/null || echo unknown)}"
+VERSION="${CLEO_VERSION:-$(get_version 2>/dev/null || echo unknown)}"
 
 # Build filter info for output
 FILTER_INFO="null"
@@ -434,7 +434,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson data "$REPORT_DATA" \
         --argjson filters "$FILTER_INFO" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {"format": "json", "command": "archive-stats", "timestamp": $ts, "version": $ver},
             "success": true,
             "report": $report,

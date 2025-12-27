@@ -14,7 +14,7 @@ The `reopen` command reverses task completion, allowing you to reopen tasks that
 ## Usage
 
 ```bash
-claude-todo reopen <TASK_ID> --reason "Why reopening" [OPTIONS]
+cleo reopen <TASK_ID> --reason "Why reopening" [OPTIONS]
 ```
 
 ### Arguments
@@ -47,20 +47,20 @@ claude-todo reopen <TASK_ID> --reason "Why reopening" [OPTIONS]
 
 ```bash
 # Reopen a completed task
-claude-todo reopen T001 --reason "Child task was incomplete"
+cleo reopen T001 --reason "Child task was incomplete"
 
 # Reopen and immediately make active
-claude-todo reopen T001 --reason "Resuming work now" --status active
+cleo reopen T001 --reason "Resuming work now" --status active
 
 # Preview what would happen
-claude-todo reopen T001 --reason "Testing" --dry-run
+cleo reopen T001 --reason "Testing" --dry-run
 ```
 
 ### JSON Output
 
 ```bash
 # Get structured output
-claude-todo reopen T001 --reason "Need more work" --json
+cleo reopen T001 --reason "Need more work" --json
 ```
 
 Output:
@@ -114,7 +114,7 @@ When reopening an epic where **all children are still done**, the command warns:
 
 **To prevent re-auto-completion**, either:
 1. Reopen a child task first using `reopen`
-2. Disable auto-complete: `claude-todo config set hierarchy.autoCompleteMode off`
+2. Disable auto-complete: `cleo config set hierarchy.autoCompleteMode off`
 
 ## Exit Codes
 

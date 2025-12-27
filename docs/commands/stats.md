@@ -5,7 +5,7 @@ Generate comprehensive statistics from the todo system.
 ## Usage
 
 ```bash
-claude-todo stats [OPTIONS]
+cleo stats [OPTIONS]
 ```
 
 ## Description
@@ -38,13 +38,13 @@ Or use any positive integer for custom days.
 
 ```bash
 # Default 30-day statistics
-claude-todo stats
+cleo stats
 
 # Last week
-claude-todo stats -p week
+cleo stats -p week
 
 # Last 7 days (same as week)
-claude-todo stats -p 7
+cleo stats -p 7
 ```
 
 Output:
@@ -92,12 +92,12 @@ Generated: 2025-12-13T10:00:00Z
 ### JSON Output
 
 ```bash
-claude-todo stats -f json
+cleo stats -f json
 ```
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.12.0",
@@ -141,16 +141,16 @@ claude-todo stats -f json
 
 ```bash
 # Today only
-claude-todo stats -p today
+cleo stats -p today
 
 # Last quarter
-claude-todo stats -p quarter
+cleo stats -p quarter
 
 # Custom: last 14 days
-claude-todo stats -p 14
+cleo stats -p 14
 
 # Last month in JSON
-claude-todo stats -p month -f json
+cleo stats -p month -f json
 ```
 
 ## Statistics Categories

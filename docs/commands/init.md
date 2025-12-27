@@ -1,16 +1,16 @@
 # init Command
 
-Initialize a new claude-todo project or update existing configuration.
+Initialize a new cleo project or update existing configuration.
 
 ## Usage
 
 ```bash
-claude-todo init [PROJECT_NAME] [OPTIONS]
+cleo init [PROJECT_NAME] [OPTIONS]
 ```
 
 ## Description
 
-The `init` command sets up a new project for claude-todo by creating the `.claude/` directory structure and required JSON files. It can also update an existing project's CLAUDE.md injection to the latest version.
+The `init` command sets up a new project for cleo by creating the `.cleo/` directory structure and required JSON files. It can also update an existing project's CLAUDE.md injection to the latest version.
 
 **Safeguard**: Running `init` on an already-initialized project will NOT overwrite data. Reinitializing requires explicit double confirmation with `--force --confirm-wipe`.
 
@@ -27,7 +27,9 @@ The `init` command sets up a new project for claude-todo by creating the `.claud
 | `--force` | Signal intent to reinitialize (requires `--confirm-wipe`) | `false` |
 | `--confirm-wipe` | Confirm destructive data wipe (used with `--force`) | `false` |
 | `--no-claude-md` | Skip CLAUDE.md integration | `false` |
-| `--update-claude-md` | Only update CLAUDE.md injection (no other changes) | `false` |
+| `--update-claude-md` | Only update doc file injection (no other changes) | `false` |
+| `--update-docs` | Alias for `--update-claude-md` | `false` |
+| `--target FILE` | Target doc file for injection (CLAUDE.md, AGENTS.md, GEMINI.md) | `CLAUDE.md` |
 | `-f, --format FMT` | Output format: `text`, `json` | auto-detect |
 | `--json` | Force JSON output | |
 | `--human` | Force human-readable text output | |
@@ -50,43 +52,58 @@ The `init` command sets up a new project for claude-todo by creating the `.claud
 ```bash
 # Initialize in current directory
 cd my-project
-claude-todo init
+cleo init
 
 # Initialize with project name
-claude-todo init "my-project"
+cleo init "my-project"
 ```
 
 Output:
 ```
-[INFO] Initializing claude-todo in /path/to/project
-[INFO] Created .claude/ directory
-[INFO] Created .claude/todo.json
-[INFO] Created .claude/todo-config.json
-[INFO] Created .claude/todo-archive.json
-[INFO] Created .claude/todo-log.json
+[INFO] Initializing cleo in /path/to/project
+[INFO] Created .cleo/ directory
+[INFO] Created .cleo/todo.json
+[INFO] Created .cleo/config.json
+[INFO] Created .cleo/todo-archive.json
+[INFO] Created .cleo/todo-log.json
 [INFO] Updated CLAUDE.md with task management injection
 
-claude-todo initialized successfully!
+cleo initialized successfully!
 ```
 
 ### Update CLAUDE.md Injection
 
 ```bash
 # Update CLAUDE.md injection to latest version
-claude-todo init --update-claude-md
+cleo init --update-claude-md
+
+# Or use the alias
+cleo init --update-docs
+```
+
+### Multi-Doc Injection (--target)
+
+```bash
+# Inject into different agent doc files
+cleo init --target CLAUDE.md    # Default for Claude Code
+cleo init --target AGENTS.md    # For multi-agent projects
+cleo init --target GEMINI.md    # For Gemini CLI
+
+# Same CLEO template content is used for all targets
+# Markers: <!-- CLEO:START vX.X.X --> and <!-- CLEO:END -->
 ```
 
 ### Attempt to Reinitialize (Blocked)
 
 ```bash
 # Without --force: exits with code 101
-claude-todo init
-# [WARN] Project already initialized at .claude/todo.json
+cleo init
+# [WARN] Project already initialized at .cleo/todo.json
 # [WARN] Found 4 data file(s) that would be WIPED:
-# [WARN]   - .claude/todo.json
-# [WARN]   - .claude/todo-archive.json
-# [WARN]   - .claude/todo-config.json
-# [WARN]   - .claude/todo-log.json
+# [WARN]   - .cleo/todo.json
+# [WARN]   - .cleo/todo-archive.json
+# [WARN]   - .cleo/config.json
+# [WARN]   - .cleo/todo-log.json
 # [WARN] To reinitialize, use BOTH flags: --force --confirm-wipe
 ```
 
@@ -94,20 +111,20 @@ claude-todo init
 
 ```bash
 # With --force but no --confirm-wipe: exits with code 2
-claude-todo init --force
+cleo init --force
 # [ERROR] --force requires --confirm-wipe for destructive reinitialize
 # [WARN] ⚠️  DESTRUCTIVE OPERATION WARNING ⚠️
 # [WARN] This will PERMANENTLY WIPE 4 data file(s)
-# [WARN] A safety backup will be created at: .claude/backups/safety/
+# [WARN] A safety backup will be created at: .cleo/backups/safety/
 ```
 
 ### Full Reinitialize (With Safety Backup)
 
 ```bash
 # Both flags required - creates backup before wiping
-claude-todo init --force --confirm-wipe
+cleo init --force --confirm-wipe
 # [INFO] Creating safety backup before reinitialize...
-# [INFO] Safety backup created at: .claude/backups/safety/safety_20251223_120000_init_reinitialize
+# [INFO] Safety backup created at: .cleo/backups/safety/safety_20251223_120000_init_reinitialize
 # [WARN] Proceeding with DESTRUCTIVE reinitialize - wiping existing data...
 # [INFO] Initializing CLAUDE-TODO for project: my-project
 # ...
@@ -119,7 +136,7 @@ claude-todo init --force --confirm-wipe
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.32.1",
@@ -129,14 +146,14 @@ claude-todo init --force --confirm-wipe
   "success": false,
   "error": {
     "code": "E_ALREADY_INITIALIZED",
-    "message": "Project already initialized at .claude/todo.json",
+    "message": "Project already initialized at .cleo/todo.json",
     "exitCode": 101,
     "recoverable": true,
     "suggestion": "Use --force --confirm-wipe to reinitialize (DESTRUCTIVE: will wipe all existing data after creating safety backup)",
     "context": {
       "existingFiles": 4,
       "dataDirectory": ".claude",
-      "affectedFiles": ["todo.json", "todo-archive.json", "todo-config.json", "todo-log.json"]
+      "affectedFiles": ["todo.json", "todo-archive.json", "config.json", "todo-log.json"]
     }
   }
 }
@@ -146,7 +163,7 @@ claude-todo init --force --confirm-wipe
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.32.1",
@@ -162,7 +179,7 @@ claude-todo init --force --confirm-wipe
     "suggestion": "Add --confirm-wipe to confirm you want to WIPE all existing data (a safety backup will be created first)",
     "context": {
       "existingFiles": 4,
-      "safetyBackupLocation": ".claude/backups/safety/"
+      "safetyBackupLocation": ".cleo/backups/safety/"
     }
   }
 }
@@ -172,21 +189,21 @@ claude-todo init --force --confirm-wipe
 
 | File | Description |
 |------|-------------|
-| `.claude/todo.json` | Active tasks with metadata |
-| `.claude/todo-config.json` | Project configuration |
-| `.claude/todo-archive.json` | Archived completed tasks |
-| `.claude/todo-log.json` | Audit log of all operations |
-| `.claude/schemas/` | JSON Schema files for validation |
-| `.claude/backups/` | Backup directories (safety, snapshot, etc.) |
+| `.cleo/todo.json` | Active tasks with metadata |
+| `.cleo/config.json` | Project configuration |
+| `.cleo/todo-archive.json` | Archived completed tasks |
+| `.cleo/todo-log.json` | Audit log of all operations |
+| `.cleo/schemas/` | JSON Schema files for validation |
+| `.cleo/backups/` | Backup directories (safety, snapshot, etc.) |
 | `CLAUDE.md` (updated) | Task management injection added |
 
 ## Directory Structure
 
 ```
 project/
-├── .claude/
+├── .cleo/
 │   ├── todo.json          # Active tasks
-│   ├── todo-config.json   # Configuration
+│   ├── config.json   # Configuration
 │   ├── todo-archive.json  # Archived tasks
 │   ├── todo-log.json      # Audit log
 │   ├── schemas/           # JSON Schema files
@@ -203,12 +220,12 @@ project/
 
 When reinitializing with `--force --confirm-wipe`, a safety backup is automatically created:
 
-**Location**: `.claude/backups/safety/safety_YYYYMMDD_HHMMSS_init_reinitialize/`
+**Location**: `.cleo/backups/safety/safety_YYYYMMDD_HHMMSS_init_reinitialize/`
 
 **Files Backed Up**:
 - `todo.json` - All active tasks
 - `todo-archive.json` - All archived tasks
-- `todo-config.json` - Configuration
+- `config.json` - Configuration
 - `todo-log.json` - Audit log
 
 **Metadata**: Includes `metadata.json` with backup timestamp, file count, and total size.
@@ -219,9 +236,9 @@ The init command adds a task management section to CLAUDE.md:
 
 ```markdown
 <!-- CLAUDE-TODO:START v0.32.1 -->
-## Task Management (claude-todo)
+## Task Management (cleo)
 
-Use `ct` (alias for `claude-todo`) for all task operations.
+Use `ct` (alias for `cleo`) for all task operations.
 ...
 <!-- CLAUDE-TODO:END -->
 ```

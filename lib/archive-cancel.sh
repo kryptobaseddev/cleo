@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# archive-cancel.sh - Cancellation archival operations for claude-todo
+# Cancellation archival operations for cleo
 #
 # LAYER: 3 (Domain Logic)
 # DEPENDENCIES: file-ops.sh (transitive: config.sh, exit-codes.sh)
@@ -210,7 +210,7 @@ archive_cancelled_task() {
         local project_name
         project_name=$(jq -r '.project.name // .project // "unknown"' "$todo_file")
         local version
-        version="${CLAUDE_TODO_VERSION:-2.4.0}"
+        version="${CLEO_VERSION:-2.4.0}"
 
         cat > "$archive_file" << EOF
 {
@@ -354,7 +354,7 @@ archive_cancelled_tasks() {
         local project_name
         project_name=$(jq -r '.project.name // .project // "unknown"' "$todo_file")
         local version
-        version="${CLAUDE_TODO_VERSION:-2.4.0}"
+        version="${CLEO_VERSION:-2.4.0}"
 
         cat > "$archive_file" << EOF
 {

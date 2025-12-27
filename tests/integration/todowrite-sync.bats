@@ -31,10 +31,10 @@ setup() {
     export SYNC_SCRIPT="${SCRIPTS_DIR}/sync-todowrite.sh"
     export INJECT_SCRIPT="${SCRIPTS_DIR}/inject-todowrite.sh"
     export EXTRACT_SCRIPT="${SCRIPTS_DIR}/extract-todowrite.sh"
-    export SYNC_STATE_FILE="${TEST_TEMP_DIR}/.claude/sync/todowrite-session.json"
+    export SYNC_STATE_FILE="${TEST_TEMP_DIR}/.cleo/sync/todowrite-session.json"
 
     # Create sync directory
-    mkdir -p "${TEST_TEMP_DIR}/.claude/sync"
+    mkdir -p "${TEST_TEMP_DIR}/.cleo/sync"
 }
 
 teardown() {

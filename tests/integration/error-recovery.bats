@@ -23,7 +23,7 @@ setup() {
     common_setup_per_test
 
     # Create empty archive for tests
-    export ARCHIVE_FILE="${TEST_TEMP_DIR}/.claude/todo-archive.json"
+    export ARCHIVE_FILE="${TEST_TEMP_DIR}/.cleo/todo-archive.json"
     create_empty_archive "$ARCHIVE_FILE"
 }
 
@@ -582,7 +582,7 @@ EOF
 EOF
 
     # Clear backups in safety subdirectory
-    local safety_dir="${TEST_TEMP_DIR}/.claude/backups/safety"
+    local safety_dir="${TEST_TEMP_DIR}/.cleo/backups/safety"
     rm -rf "$safety_dir"
     mkdir -p "$safety_dir"
 

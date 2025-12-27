@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# migrate.sh - Schema migration command for claude-todo
+# Schema migration command for cleo
 # Handles version upgrades for todo files
 
 set -euo pipefail
@@ -7,11 +7,11 @@ set -euo pipefail
 # Determine the library directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Load VERSION from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -76,9 +76,9 @@ check_jq_dependency() {
 
 show_usage() {
     cat <<EOF
-Usage: claude-todo migrate [COMMAND] [OPTIONS]
+Usage: cleo migrate [COMMAND] [OPTIONS]
 
-Schema version migration for claude-todo files.
+Schema version migration for cleo files.
 
 Commands:
   status                 Show version status of all files
@@ -117,31 +117,31 @@ JSON Output:
 
 Examples:
   # Check migration status
-  claude-todo migrate status
+  cleo migrate status
 
   # Migrate all files in current project
-  claude-todo migrate run
+  cleo migrate run
 
   # Migrate specific file
-  claude-todo migrate file .claude/todo.json todo
+  cleo migrate file .cleo/todo.json todo
 
   # Auto-migrate without confirmation
-  claude-todo migrate run --auto
+  cleo migrate run --auto
 
   # Rollback from most recent migration backup
-  claude-todo migrate rollback
+  cleo migrate rollback
 
   # Rollback from specific backup
-  claude-todo migrate rollback --backup-id migration_v2.1.0_20251215_120000
+  cleo migrate rollback --backup-id migration_v2.1.0_20251215_120000
 
   # Check what repairs are needed (dry-run)
-  claude-todo migrate repair --dry-run
+  cleo migrate repair --dry-run
 
   # Auto-repair schema issues
-  claude-todo migrate repair --auto
+  cleo migrate repair --auto
 
   # JSON output for scripting
-  claude-todo migrate status --json
+  cleo migrate status --json
 
 Schema Versions:
   todo:    $SCHEMA_VERSION_TODO
@@ -160,24 +160,24 @@ cmd_repair() {
     local project_dir="${1:-.}"
     local mode="${2:-interactive}"  # interactive, auto, dry-run
 
-    local claude_dir="$project_dir/.claude"
-    local todo_file="$claude_dir/todo.json"
+    local cleo_dir="$project_dir/.cleo"
+    local todo_file="$cleo_dir/todo.json"
 
-    if [[ ! -d "$claude_dir" ]]; then
+    if [[ ! -d "$cleo_dir" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found in $project_dir" "${EXIT_NOT_FOUND:-4}" true "Run 'claude-todo init' to initialize the project"
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir" "${EXIT_NOT_FOUND:-4}" true "Run 'cleo init' to initialize the project"
         else
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found in $project_dir"
-            echo "Run 'claude-todo init' to initialize the project" >&2
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir"
+            echo "Run 'cleo init' to initialize the project" >&2
         fi
         exit "${EXIT_NOT_FOUND:-1}"
     fi
 
     if [[ ! -f "$todo_file" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_FILE_NOT_FOUND" "No todo.json found in $claude_dir" "${EXIT_FILE_ERROR:-4}" false ""
+            output_error "$E_FILE_NOT_FOUND" "No todo.json found in $cleo_dir" "${EXIT_FILE_ERROR:-4}" false ""
         else
-            output_error "$E_FILE_NOT_FOUND" "No todo.json found in $claude_dir"
+            output_error "$E_FILE_NOT_FOUND" "No todo.json found in $cleo_dir"
         fi
         exit "${EXIT_FILE_ERROR:-1}"
     fi
@@ -202,7 +202,7 @@ cmd_repair() {
             --argjson needsRepair "$needs_repair" \
             --argjson actions "$actions" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "command": "migrate",
                     "subcommand": "repair",
@@ -235,14 +235,14 @@ cmd_repair() {
 # Show migration status for all files
 cmd_status() {
     local project_dir="${1:-.}"
-    local claude_dir="$project_dir/.claude"
+    local cleo_dir="$project_dir/.cleo"
 
-    if [[ ! -d "$claude_dir" ]]; then
+    if [[ ! -d "$cleo_dir" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found in $project_dir" "${EXIT_NOT_FOUND:-4}" true "Run 'claude-todo init' to initialize the project"
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir" "${EXIT_NOT_FOUND:-4}" true "Run 'cleo init' to initialize the project"
         else
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found in $project_dir"
-            echo "Run 'claude-todo init' to initialize the project" >&2
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir"
+            echo "Run 'cleo init' to initialize the project" >&2
         fi
         exit "${EXIT_NOT_FOUND:-1}"
     fi
@@ -251,10 +251,10 @@ cmd_status() {
         # JSON output
         local files_json="[]"
         local files=(
-            "$claude_dir/todo.json:todo"
-            "$claude_dir/todo-config.json:config"
-            "$claude_dir/todo-archive.json:archive"
-            "$claude_dir/todo-log.json:log"
+            "$cleo_dir/todo.json:todo"
+            "$cleo_dir/config.json:config"
+            "$cleo_dir/todo-archive.json:archive"
+            "$cleo_dir/todo-log.json:log"
         )
 
         for file_spec in "${files[@]}"; do
@@ -271,11 +271,19 @@ cmd_status() {
             local status
             check_compatibility "$file" "$file_type" && status=$? || status=$?
 
+            # check_compatibility returns:
+            # 0 = current (no action needed)
+            # 1 = patch_only (just bump version)
+            # 2 = migration_needed (MINOR change)
+            # 3 = major_upgrade (MAJOR version upgrade - can migrate with --force)
+            # 4 = data_newer (data is newer than schema - cannot migrate)
             case $status in
                 0) status_text="current"; needs_migration=false ;;
-                1) status_text="outdated"; needs_migration=true ;;
-                2) status_text="incompatible"; needs_migration=true ;;
-                *) status_text="unknown"; needs_migration=false ;;
+                1) status_text="patch_update"; needs_migration=true ;;
+                2) status_text="migration_needed"; needs_migration=true ;;
+                3) status_text="major_upgrade"; needs_migration=true ;;
+                4) status_text="data_newer"; needs_migration=false ;;
+                *) status_text="unknown"; needs_migration=true ;;
             esac
 
             files_json=$(echo "$files_json" | jq \
@@ -300,7 +308,7 @@ cmd_status() {
             --arg projectDir "$project_dir" \
             --argjson files "$files_json" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "command": "migrate",
                     "subcommand": "status",
@@ -319,30 +327,30 @@ cmd_status() {
             }' | jq --arg todo "$SCHEMA_VERSION_TODO" --arg config "$SCHEMA_VERSION_CONFIG" --arg archive "$SCHEMA_VERSION_ARCHIVE" --arg log "$SCHEMA_VERSION_LOG" \
             '.targetVersions = {"todo": $todo, "config": $config, "archive": $archive, "log": $log}'
     else
-        show_migration_status "$claude_dir"
+        show_migration_status "$cleo_dir"
     fi
 }
 
 # Check if migration is needed
 cmd_check() {
     local project_dir="${1:-.}"
-    local claude_dir="$project_dir/.claude"
+    local cleo_dir="$project_dir/.cleo"
 
-    if [[ ! -d "$claude_dir" ]]; then
+    if [[ ! -d "$cleo_dir" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found" "${EXIT_NOT_FOUND:-4}" true "Run 'claude-todo init' to initialize the project"
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found" "${EXIT_NOT_FOUND:-4}" true "Run 'cleo init' to initialize the project"
         else
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found"
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found"
         fi
         exit "${EXIT_NOT_FOUND:-1}"
     fi
 
     local needs_migration=false
     local files=(
-        "$claude_dir/todo.json:todo"
-        "$claude_dir/todo-config.json:config"
-        "$claude_dir/todo-archive.json:archive"
-        "$claude_dir/todo-log.json:log"
+        "$cleo_dir/todo.json:todo"
+        "$cleo_dir/config.json:config"
+        "$cleo_dir/todo-archive.json:archive"
+        "$cleo_dir/todo-log.json:log"
     )
 
     for file_spec in "${files[@]}"; do
@@ -352,32 +360,50 @@ cmd_check() {
             continue
         fi
 
+        # check_compatibility returns:
+        # 0 = current (no action needed)
+        # 1 = patch_only (just bump version)
+        # 2 = migration_needed (MINOR change)
+        # 3 = major_upgrade (MAJOR version upgrade - can migrate with --force)
+        # 4 = data_newer (data is newer than schema - cannot migrate)
         local status
         check_compatibility "$file" "$file_type" && status=$? || status=$?
 
-        if [[ $status -eq 1 ]]; then
-            needs_migration=true
-            break
-        elif [[ $status -eq 2 ]]; then
-            if [[ "$FORMAT" == "json" ]]; then
-                jq -n \
-                    --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-                    --arg file "$file" \
-                    '{
-                        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
-                        "_meta": {"command": "migrate", "subcommand": "check", "timestamp": $timestamp, "format": "json"},
-                        "success": false,
-                        "error": {
-                            "code": "E_INCOMPATIBLE_VERSION",
-                            "message": ("Incompatible version found in " + $file),
-                            "file": $file
-                        }
-                    }'
-            else
-                output_error "$E_INPUT_INVALID" "Incompatible version found in $file"
-            fi
-            exit "${EXIT_INVALID_INPUT:-1}"
-        fi
+        case $status in
+            0) ;; # Current, no action needed
+            1|2|3)
+                needs_migration=true
+                break
+                ;;
+            4)
+                # Data is newer than schema - cannot migrate
+                if [[ "$FORMAT" == "json" ]]; then
+                    local current_version expected_version
+                    current_version=$(detect_file_version "$file")
+                    expected_version=$(get_expected_version "$file_type")
+                    jq -n \
+                        --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                        --arg file "$file" \
+                        --arg current "$current_version" \
+                        --arg expected "$expected_version" \
+                        '{
+                            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                            "_meta": {"command": "migrate", "subcommand": "check", "timestamp": $timestamp, "format": "json"},
+                            "success": false,
+                            "error": {
+                                "code": "E_DATA_NEWER",
+                                "message": "Data version newer than schema - upgrade cleo",
+                                "file": $file,
+                                "dataVersion": $current,
+                                "schemaVersion": $expected
+                            }
+                        }'
+                else
+                    output_error "$E_INPUT_INVALID" "Data version newer than schema in $file - upgrade cleo"
+                fi
+                exit "${EXIT_INVALID_INPUT:-1}"
+                ;;
+        esac
     done
 
     if [[ "$FORMAT" == "json" ]]; then
@@ -385,7 +411,7 @@ cmd_check() {
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --argjson needed "$needs_migration" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {"command": "migrate", "subcommand": "check", "timestamp": $timestamp, "format": "json"},
                 "success": true,
                 "migrationNeeded": $needed
@@ -413,13 +439,13 @@ cmd_run() {
     local create_backup="${3:-true}"
     local force_migration="${4:-false}"
 
-    local claude_dir="$project_dir/.claude"
+    local cleo_dir="$project_dir/.cleo"
 
-    if [[ ! -d "$claude_dir" ]]; then
+    if [[ ! -d "$cleo_dir" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found" "${EXIT_NOT_FOUND:-4}" true "Run 'claude-todo init' to initialize the project"
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found" "${EXIT_NOT_FOUND:-4}" true "Run 'cleo init' to initialize the project"
         else
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found"
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found"
         fi
         exit "${EXIT_NOT_FOUND:-1}"
     fi
@@ -437,14 +463,16 @@ cmd_run() {
 
     # Check status first
     local files=(
-        "$claude_dir/todo.json:todo"
-        "$claude_dir/todo-config.json:config"
-        "$claude_dir/todo-archive.json:archive"
-        "$claude_dir/todo-log.json:log"
+        "$cleo_dir/todo.json:todo"
+        "$cleo_dir/config.json:config"
+        "$cleo_dir/todo-archive.json:archive"
+        "$cleo_dir/todo-log.json:log"
     )
 
     local migration_needed=false
-    local incompatible_found=false
+    local major_upgrade_needed=false
+    local data_newer_found=false
+    local problematic_file=""
 
     for file_spec in "${files[@]}"; do
         IFS=':' read -r file file_type <<< "$file_spec"
@@ -453,22 +481,44 @@ cmd_run() {
             continue
         fi
 
+        # check_compatibility returns:
+        # 0 = current (no action needed)
+        # 1 = patch_only (just bump version)
+        # 2 = migration_needed (MINOR change)
+        # 3 = major_upgrade (MAJOR version upgrade - can migrate with --force)
+        # 4 = data_newer (data is newer than schema - cannot migrate)
         local status
         check_compatibility "$file" "$file_type" && status=$? || status=$?
 
-        if [[ $status -eq 1 ]]; then
-            migration_needed=true
-        elif [[ $status -eq 2 ]]; then
-            incompatible_found=true
-        fi
+        case $status in
+            1|2) migration_needed=true ;;
+            3)   migration_needed=true; major_upgrade_needed=true ;;
+            4)   data_newer_found=true; problematic_file="$file" ;;
+        esac
     done
 
-    if [[ "$incompatible_found" == "true" ]]; then
+    # Data newer than schema - cannot migrate, need to upgrade cleo
+    if [[ "$data_newer_found" == "true" ]]; then
+        local current_version expected_version
+        current_version=$(detect_file_version "$problematic_file")
+        expected_version=$(get_expected_version "$(echo "$problematic_file" | sed 's/.*\///' | sed 's/\.json$//' | sed 's/todo-//')")
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_INPUT_INVALID" "Incompatible versions detected" "${EXIT_INVALID_INPUT:-1}" true "Manual intervention required"
+            output_error "$E_INPUT_INVALID" "Data version ($current_version) newer than schema ($expected_version)" "${EXIT_INVALID_INPUT:-1}" true "Upgrade cleo to a newer version"
         else
-            output_error "$E_INPUT_INVALID" "Incompatible versions detected"
-            echo "Manual intervention required" >&2
+            output_error "$E_INPUT_INVALID" "Data version ($current_version) is newer than schema ($expected_version)"
+            echo "Your data was created by a newer version of cleo." >&2
+            echo "Please upgrade cleo: npm install -g cleo OR update from source" >&2
+        fi
+        exit "${EXIT_INVALID_INPUT:-1}"
+    fi
+
+    # Major version upgrades (e.g., 0.x → 2.x) require --force
+    if [[ "$major_upgrade_needed" == "true" && "$force_migration" == "false" ]]; then
+        if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
+            output_error "$E_INPUT_INVALID" "Major version upgrade detected" "${EXIT_INVALID_INPUT:-1}" true "Use --force to upgrade from legacy schema"
+        else
+            output_error "$E_INPUT_INVALID" "Major version upgrade detected (e.g., 0.x → 2.x)"
+            echo "Use: cleo migrate run --force" >&2
         fi
         exit "${EXIT_INVALID_INPUT:-1}"
     fi
@@ -549,20 +599,27 @@ cmd_run() {
             continue
         fi
 
+        # check_compatibility returns:
+        # 0 = current, 1 = patch, 2 = minor, 3 = major, 4 = data_newer
         local status
         check_compatibility "$file" "$file_type" && status=$? || status=$?
 
-        # Force migration if flag is set, otherwise only migrate if needed
-        if [[ $status -eq 1 || "$force_migration" == "true" ]]; then
-            if [[ "$force_migration" == "true" && $status -eq 0 ]]; then
-                echo "Migrating $file_type (forced)..."
-            else
-                echo "Migrating $file_type..."
-            fi
-
+        # Skip status 4 (data_newer) - already handled above
+        # Force migration if flag is set, otherwise only migrate if status 1-3
+        if [[ ($status -ge 1 && $status -le 3) || "$force_migration" == "true" ]]; then
             local current_version expected_version
             current_version=$(detect_file_version "$file")
             expected_version=$(get_expected_version "$file_type")
+
+            if [[ "$force_migration" == "true" && $status -eq 0 ]]; then
+                echo "Migrating $file_type (forced)..."
+            elif [[ $status -eq 3 ]]; then
+                echo "Migrating $file_type (major upgrade: $current_version → $expected_version)..."
+            elif [[ $status -eq 1 ]]; then
+                echo "Migrating $file_type (patch: $current_version → $expected_version)..."
+            else
+                echo "Migrating $file_type ($current_version → $expected_version)..."
+            fi
 
             if ! migrate_file "$file" "$file_type" "$current_version" "$expected_version"; then
                 echo "✗ Migration failed for $file_type" >&2
@@ -644,15 +701,15 @@ cmd_rollback() {
     local backup_id="${2:-}"
     local force="${3:-false}"
 
-    local claude_dir="$project_dir/.claude"
-    local backups_dir="$claude_dir/backups/migration"
+    local cleo_dir="$project_dir/.cleo"
+    local backups_dir="$cleo_dir/backups/migration"
 
-    if [[ ! -d "$claude_dir" ]]; then
+    if [[ ! -d "$cleo_dir" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found in $project_dir" "${EXIT_NOT_FOUND:-4}" true "Run 'claude-todo init' to initialize the project"
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir" "${EXIT_NOT_FOUND:-4}" true "Run 'cleo init' to initialize the project"
         else
-            output_error "$E_NOT_INITIALIZED" "No .claude directory found in $project_dir"
-            echo "Run 'claude-todo init' to initialize the project" >&2
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir"
+            echo "Run 'cleo init' to initialize the project" >&2
         fi
         exit "${EXIT_NOT_FOUND:-1}"
     fi
@@ -751,14 +808,14 @@ cmd_rollback() {
 
     # Create pre-rollback safety backup
     echo "Creating safety backup before rollback..."
-    local safety_backup="$claude_dir/backups/safety/safety_$(date +"%Y%m%d_%H%M%S")_pre_rollback"
+    local safety_backup="$cleo_dir/backups/safety/safety_$(date +"%Y%m%d_%H%M%S")_pre_rollback"
     mkdir -p "$safety_backup"
 
     local files=(
-        "$claude_dir/todo.json"
-        "$claude_dir/todo-config.json"
-        "$claude_dir/todo-archive.json"
-        "$claude_dir/todo-log.json"
+        "$cleo_dir/todo.json"
+        "$cleo_dir/config.json"
+        "$cleo_dir/todo-archive.json"
+        "$cleo_dir/todo-log.json"
     )
 
     for file in "${files[@]}"; do
@@ -823,7 +880,7 @@ cmd_rollback() {
     local validation_errors=0
 
     for filename in "${restored_files[@]}"; do
-        local target_file="$claude_dir/$filename"
+        local target_file="$cleo_dir/$filename"
 
         if [[ -f "$target_file" ]]; then
             if ! jq empty "$target_file" 2>/dev/null; then
@@ -858,7 +915,7 @@ cmd_rollback() {
             todo.json)
                 file_type="todo"
                 ;;
-            todo-config.json)
+            config.json)
                 file_type="config"
                 ;;
             todo-archive.json)
@@ -988,10 +1045,10 @@ main() {
         "file")
             if [[ $# -lt 2 ]]; then
                 if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-                    output_error "$E_INPUT_MISSING" "Missing arguments for 'file' command" "${EXIT_INVALID_INPUT:-1}" true "Usage: claude-todo migrate file <path> <type>"
+                    output_error "$E_INPUT_MISSING" "Missing arguments for 'file' command" "${EXIT_INVALID_INPUT:-1}" true "Usage: cleo migrate file <path> <type>"
                 else
                     output_error "$E_INPUT_MISSING" "Missing arguments for 'file' command"
-                    echo "Usage: claude-todo migrate file <path> <type>" >&2
+                    echo "Usage: cleo migrate file <path> <type>" >&2
                 fi
                 exit "${EXIT_INVALID_INPUT:-1}"
             fi
@@ -1016,7 +1073,7 @@ main() {
             ;;
         *)
             if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-                output_error "$E_INPUT_INVALID" "Unknown command: $command" "${EXIT_INVALID_INPUT:-1}" true "Run 'claude-todo migrate --help' for usage"
+                output_error "$E_INPUT_INVALID" "Unknown command: $command" "${EXIT_INVALID_INPUT:-1}" true "Run 'cleo migrate --help' for usage"
             else
                 output_error "$E_INPUT_INVALID" "Unknown command: $command"
                 echo "" >&2

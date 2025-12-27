@@ -24,7 +24,7 @@ Think of it like a **check-out/check-in system** at a library:
 │                 │     │                 │     │                 │
 │  "Check out"    │     │  Claude works   │     │  "Check in"     │
 │  tasks to       │     │  with TodoWrite │     │  changes back   │
-│  TodoWrite      │     │  naturally      │     │  to claude-todo │
+│  TodoWrite      │     │  naturally      │     │  to cleo │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
@@ -33,8 +33,8 @@ Think of it like a **check-out/check-in system** at a library:
 | File | Purpose |
 |------|---------|
 | `scripts/sync-todowrite.sh` | Main orchestrator & subcommand router |
-| `scripts/inject-todowrite.sh` | Session start: claude-todo → TodoWrite |
-| `scripts/extract-todowrite.sh` | Session end: TodoWrite → claude-todo |
+| `scripts/inject-todowrite.sh` | Session start: cleo → TodoWrite |
+| `scripts/extract-todowrite.sh` | Session end: TodoWrite → cleo |
 | `lib/todowrite-integration.sh` | Grammar transformation & status mapping |
 | `docs/specs/TODOWRITE-SYNC-SPEC.md` | Authoritative specification |
 
@@ -42,10 +42,10 @@ Think of it like a **check-out/check-in system** at a library:
 
 ## Step 1: Inject (Session Start)
 
-**Command**: `claude-todo sync --inject`
+**Command**: `cleo sync --inject`
 
 **What happens**:
-1. Reads your tasks from claude-todo
+1. Reads your tasks from cleo
 2. Picks the most relevant ones (focused task + dependencies + high priority)
 3. Converts them to TodoWrite's simpler format
 4. **Embeds task IDs in the content** as `[T001]` prefixes
@@ -73,7 +73,7 @@ Think of it like a **check-out/check-in system** at a library:
 **Behind the scenes**: A session state file is saved that remembers which tasks were sent out:
 
 ```json
-// .claude/sync/todowrite-session.json
+// .cleo/sync/todowrite-session.json
 {
   "session_id": "session_20251215_143022_a1b2c3",
   "injected_at": "2025-12-15T14:30:22Z",
@@ -110,7 +110,7 @@ Claude uses TodoWrite normally:
 
 ## Step 3: Extract (Session End)
 
-**Command**: `claude-todo sync --extract <todowrite-state.json>`
+**Command**: `cleo sync --extract <todowrite-state.json>`
 
 **What happens**:
 1. Reads the final TodoWrite state
@@ -120,9 +120,9 @@ Claude uses TodoWrite normally:
 
 | Change Type | How We Know | What We Do |
 |-------------|-------------|------------|
-| **Completed** | `status: completed` | Mark done in claude-todo |
+| **Completed** | `status: completed` | Mark done in cleo |
 | **Progressed** | `status: in_progress` (was pending) | Update to active |
-| **New tasks** | No `[T###]` prefix | Create in claude-todo |
+| **New tasks** | No `[T###]` prefix | Create in cleo |
 | **Removed** | Was injected but now missing | Log it (don't delete) |
 
 5. Cleans up the session state file
@@ -140,7 +140,7 @@ Claude-todo has 10+ fields: `id`, `title`, `status`, `priority`, `phase`, `depen
 - **Progress** via status field
 - **Context** by creating new tasks discovered during work
 
-Everything else (priority, labels, dependencies) stays safe in claude-todo.
+Everything else (priority, labels, dependencies) stays safe in cleo.
 
 ---
 
@@ -148,14 +148,14 @@ Everything else (priority, labels, dependencies) stays safe in claude-todo.
 
 The two systems have different status values (`lib/todowrite-integration.sh:177-189`):
 
-| claude-todo | → TodoWrite | Notes |
+| cleo | → TodoWrite | Notes |
 |-------------|-------------|-------|
 | `pending` | `pending` | Same |
 | `active` | `in_progress` | Renamed |
 | `blocked` | `pending` + `[BLOCKED]` marker | Downgraded (info in marker) |
 | `done` | (not sent) | Already done = don't inject |
 
-| TodoWrite | → claude-todo | Notes |
+| TodoWrite | → cleo | Notes |
 |-----------|---------------|-------|
 | `pending` | `pending` | Same |
 | `in_progress` | `active` | Renamed |
@@ -220,9 +220,9 @@ If there's a conflict, we warn but don't fail.
 
 | Command | Purpose | Round-trip? |
 |---------|---------|-------------|
-| `claude-todo export --format todowrite` | Generate TodoWrite JSON for external use | No |
-| `claude-todo sync --inject` | Start sync session | Yes |
-| `claude-todo sync --extract` | End sync session | Yes |
+| `cleo export --format todowrite` | Generate TodoWrite JSON for external use | No |
+| `cleo sync --inject` | Start sync session | Yes |
+| `cleo sync --extract` | End sync session | Yes |
 
 **Export** is for integration with other tools.
 **Sync** is for Claude Code session workflows.
@@ -233,18 +233,18 @@ If there's a conflict, we warn but don't fail.
 
 ```bash
 # Session start
-claude-todo session start
-claude-todo sync --inject              # Outputs JSON for TodoWrite
+cleo session start
+cleo sync --inject              # Outputs JSON for TodoWrite
 
 # Session end
-claude-todo sync --extract state.json  # Merges changes back
-claude-todo session end
+cleo sync --extract state.json  # Merges changes back
+cleo session end
 
 # Check sync status
-claude-todo sync --status              # Show active sync session
+cleo sync --status              # Show active sync session
 
 # Recovery (if session crashes)
-claude-todo sync --clear               # Remove stale state without merging
+cleo sync --clear               # Remove stale state without merging
 ```
 
 ### Exit Codes
@@ -267,7 +267,7 @@ claude-todo sync --clear               # Remove stale state without merging
 │                         INJECTION FLOW                                    │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  .claude/todo.json                                                       │
+│  .cleo/todo.json                                                       │
 │  ┌─────────────────────────────────────────┐                            │
 │  │ tasks: [                                │                            │
 │  │   {id: "T001", title: "Impl auth",      │                            │
@@ -291,7 +291,7 @@ claude-todo sync --clear               # Remove stale state without merging
 │        ┌────────────┴────────────┐                                      │
 │        ▼                         ▼                                      │
 │  Session State              TodoWrite JSON                               │
-│  (.claude/sync/)            (stdout)                                    │
+│  (.cleo/sync/)            (stdout)                                    │
 │  ┌──────────────┐           ┌──────────────────────────────┐            │
 │  │session_id    │           │{"todos": [                   │            │
 │  │injected_at   │           │  {"content": "[T001] [!]...  │            │
@@ -312,7 +312,7 @@ claude-todo sync --clear               # Remove stale state without merging
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  TodoWrite Final State                 Session State                     │
-│  (from Claude session)                 (.claude/sync/)                   │
+│  (from Claude session)                 (.cleo/sync/)                   │
 │  ┌──────────────────────────┐          ┌──────────────┐                 │
 │  │{"todos": [               │          │injected_tasks│                 │
 │  │  {"content": "[T001]..." │          │task_metadata │                 │
@@ -336,7 +336,7 @@ claude-todo sync --clear               # Remove stale state without merging
 │                     │                                                    │
 │                     ▼                                                    │
 │  ┌─────────────────────────────────────────┐                            │
-│  │ .claude/todo.json (updated)             │                            │
+│  │ .cleo/todo.json (updated)             │                            │
 │  │ - T001: status → done                   │                            │
 │  │ - T010: NEW (title: "New task",         │                            │
 │  │         labels: ["session-created"],    │                            │
@@ -354,7 +354,7 @@ claude-todo sync --clear               # Remove stale state without merging
 2. **Claude works normally** with TodoWrite during the session
 3. **Extract** parses those prefixes to identify tasks and sync changes back
 4. **New tasks** get created, **completed tasks** get marked done
-5. **Everything else** stays safe in claude-todo's persistent storage
+5. **Everything else** stays safe in cleo's persistent storage
 
 It's like giving Claude a "working copy" of your tasks, then merging the changes when done - similar to how git branches work.
 
@@ -387,12 +387,12 @@ Hooks can run shell commands and provide prompts to Claude, but they cannot prog
 
 ```
 SessionStart Hook:
-  1. Command hook: claude-todo sync --inject --output /tmp/tasks.json
+  1. Command hook: cleo sync --inject --output /tmp/tasks.json
   2. Prompt hook: "Claude, load tasks from /tmp/tasks.json into TodoWrite"
 
 SessionEnd Hook:
   1. Prompt hook: "Claude, output TodoWrite state to /tmp/state.json"
-  2. Command hook: claude-todo sync --extract /tmp/state.json
+  2. Command hook: cleo sync --extract /tmp/state.json
 ```
 
 **No hooks are used.** Sync is triggered by:
@@ -401,8 +401,8 @@ SessionEnd Hook:
 
 ```bash                                                                                                                                                                        
 # These must be run explicitly (no automation)
-claude-todo sync --inject
-claude-todo sync --extract
+cleo sync --inject
+cleo sync --extract
 ```
 
 **Why not automated yet?**
@@ -412,4 +412,4 @@ claude-todo sync --extract
 
 ---
 
-*This is the TodoWrite sync system in claude-todo v0.31.0+*
+*This is the TodoWrite sync system in cleo v0.31.0+*

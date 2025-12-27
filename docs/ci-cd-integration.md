@@ -1,10 +1,10 @@
 # CI/CD Integration Guide
 
-Integrate claude-todo task validation and tracking into your continuous integration and deployment pipelines.
+Integrate cleo task validation and tracking into your continuous integration and deployment pipelines.
 
 ## Overview
 
-Integrating claude-todo into your CI/CD pipeline enables:
+Integrating cleo into your CI/CD pipeline enables:
 
 - **Pre-deployment validation**: Prevent deployments with blocked or incomplete critical tasks
 - **Task integrity checks**: Validate task data structure on every commit
@@ -24,14 +24,14 @@ Your CI environment needs:
 
 ### Repository Setup
 
-1. **Check in configuration**: Commit `.claude/todo-config.json` to version control
-2. **Include task files**: Add `.claude/todo.json` to repository (optional)
-3. **Exclude sensitive data**: Add `.claude/.backups/` and `.claude/todo-log.json` to `.gitignore` if needed
+1. **Check in configuration**: Commit `.cleo/config.json` to version control
+2. **Include task files**: Add `.cleo/todo.json` to repository (optional)
+3. **Exclude sensitive data**: Add `.cleo/.backups/` and `.cleo/todo-log.json` to `.gitignore` if needed
 
 ```bash
 # Example .gitignore
-.claude/.backups/
-.claude/todo-log.json  # Optional: exclude audit logs from repo
+.cleo/.backups/
+.cleo/todo-log.json  # Optional: exclude audit logs from repo
 ```
 
 ## GitHub Actions
@@ -48,10 +48,10 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - '.claude/**'
+      - '.cleo/**'
   pull_request:
     paths:
-      - '.claude/**'
+      - '.cleo/**'
 
 jobs:
   validate:
@@ -66,15 +66,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq parallel coreutils util-linux
 
-      - name: Install claude-todo
+      - name: Install cleo
         run: |
           ./install.sh --force
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Validate task files
         run: |
-          if [ -f .claude/todo.json ]; then
-            claude-todo validate
+          if [ -f .cleo/todo.json ]; then
+            cleo validate
             echo "✓ Task validation passed"
           else
             echo "No task files to validate"
@@ -101,18 +101,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install claude-todo
+      - name: Install cleo
         run: |
           ./install.sh --force
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Check for blocked tasks
         run: |
-          BLOCKED_COUNT=$(claude-todo list --status blocked --format json | jq '.tasks | length')
+          BLOCKED_COUNT=$(cleo list --status blocked --format json | jq '.tasks | length')
 
           if [ "$BLOCKED_COUNT" -gt 0 ]; then
             echo "❌ Deployment blocked: $BLOCKED_COUNT blocked tasks found"
-            claude-todo blockers
+            cleo blockers
             exit 1
           fi
 
@@ -120,11 +120,11 @@ jobs:
 
       - name: Check critical task completion
         run: |
-          CRITICAL_PENDING=$(claude-todo list --priority critical --status pending,active --format json | jq '.tasks | length')
+          CRITICAL_PENDING=$(cleo list --priority critical --status pending,active --format json | jq '.tasks | length')
 
           if [ "$CRITICAL_PENDING" -gt 0 ]; then
             echo "⚠️  Warning: $CRITICAL_PENDING critical tasks still pending"
-            claude-todo list --priority critical --status pending,active
+            cleo list --priority critical --status pending,active
             # Uncomment to fail on critical tasks:
             # exit 1
           else
@@ -153,7 +153,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install claude-todo
+      - name: Install cleo
         run: |
           ./install.sh --force
           echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -162,11 +162,11 @@ jobs:
         run: |
           echo "# Task Dashboard - $(date +'%Y-%m-%d')" > report.md
           echo "" >> report.md
-          claude-todo dash --period 7 >> report.md
+          cleo dash --period 7 >> report.md
 
       - name: Generate CSV export
         run: |
-          claude-todo export --format csv > tasks-$(date +'%Y%m%d').csv
+          cleo export --format csv > tasks-$(date +'%Y%m%d').csv
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -182,7 +182,7 @@ jobs:
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          SUMMARY=$(claude-todo dash --compact)
+          SUMMARY=$(cleo dash --compact)
           curl -X POST -H 'Content-type: application/json' \
             --data "{\"text\":\"📊 Weekly Task Report\n\`\`\`\n$SUMMARY\n\`\`\`\"}" \
             $SLACK_WEBHOOK
@@ -200,7 +200,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.claude/todo.json'
+      - '.cleo/todo.json'
 
 jobs:
   track-metrics:
@@ -209,7 +209,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install claude-todo
+      - name: Install cleo
         run: |
           ./install.sh --force
           echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -217,9 +217,9 @@ jobs:
       - name: Calculate metrics
         id: metrics
         run: |
-          TOTAL=$(claude-todo list --format json | jq '.tasks | length')
-          PENDING=$(claude-todo list --status pending --format json | jq '.tasks | length')
-          DONE=$(claude-todo list --status done --format json | jq '.tasks | length')
+          TOTAL=$(cleo list --format json | jq '.tasks | length')
+          PENDING=$(cleo list --status pending --format json | jq '.tasks | length')
+          DONE=$(cleo list --status done --format json | jq '.tasks | length')
 
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "pending=$PENDING" >> $GITHUB_OUTPUT
@@ -253,7 +253,7 @@ stages:
   - deploy
 
 variables:
-  CLAUDE_TODO_HOME: "$CI_PROJECT_DIR/.claude-todo-install"
+  CLEO_HOME: "$CI_PROJECT_DIR/.cleo-install"
 
 before_script:
   - apt-get update -qq
@@ -266,13 +266,13 @@ validate:tasks:
     - ./install.sh --force
     - export PATH="$HOME/.local/bin:$PATH"
     - |
-      if [ -f .claude/todo.json ]; then
-        claude-todo validate
+      if [ -f .cleo/todo.json ]; then
+        cleo validate
         echo "✓ Task validation passed"
       fi
   only:
     changes:
-      - .claude/**
+      - .cleo/**
 
 # Stage 2: Check for blockers
 check:blockers:
@@ -281,10 +281,10 @@ check:blockers:
     - ./install.sh --force
     - export PATH="$HOME/.local/bin:$PATH"
     - |
-      BLOCKED_COUNT=$(claude-todo list --status blocked --format json | jq '.tasks | length')
+      BLOCKED_COUNT=$(cleo list --status blocked --format json | jq '.tasks | length')
       if [ "$BLOCKED_COUNT" -gt 0 ]; then
         echo "❌ Found $BLOCKED_COUNT blocked tasks"
-        claude-todo blockers
+        cleo blockers
         exit 1
       fi
       echo "✓ No blockers detected"
@@ -298,8 +298,8 @@ report:weekly:
   script:
     - ./install.sh --force
     - export PATH="$HOME/.local/bin:$PATH"
-    - claude-todo dash --period 7 > task-report.txt
-    - claude-todo export --format csv > tasks.csv
+    - cleo dash --period 7 > task-report.txt
+    - cleo export --format csv > tasks.csv
   artifacts:
     paths:
       - task-report.txt
@@ -318,10 +318,10 @@ deploy:production:
   script:
     # Check critical tasks
     - |
-      CRITICAL=$(claude-todo list --priority critical --status pending,active,blocked --format json | jq '.tasks | length')
+      CRITICAL=$(cleo list --priority critical --status pending,active,blocked --format json | jq '.tasks | length')
       if [ "$CRITICAL" -gt 0 ]; then
         echo "❌ Cannot deploy: $CRITICAL critical tasks incomplete"
-        claude-todo list --priority critical --status pending,active,blocked
+        cleo list --priority critical --status pending,active,blocked
         exit 1
       fi
     # Proceed with deployment
@@ -344,7 +344,7 @@ mr:task-status:
     - ./install.sh --force
     - export PATH="$HOME/.local/bin:$PATH"
     - |
-      STATUS=$(claude-todo dash --compact)
+      STATUS=$(cleo dash --compact)
       echo "## Task Status" > task_status.md
       echo "" >> task_status.md
       echo "\`\`\`" >> task_status.md
@@ -378,7 +378,7 @@ pipeline {
                     sudo apt-get update
                     sudo apt-get install -y jq coreutils util-linux
 
-                    # Install claude-todo
+                    # Install cleo
                     ./install.sh --force
                 '''
             }
@@ -386,12 +386,12 @@ pipeline {
 
         stage('Validate Tasks') {
             when {
-                changeset ".claude/**"
+                changeset ".cleo/**"
             }
             steps {
                 sh '''
-                    if [ -f .claude/todo.json ]; then
-                        claude-todo validate
+                    if [ -f .cleo/todo.json ]; then
+                        cleo validate
                     fi
                 '''
             }
@@ -401,13 +401,13 @@ pipeline {
             steps {
                 script {
                     def blockedCount = sh(
-                        script: "claude-todo list --status blocked --format json | jq '.tasks | length'",
+                        script: "cleo list --status blocked --format json | jq '.tasks | length'",
                         returnStdout: true
                     ).trim()
 
                     if (blockedCount.toInteger() > 0) {
                         echo "Warning: ${blockedCount} blocked tasks found"
-                        sh 'claude-todo blockers'
+                        sh 'cleo blockers'
 
                         // Uncomment to fail build:
                         // error("Deployment blocked: ${blockedCount} blocked tasks")
@@ -422,8 +422,8 @@ pipeline {
             }
             steps {
                 sh '''
-                    claude-todo dash --period 7 > task-report.txt
-                    claude-todo export --format csv > tasks.csv
+                    cleo dash --period 7 > task-report.txt
+                    cleo export --format csv > tasks.csv
                 '''
 
                 archiveArtifacts artifacts: 'task-report.txt,tasks.csv', fingerprint: true
@@ -437,7 +437,7 @@ pipeline {
             steps {
                 script {
                     def criticalPending = sh(
-                        script: "claude-todo list --priority critical --status pending,active --format json | jq '.tasks | length'",
+                        script: "cleo list --priority critical --status pending,active --format json | jq '.tasks | length'",
                         returnStdout: true
                     ).trim()
 
@@ -454,7 +454,7 @@ pipeline {
 
     post {
         always {
-            sh 'claude-todo stats'
+            sh 'cleo stats'
         }
         success {
             echo 'Build and task validation successful'
@@ -482,20 +482,20 @@ node {
     stage('Parallel Checks') {
         parallel(
             'Validate Schema': {
-                sh 'claude-todo validate'
+                sh 'cleo validate'
             },
             'Check Blockers': {
                 sh '''
-                    BLOCKED=$(claude-todo list --status blocked --format json | jq '.tasks | length')
+                    BLOCKED=$(cleo list --status blocked --format json | jq '.tasks | length')
                     if [ "$BLOCKED" -gt 0 ]; then
                         echo "⚠️  $BLOCKED blocked tasks found"
-                        claude-todo blockers
+                        cleo blockers
                     fi
                 '''
             },
             'Critical Tasks': {
                 sh '''
-                    CRITICAL=$(claude-todo list --priority critical --status pending,active --format json | jq '.tasks | length')
+                    CRITICAL=$(cleo list --priority critical --status pending,active --format json | jq '.tasks | length')
                     if [ "$CRITICAL" -gt 0 ]; then
                         echo "⚠️  $CRITICAL critical tasks pending"
                     fi
@@ -519,13 +519,13 @@ trigger:
       - develop
   paths:
     include:
-      - .claude/**
+      - .cleo/**
 
 pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  CLAUDE_TODO_HOME: '$(Build.SourcesDirectory)/.claude-todo-install'
+  CLEO_HOME: '$(Build.SourcesDirectory)/.cleo-install'
 
 stages:
   - stage: Validate
@@ -542,22 +542,22 @@ stages:
           - script: |
               ./install.sh --force
               echo "##vso[task.prependpath]$HOME/.local/bin"
-            displayName: 'Install claude-todo'
+            displayName: 'Install cleo'
 
           - script: |
-              if [ -f .claude/todo.json ]; then
-                claude-todo validate
+              if [ -f .cleo/todo.json ]; then
+                cleo validate
                 echo "✓ Validation passed"
               fi
             displayName: 'Validate task schema'
 
           - script: |
-              BLOCKED=$(claude-todo list --status blocked --format json | jq '.tasks | length')
+              BLOCKED=$(cleo list --status blocked --format json | jq '.tasks | length')
               echo "##vso[task.setvariable variable=blockedCount]$BLOCKED"
 
               if [ "$BLOCKED" -gt 0 ]; then
                 echo "##vso[task.logissue type=warning]Found $BLOCKED blocked tasks"
-                claude-todo blockers
+                cleo blockers
               fi
             displayName: 'Check for blockers'
 
@@ -571,16 +571,16 @@ stages:
           - script: |
               ./install.sh --force
               echo "##vso[task.prependpath]$HOME/.local/bin"
-            displayName: 'Install claude-todo'
+            displayName: 'Install cleo'
 
           - script: |
-              claude-todo dash --period 7 > $(Build.ArtifactStagingDirectory)/task-report.txt
-              claude-todo export --format csv > $(Build.ArtifactStagingDirectory)/tasks.csv
+              cleo dash --period 7 > $(Build.ArtifactStagingDirectory)/task-report.txt
+              cleo export --format csv > $(Build.ArtifactStagingDirectory)/tasks.csv
 
               # Create markdown summary
               echo "## Task Dashboard" > $(Build.ArtifactStagingDirectory)/summary.md
               echo "" >> $(Build.ArtifactStagingDirectory)/summary.md
-              claude-todo dash --compact >> $(Build.ArtifactStagingDirectory)/summary.md
+              cleo dash --compact >> $(Build.ArtifactStagingDirectory)/summary.md
             displayName: 'Generate reports'
 
           - task: PublishBuildArtifacts@1
@@ -604,14 +604,14 @@ stages:
                 - script: |
                     ./install.sh --force
                     echo "##vso[task.prependpath]$HOME/.local/bin"
-                  displayName: 'Install claude-todo'
+                  displayName: 'Install cleo'
 
                 - script: |
-                    CRITICAL=$(claude-todo list --priority critical --status pending,active,blocked --format json | jq '.tasks | length')
+                    CRITICAL=$(cleo list --priority critical --status pending,active,blocked --format json | jq '.tasks | length')
 
                     if [ "$CRITICAL" -gt 0 ]; then
                       echo "##vso[task.logissue type=error]Cannot deploy: $CRITICAL critical tasks incomplete"
-                      claude-todo list --priority critical --status pending,active,blocked
+                      cleo list --priority critical --status pending,active,blocked
                       exit 1
                     fi
 
@@ -643,7 +643,7 @@ steps:
     displayName: 'Setup'
 
   - script: |
-      STATUS=$(claude-todo dash --compact)
+      STATUS=$(cleo dash --compact)
       echo "##vso[task.setvariable variable=TaskStatus]$STATUS"
 
       # Add to PR comment
@@ -655,8 +655,8 @@ steps:
     displayName: 'Get task status'
 
   - script: |
-      BLOCKED=$(claude-todo list --status blocked --format json | jq '.tasks | length')
-      CRITICAL=$(claude-todo list --priority critical --status pending,active --format json | jq '.tasks | length')
+      BLOCKED=$(cleo list --status blocked --format json | jq '.tasks | length')
+      CRITICAL=$(cleo list --priority critical --status pending,active --format json | jq '.tasks | length')
 
       if [ "$BLOCKED" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
         echo "##vso[task.logissue type=warning]Review required: $BLOCKED blocked, $CRITICAL critical pending"
@@ -674,12 +674,12 @@ Use exit codes to fail CI builds when tasks are blocked:
 #!/bin/bash
 # check-blockers.sh
 
-BLOCKED_COUNT=$(claude-todo list --status blocked --format json | jq '.tasks | length')
+BLOCKED_COUNT=$(cleo list --status blocked --format json | jq '.tasks | length')
 
 if [ "$BLOCKED_COUNT" -gt 0 ]; then
     echo "❌ Merge blocked: $BLOCKED_COUNT blocked tasks found"
     echo ""
-    claude-todo blockers
+    cleo blockers
     exit 1
 fi
 
@@ -697,10 +697,10 @@ Archive completed tasks automatically after successful deployments:
 
 if [ "$DEPLOYMENT_SUCCESS" = "true" ]; then
     echo "Archiving completed tasks..."
-    claude-todo archive --force
+    cleo archive --force
 
     # Commit updated task files
-    git add .claude/todo.json .claude/todo-archive.json
+    git add .cleo/todo.json .cleo/todo-archive.json
     git commit -m "chore: Archive completed tasks after deployment"
     git push
 fi
@@ -715,13 +715,13 @@ Export metrics to monitoring systems:
 # export-metrics.sh
 
 # Get metrics
-TOTAL=$(claude-todo list --format json | jq '.tasks | length')
-PENDING=$(claude-todo list --status pending --format json | jq '.tasks | length')
-BLOCKED=$(claude-todo list --status blocked --format json | jq '.tasks | length')
-DONE=$(claude-todo list --status done --format json | jq '.tasks | length')
+TOTAL=$(cleo list --format json | jq '.tasks | length')
+PENDING=$(cleo list --status pending --format json | jq '.tasks | length')
+BLOCKED=$(cleo list --status blocked --format json | jq '.tasks | length')
+DONE=$(cleo list --status done --format json | jq '.tasks | length')
 
 # Send to monitoring system (example: Prometheus pushgateway)
-cat <<EOF | curl --data-binary @- http://pushgateway:9091/metrics/job/claude-todo
+cat <<EOF | curl --data-binary @- http://pushgateway:9091/metrics/job/cleo
 # HELP tasks_total Total number of tasks
 # TYPE tasks_total gauge
 tasks_total $TOTAL
@@ -749,7 +749,7 @@ Send task status to team communication channels:
 # notify-slack.sh
 
 WEBHOOK_URL="$SLACK_WEBHOOK_URL"
-STATUS=$(claude-todo dash --compact)
+STATUS=$(cleo dash --compact)
 
 curl -X POST -H 'Content-type: application/json' \
   --data "{
@@ -797,7 +797,7 @@ brew install jq coreutils flock
 ```bash
 ./install.sh --force
 export PATH="$HOME/.local/bin:$PATH"
-claude-todo version
+cleo version
 ```
 
 ### Issue: File permissions in Docker containers
@@ -827,12 +827,12 @@ fi
 
 ### Issue: Task files not found
 
-**Solution**: Verify `.claude/` directory exists and is committed:
+**Solution**: Verify `.cleo/` directory exists and is committed:
 
 ```bash
-if [ ! -f .claude/todo.json ]; then
+if [ ! -f .cleo/todo.json ]; then
     echo "No task files found - initializing..."
-    claude-todo init
+    cleo init
 fi
 ```
 
@@ -840,7 +840,7 @@ fi
 
 1. **Validate Early**: Run validation checks as early as possible in the pipeline
 2. **Fail Fast**: Use exit codes to stop builds immediately when critical issues are found
-3. **Cache Installation**: Cache the `~/.claude-todo` directory to speed up builds
+3. **Cache Installation**: Cache the `~/.cleo` directory to speed up builds
 4. **Use JSON Format**: Parse JSON output with `jq` for robust scripting
 5. **Archive Regularly**: Automate task archival after successful deployments
 6. **Monitor Metrics**: Track task completion velocity over time

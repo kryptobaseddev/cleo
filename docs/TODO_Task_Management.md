@@ -1,104 +1,163 @@
 # Task Management Instructions
 
-Use `claude-todo` CLI for **all** task operations. Single source of truth for persistent task tracking.
+Use `cleo` CLI for **all** task operations. Single source of truth for persistent task tracking.
 
 ## Data Integrity Rules
 
 | Rule | Reason |
 |------|--------|
-| **CLI only** - Never read/edit `.claude/*.json` directly | Prevents staleness in multi-writer environment; ensures validation, checksums |
-| **One active task** - Use `focus set` (enforces single active) | Prevents context confusion |
+| **CLI only** - Never read/edit `.cleo/*.json` directly | Prevents staleness in multi-writer environment; ensures validation, checksums |
+| **One active task** - Use `focus set` (enforces single active) | Prevents context confusion (per-scope in multi-session mode) |
 | **Verify state** - Use `list` before assuming task state | No stale data |
 | **Session discipline** - Start/end sessions properly | Audit trail, recovery |
+| **Scope discipline** - Use scoped sessions for parallel agents | Prevents task conflicts (v0.38.0+) |
 | **Validate after errors** - Run `validate` if something fails | Integrity check |
 
-**Note**: Direct file reads can lead to stale data when multiple writers (TodoWrite, claude-todo) modify the same files. CLI commands always read fresh data from disk.
+**Note**: Direct file reads can lead to stale data when multiple writers (TodoWrite, cleo) modify the same files. CLI commands always read fresh data from disk.
+
+**Multi-Session Note** (v0.38.0+): When `multiSession.enabled`, the "one active task" constraint is **per scope**, not global. Each session maintains isolated focus within its defined scope.
 
 ## Command Reference
 
 ### Core Operations
 ```bash
-claude-todo add "Task title" [OPTIONS]     # Create task
-claude-todo update <id> [OPTIONS]          # Update task fields
-claude-todo complete <id>                  # Mark done
-claude-todo list [--status STATUS]         # View tasks
-claude-todo show <id>                      # View single task details
+cleo add "Task title" [OPTIONS]     # Create task
+cleo update <id> [OPTIONS]          # Update task fields
+cleo complete <id>                  # Mark done
+cleo list [--status STATUS]         # View tasks
+cleo show <id>                      # View single task details
 ```
 
 ### Focus & Session
 ```bash
-claude-todo focus set <id>                 # Set active task (marks active)
-claude-todo focus show                     # Show current focus
-claude-todo focus clear                    # Clear focus
-claude-todo focus note "Progress text"     # Set session progress note
-claude-todo focus next "Next action"       # Set suggested next action
-claude-todo session start                  # Begin work session
-claude-todo session end                    # End session
-claude-todo session status                 # Show session info
+cleo focus set <id>                 # Set active task (marks active)
+cleo focus show                     # Show current focus
+cleo focus clear                    # Clear focus
+cleo focus note "Progress text"     # Set session progress note
+cleo focus next "Next action"       # Set suggested next action
+cleo session start                  # Begin work session
+cleo session end                    # End session
+cleo session status                 # Show session info
+```
+
+### Multi-Session (v0.38.0+ - DRAFT)
+
+> **Status**: Schema designed, implementation pending. See [MULTI-SESSION-SPEC.md](specs/MULTI-SESSION-SPEC.md)
+
+Enables multiple concurrent LLM agents to work on different task groups (epics, phases) simultaneously.
+
+```bash
+# Scoped session start
+cleo session start --scope epic:T001        # Work on epic T001 and children
+cleo session start --scope taskGroup:T005   # Work on T005 and direct children
+cleo session start --scope epicPhase --root T001 --phase testing
+cleo session start --name "Auth Work" --agent opus-1
+
+# Session lifecycle
+cleo session suspend --note "Waiting for review"
+cleo session resume <session-id>
+cleo session resume --last --scope epic:T001
+cleo session end --note "Completed auth"
+
+# Session management
+cleo session list                    # All sessions
+cleo session list --status active    # Filter by status
+cleo session list --scope T001       # Sessions touching epic
+cleo session show <session-id>       # Session details
+cleo session switch <session-id>     # Switch active session
+
+# Focus (session-aware)
+cleo focus set T005 --session <id>   # Focus within specific session
+```
+
+**Scope Types**:
+| Type | Definition | Example |
+|------|------------|---------|
+| `task` | Single task only | `--scope task:T005` |
+| `taskGroup` | Parent + direct children | `--scope taskGroup:T005` |
+| `subtree` | Parent + all descendants | `--scope subtree:T001` |
+| `epicPhase` | Epic filtered by phase | `--scope epicPhase --root T001 --phase testing` |
+| `epic` | Full epic tree | `--scope epic:T001` |
+
+**Key Constraints**:
+- One active task **per scope** (not global)
+- Sessions cannot claim same task simultaneously
+- Scope overlap configurable: `multiSession.allowScopeOverlap`
+
+**Configuration** (`config.json`):
+```json
+{
+  "multiSession": {
+    "enabled": true,
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict"
+  }
+}
 ```
 
 ### TodoWrite Sync
 ```bash
-claude-todo sync --inject                  # Prepare tasks for TodoWrite (session start)
-claude-todo sync --inject --focused-only   # Inject only focused task
-claude-todo sync --extract <file>          # Merge TodoWrite state back (session end)
-claude-todo sync --extract --dry-run <file> # Preview changes without applying
-claude-todo sync --status                  # Show sync session state
+cleo sync --inject                  # Prepare tasks for TodoWrite (session start)
+cleo sync --inject --focused-only   # Inject only focused task
+cleo sync --extract <file>          # Merge TodoWrite state back (session end)
+cleo sync --extract --dry-run <file> # Preview changes without applying
+cleo sync --status                  # Show sync session state
 ```
 
 ### Analysis & Planning
 ```bash
-claude-todo analyze                        # Task triage with leverage scoring
-claude-todo analyze --json                 # Machine-readable triage output
-claude-todo analyze --auto-focus           # Analyze and auto-set focus to top task
-claude-todo dash                           # Project dashboard overview
-claude-todo dash --compact                 # Single-line status summary
-claude-todo next                           # Suggest next task (priority + deps)
-claude-todo next --explain                 # Show suggestion reasoning
-claude-todo phases                         # List phases with progress bars
-claude-todo phases show <phase>            # Tasks in specific phase
-claude-todo phases stats                   # Detailed phase statistics
-claude-todo labels                         # List all labels with counts
-claude-todo labels show <label>            # Tasks with specific label
-claude-todo deps                           # Dependency overview
-claude-todo deps <id>                      # Dependencies for task
-claude-todo deps tree                      # Full dependency tree
-claude-todo blockers                       # Show blocked tasks
-claude-todo blockers analyze               # Critical path analysis
+cleo analyze                        # Task triage with leverage scoring
+cleo analyze --json                 # Machine-readable triage output
+cleo analyze --auto-focus           # Analyze and auto-set focus to top task
+cleo dash                           # Project dashboard overview
+cleo dash --compact                 # Single-line status summary
+cleo next                           # Suggest next task (priority + deps)
+cleo next --explain                 # Show suggestion reasoning
+cleo phases                         # List phases with progress bars
+cleo phases show <phase>            # Tasks in specific phase
+cleo phases stats                   # Detailed phase statistics
+cleo labels                         # List all labels with counts
+cleo labels show <label>            # Tasks with specific label
+cleo deps                           # Dependency overview
+cleo deps <id>                      # Dependencies for task
+cleo deps tree                      # Full dependency tree
+cleo blockers                       # Show blocked tasks
+cleo blockers analyze               # Critical path analysis
 ```
 
 ### Research & Discovery (v0.23.0+)
 ```bash
-claude-todo research "query"               # Multi-source web research
-claude-todo research --library NAME -t X   # Library docs via Context7
-claude-todo research --reddit "topic" -s S # Reddit discussions via Tavily
-claude-todo research --url URL [URL...]    # Extract from specific URLs
-claude-todo research -d deep               # Deep research (15-25 sources)
-claude-todo research --link-task T001      # Link research to task
+cleo research "query"               # Multi-source web research
+cleo research --library NAME -t X   # Library docs via Context7
+cleo research --reddit "topic" -s S # Reddit discussions via Tavily
+cleo research --url URL [URL...]    # Extract from specific URLs
+cleo research -d deep               # Deep research (15-25 sources)
+cleo research --link-task T001      # Link research to task
 ```
 
 **Aliases**: `dig` → `research`
 
-**Output**: Creates `.claude/research/research_[id].json` + `.md` files with citations.
+**Output**: Creates `.cleo/research/research_[id].json` + `.md` files with citations.
 
 ### Task Inspection
 ```bash
-claude-todo show <id>                      # Full task details view
-claude-todo show <id> --history            # Include task history from log
-claude-todo show <id> --related            # Show related tasks (same labels)
-claude-todo show <id> --include-archive    # Search archive if not found
-claude-todo show <id> --format json        # JSON output for scripting
+cleo show <id>                      # Full task details view
+cleo show <id> --history            # Include task history from log
+cleo show <id> --related            # Show related tasks (same labels)
+cleo show <id> --include-archive    # Search archive if not found
+cleo show <id> --format json        # JSON output for scripting
 ```
 
 ### Task Search (v0.19.2+)
 ```bash
-claude-todo find <query>                   # Fuzzy search tasks by title/description
-claude-todo find --id 37                   # Find tasks with ID prefix T37*
-claude-todo find "exact title" --exact     # Exact match mode
-claude-todo find "test" --status pending   # Filter by status
-claude-todo find "api" --field title       # Search specific fields
-claude-todo find "task" --format json      # JSON output for scripting
-claude-todo find "old" --include-archive   # Include archived tasks
+cleo find <query>                   # Fuzzy search tasks by title/description
+cleo find --id 37                   # Find tasks with ID prefix T37*
+cleo find "exact title" --exact     # Exact match mode
+cleo find "test" --status pending   # Filter by status
+cleo find "api" --field title       # Search specific fields
+cleo find "task" --format json      # JSON output for scripting
+cleo find "old" --include-archive   # Include archived tasks
 ```
 
 **Aliases**: `search` → `find`
@@ -106,20 +165,21 @@ claude-todo find "old" --include-archive   # Include archived tasks
 ### Hierarchy (v0.17.0+)
 ```bash
 # Create with hierarchy
-claude-todo add "Epic" --type epic --size large
-claude-todo add "Task" --parent T001 --size medium
-claude-todo add "Subtask" --parent T002 --type subtask --size small
+cleo add "Epic" --type epic --size large
+cleo add "Task" --parent T001 --size medium
+cleo add "Subtask" --parent T002 --type subtask --size small
 
 # Modify hierarchy
-claude-todo reparent T003 --to T001        # Move task to different parent
-claude-todo reparent T003 --to ""          # Remove parent (make root)
-claude-todo promote T003                   # Promote to root (same as reparent --to "")
+cleo reparent T003 --to T001        # Move task to different parent
+cleo reparent T003 --to ""          # Remove parent (make root)
+cleo promote T003                   # Promote to root (same as reparent --to "")
+cleo populate-hierarchy             # Infer parentId from naming conventions (T001.1 → parentId: T001)
 
 # List with hierarchy filters
-claude-todo list --type epic               # Filter by type (epic|task|subtask)
-claude-todo list --parent T001             # Tasks with specific parent
-claude-todo list --children T001           # Direct children of task
-claude-todo list --tree                    # Hierarchical tree view
+cleo list --type epic               # Filter by type (epic|task|subtask)
+cleo list --parent T001             # Tasks with specific parent
+cleo list --children T001           # Direct children of task
+cleo list --tree                    # Hierarchical tree view
 ```
 
 **Constraints**: max depth 3 (epic→task→subtask), max 7 siblings per parent.
@@ -127,17 +187,17 @@ claude-todo list --tree                    # Hierarchical tree view
 ### Task Cancellation (v0.32.0+)
 ```bash
 # Cancel/delete tasks (soft-delete)
-claude-todo delete <id> --reason "..."       # Cancel task with required reason
-claude-todo cancel <id> --reason "..."       # Alias for delete
-claude-todo delete <id> --children cascade   # Cancel task and all children
-claude-todo delete <id> --children orphan    # Cancel task, orphan children
-claude-todo delete <id> --children block     # Fail if has children (default)
-claude-todo delete <id> --dry-run            # Preview without changes
+cleo delete <id> --reason "..."       # Cancel task with required reason
+cleo cancel <id> --reason "..."       # Alias for delete
+cleo delete <id> --children cascade   # Cancel task and all children
+cleo delete <id> --children orphan    # Cancel task, orphan children
+cleo delete <id> --children block     # Fail if has children (default)
+cleo delete <id> --dry-run            # Preview without changes
 
 # Restore cancelled tasks
-claude-todo uncancel <id>                    # Restore cancelled task to pending
-claude-todo uncancel <id> --cascade          # Restore parent and cancelled children
-claude-todo uncancel <id> --notes "reason"   # Add restoration note
+cleo uncancel <id>                    # Restore cancelled task to pending
+cleo uncancel <id> --cascade          # Restore parent and cancelled children
+cleo uncancel <id> --notes "reason"   # Add restoration note
 ```
 
 **Exit Codes**: `16` = has children (use --children), `17` = task completed (use archive), `102` = already cancelled/pending
@@ -147,9 +207,9 @@ claude-todo uncancel <id> --notes "reason"   # Add restoration note
 ### Task Reopen (v0.36.0+)
 ```bash
 # Reopen completed tasks (restore done → pending)
-claude-todo reopen <id> --reason "..."        # Reopen with required reason
-claude-todo reopen <id> --reason "..." --status active  # Reopen as active
-claude-todo reopen <id> --reason "..." --dry-run        # Preview changes
+cleo reopen <id> --reason "..."        # Reopen with required reason
+cleo reopen <id> --reason "..." --status active  # Reopen as active
+cleo reopen <id> --reason "..." --dry-run        # Preview changes
 ```
 
 **Use Case**: Reopening auto-completed epics when child tasks were completed prematurely.
@@ -160,59 +220,59 @@ claude-todo reopen <id> --reason "..." --dry-run        # Preview changes
 
 ### Maintenance
 ```bash
-claude-todo validate                       # Check file integrity
-claude-todo validate --fix                 # Fix checksum issues
-claude-todo exists <id>                    # Check if task ID exists (exit code 0/1)
-claude-todo exists <id> --quiet            # Silent check for scripting
-claude-todo exists <id> --include-archive  # Search archive too
-claude-todo archive                        # Archive completed tasks
-claude-todo stats                          # Show statistics
-claude-todo backup                         # Create backup
-claude-todo backup --list                  # List available backups
-claude-todo restore [backup]               # Restore from backup
-claude-todo migrate status                 # Check schema versions
-claude-todo migrate run                    # Run schema migrations
-claude-todo migrate-backups --detect       # List legacy backups
-claude-todo migrate-backups --run          # Migrate to new taxonomy
-claude-todo export --format todowrite      # Export to Claude Code format
-claude-todo export --format csv            # Export to CSV
-claude-todo init --update-claude-md        # Update CLAUDE.md injection (idempotent)
-claude-todo config show                    # View current configuration
-claude-todo config set <key> <value>       # Update configuration
-claude-todo config get <key>               # Get specific config value
-claude-todo log                            # View recent audit log entries
-claude-todo log --limit 20                 # Limit entries shown
-claude-todo log --operation create         # Filter by operation type
-claude-todo log --task T001                # Filter by task ID
+cleo validate                       # Check file integrity
+cleo validate --fix                 # Fix checksum issues
+cleo exists <id>                    # Check if task ID exists (exit code 0/1)
+cleo exists <id> --quiet            # Silent check for scripting
+cleo exists <id> --include-archive  # Search archive too
+cleo archive                        # Archive completed tasks
+cleo stats                          # Show statistics
+cleo backup                         # Create backup
+cleo backup --list                  # List available backups
+cleo restore [backup]               # Restore from backup
+cleo migrate status                 # Check schema versions
+cleo migrate run                    # Run schema migrations
+cleo migrate-backups --detect       # List legacy backups
+cleo migrate-backups --run          # Migrate to new taxonomy
+cleo export --format todowrite      # Export to Claude Code format
+cleo export --format csv            # Export to CSV
+cleo init --update-claude-md        # Update CLAUDE.md injection (idempotent)
+cleo config show                    # View current configuration
+cleo config set <key> <value>       # Update configuration
+cleo config get <key>               # Get specific config value
+cleo log                            # View recent audit log entries
+cleo log --limit 20                 # Limit entries shown
+cleo log --operation create         # Filter by operation type
+cleo log --task T001                # Filter by task ID
 ```
 
 ### History & Analytics
 ```bash
-claude-todo history                        # Recent completion timeline (30 days)
-claude-todo history --days 7               # Last week's completions
-claude-todo history --since 2025-12-01     # Since specific date
-claude-todo history --format json          # JSON output for scripting
+cleo history                        # Recent completion timeline (30 days)
+cleo history --days 7               # Last week's completions
+cleo history --since 2025-12-01     # Since specific date
+cleo history --format json          # JSON output for scripting
 ```
 
 ## CLAUDE.md Integration
 
 ### Update CLAUDE.md Instructions
-When claude-todo is upgraded, update your project's CLAUDE.md injection:
+When cleo is upgraded, update your project's CLAUDE.md injection:
 
 ```bash
 # Update existing CLAUDE.md injection to latest template
-claude-todo init --update-claude-md
+cleo init --update-claude-md
 ```
 
 This command:
 - Replaces content between `<!-- CLAUDE-TODO:START -->` and `<!-- CLAUDE-TODO:END -->`
 - Adds injection if not present
 - Safe to run anytime (idempotent)
-- Does NOT re-initialize the project or touch `.claude/` files
+- Does NOT re-initialize the project or touch `.cleo/` files
 
 ### When to Update
 Run `init --update-claude-md` after:
-- Upgrading claude-todo to a new version
+- Upgrading cleo to a new version
 - Template improvements are released
 - You notice outdated instructions in CLAUDE.md
 
@@ -220,7 +280,7 @@ Run `init --update-claude-md` after:
 ```bash
 # Compare injection to installed template
 diff <(sed -n '/CLAUDE-TODO:START/,/CLAUDE-TODO:END/p' CLAUDE.md) \
-     ~/.claude-todo/templates/CLAUDE-INJECTION.md
+     ~/.cleo/templates/CLAUDE-INJECTION.md
 ```
 
 ## Task Options
@@ -239,31 +299,31 @@ diff <(sed -n '/CLAUDE-TODO:START/,/CLAUDE-TODO:END/p' CLAUDE.md) \
 
 ### List Filters
 ```bash
-claude-todo list --status pending          # Filter by status
-claude-todo list --priority high           # Filter by priority
-claude-todo list --label bug               # Filter by label
-claude-todo list --phase core              # Filter by phase
-claude-todo list --format json             # Output format (text|json|jsonl|markdown|table)
+cleo list --status pending          # Filter by status
+cleo list --priority high           # Filter by priority
+cleo list --label bug               # Filter by label
+cleo list --phase core              # Filter by phase
+cleo list --format json             # Output format (text|json|jsonl|markdown|table)
 ```
 
 ### LLM-Agent-First Output
 
 **JSON is automatic** when piped (non-TTY). No `--format` flag needed:
 ```bash
-claude-todo list | jq '.tasks[0]'      # Auto-JSON when piped
-claude-todo analyze                     # JSON by default (use --human for text)
+cleo list | jq '.tasks[0]'      # Auto-JSON when piped
+cleo analyze                     # JSON by default (use --human for text)
 ```
 
 **Prefer native filters over jq** (fewer tokens, no shell quoting issues):
 ```bash
 # ✅ NATIVE (recommended)
-claude-todo list --status pending       # Built-in filter
-claude-todo find "auth"                 # Fuzzy search (99% less context)
-claude-todo list --label bug --phase core  # Combined filters
+cleo list --status pending       # Built-in filter
+cleo find "auth"                 # Fuzzy search (99% less context)
+cleo list --label bug --phase core  # Combined filters
 
 # ⚠️ JQ (only when native filters insufficient)
 # Use SINGLE quotes to avoid shell interpretation
-claude-todo list | jq '.tasks[] | select(.type != "epic")'
+cleo list | jq '.tasks[] | select(.type != "epic")'
 #                    ^ single quotes prevent bash ! expansion
 ```
 
@@ -271,28 +331,88 @@ claude-todo list | jq '.tasks[] | select(.type != "epic")'
 
 ## Session Protocol
 
-### START
+### Single-Session Mode (Default)
+
+#### START
 ```bash
-claude-todo session start
-claude-todo list                           # See current task state
-claude-todo dash                           # Overview of project state
-claude-todo focus show                     # Check current focus
+cleo session start
+cleo list                           # See current task state
+cleo dash                           # Overview of project state
+cleo focus show                     # Check current focus
 ```
 
-### WORK
+#### WORK
 ```bash
-claude-todo focus set <task-id>            # ONE task only
-claude-todo next                           # Get task suggestion
-claude-todo add "Subtask" --depends T045   # Add related tasks
-claude-todo update T045 --notes "Progress" # Add task notes
-claude-todo focus note "Working on X"      # Update session note
+cleo focus set <task-id>            # ONE task only (global constraint)
+cleo next                           # Get task suggestion
+cleo add "Subtask" --depends T045   # Add related tasks
+cleo update T045 --notes "Progress" # Add task notes
+cleo focus note "Working on X"      # Update session note
 ```
 
-### END
+#### END
 ```bash
-claude-todo complete <task-id>
-claude-todo archive                        # Optional: clean up old done tasks
-claude-todo session end
+cleo complete <task-id>
+cleo archive                        # Optional: clean up old done tasks
+cleo session end
+```
+
+### Multi-Session Mode (v0.38.0+ - DRAFT)
+
+When `multiSession.enabled: true`, multiple agents can work concurrently.
+
+#### AGENT START (Scoped Session)
+```bash
+# Check existing sessions
+cleo session list --status active
+
+# Start with explicit scope (prevents conflicts)
+cleo session start --scope epic:T001 --name "Auth Work" --agent opus-1
+cleo list --phase $(cleo phase show -q)  # Tasks in current phase
+cleo focus set T005                       # Focus within scope
+```
+
+#### AGENT WORK (Isolated Focus)
+```bash
+cleo focus set T005                 # One active per scope (not global)
+cleo focus show                     # Shows session-specific focus
+cleo update T005 --notes "Progress"
+cleo complete T005
+cleo focus set T006                 # Next task in scope
+```
+
+#### AGENT PAUSE (Suspend for Later)
+```bash
+cleo session suspend --note "Waiting for API review"
+# Session state preserved: focus, notes, scope
+# Another agent can work on different scope
+```
+
+#### AGENT RESUME
+```bash
+cleo session list --status suspended
+cleo session resume <session-id>    # Restore focus and context
+# OR
+cleo session resume --last --scope epic:T001
+```
+
+#### AGENT END
+```bash
+cleo session end --note "Completed JWT validation"
+# Session moves to history, tasks remain
+```
+
+#### Conflict Prevention
+```bash
+# Before starting, check scope availability
+cleo session list --scope T001
+
+# If scope conflict detected
+# ERROR (E_SCOPE_CONFLICT): Scope overlaps with session_...
+
+# Use disjoint scopes for parallel work
+Agent A: cleo session start --scope epicPhase --root T001 --phase testing
+Agent B: cleo session start --scope epicPhase --root T001 --phase polish
 ```
 
 ## Task Organization
@@ -301,12 +421,12 @@ claude-todo session end
 Use labels for grouping and filtering:
 ```bash
 # Feature tracking
-claude-todo add "JWT middleware" --labels feature-auth,backend
+cleo add "JWT middleware" --labels feature-auth,backend
 
 # Find all auth tasks
-claude-todo list --label feature-auth
-claude-todo labels                         # See all labels with counts
-claude-todo labels show feature-auth       # All tasks with label
+cleo list --label feature-auth
+cleo labels                         # See all labels with counts
+cleo labels show feature-auth       # All tasks with label
 ```
 
 ### Phase Discipline
@@ -315,23 +435,23 @@ Phases provide workflow organization and context-aware task management. This sec
 **Session Protocol with Phase Awareness:**
 ```bash
 # 1. Always check current phase before starting work
-claude-todo phase show                     # Verify project context
-claude-todo list --phase $(claude-todo phase show -q)  # Current phase tasks
+cleo phase show                     # Verify project context
+cleo list --phase $(cleo phase show -q)  # Current phase tasks
 
 # 2. Start session with phase context
-claude-todo session start                  # Begin work session
-claude-todo phase show                     # Confirm phase alignment
+cleo session start                  # Begin work session
+cleo phase show                     # Confirm phase alignment
 ```
 
 **Phase-Aware Task Creation:**
 ```bash
 # Create tasks in appropriate phase
-claude-todo add "Design API endpoints" --phase core --priority high
-claude-todo add "Write unit tests" --phase testing --depends T001
-claude-todo add "Update documentation" --phase polish --size medium
+cleo add "Design API endpoints" --phase core --priority high
+cleo add "Write unit tests" --phase testing --depends T001
+cleo add "Update documentation" --phase polish --size medium
 
 # Cross-phase dependencies (document rationale)
-claude-todo add "Integration testing" --phase testing --depends T001,T002 \
+cleo add "Integration testing" --phase testing --depends T001,T002 \
   --notes "Cross-phase: validates core implementation before polish"
 ```
 
@@ -344,43 +464,43 @@ claude-todo add "Integration testing" --phase testing --depends T001,T002 \
 **Five-Phase Workflow Structure:**
 ```bash
 # Setup phase: Foundation and planning
-claude-todo list --phase setup            # Foundation tasks
+cleo list --phase setup            # Foundation tasks
 
 # Core phase: Main development and implementation  
-claude-todo list --phase core             # Feature development
+cleo list --phase core             # Feature development
 
 # Testing phase: Validation and quality assurance
-claude-todo list --phase testing          # Testing and validation
+cleo list --phase testing          # Testing and validation
 
 # Polish phase: Refinement and documentation
-claude-todo list --phase polish           # Documentation and refinement
+cleo list --phase polish           # Documentation and refinement
 
 # Maintenance phase: Ongoing support and fixes
-claude-todo list --phase maintenance      # Bug fixes and support
+cleo list --phase maintenance      # Bug fixes and support
 ```
 
 **Phase Transition Patterns:**
 ```bash
 # Review current phase completion
-claude-todo phases                        # Progress overview
-claude-todo analyze --phase $(claude-todo phase show -q)  # Current analysis
+cleo phases                        # Progress overview
+cleo analyze --phase $(cleo phase show -q)  # Current analysis
 
 # Phase advancement (when current phase complete)
-claude-todo phase complete                # Mark current phase done
-claude-todo phase advance                 # Move to next phase
-claude-todo phase set testing             # Explicit phase setting
+cleo phase complete                # Mark current phase done
+cleo phase advance                 # Move to next phase
+cleo phase set testing             # Explicit phase setting
 ```
 
 **Anti-Hallucination Phase Validation:**
 ```bash
 # Verify phase context before assumptions
-claude-todo phase show                    # Current phase confirmation
-claude-todo exists T001 --phase core      # Validate task-phase alignment
-claude-todo list --phase core --status done  # Phase completion status
+cleo phase show                    # Current phase confirmation
+cleo exists T001 --phase core      # Validate task-phase alignment
+cleo list --phase core --status done  # Phase completion status
 
 # Cross-reference project state
-claude-todo dash                          # Project overview
-claude-todo phases stats                  # Phase statistics
+cleo dash                          # Project overview
+cleo phases stats                  # Phase statistics
 ```
 
 **Relationship Between project.currentPhase and task.phase:**
@@ -397,21 +517,21 @@ claude-todo phases stats                  # Phase statistics
 ### Dependencies (Task Ordering)
 Block tasks until prerequisites complete:
 ```bash
-claude-todo add "Write tests" --depends T001,T002
+cleo add "Write tests" --depends T001,T002
 # Task stays pending until T001, T002 are done
-claude-todo deps T001                      # What depends on T001
-claude-todo blockers                       # What's blocking progress
-claude-todo blockers analyze               # Critical path analysis
+cleo deps T001                      # What depends on T001
+cleo blockers                       # What's blocking progress
+cleo blockers analyze               # Critical path analysis
 ```
 
 ### Planning Pattern
 ```bash
 # Phase 1 tasks
-claude-todo add "Design API" --phase setup --priority high
-claude-todo add "Create schema" --phase setup --depends T050
+cleo add "Design API" --phase setup --priority high
+cleo add "Create schema" --phase setup --depends T050
 
 # Phase 2 tasks (blocked until phase 1)
-claude-todo add "Implement endpoints" --phase core --depends T050,T051
+cleo add "Implement endpoints" --phase core --depends T050,T051
 ```
 
 ## Notes: focus.note vs update --notes
@@ -428,25 +548,25 @@ Use `exists` command for validation in scripts and automation:
 
 ```bash
 # Basic check (exit code 0 = exists, 1 = not found)
-claude-todo exists T001
+cleo exists T001
 
 # Silent check for scripting (no output)
-if claude-todo exists T001 --quiet; then
+if cleo exists T001 --quiet; then
   echo "Task exists"
 fi
 
 # Check archive too
-claude-todo exists T001 --include-archive
+cleo exists T001 --include-archive
 
 # Get detailed info with verbose mode
-claude-todo exists T001 --verbose
+cleo exists T001 --verbose
 ```
 
 ### Script Examples
 ```bash
 # Validate before update
-if claude-todo exists T042 --quiet; then
-  claude-todo update T042 --priority high
+if cleo exists T042 --quiet; then
+  cleo update T042 --priority high
 else
   echo "ERROR: Task T042 not found"
   exit 1
@@ -455,14 +575,14 @@ fi
 # Validate dependencies exist
 DEPS=("T001" "T002" "T005")
 for dep in "${DEPS[@]}"; do
-  if ! claude-todo exists "$dep" --quiet; then
+  if ! cleo exists "$dep" --quiet; then
     echo "ERROR: Dependency $dep not found"
     exit 1
   fi
 done
 
 # JSON output for complex logic
-EXISTS=$(claude-todo exists T001 --format json | jq -r '.exists')
+EXISTS=$(cleo exists T001 --format json | jq -r '.exists')
 if [[ "$EXISTS" == "true" ]]; then
   # Process task
 fi
@@ -480,35 +600,35 @@ fi
 
 | Problem | Solution |
 |---------|----------|
-| Checksum mismatch | `claude-todo validate --fix` |
-| Task not found | `claude-todo list --all` (check archive) |
-| Multiple active tasks | `claude-todo focus set <correct-id>` (resets others) |
-| Corrupted JSON | `claude-todo restore` or `backup --list` then restore |
-| Session already active | `claude-todo session status` then `session end` |
-| Schema outdated | `claude-todo migrate run` |
+| Checksum mismatch | `cleo validate --fix` |
+| Task not found | `cleo list --all` (check archive) |
+| Multiple active tasks | `cleo focus set <correct-id>` (resets others) |
+| Corrupted JSON | `cleo restore` or `backup --list` then restore |
+| Session already active | `cleo session status` then `session end` |
+| Schema outdated | `cleo migrate run` |
 
 ## Command Aliases (v0.6.0+)
 
 Built-in CLI aliases for faster workflows:
 ```bash
-claude-todo ls              # list
-claude-todo done T001       # complete T001
-claude-todo new "Task"      # add "Task"
-claude-todo edit T001       # update T001
-claude-todo rm              # archive
-claude-todo check           # validate
-claude-todo tags            # labels
-claude-todo overview        # dash
-claude-todo dig "query"     # research
+cleo ls              # list
+cleo done T001       # complete T001
+cleo new "Task"      # add "Task"
+cleo edit T001       # update T001
+cleo rm              # archive
+cleo check           # validate
+cleo tags            # labels
+cleo overview        # dash
+cleo dig "query"     # research
 ```
 
 ## Shell Aliases
 ```bash
-ct              # claude-todo
-ct-add          # claude-todo add
-ct-list         # claude-todo list
-ct-done         # claude-todo complete
-ct-focus        # claude-todo focus
+ct              # cleo
+ct-add          # cleo add
+ct-list         # cleo list
+ct-done         # cleo complete
+ct-focus        # cleo focus
 ```
 
 ## Tab Completion (v0.28.0+)
@@ -517,12 +637,12 @@ Enable shell completion for faster command entry:
 
 **Bash** (add to `~/.bashrc`):
 ```bash
-source ~/.claude-todo/completions/bash-completion.sh
+source ~/.cleo/completions/bash-completion.sh
 ```
 
 **Zsh** (add to `~/.zshrc`):
 ```bash
-fpath=(~/.claude-todo/completions $fpath)
+fpath=(~/.cleo/completions $fpath)
 autoload -Uz compinit && compinit
 ```
 
@@ -536,20 +656,20 @@ autoload -Uz compinit && compinit
 
 ## Debug & Validation
 ```bash
-claude-todo --validate      # Check CLI integrity
-claude-todo --list-commands # Show all commands
-claude-todo help <command>  # Detailed command help
+cleo --validate      # Check CLI integrity
+cleo --list-commands # Show all commands
+cleo help <command>  # Detailed command help
 ```
 
 ### Command Discovery (v0.21.0+)
 ```bash
-claude-todo commands                   # List all commands (JSON by default)
-claude-todo commands --human           # Human-readable list
-claude-todo commands -r critical       # Filter by agent relevance
-claude-todo commands -c write          # Filter by category
-claude-todo commands add               # Details for specific command
-claude-todo commands --workflows       # Agent workflow sequences
-claude-todo commands --lookup          # Intent-to-command mapping
+cleo commands                   # List all commands (JSON by default)
+cleo commands --human           # Human-readable list
+cleo commands -r critical       # Filter by agent relevance
+cleo commands -c write          # Filter by category
+cleo commands add               # Details for specific command
+cleo commands --workflows       # Agent workflow sequences
+cleo commands --lookup          # Intent-to-command mapping
 ```
 
 **No jq required** - use native `--category` and `--relevance` filters instead.
@@ -558,12 +678,12 @@ claude-todo commands --lookup          # Intent-to-command mapping
 
 | System | Purpose | Persistence |
 |--------|---------|-------------|
-| **claude-todo** | Durable task tracking | Survives sessions, full metadata |
+| **cleo** | Durable task tracking | Survives sessions, full metadata |
 | **TodoWrite** | Ephemeral session tasks | Session-only, simplified format |
 
 **Workflows:**
-- One-way export: `claude-todo export --format todowrite`
-- Bidirectional sync: `claude-todo sync --inject` (start) and `sync --extract` (end)
+- One-way export: `cleo export --format todowrite`
+- Bidirectional sync: `cleo sync --inject` (start) and `sync --extract` (end)
 
 ---
-*Full documentation: `claude-todo help <command>` or `~/.claude-todo/docs/`*
+*Full documentation: `cleo help <command>` or `~/.cleo/docs/`*

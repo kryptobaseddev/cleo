@@ -5,7 +5,7 @@ Manage task focus for single-task workflow discipline.
 ## Usage
 
 ```bash
-claude-todo focus <command> [OPTIONS]
+cleo focus <command> [OPTIONS]
 ```
 
 ## Description
@@ -37,7 +37,7 @@ Focus also supports session notes and next-action suggestions to maintain contex
 
 ```bash
 # Set focus to a task (marks it active)
-claude-todo focus set T001
+cleo focus set T001
 
 # Focus automatically enforces single-active-task rule
 # If another task is active, it's set to pending first
@@ -54,10 +54,10 @@ Output:
 
 ```bash
 # Show current focus
-claude-todo focus show
+cleo focus show
 
 # JSON output for scripting
-claude-todo focus show --json
+cleo focus show --json
 ```
 
 Output (text):
@@ -105,17 +105,17 @@ This helps maintain context when working on nested tasks within epics.
 
 ```bash
 # Set progress note (replaces previous note)
-claude-todo focus note "Completed API endpoints, working on tests"
+cleo focus note "Completed API endpoints, working on tests"
 
 # Set suggested next action
-claude-todo focus next "Write unit tests for auth module"
+cleo focus next "Write unit tests for auth module"
 ```
 
 ### Clearing Focus
 
 ```bash
 # Clear focus (resets task to pending)
-claude-todo focus clear
+cleo focus clear
 ```
 
 Output:
@@ -159,7 +159,7 @@ Setting focus enforces these rules:
 
 ```bash
 # Start session (shows focus context)
-claude-todo session start
+cleo session start
 
 # Focus is shown automatically:
 # [INFO] Resume focus: Implement auth (T001)
@@ -171,7 +171,7 @@ claude-todo session start
 
 ```bash
 # Completing focused task clears focus automatically
-claude-todo complete T001 --notes "Done"
+cleo complete T001 --notes "Done"
 
 # Focus is cleared when task is completed
 ```

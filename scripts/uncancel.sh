@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Uncancel Script (Restore from Cancelled)
+# CLEO Uncancel Script (Restore from Cancelled)
 # Restore cancelled tasks back to pending status
 #
 # This script implements the restore-from-cancelled functionality.
@@ -13,9 +13,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
 
 # Command name for error-json library
@@ -126,7 +126,7 @@ QUIET=false
 
 usage() {
     cat << 'EOF'
-Usage: claude-todo uncancel TASK_ID [OPTIONS]
+Usage: cleo uncancel TASK_ID [OPTIONS]
 
 Restore a cancelled task back to pending status.
 
@@ -171,11 +171,11 @@ JSON Output Structure:
   }
 
 Examples:
-  claude-todo uncancel T001                    # Restore single task
-  claude-todo uncancel T001 --cascade          # Restore with children
-  claude-todo uncancel T001 --notes "Reviving" # Add restoration note
-  claude-todo uncancel T001 --dry-run          # Preview changes
-  claude-todo uncancel T001 --json             # JSON output
+  cleo uncancel T001                    # Restore single task
+  cleo uncancel T001 --cascade          # Restore with children
+  cleo uncancel T001 --notes "Reviving" # Add restoration note
+  cleo uncancel T001 --dry-run          # Preview changes
+  cleo uncancel T001 --json             # JSON output
 EOF
     exit 0
 }
@@ -273,10 +273,10 @@ fi
 # Validate task ID provided
 if [[ -z "$TASK_ID" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: claude-todo uncancel TASK_ID"
+        output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: cleo uncancel TASK_ID"
     else
         log_error "Task ID is required"
-        echo "Usage: claude-todo uncancel TASK_ID" >&2
+        echo "Usage: cleo uncancel TASK_ID" >&2
         echo "Use --help for more information" >&2
     fi
     exit "$EXIT_INVALID_INPUT"
@@ -295,10 +295,10 @@ fi
 # Check todo file exists
 if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'claude-todo init' first"
+        output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'cleo init' first"
     else
         log_error "Todo file not found: $TODO_FILE"
-        echo "Run claude-todo init first to initialize the todo system" >&2
+        echo "Run cleo init first to initialize the todo system" >&2
     fi
     exit "$EXIT_FILE_ERROR"
 fi
@@ -311,7 +311,7 @@ fi
 TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 if [[ -z "$TASK" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Use 'claude-todo list' to see available tasks"
+        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Use 'cleo list' to see available tasks"
     else
         log_error "Task $TASK_ID not found"
     fi
@@ -329,13 +329,13 @@ if [[ "$CURRENT_STATUS" != "cancelled" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --arg currentStatus "$CURRENT_STATUS" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "uncancel",
@@ -348,7 +348,7 @@ if [[ "$CURRENT_STATUS" != "cancelled" ]]; then
                     "message": ("Task is not cancelled (current status: " + $currentStatus + ")"),
                     "exitCode": 6,
                     "recoverable": true,
-                    "suggestion": "Use '\''claude-todo update'\'' to change status of non-cancelled tasks"
+                    "suggestion": "Use '\''cleo update'\'' to change status of non-cancelled tasks"
                 },
                 "taskId": $taskId,
                 "currentStatus": $currentStatus,
@@ -357,7 +357,7 @@ if [[ "$CURRENT_STATUS" != "cancelled" ]]; then
     else
         log_error "Task $TASK_ID is not cancelled (current status: $CURRENT_STATUS)"
         log_info "Only cancelled tasks can be uncancelled"
-        log_info "Use 'claude-todo update' to change status of other tasks"
+        log_info "Use 'cleo update' to change status of other tasks"
     fi
     exit "$EXIT_VALIDATION_ERROR"
 fi
@@ -367,12 +367,12 @@ if [[ "$CURRENT_STATUS" == "pending" ]]; then
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "uncancel",
@@ -444,7 +444,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+            --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
             --arg originalReason "$ORIGINAL_REASON" \
@@ -452,7 +452,7 @@ if [[ "$DRY_RUN" == true ]]; then
             --argjson cascadeCount "$CASCADE_COUNT" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": "uncancel",
@@ -501,14 +501,14 @@ fi
 if declare -f create_safety_backup >/dev/null 2>&1; then
     BACKUP_PATH=$(create_safety_backup "$TODO_FILE" "uncancel" 2>&1) || {
         [[ "$FORMAT" != "json" ]] && log_warn "Backup library failed, using fallback"
-        BACKUP_DIR=".claude/backups/safety"
+        BACKUP_DIR=".cleo/backups/safety"
         mkdir -p "$BACKUP_DIR"
         BACKUP_PATH="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
         cp "$TODO_FILE" "$BACKUP_PATH"
     }
     [[ "$FORMAT" != "json" ]] && log_info "Backup created: $BACKUP_PATH"
 else
-    BACKUP_DIR=".claude/backups/safety"
+    BACKUP_DIR=".cleo/backups/safety"
     mkdir -p "$BACKUP_DIR"
     BACKUP_PATH="${BACKUP_DIR}/todo.json.$(date +%Y%m%d_%H%M%S)"
     cp "$TODO_FILE" "$BACKUP_PATH"
@@ -590,7 +590,7 @@ RESTORED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FI
 
 if [[ "$FORMAT" == "json" ]]; then
     jq -n \
-        --arg version "${CLAUDE_TODO_VERSION:-unknown}" \
+        --arg version "${CLEO_VERSION:-unknown}" \
         --arg timestamp "$TIMESTAMP" \
         --arg taskId "$TASK_ID" \
         --arg originalReason "$ORIGINAL_REASON" \
@@ -600,7 +600,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson cascadeCount "$CASCADE_COUNT" \
         --argjson task "$RESTORED_TASK" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
                 "format": "json",
                 "command": "uncancel",

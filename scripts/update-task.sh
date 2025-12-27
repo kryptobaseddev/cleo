@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Update Task Script
+# CLEO Update Task Script
 # Update existing task fields with validation and logging
 set -euo pipefail
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="${SCRIPT_DIR}/../lib"
 LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+
+# Source paths.sh for path resolution functions
+if [[ -f "$LIB_DIR/paths.sh" ]]; then
+    source "$LIB_DIR/paths.sh"
+fi
+
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
 # Source version library for proper version management
-if [[ -f "$CLAUDE_TODO_HOME/lib/version.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/version.sh"
-elif [[ -f "$SCRIPT_DIR/../lib/version.sh" ]]; then
-  source "$SCRIPT_DIR/../lib/version.sh"
+if [[ -f "$CLEO_HOME/lib/version.sh" ]]; then
+  source "$CLEO_HOME/lib/version.sh"
+elif [[ -f "$LIB_DIR/version.sh" ]]; then
+  source "$LIB_DIR/version.sh"
 fi
 
 # Command name for JSON output
@@ -152,7 +159,7 @@ DRY_RUN=false
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo update TASK_ID [OPTIONS]
+Usage: cleo update TASK_ID [OPTIONS]
 
 Update an existing task's fields.
 
@@ -162,7 +169,7 @@ Arguments:
 Scalar Field Options:
   -t, --title "New title"   Update task title
   -s, --status STATUS       Change status (pending|active|blocked)
-                            Note: Use 'claude-todo complete' for done status
+                            Note: Use 'cleo complete' for done status
   -p, --priority PRIORITY   Update priority (critical|high|medium|low)
   -d, --description DESC    Update description
   -P, --phase PHASE         Update phase slug
@@ -212,18 +219,18 @@ General Options:
   -h, --help                Show this help
 
 Examples:
-  claude-todo update T001 --priority high
-  claude-todo update T002 --labels bug,urgent --status active
-  claude-todo update T003 --set-labels "frontend,ui" --clear-files
-  claude-todo update T004 --phase new-phase --add-phase
-  claude-todo update T004 --blocked-by "Waiting for API spec"
-  claude-todo update T005 --notes "Started implementation"
-  claude-todo update T001 --json               # JSON output for agents
-  claude-todo update T001 --dry-run            # Preview changes
-  claude-todo update T001 --type epic          # Convert task to epic
-  claude-todo update T042 --parent T001        # Set parent (make child of T001)
-  claude-todo update T042 --parent ""          # Remove parent (make root task)
-  claude-todo update T001 --size large         # Set scope-based size
+  cleo update T001 --priority high
+  cleo update T002 --labels bug,urgent --status active
+  cleo update T003 --set-labels "frontend,ui" --clear-files
+  cleo update T004 --phase new-phase --add-phase
+  cleo update T004 --blocked-by "Waiting for API spec"
+  cleo update T005 --notes "Started implementation"
+  cleo update T001 --json               # JSON output for agents
+  cleo update T001 --dry-run            # Preview changes
+  cleo update T001 --type epic          # Convert task to epic
+  cleo update T042 --parent T001        # Set parent (make child of T001)
+  cleo update T042 --parent ""          # Remove parent (make root task)
+  cleo update T001 --size large         # Set scope-based size
 
 Exit Codes:
   0   = Success
@@ -259,7 +266,7 @@ validate_status() {
       return 0
       ;;
     done)
-      log_error "Use 'claude-todo complete' to mark tasks as done"
+      log_error "Use 'cleo complete' to mark tasks as done"
       return 1
       ;;
     *)
@@ -581,10 +588,10 @@ fi
 # Validate task ID provided
 if [[ -z "$TASK_ID" ]]; then
   if [[ "$FORMAT" == "json" ]]; then
-    output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: claude-todo update TASK_ID [OPTIONS]"
+    output_error "$E_INPUT_MISSING" "Task ID is required" "$EXIT_INVALID_INPUT" true "Provide task ID: cleo update TASK_ID [OPTIONS]"
   else
     log_error "Task ID is required"
-    echo "Usage: claude-todo update TASK_ID [OPTIONS]" >&2
+    echo "Usage: cleo update TASK_ID [OPTIONS]" >&2
     echo "Use --help for more information" >&2
   fi
   exit "${EXIT_INVALID_INPUT:-2}"
@@ -603,10 +610,10 @@ fi
 # Check todo file exists
 if [[ ! -f "$TODO_FILE" ]]; then
   if [[ "$FORMAT" == "json" ]]; then
-    output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'claude-todo init' first"
+    output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "$EXIT_FILE_ERROR" true "Run 'cleo init' first"
   else
     log_error "Todo file not found: $TODO_FILE"
-    echo "Run claude-todo init first to initialize the todo system" >&2
+    echo "Run cleo init first to initialize the todo system" >&2
   fi
   exit "${EXIT_FILE_ERROR:-3}"
 fi
@@ -615,7 +622,7 @@ fi
 TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 if [[ -z "$TASK" ]]; then
   if [[ "$FORMAT" == "json" ]]; then
-    output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Run 'claude-todo list' to see available tasks"
+    output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Run 'cleo list' to see available tasks"
   else
     log_error "Task $TASK_ID not found"
   fi
@@ -868,7 +875,7 @@ if [[ "$NEW_STATUS" == "active" && "$CURRENT_STATUS" != "active" ]]; then
   if [[ "$active_count" -gt 0 ]]; then
     current_active=$(jq -r '[.tasks[] | select(.status == "active")][0].id' "$TODO_FILE")
     if [[ "$FORMAT" == "json" ]]; then
-      output_error "$E_VALIDATION_REQUIRED" "Cannot set status to active: only ONE active task allowed (current: $current_active)" "$EXIT_VALIDATION_ERROR" true "Use 'claude-todo focus set $TASK_ID' to change active task"
+      output_error "$E_VALIDATION_REQUIRED" "Cannot set status to active: only ONE active task allowed (current: $current_active)" "$EXIT_VALIDATION_ERROR" true "Use 'cleo focus set $TASK_ID' to change active task"
     else
       log_error "Cannot set status to active: only ONE active task allowed"
       echo "Current active task: $current_active" >&2
@@ -1235,13 +1242,13 @@ if [[ "$HAS_CHANGES" == "false" ]]; then
     # No actual changes - return idempotent success
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg command "$COMMAND_NAME" \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --arg task_id "$TASK_ID" \
             --argjson task "$TASK" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": $command,
@@ -1292,14 +1299,14 @@ if [[ "$DRY_RUN" == true ]]; then
   if [[ "$FORMAT" == "json" ]]; then
     # JSON dry-run output (LLM-Agent-First Spec v3.0 compliant)
     jq -n \
-      --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg command "$COMMAND_NAME" \
       --arg timestamp "$TIMESTAMP" \
       --arg task_id "$TASK_ID" \
       --argjson changes "$CHANGES_JSON" \
       --argjson task "$UPDATED_TASK" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "command": $command,
@@ -1383,14 +1390,14 @@ fi
 if [[ "$FORMAT" == "json" ]]; then
   # JSON success output
   jq -n \
-    --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+    --arg version "${CLEO_VERSION:-$(get_version)}" \
     --arg command "$COMMAND_NAME" \
     --arg timestamp "$TIMESTAMP" \
     --arg task_id "$TASK_ID" \
     --argjson changes "$CHANGES_JSON" \
     --argjson task "$FINAL_TASK" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "command": $command,

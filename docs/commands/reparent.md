@@ -5,7 +5,7 @@ Move a task to a different parent in the hierarchy.
 ## Usage
 
 ```bash
-claude-todo reparent TASK_ID --to PARENT_ID [OPTIONS]
+cleo reparent TASK_ID --to PARENT_ID [OPTIONS]
 ```
 
 ## Description
@@ -39,22 +39,22 @@ The command validates:
 
 ### Move task under different parent
 ```bash
-claude-todo reparent T002 --to T001    # Move T002 under T001
+cleo reparent T002 --to T001    # Move T002 under T001
 ```
 
 ### Remove parent (make root task)
 ```bash
-claude-todo reparent T002 --to ""      # Make T002 a root task
+cleo reparent T002 --to ""      # Make T002 a root task
 ```
 
 ### Move subtask to different parent
 ```bash
-claude-todo reparent T005 --to T003    # Move subtask T005 under T003
+cleo reparent T005 --to T003    # Move subtask T005 under T003
 ```
 
 ### JSON output
 ```bash
-claude-todo reparent T002 --to T001 --format json
+cleo reparent T002 --to T001 --format json
 ```
 
 ## Error Conditions

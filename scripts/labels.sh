@@ -30,7 +30,7 @@
 #   labels.sh --format json        # JSON output
 #
 # Version: 0.8.0
-# Part of: claude-todo CLI Output Enhancement (Phase 2)
+# Part of: cleo CLI Output Enhancement (Phase 2)
 #####################################################################
 
 set -euo pipefail
@@ -38,11 +38,11 @@ set -euo pipefail
 # Script and library paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -52,8 +52,8 @@ fi
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/file-ops.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
@@ -68,14 +68,14 @@ fi
 
 if [[ -f "${LIB_DIR}/logging.sh" ]]; then
   source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/logging.sh"
 fi
 
 if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
   source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 fi
 
 # Default configuration
@@ -86,8 +86,8 @@ LABEL_ARG=""
 QUIET_MODE=false
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
 
 #####################################################################
 # Usage
@@ -95,7 +95,7 @@ TODO_FILE="${CLAUDE_DIR}/todo.json"
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo labels [SUBCOMMAND] [OPTIONS]
+Usage: cleo labels [SUBCOMMAND] [OPTIONS]
 
 List and analyze labels (tags) across all tasks.
 
@@ -112,12 +112,12 @@ Options:
     -h, --help            Show this help message
 
 Examples:
-    claude-todo labels                      # List all labels
-    claude-todo labels show backend         # Show tasks with 'backend' label
-    claude-todo labels stats                # Show detailed statistics
-    claude-todo labels --format json        # JSON output
+    cleo labels                      # List all labels
+    cleo labels show backend         # Show tasks with 'backend' label
+    cleo labels stats                # Show detailed statistics
+    cleo labels --format json        # JSON output
 
-Alias: This command can also be invoked as 'claude-todo tags'
+Alias: This command can also be invoked as 'cleo tags'
 
 Output:
     Shows labels sorted by task count with visual bars.
@@ -284,7 +284,7 @@ output_list_text() {
     echo -e "${YELLOW}No labels found in any tasks.${NC}"
     echo ""
     echo "To add labels to a task:"
-    echo "  claude-todo update T001 --labels backend,api"
+    echo "  cleo update T001 --labels backend,api"
     echo ""
     return
   fi
@@ -341,7 +341,7 @@ output_list_json() {
     --argjson labels "$label_data" \
     --arg version "$VERSION" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -412,7 +412,7 @@ output_show_json() {
     --argjson tasks "$tasks" \
     --arg version "$VERSION" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -491,7 +491,7 @@ output_stats_json() {
     --argjson cooccurrence "$cooccurrence" \
     --arg version "$VERSION" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -524,20 +524,20 @@ parse_arguments() {
           # Validate non-empty label
           if [[ -z "$LABEL_ARG" ]]; then
             if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-              output_error "$E_INPUT_MISSING" "Label cannot be empty" "${EXIT_INVALID_INPUT:-1}" true "Usage: claude-todo labels show LABEL"
+              output_error "$E_INPUT_MISSING" "Label cannot be empty" "${EXIT_INVALID_INPUT:-1}" true "Usage: cleo labels show LABEL"
             else
               output_error "$E_INPUT_MISSING" "Label cannot be empty"
-              echo "Usage: claude-todo labels show LABEL" >&2
+              echo "Usage: cleo labels show LABEL" >&2
             fi
             exit "${EXIT_INVALID_INPUT:-1}"
           fi
           shift
         else
           if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "$E_INPUT_MISSING" "'show' requires a label argument" "${EXIT_INVALID_INPUT:-1}" true "Usage: claude-todo labels show LABEL"
+            output_error "$E_INPUT_MISSING" "'show' requires a label argument" "${EXIT_INVALID_INPUT:-1}" true "Usage: cleo labels show LABEL"
           else
             output_error "$E_INPUT_MISSING" "'show' requires a label argument"
-            echo "Usage: claude-todo labels show LABEL" >&2
+            echo "Usage: cleo labels show LABEL" >&2
           fi
           exit "${EXIT_INVALID_INPUT:-1}"
         fi
@@ -613,10 +613,10 @@ parse_arguments() {
         ;;
       *)
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-          output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'claude-todo labels --help' for usage"
+          output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'cleo labels --help' for usage"
         else
           output_error "$E_INPUT_INVALID" "Unknown option: $1"
-          echo "Run 'claude-todo labels --help' for usage" >&2
+          echo "Run 'cleo labels --help' for usage" >&2
         fi
         exit "${EXIT_INVALID_INPUT:-1}"
         ;;
@@ -637,10 +637,10 @@ main() {
   # Check if in a todo-enabled project
   if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-      output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_NOT_INITIALIZED:-1}" true "Run 'claude-todo init' first"
+      output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_NOT_INITIALIZED:-1}" true "Run 'cleo init' first"
     else
       output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE"
-      echo "Run 'claude-todo init' first" >&2
+      echo "Run 'cleo init' first" >&2
     fi
     exit "${EXIT_NOT_INITIALIZED:-1}"
   fi

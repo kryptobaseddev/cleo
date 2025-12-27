@@ -46,7 +46,7 @@ The archive system manages task lifecycle by moving completed tasks from the act
 
 ### Default Mode
 ```bash
-claude-todo archive
+cleo archive
 ```
 - Respects `daysUntilArchive` (7 days)
 - Respects `preserveRecentCount` (3 tasks)
@@ -54,7 +54,7 @@ claude-todo archive
 
 ### Force Mode
 ```bash
-claude-todo archive --force
+cleo archive --force
 ```
 - Ignores age requirement
 - Still respects `preserveRecentCount`
@@ -62,7 +62,7 @@ claude-todo archive --force
 
 ### All Mode
 ```bash
-claude-todo archive --all
+cleo archive --all
 ```
 - Archives everything marked `done`
 - Ignores both age AND preserve count
@@ -86,7 +86,7 @@ complete T042 → archive runs → eligible tasks moved
 
 Skip with `--skip-archive` flag:
 ```bash
-claude-todo complete T042 --skip-archive
+cleo complete T042 --skip-archive
 ```
 
 ## Retrieving Archived Tasks
@@ -94,21 +94,21 @@ claude-todo complete T042 --skip-archive
 ### Search Archive
 ```bash
 # Find task by ID (searches archive if not in active)
-claude-todo show T042 --include-archive
+cleo show T042 --include-archive
 
 # Search by text
-claude-todo find "auth" --include-archive
+cleo find "auth" --include-archive
 ```
 
 ### List Archived
 ```bash
 # View archived tasks
-claude-todo list --include-archive --status done
+cleo list --include-archive --status done
 ```
 
 ### Stats Include Archive
 ```bash
-claude-todo stats  # Shows archive statistics
+cleo stats  # Shows archive statistics
 ```
 
 ## Archive Metadata
@@ -173,28 +173,28 @@ Each archived task receives tracking metadata:
 ### No Tasks Archived
 ```bash
 # Check: Are tasks old enough?
-claude-todo list --status done --format json | jq '.tasks[].completedAt'
+cleo list --status done --format json | jq '.tasks[].completedAt'
 
 # Check: What would be archived?
-claude-todo archive --dry-run
+cleo archive --dry-run
 ```
 
 ### Want to Archive Now
 ```bash
 # Force archive (ignores age, keeps recent)
-claude-todo archive --force
+cleo archive --force
 
 # Archive everything
-claude-todo archive --all
+cleo archive --all
 ```
 
 ### Find Archived Task
 ```bash
 # Search by ID
-claude-todo show T042 --include-archive
+cleo show T042 --include-archive
 
 # Search by content
-claude-todo find "keyword" --include-archive
+cleo find "keyword" --include-archive
 ```
 
 ## Future Enhancements (T429)

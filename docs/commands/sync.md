@@ -1,21 +1,21 @@
 # sync Command
 
-> Bidirectional synchronization between claude-todo and Claude Code's TodoWrite
+> Bidirectional synchronization between cleo and Claude Code's TodoWrite
 
 ## Usage
 
 ```bash
-claude-todo sync --inject [OPTIONS]    # Session start: prepare tasks
-claude-todo sync --extract [FILE]      # Session end: merge changes
-claude-todo sync --status              # Show sync state
+cleo sync --inject [OPTIONS]    # Session start: prepare tasks
+cleo sync --extract [FILE]      # Session end: merge changes
+cleo sync --status              # Show sync state
 ```
 
 ## Description
 
-The `sync` command orchestrates bidirectional synchronization between claude-todo's persistent task storage and Claude Code's ephemeral TodoWrite system. It enables seamless task management across sessions by:
+The `sync` command orchestrates bidirectional synchronization between cleo's persistent task storage and Claude Code's ephemeral TodoWrite system. It enables seamless task management across sessions by:
 
-1. **Injecting** tasks at session start (claude-todo → TodoWrite)
-2. **Extracting** changes at session end (TodoWrite → claude-todo)
+1. **Injecting** tasks at session start (cleo → TodoWrite)
+2. **Extracting** changes at session end (TodoWrite → cleo)
 
 This workflow preserves task IDs through content prefixes `[T###]`, enabling round-trip tracking without schema coupling.
 
@@ -23,7 +23,7 @@ This workflow preserves task IDs through content prefixes `[T###]`, enabling rou
 
 ### sync --inject
 
-Transforms claude-todo tasks into TodoWrite JSON format.
+Transforms cleo tasks into TodoWrite JSON format.
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -59,7 +59,7 @@ Transforms claude-todo tasks into TodoWrite JSON format.
 
 ### sync --extract
 
-Parses TodoWrite state and merges changes back to claude-todo.
+Parses TodoWrite state and merges changes back to cleo.
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -69,13 +69,13 @@ Parses TodoWrite state and merges changes back to claude-todo.
 **Change Detection:**
 | Type | Description | Action |
 |------|-------------|--------|
-| `completed` | Task status=completed in TodoWrite | Mark done in claude-todo |
+| `completed` | Task status=completed in TodoWrite | Mark done in cleo |
 | `progressed` | Task status=in_progress (was pending) | Update to active |
-| `new_tasks` | No `[T###]` prefix | Create in claude-todo |
+| `new_tasks` | No `[T###]` prefix | Create in cleo |
 | `removed` | Injected ID missing from TodoWrite | Log only (no deletion) |
 
 **Conflict Resolution:**
-- claude-todo is authoritative for task existence
+- cleo is authoritative for task existence
 - TodoWrite is authoritative for session progress
 - Warns but doesn't fail on conflicts
 
@@ -84,7 +84,7 @@ Parses TodoWrite state and merges changes back to claude-todo.
 Shows current sync session state.
 
 ```bash
-claude-todo sync --status
+cleo sync --status
 ```
 
 Displays:
@@ -99,7 +99,7 @@ Displays:
 Clears sync state without merging changes. Used for recovery from stale or abandoned sessions.
 
 ```bash
-claude-todo sync --clear
+cleo sync --clear
 ```
 
 **Use Cases:**
@@ -114,80 +114,80 @@ claude-todo sync --clear
 
 ```bash
 # Start session and inject tasks
-claude-todo session start
-claude-todo sync --inject
+cleo session start
+cleo sync --inject
 
 # Inject focused task only
-claude-todo sync --inject --focused-only
+cleo sync --inject --focused-only
 
 # Inject tasks from specific phase
-claude-todo sync --inject --phase core
+cleo sync --inject --phase core
 
 # Save to file for debugging (without saving session state)
-claude-todo sync --inject --output /tmp/inject.json --no-save-state
+cleo sync --inject --output /tmp/inject.json --no-save-state
 ```
 
 ### Session End Workflow
 
 ```bash
 # Extract changes from TodoWrite state
-claude-todo sync --extract /path/to/todowrite-state.json
+cleo sync --extract /path/to/todowrite-state.json
 
 # Preview changes without applying
-claude-todo sync --extract --dry-run /path/to/todowrite-state.json
+cleo sync --extract --dry-run /path/to/todowrite-state.json
 
 # End session
-claude-todo session end
+cleo session end
 ```
 
 ### Recovery Workflow
 
 ```bash
 # Check if stale sync state exists
-claude-todo sync --status
+cleo sync --status
 
 # Clear stale state without merging (abandoned session)
-claude-todo sync --clear
+cleo sync --clear
 
 # Verify cleanup
-claude-todo sync --status  # Should show "No active sync session"
+cleo sync --status  # Should show "No active sync session"
 ```
 
 ### Phase-Specific Workflow
 
 ```bash
 # Focus work on specific phase (e.g., polish phase)
-claude-todo phase set polish
-claude-todo sync --inject --phase polish --max-tasks 5
+cleo phase set polish
+cleo sync --inject --phase polish --max-tasks 5
 
 # Work on polish tasks...
 
 # Extract changes
-claude-todo sync --extract /tmp/todowrite-state.json
+cleo sync --extract /tmp/todowrite-state.json
 ```
 
 ### Debugging Workflow
 
 ```bash
 # Generate injection without saving state (for testing)
-claude-todo sync --inject --no-save-state --output /tmp/test-inject.json
+cleo sync --inject --no-save-state --output /tmp/test-inject.json
 
 # Inspect the output
 cat /tmp/test-inject.json | jq .
 
 # Test extraction without applying
-claude-todo sync --extract --dry-run /tmp/test-inject.json
+cleo sync --extract --dry-run /tmp/test-inject.json
 ```
 
 ### Full Cycle Example
 
 ```bash
 # 1. Session start
-claude-todo session start
-claude-todo focus set T042
+cleo session start
+cleo focus set T042
 
 # 2. Inject to TodoWrite
-claude-todo sync --inject --output /tmp/session.json
+cleo sync --inject --output /tmp/session.json
 # Use this JSON to populate TodoWrite
 
 # 3. Work in Claude Code session...
@@ -196,10 +196,10 @@ claude-todo sync --inject --output /tmp/session.json
 # 4. Export TodoWrite state to file (manually or via hook)
 
 # 5. Extract changes
-claude-todo sync --extract /tmp/todowrite-final.json
+cleo sync --extract /tmp/todowrite-final.json
 
 # 6. Session end
-claude-todo session end
+cleo session end
 ```
 
 ## Option Use Cases
@@ -214,7 +214,7 @@ claude-todo session end
 **Example:**
 ```bash
 # Work exclusively on polish phase tasks
-claude-todo sync --inject --phase polish
+cleo sync --inject --phase polish
 ```
 
 **Behavior:**
@@ -233,11 +233,11 @@ claude-todo sync --inject --phase polish
 **Example:**
 ```bash
 # Test injection format without session tracking
-claude-todo sync --inject --no-save-state --output /tmp/test.json
+cleo sync --inject --no-save-state --output /tmp/test.json
 ```
 
 **Behavior:**
-- Skips creating `.claude/sync/todowrite-session.json`
+- Skips creating `.cleo/sync/todowrite-session.json`
 - Extraction will not be possible (no state for comparison)
 - Useful for read-only operations
 
@@ -252,18 +252,18 @@ claude-todo sync --inject --no-save-state --output /tmp/test.json
 **Example:**
 ```bash
 # Recover from crashed session
-claude-todo sync --status  # Verify stale state
-claude-todo sync --clear   # Remove without merging
+cleo sync --status  # Verify stale state
+cleo sync --clear   # Remove without merging
 ```
 
 **Behavior:**
-- Deletes `.claude/sync/todowrite-session.json`
+- Deletes `.cleo/sync/todowrite-session.json`
 - Does NOT apply changes from TodoWrite
-- Safe to run (no data loss in claude-todo)
+- Safe to run (no data loss in cleo)
 
 ## Status Mapping
 
-| claude-todo | → TodoWrite | TodoWrite | → claude-todo |
+| cleo | → TodoWrite | TodoWrite | → cleo |
 |-------------|-------------|-----------|---------------|
 | `pending` | `pending` | `pending` | `pending` |
 | `active` | `in_progress` | `in_progress` | `active` |
@@ -281,7 +281,7 @@ claude-todo sync --clear   # Remove without merging
 
 ## Session State
 
-Injection creates a state file at `.claude/sync/todowrite-session.json`:
+Injection creates a state file at `.cleo/sync/todowrite-session.json`:
 
 ```json
 {

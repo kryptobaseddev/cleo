@@ -29,8 +29,8 @@
     "plugins": {
       "enabled": true,
       "directories": [
-        "~/.claude-todo/plugins",
-        "./.claude/plugins"
+        "~/.cleo/plugins",
+        "./.cleo/plugins"
       ],
       "autoDiscover": true
     },

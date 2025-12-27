@@ -278,7 +278,7 @@ Categories:
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/health.schema.json",
+  "$id": "https://cleo.dev/schemas/v1/health.schema.json",
   "title": "Claude-TODO Health Check Response",
   "type": "object",
   "required": ["_meta", "success", "healthy", "summary", "categories"],
@@ -385,7 +385,7 @@ Categories:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/health.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/health.schema.json",
   "_meta": {
     "format": "json",
     "version": "0.24.0",
@@ -431,7 +431,7 @@ Categories:
           "message": "Duplicate task ID: T042",
           "recoverable": false,
           "auto_fix": false,
-          "suggestion": "Manually resolve duplicate in .claude/todo.json",
+          "suggestion": "Manually resolve duplicate in .cleo/todo.json",
           "context": {
             "task_id": "T042",
             "occurrences": 2,
@@ -523,7 +523,7 @@ def handle_operation_failure(exit_code: int, error_json: dict) -> Action:
         if exit_code == 31:  # Major incompatibility
             return Action.ESCALATE("Major version mismatch - requires human")
         if exit_code == 32:  # CLI outdated
-            return Action.ESCALATE("Upgrade CLI: pipx upgrade claude-todo")
+            return Action.ESCALATE("Upgrade CLI: pipx upgrade cleo")
         if exit_code == 35:  # Migration in progress
             return Action.WAIT_RETRY(delay_ms=1000, max_retries=5)
         if exit_code == 36:  # Migration failed
@@ -634,7 +634,7 @@ All fix operations MUST support `--dry-run`:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/health-fix.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/health-fix.schema.json",
   "_meta": {
     "command": "health --fix --dry-run",
     "timestamp": "2025-12-20T10:00:00Z"
@@ -647,7 +647,7 @@ All fix operations MUST support `--dry-run`:
       "proposed_state": "v2.3.0",
       "operation": "migrate",
       "reversible": true,
-      "backup_path": ".claude/backups/safety/safety_pre-migrate/",
+      "backup_path": ".cleo/backups/safety/safety_pre-migrate/",
       "risk_level": "low"
     }
   ],
@@ -656,7 +656,7 @@ All fix operations MUST support `--dry-run`:
       "check_id": "data.task.id_unique",
       "reason": "requires_human_decision",
       "message": "Two tasks have ID T042 - choose which to keep",
-      "suggestion": "Manually edit .claude/todo.json"
+      "suggestion": "Manually edit .cleo/todo.json"
     }
   ],
   "summary": {
@@ -682,8 +682,8 @@ Every auto-fix operation MUST:
   "fix_result": {
     "success": true,
     "fixes_applied": 2,
-    "backup_path": ".claude/backups/safety/safety_1734693600_health_fix/",
-    "rollback_command": "ct restore .claude/backups/safety/safety_1734693600_health_fix/",
+    "backup_path": ".cleo/backups/safety/safety_1734693600_health_fix/",
+    "rollback_command": "ct restore .cleo/backups/safety/safety_1734693600_health_fix/",
     "audit_log_entry": {
       "operation": "health_auto_fix",
       "timestamp": "2025-12-20T10:00:00Z",
@@ -718,7 +718,7 @@ Every agent operation SHOULD include agent identity:
 
 ```json
 {
-  "path": ".claude/.lock",
+  "path": ".cleo/.lock",
   "content": {
     "holder": {
       "agent_id": "claude-code-main-12345",
@@ -802,17 +802,17 @@ ct session handoff --to "subagent-backend-67890"
 ```bash
 fast_version_check() {
     # Skip if disabled
-    [[ "${CLAUDE_TODO_VERSION_CHECK:-1}" == "0" ]] && return 0
+    [[ "${CLEO_VERSION_CHECK:-1}" == "0" ]] && return 0
 
     # Skip for non-write commands
     [[ " $WRITE_COMMANDS " != *" $1 "* ]] && return 0
 
     # Skip if no project
-    [[ ! -f ".claude/todo.json" ]] && return 0
+    [[ ! -f ".cleo/todo.json" ]] && return 0
 
     # Fast version extraction
     local project_version
-    project_version=$(head -n 5 .claude/todo.json 2>/dev/null | \
+    project_version=$(head -n 5 .cleo/todo.json 2>/dev/null | \
                       grep -oP '"version"\s*:\s*"\K[^"]+' | head -1)
     project_version="${project_version:-1.0.0}"
 
@@ -832,7 +832,7 @@ fast_version_check() {
         output_schema_warning "W_SCHEMA_AHEAD" \
             "Project schema newer than CLI" \
             "$project_version" "$SCHEMA_VERSION_TODO" \
-            "Upgrade CLI: pipx upgrade claude-todo"
+            "Upgrade CLI: pipx upgrade cleo"
         return 0  # Allow but warn
     elif [[ "$project_version" != "$SCHEMA_VERSION_TODO" ]]; then
         # Minor mismatch - WARN
@@ -858,7 +858,7 @@ output_schema_error() {
         --argjson rec "$recoverable" \
         --arg sug "$suggestion" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+            "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
             "_meta": {
                 "command": "version-check",
                 "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -1041,7 +1041,7 @@ See Part 3 for complete schema.
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/health-fix.schema.json",
+  "$id": "https://cleo.dev/schemas/v1/health-fix.schema.json",
   "title": "Claude-TODO Health Fix Response",
   "type": "object",
   "required": ["_meta", "success"],
@@ -1108,7 +1108,7 @@ See Part 3 for complete schema.
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/coordination.schema.json",
+  "$id": "https://cleo.dev/schemas/v1/coordination.schema.json",
   "title": "Claude-TODO Multi-Agent Coordination",
   "definitions": {
     "agent_identity": {

@@ -69,7 +69,7 @@
     },
     "plugins": {
       "enabled": true,
-      "directories": ["~/.claude-todo/plugins", "./.claude/plugins"],
+      "directories": ["~/.cleo/plugins", "./.cleo/plugins"],
       "autoDiscover": true
     },
     "debug": {
@@ -82,7 +82,7 @@
 
   "backup": {
     "enabled": true,
-    "directory": ".claude/backups",
+    "directory": ".cleo/backups",
     "maxSnapshots": 10,
     "maxSafetyBackups": 5,
     "maxIncremental": 10,

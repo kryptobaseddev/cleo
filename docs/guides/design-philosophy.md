@@ -64,19 +64,19 @@ The `parentId` field describes *where* a task sits in the hierarchy. The `id` fi
 
 **Why JSON instead of pretty text?**
 
-When Claude Code runs `claude-todo list`, it's piping output—not displaying in a terminal. The agent needs machine-parseable data, not ANSI colors.
+When Claude Code runs `cleo list`, it's piping output—not displaying in a terminal. The agent needs machine-parseable data, not ANSI colors.
 
 ```bash
 # Terminal (TTY detected) → human-readable
-$ claude-todo list
+$ cleo list
 T001 [active] high - Implement auth
 
 # Piped/scripted (non-TTY) → JSON automatically
-$ claude-todo list | jq '.tasks[0].id'
+$ cleo list | jq '.tasks[0].id'
 "T001"
 
 # Force human output when needed
-$ claude-todo list --human
+$ cleo list --human
 ```
 
 **The `--human` flag** is for you, the developer, when you want to see what Claude sees. The default serves the agent.
@@ -91,9 +91,9 @@ Agents branch on numbers, not prose:
 
 ```bash
 # Agent workflow
-claude-todo exists T042 --quiet
+cleo exists T042 --quiet
 case $? in
-  0)  claude-todo update T042 --notes "Found" ;;
+  0)  cleo update T042 --notes "Found" ;;
   1)  echo "Not found" >&2; exit 1 ;;  # Fail fast
   2)  echo "Invalid ID" >&2; exit 2 ;;
 esac
@@ -131,8 +131,8 @@ LLMs hallucinate. They'll reference task `T999` that doesn't exist, create dupli
 
 ```bash
 # ALWAYS verify before operating
-if claude-todo exists T042 --quiet; then
-  claude-todo complete T042
+if cleo exists T042 --quiet; then
+  cleo complete T042
 else
   echo "ERROR: Task T042 not found" >&2
   exit 1
@@ -163,7 +163,7 @@ Claude-TODO uses **scope dimensions** instead:
 A "large" task **forces decomposition**—it's a signal to break down, not a calendar prediction.
 
 ```bash
-claude-todo add "Auth system" --size large
+cleo add "Auth system" --size large
 # WARNING: Large scope detected
 # Action: Decompose into medium/small tasks
 ```
@@ -202,16 +202,16 @@ Agents lose context between invocations. Sessions provide **checkpoints**:
 
 ```bash
 # Start of work
-claude-todo session start
-claude-todo focus set T042
+cleo session start
+cleo focus set T042
 
 # During work
-claude-todo focus note "JWT middleware implemented"
-claude-todo update T042 --notes "Tests passing"
+cleo focus note "JWT middleware implemented"
+cleo update T042 --notes "Tests passing"
 
 # End of work
-claude-todo complete T042
-claude-todo session end
+cleo complete T042
+cleo session end
 ```
 
 **Session data persists** in `todo-log.json`—enabling context recovery across sessions, agent handoffs, and debugging.
@@ -224,7 +224,7 @@ Only **ONE task** can have `status: "active"` at a time. This prevents:
 - Scope creep within sessions
 
 ```bash
-claude-todo focus set T042  # Marks T042 active, others pending
+cleo focus set T042  # Marks T042 active, others pending
 ```
 
 ---
@@ -276,13 +276,13 @@ You're building something. You have Claude Code as your pair programmer. But wit
 
 ```bash
 # Your morning routine
-claude-todo session start
-claude-todo dash              # See where you are
-claude-todo focus show        # What was I working on?
-claude-todo next --explain    # What should I do next?
+cleo session start
+cleo dash              # See where you are
+cleo focus show        # What was I working on?
+cleo next --explain    # What should I do next?
 
 # Claude's understanding
-claude-todo list --format json | jq '.tasks[] | select(.status == "pending")'
+cleo list --format json | jq '.tasks[] | select(.status == "pending")'
 ```
 
 **One developer. One agent. One truth.**

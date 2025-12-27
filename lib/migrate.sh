@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# migrate.sh - Schema version migration system for claude-todo
+# Schema version migration system for cleo
 #
 # LAYER: 2 (Core Services)
 # DEPENDENCIES: logging.sh (transitively provides atomic-write.sh)
@@ -31,13 +31,13 @@ SCHEMA_VERSION_ARCHIVE="2.1.0"
 SCHEMA_VERSION_LOG="2.1.0"
 
 # Migration scripts directory
-MIGRATIONS_DIR="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/migrations"
+MIGRATIONS_DIR="${CLEO_HOME:-$HOME/.cleo}/migrations"
 
 # Templates directory (source of truth for default structures)
-TEMPLATES_DIR="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/templates"
+TEMPLATES_DIR="${CLEO_HOME:-$HOME/.cleo}/templates"
 
 # Schema directory
-SCHEMA_DIR="${SCHEMA_DIR:-${CLAUDE_TODO_HOME:-$HOME/.claude-todo}/schemas}"
+SCHEMA_DIR="${SCHEMA_DIR:-${CLEO_HOME:-$HOME/.cleo}/schemas}"
 
 # ============================================================================
 # LOCAL HELPER FUNCTIONS (LAYER 2)
@@ -306,13 +306,25 @@ detect_file_version() {
     fi
 
     # Special case: Check if file has string project field (pre-v2.2.0 format)
-    # This overrides the version field if detected
-    if [[ "$version" == "2.1.0" ]] || [[ "$version" == "2.0.0" ]]; then
+    # This overrides the version field if detected - catches incorrectly marked versions
+    # Check ANY 2.x version for structural inconsistency
+    if [[ "$version" =~ ^2\. ]]; then
         local project_type
         project_type=$(jq -r 'if has("project") then (.project | type) else "null" end' "$file" 2>/dev/null)
 
         if [[ "$project_type" == "string" ]]; then
             # Old format with string project -> needs v2.2.0 migration
+            # The version field is lying - data structure is pre-v2.2.0
+            echo "2.1.0"
+            return 0
+        fi
+
+        # Also check if .phases exists at top level (should be in .project.phases)
+        local has_top_level_phases
+        has_top_level_phases=$(jq -r 'if has("phases") then "yes" else "no" end' "$file" 2>/dev/null)
+
+        if [[ "$has_top_level_phases" == "yes" ]]; then
+            # Old format with top-level .phases -> needs v2.2.0 migration
             echo "2.1.0"
             return 0
         fi
@@ -415,14 +427,53 @@ migrate_file() {
 
 # Find migration path between versions
 # Args: $1 = from version, $2 = to version
-# Returns: newline-separated list of intermediate versions
+# Returns: newline-separated list of intermediate versions to migrate through
 find_migration_path() {
     local from="$1"
     local to="$2"
 
-    # For now, simple linear path (can be enhanced for complex scenarios)
-    # Direct migration to target version
-    echo "$to"
+    # Define known migration steps (must be in ascending order)
+    # Each version listed here has a corresponding migrate_*_to_X_Y_Z function
+    local -a known_versions=("2.2.0" "2.3.0" "2.4.0")
+
+    # Parse versions
+    local from_parts to_parts
+    from_parts=$(parse_version "$from" 2>/dev/null) || from_parts="0 0 0"
+    to_parts=$(parse_version "$to" 2>/dev/null) || to_parts="2 4 0"
+
+    read -r from_major from_minor from_patch <<< "$from_parts"
+    read -r to_major to_minor to_patch <<< "$to_parts"
+
+    # Build migration path: include all known versions > from and <= to
+    local result=()
+    for version in "${known_versions[@]}"; do
+        local v_parts
+        v_parts=$(parse_version "$version")
+        read -r v_major v_minor v_patch <<< "$v_parts"
+
+        # Skip if version <= from
+        if [[ $v_major -lt $from_major ]] || \
+           [[ $v_major -eq $from_major && $v_minor -lt $from_minor ]] || \
+           [[ $v_major -eq $from_major && $v_minor -eq $from_minor && $v_patch -le $from_patch ]]; then
+            continue
+        fi
+
+        # Skip if version > to
+        if [[ $v_major -gt $to_major ]] || \
+           [[ $v_major -eq $to_major && $v_minor -gt $to_minor ]] || \
+           [[ $v_major -eq $to_major && $v_minor -eq $to_minor && $v_patch -gt $to_patch ]]; then
+            continue
+        fi
+
+        result+=("$version")
+    done
+
+    # If no known versions in range, just return target
+    if [[ ${#result[@]} -eq 0 ]]; then
+        echo "$to"
+    else
+        printf '%s\n' "${result[@]}"
+    fi
 }
 
 # Execute a single migration step
@@ -603,6 +654,7 @@ migrate_config_to_2_2_0() {
 
 # Migration from 2.1.0 to 2.2.0 for todo.json
 # Converts project field from string to object with phases
+# IMPORTANT: Preserves existing top-level .phases and moves them into .project.phases
 migrate_todo_to_2_2_0() {
     local file="$1"
 
@@ -633,15 +685,40 @@ migrate_todo_to_2_2_0() {
         local default_phases
         default_phases=$(get_default_phases)
 
-        updated_content=$(jq --argjson phases "$default_phases" '
-            # Convert project string to object with phases from template
-            if (.project | type) == "string" then
+        # CRITICAL: Preserve existing top-level .phases if present
+        # They take precedence over template defaults
+        # Also ensure all phases have required fields (status, order, etc.)
+        updated_content=$(jq --argjson default_phases "$default_phases" '
+            # Get existing phases (from top-level .phases or empty)
+            (.phases // {}) as $existing_phases |
+
+            # Merge: existing phases override defaults
+            ($default_phases + $existing_phases) as $raw_merged |
+
+            # Ensure all phases have required fields with sensible defaults
+            ($raw_merged | to_entries | map(
+                .key as $slug |
+                .value |= (
+                    # Add missing required fields
+                    .status = (.status // "pending") |
+                    .order = (.order // 999) |
+                    .name = (.name // $slug) |
+                    .startedAt = (.startedAt // null) |
+                    .completedAt = (.completedAt // null)
+                )
+            ) | from_entries) as $merged_phases |
+
+            # Convert project string to object with merged phases
+            (if (.project | type) == "string" then
                 .project = {
                     "name": .project,
-                    "currentPhase": null,
-                    "phases": $phases
+                    "currentPhase": (.focus.currentPhase // null),
+                    "phases": $merged_phases
                 }
-            else . end
+            else . end) |
+
+            # Remove top-level .phases (now in .project.phases)
+            del(.phases)
         ' "$file") || {
             echo "ERROR: Failed to migrate project field" >&2
             return 1
@@ -653,6 +730,19 @@ migrate_todo_to_2_2_0() {
         echo "ERROR: Failed to update file" >&2
         return 1
     }
+
+    # Update checksum after structural changes
+    local new_checksum
+    new_checksum=$(jq -c '.tasks' "$file" | sha256sum | cut -c1-16)
+    local checksum_updated
+    checksum_updated=$(jq --arg cs "$new_checksum" '._meta.checksum = $cs' "$file") || {
+        echo "WARNING: Failed to update checksum" >&2
+    }
+    if [[ -n "$checksum_updated" ]]; then
+        save_json "$file" "$checksum_updated" || {
+            echo "WARNING: Failed to save checksum update" >&2
+        }
+    fi
 
     # Update version fields
     update_version_field "$file" "2.2.0" || return 1
@@ -877,8 +967,9 @@ migrate_todo_to_2_4_0() {
 # Returns:
 #   0 = current (no action needed)
 #   1 = patch_only (just bump version, no data transformation)
-#   2 = migration_needed (MINOR/MAJOR change requiring data transformation)
-#   3 = incompatible (data is newer than schema, or major version mismatch)
+#   2 = migration_needed (MINOR change requiring data transformation)
+#   3 = major_upgrade (MAJOR version upgrade - can migrate with --force)
+#   4 = data_newer (data is newer than schema - cannot migrate, upgrade cleo)
 check_compatibility() {
     local file="$1"
     local file_type="$2"
@@ -892,7 +983,7 @@ check_compatibility() {
 
     # Use the new compare_schema_versions for detailed comparison
     local comparison
-    comparison=$(compare_schema_versions "$current_version" "$expected_version") || return 3
+    comparison=$(compare_schema_versions "$current_version" "$expected_version") || return 4
 
     case "$comparison" in
         equal)
@@ -905,14 +996,14 @@ check_compatibility() {
             return 2  # Migration needed (MINOR change)
             ;;
         major_diff)
-            return 3  # Incompatible (MAJOR version mismatch)
+            return 3  # Major upgrade (can migrate with --force)
             ;;
         data_newer)
-            return 3  # Incompatible (data is newer than schema)
+            return 4  # Data newer than schema (cannot migrate, upgrade cleo)
             ;;
         *)
             echo "ERROR: Unknown comparison result: $comparison" >&2
-            return 3
+            return 4
             ;;
     esac
 }
@@ -925,7 +1016,8 @@ check_compatibility() {
 # Uses smart semver-based migration detection:
 #   - PATCH changes: version bump only (no data transformation)
 #   - MINOR changes: full migration with data transformation
-#   - MAJOR changes: incompatible, requires manual intervention
+#   - MAJOR changes: major upgrade (can migrate with --force in CLI)
+#   - DATA_NEWER: cannot migrate, need to upgrade cleo
 # Args: $1 = file path, $2 = file type
 # Returns: 0 if compatible or migrated, 1 on error
 ensure_compatible_version() {
@@ -975,7 +1067,7 @@ ensure_compatible_version() {
             fi
             ;;
         2)
-            # MINOR (or greater within same MAJOR) change - full migration needed
+            # MINOR change - full migration with data transformation
             echo "Migration required: $file (v$current_version → v$expected_version)"
             echo "  MINOR change detected - data transformation required"
 
@@ -988,20 +1080,25 @@ ensure_compatible_version() {
             fi
             ;;
         3)
-            # Incompatible (MAJOR mismatch or data is newer than schema)
-            local comparison
-            comparison=$(compare_schema_versions "$current_version" "$expected_version")
+            # MAJOR version upgrade - can be migrated
+            echo "Major upgrade required: $file (v$current_version → v$expected_version)"
+            echo "  MAJOR change detected - data transformation required"
 
-            echo "ERROR: Incompatible schema version" >&2
-            echo "  File: $file" >&2
-            echo "  Current version: $current_version" >&2
-            echo "  Expected version: $expected_version" >&2
-
-            if [[ "$comparison" == "data_newer" ]]; then
-                echo "  Data file is newer than schema - upgrade claude-todo" >&2
+            if migrate_file "$file" "$file_type" "$current_version" "$expected_version"; then
+                echo "✓ Major upgrade successful"
+                return 0
             else
-                echo "  Major version mismatch - manual intervention required" >&2
+                echo "✗ Major upgrade failed" >&2
+                return 1
             fi
+            ;;
+        4)
+            # Data is newer than schema - cannot migrate
+            echo "ERROR: Cannot migrate - data version is newer than schema" >&2
+            echo "  File: $file" >&2
+            echo "  Data version: $current_version" >&2
+            echo "  Schema version: $expected_version" >&2
+            echo "  Please upgrade cleo to a newer version" >&2
             return 1
             ;;
         *)
@@ -1426,7 +1523,7 @@ show_migration_status() {
 
     local files=(
         "$claude_dir/todo.json:todo"
-        "$claude_dir/todo-config.json:config"
+        "$claude_dir/config.json:config"
         "$claude_dir/todo-archive.json:archive"
         "$claude_dir/todo-log.json:log"
     )
@@ -1458,25 +1555,22 @@ show_migration_status() {
             fi
         fi
 
-        # Return codes: 0=current, 1=patch_only, 2=migration_needed, 3=incompatible
+        # Return codes: 0=current, 1=patch, 2=minor, 3=major, 4=data_newer
         case $status in
             0)
                 echo "✓ $file_type: v$current_version (current)"
                 ;;
             1)
-                echo "↑ $file_type: v$current_version → v$expected_version (version bump only)"
+                echo "↑ $file_type: v$current_version → v$expected_version (patch update)"
                 ;;
             2)
                 echo "⚠ $file_type: v$current_version → v$expected_version (migration needed)$needs_v2_2_migration"
                 ;;
             3)
-                local comparison
-                comparison=$(compare_schema_versions "$current_version" "$expected_version")
-                if [[ "$comparison" == "data_newer" ]]; then
-                    echo "✗ $file_type: v$current_version (newer than schema v$expected_version - upgrade claude-todo)"
-                else
-                    echo "✗ $file_type: v$current_version (incompatible with v$expected_version)"
-                fi
+                echo "⚡ $file_type: v$current_version → v$expected_version (major upgrade - use --force)"
+                ;;
+            4)
+                echo "✗ $file_type: v$current_version (newer than schema v$expected_version - upgrade cleo)"
                 ;;
         esac
     done

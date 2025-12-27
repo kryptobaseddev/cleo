@@ -15,9 +15,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Preamble
 
-This specification defines the backup and recovery architecture for claude-todo. The design addresses the requirements of a task management system used by both human operators and LLM agents, with emphasis on data integrity, atomic operations, and reliable recovery.
+This specification defines the backup and recovery architecture for cleo. The design addresses the requirements of a task management system used by both human operators and LLM agents, with emphasis on data integrity, atomic operations, and reliable recovery.
 
-**Authority**: This specification is AUTHORITATIVE for all backup-related behavior in claude-todo.
+**Authority**: This specification is AUTHORITATIVE for all backup-related behavior in cleo.
 
 **Consensus Basis**: This specification is derived from a multi-agent consensus analysis involving 9 specialized agents. See CONSENSUS-REPORT.md for the full analysis.
 
@@ -49,7 +49,7 @@ The backup system SHALL consist of two complementary tiers:
 
 The operational backup tier MUST:
 - Create a backup before every atomic write operation
-- Store backups in `.claude/backups/operational/`
+- Store backups in `.cleo/backups/operational/`
 - Use simple numbered rotation (`{filename}.1`, `.2`, `.3`, etc.)
 - Maintain the last N backups (configurable via `maxOperationalBackups`)
 - Enable immediate rollback on write failure
@@ -63,7 +63,7 @@ The operational backup tier MUST NOT:
 
 The recovery backup tier MUST:
 - Support typed backups with distinct retention policies
-- Store backups in `.claude/backups/{type}/`
+- Store backups in `.cleo/backups/{type}/`
 - Generate metadata with checksums and provenance
 - Support multi-file snapshots (todo.json + config + log + archive)
 - Enable point-in-time recovery
@@ -121,10 +121,10 @@ Migration backups MUST be created before any schema migration operation. Migrati
 
 ### 3.1 Canonical Paths
 
-All backup-related paths MUST be relative to the project's `.claude/` directory:
+All backup-related paths MUST be relative to the project's `.cleo/` directory:
 
 ```
-.claude/
+.cleo/
 ├── backups/
 │   ├── operational/
 │   │   └── {filename}.{1|2|3|...}
@@ -133,7 +133,7 @@ All backup-related paths MUST be relative to the project's `.claude/` directory:
 │   │       ├── metadata.json
 │   │       ├── todo.json
 │   │       ├── todo-archive.json
-│   │       ├── todo-config.json
+│   │       ├── config.json
 │   │       └── todo-log.json
 │   ├── safety/
 │   │   └── safety_{timestamp}_{operation}/
@@ -389,24 +389,24 @@ The system MUST handle concurrent access gracefully:
 ### 9.1 Path Discovery
 
 LLM agents MUST NOT hardcode backup paths. Instead, agents SHOULD:
-1. Query `claude-todo config get backup.directory`
+1. Query `cleo config get backup.directory`
 2. Use returned path for all backup operations
-3. Fall back to `.claude/backups/` if config unavailable
+3. Fall back to `.cleo/backups/` if config unavailable
 
 ### 9.2 Restoration Instructions
 
 When an LLM agent needs to restore a backup:
-1. Execute `claude-todo backup --list` to discover available backups
+1. Execute `cleo backup --list` to discover available backups
 2. Select appropriate backup based on timestamp and type
-3. Execute `claude-todo restore {backup-id}` with explicit confirmation
-4. Verify restoration with `claude-todo validate`
+3. Execute `cleo restore {backup-id}` with explicit confirmation
+4. Verify restoration with `cleo validate`
 
 ### 9.3 Error Recovery
 
 If backup operations fail, LLM agents SHOULD:
-1. Check disk space (`df -h .claude/`)
-2. Verify permissions (`ls -la .claude/backups/`)
-3. Run `claude-todo validate --fix` if corruption suspected
+1. Check disk space (`df -h .cleo/`)
+2. Verify permissions (`ls -la .cleo/backups/`)
+3. Run `cleo validate --fix` if corruption suspected
 4. Escalate to user if automated recovery fails
 
 ---
@@ -415,13 +415,13 @@ If backup operations fail, LLM agents SHOULD:
 
 ### 10.1 Backup Configuration
 
-The following configuration options MUST be supported in `todo-config.json`:
+The following configuration options MUST be supported in `config.json`:
 
 ```json
 {
   "backup": {
     "enabled": true,
-    "directory": ".claude/backups",
+    "directory": ".cleo/backups",
     "types": {
       "operational": {
         "enabled": true,
@@ -501,7 +501,7 @@ The backup system MUST:
 |----------|--------------|
 | [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) | Defers to for output format requirements |
 | [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) | Related: ID format for backup references |
-| [CONSENSUS-REPORT.md](../../.claude/consensus/CONSENSUS-REPORT.md) | Source: Multi-agent analysis |
+| [CONSENSUS-REPORT.md](../../.cleo/consensus/CONSENSUS-REPORT.md) | Source: Multi-agent analysis |
 | [BACKUP-SYSTEM-IMPLEMENTATION-REPORT.md](BACKUP-SYSTEM-IMPLEMENTATION-REPORT.md) | Tracks implementation status |
 
 ---

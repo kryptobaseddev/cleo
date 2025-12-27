@@ -7,8 +7,8 @@ Restore cancelled tasks back to pending status.
 ## Synopsis
 
 ```bash
-claude-todo uncancel TASK_ID [OPTIONS]
-claude-todo restore-cancelled TASK_ID [OPTIONS]  # alias
+cleo uncancel TASK_ID [OPTIONS]
+cleo restore-cancelled TASK_ID [OPTIONS]  # alias
 ```
 
 ## Description
@@ -97,7 +97,7 @@ Key behaviors:
     "message": "Task T001 is not cancelled (current status: pending)",
     "exitCode": 6,
     "recoverable": true,
-    "suggestion": "Use 'claude-todo update T001 --status ...' to change task status"
+    "suggestion": "Use 'cleo update T001 --status ...' to change task status"
   }
 }
 ```
@@ -108,36 +108,36 @@ Key behaviors:
 
 ```bash
 # Restore a cancelled task
-claude-todo uncancel T001
+cleo uncancel T001
 
 # With custom note
-claude-todo uncancel T001 --notes "Re-opening per team decision"
+cleo uncancel T001 --notes "Re-opening per team decision"
 ```
 
 ### Cascade Restore
 
 ```bash
 # Restore parent and all cancelled children
-claude-todo uncancel T100 --cascade
+cleo uncancel T100 --cascade
 ```
 
 ### Dry-run Preview
 
 ```bash
 # Preview what would be restored
-claude-todo uncancel T001 --dry-run
+cleo uncancel T001 --dry-run
 
 # Cascade dry-run
-claude-todo uncancel T100 --cascade --dry-run
+cleo uncancel T100 --cascade --dry-run
 ```
 
 ### Agent Workflow
 
 ```bash
 # Check if task is cancelled, then restore
-TASK_STATUS=$(claude-todo show T001 | jq -r '.task.status')
+TASK_STATUS=$(cleo show T001 | jq -r '.task.status')
 if [[ "$TASK_STATUS" == "cancelled" ]]; then
-    claude-todo uncancel T001 --notes "Automated restoration"
+    cleo uncancel T001 --notes "Automated restoration"
 fi
 ```
 

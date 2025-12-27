@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Archive Script
+# CLEO Archive Script
 # Archive completed tasks based on config rules
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -22,10 +22,10 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
   source "$LIB_DIR/version.sh"
 fi
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
-LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
@@ -124,7 +124,7 @@ WARNINGS_JSON='[]'
 
 usage() {
   cat << EOF
-Usage: claude-todo archive [OPTIONS]
+Usage: cleo archive [OPTIONS]
 
 Archive completed tasks from todo.json to todo-archive.json.
 
@@ -183,7 +183,7 @@ Archive Behavior:
              completed, archives the entire family together. Incomplete
              families (parent done, some children not done) are skipped.
 
-Config (from todo-config.json):
+Config (from config.json):
   - daysUntilArchive: Days after completion before archiving (default: 7)
   - maxCompletedTasks: Threshold triggering archive prompt (default: 15)
   - preserveRecentCount: Recent completions to keep (default: 3)
@@ -192,7 +192,7 @@ Config (from todo-config.json):
   - relationshipSafety.preventBrokenDependencies: Block broken deps (default: true)
 
 Label Policies (optional):
-  Configure per-label retention in todo-config.json:
+  Configure per-label retention in config.json:
     "archive": {
       "labelPolicies": {
         "security": { "daysUntilArchive": 30 },
@@ -206,16 +206,16 @@ JSON Output (--format json):
   task statistics. Useful for LLM agent automation workflows.
 
 Examples:
-  claude-todo archive               # Archive based on config rules (safe mode on)
-  claude-todo archive --dry-run     # Preview what would be archived
-  claude-todo archive --force       # Archive all, keep 3 most recent
-  claude-todo archive --all         # Archive everything (nuclear option)
-  claude-todo archive --cascade     # Archive complete families together
-  claude-todo archive --cascade-from T001  # Archive epic T001 and all done descendants
-  claude-todo archive --phase-complete setup  # Archive completed tasks from 'setup' phase
-  claude-todo archive --interactive # Review each task before archiving
-  claude-todo archive --no-safe     # Disable relationship safety checks
-  claude-todo archive --json        # JSON output for scripting
+  cleo archive               # Archive based on config rules (safe mode on)
+  cleo archive --dry-run     # Preview what would be archived
+  cleo archive --force       # Archive all, keep 3 most recent
+  cleo archive --all         # Archive everything (nuclear option)
+  cleo archive --cascade     # Archive complete families together
+  cleo archive --cascade-from T001  # Archive epic T001 and all done descendants
+  cleo archive --phase-complete setup  # Archive completed tasks from 'setup' phase
+  cleo archive --interactive # Review each task before archiving
+  cleo archive --no-safe     # Disable relationship safety checks
+  cleo archive --json        # JSON output for scripting
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -289,7 +289,7 @@ fi
 for f in "$TODO_FILE" "$CONFIG_FILE"; do
   if [[ ! -f "$f" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-      output_error "E_FILE_NOT_FOUND" "$f not found" "${EXIT_FILE_ERROR:-3}" true "Run 'claude-todo init' to initialize project"
+      output_error "E_FILE_NOT_FOUND" "$f not found" "${EXIT_FILE_ERROR:-3}" true "Run 'cleo init' to initialize project"
     else
       log_error "$f not found"
     fi
@@ -303,7 +303,7 @@ if [[ ! -f "$ARCHIVE_FILE" ]]; then
   PROJECT_NAME=$(jq -r '.project.name // .project // "unknown"' "$TODO_FILE")
   INITIAL_ARCHIVE_CONTENT=$(cat << EOF
 {
-  "version": "${CLAUDE_TODO_VERSION:-$(get_version)}",
+  "version": "${CLEO_VERSION:-$(get_version)}",
   "project": "$PROJECT_NAME",
   "_meta": { "totalArchived": 0, "lastArchived": null, "oldestTask": null, "newestTask": null },
   "archivedTasks": [],
@@ -502,7 +502,7 @@ if [[ "$COMPLETED_COUNT" -eq 0 ]]; then
 
     jq -n \
       --arg ts "$TIMESTAMP" \
-      --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson total "$REMAINING_TOTAL" \
       --argjson pending "$REMAINING_PENDING" \
       --argjson active "$REMAINING_ACTIVE" \
@@ -511,7 +511,7 @@ if [[ "$COMPLETED_COUNT" -eq 0 ]]; then
       --argjson effectiveExemptLabels "$EXEMPT_LABELS" \
       --argjson onlyLabelsFilter "$ONLY_LABELS_OUTPUT" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
         "success": true,
         "archived": {"count": 0, "taskIds": []},
@@ -598,7 +598,7 @@ if [[ -n "$PHASE_TRIGGER" ]]; then
 
       jq -n \
         --arg ts "$TIMESTAMP" \
-        --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+        --arg ver "${CLEO_VERSION:-$(get_version)}" \
         --argjson total "$REMAINING_TOTAL" \
         --argjson pending "$REMAINING_PENDING" \
         --argjson active "$REMAINING_ACTIVE" \
@@ -607,7 +607,7 @@ if [[ -n "$PHASE_TRIGGER" ]]; then
         --argjson excludeLabelsApplied "$EXCLUDE_LABELS_APPLIED" \
         --argjson effectiveExemptLabels "$EXEMPT_LABELS" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
           "success": true,
           "archived": {"count": 0, "taskIds": []},
@@ -733,7 +733,7 @@ if [[ "$ARCHIVE_COUNT" -eq 0 && "$ALREADY_ARCHIVED_COUNT" -gt 0 ]]; then
   if [[ "$FORMAT" == "json" ]]; then
     jq -n \
       --arg ts "$TIMESTAMP" \
-      --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson tasksSkipped "$ALREADY_ARCHIVED_IDS" \
       --argjson total "$REMAINING_TOTAL" \
       --argjson pending "$REMAINING_PENDING" \
@@ -742,7 +742,7 @@ if [[ "$ARCHIVE_COUNT" -eq 0 && "$ALREADY_ARCHIVED_COUNT" -gt 0 ]]; then
       --argjson excludeLabelsApplied "$EXCLUDE_LABELS_APPLIED" \
       --argjson effectiveExemptLabels "$EXEMPT_LABELS" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
         "success": true,
         "noChange": true,
@@ -1041,7 +1041,7 @@ if [[ "$ARCHIVE_COUNT" -eq 0 ]]; then
 
     jq -n \
       --arg ts "$TIMESTAMP" \
-      --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson total "$REMAINING_TOTAL" \
       --argjson pending "$REMAINING_PENDING" \
       --argjson active "$REMAINING_ACTIVE" \
@@ -1060,7 +1060,7 @@ if [[ "$ARCHIVE_COUNT" -eq 0 ]]; then
       --argjson cascadeFrom "$CASCADE_FROM_INFO" \
       --argjson phaseTrigger "$PHASE_TRIGGER_INFO" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
         "success": true,
         "safeMode": $safeMode,
@@ -1176,7 +1176,7 @@ if [[ "$DRY_RUN" == true ]]; then
 
     jq -n \
       --arg ts "$TIMESTAMP" \
-      --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+      --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson count "$ARCHIVE_COUNT" \
       --argjson ids "$ARCHIVE_IDS_JSON" \
       --argjson total "$REMAINING_AFTER" \
@@ -1197,7 +1197,7 @@ if [[ "$DRY_RUN" == true ]]; then
       --argjson cascadeFrom "$CASCADE_FROM_INFO" \
       --argjson phaseTrigger "$PHASE_TRIGGER_INFO" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
         "success": true,
         "dryRun": true,
@@ -1518,8 +1518,8 @@ done
 
 # Step 5: Create archive backup before committing changes using unified backup library
 # Uses auto_backup_on_archive() which respects config setting backup.scheduled.onArchive
-# Set CLAUDE_TODO_DIR for backup library to locate source files correctly
-export CLAUDE_TODO_DIR="$(dirname "$TODO_FILE")"
+# Set CLEO_DIR for backup library to locate source files correctly
+export CLEO_DIR="$(dirname "$TODO_FILE")"
 if declare -f auto_backup_on_archive >/dev/null 2>&1; then
   BACKUP_PATH=$(auto_backup_on_archive "$CONFIG_FILE" 2>&1) || {
     [[ "$QUIET" != true && "$FORMAT" != "json" ]] && log_warn "Backup library failed, using fallback backup method"
@@ -1619,7 +1619,7 @@ if [[ "$FORMAT" == "json" ]]; then
 
   jq -n \
     --arg ts "$OUTPUT_TIMESTAMP" \
-    --arg ver "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+    --arg ver "${CLEO_VERSION:-$(get_version)}" \
     --argjson count "$ARCHIVE_COUNT" \
     --argjson ids "$ARCHIVE_IDS_JSON" \
     --argjson total "$REMAINING_TOTAL" \
@@ -1643,7 +1643,7 @@ if [[ "$FORMAT" == "json" ]]; then
     --argjson interactiveSkipped "$INTERACTIVE_SKIPPED" \
       --argjson phaseTrigger "$PHASE_TRIGGER_INFO" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {"format": "json", "command": "archive", "timestamp": $ts, "version": $ver},
       "success": true,
       "safeMode": $safeMode,

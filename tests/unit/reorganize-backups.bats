@@ -42,10 +42,10 @@ teardown_file() {
 }
 
 @test "reorganize-backups: classifies safety backup (YYYYMMDD_HHMMSS)" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create safety backup
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.20241201_120000
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.20241201_120000
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --detect
     assert_success
@@ -55,10 +55,10 @@ teardown_file() {
 }
 
 @test "reorganize-backups: classifies archive backup (.backup.TIMESTAMP)" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create archive backup
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.backup.1234567890
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.backup.1234567890
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --detect
     assert_success
@@ -67,10 +67,10 @@ teardown_file() {
 }
 
 @test "reorganize-backups: classifies snapshot backup (backup_TIMESTAMP)" {
-    mkdir -p .claude/.backups/backup_1234567890
+    mkdir -p .cleo/.backups/backup_1234567890
 
     # Create snapshot backup directory
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/backup_1234567890/todo.json
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/backup_1234567890/todo.json
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --detect
     assert_success
@@ -79,10 +79,10 @@ teardown_file() {
 }
 
 @test "reorganize-backups: classifies migration backup (pre-migration-*)" {
-    mkdir -p .claude/.backups/pre-migration-v0.8.0
+    mkdir -p .cleo/.backups/pre-migration-v0.8.0
 
     # Create migration backup directory
-    echo '{"version":"0.8.0","tasks":[]}' > .claude/.backups/pre-migration-v0.8.0/todo.json
+    echo '{"version":"0.8.0","tasks":[]}' > .cleo/.backups/pre-migration-v0.8.0/todo.json
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --detect
     assert_success
@@ -91,11 +91,11 @@ teardown_file() {
 }
 
 @test "reorganize-backups: classifies numbered safety backups" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create numbered backups (from file-ops.sh)
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.1
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.2
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.1
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.2
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --detect
     assert_success
@@ -105,14 +105,14 @@ teardown_file() {
 }
 
 @test "reorganize-backups: dry-run shows migration plan without changes" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create test backup
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.20241201_120000
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.20241201_120000
 
     # Record state before dry-run (common_setup creates backup dirs)
     local safety_count_before
-    safety_count_before=$(find .claude/backups/safety -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+    safety_count_before=$(find .cleo/backups/safety -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --dry-run
     assert_success
@@ -122,18 +122,18 @@ teardown_file() {
 
     # Verify no new backups were created (dir may exist from common_setup)
     local safety_count_after
-    safety_count_after=$(find .claude/backups/safety -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+    safety_count_after=$(find .cleo/backups/safety -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
     [ "$safety_count_before" -eq "$safety_count_after" ]
 
     # Original backup should still exist in legacy location
-    [ -f ".claude/.backups/todo.json.20241201_120000" ]
+    [ -f ".cleo/.backups/todo.json.20241201_120000" ]
 }
 
 @test "reorganize-backups: actual migration creates new backup structure" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create test backup
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.20241201_120000
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.20241201_120000
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --run
     assert_success
@@ -141,10 +141,10 @@ teardown_file() {
     assert_output --partial "Migrated: 1"
 
     # Verify new structure was created
-    [ -d ".claude/backups/safety" ]
+    [ -d ".cleo/backups/safety" ]
 
     # Verify metadata was created
-    local backup_dir=$(find .claude/backups/safety -type d -name "safety_*" | head -1)
+    local backup_dir=$(find .cleo/backups/safety -type d -name "safety_*" | head -1)
     [ -f "$backup_dir/metadata.json" ]
 
     # Verify metadata contains migration flag
@@ -153,20 +153,20 @@ teardown_file() {
 }
 
 @test "reorganize-backups: preserves file integrity during migration" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create test backup with known content
     local test_content='{"version":"0.9.0","tasks":[{"id":"T001","title":"Test"}]}'
-    echo "$test_content" > .claude/.backups/todo.json.20241201_120000
+    echo "$test_content" > .cleo/.backups/todo.json.20241201_120000
 
     # Get original checksum
-    local original_checksum=$(sha256sum .claude/.backups/todo.json.20241201_120000 | cut -d' ' -f1)
+    local original_checksum=$(sha256sum .cleo/.backups/todo.json.20241201_120000 | cut -d' ' -f1)
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --run
     assert_success
 
     # Find migrated file
-    local migrated_file=$(find .claude/backups/safety -name "todo.json" | head -1)
+    local migrated_file=$(find .cleo/backups/safety -name "todo.json" | head -1)
 
     # Verify checksum matches
     local migrated_checksum=$(sha256sum "$migrated_file" | cut -d' ' -f1)
@@ -174,10 +174,10 @@ teardown_file() {
 }
 
 @test "reorganize-backups: cleanup requires confirmation when backups remain" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create test backup but don't migrate
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.20241201_120000
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.20241201_120000
 
     # Cleanup should fail without migration first
     run bash -c "echo 'no' | bash $MIGRATE_BACKUPS_SCRIPT --cleanup"
@@ -185,20 +185,20 @@ teardown_file() {
     assert_output --partial "Run migration first before cleanup"
 
     # Directory should still exist
-    [ -d ".claude/.backups" ]
+    [ -d ".cleo/.backups" ]
 }
 
 @test "reorganize-backups: metadata includes original timestamp and path" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create test backup
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.20241201_120000
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.20241201_120000
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --run
     assert_success
 
     # Find metadata
-    local backup_dir=$(find .claude/backups/safety -type d -name "safety_*" | head -1)
+    local backup_dir=$(find .cleo/backups/safety -type d -name "safety_*" | head -1)
     local metadata_file="$backup_dir/metadata.json"
 
     # Verify metadata fields
@@ -213,16 +213,16 @@ teardown_file() {
 }
 
 @test "reorganize-backups: migration backups get neverDelete flag" {
-    mkdir -p .claude/.backups/pre-migration-v0.8.0
+    mkdir -p .cleo/.backups/pre-migration-v0.8.0
 
     # Create migration backup
-    echo '{"version":"0.8.0","tasks":[]}' > .claude/.backups/pre-migration-v0.8.0/todo.json
+    echo '{"version":"0.8.0","tasks":[]}' > .cleo/.backups/pre-migration-v0.8.0/todo.json
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --run
     assert_success
 
     # Find metadata
-    local backup_dir=$(find .claude/backups/migration -type d -name "migration_*" | head -1)
+    local backup_dir=$(find .cleo/backups/migration -type d -name "migration_*" | head -1)
     local metadata_file="$backup_dir/metadata.json"
 
     # Verify neverDelete flag
@@ -231,10 +231,10 @@ teardown_file() {
 }
 
 @test "reorganize-backups: skips unknown backup types" {
-    mkdir -p .claude/.backups
+    mkdir -p .cleo/.backups
 
     # Create unrecognized backup
-    echo "random content" > .claude/.backups/unknown_file.txt
+    echo "random content" > .cleo/.backups/unknown_file.txt
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --run
     assert_success
@@ -242,20 +242,20 @@ teardown_file() {
 }
 
 @test "reorganize-backups: handles multiple backup types in single run" {
-    mkdir -p .claude/.backups/backup_1234567890
-    mkdir -p .claude/.backups/pre-migration-v0.8.0
+    mkdir -p .cleo/.backups/backup_1234567890
+    mkdir -p .cleo/.backups/pre-migration-v0.8.0
 
     # Create different backup types
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/todo.json.20241201_120000  # safety
-    echo '{"version":"0.9.0","tasks":[]}' > .claude/.backups/backup_1234567890/todo.json  # snapshot
-    echo '{"version":"0.8.0","tasks":[]}' > .claude/.backups/pre-migration-v0.8.0/todo.json  # migration
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/todo.json.20241201_120000  # safety
+    echo '{"version":"0.9.0","tasks":[]}' > .cleo/.backups/backup_1234567890/todo.json  # snapshot
+    echo '{"version":"0.8.0","tasks":[]}' > .cleo/.backups/pre-migration-v0.8.0/todo.json  # migration
 
     run bash "$MIGRATE_BACKUPS_SCRIPT" --run
     assert_success
     assert_output --partial "Migrated: 3"
 
     # Verify all types were created
-    [ -d ".claude/backups/safety" ]
-    [ -d ".claude/backups/snapshot" ]
-    [ -d ".claude/backups/migration" ]
+    [ -d ".cleo/backups/safety" ]
+    [ -d ".cleo/backups/snapshot" ]
+    [ -d ".cleo/backups/migration" ]
 }

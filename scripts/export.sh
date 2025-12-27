@@ -2,13 +2,13 @@
 # =============================================================================
 # export.sh - Export tasks to various formats
 # =============================================================================
-# Exports claude-todo tasks to different formats, primarily TodoWrite format
+# Exports cleo tasks to different formats, primarily TodoWrite format
 # for Claude Code integration.
 #
 # Usage:
-#   claude-todo export --format todowrite
-#   claude-todo export --format todowrite --status active,pending
-#   claude-todo export --format json
+#   cleo export --format todowrite
+#   cleo export --format todowrite --status active,pending
+#   cleo export --format json
 # =============================================================================
 
 set -euo pipefail
@@ -78,7 +78,7 @@ STATUS_FILTER="pending,active"
 PRIORITY_FILTER=""
 LABEL_FILTER=""
 MAX_TASKS=10
-TODO_FILE=".claude/todo.json"
+TODO_FILE=".cleo/todo.json"
 COMMAND_NAME="export"
 OUTPUT_FILE=""
 QUIET=false
@@ -92,10 +92,10 @@ show_help() {
     cat << 'EOF'
 export.sh - Export tasks to various formats
 
-Usage: claude-todo export [OPTIONS]
+Usage: cleo export [OPTIONS]
 
 DESCRIPTION
-    Exports claude-todo tasks to different formats for integration with
+    Exports cleo tasks to different formats for integration with
     external tools. Primary use case is exporting to TodoWrite format for
     Claude Code integration.
 
@@ -122,34 +122,34 @@ FORMATS
 
 EXAMPLES
     # Export active tasks to TodoWrite format
-    claude-todo export --format todowrite
+    cleo export --format todowrite
 
     # Export only active tasks
-    claude-todo export --format todowrite --status active
+    cleo export --format todowrite --status active
 
     # Export high priority tasks
-    claude-todo export --format todowrite --priority high
+    cleo export --format todowrite --priority high
 
     # Export tasks with specific label
-    claude-todo export --format todowrite --label bug
+    cleo export --format todowrite --label bug
 
     # Combine filters (status + priority)
-    claude-todo export --format todowrite --status pending,active --priority critical
+    cleo export --format todowrite --status pending,active --priority critical
 
     # Export all pending/active tasks as markdown
-    claude-todo export --format markdown --status pending,active
+    cleo export --format markdown --status pending,active
 
     # Export to file
-    claude-todo export --format todowrite --output .claude/todowrite-tasks.json
+    cleo export --format todowrite --output .cleo/todowrite-tasks.json
 
     # Export as CSV
-    claude-todo export --format csv --status pending,active,done
+    cleo export --format csv --status pending,active,done
 
     # Export as TSV without header
-    claude-todo export --format tsv --no-header
+    cleo export --format tsv --no-header
 
     # Custom CSV delimiter
-    claude-todo export --format csv --delimiter ';'
+    cleo export --format csv --delimiter ';'
 
 STATUS VALUES
     pending     Ready to start
@@ -270,7 +270,7 @@ parse_args() {
                     output_error "$E_INPUT_INVALID" "Unknown option: $1"
                 else
                     echo -e "${RED}[ERROR]${NC} Unknown option: $1" >&2
-                    echo "Run 'claude-todo export --help' for usage." >&2
+                    echo "Run 'cleo export --help' for usage." >&2
                 fi
                 exit "${EXIT_INVALID_INPUT:-1}"
                 ;;
@@ -404,7 +404,7 @@ export_json() {
       --arg status "$status_filter" \
       --argjson max "$max_tasks" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "format": "json",
           "version": $version,
@@ -603,7 +603,7 @@ main() {
         if declare -f output_error >/dev/null 2>&1; then
             output_error "$E_NOT_INITIALIZED" "$TODO_FILE not found"
         else
-            echo -e "${RED}[ERROR]${NC} $TODO_FILE not found. Run 'claude-todo init' first." >&2
+            echo -e "${RED}[ERROR]${NC} $TODO_FILE not found. Run 'cleo init' first." >&2
         fi
         exit "${EXIT_NOT_INITIALIZED:-1}"
     fi

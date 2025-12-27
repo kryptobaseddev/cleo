@@ -5,7 +5,7 @@ Display detailed view of a single task with all fields, dependencies, and relate
 ## Usage
 
 ```bash
-claude-todo show <task-id> [OPTIONS]
+cleo show <task-id> [OPTIONS]
 ```
 
 ## Description
@@ -50,36 +50,36 @@ This command is ideal for:
 
 ```bash
 # Show task details
-claude-todo show T001
+cleo show T001
 
 # Show with task history
-claude-todo show T001 --history
+cleo show T001 --history
 
 # Show related tasks by labels
-claude-todo show T001 --related
+cleo show T001 --related
 
 # Combine options
-claude-todo show T001 --history --related
+cleo show T001 --history --related
 ```
 
 ### Search Archive
 
 ```bash
 # Search archived tasks too
-claude-todo show T050 --include-archive
+cleo show T050 --include-archive
 ```
 
 ### JSON Output
 
 ```bash
 # Get JSON for scripting
-claude-todo show T001 --format json
+cleo show T001 --format json
 
 # Extract specific field
-claude-todo show T001 -f json | jq '.description'
+cleo show T001 -f json | jq '.description'
 
 # Get all notes
-claude-todo show T001 -f json | jq '.notes[]'
+cleo show T001 -f json | jq '.notes[]'
 ```
 
 ## Sample Output
@@ -98,7 +98,7 @@ claude-todo show T001 -f json | jq '.notes[]'
 │  Created:     2025-12-15
 ├─────────────────────────────────────────────────────────────────┤
 │  Description
-│    Build a reusable plugin/command for claude-todo that
+│    Build a reusable plugin/command for cleo that
 │    implements the Multi-Phase Consensus Research Framework.
 │    This would be a programmatically callable tool with
 │    prompt-style instructions for any project...
@@ -174,14 +174,14 @@ claude-todo show T001 -f json | jq '.notes[]'
 
 ```bash
 # What exactly is T042 about?
-claude-todo show T042
+cleo show T042
 ```
 
 ### Understanding Dependencies
 
 ```bash
 # What blocks T050 and what does T050 block?
-claude-todo show T050
+cleo show T050
 # Shows: Depends On (what this needs) and Blocking (what needs this)
 ```
 
@@ -189,26 +189,26 @@ claude-todo show T050
 
 ```bash
 # See all notes and history for a task
-claude-todo show T001 --history
+cleo show T001 --history
 ```
 
 ### Finding Context
 
 ```bash
 # What other tasks are related to this one?
-claude-todo show T001 --related
+cleo show T001 --related
 ```
 
 ### Scripting
 
 ```bash
 # Check if task has acceptance criteria
-if claude-todo show T001 -f json | jq -e '.acceptance | length > 0' > /dev/null; then
+if cleo show T001 -f json | jq -e '.acceptance | length > 0' > /dev/null; then
   echo "Task has acceptance criteria"
 fi
 
 # Get task description for AI processing
-DESCRIPTION=$(claude-todo show T001 -f json | jq -r '.description')
+DESCRIPTION=$(cleo show T001 -f json | jq -r '.description')
 ```
 
 ## Related Commands

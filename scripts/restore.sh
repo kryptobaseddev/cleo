@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Restore Script
+# CLEO Restore Script
 # Restore todo system files from backup
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
-LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
-BACKUP_DIR="${BACKUP_DIR:-.claude/backups}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+BACKUP_DIR="${BACKUP_DIR:-.cleo/backups}"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
@@ -21,9 +21,9 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
 fi
 
 # Source version from central location (fallback)
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -110,9 +110,9 @@ JSON Output:
   }
 
 Examples:
-  $(basename "$0") .claude/backups/snapshot/snapshot_20251205_120000
+  $(basename "$0") .cleo/backups/snapshot/snapshot_20251205_120000
   $(basename "$0") /path/to/backup.tar.gz --force
-  $(basename "$0") .claude/backups/safety/safety_20251205_120000_update_todo.json --file todo.json
+  $(basename "$0") .cleo/backups/safety/safety_20251205_120000_update_todo.json --file todo.json
   $(basename "$0") backup_20251205 --dry-run    # Preview restore
   $(basename "$0") backup_20251205 --json       # JSON output for scripting
 EOF
@@ -371,7 +371,7 @@ rollback_restore() {
         todo-archive.json)
           target_file="$ARCHIVE_FILE"
           ;;
-        todo-config.json)
+        config.json)
           target_file="$CONFIG_FILE"
           ;;
         todo-log.json)
@@ -470,9 +470,9 @@ fi
 # Set backup directory from config (v0.24.0+)
 # Used for safety backup location during restore
 if declare -f get_config_value >/dev/null 2>&1; then
-  BACKUP_DIR=$(get_config_value "backup.directory" ".claude/backups")
+  BACKUP_DIR=$(get_config_value "backup.directory" ".cleo/backups")
 elif [[ -f "$CONFIG_FILE" ]]; then
-  BACKUP_DIR=$(jq -r '.backup.directory // ".claude/backups"' "$CONFIG_FILE" 2>/dev/null || echo ".claude/backups")
+  BACKUP_DIR=$(jq -r '.backup.directory // ".cleo/backups"' "$CONFIG_FILE" 2>/dev/null || echo ".cleo/backups")
 fi
 
 check_deps
@@ -501,7 +501,7 @@ fi
 # Check for no-change condition (idempotency)
 check_no_change() {
   local all_identical=true
-  for file_name in todo.json todo-archive.json todo-config.json todo-log.json; do
+  for file_name in todo.json todo-archive.json config.json todo-log.json; do
     if [[ -n "$TARGET_FILE" && "$TARGET_FILE" != "$file_name" ]]; then
       continue
     fi
@@ -510,7 +510,7 @@ check_no_change() {
     case "$file_name" in
       todo.json) target_file="$TODO_FILE" ;;
       todo-archive.json) target_file="$ARCHIVE_FILE" ;;
-      todo-config.json) target_file="$CONFIG_FILE" ;;
+      config.json) target_file="$CONFIG_FILE" ;;
       todo-log.json) target_file="$LOG_FILE" ;;
     esac
 
@@ -533,7 +533,7 @@ check_no_change() {
 if [[ "$DRY_RUN" == true ]]; then
   # Collect files that would be restored
   WOULD_RESTORE_FILES=()
-  for file_name in todo.json todo-archive.json todo-config.json todo-log.json; do
+  for file_name in todo.json todo-archive.json config.json todo-log.json; do
     if [[ -n "$TARGET_FILE" && "$TARGET_FILE" != "$file_name" ]]; then
       continue
     fi
@@ -548,7 +548,7 @@ if [[ "$DRY_RUN" == true ]]; then
       --arg from "$BACKUP_SOURCE" \
       --argjson files "$(printf '%s\n' "${WOULD_RESTORE_FILES[@]}" | jq -R . | jq -s .)" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "command": "restore",
           "timestamp": $timestamp,
@@ -581,7 +581,7 @@ if check_no_change; then
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg from "$BACKUP_SOURCE" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "command": "restore",
           "timestamp": $timestamp,
@@ -628,9 +628,9 @@ if [[ -n "$TARGET_FILE" ]]; then
         ((RESTORE_ERRORS++))
       fi
       ;;
-    todo-config.json)
-      if restore_file "${BACKUP_SOURCE}/todo-config.json" "$CONFIG_FILE"; then
-        RESTORED_FILES+=("todo-config.json")
+    config.json)
+      if restore_file "${BACKUP_SOURCE}/config.json" "$CONFIG_FILE"; then
+        RESTORED_FILES+=("config.json")
       else
         ((RESTORE_ERRORS++))
       fi
@@ -644,7 +644,7 @@ if [[ -n "$TARGET_FILE" ]]; then
       ;;
     *)
       log_error "Unknown file: $TARGET_FILE"
-      log_error "Valid files: todo.json, todo-archive.json, todo-config.json, todo-log.json"
+      log_error "Valid files: todo.json, todo-archive.json, config.json, todo-log.json"
       exit "$EXIT_INVALID_INPUT"
       ;;
   esac
@@ -662,8 +662,8 @@ else
     ((RESTORE_ERRORS++))
   fi
 
-  if restore_file "${BACKUP_SOURCE}/todo-config.json" "$CONFIG_FILE"; then
-    RESTORED_FILES+=("todo-config.json")
+  if restore_file "${BACKUP_SOURCE}/config.json" "$CONFIG_FILE"; then
+    RESTORED_FILES+=("config.json")
   else
     ((RESTORE_ERRORS++))
   fi
@@ -709,7 +709,7 @@ for file_name in "${RESTORED_FILES[@]}"; do
     todo-archive.json)
       target_file="$ARCHIVE_FILE"
       ;;
-    todo-config.json)
+    config.json)
       target_file="$CONFIG_FILE"
       ;;
     todo-log.json)
@@ -759,7 +759,7 @@ if [[ "$FORMAT" == "json" ]]; then
     --argjson dryRun "$DRY_RUN" \
     --argjson files "$(printf '%s\n' "${RESTORED_FILES[@]}" | jq -R . | jq -s .)" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "command": "restore",
         "timestamp": $timestamp,

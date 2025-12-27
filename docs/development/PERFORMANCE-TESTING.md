@@ -1,10 +1,10 @@
 # Performance Testing Guide
 
-> Benchmarking workflow for claude-todo CLI commands
+> Benchmarking workflow for cleo CLI commands
 
 ## Overview
 
-CLI responsiveness directly impacts LLM agent efficiency. When agents execute `claude-todo` commands hundreds of times per session, even small latency increases compound into significant delays. Performance benchmarking ensures the tool remains fast enough for real-time agent workflows.
+CLI responsiveness directly impacts LLM agent efficiency. When agents execute `cleo` commands hundreds of times per session, even small latency increases compound into significant delays. Performance benchmarking ensures the tool remains fast enough for real-time agent workflows.
 
 **Why this matters:**
 - LLM agents pay per-token costs that include waiting time
@@ -103,7 +103,7 @@ Summary for 1000 tasks:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/benchmark-report.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/benchmark-report.schema.json",
   "_meta": {
     "format": "json",
     "command": "benchmark-performance",
@@ -207,7 +207,7 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get install -y jq bc
 
-      - name: Install claude-todo
+      - name: Install cleo
         run: ./install.sh
 
       - name: Run benchmarks

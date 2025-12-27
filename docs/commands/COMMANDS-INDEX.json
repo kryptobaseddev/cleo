@@ -1,16 +1,16 @@
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/commands-index.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "1.0.0",
-    "lastUpdated": "2025-12-22",
-    "totalCommands": 38,
+    "lastUpdated": "2025-12-27",
+    "totalCommands": 39,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
     "write": ["add", "archive", "complete", "focus", "phase", "populate-hierarchy", "promote", "reparent", "session", "unarchive", "update"],
     "read": ["analyze", "blockers", "commands", "dash", "deps", "exists", "export", "find", "history", "labels", "list", "log", "next", "phases", "research", "show", "stats"],
     "sync": ["extract", "inject", "sync"],
-    "maintenance": ["backup", "config", "init", "migrate", "reorganize-backups", "restore", "validate"]
+    "maintenance": ["backup", "claude-migrate", "config", "init", "migrate", "reorganize-backups", "restore", "validate"]
   },
   "commands": [
     {
@@ -68,6 +68,18 @@
       "exitCodes": [0, 100],
       "jsonOutput": true,
       "agentRelevance": "high"
+    },
+    {
+      "name": "claude-migrate",
+      "script": "claude-migrate.sh",
+      "category": "maintenance",
+      "doc": "claude-migrate.md",
+      "synopsis": "Detect and migrate legacy claude-todo installations to CLEO format",
+      "flags": ["--format", "--verbose", "--check", "--global", "--project", "--all"],
+      "exitCodes": [0, 1, 2, 3, 4],
+      "jsonOutput": true,
+      "agentRelevance": "low",
+      "note": "Run with --check first to detect legacy installations"
     },
     {
       "name": "complete",
@@ -154,7 +166,7 @@
       "script": "extract-todowrite.sh",
       "category": "sync",
       "doc": "sync.md",
-      "synopsis": "Extract/merge TodoWrite state back to claude-todo (session end)",
+      "synopsis": "Extract/merge TodoWrite state back to cleo (session end)",
       "flags": ["--format", "--quiet", "--dry-run"],
       "exitCodes": [0, 2, 3, 6],
       "jsonOutput": true,

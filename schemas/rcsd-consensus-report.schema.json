@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/rcsd-consensus-report.schema.json",
+  "$id": "https://cleo-dev.com/schemas/v1/rcsd-consensus-report.schema.json",
   "title": "RCSD Consensus Validation Report",
   "description": "Schema for consensus phase output in the RCSD pipeline. Validates research findings through multi-agent analysis, produces verdicts, and synthesizes validated knowledge.",
   "type": "object",
@@ -10,7 +10,7 @@
   "properties": {
     "$schema": {
       "type": "string",
-      "const": "https://claude-todo.dev/schemas/v1/rcsd-consensus-report.schema.json",
+      "const": "https://cleo-dev.com/schemas/v1/rcsd-consensus-report.schema.json",
       "description": "Self-referencing schema URI for validation"
     },
     "_meta": {

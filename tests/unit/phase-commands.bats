@@ -123,7 +123,7 @@ EOF
     run bash "$PHASE_SCRIPT" --human --help
     assert_success
     assert_output --partial "Usage:"
-    assert_output --partial "claude-todo phase"
+    assert_output --partial "cleo phase"
 }
 
 @test "phase -h shows usage" {

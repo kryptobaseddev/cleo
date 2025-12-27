@@ -31,7 +31,7 @@
 #   next.sh --format json      # JSON output for scripting
 #
 # Version: 0.8.0
-# Part of: claude-todo CLI Output Enhancement (Phase 2)
+# Part of: cleo CLI Output Enhancement (Phase 2)
 #####################################################################
 
 set -euo pipefail
@@ -39,11 +39,11 @@ set -euo pipefail
 # Script and library paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version from central location
-if [[ -f "$CLAUDE_TODO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLAUDE_TODO_HOME/VERSION" | tr -d '[:space:]')"
+if [[ -f "$CLEO_HOME/VERSION" ]]; then
+  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
   VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
@@ -53,26 +53,26 @@ fi
 # Source library functions
 if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
   source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/file-ops.sh"
 fi
 
 if [[ -f "${LIB_DIR}/logging.sh" ]]; then
   source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/logging.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/logging.sh"
 fi
 
 if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
   source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/output-format.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/output-format.sh"
 fi
 
 if [[ -f "${LIB_DIR}/exit-codes.sh" ]]; then
   source "${LIB_DIR}/exit-codes.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/exit-codes.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/exit-codes.sh"
+elif [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
+  source "$CLEO_HOME/lib/exit-codes.sh"
 fi
 
 # Source error JSON library
@@ -84,8 +84,8 @@ fi
 # Source hierarchy library for hierarchy awareness (T346)
 if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
   source "$LIB_DIR/hierarchy.sh"
-elif [[ -f "$CLAUDE_TODO_HOME/lib/hierarchy.sh" ]]; then
-  source "$CLAUDE_TODO_HOME/lib/hierarchy.sh"
+elif [[ -f "$CLEO_HOME/lib/hierarchy.sh" ]]; then
+  source "$CLEO_HOME/lib/hierarchy.sh"
 fi
 
 # Default configuration
@@ -96,8 +96,8 @@ QUIET=false
 COMMAND_NAME="next"
 
 # File paths
-CLAUDE_TODO_DIR="${CLAUDE_TODO_DIR:-$(pwd)/.claude}"
-TODO_FILE="${TODO_FILE:-$CLAUDE_TODO_DIR/todo.json}"
+CLEO_DIR="${CLEO_DIR:-$(pwd)/.cleo}"
+TODO_FILE="${TODO_FILE:-$CLEO_DIR/todo.json}"
 
 #####################################################################
 # Usage
@@ -105,7 +105,7 @@ TODO_FILE="${TODO_FILE:-$CLAUDE_TODO_DIR/todo.json}"
 
 usage() {
   cat << 'EOF'
-Usage: claude-todo next [OPTIONS]
+Usage: cleo next [OPTIONS]
 
 Suggest the next task to work on based on priority and dependencies.
 
@@ -126,10 +126,10 @@ Algorithm:
     5. Break ties by creation date (oldest first)
 
 Examples:
-    claude-todo next                    # Get single best suggestion
-    claude-todo next --explain          # Show why this task is suggested
-    claude-todo next --count 3          # Show top 3 suggestions
-    claude-todo next --format json      # JSON output
+    cleo next                    # Get single best suggestion
+    cleo next --explain          # Show why this task is suggested
+    cleo next --count 3          # Show top 3 suggestions
+    cleo next --format json      # JSON output
 
 Output:
     Shows the suggested task with its ID, title, priority, and phase.
@@ -335,7 +335,7 @@ filter_ready_tasks() {
 # Calculate hierarchy scores for tasks
 apply_hierarchy_scoring() {
   local tasks_json="$1"
-  
+
   # Get current focus epic for hierarchy scoring
   local focus_epic=""
   if [[ -f "$TODO_FILE" ]]; then
@@ -344,12 +344,16 @@ apply_hierarchy_scoring() {
       focus_epic=$(get_task_epic "$focus_task" "$TODO_FILE")
     fi
   fi
-  
+
   # Get the current tasks data for leaf checking
-  local tasks_data=$(jq -c '.tasks' "$TODO_FILE")
-  
-  echo "$tasks_json" | jq --arg focus_epic "$focus_epic" --argjson tasks_data "$tasks_data" '
-    map(. as $task | 
+  # Use slurpfile to avoid jq warnings on large projects (fixes argument size limit)
+  local tmp_tasks
+  tmp_tasks=$(mktemp)
+  jq -c '.tasks' "$TODO_FILE" > "$tmp_tasks"
+
+  echo "$tasks_json" | jq --arg focus_epic "$focus_epic" --slurpfile tasks_data "$tmp_tasks" '
+    ($tasks_data[0] // []) as $all_tasks |
+    map(. as $task |
       . + {
         hierarchyScore: (
           # Same epic bonus (+30)
@@ -359,13 +363,14 @@ apply_hierarchy_scoring() {
             else 0 end)
           else 0 end) +
           # Leaf task bonus (+10) - tasks with no children
-          (if ([$tasks_data[] | select(.parentId == $task.id)] | length) == 0 then
+          (if ([$all_tasks[] | select(.parentId == $task.id)] | length) == 0 then
             10
           else 0 end)
         )
       }
     )
   '
+  rm -f "$tmp_tasks"
 }
 
 # Sort tasks by score (priority + phase bonus + hierarchy) and creation date
@@ -548,7 +553,7 @@ output_text_format() {
   local first_id
   first_id=$(echo "$suggestions" | jq -r '.[0].id')
   echo -e "${DIM}To start working:${NC}"
-  echo -e "  claude-todo focus set $first_id"
+  echo -e "  cleo focus set $first_id"
   echo ""
 }
 
@@ -648,7 +653,7 @@ output_json_format() {
     --argjson requestedCount "$SUGGESTION_COUNT" \
     --arg version "$VERSION" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "version": $version,
@@ -678,7 +683,7 @@ output_json_format() {
       "success": true,
       "recommendation": (if ($suggestions | length) > 0 then {
         taskId: $suggestions[0].id,
-        command: ("claude-todo focus set " + $suggestions[0].id)
+        command: ("cleo focus set " + $suggestions[0].id)
       } else null end)
     }'
 }
@@ -730,10 +735,10 @@ parse_arguments() {
         ;;
       *)
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-          output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'claude-todo next --help' for usage"
+          output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'cleo next --help' for usage"
         else
           output_error "$E_INPUT_INVALID" "Unknown option: $1"
-          echo "Run 'claude-todo next --help' for usage" >&2
+          echo "Run 'cleo next --help' for usage" >&2
         fi
         exit "${EXIT_INVALID_INPUT:-1}"
         ;;
@@ -754,10 +759,10 @@ main() {
   # Check if in a todo-enabled project
   if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-      output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_NOT_INITIALIZED:-1}" true "Run 'claude-todo init' first"
+      output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE" "${EXIT_NOT_INITIALIZED:-1}" true "Run 'cleo init' first"
     else
       output_error "$E_NOT_INITIALIZED" "Todo file not found: $TODO_FILE"
-      echo "Run 'claude-todo init' first" >&2
+      echo "Run 'cleo init' first" >&2
     fi
     exit "${EXIT_NOT_INITIALIZED:-1}"
   fi

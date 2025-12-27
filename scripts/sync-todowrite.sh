@@ -2,15 +2,15 @@
 # =============================================================================
 # sync-todowrite.sh - Orchestrate TodoWrite bidirectional sync
 # =============================================================================
-# Main entry point for claude-todo ↔ TodoWrite synchronization.
+# Main entry point for cleo ↔ TodoWrite synchronization.
 # Coordinates inject (session start) and extract (session end) operations.
 #
 # Research: T227 (todowrite-sync-research.md)
 #
 # Usage:
-#   claude-todo sync --inject [OPTIONS]     # Session start: prepare tasks
-#   claude-todo sync --extract [FILE]       # Session end: merge changes
-#   claude-todo sync --status               # Show sync state
+#   cleo sync --inject [OPTIONS]     # Session start: prepare tasks
+#   cleo sync --extract [FILE]       # Session end: merge changes
+#   cleo sync --status               # Show sync state
 #
 # This script is registered in the main CLI dispatcher.
 # =============================================================================
@@ -20,13 +20,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 COMMAND_NAME="sync"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Load VERSION from central location
 if [[ -f "${SCRIPT_DIR}/../VERSION" ]]; then
     VERSION=$(cat "${SCRIPT_DIR}/../VERSION")
-elif [[ -f "${CLAUDE_TODO_HOME}/VERSION" ]]; then
-    VERSION=$(cat "${CLAUDE_TODO_HOME}/VERSION")
+elif [[ -f "${CLEO_HOME}/VERSION" ]]; then
+    VERSION=$(cat "${CLEO_HOME}/VERSION")
 else
     VERSION="0.36.0"
 fi
@@ -91,7 +91,7 @@ log_info() { [[ "${QUIET:-false}" != "true" ]] && echo -e "${GREEN}[INFO]${NC} $
 # =============================================================================
 # Configuration
 # =============================================================================
-SYNC_DIR=".claude/sync"
+SYNC_DIR=".cleo/sync"
 STATE_FILE="${SYNC_DIR}/todowrite-session.json"
 
 # Output options
@@ -110,7 +110,7 @@ show_help() {
 sync-todowrite.sh - TodoWrite bidirectional synchronization
 
 USAGE
-    claude-todo sync <subcommand> [OPTIONS]
+    cleo sync <subcommand> [OPTIONS]
 
 SUBCOMMANDS
     --inject          Prepare tasks for TodoWrite (session start)
@@ -136,13 +136,13 @@ GLOBAL OPTIONS
     --quiet, -q       Suppress info messages
 
 WORKFLOW
-    1. Session Start:  claude-todo sync --inject
+    1. Session Start:  cleo sync --inject
        → Outputs TodoWrite JSON
        → Saves session state for round-trip
 
     2. During Session: Claude uses TodoWrite normally
 
-    3. Session End:    claude-todo sync --extract <state.json>
+    3. Session End:    cleo sync --extract <state.json>
        → Parses TodoWrite state
        → Marks completed tasks as done
        → Creates new tasks
@@ -150,16 +150,16 @@ WORKFLOW
 
 EXAMPLES
     # Start session - inject tasks to TodoWrite format
-    claude-todo sync --inject
+    cleo sync --inject
 
     # End session - extract and merge changes
-    claude-todo sync --extract /tmp/todowrite-state.json
+    cleo sync --extract /tmp/todowrite-state.json
 
     # Check if sync state exists
-    claude-todo sync --status
+    cleo sync --status
 
     # Clear stale sync state
-    claude-todo sync --clear
+    cleo sync --clear
 
 EOF
     exit "$EXIT_SUCCESS"
@@ -190,7 +190,7 @@ handle_status() {
                 --arg timestamp "$timestamp" \
                 --arg state_file "$STATE_FILE" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -239,7 +239,7 @@ handle_status() {
             --argjson task_ids "$task_ids_json" \
             --argjson phases "$phases_json" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -289,7 +289,7 @@ handle_clear() {
                 --arg version "$version" \
                 --arg timestamp "$timestamp" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -317,7 +317,7 @@ handle_clear() {
                 --arg timestamp "$timestamp" \
                 --arg state_file "$STATE_FILE" \
                 '{
-                    "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                     "_meta": {
                         "format": "json",
                         "version": $version,
@@ -329,7 +329,7 @@ handle_clear() {
                     "dryRun": true,
                     "wouldDelete": {
                         "stateFile": $state_file,
-                        "syncDirectory": ".claude/sync"
+                        "syncDirectory": ".cleo/sync"
                     },
                     "message": "Would clear sync state"
                 }'
@@ -350,7 +350,7 @@ handle_clear() {
             --arg timestamp "$timestamp" \
             --arg state_file "$STATE_FILE" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
                     "version": $version,
@@ -458,12 +458,12 @@ main() {
             ;;
         *)
             if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-                output_error "$E_INPUT_INVALID" "Unknown subcommand '$1'. Valid subcommands: --inject, --extract, --status, --clear" "$EXIT_INVALID_INPUT" true "Use 'claude-todo sync --help' for usage information"
+                output_error "$E_INPUT_INVALID" "Unknown subcommand '$1'. Valid subcommands: --inject, --extract, --status, --clear" "$EXIT_INVALID_INPUT" true "Use 'cleo sync --help' for usage information"
             else
                 log_error "Unknown subcommand: $1"
                 echo "" >&2
                 echo "Valid subcommands: --inject, --extract, --status, --clear" >&2
-                echo "Use 'claude-todo sync --help' for usage" >&2
+                echo "Use 'cleo sync --help' for usage" >&2
             fi
             exit "$EXIT_INVALID_INPUT"
             ;;

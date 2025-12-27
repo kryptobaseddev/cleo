@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# CLAUDE-TODO Backup Script
+# CLEO Backup Script
 # Create backups of all todo system files
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-TODO_FILE="${TODO_FILE:-.claude/todo.json}"
-ARCHIVE_FILE="${ARCHIVE_FILE:-.claude/todo-archive.json}"
-CONFIG_FILE="${CONFIG_FILE:-.claude/todo-config.json}"
-LOG_FILE="${LOG_FILE:-.claude/todo-log.json}"
-BACKUP_DIR="${BACKUP_DIR:-.claude/backups}"
+TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
+LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
+BACKUP_DIR="${BACKUP_DIR:-.cleo/backups}"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
@@ -89,7 +89,7 @@ Subcommands:
   search [OPTIONS]    Alias for 'find' with enhanced search options
 
 Options:
-  --destination DIR   Custom backup location (default: .claude/backups)
+  --destination DIR   Custom backup location (default: .cleo/backups)
   --compress          Create compressed tarball of backup
   --name NAME         Custom backup name (appended to timestamp)
   --list              List available backups
@@ -115,7 +115,7 @@ Search Options (use with 'find' or 'search' subcommand):
 Backs up:
   - todo.json
   - todo-archive.json
-  - todo-config.json
+  - config.json
   - todo-log.json
 
 Output:
@@ -140,7 +140,7 @@ Examples:
   $(basename "$0") status                       # Show backup system status
   $(basename "$0") status --json                # JSON status for monitoring
   $(basename "$0") verify snapshot_20251215     # Verify backup by ID
-  $(basename "$0") verify .claude/backups/safety/safety_20251215_120000  # Verify by path
+  $(basename "$0") verify .cleo/backups/safety/safety_20251215_120000  # Verify by path
   $(basename "$0") find --since 7d --type snapshot    # Find recent snapshots
   $(basename "$0") find --name "*session*"            # Find by name pattern
   $(basename "$0") find --grep "T001"                 # Search content for task ID
@@ -226,7 +226,7 @@ list_backups() {
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg dir "$backup_dir" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "subcommand": "list",
@@ -455,7 +455,7 @@ list_backups() {
       --argjson backups "$json_backups" \
       --argjson count "$count" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "command": "backup",
           "subcommand": "list",
@@ -559,7 +559,7 @@ verify_backup() {
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg target "$target" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "subcommand": "verify",
@@ -571,12 +571,12 @@ verify_backup() {
             "code": "NOT_FOUND",
             "message": ("Backup not found: " + $target),
             "recoverable": true,
-            "suggestion": "Run '\''claude-todo backup --list'\'' to see available backups"
+            "suggestion": "Run '\''cleo backup --list'\'' to see available backups"
           }
         }'
     else
       log_error "Backup not found: $target"
-      echo "Run 'claude-todo backup --list' to see available backups"
+      echo "Run 'cleo backup --list' to see available backups"
     fi
     exit $EXIT_NOT_FOUND
   fi
@@ -599,7 +599,7 @@ verify_backup() {
         --arg backup_id "$backup_id" \
         --arg path "$backup_path" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "subcommand": "verify",
@@ -635,7 +635,7 @@ verify_backup() {
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg backup_id "$backup_id" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "subcommand": "verify",
@@ -824,7 +824,7 @@ verify_backup() {
       --argjson files_failed "$files_failed" \
       --argjson details "$details_json" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "command": "backup",
           "subcommand": "verify",
@@ -920,7 +920,7 @@ show_status() {
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg dir "$backup_dir" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "subcommand": "status",
@@ -1263,7 +1263,7 @@ show_status() {
       --argjson checks "$health_checks_json" \
       --argjson issues "$health_issues_json" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "command": "backup",
           "subcommand": "status",
@@ -1419,7 +1419,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -*)
       if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_USAGE_ERROR:-64}" false "Run 'claude-todo backup --help' for usage"
+        output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_USAGE_ERROR:-64}" false "Run 'cleo backup --help' for usage"
       else
         log_error "Unknown option: $1"
       fi
@@ -1457,7 +1457,7 @@ if [[ "$LIST_MODE" != true && "$VERIFY_MODE" != true ]]; then
       jq -n \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "timestamp": $timestamp,
@@ -1481,9 +1481,9 @@ check_deps
 if [[ -n "$DESTINATION" ]]; then
   BACKUP_DIR="$DESTINATION"
 elif declare -f get_config_value >/dev/null 2>&1; then
-  BACKUP_DIR=$(get_config_value "backup.directory" ".claude/backups")
+  BACKUP_DIR=$(get_config_value "backup.directory" ".cleo/backups")
 elif [[ -f "$CONFIG_FILE" ]]; then
-  BACKUP_DIR=$(jq -r '.backup.directory // ".claude/backups"' "$CONFIG_FILE" 2>/dev/null || echo ".claude/backups")
+  BACKUP_DIR=$(jq -r '.backup.directory // ".cleo/backups"' "$CONFIG_FILE" 2>/dev/null || echo ".cleo/backups")
 fi
 
 # Handle --list mode
@@ -1499,7 +1499,7 @@ if [[ "$VERIFY_MODE" == true ]]; then
       jq -n \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "subcommand": "verify",
@@ -1511,16 +1511,16 @@ if [[ "$VERIFY_MODE" == true ]]; then
             "code": "INVALID_INPUT",
             "message": "Missing backup ID or path",
             "recoverable": true,
-            "suggestion": "Usage: claude-todo backup verify <backup-id|path>"
+            "suggestion": "Usage: cleo backup verify <backup-id|path>"
           }
         }'
     else
       log_error "Missing backup ID or path"
-      echo "Usage: claude-todo backup verify <backup-id|path>"
+      echo "Usage: cleo backup verify <backup-id|path>"
       echo ""
       echo "Examples:"
-      echo "  claude-todo backup verify snapshot_20251215_120000"
-      echo "  claude-todo backup verify .claude/backups/safety/safety_20251215"
+      echo "  cleo backup verify snapshot_20251215_120000"
+      echo "  cleo backup verify .cleo/backups/safety/safety_20251215"
     fi
     exit $EXIT_INVALID_INPUT
   fi
@@ -1557,7 +1557,7 @@ if [[ "$AUTO_MODE" == true ]]; then
           --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
           --arg path "$backup_path" \
           '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
               "command": "backup",
               "subcommand": "auto",
@@ -1579,7 +1579,7 @@ if [[ "$AUTO_MODE" == true ]]; then
         jq -n \
           --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
           '{
-            "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
               "command": "backup",
               "subcommand": "auto",
@@ -1603,7 +1603,7 @@ if [[ "$AUTO_MODE" == true ]]; then
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg lastBackup "${last_backup:-null}" \
         '{
-          "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
             "command": "backup",
             "subcommand": "auto",
@@ -1667,7 +1667,7 @@ if [[ "$FIND_MODE" == true ]]; then
       --argjson verbose "$([[ "$VERBOSE" == true ]] && echo true || echo false)" \
       --arg subcommand "$SUBCOMMAND_NAME" \
       '{
-        "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
           "command": "backup",
           "subcommand": $subcommand,
@@ -1705,7 +1705,7 @@ if [[ "$FIND_MODE" == true ]]; then
       [[ -n "$FIND_GREP" ]] && echo "  Content grep: $FIND_GREP"
       [[ -n "$FIND_TASK_ID" ]] && echo "  Task ID: $FIND_TASK_ID"
       echo ""
-      echo "Try 'claude-todo backup --list' to see all backups."
+      echo "Try 'cleo backup --list' to see all backups."
     else
       truncated=""
       if [[ $result_count -ge $FIND_LIMIT ]]; then
@@ -1756,8 +1756,8 @@ if [[ "$FIND_MODE" == true ]]; then
       done
 
       echo ""
-      echo -e "Use '${GREEN}claude-todo backup verify <NAME>${NC}' to verify a backup."
-      echo -e "Use '${GREEN}claude-todo restore <NAME>${NC}' to restore from a backup."
+      echo -e "Use '${GREEN}cleo backup verify <NAME>${NC}' to verify a backup."
+      echo -e "Use '${GREEN}cleo restore <NAME>${NC}' to restore from a backup."
     fi
     echo ""
   fi
@@ -1819,13 +1819,13 @@ backup_file() {
 log_info "Backing up files..."
 backup_file "$TODO_FILE" "todo.json"
 backup_file "$ARCHIVE_FILE" "todo-archive.json"
-backup_file "$CONFIG_FILE" "todo-config.json"
+backup_file "$CONFIG_FILE" "config.json"
 backup_file "$LOG_FILE" "todo-log.json"
 
 # Check if any files were backed up
 if [[ ${#BACKED_UP_FILES[@]} -eq 0 ]]; then
   if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-    output_error "$E_FILE_NOT_FOUND" "No files were backed up" "${EXIT_FILE_ERROR:-4}" true "Ensure todo files exist in .claude/ directory"
+    output_error "$E_FILE_NOT_FOUND" "No files were backed up" "${EXIT_FILE_ERROR:-4}" true "Ensure todo files exist in .cleo/ directory"
   else
     log_error "No files were backed up"
   fi
@@ -1938,7 +1938,7 @@ if [[ "$FORMAT" == "json" ]]; then
     --argjson validationWarnings "$VALIDATION_ERRORS" \
     --argjson files "$(printf '%s\n' "${BACKED_UP_FILES[@]}" | jq -R . | jq -s .)" \
     '{
-      "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "command": "backup",
         "timestamp": $timestamp,

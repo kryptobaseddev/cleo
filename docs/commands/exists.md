@@ -5,7 +5,7 @@ Check if a task ID exists without listing all tasks, with clean exit codes for s
 ## Usage
 
 ```bash
-claude-todo exists <task-id> [OPTIONS]
+cleo exists <task-id> [OPTIONS]
 ```
 
 ## Description
@@ -47,7 +47,7 @@ This command is particularly useful for:
 Exit codes enable reliable conditional logic in scripts:
 
 ```bash
-if claude-todo exists T001 --quiet; then
+if cleo exists T001 --quiet; then
   echo "Task exists"
 else
   echo "Task not found"
@@ -60,7 +60,7 @@ fi
 
 ```bash
 # Check if task exists (active tasks only)
-claude-todo exists T001
+cleo exists T001
 ```
 
 Output (task exists):
@@ -79,7 +79,7 @@ Exit code: `0` (exists) or `1` (not found)
 
 ```bash
 # No output, exit code only
-claude-todo exists T001 --quiet
+cleo exists T001 --quiet
 ```
 
 No output. Check exit code:
@@ -91,8 +91,8 @@ No output. Check exit code:
 **Use case**: Conditional script logic without parsing output
 
 ```bash
-if claude-todo exists T042 --quiet; then
-  claude-todo update T042 --priority high
+if cleo exists T042 --quiet; then
+  cleo update T042 --priority high
 else
   echo "Task T042 not found, skipping update"
 fi
@@ -102,13 +102,13 @@ fi
 
 ```bash
 # Show which file contains the task
-claude-todo exists T001 --verbose
+cleo exists T001 --verbose
 ```
 
 Output (active task):
 ```
 ✓ Task T001 exists
-  Location: .claude/todo.json (active tasks)
+  Location: .cleo/todo.json (active tasks)
   Status: pending
   Title: Implement user authentication
 ```
@@ -116,7 +116,7 @@ Output (active task):
 Output (archived task with `--include-archive`):
 ```
 ✓ Task T001 exists
-  Location: .claude/todo-archive.json (archived tasks)
+  Location: .cleo/todo-archive.json (archived tasks)
   Status: done
   Title: Setup project structure
 ```
@@ -125,7 +125,7 @@ Output (archived task with `--include-archive`):
 
 ```bash
 # Search both active and archived tasks
-claude-todo exists T001 --include-archive
+cleo exists T001 --include-archive
 ```
 
 Without `--include-archive`:
@@ -142,7 +142,7 @@ With `--include-archive`:
 
 ```bash
 # Machine-readable format with metadata
-claude-todo exists T001 --format json
+cleo exists T001 --format json
 ```
 
 Output structure (task exists):
@@ -184,18 +184,18 @@ Output structure (task not found):
 **Parse with jq**:
 ```bash
 # Extract exists boolean
-claude-todo exists T001 --format json | jq -r '.exists'
+cleo exists T001 --format json | jq -r '.exists'
 # Output: true or false
 
 # Get task location if exists
-claude-todo exists T001 --format json | jq -r '.location // "not found"'
+cleo exists T001 --format json | jq -r '.location // "not found"'
 ```
 
 ### Combined Options
 
 ```bash
 # Verbose JSON output including archive
-claude-todo exists T001 --verbose --format json --include-archive
+cleo exists T001 --verbose --format json --include-archive
 ```
 
 ## Use Cases
@@ -204,8 +204,8 @@ claude-todo exists T001 --verbose --format json --include-archive
 
 ```bash
 # Validate task ID before bulk update
-if claude-todo exists T042 --quiet; then
-  claude-todo update T042 \
+if cleo exists T042 --quiet; then
+  cleo update T042 \
     --priority critical \
     --labels urgent,security \
     --notes "Escalated due to security concern"
@@ -222,7 +222,7 @@ fi
 - name: Check if task exists
   id: check-task
   run: |
-    if claude-todo exists ${{ env.TASK_ID }} --quiet; then
+    if cleo exists ${{ env.TASK_ID }} --quiet; then
       echo "exists=true" >> $GITHUB_OUTPUT
     else
       echo "exists=false" >> $GITHUB_OUTPUT
@@ -230,7 +230,7 @@ fi
 
 - name: Update task (conditional)
   if: steps.check-task.outputs.exists == 'true'
-  run: claude-todo update ${{ env.TASK_ID }} --status done
+  run: cleo update ${{ env.TASK_ID }} --status done
 ```
 
 ### Task ID Validation Loop
@@ -240,7 +240,7 @@ fi
 TASK_IDS=("T001" "T002" "T003" "T042")
 
 for task_id in "${TASK_IDS[@]}"; do
-  if claude-todo exists "$task_id" --quiet; then
+  if cleo exists "$task_id" --quiet; then
     echo "✓ $task_id exists"
   else
     echo "✗ $task_id missing"
@@ -256,14 +256,14 @@ DEPENDENCIES=("T001" "T002" "T005")
 ALL_EXIST=true
 
 for dep_id in "${DEPENDENCIES[@]}"; do
-  if ! claude-todo exists "$dep_id" --quiet; then
+  if ! cleo exists "$dep_id" --quiet; then
     echo "ERROR: Dependency $dep_id not found"
     ALL_EXIST=false
   fi
 done
 
 if $ALL_EXIST; then
-  claude-todo add "Integration test" --depends T001,T002,T005
+  cleo add "Integration test" --depends T001,T002,T005
 else
   echo "Cannot add task: missing dependencies"
   exit 1
@@ -274,9 +274,9 @@ fi
 
 ```bash
 # Check if task was completed and archived
-if claude-todo exists T001 --include-archive --quiet; then
+if cleo exists T001 --include-archive --quiet; then
   # Check where it exists
-  LOCATION=$(claude-todo exists T001 --include-archive --format json | \
+  LOCATION=$(cleo exists T001 --include-archive --format json | \
     jq -r '.location')
 
   if [[ "$LOCATION" == "todo-archive.json" ]]; then
@@ -295,7 +295,7 @@ fi
 # Before manually creating task with specific ID, verify it's unique
 NEW_ID="T100"
 
-if claude-todo exists "$NEW_ID" --include-archive --quiet; then
+if cleo exists "$NEW_ID" --include-archive --quiet; then
   echo "ERROR: Task ID $NEW_ID already exists"
   exit 1
 else
@@ -312,8 +312,8 @@ safe_update() {
   local task_id="$1"
   shift
 
-  if claude-todo exists "$task_id" --quiet; then
-    claude-todo update "$task_id" "$@"
+  if cleo exists "$task_id" --quiet; then
+    cleo update "$task_id" "$@"
   else
     echo "ERROR: Cannot update non-existent task: $task_id" >&2
     return 1
@@ -330,7 +330,7 @@ safe_update T001 --priority high
 
 ```bash
 # Invalid ID format
-claude-todo exists INVALID
+cleo exists INVALID
 ```
 
 Output:
@@ -357,7 +357,7 @@ Invalid formats:
 
 ```bash
 # If todo.json is missing or unreadable
-claude-todo exists T001
+cleo exists T001
 ```
 
 Output:
@@ -371,13 +371,13 @@ Exit code: `3`
 **Recovery**:
 ```bash
 # Verify file exists
-ls -la .claude/todo.json
+ls -la .cleo/todo.json
 
 # Check permissions
-chmod 644 .claude/todo.json
+chmod 644 .cleo/todo.json
 
 # Validate JSON
-claude-todo validate
+cleo validate
 ```
 
 ### System Error Handling
@@ -388,7 +388,7 @@ check_task_exists() {
   local task_id="$1"
   local exit_code
 
-  claude-todo exists "$task_id" --quiet
+  cleo exists "$task_id" --quiet
   exit_code=$?
 
   case $exit_code in
@@ -418,7 +418,7 @@ check_task_exists() {
 # Usage
 if check_task_exists "T001"; then
   # Task exists, proceed
-  claude-todo focus set T001
+  cleo focus set T001
 fi
 ```
 
@@ -436,7 +436,7 @@ TASK_IDS=$(git log -1 --pretty=%B | grep -oE 'T[0-9]+' | sort -u)
 # Validate all referenced tasks exist
 MISSING_TASKS=()
 for task_id in $TASK_IDS; do
-  if ! claude-todo exists "$task_id" --quiet; then
+  if ! cleo exists "$task_id" --quiet; then
     MISSING_TASKS+=("$task_id")
   fi
 done
@@ -458,9 +458,9 @@ fi
 TASK_IDS=("$@")
 
 for task_id in "${TASK_IDS[@]}"; do
-  if claude-todo exists "$task_id" --quiet; then
+  if cleo exists "$task_id" --quiet; then
     # Get detailed info
-    TASK_INFO=$(claude-todo exists "$task_id" --verbose --format json)
+    TASK_INFO=$(cleo exists "$task_id" --verbose --format json)
     STATUS=$(echo "$TASK_INFO" | jq -r '.task.status')
     TITLE=$(echo "$TASK_INFO" | jq -r '.task.title')
     echo "[$task_id] $STATUS - $TITLE"
@@ -488,7 +488,7 @@ echo "Validating task references in documentation..."
 
 INVALID_COUNT=0
 for task_id in $TASK_REFS; do
-  if ! claude-todo exists "$task_id" --include-archive --quiet; then
+  if ! cleo exists "$task_id" --include-archive --quiet; then
     echo "⚠ Invalid reference: $task_id"
     INVALID_COUNT=$((INVALID_COUNT + 1))
   fi
@@ -514,8 +514,8 @@ CRITICAL_TASKS=("T001" "T005" "T012")
 echo "Monitoring critical tasks..."
 
 for task_id in "${CRITICAL_TASKS[@]}"; do
-  if claude-todo exists "$task_id" --quiet; then
-    TASK_JSON=$(claude-todo exists "$task_id" --format json)
+  if cleo exists "$task_id" --quiet; then
+    TASK_JSON=$(cleo exists "$task_id" --format json)
     STATUS=$(echo "$TASK_JSON" | jq -r '.task.status')
 
     if [[ "$STATUS" != "done" ]]; then
@@ -570,11 +570,11 @@ Benchmark (approximate):
 
 ## Related Commands
 
-- `claude-todo show ID` - Display full task details
-- `claude-todo list` - List all tasks with filtering
-- `claude-todo validate` - Validate all JSON files and task IDs
-- `claude-todo update ID` - Update task (validates existence automatically)
-- `claude-todo complete ID` - Complete task (validates existence automatically)
+- `cleo show ID` - Display full task details
+- `cleo list` - List all tasks with filtering
+- `cleo validate` - Validate all JSON files and task IDs
+- `cleo update ID` - Update task (validates existence automatically)
+- `cleo complete ID` - Complete task (validates existence automatically)
 
 ## Tips
 
@@ -607,14 +607,14 @@ if [[ -z "$TASK_ID" ]]; then
 fi
 
 # Check task exists
-if ! claude-todo exists "$TASK_ID" --quiet; then
+if ! cleo exists "$TASK_ID" --quiet; then
   echo "ERROR: Task $TASK_ID not found" >&2
   exit 1
 fi
 
 # Perform operation
 echo "Processing task $TASK_ID..."
-claude-todo update "$TASK_ID" --priority high
+cleo update "$TASK_ID" --priority high
 
 echo "✓ Task updated successfully"
 ```
@@ -629,8 +629,8 @@ echo "✓ Task updated successfully"
     TASK_ID="T${GITHUB_RUN_NUMBER}"
 
     # Check exists with proper error handling
-    if claude-todo exists "$TASK_ID" --quiet; then
-      claude-todo complete "$TASK_ID" --notes "Completed by CI run $GITHUB_RUN_NUMBER"
+    if cleo exists "$TASK_ID" --quiet; then
+      cleo complete "$TASK_ID" --notes "Completed by CI run $GITHUB_RUN_NUMBER"
       echo "✓ Task $TASK_ID completed"
     else
       echo "⚠ Task $TASK_ID not found, skipping"
@@ -657,5 +657,5 @@ The `exists` command is read-only and safe for automated use:
 **Recommendations**:
 - Safe to use in pre-commit hooks
 - Safe for parallel execution in CI/CD
-- No special permissions required beyond read access to `.claude/`
+- No special permissions required beyond read access to `.cleo/`
 - Can be used in untrusted scripts (read-only operation)

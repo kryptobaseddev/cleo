@@ -46,7 +46,7 @@ capitals, as shown here.
 | Line | Current Text | Status | Notes |
 |------|--------------|--------|-------|
 | 429 | "Each worker agent prompt MUST include:" | Valid | Absolute requirement, correctly uppercase |
-| 595 | "All phases MUST be tracked via claude-todo." | Valid | Absolute requirement, correctly uppercase |
+| 595 | "All phases MUST be tracked via cleo." | Valid | Absolute requirement, correctly uppercase |
 
 **Current Uppercase MUST Count: 2**
 
@@ -134,7 +134,7 @@ This is appropriate for a process specification where agent behavior must be det
 
 | Location | Issue | Recommendation |
 |----------|-------|----------------|
-| Line 595 | "All phases MUST be tracked via claude-todo" | Valid - this IS an interoperability requirement (session recovery depends on it) |
+| Line 595 | "All phases MUST be tracked via cleo" | Valid - this IS an interoperability requirement (session recovery depends on it) |
 | Line 429 | "Each worker agent prompt MUST include:" | Valid - defines interface contract between orchestrator and workers |
 
 **Verdict**: No anti-patterns found. Both existing MUST keywords relate to interoperability.
@@ -235,7 +235,7 @@ Several sections use normative-sounding language without RFC 2119 keywords:
    A conforming implementation MUST:
    - Deploy exactly 5 worker agents in Phase 2
    - Use the Synthesis Agent for all cross-domain consolidation
-   - Track all phases via claude-todo
+   - Track all phases via cleo
    - Apply Anti-Consensus Protocol for unanimous agreement < 2 exchanges
 
    A conforming implementation MAY:

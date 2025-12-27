@@ -26,7 +26,7 @@
 
 ## Executive Summary
 
-The LLM-Agent-First implementation initiative transforms claude-todo from a human-first CLI (text default, JSON opt-in) to an agent-first CLI (JSON default for non-TTY, human opt-in). This report documents the work completed across implementation phases, identifies remaining gaps, and provides specific remediation guidance.
+The LLM-Agent-First implementation initiative transforms cleo from a human-first CLI (text default, JSON opt-in) to an agent-first CLI (JSON default for non-TTY, human opt-in). This report documents the work completed across implementation phases, identifies remaining gaps, and provides specific remediation guidance.
 
 ### Key Accomplishments (Final - 2025-12-18)
 
@@ -149,19 +149,19 @@ The LLM-Agent-First implementation initiative transforms claude-todo from a huma
 
 ```bash
 # inject-todowrite.sh JSON envelope
-✅ claude-todo inject --format json | jq '."$schema"' → has $schema
+✅ cleo inject --format json | jq '."$schema"' → has $schema
 
 # exists.sh _meta envelope
-✅ claude-todo exists T001 --format json | jq '._meta' → has _meta
+✅ cleo exists T001 --format json | jq '._meta' → has _meta
 
 # list-tasks.sh success field
-✅ claude-todo list --format json | jq '.success' → true
+✅ cleo list --format json | jq '.success' → true
 
 # blockers.sh success field
-✅ claude-todo blockers --format json | jq '.success' → true
+✅ cleo blockers --format json | jq '.success' → true
 
 # log.sh format in _meta
-✅ claude-todo log --format json | jq '._meta.format' → "json"
+✅ cleo log --format json | jq '._meta.format' → "json"
 ```
 
 ### All Known Issues Resolved
@@ -217,7 +217,7 @@ The LLM-Agent-First implementation initiative transforms claude-todo from a huma
 
 Three new libraries provide the infrastructure for consistent agent-friendly output:
 
-#### `/mnt/projects/claude-todo/lib/exit-codes.sh`
+#### `/mnt/projects/cleo/lib/exit-codes.sh`
 - **Status**: COMPLETE
 - **Constants**: 17 exit codes (0-8, 10-15, 20-22, 100-102)
 - **Utility functions**: `get_exit_code_name()`, `is_error_code()`, `is_recoverable_code()`
@@ -236,11 +236,11 @@ Concurrency (20-29): 20 CHECKSUM_MISMATCH, 21 CONCURRENT_MODIFICATION, 22 ID_COL
 Special (100+):     100 NO_DATA, 101 ALREADY_EXISTS, 102 NO_CHANGE
 ```
 
-#### `/mnt/projects/claude-todo/lib/error-json.sh`
+#### `/mnt/projects/cleo/lib/error-json.sh`
 - **Status**: COMPLETE
 - **Functions**: `output_error_json()`, `output_error()`, `output_warning()`
 - **Error constants**: 29 predefined error codes (E_TASK_*, E_FILE_*, etc.)
-- **Schema**: `https://claude-todo.dev/schemas/v1/error.schema.json`
+- **Schema**: `https://cleo.dev/schemas/v1/error.schema.json`
 
 **Error Code Categories**:
 ```
@@ -257,10 +257,10 @@ Hierarchy:   E_PARENT_NOT_FOUND, E_DEPTH_EXCEEDED, E_SIBLING_LIMIT,
 Concurrency: E_CHECKSUM_MISMATCH, E_CONCURRENT_MODIFICATION, E_ID_COLLISION
 ```
 
-#### `/mnt/projects/claude-todo/lib/output-format.sh`
+#### `/mnt/projects/cleo/lib/output-format.sh`
 - **Status**: COMPLETE
 - **Key function**: `resolve_format()` - TTY-aware format resolution
-- **Priority hierarchy**: CLI arg > `CLAUDE_TODO_FORMAT` env > config > TTY auto-detect
+- **Priority hierarchy**: CLI arg > `CLEO_FORMAT` env > config > TTY auto-detect
 - **Issue**: Not all scripts call `resolve_format()` consistently
 
 ### 1.2 Schema Files Created
@@ -329,7 +329,7 @@ FORMAT=$(resolve_format "${FORMAT:-}")
 **Fix Required**: Add to all JSON envelope outputs:
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": { ... },
   ...
 }
@@ -381,7 +381,7 @@ FORMAT=$(resolve_format "${FORMAT:-}")
 | TTY stdout → default text | text | text | ✅ PASS |
 | Pipe stdout → default json | json | json | ✅ PASS |
 | `--format json` explicit | json | json | ✅ PASS |
-| `CLAUDE_TODO_FORMAT=json` | json | json | ✅ PASS |
+| `CLEO_FORMAT=json` | json | json | ✅ PASS |
 
 ---
 
@@ -625,7 +625,7 @@ All commands now have: `exit-codes.sh`, `error-json.sh`, `output-format.sh`, `CO
 | `complete` | 8/10 | --quiet (full), --dry-run (full) |
 | `update` | 9/10 | --dry-run (full) |
 
-### 7.2 Implementation Tasks (Tracked in claude-todo)
+### 7.2 Implementation Tasks (Tracked in cleo)
 
 #### Phase 1: Foundation (21 commands) - **T378** ✅ COMPLETE (2025-12-18)
 
@@ -835,8 +835,8 @@ All commands now have: `exit-codes.sh`, `error-json.sh`, `output-format.sh`, `CO
 *Last updated: 2025-12-18*
 *Audit methodology: Parallel subagent functional testing with jq JSON verification*
 *Aligned with: LLM-AGENT-FIRST-SPEC v3.0*
-*Audited at: claude-todo v0.19.2*
-*Implementation target: claude-todo v0.19.2*
+*Audited at: cleo v0.19.2*
+*Implementation target: cleo v0.19.2*
 *Tracked tasks: T378 (Phase 1 ✅), T379 (Phase 2 ✅), T380 (Phase 3 ✅), T381 (Phase 4 ⚠️)*
 *Current compliance: **100%** envelope compliance (all 33 commands), new v3.0 requirements pending audit*
 *Validation complete: All 33 commands verified for envelope compliance*
@@ -868,7 +868,7 @@ All commands now have: `exit-codes.sh`, `error-json.sh`, `output-format.sh`, `CO
 - Created T528 (error code test coverage) and T529 (cache schema tracking) for remaining valuable work
 - Fixed spec line 65 command count (32 → 33)
 - **Removed `LLM-AGENT-FIRST-FINALIZATION-PLAN.md`** - superseded by this report and spec
-- Finalization plan is no longer needed; all work tracked in this report and claude-todo tasks
+- Finalization plan is no longer needed; all work tracked in this report and cleo tasks
 
 **Reference files:**
 - Spec file: `docs/specs/LLM-AGENT-FIRST-SPEC.md` (authoritative, v3.2)
@@ -910,7 +910,7 @@ This session implemented the v3.0 spec compliance requirements including input v
 **JSON Response for No-Change:**
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.31.1", "command": "complete"},
   "success": true,
   "noChange": true,
@@ -930,7 +930,7 @@ This session implemented the v3.0 spec compliance requirements including input v
 `add-task.sh` now supports `--dry-run` with proper output format:
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {"format": "json", "version": "0.31.1", "command": "add"},
   "success": true,
   "dryRun": true,
@@ -1001,8 +1001,8 @@ All implementations verified with compliance checkers:
 ✅ ./dev/compliance/checks/input-validation.sh scripts/complete-task.sh → score: 100%
 
 # Idempotency behavior (functional tests)
-✅ claude-todo complete T042 (already done) → EXIT_NO_CHANGE (102)
-✅ claude-todo update T042 --priority high (same value) → EXIT_NO_CHANGE (102)
+✅ cleo complete T042 (already done) → EXIT_NO_CHANGE (102)
+✅ cleo update T042 --priority high (same value) → EXIT_NO_CHANGE (102)
 ```
 
 ### Task Completion Summary
@@ -1021,7 +1021,7 @@ All implementations verified with compliance checkers:
 *Last updated: 2025-12-23*
 *Audit methodology: Parallel subagent functional testing with jq JSON verification*
 *Aligned with: LLM-AGENT-FIRST-SPEC v3.2*
-*Audited at: claude-todo v0.31.1*
-*Implementation target: claude-todo v0.32.0*
+*Audited at: cleo v0.31.1*
+*Implementation target: cleo v0.32.0*
 *Tracked EPIC: T481 ✅ COMPLETE*
 *Current compliance: **100%** envelope compliance + v3.0 extensions (idempotency, dry-run, input validation)*

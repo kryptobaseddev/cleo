@@ -7,7 +7,7 @@ Archive completed tasks from `todo.json` to `todo-archive.json` based on configu
 ## Synopsis
 
 ```bash
-claude-todo archive [OPTIONS]
+cleo archive [OPTIONS]
 ```
 
 ## Description
@@ -87,7 +87,7 @@ The archive system provides:
 
 ## Configuration
 
-Configure archive behavior in `.claude/todo-config.json`:
+Configure archive behavior in `.cleo/config.json`:
 
 ```json
 {
@@ -182,7 +182,7 @@ Per-label retention rules allow different archiving behavior for different task 
 
 ```bash
 # See what would be archived without making changes
-claude-todo archive --dry-run
+cleo archive --dry-run
 ```
 
 Output:
@@ -205,55 +205,55 @@ No changes made.
 
 ```bash
 # Archive based on config rules (age + preserve count)
-claude-todo archive
+cleo archive
 ```
 
 ### Force Archive
 
 ```bash
 # Archive regardless of age, but keep 3 most recent
-claude-todo archive --force
+cleo archive --force
 ```
 
 ### Archive Everything
 
 ```bash
 # Archive ALL completed tasks (use with caution)
-claude-todo archive --all
+cleo archive --all
 ```
 
 ### Label Filtering
 
 ```bash
 # Archive only tasks with specific labels
-claude-todo archive --only-labels "cleanup,temp"
+cleo archive --only-labels "cleanup,temp"
 
 # Exclude specific labels from archiving
-claude-todo archive --exclude-labels "important,keep"
+cleo archive --exclude-labels "important,keep"
 ```
 
 ### Cascade Archiving
 
 ```bash
 # Archive complete task families together
-claude-todo archive --cascade
+cleo archive --cascade
 
 # Archive specific epic and all completed descendants
-claude-todo archive --cascade-from T001
+cleo archive --cascade-from T001
 ```
 
 ### Phase-Triggered Archiving
 
 ```bash
 # Archive all completed tasks from the 'setup' phase
-claude-todo archive --phase-complete setup
+cleo archive --phase-complete setup
 ```
 
 ### Interactive Mode
 
 ```bash
 # Review each task before archiving
-claude-todo archive --interactive
+cleo archive --interactive
 ```
 
 Interactive mode prompts:
@@ -266,10 +266,10 @@ Interactive mode prompts:
 
 ```bash
 # Enable relationship safety (prevents orphaning)
-claude-todo archive --safe
+cleo archive --safe
 
 # Disable safety checks when needed
-claude-todo archive --no-safe
+cleo archive --no-safe
 ```
 
 ## Archive Metadata
@@ -326,7 +326,7 @@ Each archived task receives enhanced metadata in the `_archive` field:
 [INFO] Mode: --force (bypassing retention, preserving 3 recent)
 [INFO] Found 10 completed tasks
 [INFO] Tasks to archive: 7
-[INFO] Archive backup created: .claude/backups/archive/...
+[INFO] Archive backup created: .cleo/backups/archive/...
 [INFO] Archived 7 tasks
 
 Archived tasks:
@@ -356,7 +356,7 @@ When using `--json` or piping output (LLM-Agent-First), returns structured JSON:
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
   "_meta": {
     "format": "json",
     "command": "archive",
@@ -444,54 +444,54 @@ When using `--json` or piping output (LLM-Agent-First), returns structured JSON:
 
 ```bash
 # Include archived tasks in list output
-claude-todo list --include-archive
+cleo list --include-archive
 
 # Show only archived tasks
-claude-todo list --archive-only
+cleo list --archive-only
 
 # Search for task in archive
-claude-todo show T001 --include-archive
+cleo show T001 --include-archive
 
 # Search archived tasks
-claude-todo find "query" --include-archive
+cleo find "query" --include-archive
 ```
 
 ### Restoring Archived Tasks
 
 ```bash
 # Restore specific tasks from archive
-claude-todo unarchive T001 T002
+cleo unarchive T001 T002
 
 # Preview restoration
-claude-todo unarchive --dry-run T001
+cleo unarchive --dry-run T001
 
 # Restore with specific status
-claude-todo unarchive --status active T001
+cleo unarchive --status active T001
 
 # Preserve original status
-claude-todo unarchive --preserve-status T001
+cleo unarchive --preserve-status T001
 ```
 
 ### Archive Analytics
 
 ```bash
 # Summary statistics
-claude-todo archive-stats
+cleo archive-stats
 
 # Breakdown by phase
-claude-todo archive-stats --by-phase
+cleo archive-stats --by-phase
 
 # Breakdown by label
-claude-todo archive-stats --by-label
+cleo archive-stats --by-label
 
 # Cycle time analysis
-claude-todo archive-stats --cycle-times
+cleo archive-stats --cycle-times
 
 # Archiving trends over time
-claude-todo archive-stats --trends
+cleo archive-stats --trends
 
 # Filter by date range
-claude-todo archive-stats --since 2025-01-01 --until 2025-06-30
+cleo archive-stats --since 2025-01-01 --until 2025-06-30
 ```
 
 ## See Also

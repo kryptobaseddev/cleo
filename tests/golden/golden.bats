@@ -29,22 +29,22 @@ setup() {
     mkdir -p "$TEST_DIR/.claude"
 
     # Copy fixture
-    cp "$GOLDEN_TODO_FILE" "$TEST_DIR/.claude/todo.json"
+    cp "$GOLDEN_TODO_FILE" "$TEST_DIR/.cleo/todo.json"
 
     # Create minimal config
-    cat > "$TEST_DIR/.claude/todo-config.json" << 'EOF'
+    cat > "$TEST_DIR/.cleo/config.json" << 'EOF'
 {"version": "0.8.2", "output": {"showColor": false, "showUnicode": true}}
 EOF
 
     # Create empty log and archive
-    echo '{"version": "0.8.2", "entries": []}' > "$TEST_DIR/.claude/todo-log.json"
-    echo '{"version": "0.8.2", "tasks": []}' > "$TEST_DIR/.claude/todo-archive.json"
+    echo '{"version": "0.8.2", "entries": []}' > "$TEST_DIR/.cleo/todo-log.json"
+    echo '{"version": "0.8.2", "tasks": []}' > "$TEST_DIR/.cleo/todo-archive.json"
 
     # Set environment
-    export TODO_FILE="$TEST_DIR/.claude/todo.json"
-    export CONFIG_FILE="$TEST_DIR/.claude/todo-config.json"
-    export LOG_FILE="$TEST_DIR/.claude/todo-log.json"
-    export ARCHIVE_FILE="$TEST_DIR/.claude/todo-archive.json"
+    export TODO_FILE="$TEST_DIR/.cleo/todo.json"
+    export CONFIG_FILE="$TEST_DIR/.cleo/config.json"
+    export LOG_FILE="$TEST_DIR/.cleo/todo-log.json"
+    export ARCHIVE_FILE="$TEST_DIR/.cleo/todo-archive.json"
     export NO_COLOR=1  # Disable colors for consistent output
 
     # Ensure expected directory exists

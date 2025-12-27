@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cancel-ops.sh - Cancellation/deletion operations library for claude-todo
+# Cancellation/deletion operations library for cleo
 #
 # LAYER: 3 (Domain Logic)
 # DEPENDENCIES: validation.sh, backup.sh
@@ -296,7 +296,7 @@ preflight_delete_check() {
     # =========================================================================
     if [[ ! -f "$todo_file" ]]; then
         local error
-        error=$(build_validation_error "todoFile" "Todo file not found: $todo_file" "Ensure .claude/todo.json exists")
+        error=$(build_validation_error "todoFile" "Todo file not found: $todo_file" "Ensure .cleo/todo.json exists")
         errors=$(echo "$errors" | jq --argjson err "$error" '. + [$err]')
         echo "$(build_validation_result false false "$errors" "$warnings" "$task_info")"
         return "${EXIT_FILE_ERROR:-3}"
@@ -304,7 +304,7 @@ preflight_delete_check() {
 
     if ! task_exists "$task_id" "$todo_file"; then
         local error
-        error=$(build_validation_error "taskId" "Task not found: $task_id" "Check task ID with 'claude-todo list'")
+        error=$(build_validation_error "taskId" "Task not found: $task_id" "Check task ID with 'cleo list'")
         errors=$(echo "$errors" | jq --argjson err "$error" '. + [$err]')
         echo "$(build_validation_result false false "$errors" "$warnings" "$task_info")"
         return "${EXIT_NOT_FOUND:-4}"
@@ -318,7 +318,7 @@ preflight_delete_check() {
 
     if [[ "$status" == "done" ]]; then
         local error
-        error=$(build_validation_error "status" "Cannot delete completed task: $task_id" "Use 'claude-todo archive' for completed tasks")
+        error=$(build_validation_error "status" "Cannot delete completed task: $task_id" "Use 'cleo archive' for completed tasks")
         errors=$(echo "$errors" | jq --argjson err "$error" '. + [$err]')
         echo "$(build_validation_result false false "$errors" "$warnings" "$task_info")"
         return "${EXIT_TASK_COMPLETED:-17}"

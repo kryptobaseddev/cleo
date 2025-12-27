@@ -1,0 +1,2 @@
+<END SESSION>
+you are out of context, make sure you update what you have done in claude-todo in the respective tasks, find all of the existing tasks you are working on, update them with detailed context and descriptions and associated documentation, if completed or pending validation. we will continue work in a new session so you can't lose context, you will then end this session with short summary for next session

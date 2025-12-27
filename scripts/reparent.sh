@@ -2,8 +2,8 @@
 # reparent.sh - Move a task to a different parent
 #
 # Usage:
-#   claude-todo reparent T002 --to T001    # Move T002 under T001
-#   claude-todo reparent T002 --to ""      # Remove parent (make root)
+#   cleo reparent T002 --to T001    # Move T002 under T001
+#   cleo reparent T002 --to ""      # Remove parent (make root)
 #
 # Validates:
 #   - Source task exists
@@ -34,9 +34,9 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
 fi
 
 # Configuration
-CLAUDE_TODO_DIR="${CLAUDE_TODO_DIR:-$(pwd)/.claude}"
-TODO_FILE="${TODO_FILE:-$CLAUDE_TODO_DIR/todo.json}"
-CONFIG_FILE="${CONFIG_FILE:-$CLAUDE_TODO_DIR/config.json}"
+CLEO_DIR="${CLEO_DIR:-$(pwd)/.cleo}"
+TODO_FILE="${TODO_FILE:-$CLEO_DIR/todo.json}"
+CONFIG_FILE="${CONFIG_FILE:-$CLEO_DIR/config.json}"
 LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
 
 # Command name for error-json library
@@ -52,7 +52,7 @@ usage() {
     cat << 'EOF'
 reparent - Move a task to a different parent
 
-Usage: claude-todo reparent TASK_ID --to PARENT_ID [OPTIONS]
+Usage: cleo reparent TASK_ID --to PARENT_ID [OPTIONS]
 
 Arguments:
   TASK_ID               Task to move
@@ -64,9 +64,9 @@ Options:
   -h, --help            Show this help
 
 Examples:
-  claude-todo reparent T002 --to T001    # Move T002 under T001
-  claude-todo reparent T002 --to ""      # Make T002 a root task
-  claude-todo reparent T005 --to T003    # Move subtask to different parent
+  cleo reparent T002 --to T001    # Move T002 under T001
+  cleo reparent T002 --to ""      # Make T002 a root task
+  cleo reparent T005 --to T003    # Move subtask to different parent
 
 Validations performed:
   - Source task must exist
@@ -178,13 +178,13 @@ if save_json "$TODO_FILE" "$UPDATED_JSON"; then
     # Output
     if [[ "$FORMAT" == "json" ]]; then
         jq -n \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg taskId "$TASK_ID" \
             --arg oldParent "$OLD_PARENT" \
             --arg newParent "$NEW_PARENT" \
             --arg timestamp "$TIMESTAMP" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": { "format": "json", "command": "reparent", "version": $version, "timestamp": $timestamp },
                 "success": true,
                 "taskId": $taskId,

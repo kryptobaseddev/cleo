@@ -15,7 +15,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ## Preamble
 
-This specification defines the bidirectional synchronization system between claude-todo's persistent task storage and Claude Code's ephemeral TodoWrite tool. The design accepts **intentionally lossy transformation** since full metadata lives in claude-todo (the durable system of record).
+This specification defines the bidirectional synchronization system between cleo's persistent task storage and Claude Code's ephemeral TodoWrite tool. The design accepts **intentionally lossy transformation** since full metadata lives in cleo (the durable system of record).
 
 > **AUTHORITATIVE SOURCE**: This document defines the TodoWrite sync integration system.
 > For task ID handling, defer to [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md).
@@ -28,15 +28,15 @@ This specification defines the bidirectional synchronization system between clau
 ### Mission
 
 Enable seamless task management across Claude Code sessions by providing bidirectional synchronization between:
-- **claude-todo**: Durable, feature-rich task persistence (10+ fields per task)
+- **cleo**: Durable, feature-rich task persistence (10+ fields per task)
 - **TodoWrite**: Ephemeral session tracking (3 fields: content, status, activeForm)
 
 ### Core Principles
 
-1. **Lossy by Design**: Only ID and status are round-trippable; full metadata preserved in claude-todo
+1. **Lossy by Design**: Only ID and status are round-trippable; full metadata preserved in cleo
 2. **Session-Scoped**: Sync operations bounded by session lifecycle (start → work → end)
 3. **ID Preservation**: Task IDs embedded in content via `[T###]` prefix for round-trip tracking
-4. **Conflict Resolution**: claude-todo authoritative for existence; TodoWrite authoritative for session progress
+4. **Conflict Resolution**: cleo authoritative for existence; TodoWrite authoritative for session progress
 5. **Phase-Aware**: Respects project phase context for task selection and inheritance
 
 ### Key Decisions
@@ -56,7 +56,7 @@ Enable seamless task management across Claude Code sessions by providing bidirec
 
 The synchronization system maps between two fundamentally different schemas:
 
-| claude-todo Field | TodoWrite Field | Sync Direction | Notes |
+| cleo Field | TodoWrite Field | Sync Direction | Notes |
 |-------------------|-----------------|----------------|-------|
 | `id` | `content` prefix `[T###]` | Bidirectional | Embedded in content string |
 | `title` | `content` (after prefix) | Inject only | Stripped on extract |
@@ -65,17 +65,17 @@ The synchronization system maps between two fundamentally different schemas:
 | `phase` | `content` marker `[phase]` | Inject only | Optional |
 | `blockedBy`/blocked | `content` marker `[BLOCKED]` | Inject only | Status indicator |
 | - | `activeForm` | Inject only | Generated from title |
-| `description` | - | Not synced | Lives in claude-todo only |
-| `labels` | - | Not synced | Lives in claude-todo only |
-| `depends` | - | Not synced | Lives in claude-todo only |
-| `notes` | - | Not synced | Lives in claude-todo only |
-| timestamps | - | Not synced | Lives in claude-todo only |
+| `description` | - | Not synced | Lives in cleo only |
+| `labels` | - | Not synced | Lives in cleo only |
+| `depends` | - | Not synced | Lives in cleo only |
+| `notes` | - | Not synced | Lives in cleo only |
+| timestamps | - | Not synced | Lives in cleo only |
 
 ### 1.2 Status Mapping
 
 The system MUST map statuses bidirectionally:
 
-| claude-todo → TodoWrite | TodoWrite → claude-todo |
+| cleo → TodoWrite | TodoWrite → cleo |
 |-------------------------|-------------------------|
 | `pending` → `pending` | `pending` → `pending` |
 | `active` → `in_progress` | `in_progress` → `active` |
@@ -117,8 +117,8 @@ The sync system operates within session boundaries:
 ┌─────────────────────────────────────────────────────────────────┐
 │                      SESSION START                               │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. claude-todo session start        # Start durable session    │
-│  2. claude-todo sync --inject        # Export tasks → TodoWrite │
+│  1. cleo session start        # Start durable session    │
+│  2. cleo sync --inject        # Export tasks → TodoWrite │
 │  3. TodoWrite tool receives JSON                                │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -137,14 +137,14 @@ The sync system operates within session boundaries:
 │                      SESSION END                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │  1. Export TodoWrite state to file                              │
-│  2. claude-todo sync --extract <file>  # Merge → claude-todo    │
-│  3. claude-todo session end            # End durable session    │
+│  2. cleo sync --extract <file>  # Merge → cleo    │
+│  3. cleo session end            # End durable session    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 2.2 Session State File
 
-The system MUST create a session state file at `.claude/sync/todowrite-session.json`:
+The system MUST create a session state file at `.cleo/sync/todowrite-session.json`:
 
 ```json
 {
@@ -251,8 +251,8 @@ The extraction system MUST detect these change categories:
 
 | Category | Detection | Action |
 |----------|-----------|--------|
-| `completed` | `status: completed` in TodoWrite | Mark task done in claude-todo |
-| `progressed` | `status: in_progress` (was pending) | Update to active in claude-todo |
+| `completed` | `status: completed` in TodoWrite | Mark task done in cleo |
+| `progressed` | `status: in_progress` (was pending) | Update to active in cleo |
 | `new_tasks` | No `[T###]` prefix in content | Create new task (see 4.2) |
 | `removed` | Injected ID missing from TodoWrite | Log only (no deletion) |
 
@@ -282,9 +282,9 @@ The system MUST follow these conflict resolution rules:
 
 | Conflict | Resolution |
 |----------|------------|
-| Task exists in claude-todo but not TodoWrite | Log as "removed", no action |
-| Task in TodoWrite not in claude-todo | Warn "task not found", skip |
-| Task already done in claude-todo | Log "already done", skip |
+| Task exists in cleo but not TodoWrite | Log as "removed", no action |
+| Task in TodoWrite not in cleo | Warn "task not found", skip |
+| Task already done in cleo | Log "already done", skip |
 | Status conflict | TodoWrite wins (session progress) |
 
 **Principle**: Warn but don't fail on conflicts.
@@ -303,10 +303,10 @@ The extraction system MUST be idempotent:
 ### 5.1 Sync Command Structure
 
 ```bash
-claude-todo sync --inject [OPTIONS]    # Session start
-claude-todo sync --extract [FILE]      # Session end
-claude-todo sync --status              # Show sync state
-claude-todo sync --clear               # Clear state without merge
+cleo sync --inject [OPTIONS]    # Session start
+cleo sync --extract [FILE]      # Session end
+cleo sync --status              # Show sync state
+cleo sync --clear               # Clear state without merge
 ```
 
 ### 5.2 Inject Options
@@ -365,7 +365,7 @@ claude-todo sync --clear               # Clear state without merge
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/sync-extract-output.json",
+  "$schema": "https://cleo.dev/schemas/v1/sync-extract-output.json",
   "_meta": {
     "command": "sync --extract",
     "version": "0.19.2",
@@ -393,7 +393,7 @@ claude-todo sync --clear               # Clear state without merge
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/sync-status-output.json",
+  "$schema": "https://cleo.dev/schemas/v1/sync-status-output.json",
   "_meta": { ... },
   "session": {
     "active": true,
@@ -425,14 +425,14 @@ claude-todo sync --clear               # Clear state without merge
 
 **Stale Session Recovery:**
 ```bash
-claude-todo sync --status    # Check if stale state exists
-claude-todo sync --clear     # Remove without merging
+cleo sync --status    # Check if stale state exists
+cleo sync --clear     # Remove without merging
 ```
 
 **Corrupt State Recovery:**
 ```bash
-rm .claude/sync/todowrite-session.json  # Manual removal
-claude-todo validate --fix               # Validate project files
+rm .cleo/sync/todowrite-session.json  # Manual removal
+cleo validate --fix               # Validate project files
 ```
 
 ---
@@ -485,7 +485,7 @@ This section documents planned enhancements NOT YET REQUIRED for compliance:
 | System | Pattern | Our Adoption |
 |--------|---------|--------------|
 | Jira ↔ Slack sync | ID embedding in messages | `[T###]` prefix pattern |
-| Linear webhooks | Lossy sync with source of truth | claude-todo as authoritative |
+| Linear webhooks | Lossy sync with source of truth | cleo as authoritative |
 | GitHub Issues ↔ Projects | Status mapping tables | Bidirectional status mapping |
 | Notion databases | Schema-coupled sync | Avoided (fragile) |
 

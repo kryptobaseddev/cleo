@@ -36,7 +36,7 @@
 | **[installation.md](reference/installation.md)** | Installation guide | Setting up the system |
 | **[usage.md](usage.md)** | Usage guide and examples | Learning system operations |
 | **[PHASE-3-FEATURES.md](PHASE-3-FEATURES.md)** | Phase 3 features overview (v0.8.2) | Understanding new workflow commands |
-| **[TODO_Task_Management.md](TODO_Task_Management.md)** | CLI reference (installed to ~/.claude-todo/docs/) | Quick CLI command reference |
+| **[TODO_Task_Management.md](TODO_Task_Management.md)** | CLI reference (installed to ~/.cleo/docs/) | Quick CLI command reference |
 | **[TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md)** | Task sizing and completion philosophy | Understanding "Always Be Shipping" principles for agents |
 | **[cli-output-formats.md](reference/cli-output-formats.md)** | Output formats reference | Understanding output formats (list: text/json/jsonl/markdown/table, export: csv/tsv) |
 | **[configuration.md](reference/configuration.md)** | Configuration reference | Customizing system behavior |
@@ -110,6 +110,7 @@
 | **[CONFIG-SYSTEM-SPEC.md](specs/CONFIG-SYSTEM-SPEC.md)** | Configuration system specification | Config command, priority resolution, env vars |
 | **[FILE-LOCKING-SPEC.md](specs/FILE-LOCKING-SPEC.md)** | File locking & concurrency safety | Atomic writes, race condition prevention |
 | **[TODOWRITE-SYNC-SPEC.md](specs/TODOWRITE-SYNC-SPEC.md)** | **ACTIVE** TodoWrite bidirectional sync specification | Session workflows, status mapping, ID round-tripping |
+| **[MULTI-SESSION-SPEC.md](specs/MULTI-SESSION-SPEC.md)** | **DRAFT** Multi-session concurrent agent architecture | Parallel LLM agents, scoped sessions, conflict detection |
 | **[SPEC-BIBLE-GUIDELINES.md](specs/SPEC-BIBLE-GUIDELINES.md)** | Specification writing standards | Creating and maintaining spec documents |
 
 ### 🔬 Technical Reference
@@ -487,7 +488,7 @@
 3. Follow Epic → Task → Subtask taxonomy (max depth: 3, max siblings: 7)
 4. Review [commands/add.md](commands/add.md) for `--type`, `--parent`, `--size` flags
 5. Review [commands/list.md](commands/list.md) for `--type`, `--parent`, `--children`, `--tree` filters
-6. Run `claude-todo migrate run` to upgrade to schema v2.3.0
+6. Run `cleo migrate run` to upgrade to schema v2.3.0
 7. **T339 Hierarchy Automation**: See [AGENT-3-PHASE.md](../claudedocs/rebrand/AGENT-3-PHASE.md) for reparent/promote implementation
 
 #### ...integrate with CI/CD

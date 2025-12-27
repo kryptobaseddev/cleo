@@ -5,7 +5,7 @@ Smart task triage and prioritization using leverage scoring, bottleneck detectio
 ## Usage
 
 ```bash
-claude-todo analyze [OPTIONS]
+cleo analyze [OPTIONS]
 ```
 
 ## Description
@@ -109,7 +109,7 @@ Tasks are dynamically grouped by their labels to identify thematic clusters:
 LLM-optimized structured data for autonomous agents:
 
 ```bash
-claude-todo analyze
+cleo analyze
 ```
 
 Output structure:
@@ -199,7 +199,7 @@ Output structure:
 Brief human-readable summary:
 
 ```bash
-claude-todo analyze --human
+cleo analyze --human
 ```
 
 Output:
@@ -241,7 +241,7 @@ DOMAINS (by label)
 Comprehensive human-readable report with detailed tier breakdowns:
 
 ```bash
-claude-todo analyze --full
+cleo analyze --full
 ```
 
 Includes everything from `--human` plus:
@@ -256,33 +256,33 @@ Includes everything from `--human` plus:
 
 ```bash
 # LLM agent gets full analysis, selects optimal task
-analysis=$(claude-todo analyze)
+analysis=$(cleo analyze)
 task_id=$(echo "$analysis" | jq -r '.recommendation.task_id')
-claude-todo focus set "$task_id"
+cleo focus set "$task_id"
 ```
 
 ### 2. Autonomous Mode with Auto-Focus
 
 ```bash
 # Analyze and automatically set focus to top recommendation
-claude-todo analyze --auto-focus
+cleo analyze --auto-focus
 ```
 
 ### 3. Human Planning Session
 
 ```bash
 # Get readable overview for sprint planning
-claude-todo analyze --human
+cleo analyze --human
 
 # Get detailed breakdown for deeper analysis
-claude-todo analyze --full
+cleo analyze --full
 ```
 
 ### 4. CI/CD Health Check
 
 ```bash
 # Check for bottleneck health in pipeline
-analysis=$(claude-todo analyze)
+analysis=$(cleo analyze)
 bottleneck_count=$(echo "$analysis" | jq '.summary.bottleneck_count')
 blocked_ratio=$(echo "$analysis" | jq '.summary.blocked / .summary.total_pending')
 
@@ -295,7 +295,7 @@ fi
 
 ```bash
 # Get just the action order for quick decisions
-claude-todo analyze | jq -r '.action_order[0:5][] | "\(.id) - \(.reason)"'
+cleo analyze | jq -r '.action_order[0:5][] | "\(.id) - \(.reason)"'
 ```
 
 ## Understanding the Output

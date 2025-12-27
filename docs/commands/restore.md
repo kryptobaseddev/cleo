@@ -5,7 +5,7 @@ Restore todo system files from backups with automatic validation, safety backups
 ## Usage
 
 ```bash
-claude-todo restore <backup-source> [OPTIONS]
+cleo restore <backup-source> [OPTIONS]
 ```
 
 ## Description
@@ -37,7 +37,7 @@ The restore command can restore any or all of these files:
 
 - `todo.json` - Active tasks and focus state
 - `todo-archive.json` - Completed and archived tasks
-- `todo-config.json` - Configuration and settings
+- `config.json` - Configuration and settings
 - `todo-log.json` - Audit trail and session history
 
 ## Restore Process
@@ -60,10 +60,10 @@ The restore command follows a strict safety protocol:
 
 ```bash
 # 1. List available backups
-claude-todo backup --list
+cleo backup --list
 
 # 2. Restore from Tier 2 snapshot backup
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000
 ```
 
 Output:
@@ -79,7 +79,7 @@ Output:
   Files:
     ✓ todo.json
     ✓ todo-archive.json
-    ✓ todo-config.json
+    ✓ config.json
     ✓ todo-log.json
 
 ⚠  WARNING: This will overwrite current todo system files!
@@ -87,11 +87,11 @@ Output:
 Are you sure you want to restore from this backup? (yes/no): yes
 
 [INFO] Creating safety backup before restore...
-[INFO] Safety backup created: .claude/backups/safety/pre-restore_20251213_143000
+[INFO] Safety backup created: .cleo/backups/safety/pre-restore_20251213_143000
 [INFO] Restoring files...
 [INFO] ✓ Restored todo.json
 [INFO] ✓ Restored todo-archive.json
-[INFO] ✓ Restored todo-config.json
+[INFO] ✓ Restored config.json
 [INFO] ✓ Restored todo-log.json
 [INFO] Validating restored files...
 
@@ -102,11 +102,11 @@ Are you sure you want to restore from this backup? (yes/no): yes
   Restored Files:
     ✓ todo.json
     ✓ todo-archive.json
-    ✓ todo-config.json
+    ✓ config.json
     ✓ todo-log.json
 
   Safety Backup:
-    .claude/backups/safety/pre-restore_20251213_143000
+    .cleo/backups/safety/pre-restore_20251213_143000
     (Can be removed if restore is satisfactory)
 ```
 
@@ -114,7 +114,7 @@ Are you sure you want to restore from this backup? (yes/no): yes
 
 ```bash
 # Restore from .tar.gz archive
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000.tar.gz
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000.tar.gz
 ```
 
 The restore command automatically:
@@ -130,7 +130,7 @@ Output includes same safety measures and validation as directory restore.
 
 ```bash
 # Restore only active tasks, keep everything else
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --file todo.json
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --file todo.json
 ```
 
 Output:
@@ -139,12 +139,12 @@ Output:
 ║                  BACKUP INFORMATION                      ║
 ╚══════════════════════════════════════════════════════════╝
 
-  Backup Location: .claude/backups/snapshot/snapshot_20251213_120000
+  Backup Location: .cleo/backups/snapshot/snapshot_20251213_120000
 
   Files:
     ✓ todo.json
     ✓ todo-archive.json
-    ✓ todo-config.json
+    ✓ config.json
     ✓ todo-log.json
 
 ⚠  WARNING: This will overwrite current todo system files!
@@ -152,7 +152,7 @@ Output:
 Are you sure you want to restore from this backup? (yes/no): yes
 
 [INFO] Creating safety backup before restore...
-[INFO] Safety backup created: .claude/backups/safety/pre-restore_20251213_143500
+[INFO] Safety backup created: .cleo/backups/safety/pre-restore_20251213_143500
 [INFO] Restoring files...
 [INFO] ✓ Restored todo.json
 [INFO] Validating restored files...
@@ -165,21 +165,21 @@ Are you sure you want to restore from this backup? (yes/no): yes
     ✓ todo.json
 
   Safety Backup:
-    .claude/backups/safety/pre-restore_20251213_143500
+    .cleo/backups/safety/pre-restore_20251213_143500
     (Can be removed if restore is satisfactory)
 ```
 
 **Valid file options**:
 - `todo.json`
 - `todo-archive.json`
-- `todo-config.json`
+- `config.json`
 - `todo-log.json`
 
 ### Non-Interactive Restore
 
 ```bash
 # Skip confirmation prompt for automation
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --force
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --force
 ```
 
 Use cases:
@@ -194,7 +194,7 @@ Use cases:
 
 ```bash
 # Show detailed debug information
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --verbose
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --verbose
 ```
 
 Output:
@@ -211,7 +211,7 @@ Output:
   Files:
     ✓ todo.json
     ✓ todo-archive.json
-    ✓ todo-config.json
+    ✓ config.json
     ✓ todo-log.json
 
 ⚠  WARNING: This will overwrite current todo system files!
@@ -221,23 +221,23 @@ Are you sure you want to restore from this backup? (yes/no): yes
 [INFO] Creating safety backup before restore...
 [DEBUG] Backed up todo.json
 [DEBUG] Backed up todo-archive.json
-[DEBUG] Backed up todo-config.json
+[DEBUG] Backed up config.json
 [DEBUG] Backed up todo-log.json
-[INFO] Safety backup created: .claude/backups/safety/pre-restore_20251213_144000
+[INFO] Safety backup created: .cleo/backups/safety/pre-restore_20251213_144000
 [INFO] Restoring files...
 [DEBUG] Created directory: .claude
 [DEBUG] todo.json validated successfully
 [INFO] ✓ Restored todo.json
 [DEBUG] todo-archive.json validated successfully
 [INFO] ✓ Restored todo-archive.json
-[DEBUG] todo-config.json validated successfully
-[INFO] ✓ Restored todo-config.json
+[DEBUG] config.json validated successfully
+[INFO] ✓ Restored config.json
 [DEBUG] todo-log.json validated successfully
 [INFO] ✓ Restored todo-log.json
 [INFO] Validating restored files...
 [DEBUG] todo.json validated successfully
 [DEBUG] todo-archive.json validated successfully
-[DEBUG] todo-config.json validated successfully
+[DEBUG] config.json validated successfully
 [DEBUG] todo-log.json validated successfully
 
 ╔══════════════════════════════════════════════════════════╗
@@ -247,11 +247,11 @@ Are you sure you want to restore from this backup? (yes/no): yes
   Restored Files:
     ✓ todo.json
     ✓ todo-archive.json
-    ✓ todo-config.json
+    ✓ config.json
     ✓ todo-log.json
 
   Safety Backup:
-    .claude/backups/safety/pre-restore_20251213_144000
+    .cleo/backups/safety/pre-restore_20251213_144000
     (Can be removed if restore is satisfactory)
 ```
 
@@ -265,8 +265,8 @@ Are you sure you want to restore from this backup? (yes/no): yes
 
 ```bash
 # Non-interactive selective restore with verbose output
-claude-todo restore \
-  .claude/backups/snapshot/snapshot_20251213_120000.tar.gz \
+cleo restore \
+  .cleo/backups/snapshot/snapshot_20251213_120000.tar.gz \
   --file todo.json \
   --force \
   --verbose
@@ -280,76 +280,76 @@ When current files are corrupted or deleted:
 
 ```bash
 # 1. Find latest backup
-claude-todo backup --list
+cleo backup --list
 
 # 2. Restore immediately with force (skip confirmation)
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --force
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --force
 
 # 3. Validate restored system
-claude-todo validate
-claude-todo list
+cleo validate
+cleo list
 ```
 
 ### Rollback After Failed Migration
 
 ```bash
 # Before migration
-claude-todo backup --name "before-migration"
+cleo backup --name "before-migration"
 
 # ... migration fails ...
 
 # Restore to pre-migration state
-claude-todo restore .claude/backups/snapshot/snapshot_*_before-migration --force
-claude-todo validate
+cleo restore .cleo/backups/snapshot/snapshot_*_before-migration --force
+cleo validate
 ```
 
 ### Selective Configuration Restore
 
 ```bash
 # Restore only config, keep current tasks and log
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --file todo-config.json
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --file config.json
 
 # Verify configuration
-jq '.' .claude/todo-config.json
+jq '.' .cleo/config.json
 ```
 
 ### Cross-System Migration
 
 ```bash
 # On source system
-claude-todo backup --compress --name "migration"
-scp .claude/backups/snapshot/snapshot_*_migration.tar.gz newhost:~/
+cleo backup --compress --name "migration"
+scp .cleo/backups/snapshot/snapshot_*_migration.tar.gz newhost:~/
 
 # On target system
-mkdir -p .claude/backups/snapshot
-mv ~/backup_*_migration.tar.gz .claude/backups/snapshot/
-claude-todo restore .claude/backups/snapshot/snapshot_*_migration.tar.gz --force
-claude-todo validate
+mkdir -p .cleo/backups/snapshot
+mv ~/backup_*_migration.tar.gz .cleo/backups/snapshot/
+cleo restore .cleo/backups/snapshot/snapshot_*_migration.tar.gz --force
+cleo validate
 ```
 
 ### Testing Workflow Recovery
 
 ```bash
 # Create checkpoint before experimental changes
-claude-todo backup --name "checkpoint"
+cleo backup --name "checkpoint"
 
 # ... make experimental changes ...
 
 # Changes didn't work? Restore checkpoint
-claude-todo restore .claude/backups/snapshot/snapshot_*_checkpoint --force
+cleo restore .cleo/backups/snapshot/snapshot_*_checkpoint --force
 
 # Continue working from known good state
-claude-todo list
+cleo list
 ```
 
 ### Restore from External Backup
 
 ```bash
 # Restore from external backup location
-claude-todo restore ~/Dropbox/backups/backup_20251213_120000.tar.gz
+cleo restore ~/Dropbox/backups/backup_20251213_120000.tar.gz
 
 # Or from network storage
-claude-todo restore /mnt/backup-server/claude-todo/backup_20251213_120000
+cleo restore /mnt/backup-server/cleo/backup_20251213_120000
 ```
 
 ## Safety Features
@@ -359,10 +359,10 @@ claude-todo restore /mnt/backup-server/claude-todo/backup_20251213_120000
 Every restore operation automatically creates a safety backup before making any changes:
 
 ```bash
-.claude/backups/safety/pre-restore_YYYYMMDD_HHMMSS/
+.cleo/backups/safety/pre-restore_YYYYMMDD_HHMMSS/
 ├── todo.json
 ├── todo-archive.json
-├── todo-config.json
+├── config.json
 └── todo-log.json
 ```
 
@@ -375,10 +375,10 @@ This allows you to:
 **Cleanup**: After verifying restore success, you can manually remove safety backups:
 ```bash
 # List safety backups
-ls -ld .claude/backups/safety/pre-restore_*
+ls -ld .cleo/backups/safety/pre-restore_*
 
 # Remove after verification
-rm -rf .claude/backups/safety/pre-restore_20251213_143000
+rm -rf .cleo/backups/safety/pre-restore_20251213_143000
 ```
 
 ### Validation Pipeline
@@ -412,7 +412,7 @@ When restore fails, automatic rollback preserves system integrity:
 [WARN] Rolling back restore operation...
 [DEBUG] Rolled back todo.json
 [DEBUG] Rolled back todo-archive.json
-[DEBUG] Rolled back todo-config.json
+[DEBUG] Rolled back config.json
 [DEBUG] Rolled back todo-log.json
 [INFO] Rollback completed successfully
 [ERROR] Restore rolled back to original state
@@ -444,27 +444,27 @@ This prevents partial corruption and ensures system consistency.
 **Solution**:
 ```bash
 # Find backup before deletion
-claude-todo backup --list
+cleo backup --list
 
 # Restore from last good backup
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --force
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --force
 
 # Verify tasks recovered
-claude-todo list
+cleo list
 ```
 
 ### Scenario 2: Corrupted Configuration
 
-**Problem**: Manual edit broke todo-config.json
+**Problem**: Manual edit broke config.json
 
 **Solution**:
 ```bash
 # Restore only configuration
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --file todo-config.json --force
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --file config.json --force
 
 # Verify configuration
-claude-todo validate
-jq '.' .claude/todo-config.json
+cleo validate
+jq '.' .cleo/config.json
 ```
 
 ### Scenario 3: Failed Archive Operation
@@ -474,11 +474,11 @@ jq '.' .claude/todo-config.json
 **Solution**:
 ```bash
 # Restore to pre-archive state
-claude-todo restore .claude/backups/snapshot/snapshot_*_before-archive --force
+cleo restore .cleo/backups/snapshot/snapshot_*_before-archive --force
 
 # Verify all tasks present
-claude-todo list --status done
-claude-todo stats
+cleo list --status done
+cleo stats
 ```
 
 ### Scenario 4: Lost Session History
@@ -488,13 +488,13 @@ claude-todo stats
 **Solution**:
 ```bash
 # Find backup from target date
-claude-todo backup --list
+cleo backup --list
 
 # Restore only log file
-claude-todo restore .claude/backups/snapshot/snapshot_20251206_180000 --file todo-log.json
+cleo restore .cleo/backups/snapshot/snapshot_20251206_180000 --file todo-log.json
 
 # Verify log entries
-jq '.entries[] | select(.timestamp >= "2025-12-06")' .claude/todo-log.json
+jq '.entries[] | select(.timestamp >= "2025-12-06")' .cleo/todo-log.json
 ```
 
 ### Scenario 5: Experimental Workflow Gone Wrong
@@ -505,11 +505,11 @@ jq '.entries[] | select(.timestamp >= "2025-12-06")' .claude/todo-log.json
 ```bash
 # Created checkpoint before experiment
 # Restore checkpoint
-claude-todo restore .claude/backups/snapshot/snapshot_*_experiment-checkpoint --force
+cleo restore .cleo/backups/snapshot/snapshot_*_experiment-checkpoint --force
 
 # Validate dependencies restored
-claude-todo deps tree
-claude-todo validate
+cleo deps tree
+cleo validate
 ```
 
 ### Scenario 6: Complete System Corruption
@@ -519,13 +519,13 @@ claude-todo validate
 **Solution**:
 ```bash
 # Emergency restore from latest backup
-LATEST=$(ls -td .claude/backups/snapshot/snapshot_* | head -1)
-claude-todo restore "$LATEST" --force
+LATEST=$(ls -td .cleo/backups/snapshot/snapshot_* | head -1)
+cleo restore "$LATEST" --force
 
 # Comprehensive validation
-claude-todo validate
-claude-todo list
-claude-todo stats
+cleo validate
+cleo list
+cleo stats
 ```
 
 ## Troubleshooting
@@ -534,19 +534,19 @@ claude-todo stats
 
 ```bash
 # Error message
-[ERROR] Backup source does not exist: .claude/backups/snapshot/snapshot_20251213_120000
+[ERROR] Backup source does not exist: .cleo/backups/snapshot/snapshot_20251213_120000
 ```
 
 **Solution**:
 ```bash
 # Verify backup location
-ls -la .claude/backups/
+ls -la .cleo/backups/
 
 # List available backups
-claude-todo backup --list
+cleo backup --list
 
 # Use correct backup path
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000
 ```
 
 ### Restore Fails: Invalid Tarball
@@ -559,13 +559,13 @@ claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000
 **Solution**:
 ```bash
 # Test tarball integrity
-tar -tzf .claude/backups/snapshot/snapshot_20251213_120000.tar.gz
+tar -tzf .cleo/backups/snapshot/snapshot_20251213_120000.tar.gz
 
 # If corrupted, use different backup
-claude-todo backup --list
+cleo backup --list
 
 # Try directory backup instead
-claude-todo restore .claude/backups/snapshot/snapshot_20251212_180000
+cleo restore .cleo/backups/snapshot/snapshot_20251212_180000
 ```
 
 ### Restore Fails: Validation Error
@@ -579,14 +579,14 @@ claude-todo restore .claude/backups/snapshot/snapshot_20251212_180000
 **Solution**:
 ```bash
 # Check backup file integrity with verbose mode
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000 --verbose
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000 --verbose
 
 # Verify JSON syntax manually
-jq empty .claude/backups/snapshot/snapshot_20251213_120000/todo.json
+jq empty .cleo/backups/snapshot/snapshot_20251213_120000/todo.json
 
 # If backup is corrupt, use older backup
-claude-todo backup --list
-claude-todo restore .claude/backups/snapshot/snapshot_20251212_180000
+cleo backup --list
+cleo restore .cleo/backups/snapshot/snapshot_20251212_180000
 ```
 
 ### Rollback Fails After Restore Error
@@ -594,20 +594,20 @@ claude-todo restore .claude/backups/snapshot/snapshot_20251212_180000
 ```bash
 # Error message
 [ERROR] Rollback failed - manual intervention required
-[ERROR] Safety backup available at: .claude/backups/safety/pre-restore_20251213_143000
+[ERROR] Safety backup available at: .cleo/backups/safety/pre-restore_20251213_143000
 ```
 
 **Solution**:
 ```bash
 # Manually restore from safety backup
-SAFETY_BACKUP=".claude/backups/safety/pre-restore_20251213_143000"
-cp "$SAFETY_BACKUP"/*.json .claude/
+SAFETY_BACKUP=".cleo/backups/safety/pre-restore_20251213_143000"
+cp "$SAFETY_BACKUP"/*.json .cleo/
 
 # Validate manually restored files
-claude-todo validate
+cleo validate
 
 # If still broken, use known good backup
-claude-todo restore .claude/backups/snapshot/snapshot_20251212_180000 --force
+cleo restore .cleo/backups/snapshot/snapshot_20251212_180000 --force
 ```
 
 ### Permission Denied Errors
@@ -620,14 +620,14 @@ claude-todo restore .claude/backups/snapshot/snapshot_20251212_180000 --force
 **Solution**:
 ```bash
 # Check file permissions
-ls -la .claude/
+ls -la .cleo/
 
 # Fix permissions
-chmod 755 .claude/
-chmod 644 .claude/*.json
+chmod 755 .cleo/
+chmod 644 .cleo/*.json
 
 # Retry restore
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000
 ```
 
 ### Restore from External Drive Not Recognized
@@ -646,7 +646,7 @@ mount | grep /media/backup
 ls /media/backup/
 
 # Use absolute path
-claude-todo restore /media/backup/backup_20251213_120000
+cleo restore /media/backup/backup_20251213_120000
 ```
 
 ### Missing Files in Backup
@@ -662,12 +662,12 @@ claude-todo restore /media/backup/backup_20251213_120000
 ```bash
 # This is normal - restore continues with available files
 # Verify what was restored
-claude-todo list
-claude-todo validate
+cleo list
+cleo validate
 
 # If missing file is critical, restore from different backup
-claude-todo backup --list
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_150000
+cleo backup --list
+cleo restore .cleo/backups/snapshot/snapshot_20251213_150000
 ```
 
 ## Best Practices
@@ -678,10 +678,10 @@ Always validate the restored system:
 
 ```bash
 # After any restore operation
-claude-todo validate          # Check file integrity
-claude-todo list              # Verify tasks visible
-claude-todo stats             # Check counts match expectations
-claude-todo session status    # Verify session state
+cleo validate          # Check file integrity
+cleo list              # Verify tasks visible
+cleo stats             # Check counts match expectations
+cleo session status    # Verify session state
 ```
 
 ### Safety Backup Cleanup
@@ -690,10 +690,10 @@ Manage safety backups to avoid clutter:
 
 ```bash
 # After verifying restore success, clean up safety backups
-ls -ld .claude/backups/safety/pre-restore_*
+ls -ld .cleo/backups/safety/pre-restore_*
 
 # Remove old safety backups (keep recent ones)
-find .claude/.backups -name "pre-restore_*" -mtime +7 -exec rm -rf {} \;
+find .cleo/.backups -name "pre-restore_*" -mtime +7 -exec rm -rf {} \;
 ```
 
 ### Backup Before Restore
@@ -702,9 +702,9 @@ Create a current backup before restoring older state:
 
 ```bash
 # Defensive restore procedure
-claude-todo backup --name "before-restore"
-claude-todo restore .claude/backups/snapshot/snapshot_20251213_120000
-claude-todo validate
+cleo backup --name "before-restore"
+cleo restore .cleo/backups/snapshot/snapshot_20251213_120000
+cleo validate
 ```
 
 ### Test Restore Procedures
@@ -717,12 +717,12 @@ mkdir -p ~/test-restore
 cd ~/test-restore
 
 # Copy backup to test location
-cp -r /path/to/project/.claude/backups/snapshot/snapshot_latest .
+cp -r /path/to/project/.cleo/backups/snapshot/snapshot_latest .
 
 # Test restore
-claude-todo init
-claude-todo restore backup_latest --force
-claude-todo validate
+cleo init
+cleo restore backup_latest --force
+cleo validate
 ```
 
 ### Document Restore Points
@@ -731,12 +731,12 @@ Add context to backups for easier recovery:
 
 ```bash
 # Create well-named backups before major changes
-claude-todo backup --name "before-sprint-12-changes"
-claude-todo backup --name "before-refactor-dependencies"
-claude-todo backup --name "working-state-2025-12-13"
+cleo backup --name "before-sprint-12-changes"
+cleo backup --name "before-refactor-dependencies"
+cleo backup --name "working-state-2025-12-13"
 
 # Makes finding correct restore point easier
-claude-todo backup --list
+cleo backup --list
 ```
 
 ### Selective Restore Strategy
@@ -745,8 +745,8 @@ Restore only what you need:
 
 ```bash
 # Instead of full restore, restore specific files
-claude-todo restore backup --file todo.json      # Just tasks
-claude-todo restore backup --file todo-config.json  # Just config
+cleo restore backup --file todo.json      # Just tasks
+cleo restore backup --file config.json  # Just config
 
 # Preserves other current data
 ```
@@ -771,10 +771,10 @@ if [[ -z "$BACKUP_SOURCE" ]]; then
 fi
 
 # Restore with logging
-claude-todo restore "$BACKUP_SOURCE" --force --verbose 2>&1 | tee restore.log
+cleo restore "$BACKUP_SOURCE" --force --verbose 2>&1 | tee restore.log
 
 # Validate results
-if claude-todo validate; then
+if cleo validate; then
   echo "Restore successful and validated"
   exit 0
 else
@@ -789,8 +789,8 @@ fi
 
 ```bash
 # Safe experimental workflow
-alias ct-checkpoint='claude-todo backup --name "checkpoint"'
-alias ct-restore-checkpoint='claude-todo restore .claude/backups/snapshot/snapshot_*_checkpoint --force'
+alias ct-checkpoint='cleo backup --name "checkpoint"'
+alias ct-restore-checkpoint='cleo restore .cleo/backups/snapshot/snapshot_*_checkpoint --force'
 
 # Work session
 ct-checkpoint
@@ -804,10 +804,10 @@ ct-restore-checkpoint
 ```bash
 # Restore test environment from known good state
 restore-test-env() {
-  local backup_source="${1:-.claude/backups/snapshot/test-baseline.tar.gz}"
+  local backup_source="${1:-.cleo/backups/snapshot/test-baseline.tar.gz}"
 
-  claude-todo restore "$backup_source" --force
-  claude-todo validate || exit 1
+  cleo restore "$backup_source" --force
+  cleo validate || exit 1
 
   echo "Test environment ready"
 }
@@ -818,14 +818,14 @@ restore-test-env() {
 ```bash
 # Migrate from old to new system
 # On old system
-claude-todo backup --compress --destination ~/migration
+cleo backup --compress --destination ~/migration
 scp ~/migration/backup_*.tar.gz newhost:~/
 
 # On new system
-claude-todo init
-claude-todo restore ~/backup_*.tar.gz --force
-claude-todo validate
-claude-todo list
+cleo init
+cleo restore ~/backup_*.tar.gz --force
+cleo validate
+cleo list
 ```
 
 ### Disaster Recovery
@@ -834,7 +834,7 @@ claude-todo list
 # Emergency recovery script
 disaster-recovery() {
   # Find latest good backup
-  LATEST=$(ls -td .claude/backups/snapshot/snapshot_*.tar.gz | head -1)
+  LATEST=$(ls -td .cleo/backups/snapshot/snapshot_*.tar.gz | head -1)
 
   if [[ -z "$LATEST" ]]; then
     echo "No backups found!"
@@ -842,9 +842,9 @@ disaster-recovery() {
   fi
 
   echo "Restoring from: $LATEST"
-  claude-todo restore "$LATEST" --force --verbose
+  cleo restore "$LATEST" --force --verbose
 
-  if claude-todo validate; then
+  if cleo validate; then
     echo "System recovered successfully"
   else
     echo "Recovery validation failed - manual intervention needed"
@@ -857,14 +857,14 @@ disaster-recovery() {
 ```bash
 # Test that backups can be restored
 test-all-backups() {
-  for backup in .claude/backups/snapshot/snapshot_*; do
+  for backup in .cleo/backups/snapshot/snapshot_*; do
     echo "Testing restore: $backup"
 
     # Test in dry-run mode (create test directory)
     mkdir -p /tmp/restore-test
     cd /tmp/restore-test
 
-    if claude-todo restore "$backup" --force; then
+    if cleo restore "$backup" --force; then
       echo "✓ $backup is restorable"
     else
       echo "✗ $backup failed restore test"
@@ -882,24 +882,24 @@ The restore command respects standard color controls:
 
 ```bash
 # Disable colors
-NO_COLOR=1 claude-todo restore backup_20251213_120000
+NO_COLOR=1 cleo restore backup_20251213_120000
 
 # Force colors even in pipes
-FORCE_COLOR=1 claude-todo restore backup_20251213_120000 | tee restore.log
+FORCE_COLOR=1 cleo restore backup_20251213_120000 | tee restore.log
 ```
 
 ## Related Commands
 
-- `claude-todo backup` - Create backups for later restoration
-- `claude-todo backup --list` - Find available restore points
-- `claude-todo validate` - Verify restored files are intact
-- `claude-todo session start` - Begin work after restore
-- `claude-todo stats` - Verify task counts after restore
+- `cleo backup` - Create backups for later restoration
+- `cleo backup --list` - Find available restore points
+- `cleo validate` - Verify restored files are intact
+- `cleo session start` - Begin work after restore
+- `cleo stats` - Verify task counts after restore
 
 ## Tips
 
-1. **Always Validate After Restore**: Run `claude-todo validate` to ensure restored files are intact
-2. **List Backups First**: Use `claude-todo backup --list` to find the correct restore point
+1. **Always Validate After Restore**: Run `cleo validate` to ensure restored files are intact
+2. **List Backups First**: Use `cleo backup --list` to find the correct restore point
 3. **Use Named Backups**: Create named backups before major changes for easier identification
 4. **Keep Safety Backups Temporarily**: Don't delete safety backups immediately after restore
 5. **Test Selective Restore**: Use `--file` to restore individual files when possible
@@ -919,8 +919,8 @@ Restoring backups can expose security concerns:
 
 **Recommendations**:
 - Verify backup source authenticity before restoring
-- Check restored file permissions: `chmod 600 .claude/*.json`
-- Remove safety backups after verification: `rm -rf .claude/backups/safety/pre-restore_*`
+- Check restored file permissions: `chmod 600 .cleo/*.json`
+- Remove safety backups after verification: `rm -rf .cleo/backups/safety/pre-restore_*`
 - Use `--verbose` to audit restore operations
 - Validate checksums for external backups before restore
 

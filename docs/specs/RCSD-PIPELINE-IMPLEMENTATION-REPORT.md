@@ -21,7 +21,7 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| RCSD directory structure | PENDING | `.claude/rcsd/` path defined |
+| RCSD directory structure | PENDING | `.cleo/rcsd/` path defined |
 | RCSD-INDEX.json schema | PENDING | Schema designed |
 | _manifest.json schema | PENDING | Schema designed |
 | Research output schema | PENDING | Schema designed |
@@ -40,7 +40,7 @@
 
 ### Phase 1: Foundation - PENDING
 
-- [ ] Create `.claude/rcsd/` directory handling
+- [ ] Create `.cleo/rcsd/` directory handling
 - [ ] Implement RCSD-INDEX.json read/write
 - [ ] Implement _manifest.json handling
 - [ ] Add shortName derivation algorithm
@@ -94,7 +94,7 @@
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/rcsd/index.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/rcsd/index.schema.json",
   "version": "1.0.0",
   "investigations": [
     {
@@ -114,7 +114,7 @@
 
 ```json
 {
-  "$schema": "https://claude-todo.dev/schemas/v1/rcsd/manifest.schema.json",
+  "$schema": "https://cleo.dev/schemas/v1/rcsd/manifest.schema.json",
   "id": "RCSD-YYYYMMDD-NNN",
   "shortName": "feature-name",
   "taskId": "T001",
@@ -207,7 +207,7 @@
 ### `ct consensus` Command
 
 ```bash
-Usage: claude-todo consensus <task-id> [OPTIONS]
+Usage: cleo consensus <task-id> [OPTIONS]
 
 Run multi-agent consensus investigation for a task.
 
@@ -217,7 +217,7 @@ Arguments:
 Options:
   --agents AGENTS     Comma-separated agent list (default: all)
   --skip-challenge    Skip Challenge Agent (NOT RECOMMENDED)
-  --output DIR        Output directory (default: .claude/rcsd/{shortName}/)
+  --output DIR        Output directory (default: .cleo/rcsd/{shortName}/)
   --dry-run           Preview without creating files
   -f, --format FMT    Output format (json|text|markdown)
   -h, --help          Show this help message
@@ -231,7 +231,7 @@ Exit Codes:
 ### `ct spec` Command
 
 ```bash
-Usage: claude-todo spec <task-id> [OPTIONS]
+Usage: cleo spec <task-id> [OPTIONS]
 
 Generate specification from consensus report.
 
@@ -255,7 +255,7 @@ Exit Codes:
 ### `ct decompose --from-task` Flag
 
 ```bash
-Usage: claude-todo decompose --from-task <task-id> [OPTIONS]
+Usage: cleo decompose --from-task <task-id> [OPTIONS]
 
 Decompose from an existing task's spec.
 
@@ -311,7 +311,7 @@ The following tasks are SUPERSEDED by this implementation:
 ## Directory Structure
 
 ```
-.claude/
+.cleo/
 └── rcsd/
     ├── RCSD-INDEX.json              # Master index of all investigations
     └── {shortName}/                 # Per-investigation directory

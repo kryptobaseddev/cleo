@@ -1,6 +1,6 @@
 # Task Filtering and Query Guide
 
-Complete reference for filtering, searching, and querying tasks in the claude-todo system.
+Complete reference for filtering, searching, and querying tasks in the cleo system.
 
 ---
 
@@ -24,20 +24,20 @@ Filter tasks by their current workflow state.
 
 ```bash
 # All pending work
-claude-todo list --status pending
-claude-todo list -s pending          # Short flag
+cleo list --status pending
+cleo list -s pending          # Short flag
 
 # Currently active tasks
-claude-todo list --status active
+cleo list --status active
 
 # Blocked tasks requiring attention
-claude-todo list --status blocked
+cleo list --status blocked
 
 # Recently completed
-claude-todo list --status done --limit 10
+cleo list --status done --limit 10
 
 # Multiple statuses (comma-separated)
-claude-todo list --status pending,active
+cleo list --status pending,active
 ```
 
 **Available Status Values**:
@@ -52,17 +52,17 @@ Filter tasks by urgency level.
 
 ```bash
 # Critical tasks only
-claude-todo list --priority critical
-claude-todo list -p critical         # Short flag
+cleo list --priority critical
+cleo list -p critical         # Short flag
 
 # High priority tasks
-claude-todo list --priority high
+cleo list --priority high
 
 # Multiple priorities (comma-separated)
-claude-todo list --priority high,critical
+cleo list --priority high,critical
 
 # Non-urgent work
-claude-todo list --priority low,medium
+cleo list --priority low,medium
 ```
 
 **Available Priority Values**:
@@ -77,18 +77,18 @@ Filter tasks by categorization tags.
 
 ```bash
 # All backend tasks
-claude-todo list --label backend
-claude-todo list -l backend          # Short flag
+cleo list --label backend
+cleo list -l backend          # Short flag
 
 # Security-related work
-claude-todo list --label security
+cleo list --label security
 
 # Frontend UI tasks (multiple labels)
-claude-todo list --label frontend --label ui
-claude-todo list -l frontend -l ui   # Short flags
+cleo list --label frontend --label ui
+cleo list -l frontend -l ui   # Short flags
 
 # Sprint-specific tasks
-claude-todo list --label sprint-12
+cleo list --label sprint-12
 ```
 
 **Label Best Practices**:
@@ -102,13 +102,13 @@ Filter tasks by project workflow phase.
 
 ```bash
 # Setup phase tasks
-claude-todo list --phase setup
+cleo list --phase setup
 
 # Core implementation tasks
-claude-todo list --phase core
+cleo list --phase core
 
 # Polish and refinement tasks
-claude-todo list --phase polish
+cleo list --phase polish
 ```
 
 ---
@@ -119,19 +119,19 @@ claude-todo list --phase polish
 
 ```bash
 # Tasks created after specific date
-claude-todo list --since 2025-12-01
+cleo list --since 2025-12-01
 
 # Tasks created before specific date
-claude-todo list --until 2025-12-31
+cleo list --until 2025-12-31
 
 # Tasks from today
-claude-todo list --since $(date -Idate)
+cleo list --since $(date -Idate)
 
 # Tasks from last 7 days
-claude-todo list --since $(date -d '7 days ago' -Idate)
+cleo list --since $(date -d '7 days ago' -Idate)
 
 # Tasks from last week
-claude-todo list --since 2025-11-28
+cleo list --since 2025-11-28
 ```
 
 **Date Format**: ISO 8601 format `YYYY-MM-DD`
@@ -142,17 +142,17 @@ Combine `--since` and `--until` for specific ranges.
 
 ```bash
 # Tasks from November 2025
-claude-todo list \
+cleo list \
   --since 2025-11-01 \
   --until 2025-11-30
 
 # Tasks from Q4 2025
-claude-todo list \
+cleo list \
   --since 2025-10-01 \
   --until 2025-12-31
 
 # Last 30 days
-claude-todo list \
+cleo list \
   --since $(date -d '30 days ago' -Idate)
 ```
 
@@ -160,13 +160,13 @@ claude-todo list \
 
 ```bash
 # Yesterday's tasks
-claude-todo list --since $(date -d 'yesterday' -Idate)
+cleo list --since $(date -d 'yesterday' -Idate)
 
 # This week's tasks
-claude-todo list --since $(date -d 'last monday' -Idate)
+cleo list --since $(date -d 'last monday' -Idate)
 
 # Last month's tasks
-claude-todo list \
+cleo list \
   --since $(date -d 'last month' +%Y-%m-01) \
   --until $(date -d 'this month' +%Y-%m-01)
 ```
@@ -181,26 +181,26 @@ Combine multiple filters for precise queries.
 
 ```bash
 # High-priority backend tasks that are pending
-claude-todo list \
+cleo list \
   --priority high \
   --label backend \
   --status pending
 
 # Blocked critical tasks
-claude-todo list \
+cleo list \
   --status blocked \
   --priority critical \
   --format json
 
 # Recent active work, newest first
-claude-todo list \
+cleo list \
   --status active \
   --since 2025-12-01 \
   --sort createdAt \
   --reverse
 
 # Critical frontend tasks from last sprint
-claude-todo list \
+cleo list \
   --priority critical \
   --label frontend \
   --label sprint-11 \
@@ -214,15 +214,15 @@ Filter out specific values using jq.
 
 ```bash
 # All tasks EXCEPT low priority
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.priority != "low")'
 
 # All tasks NOT labeled as "docs"
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.labels | contains(["docs"]) | not)'
 
 # Active tasks NOT blocked
-claude-todo list --status active --format json | \
+cleo list --status active --format json | \
   jq '.tasks[] | select(.status != "blocked")'
 ```
 
@@ -232,15 +232,15 @@ Use jq for pattern-based filtering.
 
 ```bash
 # Tasks with "auth" in title
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.title | test("auth"; "i"))'
 
 # Tasks with files in specific directory
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.files | map(test("^src/auth/")) | any)'
 
 # Tasks with descriptions containing specific text
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.description // "" | contains("security"))'
 ```
 
@@ -252,19 +252,19 @@ claude-todo list --format json | \
 
 ```bash
 # Tasks with specific files
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.files | map(contains("auth")) | any)'
 
 # Tasks with acceptance criteria
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.acceptance | length > 0)'
 
 # Tasks with dependencies
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.depends | length > 0)'
 
 # Tasks with notes
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.notes | length > 0)'
 ```
 
@@ -272,17 +272,17 @@ claude-todo list --format json | \
 
 ```bash
 # Long-running active tasks (>7 days)
-claude-todo list --status active --format json | \
+cleo list --status active --format json | \
   jq --arg date "$(date -d '7 days ago' -Iseconds)" \
     '.tasks[] | select(.createdAt < $date)'
 
 # Recently completed tasks (last 24 hours)
-claude-todo list --status done --format json | \
+cleo list --status done --format json | \
   jq --arg date "$(date -d '1 day ago' -Iseconds)" \
     '.tasks[] | select(.completedAt > $date)'
 
 # Tasks created this month
-claude-todo list --format json | \
+cleo list --format json | \
   jq --arg month "$(date +%Y-%m)" \
     '.tasks[] | select(.createdAt | startswith($month))'
 ```
@@ -293,19 +293,19 @@ Extract specific fields from tasks.
 
 ```bash
 # Extract only ID and title
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | {id, title}'
 
 # Create CSV-like output
-claude-todo list --format json | \
+cleo list --format json | \
   jq -r '.tasks[] | [.id, .title, .status, .priority] | @csv'
 
 # Custom formatted summary
-claude-todo list --format json | \
+cleo list --format json | \
   jq -r '.tasks[] | "\(.id): \(.title) [\(.status)/\(.priority)]"'
 
 # Task titles as array
-claude-todo list --format json | \
+cleo list --format json | \
   jq '[.tasks[].title]'
 ```
 
@@ -313,19 +313,19 @@ claude-todo list --format json | \
 
 ```bash
 # Count tasks by status
-claude-todo list --format json | \
+cleo list --format json | \
   jq '[.tasks[].status] | group_by(.) | map({status: .[0], count: length})'
 
 # Count tasks by priority
-claude-todo list --format json | \
+cleo list --format json | \
   jq '[.tasks[].priority] | group_by(.) | map({priority: .[0], count: length})'
 
 # Count tasks by label
-claude-todo list --format json | \
+cleo list --format json | \
   jq '[.tasks[].labels[]] | group_by(.) | map({label: .[0], count: length}) | sort_by(.count) | reverse'
 
 # Average number of files per task
-claude-todo list --format json | \
+cleo list --format json | \
   jq '[.tasks[].files | length] | add / length'
 ```
 
@@ -333,16 +333,16 @@ claude-todo list --format json | \
 
 ```bash
 # Tasks blocking other tasks
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | select(.depends | length > 0) |
       "\(.title) depends on: \(.depends | join(", "))"'
 
 # Unblocked pending tasks (no dependencies)
-claude-todo list --status pending --format json | \
+cleo list --status pending --format json | \
   jq '.tasks[] | select(.depends | length == 0)'
 
 # Count dependencies per task
-claude-todo list --format json | \
+cleo list --format json | \
   jq '.tasks[] | {id, title, dependency_count: (.depends | length)}'
 ```
 
@@ -354,26 +354,26 @@ claude-todo list --format json | \
 
 ```bash
 # Human-readable text (default)
-claude-todo list --format text
-claude-todo list -f text
+cleo list --format text
+cleo list -f text
 
 # JSON with metadata envelope
-claude-todo list --format json
+cleo list --format json
 
 # JSON Lines (streaming, one task per line)
-claude-todo list --format jsonl
+cleo list --format jsonl
 
 # Markdown checklist
-claude-todo list --format markdown
+cleo list --format markdown
 
 # ASCII table
-claude-todo list --format table
+cleo list --format table
 
 # CSV export (RFC 4180 compliant) - via export command
-claude-todo export --format csv
+cleo export --format csv
 
 # TSV export (tab-separated values) - via export command
-claude-todo export --format tsv
+cleo export --format tsv
 ```
 
 ### Format-Specific Options
@@ -382,38 +382,38 @@ claude-todo export --format tsv
 
 ```bash
 # Default text output
-claude-todo list
+cleo list
 
 # Verbose mode (all details)
-claude-todo list --verbose
-claude-todo list -v
+cleo list --verbose
+cleo list -v
 
 # Compact mode (one-line per task)
-claude-todo list --compact
-claude-todo list -c
+cleo list --compact
+cleo list -c
 
 # Flat list (no priority grouping)
-claude-todo list --flat
+cleo list --flat
 
 # Quiet mode (suppress info messages)
-claude-todo list --quiet
-claude-todo list -q
+cleo list --quiet
+cleo list -q
 ```
 
 #### JSON Format
 
 ```bash
 # Standard JSON with metadata
-claude-todo list --format json
+cleo list --format json
 
 # Pretty-printed JSON
-claude-todo list --format json | jq '.'
+cleo list --format json | jq '.'
 
 # Minified JSON
-claude-todo list --format json | jq -c '.'
+cleo list --format json | jq -c '.'
 
 # Extract just tasks array
-claude-todo list --format json | jq '.tasks'
+cleo list --format json | jq '.tasks'
 ```
 
 **JSON Structure**:
@@ -436,32 +436,32 @@ claude-todo list --format json | jq '.tasks'
 
 ```bash
 # Standard CSV with header (via export command)
-claude-todo export --format csv
+cleo export --format csv
 
 # TSV with header (via export command)
-claude-todo export --format tsv
+cleo export --format tsv
 
 # CSV without header
-claude-todo export --format csv --no-header
+cleo export --format csv --no-header
 
 # Custom delimiter (pipe-separated)
-claude-todo export --format csv --delimiter '|'
+cleo export --format csv --delimiter '|'
 
 # Save to file
-claude-todo export --format csv > tasks.csv
+cleo export --format csv > tasks.csv
 ```
 
 #### Markdown Format
 
 ```bash
 # Markdown checklist
-claude-todo list --format markdown
+cleo list --format markdown
 
 # Save to file
-claude-todo list --format markdown > TODO.md
+cleo list --format markdown > TODO.md
 
 # Specific status as checklist
-claude-todo list --status pending --format markdown > PENDING.md
+cleo list --status pending --format markdown > PENDING.md
 ```
 
 **Markdown Output**:
@@ -481,19 +481,19 @@ claude-todo list --status pending --format markdown > PENDING.md
 
 ```bash
 # Sort by status (default order)
-claude-todo list --sort status
+cleo list --sort status
 
 # Sort by priority (critical → low)
-claude-todo list --sort priority
+cleo list --sort priority
 
 # Sort by creation date (oldest first)
-claude-todo list --sort createdAt
+cleo list --sort createdAt
 
 # Sort by title (alphabetical)
-claude-todo list --sort title
+cleo list --sort title
 
 # Reverse sort order (newest first)
-claude-todo list --sort createdAt --reverse
+cleo list --sort createdAt --reverse
 ```
 
 **Available Sort Fields**:
@@ -506,13 +506,13 @@ claude-todo list --sort createdAt --reverse
 
 ```bash
 # First 10 tasks
-claude-todo list --limit 10
+cleo list --limit 10
 
 # Top 5 high-priority tasks
-claude-todo list --priority high --limit 5
+cleo list --priority high --limit 5
 
 # Latest 3 completed tasks
-claude-todo list --status done --sort createdAt --reverse --limit 3
+cleo list --status done --sort createdAt --reverse --limit 3
 ```
 
 ### Pagination Pattern
@@ -521,13 +521,13 @@ Combine sort, limit, and offset (via jq) for pagination.
 
 ```bash
 # Page 1 (tasks 0-9)
-claude-todo list --limit 10
+cleo list --limit 10
 
 # Page 2 (tasks 10-19)
-claude-todo list --format json | jq '.tasks[10:20]'
+cleo list --format json | jq '.tasks[10:20]'
 
 # Page 3 (tasks 20-29)
-claude-todo list --format json | jq '.tasks[20:30]'
+cleo list --format json | jq '.tasks[20:30]'
 ```
 
 ---
@@ -538,28 +538,28 @@ claude-todo list --format json | jq '.tasks[20:30]'
 
 ```bash
 # Morning standup: What's on my plate today?
-claude-todo list --status active,pending --priority high,critical
+cleo list --status active,pending --priority high,critical
 
 # End of day: What did I complete?
-claude-todo list --status done --since $(date -Idate)
+cleo list --status done --since $(date -Idate)
 
 # Weekly review: What's blocked?
-claude-todo list --status blocked
+cleo list --status blocked
 ```
 
 ### Sprint Management
 
 ```bash
 # Current sprint tasks
-claude-todo list --label sprint-12
+cleo list --label sprint-12
 
 # Sprint progress (completed vs total)
-TOTAL=$(claude-todo list --label sprint-12 --format json | jq '.tasks | length')
-DONE=$(claude-todo list --label sprint-12 --status done --format json | jq '.tasks | length')
+TOTAL=$(cleo list --label sprint-12 --format json | jq '.tasks | length')
+DONE=$(cleo list --label sprint-12 --status done --format json | jq '.tasks | length')
 echo "Sprint Progress: $DONE / $TOTAL tasks completed"
 
 # Sprint burndown data
-claude-todo list --label sprint-12 --format json | \
+cleo list --label sprint-12 --format json | \
   jq '[.tasks[].status] | group_by(.) | map({status: .[0], count: length})'
 ```
 
@@ -567,36 +567,36 @@ claude-todo list --label sprint-12 --format json | \
 
 ```bash
 # Backend team tasks
-claude-todo list --label backend --status pending,active
+cleo list --label backend --status pending,active
 
 # Frontend team tasks
-claude-todo list --label frontend --status pending,active
+cleo list --label frontend --status pending,active
 
 # Security review needed
-claude-todo list --label security --status pending
+cleo list --label security --status pending
 ```
 
 ### Release Planning
 
 ```bash
 # Critical tasks before release
-claude-todo list --priority critical --status pending,active
+cleo list --priority critical --status pending,active
 
 # Release blockers
-claude-todo list --status blocked --priority high,critical
+cleo list --status blocked --priority high,critical
 
 # Release checklist
-claude-todo list --label release --format markdown > RELEASE-CHECKLIST.md
+cleo list --label release --format markdown > RELEASE-CHECKLIST.md
 ```
 
 ### Technical Debt Tracking
 
 ```bash
 # All tech debt tasks
-claude-todo list --label tech-debt
+cleo list --label tech-debt
 
 # Old tech debt (>90 days)
-claude-todo list --label tech-debt --format json | \
+cleo list --label tech-debt --format json | \
   jq --arg date "$(date -d '90 days ago' -Iseconds)" \
     '.tasks[] | select(.createdAt < $date)'
 ```
@@ -605,13 +605,13 @@ claude-todo list --label tech-debt --format json | \
 
 ```bash
 # All open bugs
-claude-todo list --label bug --status pending,active
+cleo list --label bug --status pending,active
 
 # Critical bugs
-claude-todo list --label bug --priority critical
+cleo list --label bug --priority critical
 
 # Bugs by age
-claude-todo list --label bug --sort createdAt
+cleo list --label bug --sort createdAt
 ```
 
 ---
@@ -622,33 +622,33 @@ claude-todo list --label bug --sort createdAt
 
 ```bash
 # High-priority work
-claude-todo list -p high,critical
+cleo list -p high,critical
 
 # Pending backend tasks
-claude-todo list -s pending -l backend
+cleo list -s pending -l backend
 
 # Recent activity (last 7 days)
-claude-todo list --since $(date -d '7 days ago' -Idate)
+cleo list --since $(date -d '7 days ago' -Idate)
 
 # Compact JSON for scripting
-claude-todo list -f json -c
+cleo list -f json -c
 
 # Markdown checklist of pending tasks
-claude-todo list -s pending -f markdown
+cleo list -s pending -f markdown
 ```
 
 ### Combining Filters
 
 ```bash
 # Critical pending backend tasks from this sprint
-claude-todo list \
+cleo list \
   -p critical \
   -s pending \
   -l backend \
   -l sprint-12
 
 # Recently created high-priority tasks
-claude-todo list \
+cleo list \
   -p high \
   --since $(date -d '3 days ago' -Idate) \
   --sort createdAt \
@@ -659,16 +659,16 @@ claude-todo list \
 
 ```bash
 # Export to CSV (via export command)
-claude-todo export -f csv > tasks.csv
+cleo export -f csv > tasks.csv
 
 # Export to JSON
-claude-todo list -f json > tasks.json
+cleo list -f json > tasks.json
 
 # Export to Markdown
-claude-todo list -f markdown > TODO.md
+cleo list -f markdown > TODO.md
 
 # Append to log file
-claude-todo list -f text >> task-report-$(date -Idate).log
+cleo list -f text >> task-report-$(date -Idate).log
 ```
 
 ---
@@ -686,13 +686,13 @@ claude-todo list -f text >> task-report-$(date -Idate).log
 
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
-alias ct-todo='claude-todo list -s pending'
-alias ct-active='claude-todo list -s active'
-alias ct-blocked='claude-todo list -s blocked'
-alias ct-done='claude-todo list -s done --limit 10'
-alias ct-critical='claude-todo list -p critical'
-alias ct-today='claude-todo list --since $(date -Idate)'
-alias ct-week='claude-todo list --since $(date -d "7 days ago" -Idate)'
+alias ct-todo='cleo list -s pending'
+alias ct-active='cleo list -s active'
+alias ct-blocked='cleo list -s blocked'
+alias ct-done='cleo list -s done --limit 10'
+alias ct-critical='cleo list -p critical'
+alias ct-today='cleo list --since $(date -Idate)'
+alias ct-week='cleo list --since $(date -d "7 days ago" -Idate)'
 ```
 
 ---

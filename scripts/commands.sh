@@ -30,8 +30,8 @@ COMMAND_NAME="commands"
 
 # Try multiple locations for COMMANDS-INDEX.json
 COMMANDS_INDEX=""
-if [[ -n "${CLAUDE_TODO_HOME:-}" ]] && [[ -f "$CLAUDE_TODO_HOME/docs/commands/COMMANDS-INDEX.json" ]]; then
-    COMMANDS_INDEX="$CLAUDE_TODO_HOME/docs/commands/COMMANDS-INDEX.json"
+if [[ -n "${CLEO_HOME:-}" ]] && [[ -f "$CLEO_HOME/docs/commands/COMMANDS-INDEX.json" ]]; then
+    COMMANDS_INDEX="$CLEO_HOME/docs/commands/COMMANDS-INDEX.json"
 elif [[ -f "${SCRIPT_DIR}/../docs/commands/COMMANDS-INDEX.json" ]]; then
     COMMANDS_INDEX="${SCRIPT_DIR}/../docs/commands/COMMANDS-INDEX.json"
 elif [[ -f "/mnt/projects/claude-todo/docs/commands/COMMANDS-INDEX.json" ]]; then
@@ -56,9 +56,9 @@ COMMAND_NAME_FILTER=""
 
 show_help() {
     cat << 'EOF'
-commands - List and query available claude-todo commands
+commands - List and query available cleo commands
 
-Usage: claude-todo commands [OPTIONS] [COMMAND]
+Usage: cleo commands [OPTIONS] [COMMAND]
 
 Options:
   -f, --format FORMAT   Output format (text|json|jsonl|markdown|table)
@@ -75,12 +75,12 @@ Arguments:
   COMMAND               Show details for specific command
 
 Examples:
-  claude-todo commands                    # List all commands (JSON)
-  claude-todo commands --human            # Human-readable list
-  claude-todo commands -c write           # Write commands only
-  claude-todo commands -r critical        # Agent-critical commands
-  claude-todo commands add                # Details for 'add' command
-  claude-todo commands --workflows        # Show agent workflow sequences
+  cleo commands                    # List all commands (JSON)
+  cleo commands --human            # Human-readable list
+  cleo commands -c write           # Write commands only
+  cleo commands -r critical        # Agent-critical commands
+  cleo commands add                # Details for 'add' command
+  cleo commands --workflows        # Show agent workflow sequences
 
 Exit Codes:
   0   Success
@@ -137,7 +137,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -*)
             output_error "E_INPUT_INVALID" "Unknown option: $1" $EXIT_INVALID_INPUT true \
-                "Run 'claude-todo commands --help' for usage"
+                "Run 'cleo commands --help' for usage"
             exit $EXIT_INVALID_INPUT
             ;;
         *)
@@ -158,7 +158,7 @@ FORMAT=$(resolve_format "$FORMAT")
 # Check commands index exists
 if [[ -z "$COMMANDS_INDEX" ]] || [[ ! -f "$COMMANDS_INDEX" ]]; then
     output_error "E_FILE_NOT_FOUND" "COMMANDS-INDEX.json not found" $EXIT_FILE_ERROR false \
-        "Reinstall claude-todo or check CLAUDE_TODO_HOME"
+        "Reinstall cleo or check CLEO_HOME"
     exit $EXIT_FILE_ERROR
 fi
 
@@ -231,15 +231,15 @@ output_json() {
     # Check if filtering for specific command that doesn't exist
     if [[ -n "$COMMAND_NAME_FILTER" ]] && [[ "$count" -eq 0 ]]; then
         output_error "E_NOT_FOUND" "Command not found: $COMMAND_NAME_FILTER" $EXIT_NOT_FOUND true \
-            "Run 'claude-todo commands' to see available commands"
+            "Run 'cleo commands' to see available commands"
         exit $EXIT_NOT_FOUND
     fi
 
     # Build output based on what was requested
     if [[ "$SHOW_WORKFLOWS" == true ]]; then
         jq -n \
-            --arg schema "https://claude-todo.dev/schemas/v1/output.schema.json" \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \
             --arg ts "$TIMESTAMP" \
             --slurpfile index "$COMMANDS_INDEX" \
@@ -256,8 +256,8 @@ output_json() {
             }'
     elif [[ "$SHOW_LOOKUP" == true ]]; then
         jq -n \
-            --arg schema "https://claude-todo.dev/schemas/v1/output.schema.json" \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \
             --arg ts "$TIMESTAMP" \
             --slurpfile index "$COMMANDS_INDEX" \
@@ -275,8 +275,8 @@ output_json() {
     elif [[ -n "$COMMAND_NAME_FILTER" ]]; then
         # Single command detail
         jq -n \
-            --arg schema "https://claude-todo.dev/schemas/v1/output.schema.json" \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \
             --arg ts "$TIMESTAMP" \
             --argjson commands "$commands" \
@@ -294,8 +294,8 @@ output_json() {
     else
         # Full commands list
         jq -n \
-            --arg schema "https://claude-todo.dev/schemas/v1/output.schema.json" \
-            --arg version "${CLAUDE_TODO_VERSION:-$(get_version)}" \
+            --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
+            --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \
             --arg ts "$TIMESTAMP" \
             --argjson count "$count" \
@@ -331,7 +331,7 @@ output_text() {
     # Check if filtering for specific command that doesn't exist
     if [[ -n "$COMMAND_NAME_FILTER" ]] && [[ "$count" -eq 0 ]]; then
         echo "Command not found: $COMMAND_NAME_FILTER" >&2
-        echo "Run 'claude-todo commands' to see available commands" >&2
+        echo "Run 'cleo commands' to see available commands" >&2
         exit $EXIT_NOT_FOUND
     fi
 
@@ -379,8 +379,8 @@ Exit Codes: \(.exitCodes | map(tostring) | join(", "))
             fi
         done
 
-        [[ "$QUIET" != true ]] && echo "Use 'claude-todo commands <name>' for details"
-        [[ "$QUIET" != true ]] && echo "Use 'claude-todo commands --workflows' for agent sequences"
+        [[ "$QUIET" != true ]] && echo "Use 'cleo commands <name>' for details"
+        [[ "$QUIET" != true ]] && echo "Use 'cleo commands --workflows' for agent sequences"
     fi
 }
 

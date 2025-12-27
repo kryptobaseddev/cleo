@@ -51,7 +51,7 @@ The Implementation Agent and Technical Validator have unclear boundaries. Both a
 **Strengths**:
 - Commands are executable
 - Logical progression shown
-- Uses actual claude-todo syntax
+- Uses actual cleo syntax
 
 **Weaknesses**:
 1. **Not Quick**: 22 lines of commands before work begins
@@ -179,15 +179,15 @@ This reduces cognitive load by ~60% while preserving the core adversarial struct
 
 4. **Add Shell Aliases/Functions**: Reduce copy-paste burden.
    ```bash
-   # Instead of repeating claude-todo update Txxx --notes "..."
-   cf-note() { claude-todo update "$1" --notes "$2"; }
-   cf-complete() { claude-todo complete "$1" --notes "DOC: $2"; }
+   # Instead of repeating cleo update Txxx --notes "..."
+   cf-note() { cleo update "$1" --notes "$2"; }
+   cf-complete() { cleo complete "$1" --notes "DOC: $2"; }
    ```
 
 5. **Separate Executable vs Claude-Specific Commands**: Use distinct formatting:
    ```bash
    # Terminal command (copy-pasteable)
-   $ claude-todo list --label consensus-framework
+   $ cleo list --label consensus-framework
 
    # Claude Code context (not copy-pasteable)
    [MCP] mcp__serena__read_memory consensus-framework-investigation.md
@@ -213,7 +213,7 @@ This reduces cognitive load by ~60% while preserving the core adversarial struct
 
 9. **Progress Dashboard Command**: Single command to show investigation status:
    ```bash
-   claude-todo consensus-status
+   cleo consensus-status
    # Output:
    # Phase 1: [=====>    ] 60% (T185, T186 done; T187, T188 pending)
    # Phase 2: [          ] 0% (blocked by Phase 1)

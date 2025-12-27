@@ -1,16 +1,16 @@
 # migrate Command
 
-Schema version migration for claude-todo files.
+Schema version migration for cleo files.
 
 ## Usage
 
 ```bash
-claude-todo migrate <command> [OPTIONS]
+cleo migrate <command> [OPTIONS]
 ```
 
 ## Description
 
-The `migrate` command handles schema version upgrades for claude-todo JSON files. When claude-todo is updated, your project files may need migration to work with new features.
+The `migrate` command handles schema version upgrades for cleo JSON files. When cleo is updated, your project files may need migration to work with new features.
 
 Migration is safe and creates backups automatically before making changes.
 
@@ -42,7 +42,7 @@ Migration is safe and creates backups automatically before making changes.
 
 ```bash
 # Show version status of all files
-claude-todo migrate status
+cleo migrate status
 ```
 
 Output:
@@ -53,7 +53,7 @@ Schema Migration Status
 File                    Current    Expected   Status
 ----                    -------    --------   ------
 todo.json               2.0.0      2.0.0      ✓ Current
-todo-config.json        1.5.0      2.0.0      ⚠ Upgrade needed
+config.json        1.5.0      2.0.0      ⚠ Upgrade needed
 todo-archive.json       2.0.0      2.0.0      ✓ Current
 todo-log.json           2.0.0      2.0.0      ✓ Current
 
@@ -64,9 +64,9 @@ todo-log.json           2.0.0      2.0.0      ✓ Current
 
 ```bash
 # Check if migration needed (useful in scripts)
-if ! claude-todo migrate check; then
+if ! cleo migrate check; then
   echo "Migration needed"
-  claude-todo migrate run --auto
+  cleo migrate run --auto
 fi
 ```
 
@@ -74,10 +74,10 @@ fi
 
 ```bash
 # Interactive migration (confirms before changes)
-claude-todo migrate run
+cleo migrate run
 
 # Automatic migration (no confirmation)
-claude-todo migrate run --auto
+cleo migrate run --auto
 ```
 
 Output:
@@ -97,7 +97,7 @@ This will migrate your todo files to the latest schema versions.
 Continue? (y/N) y
 
 Creating project backup...
-✓ Backup created: .claude/backups/migration/pre-migration-20251213-100000
+✓ Backup created: .cleo/backups/migration/pre-migration-20251213-100000
 
 Migrating config...
   - Added _meta.version field
@@ -111,17 +111,17 @@ Migrating config...
 
 ```bash
 # Migrate only the config file
-claude-todo migrate file .claude/todo-config.json config
+cleo migrate file .cleo/config.json config
 
 # Migrate todo file
-claude-todo migrate file .claude/todo.json todo
+cleo migrate file .cleo/todo.json todo
 ```
 
 ### Force Re-migration
 
 ```bash
 # Force migration even if versions match
-claude-todo migrate run --force
+cleo migrate run --force
 ```
 
 ## File Types
@@ -129,13 +129,13 @@ claude-todo migrate run --force
 | Type | File | Description |
 |------|------|-------------|
 | `todo` | `todo.json` | Active tasks |
-| `config` | `todo-config.json` | Configuration |
+| `config` | `config.json` | Configuration |
 | `archive` | `todo-archive.json` | Archived tasks |
 | `log` | `todo-log.json` | Audit log |
 
 ## Migration Safety
 
-1. **Pre-migration backup**: Created automatically in `.claude/backups/migration/`
+1. **Pre-migration backup**: Created automatically in `.cleo/backups/migration/`
 2. **Validation**: Migrated files are validated before saving
 3. **Atomic writes**: All-or-nothing updates prevent corruption
 4. **Rollback possible**: Restore from backup if migration fails
@@ -163,7 +163,7 @@ The `repair` subcommand fixes schema compliance issues without changing version 
 ### Usage
 
 ```bash
-claude-todo migrate repair [OPTIONS]
+cleo migrate repair [OPTIONS]
 ```
 
 ### Options
@@ -207,7 +207,7 @@ The repair command ensures your todo.json matches the canonical schema structure
 
 ```bash
 # See what repairs are needed without making changes
-claude-todo migrate repair --dry-run
+cleo migrate repair --dry-run
 ```
 
 Output:
@@ -215,7 +215,7 @@ Output:
 Repair Preview
 ==============
 
-File: /project/.claude/todo.json
+File: /project/.cleo/todo.json
 
 Phase Repairs:
   Add missing phases:
@@ -241,7 +241,7 @@ Run with --auto to apply these repairs
 
 ```bash
 # Repair with confirmation prompt
-claude-todo migrate repair
+cleo migrate repair
 ```
 
 Output:
@@ -250,7 +250,7 @@ Schema Repair
 =============
 
 Project: /path/to/project
-File: /path/to/project/.claude/todo.json
+File: /path/to/project/.cleo/todo.json
 
 Repair Preview
 ==============
@@ -259,7 +259,7 @@ Repair Preview
 Apply these repairs? (y/N) y
 
 Applying repairs...
-✓ Backup created: .claude/backups/safety/safety_20251216_140000_pre_repair/todo.json
+✓ Backup created: .cleo/backups/safety/safety_20251216_140000_pre_repair/todo.json
 ✓ Repair completed successfully
 ```
 
@@ -267,7 +267,7 @@ Applying repairs...
 
 ```bash
 # Apply repairs automatically without confirmation
-claude-todo migrate repair --auto
+cleo migrate repair --auto
 ```
 
 Output:
@@ -276,10 +276,10 @@ Schema Repair
 =============
 
 Project: /path/to/project
-File: /path/to/project/.claude/todo.json
+File: /path/to/project/.cleo/todo.json
 
 Applying repairs...
-✓ Backup created: .claude/backups/safety/safety_20251216_140000_pre_repair/todo.json
+✓ Backup created: .cleo/backups/safety/safety_20251216_140000_pre_repair/todo.json
 ✓ Repair completed successfully
 ```
 
@@ -291,7 +291,7 @@ Use `migrate repair` when:
 - Phases don't match canonical template
 - Metadata fields are missing
 - You've manually edited todo.json and want to ensure compliance
-- After upgrading claude-todo and schema structure changed
+- After upgrading cleo and schema structure changed
 
 ### Safety Features
 
@@ -320,7 +320,7 @@ The `rollback` subcommand reverts files to a previous state using migration back
 ### Usage
 
 ```bash
-claude-todo migrate rollback [OPTIONS]
+cleo migrate rollback [OPTIONS]
 ```
 
 ### Options
@@ -345,7 +345,7 @@ claude-todo migrate rollback [OPTIONS]
 
 ```bash
 # Rollback from the most recent migration backup
-claude-todo migrate rollback
+cleo migrate rollback
 ```
 
 Output:
@@ -354,13 +354,13 @@ Migration Rollback
 ==================
 
 Backup: migration_v2.2.0_20251216_120000
-Path:   .claude/backups/migration/migration_v2.2.0_20251216_120000
+Path:   .cleo/backups/migration/migration_v2.2.0_20251216_120000
 
 Backup Information:
   Created: 2025-12-16T12:00:00Z
   Files:
     - todo.json
-    - todo-config.json
+    - config.json
     - todo-archive.json
     - todo-log.json
 
@@ -370,11 +370,11 @@ Backup Information:
 Continue with rollback? (y/N) y
 
 Creating safety backup before rollback...
-✓ Safety backup created: .claude/backups/safety/safety_20251216_140000_pre_rollback
+✓ Safety backup created: .cleo/backups/safety/safety_20251216_140000_pre_rollback
 
 Restoring files from backup...
 ✓ Restored todo.json
-✓ Restored todo-config.json
+✓ Restored config.json
 ✓ Restored todo-archive.json
 ✓ Restored todo-log.json
 
@@ -390,24 +390,24 @@ Current Schema Versions:
 ✓ Rollback completed successfully
 
 Note: Safety backup of pre-rollback state available at:
-  .claude/backups/safety/safety_20251216_140000_pre_rollback
+  .cleo/backups/safety/safety_20251216_140000_pre_rollback
 ```
 
 #### Rollback from Specific Backup
 
 ```bash
 # List available migration backups
-ls .claude/backups/migration/
+ls .cleo/backups/migration/
 
 # Rollback from specific backup ID
-claude-todo migrate rollback --backup-id migration_v2.1.0_20251215_100000
+cleo migrate rollback --backup-id migration_v2.1.0_20251215_100000
 ```
 
 #### Force Rollback (No Confirmation)
 
 ```bash
 # Skip confirmation prompt
-claude-todo migrate rollback --force
+cleo migrate rollback --force
 ```
 
 ### Backup ID Format
@@ -424,7 +424,7 @@ Examples:
 Find available backups:
 ```bash
 # List migration backups (newest first)
-ls -lt .claude/backups/migration/
+ls -lt .cleo/backups/migration/
 ```
 
 ### Safety Features
@@ -451,36 +451,36 @@ Use `migrate rollback` when:
 
 ```bash
 # Rollback to pre-migration state
-claude-todo migrate rollback
+cleo migrate rollback
 ```
 
 #### Testing Migration Strategy
 
 ```bash
 # 1. Run migration
-claude-todo migrate run
+cleo migrate run
 
 # 2. Test new version
 # ... testing ...
 
 # 3. Rollback if issues found
-claude-todo migrate rollback
+cleo migrate rollback
 ```
 
 #### Specific Backup Restoration
 
 ```bash
 # Restore from specific known-good backup
-claude-todo migrate rollback --backup-id migration_v2.1.0_20251215_100000
+cleo migrate rollback --backup-id migration_v2.1.0_20251215_100000
 ```
 
 ### Backup Locations
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| Migration backup | `.claude/backups/migration/` | Created before migrations |
-| Safety backup | `.claude/backups/safety/` | Created before rollback |
-| Snapshot backup | `.claude/backups/snapshot/` | Created by `backup` command |
+| Migration backup | `.cleo/backups/migration/` | Created before migrations |
+| Safety backup | `.cleo/backups/safety/` | Created before rollback |
+| Snapshot backup | `.cleo/backups/snapshot/` | Created by `backup` command |
 
 ### Exit Codes
 

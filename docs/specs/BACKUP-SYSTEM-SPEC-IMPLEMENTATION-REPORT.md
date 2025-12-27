@@ -101,7 +101,7 @@ Add missing operational capabilities for production readiness.
 | P2-2 | T625 | Add backup testing in CI | PENDING | BATS tests for backup/restore |
 | P2-3 | T626 | Implement `backup verify` command | PENDING | Part 6.4 of spec |
 | P2-4 | T627 | Implement `backup status` health check | PENDING | Reports disk usage, counts |
-| P2-5 | T628 | Consolidate to single `.claude/backups/` directory | PENDING | Migrate `.backups/` contents |
+| P2-5 | T628 | Consolidate to single `.cleo/backups/` directory | PENDING | Migrate `.backups/` contents |
 | P2-6 | T629 | Update file-ops.sh to use new path | PENDING | Write to `backups/operational/` |
 
 ### Acceptance Criteria
@@ -176,7 +176,7 @@ Long-term improvements for scale and usability.
 
 ## Task ID Cross-Reference
 
-| Report ID | claude-todo ID | Title |
+| Report ID | cleo ID | Title |
 |-----------|----------------|-------|
 | EPIC | T611 | Backup System Refactoring |
 | P0 | T612 | Phase 0: Immediate Fixes |
@@ -206,8 +206,8 @@ Long-term improvements for scale and usability.
 
 ## How to Update
 
-1. Use `claude-todo` CLI to update task status
-2. Sync status from claude-todo to this report
+1. Use `cleo` CLI to update task status
+2. Sync status from cleo to this report
 3. Update Summary metrics when phases complete
 4. Update Last Updated date
 5. Move completed phases to Archive section
@@ -215,13 +215,13 @@ Long-term improvements for scale and usability.
 **Commands**:
 ```bash
 # Check epic status
-claude-todo show T611 --related
+cleo show T611 --related
 
 # Update task status
-claude-todo complete T613  # When P0-1 is done
+cleo complete T613  # When P0-1 is done
 
 # View phase progress
-claude-todo list --children T612  # Phase 0 subtasks
+cleo list --children T612  # Phase 0 subtasks
 ```
 
 ---

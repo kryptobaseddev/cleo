@@ -588,7 +588,7 @@ A conforming implementation MAY:
 | **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for specification structure and standards. This spec MUST follow the guidelines defined there. |
 | **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | **Related**: Shares agent-first philosophy. Agents deployed by this framework SHOULD follow LLM-Agent-First design principles. |
 | **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | **Defers to** for task ID format. Task IDs used in implementation MUST follow the ID contract defined there. |
-| **[PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md)** | **Related**: Framework defines internal phases (Phase 1-4) that parallel claude-todo's phase system. |
+| **[PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md)** | **Related**: Framework defines internal phases (Phase 1-4) that parallel cleo's phase system. |
 | **[RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md)** | **Used By**: RCSD consensus stage (Part 3) deploys this framework for multi-agent validation. |
 | **[CONSENSUS-FRAMEWORK-IMPLEMENTATION-REPORT.md](CONSENSUS-FRAMEWORK-IMPLEMENTATION-REPORT.md)** | Tracks implementation status for this specification. |
 

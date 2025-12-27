@@ -5,7 +5,7 @@ Manage work sessions with automatic logging and context restoration.
 ## Usage
 
 ```bash
-claude-todo session <command> [OPTIONS]
+cleo session <command> [OPTIONS]
 ```
 
 ## Description
@@ -40,7 +40,7 @@ The `session` command manages work sessions to track when you're actively workin
 ### Start a Session
 
 ```bash
-claude-todo session start
+cleo session start
 ```
 
 Output:
@@ -56,10 +56,10 @@ Output:
 
 ```bash
 # End with a note
-claude-todo session end --note "Completed auth middleware, tests passing"
+cleo session end --note "Completed auth middleware, tests passing"
 
 # End without note
-claude-todo session end
+cleo session end
 ```
 
 Output:
@@ -72,10 +72,10 @@ Output:
 
 ```bash
 # Text format
-claude-todo session status
+cleo session status
 
 # JSON format
-claude-todo session status --json
+cleo session status --json
 ```
 
 Output (text):
@@ -100,8 +100,8 @@ Output (JSON):
 ### Detailed Session Info
 
 ```bash
-claude-todo session info
-claude-todo session info --json
+cleo session info
+cleo session info --json
 ```
 
 Output:

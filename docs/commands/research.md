@@ -5,10 +5,10 @@
 ## Usage
 
 ```bash
-claude-todo research [OPTIONS] "QUERY"
-claude-todo research --url URL [URL...]
-claude-todo research --reddit "TOPIC" --subreddit SUB
-claude-todo research --library NAME [--topic TOPIC]
+cleo research [OPTIONS] "QUERY"
+cleo research --url URL [URL...]
+cleo research --reddit "TOPIC" --subreddit SUB
+cleo research --library NAME [--topic TOPIC]
 ```
 
 ## Overview
@@ -31,7 +31,7 @@ This command implements the [Web Aggregation Pipeline Specification](../specs/WE
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--depth LEVEL` | `-d` | Search depth: `quick`, `standard`, `deep` | `standard` |
-| `--output DIR` | `-o` | Output directory for results | `.claude/research/` |
+| `--output DIR` | `-o` | Output directory for results | `.cleo/research/` |
 | `--topic TOPIC` | `-t` | Topic filter for library mode | - |
 | `--subreddit SUB` | `-s` | Subreddit for Reddit mode | - |
 | `--include-reddit` | - | Include Reddit in query mode | `false` |
@@ -55,40 +55,40 @@ This command implements the [Web Aggregation Pipeline Specification](../specs/WE
 
 ```bash
 # Basic research
-claude-todo research "TypeScript decorators best practices"
+cleo research "TypeScript decorators best practices"
 
 # Deep research with Reddit
-claude-todo research "React state management 2024" --include-reddit -d deep
+cleo research "React state management 2024" --include-reddit -d deep
 
 # Link research to task
-claude-todo research "API design patterns" --link-task T042
+cleo research "API design patterns" --link-task T042
 ```
 
 ### URL Mode
 
 ```bash
 # Extract from specific URLs
-claude-todo research --url https://blog.example.com/article1 https://docs.lib.dev/guide
+cleo research --url https://blog.example.com/article1 https://docs.lib.dev/guide
 ```
 
 ### Reddit Mode
 
 ```bash
 # Search Reddit discussions
-claude-todo research --reddit "authentication" --subreddit webdev
+cleo research --reddit "authentication" --subreddit webdev
 
 # Top posts from subreddit
-claude-todo research --reddit "state management" -s reactjs
+cleo research --reddit "state management" -s reactjs
 ```
 
 ### Library Mode
 
 ```bash
 # Framework documentation
-claude-todo research --library svelte --topic reactivity
+cleo research --library svelte --topic reactivity
 
 # With specific topic
-claude-todo research --library "next.js" --topic "app router"
+cleo research --library "next.js" --topic "app router"
 ```
 
 ## Output
@@ -105,7 +105,7 @@ claude-todo research --library "next.js" --topic "app router"
 
 ```json
 {
-  "$schema": "claude-todo://research/plan/v1",
+  "$schema": "cleo://research/plan/v1",
   "research_id": "R9485o4i",
   "mode": "query",
   "query": "TypeScript best practices",
@@ -120,7 +120,7 @@ claude-todo research --library "next.js" --topic "app router"
     ]
   },
   "output": {
-    "directory": ".claude/research",
+    "directory": ".cleo/research",
     "json_file": "research_R9485o4i_typescript.json",
     "markdown_file": "research_R9485o4i_typescript.md"
   }
@@ -130,10 +130,10 @@ claude-todo research --library "next.js" --topic "app router"
 ### Execution Flow
 
 ```
-claude-todo research "query"
+cleo research "query"
     │
     ▼
-Creates plan in .claude/research/
+Creates plan in .cleo/research/
     │
     ▼
 Claude reads plan and executes stages:
@@ -144,7 +144,7 @@ Claude reads plan and executes stages:
   5. Output (Write JSON + Markdown)
     │
     ▼
-Results saved to .claude/research/
+Results saved to .cleo/research/
 ```
 
 ## MCP Servers Used
@@ -179,5 +179,5 @@ Results saved to .claude/research/
 ## Alias
 
 ```bash
-claude-todo dig "query"   # Same as 'research'
+cleo dig "query"   # Same as 'research'
 ```

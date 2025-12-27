@@ -9,7 +9,7 @@
 
 ## Preamble: Why This Document Exists
 
-This specification establishes the **permanent, immutable design** for task identification in claude-todo. Every decision has been validated through:
+This specification establishes the **permanent, immutable design** for task identification in cleo. Every decision has been validated through:
 
 1. **Round-robin adversarial analysis** - Devil's advocate challenges
 2. **Industry pattern research** - Linear, Jira, Git, file systems
@@ -161,7 +161,7 @@ Linear's success validates: **IDs identify, relationships describe.**
 ### 3.4 Display Hierarchy (CLI Sugar)
 
 ```bash
-claude-todo list --tree
+cleo list --tree
 
 T001 [epic] Authentication System
 ├─ T002 [task] JWT middleware
@@ -307,7 +307,7 @@ Invalid: T0, T00, T1, TXXX, t001, 001, T001.1
 
 ```bash
 # Before ANY operation on ID, validate exists
-claude-todo exists T042 --quiet && claude-todo complete T042
+cleo exists T042 --quiet && cleo complete T042
 ```
 
 **Agent protocol**: NEVER reference ID without prior confirmation.
@@ -320,8 +320,8 @@ claude-todo exists T042 --quiet && claude-todo complete T042
   "code": 1,
   "requestedId": "T999",
   "validIdRange": {"min": "T001", "max": "T042"},
-  "suggestion": "Use 'claude-todo list --format json' to get valid IDs",
-  "recoveryCommand": "claude-todo list --status pending"
+  "suggestion": "Use 'cleo list --format json' to get valid IDs",
+  "recoveryCommand": "cleo list --status pending"
 }
 ```
 
@@ -332,8 +332,8 @@ claude-todo exists T042 --quiet && claude-todo complete T042
 #!/bin/bash
 TASK_IDS=$(git diff --cached | grep -oE 'T[0-9]{3,}' | sort -u)
 for id in $TASK_IDS; do
-  if ! claude-todo exists "$id" --quiet --include-archive; then
-    echo "WARNING: Referenced task $id not found in claude-todo"
+  if ! cleo exists "$id" --quiet --include-archive; then
+    echo "WARNING: Referenced task $id not found in cleo"
   fi
 done
 ```
@@ -398,7 +398,7 @@ Namespacing provides audit trail without affecting ID format.
 ### 7.1 Migration Path: v2.2.0 → v2.3.0
 
 ```bash
-claude-todo migrate run --auto
+cleo migrate run --auto
 
 # Transforms:
 # 1. Add type="task" to all existing tasks (default)
@@ -445,7 +445,7 @@ jq '.tasks[] | del(.type, .parentId, .size)' todo.json > todo-flat.json
 ### 8.1 The Eternal Reference Promise
 
 ```
-Any T{NNN} ID created by claude-todo will ALWAYS resolve to the same task entity,
+Any T{NNN} ID created by cleo will ALWAYS resolve to the same task entity,
 regardless of:
 - Hierarchy changes (reparenting, promoting)
 - Phase transitions
@@ -465,7 +465,7 @@ Created → Active → Completed → Archived → Lookup-able
 ### 8.3 Archive Resolution
 
 ```bash
-claude-todo show T001 --include-archive
+cleo show T001 --include-archive
 
 # If T001 is archived:
 # Searches todo.json → not found
@@ -556,13 +556,13 @@ NEVER USE:
 ### 10.3 Large Triggers Decomposition
 
 ```bash
-claude-todo add "Implement auth system" --size large
+cleo add "Implement auth system" --size large
 WARNING: Large scope detected
 Action: Decompose into medium/small tasks before proceeding
 
 # Forced workflow:
-1. Create epic: claude-todo add "Auth system" --type epic
-2. Add children: claude-todo add "JWT validation" --parent T001 --size medium
+1. Create epic: cleo add "Auth system" --type epic
+2. Add children: cleo add "JWT validation" --parent T001 --size medium
 3. No single task remains "large"
 ```
 
@@ -638,32 +638,32 @@ All JSON error responses use `E_` prefix convention:
 
 ```bash
 # Task creation
-claude-todo add "Title" --type epic|task|subtask
-claude-todo add "Title" --parent T001
-claude-todo add "Title" --size small|medium|large
+cleo add "Title" --type epic|task|subtask
+cleo add "Title" --parent T001
+cleo add "Title" --size small|medium|large
 
 # Task queries
-claude-todo show T042
-claude-todo show T042 --ancestors
-claude-todo exists T042 --quiet
+cleo show T042
+cleo show T042 --ancestors
+cleo exists T042 --quiet
 
 # Hierarchy views
-claude-todo list --tree
-claude-todo list --tree --depth 2
-claude-todo list --children T001
-claude-todo list --descendants T001
-claude-todo list --root
-claude-todo list --type epic
+cleo list --tree
+cleo list --tree --depth 2
+cleo list --children T001
+cleo list --descendants T001
+cleo list --root
+cleo list --type epic
 
 # Hierarchy operations
-claude-todo reparent T042 --to T005
-claude-todo promote T042
+cleo reparent T042 --to T005
+cleo promote T042
 ```
 
 ### 13.2 JSON Output (Agent-Friendly)
 
 ```bash
-claude-todo show T042 --format json
+cleo show T042 --format json
 ```
 
 ```json
@@ -741,7 +741,7 @@ This specification defines WHAT MUST be implemented. The Implementation Report t
 
 ## Conclusion
 
-This specification establishes the **permanent ID system** for claude-todo:
+This specification establishes the **permanent ID system** for cleo:
 
 1. **Flat sequential IDs** (`T001`, `T002`, `T003`)
 2. **Hierarchy via `parentId` field**, not encoded in ID

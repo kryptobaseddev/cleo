@@ -7,7 +7,7 @@ Visualize task dependency relationships with tree views, upstream dependencies, 
 ## Usage
 
 ```bash
-claude-todo deps [TASK_ID|tree] [OPTIONS]
+cleo deps [TASK_ID|tree] [OPTIONS]
 ```
 
 ## Description
@@ -41,7 +41,7 @@ This command is ideal for:
 
 ```bash
 # Show all tasks with dependencies
-claude-todo deps
+cleo deps
 ```
 
 Output:
@@ -70,7 +70,7 @@ Total dependency relationships: 6
 
 ```bash
 # Show deps for T005
-claude-todo deps T005
+cleo deps T005
 ```
 
 Output:
@@ -93,7 +93,7 @@ Dependency depth: 2 levels
 
 ```bash
 # Show full dependency tree
-claude-todo deps tree
+cleo deps tree
 ```
 
 Output:
@@ -122,13 +122,13 @@ Independent:
 
 ```bash
 # JSON output for scripting
-claude-todo deps --format json
+cleo deps --format json
 
 # Markdown for documentation
-claude-todo deps --format markdown
+cleo deps --format markdown
 
 # JSON for specific task
-claude-todo deps T005 --format json
+cleo deps T005 --format json
 ```
 
 JSON output example:
@@ -161,7 +161,7 @@ JSON output example:
 
 ```bash
 # Show tree starting from T001
-claude-todo deps T001 tree
+cleo deps T001 tree
 ```
 
 ## Understanding Dependency Direction
@@ -192,27 +192,27 @@ T001 is needed by T003
 
 ```bash
 # See which tasks are blocked
-claude-todo deps tree
+cleo deps tree
 
 # Then analyze blocking chains
-claude-todo blockers analyze
+cleo blockers analyze
 ```
 
 ### With update command
 
 ```bash
 # Add a dependency
-claude-todo update T005 --depends T003
+cleo update T005 --depends T003
 
 # Verify the dependency
-claude-todo deps T005
+cleo deps T005
 ```
 
 ### With validate command
 
 ```bash
 # Check for circular dependencies
-claude-todo validate
+cleo validate
 ```
 
 ## Best Practices
@@ -229,26 +229,26 @@ claude-todo validate
 If `deps` shows no dependencies:
 - Check tasks have `depends` field set
 - Verify task IDs are valid
-- Run `claude-todo list` to confirm tasks exist
+- Run `cleo list` to confirm tasks exist
 
 ### Circular Dependency Detection
 
 The `deps` command does not detect circular dependencies directly.
-Use `claude-todo validate` to identify and resolve circular dependencies:
+Use `cleo validate` to identify and resolve circular dependencies:
 
 ```bash
 # Check for circular dependencies
-claude-todo validate
+cleo validate
 
 # If cycles found, review and fix the depends fields
-claude-todo update T001 --depends ""  # Remove problematic dependency
+cleo update T001 --depends ""  # Remove problematic dependency
 ```
 
 ### Missing task in tree
 
 If a task doesn't appear in the tree:
 - Task might be independent (no dependencies or dependents)
-- Check if task exists: `claude-todo list | grep T001`
+- Check if task exists: `cleo list | grep T001`
 - Verify task hasn't been archived
 
 ## See Also

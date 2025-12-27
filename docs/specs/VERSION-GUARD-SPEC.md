@@ -4,13 +4,13 @@
 
 ## Overview
 
-This specification defines a three-layer defense system for schema integrity in claude-todo,
+This specification defines a three-layer defense system for schema integrity in cleo,
 ensuring data compatibility and providing clear migration paths when schema versions change.
 
 ## Problem Statement
 
 Current issues:
-1. Schemas exist in TWO locations (global `~/.claude-todo/schemas/` + project `.claude/schemas/`)
+1. Schemas exist in TWO locations (global `~/.cleo/schemas/` + project `.cleo/schemas/`)
 2. No proactive version checking - users discover issues only via explicit `ct validate`
 3. Write commands (add/update/complete/archive) can corrupt data if schema is outdated
 4. Multiple documentation sources for migration (fragmented)
@@ -23,7 +23,7 @@ Current issues:
 **Purpose:** Fast version check on every command startup
 
 **Behavior:**
-- Single jq call to read `._meta.version` from `.claude/todo.json`
+- Single jq call to read `._meta.version` from `.cleo/todo.json`
 - Compare against expected version from `schemas/version-manifest.json`
 - Return status: OK (0), WARN (1), BLOCK (2)
 
@@ -32,7 +32,7 @@ Current issues:
 **Pseudocode:**
 ```bash
 quick_version_check() {
-    local todo_file=".claude/todo.json"
+    local todo_file=".cleo/todo.json"
     [[ ! -f "$todo_file" ]] && return 0  # No project, skip
 
     local current=$(jq -r '._meta.version // "unknown"' "$todo_file" 2>/dev/null)
@@ -106,7 +106,7 @@ can_write_safely() {
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "claude-todo-version-manifest-v1",
+  "$id": "cleo-version-manifest-v1",
 
   "current": {
     "todo": "2.3.0",
@@ -156,7 +156,7 @@ can_write_safely() {
 
 ## Configuration Options
 
-Add to `todo-config.json` schema:
+Add to `config.json` schema:
 
 ```json
 {
