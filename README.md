@@ -1,11 +1,21 @@
-# CLEO
+<!-- TODO: Add header image here -->
+<!-- <p align="center">
+  <img src="assets/cleo-header.png" alt="CLEO - Command Line Entity Orchestrator" width="800">
+</p> -->
 
-> **The task management protocol for solo developers and their AI coding agents**
+<h1 align="center">CLEO</h1>
+<h3 align="center">Command Line Entity Orchestrator</h3>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.38.2-blue.svg)](CHANGELOG.md)
-[![LLM-Agent-First](https://img.shields.io/badge/design-LLM--Agent--First-purple.svg)](docs/specs/LLM-AGENT-FIRST-SPEC.md)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+<p align="center">
+  <strong>The task management system designed for AI coding agents and solo developers</strong>
+</p>
+
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.38.2-blue.svg" alt="Version"></a>
+  <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
+  <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
+</p>
 
 <!-- VERSION_SYNC: This badge version should match VERSION file. Run ./dev/bump-version.sh to update. -->
 
@@ -39,7 +49,7 @@
 
 ## One Developer. One Agent. One Source of Truth.
 
-CLEO is the **contract between you and your AI coding agent**. It's not just a task tracker—it's a structured protocol designed for the unique challenges of AI-assisted development:
+**CLEO** (Command Line Entity Orchestrator) is a task management system designed for AI coding agents and solo developers. It's the **contract between you and your AI coding agent**—not just a task tracker, but a structured protocol designed for the unique challenges of AI-assisted development:
 
 - **Agents hallucinate**. CLEO validates every operation before execution.
 - **Agents lose context**. CLEO persists state across sessions with immutable audit trails.
