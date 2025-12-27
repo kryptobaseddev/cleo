@@ -1,4 +1,4 @@
-<!-- CLAUDE-TODO:START v0.37.0 -->
+<!-- CLEO:START v0.37.0 -->
 ## Task Management (claude-todo)
 
 Use `ct` (alias for `claude-todo`) for all task operations. Full docs: `~/.claude-todo/docs/TODO_Task_Management.md`
@@ -101,7 +101,7 @@ ct validate --fix-orphans delete     # Delete orphaned tasks
 - **CLI only** - Never edit `.claude/*.json` directly
 - **Verify state** - Use `ct list` before assuming
 - **Session discipline** - Start/end sessions properly
-<!-- CLAUDE-TODO:END -->
+<!-- CLEO:END -->
 # Repository Guidelines
 
 ## Project Overview

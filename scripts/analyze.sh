@@ -86,8 +86,8 @@ QUIET=false
 COMMAND_NAME="analyze"
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
 
 #####################################################################
 # Usage

@@ -63,8 +63,8 @@ COMMAND_NAME="deps"
 QUIET=false
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
 
 #####################################################################
 # Helper Functions
@@ -752,7 +752,7 @@ main() {
     FORMAT=$(resolve_format "$FORMAT" "true" "text,json,markdown")
 
     # Check if in a todo-enabled project
-    if [[ ! -d "$CLAUDE_DIR" ]]; then
+    if [[ ! -d "$CLEO_DIR" ]]; then
         if declare -f output_error &>/dev/null; then
             output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project"
         else

@@ -56,11 +56,11 @@ QUIET=false
 COMMAND_NAME="stats"
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
-ARCHIVE_FILE="${CLAUDE_DIR}/todo-archive.json"
-STATS_LOG_FILE="${CLAUDE_DIR}/todo-log.json"
-CONFIG_FILE="${CLAUDE_DIR}/config.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
+ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
+STATS_LOG_FILE="${CLEO_DIR}/todo-log.json"
+CONFIG_FILE="${CLEO_DIR}/config.json"
 
 #####################################################################
 # Helper Functions
@@ -587,7 +587,7 @@ main() {
     FORMAT=$(resolve_format "${FORMAT:-}")
 
     # Check if in a todo-enabled project
-    if [[ ! -d "$CLAUDE_DIR" ]]; then
+    if [[ ! -d "$CLEO_DIR" ]]; then
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
             output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project" "${EXIT_NOT_INITIALIZED:-1}" true "Run 'cleo init' first"
         else

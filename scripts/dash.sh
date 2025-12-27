@@ -120,9 +120,9 @@ QUIET=false
 COMMAND_NAME="dash"
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
-ARCHIVE_FILE="${CLAUDE_DIR}/todo-archive.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
+ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
 # LOG_FILE is set by logging.sh - use fallback if not set
 DASH_LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 

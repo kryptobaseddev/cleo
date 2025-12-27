@@ -85,9 +85,9 @@ SHOW_CHARTS=true
 QUIET=false
 
 # File paths
-CLAUDE_DIR=".claude"
-TODO_FILE="${CLAUDE_DIR}/todo.json"
-ARCHIVE_FILE="${CLAUDE_DIR}/todo-archive.json"
+CLEO_DIR=".cleo"
+TODO_FILE="${CLEO_DIR}/todo.json"
+ARCHIVE_FILE="${CLEO_DIR}/todo-archive.json"
 HIST_LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 #####################################################################
