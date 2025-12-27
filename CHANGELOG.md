@@ -5,7 +5,28 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.37.0] - 2025-12-27
+## [0.37.0] - 2025-12-27 (CLEO v1.0.0 Rebrand)
+
+### Major Changes
+- **CLEO Rebrand** - Complete rebrand from `claude-todo` to `CLEO` (T650 Epic)
+  - All directories: `.claude/` → `.cleo/`, `~/.claude-todo/` → `~/.cleo/`
+  - All environment variables: `CLAUDE_TODO_*` → `CLEO_*`
+  - CLI command: `claude-todo` → `cleo` (with `ct` shortcut)
+  - TRUE CLEAN BREAK: No legacy fallbacks, explicit migration required
+
+- **New Migration Command** - `cleo claude-migrate`
+  - `--check`: Detect legacy installations without modification
+  - `--global`: Migrate `~/.claude-todo/` → `~/.cleo/`
+  - `--project`: Migrate `.claude/` → `.cleo/`
+  - `--all`: Full migration (global + project + environment advice)
+  - Creates timestamped backups before any changes
+  - Once-per-session migration warnings with clear guidance
+
+- **lib/paths.sh** - Centralized path resolution library
+  - `get_cleo_home()`, `get_cleo_dir()`, `get_todo_file()`, etc.
+  - `has_legacy_*()` detection functions for migration
+  - `emit_migration_warning()` for user guidance
+  - NO legacy fallbacks (clean break philosophy)
 
 ### Added
 - **Multi-Session Architecture Schema** (DRAFT)
