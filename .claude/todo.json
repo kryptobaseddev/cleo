@@ -121,13 +121,13 @@
       }
     ]
   },
-  "lastUpdated": "2025-12-27T05:46:57Z",
+  "lastUpdated": "2025-12-27T07:47:14Z",
   "_meta": {
-    "checksum": "1aaee20a871e32d1",
+    "checksum": "b3d77704225f934d",
     "configVersion": "2.1.0",
     "lastSessionId": null,
-    "activeSession": null,
-    "lastModified": "2025-12-27T05:23:32Z",
+    "activeSession": "session_20251226_234029_22628e",
+    "lastModified": "2025-12-27T07:40:29Z",
     "version": "2.3.0",
     "schemaVersion": "2.4.0"
   },
@@ -1663,7 +1663,7 @@
       "parentId": null,
       "createdAt": "2025-12-23T02:08:18Z",
       "phase": "core",
-      "description": "Implement multi-agent abstraction per MULTI-AGENT-ABSTRACTION-SPEC.md. 4 phases: (1) Core abstraction layer lib/agent-compat.sh, (2) Path migration, (3) Protocol abstraction, (4) Documentation & branding. Target: support Claude Code, Gemini CLI, Codex CLI, Kimi CLI.\n\n**IMPORTANT: All work MUST be done on feature branch 'cleo-migration' (or similar), NOT on main.**\n\nBranch strategy:\n- Create feature/cleo-migration from main\n- All T651-T654 work on this branch\n- Merge to main only after full test suite passes",
+      "description": "EPIC: Rebrand claude-todo → cleo (v1.0.0 Clean Break)\n\n**Scope v1.0.0:**\n- Command rename: claude-todo → cleo (keep ct alias)\n- Directory rename: .claude/ → .cleo/\n- TRUE CLEAN BREAK: NO claude-todo symlink, NO CLAUDE_TODO_* fallback\n- Migration via explicit 'cleo claude-migrate' command\n- Multi-doc injection: CLAUDE.md, AGENTS.md, GEMINI.md (same template)\n- Injection markers: <!-- CLEO:START vX.X.X -->\n\n**Deferred to v2.0.0:**\n- T653 (Sync adapters) - entire task deferred\n- Agent detection system\n- Gemini/Kimi/Codex sync adapters\n\n**Branch:** cleo-migration (merge to main after all tests pass)\n\n**Authoritative Docs:**\n- claudedocs/CLEO-Rebrand/CLEO-Implementation-Plan.md\n- claudedocs/CLEO-Rebrand/CLEO-MIGRATION-STRATEGY.md",
       "labels": [
         "cleo",
         "rebrand"
@@ -1675,14 +1675,14 @@
     },
     {
       "id": "T651",
-      "title": "Phase 1: Create lib/agent-compat.sh core abstraction layer",
+      "title": "Phase 1: Core Abstraction Layer (lib/paths.sh)",
       "status": "pending",
       "priority": "high",
       "type": "task",
       "parentId": "T650",
       "createdAt": "2025-12-23T02:08:34Z",
       "phase": "core",
-      "description": "Create lib/agent-compat.sh with: env var resolution (CLEO_* with CLAUDE_TODO_* fallback), path resolution with migration support, agent detection logic, deprecation warning system. Update all 40+ scripts to source it.",
+      "description": "Create lib/paths.sh with CLEO-only path resolution (TRUE CLEAN BREAK - NO legacy fallback).\n\n**Subtasks (6):**\n- T651-A: Create paths.sh with CLEO_* env var resolution\n- T651-B: Add path resolution functions\n- T651-C: Add migration warning system\n- T651-D: Update core scripts (init, focus, session)\n- T651-E: Update command scripts (add, update, complete, list)\n- T651-F: Update lib files and remaining scripts\n\n**Key Files:**\n- lib/paths.sh (CREATE)\n- 41 scripts/*.sh (MODIFY)\n- 21 lib/*.sh (MODIFY)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* references\n- Zero hardcoded .claude/ paths (except CLAUDE.md refs)\n- NO legacy fallback (clean break)\n- All existing tests pass",
       "labels": [
         "cleo",
         "rebrand"
@@ -1690,14 +1690,14 @@
     },
     {
       "id": "T652",
-      "title": "Phase 2: Path migration utilities",
+      "title": "Phase 2: Path Migration (cleo claude-migrate)",
       "status": "pending",
       "priority": "medium",
       "type": "task",
       "parentId": "T650",
       "createdAt": "2025-12-23T02:08:36Z",
       "phase": "core",
-      "description": "Update install.sh for ~/.cleo/ default. Create 'cleo migrate' command with --check, --global, --project, --all options. Backup creation, shell profile PATH updates.",
+      "description": "Update install.sh for ~/.cleo/ default and create explicit migration command.\n\n**Subtasks (5):**\n- T652-A: Update install.sh for ~/.cleo (NO claude-todo symlink)\n- T652-B: Create claude-migrate --check command\n- T652-C: Create claude-migrate --global command\n- T652-D: Create claude-migrate --project command\n- T652-E: Create migration backup and verification\n\n**Key Files:**\n- install.sh (MODIFY)\n- scripts/claude-migrate.sh (CREATE)\n\n**Acceptance:**\n- Default install to ~/.cleo/\n- NO claude-todo symlink (clean break)\n- cleo claude-migrate works with --check, --global, --project, --all\n- Backups created before migration\n- Exit codes: 0=success, 1=no legacy, 2=backup fail, 3=rename fail, 4=validate fail",
       "labels": [
         "cleo",
         "rebrand"
@@ -1708,40 +1708,40 @@
     },
     {
       "id": "T653",
-      "title": "Phase 3: Sync protocol adapter framework",
-      "status": "pending",
+      "title": "Phase 3: Sync Protocol Adapters [DEFERRED v2.0.0]",
+      "status": "blocked",
       "priority": "medium",
       "type": "task",
       "parentId": "T650",
       "createdAt": "2025-12-23T02:08:37Z",
       "phase": "core",
-      "description": "Create lib/sync-adapters/ directory. Extract TodoWrite adapter from current code. Create generic fallback adapter. Update sync commands to route through adapters based on detected agent.",
+      "description": "⏳ DEFERRED TO v2.0.0\n\n**Rationale:**\n- v1.0.0 focuses on clean CLEO rebrand with Claude Code compatibility\n- Adapter framework introduces complexity without immediate benefit\n- TodoWrite sync remains current implementation (unchanged)\n\n**Preserved Subtasks (for v2.0.0):**\n- T653-A: Create adapter interface and directory structure\n- T653-B: Extract TodoWrite adapter from current code\n- T653-C: Create generic fallback adapter\n- T653-D: Update sync command to use adapters\n- T653-E: Create adapter selection logic\n\n**Reference:** claudedocs/CLEO-Rebrand/CLEO-MIGRATION-STRATEGY.md Part 3.4",
       "labels": [
         "cleo",
         "rebrand"
       ],
       "depends": [
         "T651"
-      ]
+      ],
+      "blockedBy": "DEFERRED to v2.0.0 - Multi-agent sync adapters not in v1.0.0 scope"
     },
     {
       "id": "T654",
-      "title": "Phase 4: Documentation and branding update",
+      "title": "Phase 3: Documentation & Branding (Multi-doc Injection)",
       "status": "pending",
       "priority": "low",
       "type": "task",
       "parentId": "T650",
       "createdAt": "2025-12-23T02:08:39Z",
       "phase": "polish",
-      "description": "Rename templates (CLAUDE-*.md → CLEO-*.md). Update all docs to use 'cleo' branding. Create agent-specific guides. Update README.md and package naming.",
+      "description": "Update all documentation and templates for CLEO branding with multi-doc injection support.\n\n**Subtasks (6):**\n- T654-A: Rename template files, update to CLEO markers\n- T654-B: Update docs/commands/ documentation\n- T654-C: Update docs/guides/ documentation\n- T654-D: Create unified getting-started.md\n- T654-E: Update README.md and package naming\n- T654-F: Create multi-doc injection system (CLAUDE.md, AGENTS.md, GEMINI.md)\n\n**Key Files:**\n- templates/CLAUDE-INJECTION.md → templates/AGENT-INJECTION.md\n- templates/CLAUDE.todo.md → templates/CLEO.todo.md\n- docs/**/*.md (~30 files)\n- README.md\n- scripts/init.sh (--target flag)\n\n**Acceptance:**\n- All templates renamed CLAUDE → CLEO\n- All docs updated with cleo branding\n- Multi-doc injection via --target flag\n- Uses <!-- CLEO:START vX.X.X --> markers\n- Zero claude-todo strings in docs (except historical)",
       "labels": [
         "cleo",
         "docs",
         "rebrand"
       ],
       "depends": [
-        "T652",
-        "T653"
+        "T652"
       ]
     },
     {
@@ -4012,6 +4012,316 @@
       ],
       "notes": [
         "2025-12-27 05:22:39 UTC: ## Benchmark Data (2025-12-27)\n\n### Performance Results\n| Dataset | Mean | Min | Max | Target | Status |\n|---------|------|-----|-----|--------|--------|\n| 100 tasks | 1988ms | 1791ms | 2151ms | N/A | PASS (threshold only for 1000+) |\n| 500 tasks | 1834ms | 1762ms | 1927ms | N/A | PASS |\n| 1000 tasks | 1726ms | 1686ms | 1771ms | <1000ms | FAIL |\n\n### Observations\n1. Performance is relatively consistent (low variance ~5%)\n2. Counterintuitively SLOWER with fewer tasks (1988ms@100 vs 1726ms@1000)\n3. Likely fixed overhead dominates - jq startup, file I/O, subprocess spawning\n\n### Suspected Bottlenecks (to investigate)\n1. scripts/stats.sh - Main entry point\n2. lib/analysis.sh - Task analysis functions  \n3. Multiple jq invocations instead of single pass\n4. Potential redundant file reads\n5. Subprocess spawning overhead\n\n### Impact\n- LLM agents call stats frequently for project overview\n- 1.7s latency per call compounds over session\n- Target: <1000ms for 1000+ task datasets\n\n### Comparison: list command\n- list at 1000 tasks: 1ms (extremely fast)\n- stats at 1000 tasks: 1726ms (1726x slower)\n- Suggests stats-specific logic is the bottleneck, not file I/O"
+      ]
+    },
+    {
+      "id": "T908",
+      "title": "Create paths.sh with CLEO_* env var resolution",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T651",
+      "createdAt": "2025-12-27T07:42:16Z",
+      "phase": "core",
+      "description": "Create lib/paths.sh with CLEO environment variable resolution (NO legacy fallback).\n\n**File:** lib/paths.sh (CREATE)\n\n**Functions:**\n- get_global_home() returns ${CLEO_HOME:-$HOME/.cleo}\n- All CLEO_* env vars: CLEO_HOME, CLEO_DIR, CLEO_FORMAT, CLEO_DEBUG\n\n**Acceptance:**\n1. Returns correct default when env var not set\n2. NO CLAUDE_TODO_* fallback (clean break)\n3. Unit test tests/unit/paths-env.bats passes\n\n**Size:** small\n**Atomicity:** 100% (single file, single concern)",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ]
+    },
+    {
+      "id": "T909",
+      "title": "Add path resolution functions to paths.sh",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T651",
+      "createdAt": "2025-12-27T07:42:35Z",
+      "phase": "core",
+      "description": "Add path resolution functions to lib/paths.sh (NO legacy fallback).\n\n**File:** lib/paths.sh (MODIFY)\n\n**Functions:**\n- get_global_home() returns $HOME/.cleo (NO .claude-todo fallback)\n- get_project_dir() returns .cleo (NO .claude fallback)\n- get_data_dir() returns correct basename\n- has_legacy_installation() detects ~/.claude-todo or .claude/\n\n**Acceptance:**\n1. Functions return CLEO paths only\n2. has_legacy_installation() for migration detection only\n3. Unit test tests/unit/paths-resolution.bats passes\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T908"
+      ]
+    },
+    {
+      "id": "T910",
+      "title": "Add migration warning system to paths.sh",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T651",
+      "createdAt": "2025-12-27T07:42:38Z",
+      "phase": "core",
+      "description": "Add migration warning system to lib/paths.sh.\n\n**File:** lib/paths.sh (MODIFY)\n\n**Functions:**\n- emit_deprecation_warning() writes to stderr\n- Warning emitted once per session (tracked via env var)\n- Message identifies legacy variable/path\n- Suggests running cleo claude-migrate\n\n**Acceptance:**\n1. Warning emits only once per session\n2. Clear migration instructions in message\n3. Unit test tests/unit/paths-warnings.bats passes\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T909"
+      ]
+    },
+    {
+      "id": "T911",
+      "title": "Update core scripts to source paths.sh",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T651",
+      "createdAt": "2025-12-27T07:42:41Z",
+      "phase": "core",
+      "description": "Update core scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/init.sh (25 CLAUDE_* refs)\n- scripts/focus.sh (22 CLAUDE_* refs)\n- scripts/session.sh (19 CLAUDE_* refs)\n\n**Changes:**\n1. Each script sources lib/paths.sh after other libs\n2. Replace $CLAUDE_TODO_* with $(get_global_home), $(get_project_dir)\n3. Replace hardcoded .claude/ paths with path functions\n4. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these 3 files\n- Zero hardcoded .claude/ paths (except CLAUDE.md refs)\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T910"
+      ]
+    },
+    {
+      "id": "T912",
+      "title": "Update command scripts to source paths.sh",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T651",
+      "createdAt": "2025-12-27T07:42:56Z",
+      "phase": "core",
+      "description": "Update command scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/add-task.sh\n- scripts/update-task.sh\n- scripts/complete-task.sh\n\n**Changes:**\n1. Each script sources lib/paths.sh\n2. Replace hardcoded refs with path resolution functions\n3. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these files\n- Zero hardcoded .claude/ paths\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T911"
+      ]
+    },
+    {
+      "id": "T913",
+      "title": "Update lib files and remaining scripts",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T651",
+      "createdAt": "2025-12-27T07:42:58Z",
+      "phase": "core",
+      "description": "Update all remaining lib files and scripts to use paths.sh.\n\n**Files:**\n- lib/config.sh (30 refs) - source paths.sh, use helpers\n- lib/logging.sh (8 refs)\n- lib/validation.sh\n- lib/output-format.sh\n- Remaining scripts/*.sh (35+ files)\n\n**Changes:**\n1. All lib files source paths.sh where needed\n2. All remaining scripts updated with path resolution\n3. Batch sed replacement for mechanical changes\n\n**Acceptance:**\n- grep -r 'CLAUDE_TODO_HOME' scripts/ lib/ returns 0\n- grep -r '\\.claude/' scripts/ lib/ | grep -v 'CLAUDE.md' returns 0\n- Full test suite passes\n\n**Size:** large\n**Atomicity:** 100% (mechanical replacement, same pattern)",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T912"
+      ]
+    },
+    {
+      "id": "T914",
+      "title": "Update install.sh for ~/.cleo (NO claude-todo symlink)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T652",
+      "createdAt": "2025-12-27T07:43:20Z",
+      "phase": "core",
+      "description": "Update install.sh for ~/.cleo/ default with clean break.\n\n**File:** install.sh (MODIFY)\n\n**Changes:**\n1. Default install path: ~/.cleo/ (was ~/.claude-todo/)\n2. Create 'cleo' symlink (primary command)\n3. Maintain 'ct' alias\n4. NO 'claude-todo' symlink (clean break)\n5. Detect existing ~/.claude-todo/ and prompt migration\n\n**Acceptance:**\n1. Fresh install creates ~/.cleo/\n2. 'cleo' and 'ct' commands work\n3. NO 'claude-todo' command exists\n4. Legacy detection prompts: 'Run cleo claude-migrate --global'\n5. Install works on fresh system\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T913"
+      ]
+    },
+    {
+      "id": "T915",
+      "title": "Create claude-migrate --check command",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T652",
+      "createdAt": "2025-12-27T07:43:22Z",
+      "phase": "core",
+      "description": "Create scripts/claude-migrate.sh with --check option.\n\n**File:** scripts/claude-migrate.sh (CREATE)\n\n**Functionality:**\n- cleo claude-migrate --check reports status without changes\n- Detects ~/.claude-todo/ presence\n- Detects .claude/ in current project\n- Reports legacy env vars in use\n- Exit code 0 if clean, 102 if migration needed\n- JSON output with --format json\n\n**Acceptance:**\n1. --check is read-only (no changes)\n2. Accurate detection of legacy installations\n3. Clear output showing what needs migration\n4. Unit test tests/unit/claude-migrate.bats passes\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T914"
+      ]
+    },
+    {
+      "id": "T916",
+      "title": "Create claude-migrate --global command",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T652",
+      "createdAt": "2025-12-27T07:43:26Z",
+      "phase": "core",
+      "description": "Add --global option to scripts/claude-migrate.sh.\n\n**File:** scripts/claude-migrate.sh (MODIFY)\n\n**Functionality:**\n- Creates backup of ~/.claude-todo/\n- Moves ~/.claude-todo/ → ~/.cleo/\n- Updates shell profile PATH entries\n- Preserves all data files\n- NO symlink created (clean break)\n- Rollback possible via backup\n\n**Acceptance:**\n1. Backup created before migration\n2. All files preserved after move\n3. No symlinks (clean break)\n4. Integration test passes\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T915"
+      ]
+    },
+    {
+      "id": "T917",
+      "title": "Create claude-migrate --project command",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T652",
+      "createdAt": "2025-12-27T07:43:43Z",
+      "phase": "core",
+      "description": "Add --project option to scripts/claude-migrate.sh.\n\n**File:** scripts/claude-migrate.sh (MODIFY)\n\n**Functionality:**\n- Creates backup of .claude/\n- Moves .claude/ → .cleo/\n- Renames config files: todo-config.json → cleo-config.json\n- Updates .gitignore if present\n- Updates injection markers (CLAUDE-TODO: → CLEO:)\n- Preserves all task data\n- Validates data integrity post-migration\n\n**Acceptance:**\n1. Backup created before migration\n2. All task data preserved\n3. Config files renamed correctly\n4. .gitignore updated\n5. Injection markers updated\n6. Integration test passes\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T916"
+      ]
+    },
+    {
+      "id": "T918",
+      "title": "Create migration backup and verification",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T652",
+      "createdAt": "2025-12-27T07:43:45Z",
+      "phase": "core",
+      "description": "Complete migration system with backup and verification.\n\n**File:** scripts/claude-migrate.sh (MODIFY)\n\n**Functionality:**\n- cleo claude-migrate --all runs both global and project\n- Pre-migration checksums computed\n- Post-migration verification passes\n- Backup stored in ~/.cleo/backups/migration/\n- Restore command documented\n- Exit codes documented\n\n**Exit Codes:**\n- 0 = success\n- 1 = no legacy found\n- 2 = backup failed\n- 3 = rename failed\n- 4 = validation failed\n\n**Acceptance:**\n1. --all runs both --global and --project\n2. Checksums verify data integrity\n3. Backups stored correctly\n4. All exit codes work correctly\n5. Integration test passes\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T917"
+      ]
+    },
+    {
+      "id": "T919",
+      "title": "Rename template files, update to CLEO markers",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T654",
+      "createdAt": "2025-12-27T07:44:04Z",
+      "phase": "polish",
+      "description": "Rename template files and update injection markers.\n\n**Files:**\n- templates/CLAUDE-INJECTION.md → templates/AGENT-INJECTION.md (RENAME)\n- templates/CLAUDE.todo.md → templates/CLEO.todo.md (RENAME)\n\n**Changes:**\n1. git mv for file renames\n2. Update content to reference 'cleo' not 'claude-todo'\n3. Update markers to <!-- CLEO:START vX.X.X -->\n4. Document backwards compat aliases\n\n**Acceptance:**\n1. Files renamed with git mv\n2. Content references 'cleo'\n3. Init command uses new templates\n4. Existing tests pass\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "docs",
+        "rebrand"
+      ],
+      "depends": [
+        "T918"
+      ]
+    },
+    {
+      "id": "T920",
+      "title": "Update docs/commands/ documentation",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T654",
+      "createdAt": "2025-12-27T07:44:06Z",
+      "phase": "polish",
+      "description": "Update all command documentation for CLEO branding.\n\n**Files:** docs/commands/*.md (batch update)\n\n**Changes:**\n1. All 'claude-todo' → 'cleo' in command examples\n2. Path references updated (.claude → .cleo)\n3. Env var examples updated (CLAUDE_TODO_* → CLEO_*)\n\n**Acceptance:**\n- grep -r 'claude-todo' docs/commands/ returns 0\n- All examples use 'cleo' command\n- Paths show .cleo/\n\n**Size:** medium\n**Atomicity:** 100% (batch sed replacement)",
+      "labels": [
+        "cleo",
+        "docs",
+        "rebrand"
+      ],
+      "depends": [
+        "T919"
+      ]
+    },
+    {
+      "id": "T921",
+      "title": "Update docs/guides/ documentation",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T654",
+      "createdAt": "2025-12-27T07:44:08Z",
+      "phase": "polish",
+      "description": "Update all guide documentation for CLEO branding.\n\n**Files:** docs/guides/*.md (batch update)\n\n**Changes:**\n1. All branding updated to 'cleo'\n2. Installation paths updated\n3. Examples use CLEO paths\n\n**Acceptance:**\n- grep -r 'claude-todo' docs/guides/ returns 0\n- All examples use 'cleo' command\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "docs",
+        "rebrand"
+      ],
+      "depends": [
+        "T919"
+      ]
+    },
+    {
+      "id": "T922",
+      "title": "Create unified getting-started.md",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T654",
+      "createdAt": "2025-12-27T07:44:31Z",
+      "phase": "polish",
+      "description": "Create unified getting started guide.\n\n**File:** docs/guides/getting-started.md (CREATE)\n\n**Content:**\n1. Agent-agnostic getting started guide\n2. Covers installation, init, basic commands\n3. References multi-doc injection (--target flag)\n4. Follows doc template\n5. Links to TODO_Task_Management.md for full reference\n\n**Note:** Agent-specific guides (claude-code.md, gemini-cli.md) deferred to v2.0.\n\n**Acceptance:**\n1. Guide is agent-agnostic\n2. Covers all basic workflows\n3. Examples use 'cleo' command\n4. Links work\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "docs",
+        "rebrand"
+      ],
+      "depends": [
+        "T919"
+      ]
+    },
+    {
+      "id": "T923",
+      "title": "Update README.md and package naming",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T654",
+      "createdAt": "2025-12-27T07:44:34Z",
+      "phase": "polish",
+      "description": "Update README.md for CLEO branding.\n\n**Files:**\n- README.md (MODIFY)\n- package.json or equivalent (MODIFY if exists)\n\n**Changes:**\n1. Project name 'cleo' in README\n2. Installation command uses 'cleo'\n3. Badges updated if any\n4. Multi-agent support highlighted\n5. Migration instructions added\n\n**Acceptance:**\n1. README uses 'cleo' branding\n2. Install instructions correct\n3. ct alias documented\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "docs",
+        "rebrand"
+      ],
+      "depends": [
+        "T920",
+        "T921",
+        "T922"
+      ]
+    },
+    {
+      "id": "T924",
+      "title": "Create multi-doc injection system",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T654",
+      "createdAt": "2025-12-27T07:44:36Z",
+      "phase": "polish",
+      "description": "Create multi-doc injection system for CLAUDE.md, AGENTS.md, GEMINI.md.\n\n**Files:**\n- templates/AGENT-INJECTION.md (already CLEO branded)\n- scripts/init.sh (MODIFY for --target flag)\n\n**Functionality:**\n1. cleo init --target CLAUDE.md injects into CLAUDE.md (default)\n2. cleo init --target AGENTS.md injects into AGENTS.md\n3. cleo init --target GEMINI.md injects into GEMINI.md\n4. Same CLEO template content for all targets\n5. Uses <!-- CLEO:START vX.X.X --> markers\n6. cleo init --update-docs updates existing injection\n7. Alias 'ct' documented in template\n\n**Acceptance:**\n1. --target flag works for all 3 doc types\n2. Same template injected to all\n3. Markers correct\n4. Update-docs works\n5. Integration test passes\n\n**Size:** small\n**Atomicity:** 100%",
+      "labels": [
+        "cleo",
+        "rebrand"
+      ],
+      "depends": [
+        "T923"
       ]
     }
   ],

@@ -15,9 +15,7 @@
 .claude/*.tmp
 .claude/*.lock
 .claude/.cache/
-.claude/.claude/
 .claude/backup-metadata.json
-.claude/todo-log-old.json
 
 # ============================================================
 # Claude Session Working Documents

@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 2189,
+    "totalEntries": 2196,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-27T05:46:57Z",
+    "lastEntry": "2025-12-27T07:47:14Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -52111,6 +52111,592 @@
         "deleted": 1,
         "retained": 3,
         "errors": 0
+      }
+    },
+    {
+      "id": "log_a244c239bc92",
+      "timestamp": "2025-12-27T07:40:29Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": "Session started"
+    },
+    {
+      "id": "log_4a93c1a864b2",
+      "timestamp": "2025-12-27T07:41:03Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T650",
+      "before": {
+        "title": "EPIC: Rebrand Implementation (claude-todo → cleo)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Implement multi-agent abstraction per MULTI-AGENT-ABSTRACTION-SPEC.md. 4 phases: (1) Core abstraction layer lib/agent-compat.sh, (2) Path migration, (3) Protocol abstraction, (4) Documentation & branding. Target: support Claude Code, Gemini CLI, Codex CLI, Kimi CLI.\n\n**IMPORTANT: All work MUST be done on feature branch 'cleo-migration' (or similar), NOT on main.**\n\nBranch strategy:\n- Create feature/cleo-migration from main\n- All T651-T654 work on this branch\n- Merge to main only after full test suite passes",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: Rebrand Implementation (claude-todo → cleo)",
+        "status": "pending",
+        "priority": "high",
+        "description": "EPIC: Rebrand claude-todo → cleo (v1.0.0 Clean Break)\n\n**Scope v1.0.0:**\n- Command rename: claude-todo → cleo (keep ct alias)\n- Directory rename: .claude/ → .cleo/\n- TRUE CLEAN BREAK: NO claude-todo symlink, NO CLAUDE_TODO_* fallback\n- Migration via explicit 'cleo claude-migrate' command\n- Multi-doc injection: CLAUDE.md, AGENTS.md, GEMINI.md (same template)\n- Injection markers: <!-- CLEO:START vX.X.X -->\n\n**Deferred to v2.0.0:**\n- T653 (Sync adapters) - entire task deferred\n- Agent detection system\n- Gemini/Kimi/Codex sync adapters\n\n**Branch:** cleo-migration (merge to main after all tests pass)\n\n**Authoritative Docs:**\n- claudedocs/CLEO-Rebrand/CLEO-Implementation-Plan.md\n- claudedocs/CLEO-Rebrand/CLEO-MIGRATION-STRATEGY.md",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_1338156d8e41",
+      "timestamp": "2025-12-27T07:41:15Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T651",
+      "before": {
+        "title": "Phase 1: Create lib/agent-compat.sh core abstraction layer",
+        "status": "pending",
+        "priority": "high",
+        "description": "Create lib/agent-compat.sh with: env var resolution (CLEO_* with CLAUDE_TODO_* fallback), path resolution with migration support, agent detection logic, deprecation warning system. Update all 40+ scripts to source it.",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Phase 1: Core Abstraction Layer (lib/paths.sh)",
+        "status": "pending",
+        "priority": "high",
+        "description": "Create lib/paths.sh with CLEO-only path resolution (TRUE CLEAN BREAK - NO legacy fallback).\n\n**Subtasks (6):**\n- T651-A: Create paths.sh with CLEO_* env var resolution\n- T651-B: Add path resolution functions\n- T651-C: Add migration warning system\n- T651-D: Update core scripts (init, focus, session)\n- T651-E: Update command scripts (add, update, complete, list)\n- T651-F: Update lib files and remaining scripts\n\n**Key Files:**\n- lib/paths.sh (CREATE)\n- 41 scripts/*.sh (MODIFY)\n- 21 lib/*.sh (MODIFY)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* references\n- Zero hardcoded .claude/ paths (except CLAUDE.md refs)\n- NO legacy fallback (clean break)\n- All existing tests pass",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_68902fe91062",
+      "timestamp": "2025-12-27T07:41:27Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T652",
+      "before": {
+        "title": "Phase 2: Path migration utilities",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Update install.sh for ~/.cleo/ default. Create 'cleo migrate' command with --check, --global, --project, --all options. Backup creation, shell profile PATH updates.",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T651"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Phase 2: Path Migration (cleo claude-migrate)",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Update install.sh for ~/.cleo/ default and create explicit migration command.\n\n**Subtasks (5):**\n- T652-A: Update install.sh for ~/.cleo (NO claude-todo symlink)\n- T652-B: Create claude-migrate --check command\n- T652-C: Create claude-migrate --global command\n- T652-D: Create claude-migrate --project command\n- T652-E: Create migration backup and verification\n\n**Key Files:**\n- install.sh (MODIFY)\n- scripts/claude-migrate.sh (CREATE)\n\n**Acceptance:**\n- Default install to ~/.cleo/\n- NO claude-todo symlink (clean break)\n- cleo claude-migrate works with --check, --global, --project, --all\n- Backups created before migration\n- Exit codes: 0=success, 1=no legacy, 2=backup fail, 3=rename fail, 4=validate fail",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T651"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_ab8e7224e2e1",
+      "timestamp": "2025-12-27T07:41:39Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T653",
+      "before": {
+        "title": "Phase 3: Sync protocol adapter framework",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Create lib/sync-adapters/ directory. Extract TodoWrite adapter from current code. Create generic fallback adapter. Update sync commands to route through adapters based on detected agent.",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T651"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Phase 3: Sync Protocol Adapters [DEFERRED v2.0.0]",
+        "status": "blocked",
+        "priority": "medium",
+        "description": "⏳ DEFERRED TO v2.0.0\n\n**Rationale:**\n- v1.0.0 focuses on clean CLEO rebrand with Claude Code compatibility\n- Adapter framework introduces complexity without immediate benefit\n- TodoWrite sync remains current implementation (unchanged)\n\n**Preserved Subtasks (for v2.0.0):**\n- T653-A: Create adapter interface and directory structure\n- T653-B: Extract TodoWrite adapter from current code\n- T653-C: Create generic fallback adapter\n- T653-D: Update sync command to use adapters\n- T653-E: Create adapter selection logic\n\n**Reference:** claudedocs/CLEO-Rebrand/CLEO-MIGRATION-STRATEGY.md Part 3.4",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T651"
+        ],
+        "blockedBy": "DEFERRED to v2.0.0 - Multi-agent sync adapters not in v1.0.0 scope"
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_133301906cb0",
+      "timestamp": "2025-12-27T07:41:54Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T654",
+      "before": {
+        "title": "Phase 4: Documentation and branding update",
+        "status": "pending",
+        "priority": "low",
+        "description": "Rename templates (CLAUDE-*.md → CLEO-*.md). Update all docs to use 'cleo' branding. Create agent-specific guides. Update README.md and package naming.",
+        "phase": "polish",
+        "labels": [
+          "cleo",
+          "docs",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T652",
+          "T653"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Phase 3: Documentation & Branding (Multi-doc Injection)",
+        "status": "pending",
+        "priority": "low",
+        "description": "Update all documentation and templates for CLEO branding with multi-doc injection support.\n\n**Subtasks (6):**\n- T654-A: Rename template files, update to CLEO markers\n- T654-B: Update docs/commands/ documentation\n- T654-C: Update docs/guides/ documentation\n- T654-D: Create unified getting-started.md\n- T654-E: Update README.md and package naming\n- T654-F: Create multi-doc injection system (CLAUDE.md, AGENTS.md, GEMINI.md)\n\n**Key Files:**\n- templates/CLAUDE-INJECTION.md → templates/AGENT-INJECTION.md\n- templates/CLAUDE.todo.md → templates/CLEO.todo.md\n- docs/**/*.md (~30 files)\n- README.md\n- scripts/init.sh (--target flag)\n\n**Acceptance:**\n- All templates renamed CLAUDE → CLEO\n- All docs updated with cleo branding\n- Multi-doc injection via --target flag\n- Uses <!-- CLEO:START vX.X.X --> markers\n- Zero claude-todo strings in docs (except historical)",
+        "phase": "polish",
+        "labels": [
+          "cleo",
+          "docs",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T652",
+          "T653"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1766821336-59e44e",
+      "timestamp": "2025-12-27T07:42:16Z",
+      "action": "task_created",
+      "taskId": "T908",
+      "actor": "system",
+      "details": {
+        "title": "Create paths.sh with CLEO_* env var resolution",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create paths.sh with CLEO_* env var resolution",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766821355-aa9a72",
+      "timestamp": "2025-12-27T07:42:35Z",
+      "action": "task_created",
+      "taskId": "T909",
+      "actor": "system",
+      "details": {
+        "title": "Add path resolution functions to paths.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add path resolution functions to paths.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766821358-949139",
+      "timestamp": "2025-12-27T07:42:38Z",
+      "action": "task_created",
+      "taskId": "T910",
+      "actor": "system",
+      "details": {
+        "title": "Add migration warning system to paths.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add migration warning system to paths.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766821361-b59b45",
+      "timestamp": "2025-12-27T07:42:41Z",
+      "action": "task_created",
+      "taskId": "T911",
+      "actor": "system",
+      "details": {
+        "title": "Update core scripts to source paths.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update core scripts to source paths.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766821376-d12b2a",
+      "timestamp": "2025-12-27T07:42:56Z",
+      "action": "task_created",
+      "taskId": "T912",
+      "actor": "system",
+      "details": {
+        "title": "Update command scripts to source paths.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update command scripts to source paths.sh",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766821378-8cfa07",
+      "timestamp": "2025-12-27T07:42:58Z",
+      "action": "task_created",
+      "taskId": "T913",
+      "actor": "system",
+      "details": {
+        "title": "Update lib files and remaining scripts",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update lib files and remaining scripts",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766821400-9683e2",
+      "timestamp": "2025-12-27T07:43:20Z",
+      "action": "task_created",
+      "taskId": "T914",
+      "actor": "system",
+      "details": {
+        "title": "Update install.sh for ~/.cleo (NO claude-todo symlink)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Update install.sh for ~/.cleo (NO claude-todo symlink)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766821402-d095a8",
+      "timestamp": "2025-12-27T07:43:22Z",
+      "action": "task_created",
+      "taskId": "T915",
+      "actor": "system",
+      "details": {
+        "title": "Create claude-migrate --check command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create claude-migrate --check command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766821406-5b0b84",
+      "timestamp": "2025-12-27T07:43:26Z",
+      "action": "task_created",
+      "taskId": "T916",
+      "actor": "system",
+      "details": {
+        "title": "Create claude-migrate --global command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create claude-migrate --global command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766821423-d6c77b",
+      "timestamp": "2025-12-27T07:43:43Z",
+      "action": "task_created",
+      "taskId": "T917",
+      "actor": "system",
+      "details": {
+        "title": "Create claude-migrate --project command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create claude-migrate --project command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766821425-f90f5b",
+      "timestamp": "2025-12-27T07:43:45Z",
+      "action": "task_created",
+      "taskId": "T918",
+      "actor": "system",
+      "details": {
+        "title": "Create migration backup and verification",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create migration backup and verification",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1766821444-dfa0c7",
+      "timestamp": "2025-12-27T07:44:04Z",
+      "action": "task_created",
+      "taskId": "T919",
+      "actor": "system",
+      "details": {
+        "title": "Rename template files, update to CLEO markers",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Rename template files, update to CLEO markers",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1766821446-bae287",
+      "timestamp": "2025-12-27T07:44:06Z",
+      "action": "task_created",
+      "taskId": "T920",
+      "actor": "system",
+      "details": {
+        "title": "Update docs/commands/ documentation",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Update docs/commands/ documentation",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1766821448-55c70d",
+      "timestamp": "2025-12-27T07:44:08Z",
+      "action": "task_created",
+      "taskId": "T921",
+      "actor": "system",
+      "details": {
+        "title": "Update docs/guides/ documentation",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Update docs/guides/ documentation",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1766821471-4f99fa",
+      "timestamp": "2025-12-27T07:44:31Z",
+      "action": "task_created",
+      "taskId": "T922",
+      "actor": "system",
+      "details": {
+        "title": "Create unified getting-started.md",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Create unified getting-started.md",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1766821474-cf1d84",
+      "timestamp": "2025-12-27T07:44:34Z",
+      "action": "task_created",
+      "taskId": "T923",
+      "actor": "system",
+      "details": {
+        "title": "Update README.md and package naming",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Update README.md and package naming",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1766821476-0a1161",
+      "timestamp": "2025-12-27T07:44:36Z",
+      "action": "task_created",
+      "taskId": "T924",
+      "actor": "system",
+      "details": {
+        "title": "Create multi-doc injection system",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Create multi-doc injection system",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_4f7806ef037d",
+      "timestamp": "2025-12-27T07:47:14Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T654",
+      "before": {
+        "title": "Phase 3: Documentation & Branding (Multi-doc Injection)",
+        "status": "pending",
+        "priority": "low",
+        "description": "Update all documentation and templates for CLEO branding with multi-doc injection support.\n\n**Subtasks (6):**\n- T654-A: Rename template files, update to CLEO markers\n- T654-B: Update docs/commands/ documentation\n- T654-C: Update docs/guides/ documentation\n- T654-D: Create unified getting-started.md\n- T654-E: Update README.md and package naming\n- T654-F: Create multi-doc injection system (CLAUDE.md, AGENTS.md, GEMINI.md)\n\n**Key Files:**\n- templates/CLAUDE-INJECTION.md → templates/AGENT-INJECTION.md\n- templates/CLAUDE.todo.md → templates/CLEO.todo.md\n- docs/**/*.md (~30 files)\n- README.md\n- scripts/init.sh (--target flag)\n\n**Acceptance:**\n- All templates renamed CLAUDE → CLEO\n- All docs updated with cleo branding\n- Multi-doc injection via --target flag\n- Uses <!-- CLEO:START vX.X.X --> markers\n- Zero claude-todo strings in docs (except historical)",
+        "phase": "polish",
+        "labels": [
+          "cleo",
+          "docs",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T652",
+          "T653"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Phase 3: Documentation & Branding (Multi-doc Injection)",
+        "status": "pending",
+        "priority": "low",
+        "description": "Update all documentation and templates for CLEO branding with multi-doc injection support.\n\n**Subtasks (6):**\n- T654-A: Rename template files, update to CLEO markers\n- T654-B: Update docs/commands/ documentation\n- T654-C: Update docs/guides/ documentation\n- T654-D: Create unified getting-started.md\n- T654-E: Update README.md and package naming\n- T654-F: Create multi-doc injection system (CLAUDE.md, AGENTS.md, GEMINI.md)\n\n**Key Files:**\n- templates/CLAUDE-INJECTION.md → templates/AGENT-INJECTION.md\n- templates/CLAUDE.todo.md → templates/CLEO.todo.md\n- docs/**/*.md (~30 files)\n- README.md\n- scripts/init.sh (--target flag)\n\n**Acceptance:**\n- All templates renamed CLAUDE → CLEO\n- All docs updated with cleo branding\n- Multi-doc injection via --target flag\n- Uses <!-- CLEO:START vX.X.X --> markers\n- Zero claude-todo strings in docs (except historical)",
+        "phase": "polish",
+        "labels": [
+          "cleo",
+          "docs",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T652"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
       }
     }
   ]
