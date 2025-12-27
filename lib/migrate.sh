@@ -687,12 +687,26 @@ migrate_todo_to_2_2_0() {
 
         # CRITICAL: Preserve existing top-level .phases if present
         # They take precedence over template defaults
+        # Also ensure all phases have required fields (status, order, etc.)
         updated_content=$(jq --argjson default_phases "$default_phases" '
             # Get existing phases (from top-level .phases or empty)
             (.phases // {}) as $existing_phases |
 
             # Merge: existing phases override defaults
-            ($default_phases + $existing_phases) as $merged_phases |
+            ($default_phases + $existing_phases) as $raw_merged |
+
+            # Ensure all phases have required fields with sensible defaults
+            ($raw_merged | to_entries | map(
+                .key as $slug |
+                .value |= (
+                    # Add missing required fields
+                    .status = (.status // "pending") |
+                    .order = (.order // 999) |
+                    .name = (.name // $slug) |
+                    .startedAt = (.startedAt // null) |
+                    .completedAt = (.completedAt // null)
+                )
+            ) | from_entries) as $merged_phases |
 
             # Convert project string to object with merged phases
             (if (.project | type) == "string" then
@@ -716,6 +730,19 @@ migrate_todo_to_2_2_0() {
         echo "ERROR: Failed to update file" >&2
         return 1
     }
+
+    # Update checksum after structural changes
+    local new_checksum
+    new_checksum=$(jq -c '.tasks' "$file" | sha256sum | cut -c1-16)
+    local checksum_updated
+    checksum_updated=$(jq --arg cs "$new_checksum" '._meta.checksum = $cs' "$file") || {
+        echo "WARNING: Failed to update checksum" >&2
+    }
+    if [[ -n "$checksum_updated" ]]; then
+        save_json "$file" "$checksum_updated" || {
+            echo "WARNING: Failed to save checksum update" >&2
+        }
+    fi
 
     # Update version fields
     update_version_field "$file" "2.2.0" || return 1
