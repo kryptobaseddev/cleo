@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # CLEO Migration Command - claude-migrate
-# Detects and migrates legacy cleo installations to CLEO format
+# Detects and migrates legacy claude-todo installations to CLEO format
 #
 # Usage:
 #   cleo claude-migrate --check         # Detect legacy (no changes)
-#   cleo claude-migrate --global        # Migrate ~/.cleo → ~/.cleo
+#   cleo claude-migrate --global        # Migrate ~/.claude-todo → ~/.cleo
 #   cleo claude-migrate --project       # Migrate .claude → .cleo
 #   cleo claude-migrate --all           # Migrate both
 #
@@ -79,11 +79,11 @@ usage() {
     cat << 'EOF'
 Usage: cleo claude-migrate [OPTIONS]
 
-Detect and migrate legacy cleo installations to CLEO format.
+Detect and migrate legacy claude-todo installations to CLEO format.
 
 Modes:
   --check            Detect legacy installations (read-only)
-  --global           Migrate global: ~/.cleo → ~/.cleo
+  --global           Migrate global: ~/.claude-todo → ~/.cleo
   --project          Migrate project: .claude → .cleo
   --all              Migrate both global and project
 
@@ -302,7 +302,7 @@ EOF
         fi
 
         if [[ "$project_found" == "true" ]]; then
-            echo "✗ Project: .cleo/ found (legacy)"
+            echo "✗ Project: .claude/ found (legacy)"
             if [[ "$VERBOSE" == "true" ]]; then
                 echo "  → Run: cleo claude-migrate --project"
             fi
@@ -381,7 +381,7 @@ finalize_backup() {
     fi
 }
 
-# Migrate global installation: ~/.cleo → ~/.cleo
+# Migrate global installation: ~/.claude-todo → ~/.cleo
 run_global_migration() {
     local legacy_path
     local target_path
@@ -570,15 +570,15 @@ rename_project_configs() {
     local target_dir="$1"
     local renamed=0
 
-    # Rename todo-config.json → config.json (cleaner naming)
+    # Rename todo-config.json → cleo-config.json
     if [[ -f "$target_dir/todo-config.json" ]]; then
-        mv "$target_dir/todo-config.json" "$target_dir/config.json"
+        mv "$target_dir/todo-config.json" "$target_dir/cleo-config.json"
         ((renamed++))
     fi
 
-    # Rename todo-log.json → log.json (cleaner naming)
+    # Rename todo-log.json → cleo-log.json
     if [[ -f "$target_dir/todo-log.json" ]]; then
-        mv "$target_dir/todo-log.json" "$target_dir/log.json"
+        mv "$target_dir/todo-log.json" "$target_dir/cleo-log.json"
         ((renamed++))
     fi
 
