@@ -268,14 +268,104 @@ teardown_file() {
 }
 
 # =============================================================================
-# UNIMPLEMENTED MODES (T916-T918)
+# GLOBAL MIGRATION MODE (T916)
 # =============================================================================
 
-@test "claude-migrate --global shows not implemented" {
+@test "claude-migrate --global exits 1 when no legacy found" {
+    rm -rf "$HOME/.claude-todo" 2>/dev/null || true
+    cd "$TEST_TEMP_DIR"
+
     run "$SCRIPTS_DIR/claude-migrate.sh" --global
-    assert_failure
-    assert_output --partial "not yet implemented"
+    assert_failure 1  # No legacy
+    assert_output --partial "No legacy global installation"
 }
+
+@test "claude-migrate --global migrates ~/.claude-todo to ~/.cleo" {
+    # Create legacy installation
+    mkdir -p "$HOME/.claude-todo"
+    echo '{"tasks":[]}' > "$HOME/.claude-todo/todo.json"
+    echo '{}' > "$HOME/.claude-todo/todo-config.json"
+
+    cd "$TEST_TEMP_DIR"
+    run "$SCRIPTS_DIR/claude-migrate.sh" --global --format text
+    assert_success
+
+    # Verify migration
+    [[ -d "$HOME/.cleo" ]]
+    [[ -f "$HOME/.cleo/todo.json" ]]
+    [[ -f "$HOME/.cleo/todo-config.json" ]]
+    [[ ! -d "$HOME/.claude-todo" ]]
+}
+
+@test "claude-migrate --global creates backup before migration" {
+    mkdir -p "$HOME/.claude-todo"
+    echo '{"tasks":[]}' > "$HOME/.claude-todo/todo.json"
+
+    cd "$TEST_TEMP_DIR"
+    run "$SCRIPTS_DIR/claude-migrate.sh" --global --format text
+    assert_success
+
+    # Check backup was created
+    assert_output --partial "Backup created"
+    [[ -d "$HOME/.cleo/backups/migration" ]]
+    local backup_count
+    backup_count=$(ls "$HOME/.cleo/backups/migration"/*.tar.gz 2>/dev/null | wc -l)
+    [[ "$backup_count" -gt 0 ]]
+}
+
+@test "claude-migrate --global returns JSON on success" {
+    mkdir -p "$HOME/.claude-todo"
+    echo '{"tasks":[]}' > "$HOME/.claude-todo/todo.json"
+
+    cd "$TEST_TEMP_DIR"
+    run "$SCRIPTS_DIR/claude-migrate.sh" --global --format json
+    assert_success
+
+    local json_output="$output"
+    jq -e '.success == true' <<< "$json_output"
+    jq -e '.migration.type == "global"' <<< "$json_output"
+    jq -e '.migration.fileCount >= 1' <<< "$json_output"
+}
+
+@test "claude-migrate --global fails if target already has data" {
+    # Create both legacy and target with data
+    mkdir -p "$HOME/.claude-todo"
+    echo '{}' > "$HOME/.claude-todo/todo.json"
+    mkdir -p "$HOME/.cleo"
+    echo '{}' > "$HOME/.cleo/existing-data.json"
+
+    cd "$TEST_TEMP_DIR"
+    run "$SCRIPTS_DIR/claude-migrate.sh" --global --format text
+    assert_failure 4  # Validation failed
+    assert_output --partial "already exists"
+}
+
+@test "claude-migrate --global preserves all files during migration" {
+    # Create legacy with multiple files
+    mkdir -p "$HOME/.claude-todo/subdir"
+    echo 'todo' > "$HOME/.claude-todo/todo.json"
+    echo 'config' > "$HOME/.claude-todo/todo-config.json"
+    echo 'log' > "$HOME/.claude-todo/todo-log.json"
+    echo 'nested' > "$HOME/.claude-todo/subdir/file.txt"
+
+    cd "$TEST_TEMP_DIR"
+    run "$SCRIPTS_DIR/claude-migrate.sh" --global
+    assert_success
+
+    # Verify all files present
+    [[ -f "$HOME/.cleo/todo.json" ]]
+    [[ -f "$HOME/.cleo/todo-config.json" ]]
+    [[ -f "$HOME/.cleo/todo-log.json" ]]
+    [[ -f "$HOME/.cleo/subdir/file.txt" ]]
+
+    # Verify content preserved
+    [[ "$(cat "$HOME/.cleo/todo.json")" == "todo" ]]
+    [[ "$(cat "$HOME/.cleo/subdir/file.txt")" == "nested" ]]
+}
+
+# =============================================================================
+# UNIMPLEMENTED MODES (T917-T918)
+# =============================================================================
 
 @test "claude-migrate --project shows not implemented" {
     run "$SCRIPTS_DIR/claude-migrate.sh" --project

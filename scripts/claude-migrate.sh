@@ -338,6 +338,197 @@ EOF
 }
 
 # =============================================================================
+# GLOBAL MIGRATION MODE (T916)
+# =============================================================================
+
+# Create backup of global installation
+# Args: $1 = source path
+# Note: Backup is created in /tmp first, then moved after migration
+create_global_backup() {
+    local source_path="$1"
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    local temp_backup="/tmp/cleo_migration_backup_${timestamp}.tar.gz"
+
+    if [[ "$VERBOSE" == "true" ]]; then
+        echo "Creating backup: $temp_backup"
+    fi
+
+    # Create backup using tar to temp location
+    if tar -czf "$temp_backup" -C "$(dirname "$source_path")" "$(basename "$source_path")" 2>/dev/null; then
+        echo "$temp_backup"
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Move backup to final location after successful migration
+finalize_backup() {
+    local temp_backup="$1"
+    local target_home="$2"
+    local final_backup_dir="${target_home}/backups/migration"
+    local final_backup="${final_backup_dir}/$(basename "$temp_backup")"
+
+    mkdir -p "$final_backup_dir"
+    if mv "$temp_backup" "$final_backup" 2>/dev/null; then
+        echo "$final_backup"
+        return 0
+    else
+        # Keep temp backup if move fails
+        echo "$temp_backup"
+        return 0
+    fi
+}
+
+# Migrate global installation: ~/.claude-todo → ~/.cleo
+run_global_migration() {
+    local legacy_path
+    local target_path
+    local backup_path
+
+    legacy_path=$(get_legacy_global_home)
+    target_path=$(get_cleo_home)
+
+    # Check if legacy exists
+    if ! has_legacy_global_installation; then
+        if is_json_output "$FORMAT"; then
+            printf '{"success":false,"error":"No legacy global installation found","code":%d}\n' "$MIGRATE_NO_LEGACY"
+        else
+            echo "No legacy global installation found at $legacy_path"
+            echo "Nothing to migrate."
+        fi
+        return $MIGRATE_NO_LEGACY
+    fi
+
+    # Check if target already exists
+    if [[ -d "$target_path" ]]; then
+        local file_count
+        file_count=$(find "$target_path" -type f 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$file_count" -gt 0 ]]; then
+            if is_json_output "$FORMAT"; then
+                printf '{"success":false,"error":"Target path already exists with data","path":"%s","code":%d}\n' \
+                    "$target_path" "$MIGRATE_VALIDATION_FAILED"
+            else
+                echo "Error: Target path $target_path already exists with $file_count files."
+                echo "Please remove or backup existing installation first."
+            fi
+            return $MIGRATE_VALIDATION_FAILED
+        fi
+    fi
+
+    # Create backup first
+    if is_json_output "$FORMAT"; then
+        : # JSON output will be at the end
+    else
+        echo ""
+        echo "CLEO Global Migration"
+        echo "====================="
+        echo ""
+        echo "Source: $legacy_path"
+        echo "Target: $target_path"
+        echo ""
+        echo "Step 1/3: Creating backup..."
+    fi
+
+    backup_path=$(create_global_backup "$legacy_path")
+    if [[ $? -ne 0 ]] || [[ -z "$backup_path" ]]; then
+        if is_json_output "$FORMAT"; then
+            printf '{"success":false,"error":"Backup creation failed","code":%d}\n' "$MIGRATE_BACKUP_FAILED"
+        else
+            echo "Error: Failed to create backup of $legacy_path"
+        fi
+        return $MIGRATE_BACKUP_FAILED
+    fi
+
+    if ! is_json_output "$FORMAT"; then
+        echo "  ✓ Backup created: $backup_path"
+        echo ""
+        echo "Step 2/3: Moving files..."
+    fi
+
+    # Move the directory
+    if ! mv "$legacy_path" "$target_path" 2>/dev/null; then
+        if is_json_output "$FORMAT"; then
+            printf '{"success":false,"error":"Move operation failed","source":"%s","target":"%s","code":%d}\n' \
+                "$legacy_path" "$target_path" "$MIGRATE_RENAME_FAILED"
+        else
+            echo "Error: Failed to move $legacy_path → $target_path"
+            echo "Backup available at: $backup_path"
+        fi
+        return $MIGRATE_RENAME_FAILED
+    fi
+
+    if ! is_json_output "$FORMAT"; then
+        echo "  ✓ Moved: $legacy_path → $target_path"
+        echo ""
+        echo "Step 3/3: Verifying and finalizing..."
+    fi
+
+    # Verify the move
+    if [[ ! -d "$target_path" ]]; then
+        if is_json_output "$FORMAT"; then
+            printf '{"success":false,"error":"Verification failed - target not found","code":%d}\n' "$MIGRATE_VALIDATION_FAILED"
+        else
+            echo "Error: Verification failed - target directory not found"
+            echo "Restore from backup: tar -xzf $backup_path -C $HOME"
+        fi
+        return $MIGRATE_VALIDATION_FAILED
+    fi
+
+    # Move backup from temp to final location
+    local final_backup
+    final_backup=$(finalize_backup "$backup_path" "$target_path")
+    backup_path="$final_backup"
+
+    # Count files in new location
+    local migrated_count
+    migrated_count=$(find "$target_path" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+    # Build success output
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if is_json_output "$FORMAT"; then
+        cat <<EOF
+{
+  "\$schema": "https://claude-todo.dev/schemas/v1/output.schema.json",
+  "_meta": {
+    "command": "claude-migrate --global",
+    "timestamp": "${timestamp}",
+    "version": "1.0.0"
+  },
+  "success": true,
+  "migration": {
+    "type": "global",
+    "source": "${legacy_path}",
+    "target": "${target_path}",
+    "fileCount": ${migrated_count},
+    "backup": "${backup_path}"
+  }
+}
+EOF
+    else
+        echo "  ✓ Verified: $migrated_count files migrated"
+        echo ""
+        echo "Migration Complete!"
+        echo ""
+        echo "Summary:"
+        echo "  Source: $legacy_path (removed)"
+        echo "  Target: $target_path"
+        echo "  Files:  $migrated_count"
+        echo "  Backup: $backup_path"
+        echo ""
+        echo "To restore if needed:"
+        echo "  rm -rf $target_path"
+        echo "  tar -xzf $backup_path -C $HOME"
+        echo ""
+    fi
+
+    return $MIGRATE_SUCCESS
+}
+
+# =============================================================================
 # OUTPUT FORMAT DETECTION
 # =============================================================================
 
@@ -428,8 +619,7 @@ main() {
             run_check_mode
             ;;
         global)
-            echo "Error: --global mode not yet implemented (T916)" >&2
-            exit 2
+            run_global_migration
             ;;
         project)
             echo "Error: --project mode not yet implemented (T917)" >&2
