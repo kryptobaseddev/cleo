@@ -5,6 +5,17 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.2] - 2025-12-27
+
+### Fixed
+- **Legacy .project format compatibility** - Extended type guards to all scripts accessing `.project`
+  - Fixed 60 occurrences across 8 scripts where `.project.phases` or `.project.currentPhase`
+    could fail when `.project` is a string (pre-v2.2.0 legacy format) instead of an object
+  - Scripts fixed: phase.sh (30), validate.sh (14), add-task.sh (5), inject-todowrite.sh (3),
+    update-task.sh (2), next.sh (2), focus.sh (2), extract-todowrite.sh (1)
+  - Pattern: `(if (.project | type) == "object" then .project.X else null end) // fallback`
+  - All 2198 tests passing
+
 ## [0.38.1] - 2025-12-27
 
 ### Fixed
