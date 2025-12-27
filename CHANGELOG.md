@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.38.1] - 2025-12-27
 
 ### Fixed
+- **claude-migrate arithmetic bug** - Fixed `((files_moved++))` causing exit with `set -e`
+  - Added `|| true` to prevent exit code 1 when incrementing from 0
+  - Empty `.claude/` directory now removed after successful migration
+  - Tests updated to match new behavior (non-CLEO files preserved in .claude/)
+
 - **Schema migration detection** - Fixed incorrect status code handling in `scripts/migrate.sh`
   - Status code 3 (major version upgrade like 0.x → 2.x) was falling through to unknown/no-migration
   - Now properly requires `--force` flag for major version upgrades

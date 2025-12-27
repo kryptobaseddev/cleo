@@ -626,7 +626,7 @@ rename_project_configs() {
     # Rename todo-config.json → config.json
     if [[ -f "$target_dir/todo-config.json" ]]; then
         if mv "$target_dir/todo-config.json" "$target_dir/config.json" 2>/dev/null; then
-            ((renamed++))
+            ((renamed++)) || true  # Prevent set -e exit when renamed is 0
         fi
     fi
 
@@ -813,7 +813,7 @@ run_project_migration() {
     for file in "${CLEO_FILES[@]}"; do
         if [[ -f "$legacy_path/$file" ]]; then
             if mv "$legacy_path/$file" "$target_path/$file" 2>/dev/null; then
-                ((files_moved++))
+                ((files_moved++)) || true  # Prevent set -e exit when files_moved is 0
                 if [[ "$VERBOSE" == "true" ]] && ! is_json_output "$FORMAT"; then
                     echo "    Moved: $file"
                 fi
@@ -900,8 +900,15 @@ run_project_migration() {
 
     # Check what remains in .claude/ (for informational purposes)
     local remaining_in_claude=0
+    local claude_dir_preserved=false
     if [[ -d "$legacy_path" ]]; then
         remaining_in_claude=$(find "$legacy_path" -type f 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$remaining_in_claude" -eq 0 ]]; then
+            # Remove empty .claude/ directory
+            rmdir "$legacy_path" 2>/dev/null || true
+        else
+            claude_dir_preserved=true
+        fi
     fi
 
     # Build success output

@@ -462,11 +462,14 @@ teardown_file() {
     run "$SCRIPTS_DIR/claude-migrate.sh" --project
     assert_success
 
-    # Verify all files preserved
+    # Verify CLEO files migrated
     [[ -f ".cleo/todo.json" ]]
     [[ -f ".cleo/todo-archive.json" ]]
-    [[ -f ".cleo/subdir/data.json" ]]
     [[ "$(cat ".cleo/todo.json")" == "todo" ]]
+
+    # Verify non-CLEO files preserved in .claude/
+    [[ -d ".claude" ]]
+    [[ -f ".claude/subdir/data.json" ]]
 }
 
 # =============================================================================
