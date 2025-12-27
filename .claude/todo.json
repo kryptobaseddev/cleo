@@ -3,7 +3,7 @@
   "version": "2.4.0",
   "project": {
     "name": "claude-todo",
-    "currentPhase": "maintenance",
+    "currentPhase": "core",
     "phases": {
       "setup": {
         "name": "Setup & Foundation",
@@ -121,13 +121,13 @@
       }
     ]
   },
-  "lastUpdated": "2025-12-27T07:51:47Z",
+  "lastUpdated": "2025-12-27T07:56:50Z",
   "_meta": {
-    "checksum": "a1b2823cbbc7e4e8",
+    "checksum": "0d62d8812a31e912",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": "session_20251226_234029_22628e",
-    "lastModified": "2025-12-27T07:40:29Z",
+    "lastModified": "2025-12-27T07:54:18Z",
     "version": "2.3.0",
     "schemaVersion": "2.4.0"
   },
@@ -136,7 +136,7 @@
     "blockedUntil": null,
     "sessionNote": "Completed T904, T905, T906. All were analysis tasks - no code changes required. T904: 3 files already fixed in v0.36.5. T905: Dynamic checksums confirmed as correct approach. T906: jq batching analysis complete (1083 calls, 65 files) - deferred to future sprint. All 2096 tests pass.",
     "nextAction": "T481 EPIC Batch 4: Start with T495 (verify add-task.sh dry-run format), then T496 (input validation). After Batch 4, do Batch 5 (T497-T501 docs/tests). Final: version bump patch, full test suite, commit. Spec: docs/specs/LLM-AGENT-FIRST-SPEC.md",
-    "currentPhase": "maintenance"
+    "currentPhase": "core"
   },
   "tasks": [
     {
@@ -4017,7 +4017,7 @@
     {
       "id": "T908",
       "title": "Create paths.sh with CLEO_* env var resolution",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T651",
@@ -4027,6 +4027,10 @@
       "labels": [
         "cleo",
         "rebrand"
+      ],
+      "completedAt": "2025-12-27T07:56:50Z",
+      "notes": [
+        "[COMPLETED 2025-12-27T07:56:50Z] Created lib/paths.sh with CLEO-only env var resolution. 40/40 unit tests passing. TRUE CLEAN BREAK verified - zero CLAUDE_TODO references."
       ]
     },
     {

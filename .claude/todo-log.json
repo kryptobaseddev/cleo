@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 2199,
+    "totalEntries": 2201,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-27T07:51:47Z",
+    "lastEntry": "2025-12-27T07:56:50Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -52844,6 +52844,39 @@
       },
       "details": {
         "operation": "update"
+      }
+    },
+    {
+      "id": "log_67f6449f1e0d",
+      "timestamp": "2025-12-27T07:54:18Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T908"
+      },
+      "details": null
+    },
+    {
+      "id": "log_dc825781b8e1",
+      "timestamp": "2025-12-27T07:56:50Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T908",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-27T07:56:50Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
       }
     }
   ]
