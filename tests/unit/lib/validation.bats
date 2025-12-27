@@ -17,17 +17,25 @@
 #   - sanitize_file_path()
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Setup and Teardown
-# -----------------------------------------------------------------------------
-
-setup() {
-    # Load BATS helper libraries
+# =============================================================================
+# File-Level Setup (runs once per test file)
+# =============================================================================
+setup_file() {
+    # Load BATS helper libraries once per file
     load '../../libs/bats-support/load'
     load '../../libs/bats-assert/load'
 
-    # Determine library directory
-    LIB_DIR="${BATS_TEST_DIRNAME}/../../../lib"
+    # Set up library directory path
+    export LIB_DIR="${BATS_TEST_DIRNAME}/../../../lib"
+}
+
+# =============================================================================
+# Per-Test Setup (runs before each test)
+# =============================================================================
+setup() {
+    # Reload libs for per-test assertion scope
+    load '../../libs/bats-support/load'
+    load '../../libs/bats-assert/load'
 
     # Source Layer 0 dependencies first (exit-codes.sh, platform-compat.sh)
     source "${LIB_DIR}/exit-codes.sh"

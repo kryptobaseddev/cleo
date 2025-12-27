@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 2134,
+    "totalEntries": 2189,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-27T03:41:53Z",
+    "lastEntry": "2025-12-27T05:46:57Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -51146,6 +51146,971 @@
       "details": {
         "field": "status",
         "operation": "auto_complete"
+      }
+    },
+    {
+      "id": "log_802c1cbae90f",
+      "timestamp": "2025-12-27T03:48:52Z",
+      "sessionId": "session_20251224_221622_f92f8a",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T900",
+      "before": {
+        "title": "Fix parallel test race conditions in blockers analyze tests",
+        "status": "active",
+        "priority": "medium",
+        "description": "9-10 tests fail intermittently when running test suite with parallel execution (bats --jobs N) but pass consistently in sequential mode. This is a test infrastructure issue, not a product bug.\n\nAFFECTED TESTS:\n- blockers analyze tests\n- critical-path tests\n\nSYMPTOMS:\n- Tests pass 100% in sequential mode (./tests/run-all-tests.sh --no-parallel)\n- Tests fail 9-10 times in parallel mode (./tests/run-all-tests.sh)\n- Failures are non-deterministic (race condition)\n\nROOT CAUSE HYPOTHESIS:\n- Shared temp directory conflicts in BATS parallel execution\n- Tests may be writing to same paths or reading stale state\n- BATS_FILE_TMPDIR vs BATS_TEST_TMPDIR misuse possible\n\nINVESTIGATION STEPS:\n1. Run: bats --jobs 8 tests/unit/blockers.bats (multiple times to reproduce)\n2. Check temp directory isolation in affected test files\n3. Verify setup_file() vs setup() patterns per BATS-OPTIMIZATION-SPEC\n4. Look for shared state between tests (global vars, file paths)\n\nREFERENCE:\n- BATS-OPTIMIZATION-SPEC: claudedocs/BATS-OPTIMIZATION-SPEC.md\n- Discovered during T694 verification (2025-12-26)\n- Sequential test results: 2096/2096 PASS\n- Parallel test results: ~2086-2087/2096 PASS",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "bug",
+          "infrastructure",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix parallel test race conditions in blockers analyze tests",
+        "status": "active",
+        "priority": "medium",
+        "description": "9-10 tests fail intermittently when running test suite with parallel execution (bats --jobs N) but pass consistently in sequential mode. This is a test infrastructure issue, not a product bug.\n\nAFFECTED TESTS:\n- blockers analyze tests\n- critical-path tests\n\nSYMPTOMS:\n- Tests pass 100% in sequential mode (./tests/run-all-tests.sh --no-parallel)\n- Tests fail 9-10 times in parallel mode (./tests/run-all-tests.sh)\n- Failures are non-deterministic (race condition)\n\nROOT CAUSE HYPOTHESIS:\n- Shared temp directory conflicts in BATS parallel execution\n- Tests may be writing to same paths or reading stale state\n- BATS_FILE_TMPDIR vs BATS_TEST_TMPDIR misuse possible\n\nINVESTIGATION STEPS:\n1. Run: bats --jobs 8 tests/unit/blockers.bats (multiple times to reproduce)\n2. Check temp directory isolation in affected test files\n3. Verify setup_file() vs setup() patterns per BATS-OPTIMIZATION-SPEC\n4. Look for shared state between tests (global vars, file paths)\n\nREFERENCE:\n- BATS-OPTIMIZATION-SPEC: claudedocs/BATS-OPTIMIZATION-SPEC.md\n- Discovered during T694 verification (2025-12-26)\n- Sequential test results: 2096/2096 PASS\n- Parallel test results: ~2086-2087/2096 PASS",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "bug",
+          "infrastructure",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_bd466653c61c",
+      "timestamp": "2025-12-27T03:49:04Z",
+      "sessionId": "session_20251224_221622_f92f8a",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T900",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-27T03:49:03Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_c684b62f8535",
+      "timestamp": "2025-12-27T03:49:40Z",
+      "sessionId": "session_20251224_221622_f92f8a",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "T900 investigation complete. Race condition was already fixed in v0.36.6 (commit 107577f). Root cause: hardcoded /tmp/blockers_analysis.json path in blockers-command.sh. Fix: mktemp + trap RETURN for cleanup. All 2096 tests pass consistently in parallel mode. No new code changes required."
+      }
+    },
+    {
+      "id": "log_6ae19cf2550d",
+      "timestamp": "2025-12-27T05:14:18Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T430",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-27T05:14:18Z"
+      },
+      "details": {
+        "reason": "Task effectively complete: exemptLabels functionality fully implemented and tested. Spec divergence (pinned vs keep/reference defaults) is a minor design preference with zero real-world impact - no tasks use these secondary labels. Core epic-type protection works correctly.",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_257d87e61f06",
+      "timestamp": "2025-12-27T05:15:17Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T444",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-27T05:15:17Z"
+      },
+      "details": {
+        "reason": "Schema evolved to superior design: phaseTriggers grouped object, relationshipSafety decomposed into granular settings, phaseArchiveDelay omitted as redundant. Implementation is intentionally better than original spec.",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_191169443692",
+      "timestamp": "2025-12-27T05:15:54Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T445",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2025-12-27T05:15:53Z"
+      },
+      "details": {
+        "reason": "Implementation far exceeds original spec: 8-value reason enum (vs 4), triggerDetails for rich context, relationshipState for restoration, cycleTimeDays for analytics. All spec fields covered in superior design.",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_cb2a46eaaaae",
+      "timestamp": "2025-12-27T05:16:15Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": "Session started"
+    },
+    {
+      "id": "log-1766812577-51816a",
+      "timestamp": "2025-12-27T05:16:17Z",
+      "action": "task_created",
+      "taskId": "T904",
+      "actor": "system",
+      "details": {
+        "title": "Fix 3 remaining legacy common_setup calls",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix 3 remaining legacy common_setup calls",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1766812579-5e6c80",
+      "timestamp": "2025-12-27T05:16:19Z",
+      "action": "task_created",
+      "taskId": "T905",
+      "actor": "system",
+      "details": {
+        "title": "Create static fixtures directory",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Create static fixtures directory",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1766812582-b110ca",
+      "timestamp": "2025-12-27T05:16:22Z",
+      "action": "task_created",
+      "taskId": "T906",
+      "actor": "system",
+      "details": {
+        "title": "Implement jq batching in tests",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement jq batching in tests",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log_a4748f998b23",
+      "timestamp": "2025-12-27T05:16:52Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T904"
+      },
+      "details": null
+    },
+    {
+      "id": "log_800a45286502",
+      "timestamp": "2025-12-27T05:16:54Z",
+      "sessionId": null,
+      "action": "config_changed",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "operation": "backup_rotation",
+        "type": "archive",
+        "deleted": 1,
+        "retained": 3,
+        "errors": 0
+      }
+    },
+    {
+      "id": "log_56221faaeb2d",
+      "timestamp": "2025-12-27T05:17:46Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T904",
+      "before": {
+        "title": "Fix 3 remaining legacy common_setup calls",
+        "status": "active",
+        "priority": "high",
+        "description": "Three test files have setup_file() but setup() calls common_setup instead of common_setup_per_test. Files: tests/unit/edge-cases.bats, tests/unit/file-locking.bats, tests/golden/schema-validation.bats",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "infrastructure",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix 3 remaining legacy common_setup calls",
+        "status": "active",
+        "priority": "high",
+        "description": "Three test files have setup_file() but setup() calls common_setup instead of common_setup_per_test. Files: tests/unit/edge-cases.bats, tests/unit/file-locking.bats, tests/golden/schema-validation.bats",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "infrastructure",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_2cb1381210db",
+      "timestamp": "2025-12-27T05:17:48Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T904",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-27T05:17:48Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5820426acc6d",
+      "timestamp": "2025-12-27T05:20:00Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "task_restored_from_cancelled",
+      "actor": "system",
+      "taskId": "T445",
+      "before": {
+        "status": "cancelled"
+      },
+      "after": {
+        "status": "pending"
+      },
+      "details": {
+        "restoredFrom": "cancelled",
+        "originalCancellationReason": "Implementation far exceeds original spec: 8-value reason enum (vs 4), triggerDetails for rich context, relationshipState for restoration, cycleTimeDays for analytics. All spec fields covered in superior design.",
+        "restoredToStatus": "pending"
+      }
+    },
+    {
+      "id": "log-1766812940-66cd20",
+      "timestamp": "2025-12-27T05:22:20Z",
+      "action": "task_created",
+      "taskId": "T907",
+      "actor": "system",
+      "details": {
+        "title": "Optimize stats command performance - exceeds 1000ms target at 1000+ tasks",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Optimize stats command performance - exceeds 1000ms target at 1000+ tasks",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_71bf6fc1e9c6",
+      "timestamp": "2025-12-27T05:22:39Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T907",
+      "before": {
+        "title": "Optimize stats command performance - exceeds 1000ms target at 1000+ tasks",
+        "status": "pending",
+        "priority": "high",
+        "description": "The stats command exceeds the 1000ms performance target when processing 1000+ tasks. Benchmark data shows 1726ms mean at 1000 tasks (target: <1000ms). This impacts LLM agent efficiency as stats is called frequently for project overview. Root cause analysis and optimization needed in scripts/stats.sh and potentially lib/analysis.sh.",
+        "phase": "core",
+        "labels": [
+          "cli",
+          "performance",
+          "stats"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Optimize stats command performance - exceeds 1000ms target at 1000+ tasks",
+        "status": "pending",
+        "priority": "high",
+        "description": "The stats command exceeds the 1000ms performance target when processing 1000+ tasks. Benchmark data shows 1726ms mean at 1000 tasks (target: <1000ms). This impacts LLM agent efficiency as stats is called frequently for project overview. Root cause analysis and optimization needed in scripts/stats.sh and potentially lib/analysis.sh.",
+        "phase": "core",
+        "labels": [
+          "cli",
+          "performance",
+          "stats"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_5b0a483d4c61",
+      "timestamp": "2025-12-27T05:22:53Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T905"
+      },
+      "details": null
+    },
+    {
+      "id": "log_d9f43fe9c062",
+      "timestamp": "2025-12-27T05:22:55Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T905",
+      "before": {
+        "title": "Create static fixtures directory",
+        "status": "active",
+        "priority": "low",
+        "description": "Optional optimization: Create pre-computed static fixture files with checksums. However, dynamic checksums are appropriate for most use cases.",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "optimization",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Create static fixtures directory",
+        "status": "active",
+        "priority": "low",
+        "description": "Optional optimization: Create pre-computed static fixture files with checksums. However, dynamic checksums are appropriate for most use cases.",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "optimization",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_fea79ad92c08",
+      "timestamp": "2025-12-27T05:22:57Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T905",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-27T05:22:57Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_7ce827b93880",
+      "timestamp": "2025-12-27T05:23:13Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T906"
+      },
+      "details": null
+    },
+    {
+      "id": "log_3af3cb22c7d2",
+      "timestamp": "2025-12-27T05:23:15Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T906",
+      "before": {
+        "title": "Implement jq batching in tests",
+        "status": "active",
+        "priority": "low",
+        "description": "42 opportunities for jq batching identified. Could achieve 15-25% reduction in subprocess spawning. Low priority optimization.",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "optimization",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Implement jq batching in tests",
+        "status": "active",
+        "priority": "low",
+        "description": "42 opportunities for jq batching identified. Could achieve 15-25% reduction in subprocess spawning. Low priority optimization.",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "optimization",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_687a14726aad",
+      "timestamp": "2025-12-27T05:23:17Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T906",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-27T05:23:17Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ccbe35cd0766",
+      "timestamp": "2025-12-27T05:23:32Z",
+      "sessionId": "session_20251226_211615_987bcc",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Completed T904, T905, T906. All were analysis tasks - no code changes required. T904: 3 files already fixed in v0.36.5. T905: Dynamic checksums confirmed as correct approach. T906: jq batching analysis complete (1083 calls, 65 files) - deferred to future sprint. All 2096 tests pass."
+      }
+    },
+    {
+      "id": "log_852079adde05",
+      "timestamp": "2025-12-27T05:29:38Z",
+      "sessionId": null,
+      "action": "task_reopened",
+      "actor": "system",
+      "taskId": "T906",
+      "before": {
+        "status": "done",
+        "completedAt": "2025-12-27T05:23:17Z"
+      },
+      "after": {
+        "status": "pending"
+      },
+      "details": {
+        "reason": "Task should remain open to track future jq batching optimization work. Analysis is complete but implementation is deferred.",
+        "wasAutoCompleted": false,
+        "previousCompletedAt": "2025-12-27T05:23:17Z"
+      }
+    },
+    {
+      "id": "log_08dd1e02fa25",
+      "timestamp": "2025-12-27T05:29:54Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T906",
+      "before": {
+        "title": "Implement jq batching in tests",
+        "status": "pending",
+        "priority": "low",
+        "description": "42 opportunities for jq batching identified. Could achieve 15-25% reduction in subprocess spawning. Low priority optimization.",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "optimization",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Implement jq batching in tests",
+        "status": "pending",
+        "priority": "low",
+        "description": "JQ BATCHING OPTIMIZATION - Analysis Complete, Implementation Pending\n\nSCOPE:\n- 1,083 jq calls across 65 test files\n- Estimated 30-50% test execution speedup possible\n\nTOP 5 FILES (Priority Order):\n1. find.bats - 54 calls (6.9% density)\n2. delete-preview.bats - 52 calls (12.6% density - highest)\n3. archive-stats.bats - 50 calls (7.5% density)\n4. test-2.2.0-migration.bats - 65 calls (8.9% density)\n5. schema-validation.bats - 29 calls (2.3% density)\n\nCOMMON ANTI-PATTERNS TO FIX:\nPattern A - Multiple select+extract (200+ instances):\n  # CURRENT: 2 subprocess calls\n  id=$(echo \"$output\" | jq -r '.items[] | select(.id == \"T001\") | .id')\n  title=$(echo \"$output\" | jq -r '.items[] | select(.id == \"T001\") | .title')\n  # OPTIMIZED: 1 subprocess call\n  data=$(echo \"$output\" | jq -r '.items[] | select(.id == \"T001\") | {id, title}')\n\nPattern B - Count then access (150+ instances):\n  # CURRENT: 3 calls\n  count=$(echo \"$output\" | jq '.array | length')\n  first=$(echo \"$output\" | jq '.array[0]')\n  # OPTIMIZED: 1 call\n  data=$(echo \"$output\" | jq '{count: (.array | length), first: .array[0]}')\n\nPattern C - Sequential field checks (100+ instances):\n  # CURRENT: Multiple calls for optional fields\n  # OPTIMIZED: Single object extraction\n\nIMPLEMENTATION PHASES:\nPhase 1 (Quick Wins): archive-stats.bats, list-tasks.bats, hierarchy-workflow.bats\nPhase 2 (Medium): find.bats, delete-preview.bats\nPhase 3 (Complex): test-2.2.0-migration.bats\n\nSTATUS: Analysis complete. Implementation deferred to future optimization sprint.",
+        "phase": "maintenance",
+        "labels": [
+          "bats",
+          "optimization",
+          "test"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_b152dd642efc",
+      "timestamp": "2025-12-27T05:33:11Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T445",
+      "before": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking.\n\n## New Fields in Archived Task\n```json\n{\n  \"archivedAt\": { \"type\": \"string\", \"format\": \"date-time\" },\n  \"archivedReason\": { \"enum\": [\"age\", \"manual\", \"cascade\", \"phase-advance\"] },\n  \"archivedFrom\": { \"type\": \"string\" },\n  \"archivedBy\": { \"type\": \"string\" },\n  \"originalStatus\": { \"type\": \"string\" }\n}\n```\n\n## Acceptance Criteria\n- [ ] Metadata fields added to schema\n- [ ] archivedReason enum defined\n- [ ] Migration for existing archives (add defaults)",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "schema"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking - REVISED for multi-agent/multi-user future.\n\n## New Fields in Archived Task\n\n### archivedBy (NEW - Multi-Agent/Multi-User Attribution)\n```json\n{\n  \"archivedBy\": {\n    \"type\": \"string\",\n    \"enum\": [\"user\", \"agent\", \"auto\", \"hook\"],\n    \"description\": \"Actor type that performed the archive\"\n  },\n  \"archivedByIdentity\": {\n    \"type\": \"string\",\n    \"description\": \"Actor identity: git user, session ID, or policy name\"\n  },\n  \"archivedByGitUser\": {\n    \"type\": \"string\",\n    \"description\": \"Git user identity if available (e.g., 'Name <email>')\"\n  }\n}\n```\n\n### archivedFrom (REVISED - Git Context)\n```json\n{\n  \"archivedFromBranch\": {\n    \"type\": \"string\",\n    \"description\": \"Git branch name at archive time\"\n  },\n  \"archivedFromCommit\": {\n    \"type\": \"string\",\n    \"description\": \"Git commit SHA at archive time\"\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] archivedBy* fields added to archive schema\n- [ ] archivedFrom* git context fields added\n- [ ] archive.sh populates fields from git config and session\n- [ ] Backward compatible (new fields optional)\n\n## Future Value\n- Multi-agent session tracking\n- Multi-user collaboration audit trail\n- Git-integrated task management provenance",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "schema"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_0b7fab9ee433",
+      "timestamp": "2025-12-27T05:33:25Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T445",
+      "before": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking - REVISED for multi-agent/multi-user future.\n\n## New Fields in Archived Task\n\n### archivedBy (NEW - Multi-Agent/Multi-User Attribution)\n```json\n{\n  \"archivedBy\": {\n    \"type\": \"string\",\n    \"enum\": [\"user\", \"agent\", \"auto\", \"hook\"],\n    \"description\": \"Actor type that performed the archive\"\n  },\n  \"archivedByIdentity\": {\n    \"type\": \"string\",\n    \"description\": \"Actor identity: git user, session ID, or policy name\"\n  },\n  \"archivedByGitUser\": {\n    \"type\": \"string\",\n    \"description\": \"Git user identity if available (e.g., 'Name <email>')\"\n  }\n}\n```\n\n### archivedFrom (REVISED - Git Context)\n```json\n{\n  \"archivedFromBranch\": {\n    \"type\": \"string\",\n    \"description\": \"Git branch name at archive time\"\n  },\n  \"archivedFromCommit\": {\n    \"type\": \"string\",\n    \"description\": \"Git commit SHA at archive time\"\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] archivedBy* fields added to archive schema\n- [ ] archivedFrom* git context fields added\n- [ ] archive.sh populates fields from git config and session\n- [ ] Backward compatible (new fields optional)\n\n## Future Value\n- Multi-agent session tracking\n- Multi-user collaboration audit trail\n- Git-integrated task management provenance",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "schema"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking - REVISED for multi-agent/multi-user future.\n\n## New Fields in Archived Task\n\n### archivedBy (NEW - Multi-Agent/Multi-User Attribution)\n```json\n{\n  \"archivedBy\": {\n    \"type\": \"string\",\n    \"enum\": [\"user\", \"agent\", \"auto\", \"hook\"],\n    \"description\": \"Actor type that performed the archive\"\n  },\n  \"archivedByIdentity\": {\n    \"type\": \"string\",\n    \"description\": \"Actor identity: git user, session ID, or policy name\"\n  },\n  \"archivedByGitUser\": {\n    \"type\": \"string\",\n    \"description\": \"Git user identity if available (e.g., 'Name <email>')\"\n  }\n}\n```\n\n### archivedFrom (REVISED - Git Context)\n```json\n{\n  \"archivedFromBranch\": {\n    \"type\": \"string\",\n    \"description\": \"Git branch name at archive time\"\n  },\n  \"archivedFromCommit\": {\n    \"type\": \"string\",\n    \"description\": \"Git commit SHA at archive time\"\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] archivedBy* fields added to archive schema\n- [ ] archivedFrom* git context fields added\n- [ ] archive.sh populates fields from git config and session\n- [ ] Backward compatible (new fields optional)\n\n## Future Value\n- Multi-agent session tracking\n- Multi-user collaboration audit trail\n- Git-integrated task management provenance",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "future-proofing",
+          "multi-agent",
+          "schema"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_da75a4871685",
+      "timestamp": "2025-12-27T05:35:20Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T445",
+      "before": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking - REVISED for multi-agent/multi-user future.\n\n## New Fields in Archived Task\n\n### archivedBy (NEW - Multi-Agent/Multi-User Attribution)\n```json\n{\n  \"archivedBy\": {\n    \"type\": \"string\",\n    \"enum\": [\"user\", \"agent\", \"auto\", \"hook\"],\n    \"description\": \"Actor type that performed the archive\"\n  },\n  \"archivedByIdentity\": {\n    \"type\": \"string\",\n    \"description\": \"Actor identity: git user, session ID, or policy name\"\n  },\n  \"archivedByGitUser\": {\n    \"type\": \"string\",\n    \"description\": \"Git user identity if available (e.g., 'Name <email>')\"\n  }\n}\n```\n\n### archivedFrom (REVISED - Git Context)\n```json\n{\n  \"archivedFromBranch\": {\n    \"type\": \"string\",\n    \"description\": \"Git branch name at archive time\"\n  },\n  \"archivedFromCommit\": {\n    \"type\": \"string\",\n    \"description\": \"Git commit SHA at archive time\"\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] archivedBy* fields added to archive schema\n- [ ] archivedFrom* git context fields added\n- [ ] archive.sh populates fields from git config and session\n- [ ] Backward compatible (new fields optional)\n\n## Future Value\n- Multi-agent session tracking\n- Multi-user collaboration audit trail\n- Git-integrated task management provenance",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "future-proofing",
+          "multi-agent",
+          "schema"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking - REVISED for multi-agent/multi-user future.\n\n## New Fields in Archived Task\n\n### archivedBy (NEW - Multi-Agent/Multi-User Attribution)\n```json\n{\n  \"archivedBy\": {\n    \"type\": \"string\",\n    \"enum\": [\"user\", \"agent\", \"auto\", \"hook\"],\n    \"description\": \"Actor type that performed the archive\"\n  },\n  \"archivedByIdentity\": {\n    \"type\": \"string\",\n    \"description\": \"Actor identity: git user, session ID, or policy name\"\n  },\n  \"archivedByGitUser\": {\n    \"type\": \"string\",\n    \"description\": \"Git user identity if available (e.g., 'Name <email>')\"\n  }\n}\n```\n\n### archivedFrom (REVISED - Git Context)\n```json\n{\n  \"archivedFromBranch\": {\n    \"type\": \"string\",\n    \"description\": \"Git branch name at archive time\"\n  },\n  \"archivedFromCommit\": {\n    \"type\": \"string\",\n    \"description\": \"Git commit SHA at archive time\"\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] archivedBy* fields added to archive schema\n- [ ] archivedFrom* git context fields added\n- [ ] archive.sh populates fields from git config and session\n- [ ] Backward compatible (new fields optional)\n\n## Future Value\n- Multi-agent session tracking\n- Multi-user collaboration audit trail\n- Git-integrated task management provenance",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "future-proofing",
+          "multi-agent",
+          "optimization",
+          "schema",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_da115445d424",
+      "timestamp": "2025-12-27T05:44:34Z",
+      "sessionId": null,
+      "action": "config_changed",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "operation": "backup_rotation",
+        "type": "archive",
+        "deleted": 1,
+        "retained": 3,
+        "errors": 0
+      }
+    },
+    {
+      "id": "log_2b04a18c3698",
+      "timestamp": "2025-12-27T05:45:06Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T429",
+      "before": {
+        "title": "EPIC: Smart Archive System Enhancement",
+        "status": "done",
+        "priority": "critical",
+        "description": "## Overview\nComprehensive enhancement of the archive system to be smarter, more automated, and relationship-aware.\n\n## Current Limitations\n- Age-only retention (no task importance awareness)\n- No label filtering (can't exempt epics/important tasks)\n- No relationship awareness (archives children while parent active)\n- No dependency checking (breaks reference chains)\n- Limited retrieval (archived = essentially lost)\n\n## Proposed Solution\nThree-tier implementation:\n- Tier 1: Quick wins (exemptLabels, --exclude-labels, --safe flag, warnings)\n- Tier 2: Smart defaults (labelPolicies, relationship-aware, unarchive, list --include-archive)\n- Tier 3: Full automation (phase-triggered, cascade, interactive, analytics)\n\n## Dependencies\n- Requires Hierarchy Enhancement (T328/T339) for relationship-aware features\n- Schema changes needed for archive metadata and config\n\n## Success Criteria\n- [ ] Epics/important tasks protected from auto-archive\n- [ ] Archive respects parent-child and dependency relationships\n- [ ] Archived tasks searchable and restorable\n- [ ] Phase completion can trigger smart archiving\n- [ ] Clear warnings before breaking references",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "epic-type",
+          "feature"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: Smart Archive System Enhancement",
+        "status": "done",
+        "priority": "critical",
+        "description": "## Overview\nComprehensive enhancement of the archive system to be smarter, more automated, and relationship-aware.\n\n## Current Limitations\n- Age-only retention (no task importance awareness)\n- No label filtering (can't exempt epics/important tasks)\n- No relationship awareness (archives children while parent active)\n- No dependency checking (breaks reference chains)\n- Limited retrieval (archived = essentially lost)\n\n## Proposed Solution\nThree-tier implementation:\n- Tier 1: Quick wins (exemptLabels, --exclude-labels, --safe flag, warnings)\n- Tier 2: Smart defaults (labelPolicies, relationship-aware, unarchive, list --include-archive)\n- Tier 3: Full automation (phase-triggered, cascade, interactive, analytics)\n\n## Dependencies\n- Requires Hierarchy Enhancement (T328/T339) for relationship-aware features\n- Schema changes needed for archive metadata and config\n\n## Success Criteria\n- [ ] Epics/important tasks protected from auto-archive\n- [ ] Archive respects parent-child and dependency relationships\n- [ ] Archived tasks searchable and restorable\n- [ ] Phase completion can trigger smart archiving\n- [ ] Clear warnings before breaking references",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "feature"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_a3e2dcd53f8c",
+      "timestamp": "2025-12-27T05:46:48Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T430",
+      "before": {
+        "title": "T429.1: Add exemptLabels config option",
+        "status": "cancelled",
+        "priority": "high",
+        "description": "Add exemptLabels array to archive config section.\n\n## Schema Change (config.schema.json)\n```json\n{\n  \"archive\": {\n    \"exemptLabels\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\" },\n      \"default\": [\"epic-type\", \"keep\", \"reference\"],\n      \"description\": \"Labels that prevent automatic archiving\"\n    }\n  }\n}\n```\n\n## Implementation\n1. Update config.schema.json with exemptLabels field\n2. Update archive.sh to check exemptLabels before archiving\n3. Tasks with ANY exempt label are skipped\n4. Add --show-exempt flag to show what was skipped\n\n## Acceptance Criteria\n- [ ] Config schema updated with exemptLabels\n- [ ] Archive respects exemptLabels config\n- [ ] Default includes epic-type, keep, reference\n- [ ] Dry-run shows exempt tasks separately",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "config",
+          "tier-1"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "T429.1: Add exemptLabels config option",
+        "status": "cancelled",
+        "priority": "high",
+        "description": "Add exemptLabels array to archive config section.\n\n## Schema Change (config.schema.json)\n```json\n{\n  \"archive\": {\n    \"exemptLabels\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\" },\n      \"default\": [\"epic-type\", \"keep\", \"reference\"],\n      \"description\": \"Labels that prevent automatic archiving\"\n    }\n  }\n}\n```\n\n## Implementation\n1. Update config.schema.json with exemptLabels field\n2. Update archive.sh to check exemptLabels before archiving\n3. Tasks with ANY exempt label are skipped\n4. Add --show-exempt flag to show what was skipped\n\n## Acceptance Criteria\n- [ ] Config schema updated with exemptLabels\n- [ ] Archive respects exemptLabels config\n- [ ] Default includes epic-type, keep, reference\n- [ ] Dry-run shows exempt tasks separately",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "config",
+          "tier-1"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_426610c62597",
+      "timestamp": "2025-12-27T05:46:48Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T444",
+      "before": {
+        "title": "T429.15: Update config.schema.json for archive enhancements",
+        "status": "cancelled",
+        "priority": "high",
+        "description": "Schema updates for all new archive configuration options.\n\n## New Fields\n```json\n{\n  \"archive\": {\n    \"exemptLabels\": [\"epic-type\", \"keep\", \"reference\"],\n    \"labelPolicies\": {},\n    \"archiveOnPhaseAdvance\": false,\n    \"phaseArchiveDelay\": 0,\n    \"phaseArchiveScope\": \"previous\",\n    \"defaultSafeMode\": false\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] All new config fields in schema\n- [ ] Defaults specified\n- [ ] Validation rules correct\n- [ ] Examples in schema",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "schema"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "T429.15: Update config.schema.json for archive enhancements",
+        "status": "cancelled",
+        "priority": "high",
+        "description": "Schema updates for all new archive configuration options.\n\n## New Fields\n```json\n{\n  \"archive\": {\n    \"exemptLabels\": [\"epic-type\", \"keep\", \"reference\"],\n    \"labelPolicies\": {},\n    \"archiveOnPhaseAdvance\": false,\n    \"phaseArchiveDelay\": 0,\n    \"phaseArchiveScope\": \"previous\",\n    \"defaultSafeMode\": false\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] All new config fields in schema\n- [ ] Defaults specified\n- [ ] Validation rules correct\n- [ ] Examples in schema",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "schema"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_741fa56eb58d",
+      "timestamp": "2025-12-27T05:46:49Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T445",
+      "before": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking - REVISED for multi-agent/multi-user future.\n\n## New Fields in Archived Task\n\n### archivedBy (NEW - Multi-Agent/Multi-User Attribution)\n```json\n{\n  \"archivedBy\": {\n    \"type\": \"string\",\n    \"enum\": [\"user\", \"agent\", \"auto\", \"hook\"],\n    \"description\": \"Actor type that performed the archive\"\n  },\n  \"archivedByIdentity\": {\n    \"type\": \"string\",\n    \"description\": \"Actor identity: git user, session ID, or policy name\"\n  },\n  \"archivedByGitUser\": {\n    \"type\": \"string\",\n    \"description\": \"Git user identity if available (e.g., 'Name <email>')\"\n  }\n}\n```\n\n### archivedFrom (REVISED - Git Context)\n```json\n{\n  \"archivedFromBranch\": {\n    \"type\": \"string\",\n    \"description\": \"Git branch name at archive time\"\n  },\n  \"archivedFromCommit\": {\n    \"type\": \"string\",\n    \"description\": \"Git commit SHA at archive time\"\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] archivedBy* fields added to archive schema\n- [ ] archivedFrom* git context fields added\n- [ ] archive.sh populates fields from git config and session\n- [ ] Backward compatible (new fields optional)\n\n## Future Value\n- Multi-agent session tracking\n- Multi-user collaboration audit trail\n- Git-integrated task management provenance",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "future-proofing",
+          "multi-agent",
+          "optimization",
+          "schema",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T429"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "T429.16: Update archive.schema.json for metadata fields",
+        "status": "pending",
+        "priority": "high",
+        "description": "Schema updates for archive metadata tracking - REVISED for multi-agent/multi-user future.\n\n## New Fields in Archived Task\n\n### archivedBy (NEW - Multi-Agent/Multi-User Attribution)\n```json\n{\n  \"archivedBy\": {\n    \"type\": \"string\",\n    \"enum\": [\"user\", \"agent\", \"auto\", \"hook\"],\n    \"description\": \"Actor type that performed the archive\"\n  },\n  \"archivedByIdentity\": {\n    \"type\": \"string\",\n    \"description\": \"Actor identity: git user, session ID, or policy name\"\n  },\n  \"archivedByGitUser\": {\n    \"type\": \"string\",\n    \"description\": \"Git user identity if available (e.g., 'Name <email>')\"\n  }\n}\n```\n\n### archivedFrom (REVISED - Git Context)\n```json\n{\n  \"archivedFromBranch\": {\n    \"type\": \"string\",\n    \"description\": \"Git branch name at archive time\"\n  },\n  \"archivedFromCommit\": {\n    \"type\": \"string\",\n    \"description\": \"Git commit SHA at archive time\"\n  }\n}\n```\n\n## Acceptance Criteria\n- [ ] archivedBy* fields added to archive schema\n- [ ] archivedFrom* git context fields added\n- [ ] archive.sh populates fields from git config and session\n- [ ] Backward compatible (new fields optional)\n\n## Future Value\n- Multi-agent session tracking\n- Multi-user collaboration audit trail\n- Git-integrated task management provenance",
+        "phase": "core",
+        "labels": [
+          "archive-enhancement",
+          "future-proofing",
+          "multi-agent",
+          "optimization",
+          "schema",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_61adf7e6092e",
+      "timestamp": "2025-12-27T05:46:57Z",
+      "sessionId": null,
+      "action": "config_changed",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "operation": "backup_rotation",
+        "type": "archive",
+        "deleted": 1,
+        "retained": 3,
+        "errors": 0
       }
     }
   ]

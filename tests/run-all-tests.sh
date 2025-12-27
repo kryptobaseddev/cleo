@@ -14,7 +14,8 @@
 #   --filter PATTERN   Run tests matching pattern
 #   --parallel, -p     Enable parallel execution (default: auto-detect)
 #   --no-parallel      Disable parallel execution
-#   --jobs N, -j N     Number of parallel jobs (default: min(cores, 8))
+#   --jobs N, -j N     Number of parallel jobs (default: min(cores, 16))
+#   --fast             Use all available CPU cores for maximum speed
 #   --help, -h         Show this help message
 # =============================================================================
 
@@ -53,8 +54,8 @@ detect_cpu_cores() {
 }
 
 CPU_CORES=$(detect_cpu_cores)
-# Default to min(cores, 8) for parallel jobs
-DEFAULT_JOBS=$((CPU_CORES > 8 ? 8 : CPU_CORES))
+# Default to min(cores, 16) for parallel jobs
+DEFAULT_JOBS=$((CPU_CORES > 16 ? 16 : CPU_CORES))
 PARALLEL_JOBS="${JOBS:-$DEFAULT_JOBS}"
 PARALLEL_ENABLED="auto"  # auto, true, false
 
@@ -92,6 +93,11 @@ while [[ $# -gt 0 ]]; do
             PARALLEL_ENABLED="true"
             shift 2
             ;;
+        --fast)
+            PARALLEL_JOBS="$CPU_CORES"
+            PARALLEL_ENABLED="true"
+            shift
+            ;;
         --help|-h)
             echo "Claude-Todo Test Suite Runner"
             echo ""
@@ -104,7 +110,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --filter PATTERN   Run tests matching pattern"
             echo "  --parallel, -p     Enable parallel execution (default: auto-detect)"
             echo "  --no-parallel      Disable parallel execution"
-            echo "  --jobs N, -j N     Number of parallel jobs (default: min(cores, 8) = $DEFAULT_JOBS)"
+            echo "  --jobs N, -j N     Number of parallel jobs (default: min(cores, 16) = $DEFAULT_JOBS)"
+            echo "  --fast             Use all available CPU cores ($CPU_CORES) for maximum speed"
             echo "  --help, -h         Show this help message"
             echo ""
             echo "Environment Variables:"

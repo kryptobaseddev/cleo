@@ -43,7 +43,7 @@ tests/
 
 ## Prerequisites
 
-1. **BATS** - Bash Automated Testing System
+1. **BATS** - Bash Automated Testing System (v1.5.0+ for parallel)
    ```bash
    # macOS
    brew install bats-core
@@ -51,17 +51,32 @@ tests/
    # Debian/Ubuntu
    sudo apt-get install bats
 
+   # Fedora
+   sudo dnf install bats
+
    # From source
    git clone https://github.com/bats-core/bats-core.git
    cd bats-core && sudo ./install.sh /usr/local
    ```
 
-2. **Git submodules** - Initialize helper libraries
+2. **GNU parallel** - Required for parallel test execution
+   ```bash
+   # macOS
+   brew install parallel
+
+   # Debian/Ubuntu
+   sudo apt-get install parallel
+
+   # Fedora
+   sudo dnf install parallel
+   ```
+
+3. **Git submodules** - Initialize helper libraries
    ```bash
    git submodule update --init --recursive
    ```
 
-3. **jq** - JSON processor (required for many tests)
+4. **jq** - JSON processor (required for many tests)
    ```bash
    # macOS
    brew install jq
@@ -106,23 +121,43 @@ The test suite supports parallel execution for faster test runs on multi-core sy
 ### Parallel Execution
 
 ```bash
-# Auto-detect parallelism (enabled if cores > 1)
+# Default: 16 parallel jobs (auto-detected)
 ./tests/run-all-tests.sh
 
-# Explicitly enable parallel
-./tests/run-all-tests.sh --parallel
+# Maximum speed: use all available CPU cores
+./tests/run-all-tests.sh --fast
 
 # Set specific job count
-./tests/run-all-tests.sh --jobs 4
+./tests/run-all-tests.sh --jobs 8
 
 # Disable parallel (sequential mode)
 ./tests/run-all-tests.sh --no-parallel
 ```
 
+### Performance Comparison
+
+| Mode | Command | Typical Time |
+|------|---------|--------------|
+| Sequential | `--no-parallel` | ~10 min |
+| Default (16 jobs) | (none) | ~2 min |
+| Fast (all cores) | `--fast` | ~1.5 min |
+
 **Requirements for parallel execution:**
 - BATS 1.5.0+ (supports `--jobs` flag)
-- GNU parallel (optional, for enhanced parallelism)
+- GNU parallel (required for `--jobs` to work)
 - Test isolation via `BATS_TEST_TMPDIR` (already implemented)
+
+**Install GNU parallel:**
+```bash
+# Fedora
+sudo dnf install parallel
+
+# Debian/Ubuntu
+sudo apt install parallel
+
+# macOS
+brew install parallel
+```
 
 ## Writing New Tests
 

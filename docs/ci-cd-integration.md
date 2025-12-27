@@ -19,6 +19,7 @@ Integrating claude-todo into your CI/CD pipeline enables:
 Your CI environment needs:
 - Bash 4+
 - jq (JSON processor)
+- GNU parallel (for parallel test execution)
 - Standard UNIX utilities: sha256sum/shasum, tar, date, find
 
 ### Repository Setup
@@ -63,7 +64,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq coreutils util-linux
+          sudo apt-get install -y jq parallel coreutils util-linux
 
       - name: Install claude-todo
         run: |

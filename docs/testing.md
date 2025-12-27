@@ -5,8 +5,11 @@ Comprehensive BATS test suite for claude-todo CLI.
 ## Quick Start
 
 ```bash
-# Run all tests
+# Run all tests (16 parallel jobs by default)
 ./tests/run-all-tests.sh
+
+# Maximum speed - use all CPU cores
+./tests/run-all-tests.sh --fast
 
 # Run specific test file
 bats tests/unit/add-task.bats
@@ -17,21 +20,36 @@ bats tests/unit/*.bats --filter "priority"
 
 ## Prerequisites
 
-1. **BATS** (Bash Automated Testing System)
+1. **BATS** (Bash Automated Testing System) - v1.5.0+ required for parallel
    ```bash
    # macOS
    brew install bats-core
 
    # Debian/Ubuntu
    sudo apt-get install bats
+
+   # Fedora
+   sudo dnf install bats
    ```
 
-2. **Git submodules** (helper libraries)
+2. **GNU parallel** (required for parallel test execution)
+   ```bash
+   # macOS
+   brew install parallel
+
+   # Debian/Ubuntu
+   sudo apt-get install parallel
+
+   # Fedora
+   sudo dnf install parallel
+   ```
+
+3. **Git submodules** (helper libraries)
    ```bash
    git submodule update --init --recursive
    ```
 
-3. **jq** (JSON processor)
+4. **jq** (JSON processor)
    ```bash
    # macOS
    brew install jq
@@ -72,20 +90,33 @@ tests/
 
 ## Writing Tests
 
-Basic test structure:
+Use the optimized `setup_file()` pattern for best performance:
 
 ```bash
 #!/usr/bin/env bats
 
+# File-level setup (runs once per file - load libraries here)
+setup_file() {
+    load '../test_helper/common_setup'
+    common_setup_file
+}
+
+# Per-test setup (runs before each test)
 setup() {
     load '../test_helper/common_setup'
     load '../test_helper/assertions'
     load '../test_helper/fixtures'
-    common_setup
+    common_setup_per_test
 }
 
+# Per-test teardown
 teardown() {
-    common_teardown
+    common_teardown_per_test
+}
+
+# File-level teardown (runs once per file)
+teardown_file() {
+    common_teardown_file
 }
 
 @test "descriptive test name" {
@@ -95,6 +126,8 @@ teardown() {
     assert_output --partial "Added"
 }
 ```
+
+> **Note**: All test files must use `setup_file()` for parallel execution compatibility.
 
 ## Common Assertions
 

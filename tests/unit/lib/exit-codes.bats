@@ -9,21 +9,28 @@
 # Reference: lib/exit-codes.sh, LLM-AGENT-FIRST-SPEC.md Part 5.6
 # =============================================================================
 
-# Load external BATS libraries (adjusted for lib/ subdirectory)
-_load_libs_local() {
+# =============================================================================
+# File-Level Setup (runs once per test file)
+# =============================================================================
+setup_file() {
+    # Load BATS assertion libraries once per file
     local lib_dir="${BATS_TEST_DIRNAME}/../../libs"
-
     load "${lib_dir}/bats-support/load"
     load "${lib_dir}/bats-assert/load"
-}
 
-setup() {
-    # Load BATS assertion libraries
-    _load_libs_local
-
-    # Set up paths
+    # Set up paths (exported for all tests)
     export PROJECT_ROOT="${BATS_TEST_DIRNAME}/../../.."
     export LIB_DIR="${PROJECT_ROOT}/lib"
+}
+
+# =============================================================================
+# Per-Test Setup (runs before each test)
+# =============================================================================
+setup() {
+    # Reload libs for per-test assertion scope
+    local lib_dir="${BATS_TEST_DIRNAME}/../../libs"
+    load "${lib_dir}/bats-support/load"
+    load "${lib_dir}/bats-assert/load"
 }
 
 # =============================================================================

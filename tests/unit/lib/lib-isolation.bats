@@ -16,14 +16,27 @@
 #                           todowrite-integration.sh
 # =============================================================================
 
-load '../../libs/bats-support/load'
-load '../../libs/bats-assert/load'
+# =============================================================================
+# File-Level Setup (runs once per test file)
+# =============================================================================
+setup_file() {
+    # Load BATS assertion libraries once per file
+    load '../../libs/bats-support/load'
+    load '../../libs/bats-assert/load'
 
-setup() {
-    # Determine paths from test file location
+    # Set up paths (exported for all tests)
     TEST_FILE_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     export PROJECT_ROOT="$(cd "$TEST_FILE_DIR/../../.." && pwd)"
     export LIB_DIR="$PROJECT_ROOT/lib"
+}
+
+# =============================================================================
+# Per-Test Setup (runs before each test)
+# =============================================================================
+setup() {
+    # Reload libs for per-test assertion scope
+    load '../../libs/bats-support/load'
+    load '../../libs/bats-assert/load'
 
     # Use BATS-managed temp directory (auto-cleaned)
     TEST_DIR="${BATS_TEST_TMPDIR}"
