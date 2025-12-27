@@ -121,13 +121,13 @@
       }
     ]
   },
-  "lastUpdated": "2025-12-27T07:59:15Z",
+  "lastUpdated": "2025-12-27T08:11:07Z",
   "_meta": {
-    "checksum": "047c79360261429f",
+    "checksum": "9f85e5067b2e8d93",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": "session_20251226_234029_22628e",
-    "lastModified": "2025-12-27T07:57:44Z",
+    "lastModified": "2025-12-27T08:02:12Z",
     "version": "2.3.0",
     "schemaVersion": "2.4.0"
   },
@@ -4080,7 +4080,7 @@
     {
       "id": "T911",
       "title": "Update core scripts to source paths.sh",
-      "status": "pending",
+      "status": "blocked",
       "priority": "high",
       "type": "subtask",
       "parentId": "T651",
@@ -4093,12 +4093,13 @@
       ],
       "depends": [
         "T910"
-      ]
+      ],
+      "blockedBy": "Requires migration infrastructure (T914-T918). Using paths.sh before migration would break tool since data is still at legacy locations."
     },
     {
       "id": "T912",
       "title": "Update command scripts to source paths.sh",
-      "status": "pending",
+      "status": "blocked",
       "priority": "high",
       "type": "subtask",
       "parentId": "T651",
@@ -4111,12 +4112,16 @@
       ],
       "depends": [
         "T911"
-      ]
+      ],
+      "notes": [
+        "2025-12-27 08:01:40 UTC: Blocked by T911 (requires migration infrastructure)"
+      ],
+      "blockedBy": "Blocked by T911"
     },
     {
       "id": "T913",
       "title": "Update lib files and remaining scripts",
-      "status": "pending",
+      "status": "blocked",
       "priority": "high",
       "type": "subtask",
       "parentId": "T651",
@@ -4129,12 +4134,16 @@
       ],
       "depends": [
         "T912"
-      ]
+      ],
+      "notes": [
+        "2025-12-27 08:01:42 UTC: Blocked by T911-T912 (requires migration infrastructure)"
+      ],
+      "blockedBy": "Blocked by T911-T912"
     },
     {
       "id": "T914",
       "title": "Update install.sh for ~/.cleo (NO claude-todo symlink)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T652",
@@ -4147,6 +4156,10 @@
       ],
       "depends": [
         "T913"
+      ],
+      "completedAt": "2025-12-27T08:11:07Z",
+      "notes": [
+        "[COMPLETED 2025-12-27T08:11:07Z] Updated install.sh for CLEO: ~/.cleo default, 'cleo' primary command, 'ct' shortcut, NO claude-todo symlink, legacy detection with migration prompt. Zero CLAUDE_TODO references."
       ]
     },
     {

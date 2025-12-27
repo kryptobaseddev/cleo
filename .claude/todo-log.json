@@ -3,9 +3,9 @@
   "version": "2.1.0",
   "project": "claude-todo",
   "_meta": {
-    "totalEntries": 2205,
+    "totalEntries": 2213,
     "firstEntry": "2025-12-13T07:14:38Z",
-    "lastEntry": "2025-12-27T07:59:15Z",
+    "lastEntry": "2025-12-27T08:11:08Z",
     "entriesPruned": 0
   },
   "entries": [
@@ -52939,6 +52939,279 @@
       "after": {
         "status": "done",
         "completedAt": "2025-12-27T07:59:15Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_dffb61e72721",
+      "timestamp": "2025-12-27T08:00:12Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": null,
+      "after": {
+        "currentTask": "T911"
+      },
+      "details": null
+    },
+    {
+      "id": "log_716e8c1a1114",
+      "timestamp": "2025-12-27T08:01:40Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T912",
+      "before": {
+        "title": "Update command scripts to source paths.sh",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update command scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/add-task.sh\n- scripts/update-task.sh\n- scripts/complete-task.sh\n\n**Changes:**\n1. Each script sources lib/paths.sh\n2. Replace hardcoded refs with path resolution functions\n3. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these files\n- Zero hardcoded .claude/ paths\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T911"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update command scripts to source paths.sh",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update command scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/add-task.sh\n- scripts/update-task.sh\n- scripts/complete-task.sh\n\n**Changes:**\n1. Each script sources lib/paths.sh\n2. Replace hardcoded refs with path resolution functions\n3. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these files\n- Zero hardcoded .claude/ paths\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T911"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_9a4bc743bb22",
+      "timestamp": "2025-12-27T08:01:42Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T913",
+      "before": {
+        "title": "Update lib files and remaining scripts",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update all remaining lib files and scripts to use paths.sh.\n\n**Files:**\n- lib/config.sh (30 refs) - source paths.sh, use helpers\n- lib/logging.sh (8 refs)\n- lib/validation.sh\n- lib/output-format.sh\n- Remaining scripts/*.sh (35+ files)\n\n**Changes:**\n1. All lib files source paths.sh where needed\n2. All remaining scripts updated with path resolution\n3. Batch sed replacement for mechanical changes\n\n**Acceptance:**\n- grep -r 'CLAUDE_TODO_HOME' scripts/ lib/ returns 0\n- grep -r '\\.claude/' scripts/ lib/ | grep -v 'CLAUDE.md' returns 0\n- Full test suite passes\n\n**Size:** large\n**Atomicity:** 100% (mechanical replacement, same pattern)",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T912"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update lib files and remaining scripts",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update all remaining lib files and scripts to use paths.sh.\n\n**Files:**\n- lib/config.sh (30 refs) - source paths.sh, use helpers\n- lib/logging.sh (8 refs)\n- lib/validation.sh\n- lib/output-format.sh\n- Remaining scripts/*.sh (35+ files)\n\n**Changes:**\n1. All lib files source paths.sh where needed\n2. All remaining scripts updated with path resolution\n3. Batch sed replacement for mechanical changes\n\n**Acceptance:**\n- grep -r 'CLAUDE_TODO_HOME' scripts/ lib/ returns 0\n- grep -r '\\.claude/' scripts/ lib/ | grep -v 'CLAUDE.md' returns 0\n- Full test suite passes\n\n**Size:** large\n**Atomicity:** 100% (mechanical replacement, same pattern)",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T912"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_74300d77b11f",
+      "timestamp": "2025-12-27T08:01:53Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T911",
+      "before": {
+        "title": "Update core scripts to source paths.sh",
+        "status": "active",
+        "priority": "high",
+        "description": "Update core scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/init.sh (25 CLAUDE_* refs)\n- scripts/focus.sh (22 CLAUDE_* refs)\n- scripts/session.sh (19 CLAUDE_* refs)\n\n**Changes:**\n1. Each script sources lib/paths.sh after other libs\n2. Replace $CLAUDE_TODO_* with $(get_global_home), $(get_project_dir)\n3. Replace hardcoded .claude/ paths with path functions\n4. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these 3 files\n- Zero hardcoded .claude/ paths (except CLAUDE.md refs)\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T910"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update core scripts to source paths.sh",
+        "status": "blocked",
+        "priority": "high",
+        "description": "Update core scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/init.sh (25 CLAUDE_* refs)\n- scripts/focus.sh (22 CLAUDE_* refs)\n- scripts/session.sh (19 CLAUDE_* refs)\n\n**Changes:**\n1. Each script sources lib/paths.sh after other libs\n2. Replace $CLAUDE_TODO_* with $(get_global_home), $(get_project_dir)\n3. Replace hardcoded .claude/ paths with path functions\n4. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these 3 files\n- Zero hardcoded .claude/ paths (except CLAUDE.md refs)\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T910"
+        ],
+        "blockedBy": "Requires migration infrastructure (T914-T918). Using paths.sh before migration would break tool since data is still at legacy locations."
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_8be1a3b22f45",
+      "timestamp": "2025-12-27T08:02:01Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T912",
+      "before": {
+        "title": "Update command scripts to source paths.sh",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update command scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/add-task.sh\n- scripts/update-task.sh\n- scripts/complete-task.sh\n\n**Changes:**\n1. Each script sources lib/paths.sh\n2. Replace hardcoded refs with path resolution functions\n3. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these files\n- Zero hardcoded .claude/ paths\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T911"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update command scripts to source paths.sh",
+        "status": "blocked",
+        "priority": "high",
+        "description": "Update command scripts to source lib/paths.sh and use path resolution functions.\n\n**Files (3):**\n- scripts/add-task.sh\n- scripts/update-task.sh\n- scripts/complete-task.sh\n\n**Changes:**\n1. Each script sources lib/paths.sh\n2. Replace hardcoded refs with path resolution functions\n3. NO legacy fallback (clean break)\n\n**Acceptance:**\n- Zero hardcoded CLAUDE_TODO_* in these files\n- Zero hardcoded .claude/ paths\n- Existing tests pass\n\n**Size:** medium\n**Atomicity:** 100%",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T911"
+        ],
+        "blockedBy": "Blocked by T911"
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_1dc6f425b5d6",
+      "timestamp": "2025-12-27T08:02:02Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T913",
+      "before": {
+        "title": "Update lib files and remaining scripts",
+        "status": "pending",
+        "priority": "high",
+        "description": "Update all remaining lib files and scripts to use paths.sh.\n\n**Files:**\n- lib/config.sh (30 refs) - source paths.sh, use helpers\n- lib/logging.sh (8 refs)\n- lib/validation.sh\n- lib/output-format.sh\n- Remaining scripts/*.sh (35+ files)\n\n**Changes:**\n1. All lib files source paths.sh where needed\n2. All remaining scripts updated with path resolution\n3. Batch sed replacement for mechanical changes\n\n**Acceptance:**\n- grep -r 'CLAUDE_TODO_HOME' scripts/ lib/ returns 0\n- grep -r '\\.claude/' scripts/ lib/ | grep -v 'CLAUDE.md' returns 0\n- Full test suite passes\n\n**Size:** large\n**Atomicity:** 100% (mechanical replacement, same pattern)",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T912"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Update lib files and remaining scripts",
+        "status": "blocked",
+        "priority": "high",
+        "description": "Update all remaining lib files and scripts to use paths.sh.\n\n**Files:**\n- lib/config.sh (30 refs) - source paths.sh, use helpers\n- lib/logging.sh (8 refs)\n- lib/validation.sh\n- lib/output-format.sh\n- Remaining scripts/*.sh (35+ files)\n\n**Changes:**\n1. All lib files source paths.sh where needed\n2. All remaining scripts updated with path resolution\n3. Batch sed replacement for mechanical changes\n\n**Acceptance:**\n- grep -r 'CLAUDE_TODO_HOME' scripts/ lib/ returns 0\n- grep -r '\\.claude/' scripts/ lib/ | grep -v 'CLAUDE.md' returns 0\n- Full test suite passes\n\n**Size:** large\n**Atomicity:** 100% (mechanical replacement, same pattern)",
+        "phase": "core",
+        "labels": [
+          "cleo",
+          "rebrand"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T912"
+        ],
+        "blockedBy": "Blocked by T911-T912"
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_a45a40bcba0d",
+      "timestamp": "2025-12-27T08:02:12Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T911"
+      },
+      "after": {
+        "currentTask": "T914"
+      },
+      "details": null
+    },
+    {
+      "id": "log_d8f22e066e28",
+      "timestamp": "2025-12-27T08:11:08Z",
+      "sessionId": "session_20251226_234029_22628e",
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T914",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2025-12-27T08:11:07Z"
       },
       "details": {
         "field": "status",
