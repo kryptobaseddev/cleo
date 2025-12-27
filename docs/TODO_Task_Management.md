@@ -7,12 +7,15 @@ Use `cleo` CLI for **all** task operations. Single source of truth for persisten
 | Rule | Reason |
 |------|--------|
 | **CLI only** - Never read/edit `.cleo/*.json` directly | Prevents staleness in multi-writer environment; ensures validation, checksums |
-| **One active task** - Use `focus set` (enforces single active) | Prevents context confusion |
+| **One active task** - Use `focus set` (enforces single active) | Prevents context confusion (per-scope in multi-session mode) |
 | **Verify state** - Use `list` before assuming task state | No stale data |
 | **Session discipline** - Start/end sessions properly | Audit trail, recovery |
+| **Scope discipline** - Use scoped sessions for parallel agents | Prevents task conflicts (v0.38.0+) |
 | **Validate after errors** - Run `validate` if something fails | Integrity check |
 
 **Note**: Direct file reads can lead to stale data when multiple writers (TodoWrite, cleo) modify the same files. CLI commands always read fresh data from disk.
+
+**Multi-Session Note** (v0.38.0+): When `multiSession.enabled`, the "one active task" constraint is **per scope**, not global. Each session maintains isolated focus within its defined scope.
 
 ## Command Reference
 
@@ -35,6 +38,62 @@ cleo focus next "Next action"       # Set suggested next action
 cleo session start                  # Begin work session
 cleo session end                    # End session
 cleo session status                 # Show session info
+```
+
+### Multi-Session (v0.38.0+ - DRAFT)
+
+> **Status**: Schema designed, implementation pending. See [MULTI-SESSION-SPEC.md](specs/MULTI-SESSION-SPEC.md)
+
+Enables multiple concurrent LLM agents to work on different task groups (epics, phases) simultaneously.
+
+```bash
+# Scoped session start
+cleo session start --scope epic:T001        # Work on epic T001 and children
+cleo session start --scope taskGroup:T005   # Work on T005 and direct children
+cleo session start --scope epicPhase --root T001 --phase testing
+cleo session start --name "Auth Work" --agent opus-1
+
+# Session lifecycle
+cleo session suspend --note "Waiting for review"
+cleo session resume <session-id>
+cleo session resume --last --scope epic:T001
+cleo session end --note "Completed auth"
+
+# Session management
+cleo session list                    # All sessions
+cleo session list --status active    # Filter by status
+cleo session list --scope T001       # Sessions touching epic
+cleo session show <session-id>       # Session details
+cleo session switch <session-id>     # Switch active session
+
+# Focus (session-aware)
+cleo focus set T005 --session <id>   # Focus within specific session
+```
+
+**Scope Types**:
+| Type | Definition | Example |
+|------|------------|---------|
+| `task` | Single task only | `--scope task:T005` |
+| `taskGroup` | Parent + direct children | `--scope taskGroup:T005` |
+| `subtree` | Parent + all descendants | `--scope subtree:T001` |
+| `epicPhase` | Epic filtered by phase | `--scope epicPhase --root T001 --phase testing` |
+| `epic` | Full epic tree | `--scope epic:T001` |
+
+**Key Constraints**:
+- One active task **per scope** (not global)
+- Sessions cannot claim same task simultaneously
+- Scope overlap configurable: `multiSession.allowScopeOverlap`
+
+**Configuration** (`config.json`):
+```json
+{
+  "multiSession": {
+    "enabled": true,
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict"
+  }
+}
 ```
 
 ### TodoWrite Sync
@@ -271,7 +330,9 @@ cleo list | jq '.tasks[] | select(.type != "epic")'
 
 ## Session Protocol
 
-### START
+### Single-Session Mode (Default)
+
+#### START
 ```bash
 cleo session start
 cleo list                           # See current task state
@@ -279,20 +340,78 @@ cleo dash                           # Overview of project state
 cleo focus show                     # Check current focus
 ```
 
-### WORK
+#### WORK
 ```bash
-cleo focus set <task-id>            # ONE task only
+cleo focus set <task-id>            # ONE task only (global constraint)
 cleo next                           # Get task suggestion
 cleo add "Subtask" --depends T045   # Add related tasks
 cleo update T045 --notes "Progress" # Add task notes
 cleo focus note "Working on X"      # Update session note
 ```
 
-### END
+#### END
 ```bash
 cleo complete <task-id>
 cleo archive                        # Optional: clean up old done tasks
 cleo session end
+```
+
+### Multi-Session Mode (v0.38.0+ - DRAFT)
+
+When `multiSession.enabled: true`, multiple agents can work concurrently.
+
+#### AGENT START (Scoped Session)
+```bash
+# Check existing sessions
+cleo session list --status active
+
+# Start with explicit scope (prevents conflicts)
+cleo session start --scope epic:T001 --name "Auth Work" --agent opus-1
+cleo list --phase $(cleo phase show -q)  # Tasks in current phase
+cleo focus set T005                       # Focus within scope
+```
+
+#### AGENT WORK (Isolated Focus)
+```bash
+cleo focus set T005                 # One active per scope (not global)
+cleo focus show                     # Shows session-specific focus
+cleo update T005 --notes "Progress"
+cleo complete T005
+cleo focus set T006                 # Next task in scope
+```
+
+#### AGENT PAUSE (Suspend for Later)
+```bash
+cleo session suspend --note "Waiting for API review"
+# Session state preserved: focus, notes, scope
+# Another agent can work on different scope
+```
+
+#### AGENT RESUME
+```bash
+cleo session list --status suspended
+cleo session resume <session-id>    # Restore focus and context
+# OR
+cleo session resume --last --scope epic:T001
+```
+
+#### AGENT END
+```bash
+cleo session end --note "Completed JWT validation"
+# Session moves to history, tasks remain
+```
+
+#### Conflict Prevention
+```bash
+# Before starting, check scope availability
+cleo session list --scope T001
+
+# If scope conflict detected
+# ERROR (E_SCOPE_CONFLICT): Scope overlaps with session_...
+
+# Use disjoint scopes for parallel work
+Agent A: cleo session start --scope epicPhase --root T001 --phase testing
+Agent B: cleo session start --scope epicPhase --root T001 --phase polish
 ```
 
 ## Task Organization
