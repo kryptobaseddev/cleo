@@ -79,6 +79,14 @@ elif [[ -f "$CLEO_HOME/lib/analysis.sh" ]]; then
   source "$CLEO_HOME/lib/analysis.sh"
 fi
 
+# Source config library for hierarchy weights
+if [[ -f "${LIB_DIR}/config.sh" ]]; then
+  # shellcheck source=../lib/config.sh
+  source "${LIB_DIR}/config.sh"
+elif [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
+  source "$CLEO_HOME/lib/config.sh"
+fi
+
 # Default configuration - JSON output for LLM agents
 OUTPUT_MODE="json"
 AUTO_FOCUS=false
@@ -163,12 +171,62 @@ get_colors() {
 run_complete_analysis() {
   local todo_file="$1"
 
-  jq --arg version "$VERSION" '
+  # Read hierarchy weight configs with defaults
+  local weight_parent_child weight_cross_epic weight_cross_phase
+  weight_parent_child=$(get_config_value "analyze.hierarchyWeight.parentChild" "0.3" 2>/dev/null || echo "0.3")
+  weight_cross_epic=$(get_config_value "analyze.hierarchyWeight.crossEpic" "1.0" 2>/dev/null || echo "1.0")
+  weight_cross_phase=$(get_config_value "analyze.hierarchyWeight.crossPhase" "1.5" 2>/dev/null || echo "1.5")
+
+  jq --arg version "$VERSION" \
+     --argjson w_parent_child "$weight_parent_child" \
+     --argjson w_cross_epic "$weight_cross_epic" \
+     --argjson w_cross_phase "$weight_cross_phase" '
     # ================================================================
     # SETUP: Build dependency graphs and helper data
     # ================================================================
 
     .tasks as $all_tasks |
+
+    # Build lookup maps for hierarchy analysis
+    (reduce $all_tasks[] as $t ({}; .[$t.id] = ($t.parentId // null))) as $parent_map |
+    (reduce $all_tasks[] as $t ({}; .[$t.id] = ($t.phase // null))) as $phase_map |
+    (reduce $all_tasks[] as $t ({}; .[$t.id] = ($t.type // "task"))) as $type_map |
+
+    # Function to get epic ancestor (first ancestor with type="epic")
+    # Returns null if no epic ancestor exists
+    def get_epic_ancestor($task_id):
+      if $task_id == null then null
+      else
+        $parent_map[$task_id] as $parent_id |
+        if $parent_id == null then null
+        elif $type_map[$parent_id] == "epic" then $parent_id
+        else get_epic_ancestor($parent_id)
+        end
+      end;
+
+    # Build epic ancestor map for all tasks
+    (reduce $all_tasks[] as $t ({}; .[$t.id] = get_epic_ancestor($t.id))) as $epic_map |
+
+    # Function to check if two tasks are parent-child
+    def is_parent_child($id1; $id2):
+      ($parent_map[$id1] == $id2) or ($parent_map[$id2] == $id1);
+
+    # Function to check if two tasks share same epic ancestor
+    def same_epic($id1; $id2):
+      ($epic_map[$id1] != null) and ($epic_map[$id1] == $epic_map[$id2]);
+
+    # Function to check if two tasks have different phases (cross-phase)
+    def is_cross_phase($id1; $id2):
+      ($phase_map[$id1] != null) and ($phase_map[$id2] != null) and 
+      ($phase_map[$id1] != $phase_map[$id2]);
+
+    # Function to get dependency weight for a blocker->blocked relationship
+    def get_dep_weight($blocker_id; $blocked_id):
+      if is_parent_child($blocker_id; $blocked_id) then $w_parent_child
+      elif is_cross_phase($blocker_id; $blocked_id) then $w_cross_phase
+      elif same_epic($blocker_id; $blocked_id) then $w_cross_epic
+      else 1.0
+      end;
 
     # Reverse dependency map: task_id -> [tasks that depend on it]
     (
@@ -192,13 +250,18 @@ run_complete_analysis() {
     [$all_tasks[] | select(.status == "pending" or .status == "active")] as $pending_tasks |
 
     # ================================================================
-    # LEVERAGE: Calculate leverage scores for all pending tasks
+    # LEVERAGE: Calculate hierarchy-aware leverage scores
     # ================================================================
 
     [
       $pending_tasks[] |
       . as $task |
       ($reverse_deps[$task.id] // []) as $blocked_by_this |
+      # Calculate weighted unlocks
+      (reduce $blocked_by_this[] as $blocked_id (
+        0;
+        . + get_dep_weight($task.id; $blocked_id)
+      )) as $weighted_unlocks |
       {
         id: $task.id,
         title: $task.title,
@@ -208,6 +271,7 @@ run_complete_analysis() {
         labels: ($task.labels // []),
         depends: ($task.depends // []),
         unlocks_count: ($blocked_by_this | length),
+        weighted_unlocks: $weighted_unlocks,
         unlocks_tasks: $blocked_by_this,
         # Check if this task is actionable (all deps satisfied)
         is_actionable: (
@@ -225,7 +289,8 @@ run_complete_analysis() {
           end
         )
       } |
-      .leverage_score = (.unlocks_count * 15) + .priority_score
+      # Use weighted unlocks for leverage score (scaled by 15)
+      .leverage_score = ((.weighted_unlocks * 15) | floor) + .priority_score
     ] | sort_by(-(.leverage_score // 0)) as $leverage_data |
 
     # ================================================================
@@ -240,10 +305,11 @@ run_complete_analysis() {
         title: .title,
         priority: .priority,
         blocks_count: .unlocks_count,
+        weighted_blocks: .weighted_unlocks,
         blocked_tasks: .unlocks_tasks,
         is_actionable: .is_actionable
       }
-    ] | sort_by(-(.blocks_count // 0)) as $bottlenecks |
+    ] | sort_by(-(.weighted_blocks // 0)) as $bottlenecks |
 
     # ================================================================
     # TIERS: Group tasks by strategic value
@@ -254,8 +320,8 @@ run_complete_analysis() {
       tier1_unblock: [
         $leverage_data[] |
         select(.unlocks_count >= 3 and .is_actionable) |
-        {id, title, priority, unlocks_count, unlocks_tasks, leverage_score}
-      ] | sort_by(-(.unlocks_count // 0)),
+        {id, title, priority, unlocks_count, weighted_unlocks, unlocks_tasks, leverage_score}
+      ] | sort_by(-(.weighted_unlocks // 0)),
 
       tier2_critical: [
         $leverage_data[] |
@@ -311,7 +377,7 @@ run_complete_analysis() {
           tasks: [
             $leverage_data[] |
             select(.labels | index($label) | type == "number") |
-            {id, title, priority, is_actionable, unlocks_count}
+            {id, title, priority, is_actionable, unlocks_count, weighted_unlocks}
           ],
           count: ([$leverage_data[] | select(.labels | index($label) | type == "number")] | length),
           actionable_count: ([$leverage_data[] | select(.labels | index($label) | type == "number") | select(.is_actionable)] | length)
@@ -322,11 +388,11 @@ run_complete_analysis() {
 
     # ================================================================
     # ACTION ORDER: Suggested sequence to maximize throughput
-    # Priority: Tier1 by leverage -> Tier2 by leverage -> Tier4 by leverage
+    # Priority: Tier1 by weighted leverage -> Tier2 by leverage -> Tier4 by leverage
     # ================================================================
 
     (
-      ($tiers.tier1_unblock | map({id, title, priority, reason: "Unblocks \(.unlocks_count) tasks", tier: 1})) +
+      ($tiers.tier1_unblock | map({id, title, priority, reason: "Unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))", tier: 1})) +
       ($tiers.tier2_critical | map({id, title, priority, reason: "High priority, actionable", tier: 2})) +
       ($tiers.tier4_routine[0:5] | map({id, title, priority, reason: "Quick win", tier: 4}))
     )[0:10] as $action_order |
@@ -337,12 +403,12 @@ run_complete_analysis() {
 
     (
       if ($tiers.tier1_unblock | length) > 0 then
-        $tiers.tier1_unblock | sort_by(-(.unlocks_count // 0)) | .[0] |
+        $tiers.tier1_unblock | sort_by(-(.weighted_unlocks // 0)) | .[0] |
         {
           task_id: .id,
           title: .title,
           priority: .priority,
-          reason: "Highest leverage - unblocks \(.unlocks_count) tasks",
+          reason: "Highest leverage - unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))",
           unlocks: .unlocks_tasks,
           command: "ct focus set \(.id)"
         }
@@ -394,7 +460,12 @@ run_complete_analysis() {
         "version": $version,
         "command": "analyze",
         "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
-        "algorithm": "leverage_scoring_v2"
+        "algorithm": "hierarchy_aware_leverage",
+        "weights": {
+          "parentChild": $w_parent_child,
+          "crossEpic": $w_cross_epic,
+          "crossPhase": $w_cross_phase
+        }
       },
       "success": true,
 
@@ -410,7 +481,7 @@ run_complete_analysis() {
 
       "tiers": {
         "tier1_unblock": {
-          "description": "High leverage - unblock multiple tasks",
+          "description": "High leverage - unblock multiple tasks (hierarchy-weighted)",
           "count": ($tiers.tier1_unblock | length),
           "tasks": $tiers.tier1_unblock
         },

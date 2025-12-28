@@ -256,6 +256,55 @@ get_parent_chain() {
     echo "${chain# }"  # Trim leading space
 }
 
+
+# get_epic_ancestor - Get the epic ancestor of a task (first parent with type="epic")
+# Args:
+#   $1 - task_id: The task ID to find epic ancestor for
+#   $2 - todo_file: Path to todo.json file
+# Returns:
+#   The epic ancestor ID, or "null" if no epic ancestor exists
+# Usage:
+#   epic=$(get_epic_ancestor "T005" "$TODO_FILE")
+get_epic_ancestor() {
+    local task_id="$1"
+    local todo_file="$2"
+    local current_id="$task_id"
+    local visited=""
+
+    while true; do
+        local parent_id
+        parent_id=$(get_task_parent "$current_id" "$todo_file")
+
+        if [[ "$parent_id" == "null" || -z "$parent_id" ]]; then
+            echo "null"
+            return 0
+        fi
+
+        # Prevent infinite loop
+        if [[ "$visited" == *"$parent_id"* ]]; then
+            echo "null"
+            return 0
+        fi
+        visited="$visited $parent_id"
+
+        # Check if this parent is an epic
+        local parent_type
+        parent_type=$(get_task_type "$parent_id" "$todo_file")
+        if [[ "$parent_type" == "epic" ]]; then
+            echo "$parent_id"
+            return 0
+        fi
+
+        current_id="$parent_id"
+
+        # Safety limit
+        if [[ ${#visited} -gt 100 ]]; then
+            echo "null"
+            return 0
+        fi
+    done
+}
+
 # get_children - Get direct children of a task
 #
 # Args:
@@ -671,6 +720,7 @@ export -f get_task_type
 export -f get_task_parent
 export -f get_task_depth
 export -f get_parent_chain
+export -f get_epic_ancestor
 export -f get_children
 export -f count_siblings
 export -f count_active_siblings

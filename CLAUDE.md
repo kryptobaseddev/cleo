@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.37.0 -->
+<!-- CLEO:START v0.38.0 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
@@ -76,6 +76,7 @@ ct list --phase $(ct phase show -q)  # Focus on current phase tasks
 - **Tree view**: `ct tree` or `ct list --tree` (equivalent). Subtree: `ct tree --parent T001`
 - **Reparent**: `ct reparent T005 --to T001` (move to different parent)
 - **Promote**: `ct promote T005` (remove parent, make root)
+- **Populate hierarchy**: `ct populate-hierarchy` (infer parentId from naming conventions)
 
 **Enable auto-complete:**
 ```bash

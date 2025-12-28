@@ -5,6 +5,27 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2025-12-28
+
+### Added
+- **Hierarchy-aware leverage scoring** in `analyze` command
+  - Dependencies now weighted by relationship type for more strategic prioritization
+  - Parent→child dependencies: 0.3x weight (same scope, less strategic impact)
+  - Cross-epic dependencies: 1.0x weight (standard true blockers)
+  - Cross-phase dependencies: 1.5x weight (phase alignment = higher strategic value)
+  - New `weighted_unlocks` field in leverage data shows weighted sum
+  - New `weights` object in `_meta` shows active configuration
+  - Configurable via `analyze.hierarchyWeight.*` in config.json
+
+- **`get_epic_ancestor()` function** in `lib/hierarchy.sh`
+  - Traverses parent chain to find first ancestor with `type="epic"`
+  - Returns `null` if no epic ancestor exists
+
+### Changed
+- Leverage score calculation: `floor(weighted_unlocks * 15) + priority_score`
+- Bottlenecks now sorted by `weighted_blocks` instead of raw count
+- Tier 1 tasks sorted by weighted unlocks for better prioritization
+
 ## [0.38.2] - 2025-12-27
 
 ### Fixed

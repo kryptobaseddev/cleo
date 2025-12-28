@@ -22,22 +22,47 @@ This command is particularly useful for:
 
 ## Algorithm
 
-### 1. Leverage Score Calculation
+### 1. Hierarchy-Aware Leverage Score Calculation
 
-Leverage measures downstream impact - how many tasks become unblocked if this task completes:
+Leverage measures downstream impact with hierarchy-aware weighting. Dependencies are weighted based on their relationship type:
+
+| Relationship | Weight | Rationale |
+|--------------|--------|-----------|
+| Parent→Child | 0.3x | Same scope, less strategic impact |
+| Same Epic | 1.0x | Standard true blockers |
+| Cross-Phase | 1.5x | Phase alignment = higher strategic value |
 
 ```
-leverage_score = (unlocks_count * 15) + priority_score
+weighted_unlocks = Σ(weight_for_each_blocked_task)
+leverage_score = floor(weighted_unlocks * 15) + priority_score
 ```
 
 **Components**:
 - **Priority Score**: Task's intrinsic priority (critical=100, high=75, medium=50, low=25)
-- **Unlocks Count**: Number of tasks directly blocked by this task
+- **Weighted Unlocks**: Sum of dependency weights for all blocked tasks
 
-**Example**:
+**Examples**:
 ```
-Task T312 (high priority) blocks 11 tasks
-Leverage Score = (11 * 15) + 75 = 240
+Task T312 (high priority) blocks 4 cross-phase tasks
+weighted_unlocks = 4 * 1.5 = 6.0
+Leverage Score = floor(6.0 * 15) + 75 = 90 + 75 = 165
+
+Task T001 (epic) blocks 3 child tasks
+weighted_unlocks = 3 * 0.3 = 0.9
+Leverage Score = floor(0.9 * 15) + 75 = 13 + 75 = 88
+```
+
+**Configuration** (via config.json):
+```json
+{
+  "analyze": {
+    "hierarchyWeight": {
+      "parentChild": 0.3,
+      "crossEpic": 1.0,
+      "crossPhase": 1.5
+    }
+  }
+}
 ```
 
 ### 2. Actionable vs Blocked Detection
@@ -116,9 +141,14 @@ Output structure:
 ```json
 {
   "_meta": {
-    "version": "0.16.0",
-    "generated": "2025-12-17T10:00:00Z",
-    "algorithm": "leverage_scoring_v2"
+    "version": "0.39.0",
+    "timestamp": "2025-12-28T10:00:00Z",
+    "algorithm": "hierarchy_aware_leverage",
+    "weights": {
+      "parentChild": 0.3,
+      "crossEpic": 1.0,
+      "crossPhase": 1.5
+    }
   },
   "summary": {
     "total_pending": 47,
@@ -156,8 +186,9 @@ Output structure:
       "title": "...",
       "priority": "high",
       "unlocks_count": 11,
+      "weighted_unlocks": 16.5,
       "unlocks_tasks": ["T316", "T317", "..."],
-      "leverage_score": 240,
+      "leverage_score": 322,
       "is_actionable": true
     }
   ],
@@ -345,5 +376,6 @@ Domains are grouped by labels. Use this to:
 
 ## Version History
 
+- **v0.39.0**: Hierarchy-aware leverage scoring with configurable weights (parentChild, crossEpic, crossPhase)
 - **v0.16.0**: Major rewrite - JSON default, --human flag, domain grouping, action order, improved tier logic
 - **v0.15.0**: Initial implementation with leverage scoring, bottleneck detection, tier system
