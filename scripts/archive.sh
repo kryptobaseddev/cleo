@@ -126,7 +126,7 @@ usage() {
   cat << EOF
 Usage: cleo archive [OPTIONS]
 
-Archive completed tasks from todo.json to todo-archive.json.
+Archive completed and cancelled tasks from todo.json to todo-archive.json.
 
 Options:
   --dry-run           Preview without making changes
@@ -333,13 +333,13 @@ if [[ -n "$CASCADE_FROM" ]]; then
     exit "${EXIT_INVALID_INPUT:-1}"
   fi
 
-  # Verify task is completed
+  # Verify task is completed or cancelled (both are archivable)
   ROOT_STATUS=$(echo "$ROOT_TASK" | jq -r '.status')
-  if [[ "$ROOT_STATUS" != "done" ]]; then
+  if [[ "$ROOT_STATUS" != "done" && "$ROOT_STATUS" != "cancelled" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-      output_error "E_INVALID_STATE" "Task $CASCADE_FROM is not completed (status: $ROOT_STATUS)" "${EXIT_INVALID_INPUT:-1}" true "Complete the task before archiving with --cascade-from"
+      output_error "E_INVALID_STATE" "Task $CASCADE_FROM is not archivable (status: $ROOT_STATUS)" "${EXIT_INVALID_INPUT:-1}" true "Complete or cancel the task before archiving with --cascade-from"
     else
-      log_error "Task $CASCADE_FROM is not completed (status: $ROOT_STATUS)"
+      log_error "Task $CASCADE_FROM is not archivable (status: $ROOT_STATUS)"
     fi
     exit "${EXIT_INVALID_INPUT:-1}"
   fi
@@ -481,11 +481,20 @@ if [[ "$QUIET" != true && "$FORMAT" != "json" ]]; then
   fi
 fi
 
-# Get completed tasks
-COMPLETED_TASKS=$(jq '[.tasks[] | select(.status == "done")]' "$TODO_FILE")
+# Get completed and cancelled tasks (both are archivable)
+COMPLETED_TASKS=$(jq '[.tasks[] | select(.status == "done" or .status == "cancelled")]' "$TODO_FILE")
 COMPLETED_COUNT=$(echo "$COMPLETED_TASKS" | jq 'length')
+# Separate counts for logging
+DONE_COUNT=$(echo "$COMPLETED_TASKS" | jq '[.[] | select(.status == "done")] | length')
+CANCELLED_COUNT=$(echo "$COMPLETED_TASKS" | jq '[.[] | select(.status == "cancelled")] | length')
 
-[[ "$QUIET" != true && "$FORMAT" != "json" ]] && log_info "Found $COMPLETED_COUNT completed tasks"
+if [[ "$QUIET" != true && "$FORMAT" != "json" ]]; then
+  if [[ "$CANCELLED_COUNT" -gt 0 ]]; then
+    log_info "Found $COMPLETED_COUNT archivable tasks ($DONE_COUNT done, $CANCELLED_COUNT cancelled)"
+  else
+    log_info "Found $COMPLETED_COUNT completed tasks"
+  fi
+fi
 
 if [[ "$COMPLETED_COUNT" -eq 0 ]]; then
   if [[ "$FORMAT" == "json" ]]; then
@@ -675,18 +684,21 @@ TASKS_TO_ARCHIVE=$(echo "$COMPLETED_TASKS" | jq \
     end
   ] |
   # Then apply normal archive logic with per-label retention
-  sort_by(.completedAt) | reverse |
+  # Use completedAt for done tasks, cancelledAt for cancelled tasks
+  sort_by(.completedAt // .cancelledAt) | reverse |
   to_entries |
   map(select(
     if $all then
-      true  # Archive ALL completed tasks (except exempt and neverArchive)
+      true  # Archive ALL archivable tasks (except exempt and neverArchive)
     elif $force then
       .key >= $preserve  # Bypass retention, respect preserve count
     else
       # Apply per-label retention policy or default threshold
+      # Use completedAt for done tasks, cancelledAt for cancelled tasks
       (.value.labels // []) as $taskLabels |
+      (.value.completedAt // .value.cancelledAt) as $archiveDate |
       .key >= $preserve and
-      check_label_policy($taskLabels; $labelPolicies; $defaultDays; .value.completedAt; $now)
+      check_label_policy($taskLabels; $labelPolicies; $defaultDays; $archiveDate; $now)
     end
   )) |
   map(.value)
@@ -781,28 +793,28 @@ if [[ -n "$CASCADE_FROM" ]]; then
 
   TOTAL_DESCENDANTS=$(echo "$ALL_DESCENDANTS" | jq 'length - 1')  # Exclude root from count
 
-  # Get completed descendants only (filter to status=="done")
-  # Note: We must explicitly filter for done status since ALL_DESCENDANTS includes all descendants
+  # Get archivable descendants (done or cancelled)
+  # Note: We must explicitly filter for archivable statuses since ALL_DESCENDANTS includes all descendants
   COMPLETED_DESCENDANTS=$(jq --argjson ids "$ALL_DESCENDANTS" '
-    [.tasks[] | select(.id as $id | $ids | index($id)) | select(.status == "done")]
+    [.tasks[] | select(.id as $id | $ids | index($id)) | select(.status == "done" or .status == "cancelled")]
   ' "$TODO_FILE")
 
   COMPLETED_COUNT=$(echo "$COMPLETED_DESCENDANTS" | jq 'length')
 
-  # Get incomplete descendants for warning
+  # Get non-archivable descendants for warning (pending, active, blocked)
   INCOMPLETE_DESCENDANTS=$(jq --argjson ids "$ALL_DESCENDANTS" '
-    [.tasks[] | select(.id as $id | $ids | index($id)) | select(.status != "done")]
+    [.tasks[] | select(.id as $id | $ids | index($id)) | select(.status != "done" and .status != "cancelled")]
   ' "$TODO_FILE")
 
   INCOMPLETE_COUNT=$(echo "$INCOMPLETE_DESCENDANTS" | jq 'length')
 
   # Warn about incomplete descendants
   if [[ "$INCOMPLETE_COUNT" -gt 0 && "$QUIET" != true && "$FORMAT" != "json" ]]; then
-    log_warn "$INCOMPLETE_COUNT descendants are not completed and will NOT be archived:"
+    log_warn "$INCOMPLETE_COUNT descendants are not archivable and will NOT be archived:"
     echo "$INCOMPLETE_DESCENDANTS" | jq -r '.[] | "  - \(.id): \(.title) [\(.status)]"'
   fi
 
-  # Replace TASKS_TO_ARCHIVE with the completed descendants
+  # Replace TASKS_TO_ARCHIVE with the archivable descendants
   # This bypasses normal retention rules since we explicitly requested this cascade
   TASKS_TO_ARCHIVE="$COMPLETED_DESCENDANTS"
   ARCHIVE_COUNT=$(echo "$TASKS_TO_ARCHIVE" | jq 'length')
@@ -832,10 +844,10 @@ if [[ "$CASCADE_ARCHIVE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
   ALL_TASKS=$(jq '.tasks' "$TODO_FILE")
   CANDIDATE_IDS_FOR_CASCADE=$(echo "$TASKS_TO_ARCHIVE" | jq '[.[].id]')
 
-  # Find completed parent tasks in our archive candidates that have children
+  # Find archivable parent tasks in our archive candidates that have children
   # A "cascadable family" requires:
-  # 1. Parent is in TASKS_TO_ARCHIVE (completed and eligible)
-  # 2. ALL children of that parent are also status=done
+  # 1. Parent is in TASKS_TO_ARCHIVE (done/cancelled and eligible)
+  # 2. ALL children of that parent are also archivable (done or cancelled)
   CASCADE_RESULT=$(jq -n \
     --argjson tasks "$ALL_TASKS" \
     --argjson candidates "$CANDIDATE_IDS_FOR_CASCADE" \
@@ -843,7 +855,7 @@ if [[ "$CASCADE_ARCHIVE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
     # Find parent IDs that are candidates for archive
     ($tasks | map(select(.id as $id | $candidates | index($id))) | map(select(.parentId == null or .parentId == "null"))) as $rootCandidates |
 
-    # For each potential parent in candidates, check if ALL its children are done
+    # For each potential parent in candidates, check if ALL its children are archivable
     [
       $tasks[] |
       select(.id as $id | $candidates | index($id)) |
@@ -854,15 +866,15 @@ if [[ "$CASCADE_ARCHIVE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
       {
         parent: $parent.id,
         children: [$children[].id],
-        allChildrenDone: ([$children[] | .status == "done"] | all),
-        doneChildren: [$children[] | select(.status == "done") | .id],
-        notDoneChildren: [$children[] | select(.status != "done") | .id]
+        allChildrenArchivable: ([$children[] | (.status == "done" or .status == "cancelled")] | all),
+        archivableChildren: [$children[] | select(.status == "done" or .status == "cancelled") | .id],
+        notArchivableChildren: [$children[] | select(.status != "done" and .status != "cancelled") | .id]
       }
     ] |
     # Separate complete families from incomplete ones
     {
-      completeFamilies: [.[] | select(.allChildrenDone)],
-      incompleteFamilies: [.[] | select(.allChildrenDone | not)]
+      completeFamilies: [.[] | select(.allChildrenArchivable)],
+      incompleteFamilies: [.[] | select(.allChildrenArchivable | not)]
     }
     '
   )
@@ -903,8 +915,8 @@ if [[ "$CASCADE_ARCHIVE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
 
   # Warn about incomplete families
   if [[ "$INCOMPLETE_FAMILY_COUNT" -gt 0 && "$QUIET" != true && "$FORMAT" != "json" ]]; then
-    log_warn "Cascade mode: $INCOMPLETE_FAMILY_COUNT family/families skipped (incomplete children)"
-    echo "$INCOMPLETE_FAMILIES" | jq -r '.[] | "  - Parent \(.parent): not done children: \(.notDoneChildren | join(", "))"'
+    log_warn "Cascade mode: $INCOMPLETE_FAMILY_COUNT family/families skipped (not all children archivable)"
+    echo "$INCOMPLETE_FAMILIES" | jq -r '.[] | "  - Parent \(.parent): non-archivable children: \(.notArchivableChildren | join(", "))"'
   fi
 
   # Update archive count after cascade additions
@@ -920,12 +932,12 @@ if [[ "$SAFE_MODE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
   # so we should NOT block the parent from being archived due to those children
   CASCADE_FROM_DESCENDANTS="${ALL_DESCENDANTS:-[]}"
 
-  # Check for active children that would be orphaned
+  # Check for non-archivable children that would be orphaned (pending, active, blocked)
   # Exclude cascade-from descendants since those are handled intentionally
   BLOCKED_BY_CHILDREN=$(jq --argjson candidateIds "$CANDIDATE_IDS" \
     --argjson cascadeDescendants "$CASCADE_FROM_DESCENDANTS" '
     [.tasks[] |
-     select(.status != "done" and .parentId != null) |
+     select(.status != "done" and .status != "cancelled" and .parentId != null) |
      # Skip if this task is part of cascade-from hierarchy (intentionally left behind)
      select(.id as $id | $cascadeDescendants | index($id) | not) |
      select(.parentId as $p | $candidateIds | index($p)) |
@@ -950,10 +962,10 @@ if [[ "$SAFE_MODE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
   # Recalculate candidate IDs after removing blocked parents
   CANDIDATE_IDS=$(echo "$TASKS_TO_ARCHIVE" | jq '[.[].id]')
 
-  # Check for active tasks that depend on archive candidates
+  # Check for non-archivable tasks that depend on archive candidates
   BLOCKED_BY_DEPENDENTS=$(jq --argjson candidateIds "$CANDIDATE_IDS" '
     [.tasks[] |
-     select(.status != "done" and .depends != null and (.depends | length) > 0) |
+     select(.status != "done" and .status != "cancelled" and .depends != null and (.depends | length) > 0) |
      .depends | map(select(. as $d | $candidateIds | index($d)))
     ] | flatten | unique
   ' "$TODO_FILE")

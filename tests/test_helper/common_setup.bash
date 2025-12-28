@@ -101,6 +101,17 @@ EOF
     # Create empty log
     echo '{"entries": [], "_meta": {"version": "2.1.0"}}' > "$LOG_FILE"
 
+    # Create empty archive file (needed for delete's immediate archiving)
+    cat > "$ARCHIVE_FILE" << 'EOF'
+{
+  "version": "2.4.0",
+  "project": "test",
+  "_meta": {"totalArchived": 0, "lastArchived": null},
+  "archivedTasks": [],
+  "statistics": {"byPhase": {}, "byPriority": {"critical":0,"high":0,"medium":0,"low":0}, "byLabel": {}, "cancelled": 0}
+}
+EOF
+
     # Change to test directory so scripts find .cleo/
     cd "$base_dir"
 }

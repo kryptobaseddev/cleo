@@ -119,7 +119,8 @@ teardown_file() {
 
 @test "archive --dry-run shows what would be archived" {
     create_tasks_with_completed
-    run bash "$ARCHIVE_SCRIPT" --dry-run
+    # Use --all to bypass retention period for dry-run preview
+    run bash "$ARCHIVE_SCRIPT" --dry-run --all
     assert_success
     assert_output_contains_any "would" "archive" "T001"
 }

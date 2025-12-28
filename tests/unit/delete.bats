@@ -278,11 +278,18 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    # Create empty archive file
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
+
     run bash "$DELETE_SCRIPT" T001 --reason "No longer needed" --force
     assert_success
 
-    # Verify status changed
-    status=$(jq -r '.tasks[] | select(.id == "T001") | .status' "$TODO_FILE")
+    # Verify task is removed from todo.json and archived
+    task_in_todo=$(jq -r '.tasks[] | select(.id == "T001") | .id' "$TODO_FILE")
+    [ -z "$task_in_todo" ]
+
+    # Verify task is in archive with cancelled status
+    status=$(jq -r '.archivedTasks[] | select(.id == "T001") | .status' "$ARCHIVE_FILE")
     [ "$status" = "cancelled" ]
 }
 
@@ -298,11 +305,12 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
     run bash "$DELETE_SCRIPT" T001 --reason "Stopping this task" --force
     assert_success
 
-    # Verify status changed
-    status=$(jq -r '.tasks[] | select(.id == "T001") | .status' "$TODO_FILE")
+    # Verify task is archived with cancelled status
+    status=$(jq -r '.archivedTasks[] | select(.id == "T001") | .status' "$ARCHIVE_FILE")
     [ "$status" = "cancelled" ]
 }
 
@@ -318,11 +326,12 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
     run bash "$DELETE_SCRIPT" T001 --reason "Blocker resolved differently" --force
     assert_success
 
-    # Verify status changed
-    status=$(jq -r '.tasks[] | select(.id == "T001") | .status' "$TODO_FILE")
+    # Verify task is archived with cancelled status
+    status=$(jq -r '.archivedTasks[] | select(.id == "T001") | .status' "$ARCHIVE_FILE")
     [ "$status" = "cancelled" ]
 }
 
@@ -389,10 +398,10 @@ EOF
     run bash "$DELETE_SCRIPT" T001 --reason "Epic cancelled" --children cascade --force
     assert_success
 
-    # Verify all tasks are cancelled
-    status1=$(jq -r '.tasks[] | select(.id == "T001") | .status' "$TODO_FILE")
-    status2=$(jq -r '.tasks[] | select(.id == "T002") | .status' "$TODO_FILE")
-    status3=$(jq -r '.tasks[] | select(.id == "T003") | .status' "$TODO_FILE")
+    # Verify all tasks are cancelled and archived
+    status1=$(jq -r '.archivedTasks[] | select(.id == "T001") | .status' "$ARCHIVE_FILE")
+    status2=$(jq -r '.archivedTasks[] | select(.id == "T002") | .status' "$ARCHIVE_FILE")
+    status3=$(jq -r '.archivedTasks[] | select(.id == "T003") | .status' "$ARCHIVE_FILE")
 
     [ "$status1" = "cancelled" ]
     [ "$status2" = "cancelled" ]
@@ -416,8 +425,8 @@ EOF
     run bash "$DELETE_SCRIPT" T001 --reason "Full hierarchy cancelled" --children cascade --force
     assert_success
 
-    # Verify all tasks including grandchild are cancelled
-    status3=$(jq -r '.tasks[] | select(.id == "T003") | .status' "$TODO_FILE")
+    # Verify all tasks including grandchild are cancelled and archived
+    status3=$(jq -r '.archivedTasks[] | select(.id == "T003") | .status' "$ARCHIVE_FILE")
     [ "$status3" = "cancelled" ]
 }
 
@@ -441,11 +450,11 @@ EOF
     run bash "$DELETE_SCRIPT" T001 --reason "Orphaning children" --children orphan --force
     assert_success
 
-    # Verify parent is cancelled
-    status1=$(jq -r '.tasks[] | select(.id == "T001") | .status' "$TODO_FILE")
+    # Verify parent is cancelled and archived
+    status1=$(jq -r '.archivedTasks[] | select(.id == "T001") | .status' "$ARCHIVE_FILE")
     [ "$status1" = "cancelled" ]
 
-    # Verify child's parentId is null
+    # Verify child's parentId is null (child remains in todo.json)
     parent_id=$(jq -r '.tasks[] | select(.id == "T002") | .parentId // "null"' "$TODO_FILE")
     [ "$parent_id" = "null" ]
 
@@ -607,12 +616,13 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
     # Valid special characters that are not shell metacharacters
     run bash "$DELETE_SCRIPT" T001 --reason "Task cancelled: scope changed (see notes) - priority shift" --force
     assert_success
 
-    # Verify reason was stored
-    reason=$(jq -r '.tasks[] | select(.id == "T001") | .cancelReason' "$TODO_FILE")
+    # Verify reason was stored in archive
+    reason=$(jq -r '.archivedTasks[] | select(.id == "T001") | .cancellationReason' "$ARCHIVE_FILE")
     [[ "$reason" == *"scope changed"* ]]
 }
 
@@ -646,10 +656,12 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
     run bash "$DELETE_SCRIPT" T001 --reason "Leaf deletion" --force
     assert_success
 
-    status=$(jq -r '.tasks[] | select(.id == "T001") | .status' "$TODO_FILE")
+    # Verify task is in archive with cancelled status
+    status=$(jq -r '.archivedTasks[] | select(.id == "T001") | .status' "$ARCHIVE_FILE")
     [ "$status" = "cancelled" ]
 }
 
@@ -731,10 +743,12 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
     run bash "$DELETE_SCRIPT" T001 --reason "Timestamp test" --force
     assert_success
 
-    cancelled_at=$(jq -r '.tasks[] | select(.id == "T001") | .cancelledAt' "$TODO_FILE")
+    # Check cancelledAt in archive
+    cancelled_at=$(jq -r '.archivedTasks[] | select(.id == "T001") | .cancelledAt' "$ARCHIVE_FILE")
     # Verify it's an ISO timestamp
     [[ "$cancelled_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
 }
@@ -751,10 +765,12 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
     run bash "$DELETE_SCRIPT" T001 --reason "Feature deprecated" --force
     assert_success
 
-    reason=$(jq -r '.tasks[] | select(.id == "T001") | .cancelReason' "$TODO_FILE")
+    # Check cancellationReason in archive (field renamed in archive format)
+    reason=$(jq -r '.archivedTasks[] | select(.id == "T001") | .cancellationReason' "$ARCHIVE_FILE")
     [ "$reason" = "Feature deprecated" ]
 }
 
@@ -770,11 +786,12 @@ EOF
     "_meta": {"checksum": "abc123", "configVersion": "2.2.0"}
 }
 EOF
+    echo '{"archivedTasks": [], "_meta": {"totalArchived": 0}}' > "$ARCHIVE_FILE"
     run bash "$DELETE_SCRIPT" T001 --reason "Cancelled note test" --force
     assert_success
 
-    # Verify note was added
-    notes=$(jq -r '.tasks[] | select(.id == "T001") | .notes | last' "$TODO_FILE")
+    # Verify note was preserved (check in archive)
+    notes=$(jq -r '.archivedTasks[] | select(.id == "T001") | .notes | last' "$ARCHIVE_FILE")
     [[ "$notes" == *"CANCELLED"* ]]
     [[ "$notes" == *"Cancelled note test"* ]]
 }

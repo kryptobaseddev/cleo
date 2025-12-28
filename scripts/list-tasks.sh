@@ -84,6 +84,7 @@ FORMAT=""  # Empty - will be resolved after argument parsing via TTY detection
 COMMAND_NAME="list"
 INCLUDE_ARCHIVE=false
 SHOW_ARCHIVED=false
+SHOW_CANCELLED=false  # Cancelled tasks hidden by default (like archived)
 LIMIT=""
 OFFSET=0
 SINCE_DATE=""
@@ -122,7 +123,7 @@ Usage: cleo list [OPTIONS]
 Display tasks from todo.json with flexible filtering and formatting.
 
 Filters:
-  -s, --status STATUS       Filter by status: pending|active|blocked|done
+  -s, --status STATUS       Filter by status: pending|active|blocked|done|cancelled
   -p, --priority PRIORITY   Filter by priority: critical|high|medium|low
       --phase PHASE         Filter by phase slug
   -l, --label LABEL         Filter by label
@@ -132,6 +133,7 @@ Filters:
                             Include archived tasks in results (combines active + archived)
       --archived, --archive-only
                             Show only archived tasks (mutually exclusive with --all)
+      --cancelled           Include cancelled tasks (hidden by default)
       --limit N             Show first N tasks only
       --offset N            Skip first N tasks (for pagination)
 
@@ -224,6 +226,7 @@ while [[ $# -gt 0 ]]; do
     --human) FORMAT="text"; shift ;;
     --all|--include-archive) INCLUDE_ARCHIVE=true; shift ;;
     --archived|--archive-only) SHOW_ARCHIVED=true; shift ;;
+    --cancelled) SHOW_CANCELLED=true; shift ;;
     --limit) LIMIT="$2"; shift 2 ;;
     --offset) OFFSET="$2"; shift 2 ;;
     --notes) SHOW_NOTES=true; shift ;;
@@ -290,6 +293,12 @@ PRE_FILTER='.'
 # Apply status filter early (most selective filter first)
 if [[ -n "$STATUS_FILTER" ]]; then
   PRE_FILTER="$PRE_FILTER | select(.status == \"$STATUS_FILTER\")"
+fi
+
+# Hide cancelled tasks by default (like archived tasks)
+# Only show if --cancelled flag is set or --status cancelled is used
+if [[ "$SHOW_CANCELLED" != true && "$STATUS_FILTER" != "cancelled" ]]; then
+  PRE_FILTER="$PRE_FILTER | select(.status != \"cancelled\")"
 fi
 
 # Apply priority filter early (second most selective)
@@ -699,6 +708,7 @@ PENDING_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "pending")
 ACTIVE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "active")] | length')
 BLOCKED_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "blocked")] | length')
 DONE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "done")] | length')
+CANCELLED_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "cancelled")] | length')
 
 # Build tree structure if --tree flag is set
 TREE_JSON="null"
@@ -752,6 +762,7 @@ if [[ "$SHOW_TREE" == true ]]; then
         ACTIVE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "active")] | length')
         BLOCKED_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "blocked")] | length')
         DONE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "done")] | length')
+        CANCELLED_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "cancelled")] | length')
     fi
 fi
 
@@ -787,6 +798,7 @@ case "$FORMAT" in
       --argjson active "$ACTIVE_COUNT" \
       --argjson blocked "$BLOCKED_COUNT" \
       --argjson done "$DONE_COUNT" \
+      --argjson cancelled "$CANCELLED_COUNT" \
       --argjson show_tree "$(if [[ "$SHOW_TREE" == true ]]; then echo true; else echo false; fi)" \
       '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -812,7 +824,8 @@ case "$FORMAT" in
         pending: $pending,
         active: $active,
         blocked: $blocked,
-        done: $done
+        done: $done,
+        cancelled: $cancelled
       },
       tasks: $tasks[0],
       tree: (if $show_tree then $tree_data[0] else null end)
@@ -839,7 +852,8 @@ case "$FORMAT" in
       --argjson active "$ACTIVE_COUNT" \
       --argjson blocked "$BLOCKED_COUNT" \
       --argjson done "$DONE_COUNT" \
-      '{_type: "summary", total: $total, filtered: $filtered, pending: $pending, active: $active, blocked: $blocked, done: $done}'
+      --argjson cancelled "$CANCELLED_COUNT" \
+      '{_type: "summary", total: $total, filtered: $filtered, pending: $pending, active: $active, blocked: $blocked, done: $done, cancelled: $cancelled}'
     ;;
 
   markdown)
@@ -890,6 +904,7 @@ case "$FORMAT" in
     active_count=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "active")] | length')
     blocked_count=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "blocked")] | length')
     done_count=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "done")] | length')
+    cancelled_count=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "cancelled")] | length')
 
     # Count by priority
     critical_count=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.priority == "critical")] | length')
@@ -901,20 +916,30 @@ case "$FORMAT" in
     # Header (suppress in quiet mode)
     if [[ "$QUIET" != true ]]; then
     echo ""
+    # Build status line with optional cancelled count
+    status_suffix=""
+    if [[ "$cancelled_count" -gt 0 ]]; then
+      status_suffix="  ${RED}✗ ${cancelled_count} cancelled${NC}"
+    fi
+
     if [[ "$UNICODE_ENABLED" == true ]]; then
       echo -e "${BOLD}╭─────────────────────────────────────────────────────────────────╮${NC}"
       echo -e "${BOLD}│${NC}  📋 ${BOLD}TASKS${NC}                                                       ${BOLD}│${NC}"
       echo -e "${BOLD}├─────────────────────────────────────────────────────────────────┤${NC}"
       echo -e "${BOLD}│${NC}  ${RED}🔴 ${critical_count} critical${NC}  ${YELLOW}🟡 ${high_count} high${NC}  ${CYAN}🔵 ${medium_count} medium${NC}  ${DIM}⚪ ${low_count} low${NC}          ${BOLD}│${NC}"
-      echo -e "${BOLD}│${NC}  ${YELLOW}○ ${pending_count} pending${NC}  ${GREEN}◉ ${active_count} active${NC}  ${RED}⊗ ${blocked_count} blocked${NC}  ${DIM}✓ ${done_count} done${NC}          ${BOLD}│${NC}"
+      echo -e "${BOLD}│${NC}  ${YELLOW}○ ${pending_count} pending${NC}  ${GREEN}◉ ${active_count} active${NC}  ${RED}⊗ ${blocked_count} blocked${NC}  ${DIM}✓ ${done_count} done${NC}${status_suffix}          ${BOLD}│${NC}"
       echo -e "${BOLD}╰─────────────────────────────────────────────────────────────────╯${NC}"
     else
-      # ASCII fallback
+      # ASCII fallback - build cancelled suffix for ASCII
+      ascii_suffix=""
+      if [[ "$cancelled_count" -gt 0 ]]; then
+        ascii_suffix="  ${RED}X ${cancelled_count} cancelled${NC}"
+      fi
       echo -e "${BOLD}+-------------------------------------------------------------------+${NC}"
       echo -e "${BOLD}|${NC}  ${BOLD}TASKS${NC}                                                           ${BOLD}|${NC}"
       echo -e "${BOLD}+-------------------------------------------------------------------+${NC}"
       echo -e "${BOLD}|${NC}  ${RED}! ${critical_count} critical${NC}  ${YELLOW}H ${high_count} high${NC}  ${CYAN}M ${medium_count} medium${NC}  ${DIM}L ${low_count} low${NC}            ${BOLD}|${NC}"
-      echo -e "${BOLD}|${NC}  ${YELLOW}- ${pending_count} pending${NC}  ${GREEN}* ${active_count} active${NC}  ${RED}x ${blocked_count} blocked${NC}  ${DIM}+ ${done_count} done${NC}            ${BOLD}|${NC}"
+      echo -e "${BOLD}|${NC}  ${YELLOW}- ${pending_count} pending${NC}  ${GREEN}* ${active_count} active${NC}  ${RED}x ${blocked_count} blocked${NC}  ${DIM}+ ${done_count} done${NC}${ascii_suffix}            ${BOLD}|${NC}"
       echo -e "${BOLD}+-------------------------------------------------------------------+${NC}"
     fi
 

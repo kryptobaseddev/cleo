@@ -2,7 +2,7 @@
 
 **Alias**: `rm`
 
-Archive completed tasks from `todo.json` to `todo-archive.json` based on configurable retention rules and relationship policies.
+Archive completed and cancelled tasks from `todo.json` to `todo-archive.json` based on configurable retention rules and relationship policies.
 
 ## Synopsis
 
@@ -12,7 +12,7 @@ cleo archive [OPTIONS]
 
 ## Description
 
-The `archive` command moves completed (`done`) tasks from the active todo list to the archive file. It supports configurable retention policies to keep recent completions accessible while archiving older ones.
+The `archive` command moves completed (`done`) and cancelled tasks from the active todo list to the archive file. It supports configurable retention policies to keep recent completions accessible while archiving older ones. For cancelled tasks, it uses the `cancelledAt` timestamp for retention calculations.
 
 The archive system provides:
 

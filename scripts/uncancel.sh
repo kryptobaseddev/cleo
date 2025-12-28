@@ -79,6 +79,12 @@ if [[ -f "$LIB_DIR/config.sh" ]]; then
     source "$LIB_DIR/config.sh"
 fi
 
+# Source archive-cancel library for restoring from archive
+if [[ -f "$LIB_DIR/archive-cancel.sh" ]]; then
+    # shellcheck source=../lib/archive-cancel.sh
+    source "$LIB_DIR/archive-cancel.sh"
+fi
+
 # Fallback exit codes if libraries not loaded
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_INVALID_INPUT:=2}"
@@ -86,6 +92,9 @@ fi
 : "${EXIT_NOT_FOUND:=4}"
 : "${EXIT_VALIDATION_ERROR:=6}"
 : "${EXIT_NO_CHANGE:=102}"
+
+# Archive file path
+ARCHIVE_FILE="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
 
 # Fallback error codes
 : "${E_INPUT_MISSING:=E_INPUT_MISSING}"
@@ -307,13 +316,29 @@ fi
 # TASK LOOKUP AND VALIDATION
 # ============================================================================
 
-# Check task exists
+# Track if task is in archive (for special handling)
+FROM_ARCHIVE=false
+
+# Check task exists in todo.json first
 TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
-if [[ -z "$TASK" ]]; then
+
+# If not found in todo.json, check the archive
+if [[ -z "$TASK" || "$TASK" == "null" ]]; then
+    if [[ -f "$ARCHIVE_FILE" ]]; then
+        TASK=$(jq --arg id "$TASK_ID" '.archivedTasks[] | select(.id == $id)' "$ARCHIVE_FILE")
+        if [[ -n "$TASK" && "$TASK" != "null" ]]; then
+            FROM_ARCHIVE=true
+            log_info "Task found in archive, will restore from archive"
+        fi
+    fi
+fi
+
+# Still not found anywhere
+if [[ -z "$TASK" || "$TASK" == "null" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Use 'cleo list' to see available tasks"
+        output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found in todo or archive" "$EXIT_NOT_FOUND" true "Use 'cleo list --include-archive' to search"
     else
-        log_error "Task $TASK_ID not found"
+        log_error "Task $TASK_ID not found in todo or archive"
     fi
     exit "$EXIT_NOT_FOUND"
 fi
@@ -321,11 +346,28 @@ fi
 # Get current status
 CURRENT_STATUS=$(echo "$TASK" | jq -r '.status')
 TASK_TITLE=$(echo "$TASK" | jq -r '.title')
-ORIGINAL_REASON=$(echo "$TASK" | jq -r '.cancellationReason // .cancelReason // ""')
-CANCELLED_AT=$(echo "$TASK" | jq -r '.cancelledAt // ""')
+
+# Handle archived task cancellation info (may be in _archive.cancellationDetails)
+if [[ "$FROM_ARCHIVE" == true ]]; then
+    ORIGINAL_REASON=$(echo "$TASK" | jq -r '.cancellationReason // ._archive.cancellationDetails.cancellationReason // .cancelReason // ""')
+    CANCELLED_AT=$(echo "$TASK" | jq -r '.cancelledAt // ._archive.cancellationDetails.cancelledAt // ""')
+    ARCHIVE_REASON=$(echo "$TASK" | jq -r '._archive.reason // ""')
+else
+    ORIGINAL_REASON=$(echo "$TASK" | jq -r '.cancellationReason // .cancelReason // ""')
+    CANCELLED_AT=$(echo "$TASK" | jq -r '.cancelledAt // ""')
+    ARCHIVE_REASON=""
+fi
 
 # Check if task is cancelled (only cancelled tasks can be uncancelled)
-if [[ "$CURRENT_STATUS" != "cancelled" ]]; then
+# For archived tasks, also check _archive.reason
+IS_CANCELLED=false
+if [[ "$CURRENT_STATUS" == "cancelled" ]]; then
+    IS_CANCELLED=true
+elif [[ "$FROM_ARCHIVE" == true && "$ARCHIVE_REASON" == "cancelled" ]]; then
+    IS_CANCELLED=true
+fi
+
+if [[ "$IS_CANCELLED" != true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         jq -n \
@@ -518,71 +560,118 @@ fi
 # Capture before state for logging
 BEFORE_STATE=$(echo "$TASK" | jq '{status, cancelledAt, cancellationReason}')
 
-# Build restoration note
-RESTORE_NOTE="[RESTORED $TIMESTAMP]"
-if [[ -n "$ORIGINAL_REASON" ]]; then
-    RESTORE_NOTE="$RESTORE_NOTE Originally cancelled: $ORIGINAL_REASON"
-fi
-if [[ -n "$NOTES" ]]; then
-    RESTORE_NOTE="$RESTORE_NOTE | Restored because: $NOTES"
-fi
+# ============================================================================
+# RESTORE FROM ARCHIVE (if task is in archive)
+# ============================================================================
 
-# Update task(s) to pending status
-UPDATED_TODO=$(jq --argjson ids "$TASKS_TO_RESTORE" \
-    --arg ts "$TIMESTAMP" \
-    --arg note "$RESTORE_NOTE" '
-    .tasks |= map(
-        if ([.id] | inside($ids)) then
-            .status = "pending" |
-            del(.cancelledAt) |
-            del(.cancellationReason) |
-            del(.cancelReason) |
-            .notes = ((.notes // []) + [$note]) |
-            .updatedAt = $ts
-        else . end
-    )
-' "$TODO_FILE")
+if [[ "$FROM_ARCHIVE" == true ]]; then
+    # Use the library function to restore from archive
+    if declare -f restore_cancelled_from_archive >/dev/null 2>&1; then
+        RESTORE_RESULT=$(restore_cancelled_from_archive "$TASK_ID" "$TODO_FILE" "$ARCHIVE_FILE" "$NOTES" "uncancel-command")
+        RESTORE_SUCCESS=$(echo "$RESTORE_RESULT" | jq -r '.success')
 
-# Recalculate checksum
-NEW_TASKS=$(echo "$UPDATED_TODO" | jq -c '.tasks')
-NEW_CHECKSUM=$(echo "$NEW_TASKS" | sha256sum | cut -c1-16)
-
-FINAL_JSON=$(echo "$UPDATED_TODO" | jq --arg checksum "$NEW_CHECKSUM" --arg ts "$TIMESTAMP" '
-    ._meta.checksum = $checksum |
-    .lastUpdated = $ts
-')
-
-# Atomic write
-if declare -f save_json >/dev/null 2>&1; then
-    if ! save_json "$TODO_FILE" "$FINAL_JSON"; then
-        if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "E_FILE_WRITE_ERROR" "Failed to save todo file" "$EXIT_FILE_ERROR" false "Check file permissions and disk space"
-        else
-            log_error "Failed to save todo file"
+        if [[ "$RESTORE_SUCCESS" != "true" ]]; then
+            RESTORE_ERROR=$(echo "$RESTORE_RESULT" | jq -r '.error // "Unknown error"')
+            if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
+                output_error "E_RESTORE_FAILED" "Failed to restore from archive: $RESTORE_ERROR" "$EXIT_FILE_ERROR" false "Check archive file integrity"
+            else
+                log_error "Failed to restore from archive: $RESTORE_ERROR"
+            fi
+            exit "$EXIT_FILE_ERROR"
         fi
+
+        # Get restored task for output
+        RESTORED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+
+        # Log the operation
+        if declare -f log_task_restored >/dev/null 2>&1; then
+            SESSION_ID=$(jq -r '._meta.activeSession // "null"' "$TODO_FILE")
+            log_task_restored "$TASK_ID" "$ORIGINAL_REASON" "pending" "$SESSION_ID" 2>/dev/null || true
+        elif [[ -f "$LOG_SCRIPT" ]]; then
+            AFTER_STATE="{\"status\":\"pending\"}"
+            "$LOG_SCRIPT" \
+                --action "task_restored_from_archive" \
+                --task-id "$TASK_ID" \
+                --before "$BEFORE_STATE" \
+                --after "$AFTER_STATE" \
+                --details "{\"originalReason\":\"$ORIGINAL_REASON\",\"fromArchive\":true}" \
+                --actor "system" 2>/dev/null || log_warn "Failed to write log entry"
+        fi
+    else
+        log_error "restore_cancelled_from_archive function not available"
         exit "$EXIT_FILE_ERROR"
     fi
 else
-    echo "$FINAL_JSON" > "$TODO_FILE"
-fi
+    # ============================================================================
+    # RESTORE FROM TODO.JSON (original behavior)
+    # ============================================================================
 
-# Log the operation using log_task_restored if available
-if declare -f log_task_restored >/dev/null 2>&1; then
-    SESSION_ID=$(jq -r '._meta.activeSession // "null"' "$TODO_FILE")
-    log_task_restored "$TASK_ID" "$ORIGINAL_REASON" "pending" "$SESSION_ID" 2>/dev/null || true
-elif [[ -f "$LOG_SCRIPT" ]]; then
-    AFTER_STATE="{\"status\":\"pending\"}"
-    "$LOG_SCRIPT" \
-        --action "task_restored_from_cancelled" \
-        --task-id "$TASK_ID" \
-        --before "$BEFORE_STATE" \
-        --after "$AFTER_STATE" \
-        --details "{\"originalReason\":\"$ORIGINAL_REASON\",\"cascade\":$CASCADE,\"restoredCount\":$TOTAL_RESTORE}" \
-        --actor "system" 2>/dev/null || log_warn "Failed to write log entry"
-fi
+    # Build restoration note
+    RESTORE_NOTE="[RESTORED $TIMESTAMP]"
+    if [[ -n "$ORIGINAL_REASON" ]]; then
+        RESTORE_NOTE="$RESTORE_NOTE Originally cancelled: $ORIGINAL_REASON"
+    fi
+    if [[ -n "$NOTES" ]]; then
+        RESTORE_NOTE="$RESTORE_NOTE | Restored because: $NOTES"
+    fi
 
-# Get updated task for output
-RESTORED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+    # Update task(s) to pending status
+    UPDATED_TODO=$(jq --argjson ids "$TASKS_TO_RESTORE" \
+        --arg ts "$TIMESTAMP" \
+        --arg note "$RESTORE_NOTE" '
+        .tasks |= map(
+            if ([.id] | inside($ids)) then
+                .status = "pending" |
+                del(.cancelledAt) |
+                del(.cancellationReason) |
+                del(.cancelReason) |
+                .notes = ((.notes // []) + [$note]) |
+                .updatedAt = $ts
+            else . end
+        )
+    ' "$TODO_FILE")
+
+    # Recalculate checksum
+    NEW_TASKS=$(echo "$UPDATED_TODO" | jq -c '.tasks')
+    NEW_CHECKSUM=$(echo "$NEW_TASKS" | sha256sum | cut -c1-16)
+
+    FINAL_JSON=$(echo "$UPDATED_TODO" | jq --arg checksum "$NEW_CHECKSUM" --arg ts "$TIMESTAMP" '
+        ._meta.checksum = $checksum |
+        .lastUpdated = $ts
+    ')
+
+    # Atomic write
+    if declare -f save_json >/dev/null 2>&1; then
+        if ! save_json "$TODO_FILE" "$FINAL_JSON"; then
+            if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
+                output_error "E_FILE_WRITE_ERROR" "Failed to save todo file" "$EXIT_FILE_ERROR" false "Check file permissions and disk space"
+            else
+                log_error "Failed to save todo file"
+            fi
+            exit "$EXIT_FILE_ERROR"
+        fi
+    else
+        echo "$FINAL_JSON" > "$TODO_FILE"
+    fi
+
+    # Log the operation using log_task_restored if available
+    if declare -f log_task_restored >/dev/null 2>&1; then
+        SESSION_ID=$(jq -r '._meta.activeSession // "null"' "$TODO_FILE")
+        log_task_restored "$TASK_ID" "$ORIGINAL_REASON" "pending" "$SESSION_ID" 2>/dev/null || true
+    elif [[ -f "$LOG_SCRIPT" ]]; then
+        AFTER_STATE="{\"status\":\"pending\"}"
+        "$LOG_SCRIPT" \
+            --action "task_restored_from_cancelled" \
+            --task-id "$TASK_ID" \
+            --before "$BEFORE_STATE" \
+            --after "$AFTER_STATE" \
+            --details "{\"originalReason\":\"$ORIGINAL_REASON\",\"cascade\":$CASCADE,\"restoredCount\":$TOTAL_RESTORE}" \
+            --actor "system" 2>/dev/null || log_warn "Failed to write log entry"
+    fi
+
+    # Get updated task for output
+    RESTORED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+fi
 
 # ============================================================================
 # OUTPUT
@@ -598,6 +687,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson restoredTasks "$TASKS_TO_RESTORE" \
         --argjson cascadeRestored "$CASCADE" \
         --argjson cascadeCount "$CASCADE_COUNT" \
+        --argjson fromArchive "$FROM_ARCHIVE" \
         --argjson task "$RESTORED_TASK" \
         '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -612,6 +702,7 @@ if [[ "$FORMAT" == "json" ]]; then
             "restoredAt": $timestamp,
             "previousStatus": "cancelled",
             "newStatus": "pending",
+            "restoredFromArchive": $fromArchive,
             "originalReason": (if $originalReason == "" then null else $originalReason end),
             "originalCancelledAt": (if $cancelledAt == "" then null else $cancelledAt end),
             "restoredTasks": $restoredTasks,
@@ -620,12 +711,19 @@ if [[ "$FORMAT" == "json" ]]; then
             "task": $task
         }'
 else
-    log_info "Task $TASK_ID restored to pending"
+    if [[ "$FROM_ARCHIVE" == true ]]; then
+        log_info "Task $TASK_ID restored from archive to pending"
+    else
+        log_info "Task $TASK_ID restored to pending"
+    fi
     echo ""
     echo -e "${BLUE}Task:${NC} $TASK_TITLE"
     echo -e "${BLUE}ID:${NC} $TASK_ID"
     echo -e "${BLUE}Status:${NC} cancelled -> pending"
     echo -e "${BLUE}Restored:${NC} $TIMESTAMP"
+    if [[ "$FROM_ARCHIVE" == true ]]; then
+        echo -e "${BLUE}Source:${NC} archive"
+    fi
 
     if [[ -n "$ORIGINAL_REASON" ]]; then
         echo ""

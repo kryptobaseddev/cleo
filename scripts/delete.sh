@@ -90,6 +90,12 @@ if [[ -f "$LIB_DIR/cancel-ops.sh" ]]; then
     source "$LIB_DIR/cancel-ops.sh"
 fi
 
+# Source archive-cancel library for immediate archival
+if [[ -f "$LIB_DIR/archive-cancel.sh" ]]; then
+    # shellcheck source=../lib/archive-cancel.sh
+    source "$LIB_DIR/archive-cancel.sh"
+fi
+
 # Fallback exit codes if libraries not loaded
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_INVALID_INPUT:=2}"
@@ -993,9 +999,36 @@ if [[ -f "$LOG_SCRIPT" ]]; then
     fi
 fi
 
-# Get updated task for output
-CANCELLED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+# ============================================================================
+# ARCHIVE CANCELLED TASKS
+# ============================================================================
+
+# Immediately archive cancelled tasks (they are now moved to archive)
+ARCHIVED=false
+ARCHIVE_RESULT=""
+
+if declare -f archive_cancelled_tasks >/dev/null 2>&1; then
+    ARCHIVE_RESULT=$(archive_cancelled_tasks "$DELETED_TASKS" "$TODO_FILE" "$ARCHIVE_FILE" "delete-command" 2>/dev/null)
+    ARCHIVE_SUCCESS=$(echo "$ARCHIVE_RESULT" | jq -r '.success // false')
+    if [[ "$ARCHIVE_SUCCESS" == "true" ]]; then
+        ARCHIVED=true
+        ARCHIVED_COUNT=$(echo "$ARCHIVE_RESULT" | jq -r '.archivedCount // 0')
+        [[ "$FORMAT" != "json" && "$QUIET" != true ]] && log_info "Archived $ARCHIVED_COUNT cancelled task(s)"
+    else
+        [[ "$FORMAT" != "json" ]] && log_warn "Failed to archive cancelled tasks"
+    fi
+fi
+
+# Get cancelled task for output (from archive if archived, otherwise from todo)
 DELETED_COUNT=$(echo "$DELETED_TASKS" | jq 'length')
+
+if [[ "$ARCHIVED" == "true" ]]; then
+    # Task is now in archive, get it from there
+    CANCELLED_TASK=$(jq --arg id "$TASK_ID" '.archivedTasks[] | select(.id == $id)' "$ARCHIVE_FILE" 2>/dev/null || echo '{}')
+else
+    # Task still in todo.json (fallback if archive failed)
+    CANCELLED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+fi
 
 # ============================================================================
 # OUTPUT
@@ -1012,6 +1045,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson orphaned "$ORPHANED_TASKS" \
         --argjson dependents "$DEPENDENTS_AFFECTED" \
         --argjson focusCleared "$FOCUS_CLEARED" \
+        --argjson archived "$ARCHIVED" \
         --argjson task "$CANCELLED_TASK" \
         '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1030,17 +1064,24 @@ if [[ "$FORMAT" == "json" ]]; then
             "orphanedTasks": $orphaned,
             "dependentsAffected": $dependents,
             "focusCleared": $focusCleared,
-            "archived": false,
+            "archived": $archived,
             "task": $task
         }'
 else
-    log_info "Task $TASK_ID cancelled"
+    if [[ "$ARCHIVED" == "true" ]]; then
+        log_info "Task $TASK_ID cancelled and archived"
+    else
+        log_info "Task $TASK_ID cancelled"
+    fi
     echo ""
     echo -e "${BLUE}Task:${NC} $TASK_TITLE"
     echo -e "${BLUE}ID:${NC} $TASK_ID"
     echo -e "${BLUE}Status:${NC} $CURRENT_STATUS -> cancelled"
     echo -e "${BLUE}Reason:${NC} $REASON"
     echo -e "${BLUE}Cancelled:${NC} $TIMESTAMP"
+    if [[ "$ARCHIVED" == "true" ]]; then
+        echo -e "${BLUE}Archived:${NC} yes"
+    fi
 
     if [[ "$DELETED_COUNT" -gt 1 ]]; then
         echo ""

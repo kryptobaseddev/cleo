@@ -452,6 +452,168 @@ EOF
 }
 
 # ============================================================================
+# RESTORE OPERATIONS
+# ============================================================================
+
+# restore_cancelled_from_archive - Restore a cancelled task from archive to todo
+#
+# Moves a cancelled task from todo-archive.json back to todo.json,
+# setting status to pending and preserving history.
+#
+# Args:
+#   $1 - Task ID (e.g., "T001")
+#   $2 - Path to todo.json
+#   $3 - Path to todo-archive.json
+#   $4 - Restoration note (optional)
+#   $5 - Session ID (optional)
+#
+# Returns: JSON result object with success status and restored task
+# Exit code: 0 on success, non-zero on failure
+restore_cancelled_from_archive() {
+    local task_id="$1"
+    local todo_file="$2"
+    local archive_file="$3"
+    local restore_note="${4:-}"
+    local session_id="${5:-system}"
+
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Validate archive file exists
+    if [[ ! -f "$archive_file" ]]; then
+        echo '{"success": false, "error": "Archive file not found"}'
+        return "${EXIT_FILE_ERROR:-3}"
+    fi
+
+    # Find the task in archive
+    local archived_task
+    archived_task=$(jq --arg id "$task_id" '.archivedTasks[] | select(.id == $id)' "$archive_file")
+    if [[ -z "$archived_task" || "$archived_task" == "null" ]]; then
+        echo '{"success": false, "error": "Task not found in archive"}'
+        return "${EXIT_NOT_FOUND:-4}"
+    fi
+
+    # Verify task was cancelled (not just completed)
+    local status archive_reason
+    status=$(echo "$archived_task" | jq -r '.status')
+    archive_reason=$(echo "$archived_task" | jq -r '._archive.reason // "unknown"')
+    if [[ "$status" != "cancelled" && "$archive_reason" != "cancelled" ]]; then
+        echo "{\"success\": false, \"error\": \"Task was not cancelled (status: $status, reason: $archive_reason)\"}"
+        return "${EXIT_VALIDATION_ERROR:-6}"
+    fi
+
+    # Extract original cancellation info for the note
+    local original_reason cancelled_at
+    original_reason=$(echo "$archived_task" | jq -r '.cancellationReason // ._archive.cancellationDetails.cancellationReason // "No reason provided"')
+    cancelled_at=$(echo "$archived_task" | jq -r '.cancelledAt // ._archive.cancellationDetails.cancelledAt // ""')
+
+    # Build restoration note
+    local full_restore_note="[RESTORED FROM ARCHIVE $timestamp]"
+    if [[ -n "$original_reason" && "$original_reason" != "No reason provided" ]]; then
+        full_restore_note="$full_restore_note Originally cancelled: $original_reason"
+    fi
+    if [[ -n "$restore_note" ]]; then
+        full_restore_note="$full_restore_note | Restored because: $restore_note"
+    fi
+
+    # Prepare the restored task (clean up archive-specific fields)
+    local restored_task
+    restored_task=$(echo "$archived_task" | jq \
+        --arg ts "$timestamp" \
+        --arg note "$full_restore_note" \
+        '
+        # Set status back to pending
+        .status = "pending" |
+
+        # Remove archive metadata
+        del(._archive) |
+
+        # Remove cancellation fields
+        del(.cancelledAt) |
+        del(.cancellationReason) |
+        del(.cancelReason) |
+        del(.completedAt) |
+
+        # Update timestamps
+        .updatedAt = $ts |
+
+        # Add restoration note
+        .notes = ((.notes // []) + [$note])
+        ')
+
+    # Validate todo file exists
+    if [[ ! -f "$todo_file" ]]; then
+        echo '{"success": false, "error": "Todo file not found"}'
+        return "${EXIT_FILE_ERROR:-3}"
+    fi
+
+    # Add task back to todo.json
+    local updated_todo
+    updated_todo=$(jq --argjson task "$restored_task" --arg ts "$timestamp" '
+        .tasks += [$task] |
+        .lastUpdated = $ts
+    ' "$todo_file")
+
+    # Recalculate checksum
+    local new_checksum
+    new_checksum=$(echo "$updated_todo" | jq -c '.tasks' | sha256sum | cut -c1-16)
+    updated_todo=$(echo "$updated_todo" | jq --arg checksum "$new_checksum" '
+        ._meta.checksum = $checksum
+    ')
+
+    # Write updated todo
+    if declare -f save_json >/dev/null 2>&1; then
+        if ! save_json "$todo_file" "$updated_todo"; then
+            echo '{"success": false, "error": "Failed to write todo file"}'
+            return "${EXIT_FILE_ERROR:-3}"
+        fi
+    else
+        echo "$updated_todo" > "$todo_file"
+    fi
+
+    # Remove task from archive
+    local updated_archive
+    updated_archive=$(jq --arg id "$task_id" --arg ts "$timestamp" '
+        # Remove the task from archivedTasks
+        .archivedTasks = [.archivedTasks[] | select(.id != $id)] |
+
+        # Update metadata
+        ._meta.totalArchived = (._meta.totalArchived - 1) |
+        ._meta.lastModified = $ts |
+
+        # Decrement statistics.cancelled
+        .statistics.cancelled = ([(.statistics.cancelled // 1) - 1, 0] | max)
+    ' "$archive_file")
+
+    # Write updated archive
+    if declare -f save_json >/dev/null 2>&1; then
+        if ! save_json "$archive_file" "$updated_archive"; then
+            echo '{"success": false, "error": "Failed to write archive file"}'
+            return "${EXIT_FILE_ERROR:-3}"
+        fi
+    else
+        echo "$updated_archive" > "$archive_file"
+    fi
+
+    # Return success with restored task
+    jq -n \
+        --arg taskId "$task_id" \
+        --arg ts "$timestamp" \
+        --arg originalReason "$original_reason" \
+        --argjson task "$restored_task" \
+        '{
+            "success": true,
+            "taskId": $taskId,
+            "restoredAt": $ts,
+            "restoredFromArchive": true,
+            "originalReason": $originalReason,
+            "task": $task
+        }'
+
+    return 0
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -460,3 +622,4 @@ export -f get_cancel_archive_days
 export -f prepare_cancel_archive_entry
 export -f archive_cancelled_task
 export -f archive_cancelled_tasks
+export -f restore_cancelled_from_archive

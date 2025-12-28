@@ -53,6 +53,7 @@ assert_task_exists() {
 }
 
 # Assert task has specific status
+# For cancelled status, also checks archive since delete now immediately archives
 assert_task_status() {
     local task_id="$1"
     local expected_status="$2"
@@ -60,6 +61,12 @@ assert_task_status() {
 
     local actual_status
     actual_status=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .status' "$todo_file" 2>/dev/null)
+
+    # If checking for cancelled and not found in todo, check archive
+    if [[ "$expected_status" == "cancelled" && -z "$actual_status" ]]; then
+        local archive_file="${ARCHIVE_FILE:-.cleo/todo-archive.json}"
+        actual_status=$(jq -r --arg id "$task_id" '.archivedTasks[] | select(.id == $id) | .status' "$archive_file" 2>/dev/null)
+    fi
 
     if [[ "$actual_status" != "$expected_status" ]]; then
         fail "Task $task_id status: expected '$expected_status', got '$actual_status'"

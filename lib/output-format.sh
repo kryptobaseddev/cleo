@@ -276,20 +276,22 @@ resolve_format() {
 # - active: 96 (bright cyan)
 # - blocked: 33 (yellow)
 # - done: 32 (green)
+# - cancelled: 31 (red)
 #
 # Args:
-#   $1 - Status value (pending|active|blocked|done)
+#   $1 - Status value (pending|active|blocked|done|cancelled)
 #
 # Returns: ANSI color code number
 status_color() {
   local status="$1"
 
   case "$status" in
-    pending) echo "37" ;;  # dim white
-    active)  echo "96" ;;  # bright cyan
-    blocked) echo "33" ;;  # yellow
-    done)    echo "32" ;;  # green
-    *)       echo "0"  ;;  # default/reset
+    pending)   echo "37" ;;  # dim white
+    active)    echo "96" ;;  # bright cyan
+    blocked)   echo "33" ;;  # yellow
+    done)      echo "32" ;;  # green
+    cancelled) echo "31" ;;  # red
+    *)         echo "0"  ;;  # default/reset
   esac
 }
 
@@ -300,15 +302,17 @@ status_color() {
 # - active: ◉ (fisheye)
 # - blocked: ⊗ (circled times)
 # - done: ✓ (check mark)
+# - cancelled: ✗ (ballot x)
 #
 # ASCII fallback:
 # - pending: -
 # - active: *
 # - blocked: x
 # - done: +
+# - cancelled: X
 #
 # Args:
-#   $1 - Status value (pending|active|blocked|done)
+#   $1 - Status value (pending|active|blocked|done|cancelled)
 #   $2 - Use unicode (true|false, default: true)
 #
 # Returns: Status symbol character
@@ -318,19 +322,21 @@ status_symbol() {
 
   if [[ "$unicode" == "true" ]]; then
     case "$status" in
-      pending) echo "○" ;;
-      active)  echo "◉" ;;
-      blocked) echo "⊗" ;;
-      done)    echo "✓" ;;
-      *)       echo "?" ;;
+      pending)   echo "○" ;;
+      active)    echo "◉" ;;
+      blocked)   echo "⊗" ;;
+      done)      echo "✓" ;;
+      cancelled) echo "✗" ;;
+      *)         echo "?" ;;
     esac
   else
     case "$status" in
-      pending) echo "-" ;;
-      active)  echo "*" ;;
-      blocked) echo "x" ;;
-      done)    echo "+" ;;
-      *)       echo "?" ;;
+      pending)   echo "-" ;;
+      active)    echo "*" ;;
+      blocked)   echo "x" ;;
+      done)      echo "+" ;;
+      cancelled) echo "X" ;;
+      *)         echo "?" ;;
     esac
   fi
 }

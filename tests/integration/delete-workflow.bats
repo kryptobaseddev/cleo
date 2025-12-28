@@ -271,44 +271,55 @@ EOF
     run bash "$DELETE_SCRIPT" "$task_id" --reason "No longer needed" --force
     assert_success
 
-    # Verify task is now cancelled
+    # Verify task is now cancelled (assert_task_status checks archive for cancelled)
     assert_task_status "$task_id" "cancelled"
 
-    # Verify cancellation metadata
+    # Verify cancellation metadata in archive
     local cancel_reason
-    cancel_reason=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .cancelReason // .cancellationReason // ""' "$TODO_FILE")
+    cancel_reason=$(jq -r --arg id "$task_id" '.archivedTasks[] | select(.id == $id) | .cancellationReason // ""' "$ARCHIVE_FILE")
     [[ "$cancel_reason" == "No longer needed" ]]
 
     local cancelled_at
-    cancelled_at=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .cancelledAt // ""' "$TODO_FILE")
+    cancelled_at=$(jq -r --arg id "$task_id" '.archivedTasks[] | select(.id == $id) | .cancelledAt // ""' "$ARCHIVE_FILE")
     [[ -n "$cancelled_at" ]]
 }
 
+# Delete now immediately archives - uncancel restores from archive
 @test "lifecycle: add → delete → restore (uncancel)" {
     create_empty_todo
 
-    # Add task
-    bash "$ADD_SCRIPT" "Task for restore test" --description "Will be cancelled then restored" --priority high
+    # Add a task
+    bash "$ADD_SCRIPT" "Restorable task" --description "This can be restored"
     local task_id
     task_id=$(jq -r '.tasks[-1].id' "$TODO_FILE")
 
-    # Delete task
-    bash "$DELETE_SCRIPT" "$task_id" --reason "Testing restore" --force
-
-    # Verify cancelled
-    assert_task_status "$task_id" "cancelled"
-
-    # Restore task
-    run bash "$UNCANCEL_SCRIPT" "$task_id"
+    # Delete the task (will be archived)
+    run bash "$DELETE_SCRIPT" "$task_id" --reason "Temporary removal" --force
     assert_success
 
-    # Verify restored to pending
+    # Verify task is in archive
+    local archived_count
+    archived_count=$(jq --arg id "$task_id" '[.archivedTasks[] | select(.id == $id)] | length' "$ARCHIVE_FILE")
+    [[ "$archived_count" -eq 1 ]]
+
+    # Verify task is NOT in todo
+    local todo_count
+    todo_count=$(jq --arg id "$task_id" '[.tasks[] | select(.id == $id)] | length' "$TODO_FILE")
+    [[ "$todo_count" -eq 0 ]]
+
+    # Restore the task from archive
+    run bash "$UNCANCEL_SCRIPT" "$task_id" --notes "Bringing it back"
+    assert_success
+    assert_output --partial "restored"
+    assert_output --partial "archive"
+
+    # Verify task is back in todo with pending status
+    assert_task_exists "$task_id"
     assert_task_status "$task_id" "pending"
 
-    # Verify restoration note added
-    local notes
-    notes=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .notes[-1] // ""' "$TODO_FILE")
-    [[ "$notes" == *"RESTORED"* ]]
+    # Verify task is removed from archive
+    archived_count=$(jq --arg id "$task_id" '[.archivedTasks[] | select(.id == $id)] | length' "$ARCHIVE_FILE")
+    [[ "$archived_count" -eq 0 ]]
 }
 
 @test "lifecycle: add hierarchy → cascade delete → verify all cancelled" {
@@ -332,9 +343,9 @@ EOF
     run bash "$DELETE_SCRIPT" "$parent_id" --reason "Epic cancelled" --children cascade --force
     assert_success
 
-    # Verify parent and children are cancelled
+    # Verify parent and children are archived with cancelled status
     local cancelled_count
-    cancelled_count=$(jq '[.tasks[] | select(.status == "cancelled")] | length' "$TODO_FILE")
+    cancelled_count=$(jq '[.archivedTasks[] | select(.status == "cancelled")] | length' "$ARCHIVE_FILE")
     [[ "$cancelled_count" -eq 3 ]]
 }
 
@@ -438,24 +449,45 @@ EOF
 # CASCADE DELETE + RESTORE TESTS
 # =============================================================================
 
-@test "cascade: delete parent → restore with cascade → verify hierarchy restored" {
-    create_parent_child_hierarchy
+# Delete now immediately archives - uncancel restores from archive
+@test "cascade: delete parent → restore → verify parent restored from archive" {
+    create_empty_todo
 
-    # Delete parent with cascade (all 4 tasks cancelled)
-    bash "$DELETE_SCRIPT" T001 --reason "Epic cancelled" --children cascade --force
+    # Add parent and children
+    bash "$ADD_SCRIPT" "Epic parent" --description "Parent epic" --priority high
+    local parent_id
+    parent_id=$(jq -r '.tasks[-1].id' "$TODO_FILE")
 
-    # Verify all cancelled
-    assert_task_status "T001" "cancelled"
-    assert_task_status "T002" "cancelled"
+    bash "$ADD_SCRIPT" "Child 1" --description "First child" --parent "$parent_id"
+    bash "$ADD_SCRIPT" "Child 2" --description "Second child" --parent "$parent_id"
 
-    # Restore parent with cascade
-    run bash "$UNCANCEL_SCRIPT" T001 --cascade
+    # Verify initial state (3 tasks)
+    assert_task_count 3
+
+    # Delete parent with cascade (all go to archive)
+    run bash "$DELETE_SCRIPT" "$parent_id" --reason "Epic cancelled" --children cascade --force
     assert_success
 
-    # Verify parent and children restored
-    assert_task_status "T001" "pending"
-    assert_task_status "T002" "pending"
-    assert_task_status "T003" "pending"
+    # Verify all tasks are archived
+    local archived_count
+    archived_count=$(jq '[.archivedTasks[] | select(.status == "cancelled")] | length' "$ARCHIVE_FILE")
+    [[ "$archived_count" -eq 3 ]]
+
+    # Verify todo is empty
+    assert_task_count 0
+
+    # Restore parent from archive
+    run bash "$UNCANCEL_SCRIPT" "$parent_id"
+    assert_success
+    assert_output --partial "archive"
+
+    # Verify parent is back in todo with pending status
+    assert_task_exists "$parent_id"
+    assert_task_status "$parent_id" "pending"
+
+    # Children should still be in archive (no cascade restore yet)
+    archived_count=$(jq '[.archivedTasks[] | select(.status == "cancelled")] | length' "$ARCHIVE_FILE")
+    [[ "$archived_count" -eq 2 ]]
 }
 
 @test "cascade: restore only parent (no cascade) → children stay cancelled" {
@@ -789,9 +821,9 @@ EOF
     run bash "$DELETE_SCRIPT" "$parent_id" --reason "Cascade test" --children cascade --force
     assert_success
 
-    # All tasks should now be cancelled
+    # All tasks should now be archived with cancelled status
     local cancelled_count
-    cancelled_count=$(jq '[.tasks[] | select(.status == "cancelled")] | length' "$TODO_FILE")
+    cancelled_count=$(jq '[.archivedTasks[] | select(.status == "cancelled")] | length' "$ARCHIVE_FILE")
     [[ "$cancelled_count" -eq 4 ]]
 }
 

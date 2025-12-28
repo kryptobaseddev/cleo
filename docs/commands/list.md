@@ -14,13 +14,13 @@ cleo list [OPTIONS]
 
 The `list` command displays tasks from `todo.json` with support for filtering by status, priority, label, and phase. It supports multiple output formats including text, JSON, Markdown, and table views.
 
-By default, completed tasks are hidden. Use `--status done` or `--all` to include them.
+By default, completed and cancelled tasks are hidden. Use `--status done` or `--all` to include completed tasks. Use `--cancelled` to include cancelled tasks, or `--status cancelled` to show only cancelled tasks.
 
 ## Options
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--status STATUS` | `-s` | Filter by status: `pending`, `active`, `blocked`, `done` | Active tasks only |
+| `--status STATUS` | `-s` | Filter by status: `pending`, `active`, `blocked`, `done`, `cancelled` | Active tasks only |
 | `--priority PRIORITY` | `-p` | Filter by priority: `critical`, `high`, `medium`, `low` | |
 | `--label LABEL` | `-l` | Filter by label | |
 | `--phase PHASE` | | Filter by phase slug | |
@@ -28,6 +28,7 @@ By default, completed tasks are hidden. Use `--status done` or `--all` to includ
 | `--until DATE` | | Tasks created before date (ISO 8601) | |
 | `--all` | | Show all tasks including archived | `false` |
 | `--archived` | | Show only archived tasks | `false` |
+| `--cancelled` | | Include cancelled tasks (hidden by default) | `false` |
 | `--format FORMAT` | `-f` | Output format: `text`, `json`, `jsonl`, `markdown`, `table` | `text` |
 | `--sort FIELD` | | Sort by: `status`, `priority`, `createdAt`, `title` | `priority` |
 | `--reverse` | | Reverse sort order | `false` |
