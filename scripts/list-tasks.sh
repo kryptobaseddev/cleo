@@ -320,13 +320,18 @@ if [[ -n "$TASK_TYPE_FILTER" ]]; then
   PRE_FILTER="$PRE_FILTER | select(.type == \"$TASK_TYPE_FILTER\")"
 fi
 
-if [[ -n "$PARENT_FILTER" ]]; then
-  PRE_FILTER="$PRE_FILTER | select(.parentId == \"$PARENT_FILTER\")"
-fi
+# Parent/children filters are applied differently for tree vs list mode:
+# - Tree mode: Don't pre-filter; build full tree then extract subtree
+# - List mode: Pre-filter by parentId for direct children only
+if [[ "$SHOW_TREE" != true ]]; then
+  if [[ -n "$PARENT_FILTER" ]]; then
+    PRE_FILTER="$PRE_FILTER | select(.parentId == \"$PARENT_FILTER\")"
+  fi
 
-if [[ -n "$CHILDREN_OF" ]]; then
-  # --children is same as --parent (filter by parent ID)
-  PRE_FILTER="$PRE_FILTER | select(.parentId == \"$CHILDREN_OF\")"
+  if [[ -n "$CHILDREN_OF" ]]; then
+    # --children is same as --parent (filter by parent ID)
+    PRE_FILTER="$PRE_FILTER | select(.parentId == \"$CHILDREN_OF\")"
+  fi
 fi
 
 # Apply date filters early
@@ -698,8 +703,13 @@ DONE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "done")] | le
 # Build tree structure if --tree flag is set
 TREE_JSON="null"
 if [[ "$SHOW_TREE" == true ]]; then
+    # Determine tree root filter:
+    # - When --parent or --children is used, tasks with that parentId are roots
+    # - Otherwise, tasks with null parentId are roots
+    TREE_ROOT_PARENT="${PARENT_FILTER:-${CHILDREN_OF:-}}"
+
     # Build hierarchical tree from filtered tasks using parentId
-    TREE_JSON=$(echo "$FILTERED_TASKS" | jq '
+    TREE_JSON=$(echo "$FILTERED_TASKS" | jq --arg root_id "$TREE_ROOT_PARENT" '
         # Store the full task list
         . as $tasks |
 
@@ -713,9 +723,36 @@ if [[ "$SHOW_TREE" == true ]]; then
             children: [get_children($task.id)[] | build_tree(.)]
           };
 
-        # Find root tasks
-        [$tasks[] | select(.parentId == null) | build_tree(.)]
+        # Find root tasks based on filter context
+        # When $root_id is set (--parent ID), show subtree rooted at that task ID
+        # Otherwise, roots are tasks with null parentId
+        if ($root_id | length) > 0 then
+          # Find the task with this ID and build its subtree
+          [$tasks[] | select(.id == $root_id) | build_tree(.)]
+        else
+          [$tasks[] | select(.parentId == null) | build_tree(.)]
+        end
     ')
+
+    # When --parent is used, filter FILTERED_TASKS to only include tasks in the subtree
+    # This ensures .tasks[] matches the .tree[] content
+    if [[ -n "$TREE_ROOT_PARENT" ]] && [[ "$TREE_JSON" != "null" ]] && [[ "$TREE_JSON" != "[]" ]]; then
+        # Extract all task IDs from the tree (recursively)
+        SUBTREE_IDS=$(echo "$TREE_JSON" | jq -r '
+            def extract_ids:
+                .id, (.children[]? | extract_ids);
+            .[] | extract_ids
+        ')
+        # Filter FILTERED_TASKS to only include tasks in the subtree
+        FILTERED_TASKS=$(echo "$FILTERED_TASKS" | jq --argjson ids "$(echo "$SUBTREE_IDS" | jq -R -s 'split("\n") | map(select(length > 0))')" \
+            '[.[] | select(.id as $id | $ids | index($id))]')
+        # Update counts
+        TASK_COUNT=$(echo "$FILTERED_TASKS" | jq 'length')
+        PENDING_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "pending")] | length')
+        ACTIVE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "active")] | length')
+        BLOCKED_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "blocked")] | length')
+        DONE_COUNT=$(echo "$FILTERED_TASKS" | jq '[.[] | select(.status == "done")] | length')
+    fi
 fi
 
 # Format output based on selected format
