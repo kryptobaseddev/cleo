@@ -5,6 +5,17 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.1] - 2025-12-28
+
+### Fixed
+- **`--tree --parent ID` shows full subtree** (T925) - Tree view with `--parent` filter now correctly shows the subtree rooted at the specified task ID
+  - Before: Showed "No hierarchy data available" or only direct children
+  - After: Shows the task itself as root with all nested descendants
+  - JSON output: `.tree[0]` contains the root task with nested `.children` arrays
+  - Human output: Proper ASCII tree with Unicode/ASCII connectors (├──, └──, │)
+  - Tasks array (`.tasks[]`) is filtered to match tree content
+  - All 2209 tests passing
+
 ## [0.39.0] - 2025-12-28
 
 ### Added
