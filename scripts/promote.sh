@@ -92,7 +92,7 @@ OLD_TYPE=$(echo "$TASK_DATA" | jq -r '.type // "task"')
 # Check if already root
 if [[ -z "$OLD_PARENT" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n --arg id "$TASK_ID" '{"success": true, "taskId": $id, "message": "Task is already root-level"}'
+        jq -nc --arg id "$TASK_ID" '{"success": true, "taskId": $id, "message": "Task is already root-level"}'
     else
         [[ "$QUIET" != true ]] && echo "$TASK_ID is already a root task"
     fi
@@ -130,7 +130,7 @@ if save_json "$TODO_FILE" "$UPDATED_JSON"; then
     fi
 
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg taskId "$TASK_ID" \
             --arg oldParent "$OLD_PARENT" \

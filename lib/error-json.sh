@@ -147,7 +147,7 @@ output_error_json() {
 
     # Build JSON using jq
     # shellcheck disable=SC2086
-    jq -n $jq_opts \
+    jq -nc $jq_opts \
         --arg version "$version" \
         --arg command "$command" \
         --arg timestamp "$timestamp" \
@@ -289,7 +289,7 @@ output_error_actionable() {
     if [[ "${FORMAT:-text}" == "json" ]]; then
         # Build enhanced JSON with fix and alternatives
         # shellcheck disable=SC2086
-        jq -n $jq_opts \
+        jq -nc $jq_opts \
             --arg version "$version" \
             --arg command "$command" \
             --arg timestamp "$timestamp" \
@@ -365,7 +365,7 @@ output_warning() {
             timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         fi
 
-        jq -n \
+        jq -nc \
             --arg code "$warning_code" \
             --arg msg "$message" \
             --arg sug "$suggestion" \

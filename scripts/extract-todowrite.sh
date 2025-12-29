@@ -290,7 +290,7 @@ analyze_changes() {
     done
 
     # Output as JSON
-    jq -n \
+    jq -nc \
         --argjson completed "$(printf '%s\n' "${completed_ids[@]}" | jq -R . | jq -s .)" \
         --argjson progressed "$(printf '%s\n' "${progressed_ids[@]}" | jq -R . | jq -s .)" \
         --argjson new_tasks "$(printf '%s\n' "${new_tasks[@]}" | jq -R . | jq -s .)" \
@@ -551,7 +551,7 @@ main() {
             else
                 version="0.16.0"
             fi
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 '{
@@ -591,7 +591,7 @@ main() {
         fi
 
         if [[ "$DRY_RUN" == "true" ]]; then
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 --argjson completed "$completed_count" \
@@ -624,7 +624,7 @@ main() {
                 rm -f "$STATE_FILE"
             fi
 
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 --argjson completed "$completed_count" \

@@ -169,7 +169,7 @@ handle_children_block() {
         child_ids_json=$(echo "$children" | tr ' ' '\n' | jq -R . | jq -s .)
 
         # Return error JSON
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             --argjson count "$child_count" \
             --argjson children "$child_ids_json" \
@@ -188,7 +188,7 @@ handle_children_block() {
     fi
 
     # No children - success
-    jq -n \
+    jq -nc \
         --arg task_id "$task_id" \
         '{
             "success": true,
@@ -232,7 +232,7 @@ handle_children_cascade() {
 
     # Acquire lock before reading/modifying file
     if ! lock_fd=$(_ds_acquire_task_lock "$todo_file"); then
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": false,
@@ -252,7 +252,7 @@ handle_children_cascade() {
     if [[ -z "$children" ]]; then
         # Leaf task - no children to cascade
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": true,
@@ -269,7 +269,7 @@ handle_children_cascade() {
     allow_cascade=$(get_allow_cascade)
     if [[ "$allow_cascade" != "true" ]]; then
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": false,
@@ -303,7 +303,7 @@ handle_children_cascade() {
         descendant_ids_json=$(echo "$descendants" | tr ' ' '\n' | jq -R . | jq -s .)
 
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             --argjson count "$descendant_count" \
             --argjson threshold "$threshold" \
@@ -357,7 +357,7 @@ handle_children_cascade() {
 
     if [[ $? -ne 0 ]]; then
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": false,
@@ -373,7 +373,7 @@ handle_children_cascade() {
     # Save atomically
     if ! save_json "$todo_file" "$updated_json"; then
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": false,
@@ -391,7 +391,7 @@ handle_children_cascade() {
 
     # Log the cascade operation
     local details
-    details=$(jq -n \
+    details=$(jq -nc \
         --arg task_id "$task_id" \
         --argjson count "$descendant_count" \
         --argjson ids "$(echo "${affected_ids[@]}" | tr ' ' '\n' | jq -R . | jq -s .)" \
@@ -405,7 +405,7 @@ handle_children_cascade() {
     _ds_log_operation "task_cascade_cancelled" "system" "$task_id" "null" "null" "$details"
 
     # Return success with affected tasks
-    jq -n \
+    jq -nc \
         --arg task_id "$task_id" \
         --argjson count "$descendant_count" \
         --argjson affected "$(echo "${affected_ids[@]}" | tr ' ' '\n' | jq -R . | jq -s .)" \
@@ -449,7 +449,7 @@ handle_children_orphan() {
 
     # Acquire lock before reading/modifying file
     if ! lock_fd=$(_ds_acquire_task_lock "$todo_file"); then
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": false,
@@ -469,7 +469,7 @@ handle_children_orphan() {
     if [[ -z "$children" ]]; then
         # No children to orphan
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": true,
@@ -505,7 +505,7 @@ handle_children_orphan() {
 
     if [[ $? -ne 0 ]]; then
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": false,
@@ -521,7 +521,7 @@ handle_children_orphan() {
     # Save atomically
     if ! save_json "$todo_file" "$updated_json"; then
         _ds_release_task_lock "$lock_fd"
-        jq -n \
+        jq -nc \
             --arg task_id "$task_id" \
             '{
                 "success": false,
@@ -545,7 +545,7 @@ handle_children_orphan() {
 
     # Log the orphan operation
     local details
-    details=$(jq -n \
+    details=$(jq -nc \
         --arg task_id "$task_id" \
         --argjson count "$child_count" \
         --argjson ids "$(echo "${affected_ids[@]}" | tr ' ' '\n' | jq -R . | jq -s .)" \
@@ -559,7 +559,7 @@ handle_children_orphan() {
     _ds_log_operation "task_children_orphaned" "system" "$task_id" "null" "null" "$details"
 
     # Return success with orphaned tasks
-    jq -n \
+    jq -nc \
         --arg task_id "$task_id" \
         --argjson count "$child_count" \
         --argjson affected "$(echo "${affected_ids[@]}" | tr ' ' '\n' | jq -R . | jq -s .)" \

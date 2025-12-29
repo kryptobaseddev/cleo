@@ -81,7 +81,7 @@ get_session_context() {
   session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE" 2>/dev/null)
   next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE" 2>/dev/null)
 
-  jq -n \
+  jq -nc \
     --arg sessionId "$session_id" \
     --arg focusTask "$focus_task" \
     --arg sessionNote "$session_note" \
@@ -242,7 +242,7 @@ get_hierarchy_context_json() {
   if [[ "$parent_id" != "null" && -n "$parent_id" ]]; then
     local parent_title
     parent_title=$(jq -r --arg id "$parent_id" '.tasks[] | select(.id == $id) | .title // ""' "$file" 2>/dev/null)
-    parent_obj=$(jq -n --arg id "$parent_id" --arg title "$parent_title" '{"id": $id, "title": $title}')
+    parent_obj=$(jq -nc --arg id "$parent_id" --arg title "$parent_title" '{"id": $id, "title": $title}')
   fi
 
   # Get depth
@@ -262,7 +262,7 @@ get_hierarchy_context_json() {
     child_count=$(echo "$children" | wc -w | tr -d ' ')
 
     # Build JSON array of children with id and title
-    children_json=$(jq -n '[]')
+    children_json=$(jq -nc '[]')
     for child_id in $children; do
       local child_title
       child_title=$(jq -r --arg id "$child_id" '.tasks[] | select(.id == $id) | .title // ""' "$file" 2>/dev/null)
@@ -270,7 +270,7 @@ get_hierarchy_context_json() {
     done
   fi
 
-  jq -n \
+  jq -nc \
     --argjson parent "$parent_obj" \
     --argjson depth "$depth" \
     --argjson childCount "$child_count" \
@@ -605,7 +605,7 @@ display_json() {
   fi
 
   # Output with standard schema and meta wrapper
-  jq -n \
+  jq -nc \
     --arg version "$version" \
     --arg timestamp "$timestamp" \
     --argjson task "$task_data" \

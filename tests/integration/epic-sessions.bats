@@ -867,9 +867,9 @@ EOF
     run bash "$SCRIPTS_DIR/session.sh" show session_20251228_100000_abc123 --format json
     assert_success
 
-    # Verify JSON structure
+    # Verify JSON structure (compact JSON has no spaces after colons)
     assert_valid_json
-    assert_output --partial '"success": true'
+    assert_output --partial '"success":true'
     assert_output --partial '"session":'
 }
 
@@ -915,8 +915,8 @@ EOF
     run bash "$SCRIPTS_DIR/session.sh" start --scope epic:T001 --focus T002 --dry-run --format json
     assert_success
 
-    # Verify dry run output
-    assert_output --partial '"dryRun": true'
+    # Verify dry run output (compact JSON has no spaces after colons)
+    assert_output --partial '"dryRun":true'
     assert_output --partial "T001"
     assert_output --partial "T002"
 

@@ -244,7 +244,7 @@ require_active_session() {
                         "${EXIT_SESSION_REQUIRED:-36}" \
                         "{\"operation\":\"$operation\",\"enforcementMode\":\"strict\"}"
                 else
-                    jq -n \
+                    jq -nc \
                         --arg op "$operation" \
                         '{
                             "success": false,
@@ -350,7 +350,7 @@ validate_task_in_scope() {
                         "${EXIT_TASK_NOT_IN_SCOPE:-34}" \
                         "{\"taskId\":\"$task_id\",\"sessionId\":\"$session_id\",\"epicId\":\"$epic_id\"}"
                 else
-                    jq -n \
+                    jq -nc \
                         --arg tid "$task_id" \
                         --arg sid "$session_id" \
                         --arg eid "$epic_id" \

@@ -312,7 +312,7 @@ list_blocked_tasks() {
       local current_timestamp
       current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-      jq -n --argjson tasks "$blocked_tasks" \
+      jq -nc --argjson tasks "$blocked_tasks" \
         --arg version "$VERSION" \
         --arg timestamp "$current_timestamp" \
         --argjson count "$count" '{
@@ -491,7 +491,7 @@ analyze_blocking_chains() {
   local quick_wins
   quick_wins=$(echo "$analysis" | jq '[.[] | select(.chainDepth <= 1)] | sort_by(.chainDepth) | .[0:3] | map({id, title, chainDepth, reason: "Short dependency chain - quick to unblock"})')
 
-  recommendations=$(jq -n --argjson impact "$high_impact" --argjson quick "$quick_wins" '
+  recommendations=$(jq -nc --argjson impact "$high_impact" --argjson quick "$quick_wins" '
     {
       highImpact: $impact,
       quickWins: $quick
@@ -504,7 +504,7 @@ analyze_blocking_chains() {
       local current_timestamp
       current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-      jq -n --argjson tasks "$analysis" \
+      jq -nc --argjson tasks "$analysis" \
         --arg version "$VERSION" \
         --arg timestamp "$current_timestamp" \
         --argjson count "$count" \

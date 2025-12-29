@@ -111,7 +111,7 @@ prepare_cancel_archive_entry() {
     local created_at
     created_at=$(echo "$task_json" | jq -r '.createdAt // empty')
     if [[ -n "$created_at" && -n "$cancelled_at" ]]; then
-        cycle_time_days=$(jq -n \
+        cycle_time_days=$(jq -nc \
             --arg created "$created_at" \
             --arg cancelled "$cancelled_at" \
             '((($cancelled | fromdateiso8601) - ($created | fromdateiso8601)) / 86400 | floor)'
@@ -286,7 +286,7 @@ EOF
     fi
 
     # Return success
-    jq -n \
+    jq -nc \
         --arg taskId "$task_id" \
         --arg ts "$timestamp" \
         '{
@@ -436,7 +436,7 @@ EOF
     fi
 
     # Return success
-    jq -n \
+    jq -nc \
         --argjson ids "$task_ids_json" \
         --argjson count "$archive_count" \
         --arg ts "$timestamp" \
@@ -596,7 +596,7 @@ restore_cancelled_from_archive() {
     fi
 
     # Return success with restored task
-    jq -n \
+    jq -nc \
         --arg taskId "$task_id" \
         --arg ts "$timestamp" \
         --arg originalReason "$original_reason" \

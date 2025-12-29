@@ -191,7 +191,7 @@ build_validation_result() {
     local warnings="${4:-"[]"}"
     local task_info="${5:-"{}"}"
 
-    jq -n \
+    jq -nc \
         --argjson success "$success" \
         --argjson canProceed "$can_proceed" \
         --argjson validationErrors "$errors" \
@@ -214,13 +214,13 @@ build_validation_error() {
     local suggestion="${3:-}"
 
     if [[ -n "$suggestion" ]]; then
-        jq -n \
+        jq -nc \
             --arg field "$field" \
             --arg message "$message" \
             --arg suggestion "$suggestion" \
             '{field: $field, message: $message, suggestion: $suggestion}'
     else
-        jq -n \
+        jq -nc \
             --arg field "$field" \
             --arg message "$message" \
             '{field: $field, message: $message}'
@@ -339,7 +339,7 @@ preflight_delete_check() {
         descendant_count=$(count_all_descendants "$task_id" "$todo_file")
     fi
 
-    task_info=$(jq -n \
+    task_info=$(jq -nc \
         --argjson hasChildren "$has_children" \
         --argjson childCount "$child_count" \
         --argjson descendantCount "$descendant_count" \
@@ -455,7 +455,7 @@ preflight_delete_check() {
             else
                 # In TTY mode, we can prompt interactively - add warning
                 local warning
-                warning=$(jq -n --argjson count "$child_count" \
+                warning=$(jq -nc --argjson count "$child_count" \
                     '{type: "interactive_prompt_needed", message: ("Task has " + ($count | tostring) + " children - will prompt for action")}')
                 warnings=$(echo "$warnings" | jq --argjson warn "$warning" '. + [$warn]')
             fi
@@ -513,7 +513,7 @@ preflight_delete_check() {
             else
                 # Force flag is set - add warning but allow
                 local warning
-                warning=$(jq -n --argjson count "$descendant_count" --argjson limit "$cascade_limit" \
+                warning=$(jq -nc --argjson count "$descendant_count" --argjson limit "$cascade_limit" \
                     '{type: "cascade_limit_override", message: ("Force flag set - will delete " + ($count | tostring) + " descendants (limit was " + ($limit | tostring) + ")")}')
                 warnings=$(echo "$warnings" | jq --argjson warn "$warning" '. + [$warn]')
             fi
@@ -686,7 +686,7 @@ check_focus_impact() {
     fi
 
     # Build result JSON
-    jq -n \
+    jq -nc \
         --argjson focusCleared "$focus_cleared" \
         --argjson phaseCleared "$phase_cleared" \
         --arg currentFocus "$current_focus" \

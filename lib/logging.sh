@@ -254,7 +254,7 @@ create_log_entry() {
     timestamp=$(get_timestamp)
 
     # Build JSON entry using jq
-    jq -n \
+    jq -nc \
         --arg id "$log_id" \
         --arg ts "$timestamp" \
         --arg action "$action" \
@@ -539,7 +539,7 @@ log_task_created() {
     local session_id="${3:-null}"
     local details
 
-    details=$(jq -n --arg content "$task_content" '{content: $content}')
+    details=$(jq -nc --arg content "$task_content" '{content: $content}')
     log_operation "task_created" "claude" "$task_id" "null" "null" "$details" "$session_id"
 }
 
@@ -552,8 +552,8 @@ log_status_changed() {
     local before
     local after
 
-    before=$(jq -n --arg status "$old_status" '{status: $status}')
-    after=$(jq -n --arg status "$new_status" '{status: $status}')
+    before=$(jq -nc --arg status "$old_status" '{status: $status}')
+    after=$(jq -nc --arg status "$new_status" '{status: $status}')
     log_operation "status_changed" "claude" "$task_id" "$before" "$after" "null" "$session_id"
 }
 
@@ -566,7 +566,7 @@ log_task_updated() {
     local session_id="${5:-null}"
     local details
 
-    details=$(jq -n \
+    details=$(jq -nc \
         --arg field "$field" \
         --arg old "$old_value" \
         --arg new "$new_value" \
@@ -606,7 +606,7 @@ log_error() {
     local task_id="${4:-null}"
     local details
 
-    details=$(jq -n \
+    details=$(jq -nc \
         --arg code "$error_code" \
         --arg message "$error_message" \
         --argjson recoverable "$recoverable" \
@@ -628,9 +628,9 @@ log_phase_changed() {
     local after
     local details
 
-    before=$(jq -n --arg phase "$old_phase" '{currentPhase: $phase}')
-    after=$(jq -n --arg phase "$new_phase" '{currentPhase: $phase}')
-    details=$(jq -n --arg from "$old_phase" --arg to "$new_phase" '{transitionType: "set", fromPhase: $from, toPhase: $to}')
+    before=$(jq -nc --arg phase "$old_phase" '{currentPhase: $phase}')
+    after=$(jq -nc --arg phase "$new_phase" '{currentPhase: $phase}')
+    details=$(jq -nc --arg from "$old_phase" --arg to "$new_phase" '{transitionType: "set", fromPhase: $from, toPhase: $to}')
 
     log_operation "phase_changed" "human" "null" "$before" "$after" "$details" "$session_id"
 }
@@ -646,9 +646,9 @@ log_phase_started() {
     local timestamp
 
     timestamp=$(get_timestamp)
-    before=$(jq -n --arg slug "$phase" '{phase: {slug: $slug, status: "pending"}}')
-    after=$(jq -n --arg slug "$phase" --arg ts "$timestamp" '{phase: {slug: $slug, status: "active", startedAt: $ts}}')
-    details=$(jq -n --arg slug "$phase" '{phase: $slug, action: "start"}')
+    before=$(jq -nc --arg slug "$phase" '{phase: {slug: $slug, status: "pending"}}')
+    after=$(jq -nc --arg slug "$phase" --arg ts "$timestamp" '{phase: {slug: $slug, status: "active", startedAt: $ts}}')
+    details=$(jq -nc --arg slug "$phase" '{phase: $slug, action: "start"}')
 
     log_operation "phase_started" "human" "null" "$before" "$after" "$details" "$session_id"
 }
@@ -666,8 +666,8 @@ log_phase_completed() {
     local duration_days
 
     timestamp=$(get_timestamp)
-    before=$(jq -n --arg slug "$phase" --arg started "$started_at" '{phase: {slug: $slug, status: "active", startedAt: $started}}')
-    after=$(jq -n --arg slug "$phase" --arg started "$started_at" --arg completed "$timestamp" '{phase: {slug: $slug, status: "completed", startedAt: $started, completedAt: $completed}}')
+    before=$(jq -nc --arg slug "$phase" --arg started "$started_at" '{phase: {slug: $slug, status: "active", startedAt: $started}}')
+    after=$(jq -nc --arg slug "$phase" --arg started "$started_at" --arg completed "$timestamp" '{phase: {slug: $slug, status: "completed", startedAt: $started, completedAt: $completed}}')
 
     # Calculate duration if possible
     if [[ "$started_at" != "null" && -n "$started_at" ]]; then
@@ -676,9 +676,9 @@ log_phase_completed() {
         start_epoch=$(date -d "$started_at" +%s 2>/dev/null || echo 0)
         end_epoch=$(date +%s)
         duration_days=$(( (end_epoch - start_epoch) / 86400 ))
-        details=$(jq -n --arg slug "$phase" --argjson days "$duration_days" '{phase: $slug, action: "complete", durationDays: $days}')
+        details=$(jq -nc --arg slug "$phase" --argjson days "$duration_days" '{phase: $slug, action: "complete", durationDays: $days}')
     else
-        details=$(jq -n --arg slug "$phase" '{phase: $slug, action: "complete"}')
+        details=$(jq -nc --arg slug "$phase" '{phase: $slug, action: "complete"}')
     fi
 
     log_operation "phase_completed" "human" "null" "$before" "$after" "$details" "$session_id"
@@ -695,13 +695,13 @@ log_phase_rollback() {
     local after
     local details
 
-    before=$(jq -n --arg phase "$from_phase" '{currentPhase: $phase}')
-    after=$(jq -n --arg phase "$to_phase" '{currentPhase: $phase}')
+    before=$(jq -nc --arg phase "$from_phase" '{currentPhase: $phase}')
+    after=$(jq -nc --arg phase "$to_phase" '{currentPhase: $phase}')
 
     if [[ -n "$reason" ]]; then
-        details=$(jq -n --arg from "$from_phase" --arg to "$to_phase" --arg reason "$reason" '{transitionType: "rollback", fromPhase: $from, toPhase: $to, reason: $reason}')
+        details=$(jq -nc --arg from "$from_phase" --arg to "$to_phase" --arg reason "$reason" '{transitionType: "rollback", fromPhase: $from, toPhase: $to, reason: $reason}')
     else
-        details=$(jq -n --arg from "$from_phase" --arg to "$to_phase" '{transitionType: "rollback", fromPhase: $from, toPhase: $to}')
+        details=$(jq -nc --arg from "$from_phase" --arg to "$to_phase" '{transitionType: "rollback", fromPhase: $from, toPhase: $to}')
     fi
 
     log_operation "phase_rollback" "human" "null" "$before" "$after" "$details" "$session_id"
@@ -716,17 +716,17 @@ log_phase_deleted() {
     local after
     local details
 
-    before=$(jq -n --arg phase "$phase_slug" '{deletedPhase: $phase}')
-    after=$(jq -n '{deletedPhase: null}')
+    before=$(jq -nc --arg phase "$phase_slug" '{deletedPhase: $phase}')
+    after=$(jq -nc '{deletedPhase: null}')
 
     if [[ "$reassign_to" != "none" ]]; then
-        details=$(jq -n \
+        details=$(jq -nc \
             --arg phase "$phase_slug" \
             --arg reassign "$reassign_to" \
             --argjson count "$task_count" \
             '{operation: "delete", deletedPhase: $phase, tasksReassigned: $count, reassignedTo: $reassign}')
     else
-        details=$(jq -n --arg phase "$phase_slug" '{operation: "delete", deletedPhase: $phase}')
+        details=$(jq -nc --arg phase "$phase_slug" '{operation: "delete", deletedPhase: $phase}')
     fi
 
     log_operation "phase_deleted" "system" "null" "$before" "$after" "$details" "$session_id"
@@ -906,10 +906,10 @@ log_task_cancelled() {
     cascade_count=$(echo "$affected_ids" | jq 'length - 1')
     [[ "$cascade_count" -lt 0 ]] && cascade_count=0
 
-    before=$(jq -n --arg status "$original_status" '{status: $status}')
-    after=$(jq -n '{status: "cancelled"}')
+    before=$(jq -nc --arg status "$original_status" '{status: $status}')
+    after=$(jq -nc '{status: "cancelled"}')
 
-    details=$(jq -n \
+    details=$(jq -nc \
         --arg reason "$reason" \
         --arg mode "$child_mode" \
         --argjson affected "$affected_ids" \
@@ -940,11 +940,11 @@ log_task_restored() {
     local after
     local details
 
-    before=$(jq -n '{status: "cancelled"}')
-    after=$(jq -n --arg status "$new_status" '{status: $status}')
+    before=$(jq -nc '{status: "cancelled"}')
+    after=$(jq -nc --arg status "$new_status" '{status: $status}')
 
     if [[ -n "$original_reason" ]]; then
-        details=$(jq -n \
+        details=$(jq -nc \
             --arg reason "$original_reason" \
             --arg new_status "$new_status" \
             '{
@@ -953,7 +953,7 @@ log_task_restored() {
                 restoredToStatus: $new_status
             }')
     else
-        details=$(jq -n --arg new_status "$new_status" '{
+        details=$(jq -nc --arg new_status "$new_status" '{
             restoredFrom: "cancelled",
             restoredToStatus: $new_status
         }')
@@ -975,7 +975,7 @@ log_dependency_removed() {
     local session_id="${4:-null}"
     local details
 
-    details=$(jq -n \
+    details=$(jq -nc \
         --arg removed "$removed_dep_id" \
         --arg reason "$reason" \
         '{

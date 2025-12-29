@@ -1194,7 +1194,7 @@ compare_phases_structure() {
     actual=$(jq '.project.phases // {}' "$file" 2>/dev/null)
 
     # Use jq to compare and find discrepancies
-    jq -n --argjson canonical "$canonical" --argjson actual "$actual" '
+    jq -nc --argjson canonical "$canonical" --argjson actual "$actual" '
         ($canonical | keys) as $canonical_keys |
         ($actual | keys) as $actual_keys |
         {
@@ -1252,7 +1252,7 @@ get_repair_actions() {
     [[ "$has_next_action" == "missing" ]] && focus_issues+=("nextAction")
 
     # Output summary
-    jq -n \
+    jq -nc \
         --argjson phase_diff "$phase_diff" \
         --argjson meta_issues "$(printf '%s\n' "${meta_issues[@]:-}" | jq -R . | jq -s .)" \
         --argjson focus_issues "$(printf '%s\n' "${focus_issues[@]:-}" | jq -R . | jq -s .)" \

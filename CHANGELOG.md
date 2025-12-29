@@ -5,6 +5,20 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.3] - 2025-12-29
+
+### Changed
+- **Compact JSON output by default** - All JSON output now uses compact format (single line)
+  - LLM agents benefit from compact output: prevents truncation issues like "+N lines"
+  - All `jq -n` calls changed to `jq -nc` across all scripts and libraries
+  - Human users can pipe through `| jq .` for pretty-printed output if needed
+  - Aligned with LLM-Agent-First design principle
+
+### Fixed
+- **Test assertions for compact JSON** - Updated tests expecting pretty-printed JSON
+  - `'"success": true'` → `'"success":true'` (no space after colon in compact JSON)
+  - Affected tests: session show JSON structure, dry run assertions
+
 ## [0.41.2] - 2025-12-29
 
 ### Fixed

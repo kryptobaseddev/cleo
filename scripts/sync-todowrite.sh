@@ -185,7 +185,7 @@ handle_status() {
             local timestamp version
             timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             version=$(cat "${SCRIPT_DIR}/../VERSION" 2>/dev/null || echo "0.15.0")
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$timestamp" \
                 --arg state_file "$STATE_FILE" \
@@ -228,7 +228,7 @@ handle_status() {
         local timestamp version
         timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         version=$(cat "${SCRIPT_DIR}/../VERSION" 2>/dev/null || echo "0.15.0")
-        jq -n \
+        jq -nc \
             --arg version "$version" \
             --arg timestamp "$timestamp" \
             --arg state_file "$STATE_FILE" \
@@ -285,7 +285,7 @@ handle_clear() {
             local timestamp version
             timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             version=$(cat "${SCRIPT_DIR}/../VERSION" 2>/dev/null || echo "0.15.0")
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$timestamp" \
                 '{
@@ -312,7 +312,7 @@ handle_clear() {
             local timestamp version
             timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             version=$(cat "${SCRIPT_DIR}/../VERSION" 2>/dev/null || echo "0.15.0")
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$timestamp" \
                 --arg state_file "$STATE_FILE" \
@@ -345,7 +345,7 @@ handle_clear() {
         local timestamp version
         timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         version=$(cat "${SCRIPT_DIR}/../VERSION" 2>/dev/null || echo "0.15.0")
-        jq -n \
+        jq -nc \
             --arg version "$version" \
             --arg timestamp "$timestamp" \
             --arg state_file "$STATE_FILE" \

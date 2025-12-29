@@ -147,7 +147,7 @@ fi
 if [[ ! -f "$ARCHIVE_FILE" ]]; then
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg ts "$TIMESTAMP" \
             --arg ver "${CLEO_VERSION:-$(get_version 2>/dev/null || echo unknown)}" \
             --arg report "$REPORT_TYPE" \
@@ -419,7 +419,7 @@ VERSION="${CLEO_VERSION:-$(get_version 2>/dev/null || echo unknown)}"
 # Build filter info for output
 FILTER_INFO="null"
 if [[ -n "$SINCE_DATE" || -n "$UNTIL_DATE" ]]; then
-    FILTER_INFO=$(jq -n \
+    FILTER_INFO=$(jq -nc \
         --arg since "${SINCE_DATE:-null}" \
         --arg until "${UNTIL_DATE:-null}" \
         '{since: (if $since == "null" then null else $since end), until: (if $until == "null" then null else $until end)}')
@@ -427,7 +427,7 @@ fi
 
 # Output based on format
 if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
         --arg ts "$TIMESTAMP" \
         --arg ver "$VERSION" \
         --arg report "$REPORT_TYPE" \

@@ -596,7 +596,7 @@ output_json_format() {
             local current_timestamp
             current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-            jq -n --argjson tasks "$tasks_with_deps" \
+            jq -nc --argjson tasks "$tasks_with_deps" \
                 --argjson graph "$graph" \
                 --argjson reverse "$reverse_graph" \
                 --arg timestamp "$current_timestamp" \
@@ -624,7 +624,7 @@ output_json_format() {
             local current_timestamp
             current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-            jq -n --arg id "$task_id" \
+            jq -nc --arg id "$task_id" \
                 --argjson deps "$deps" \
                 --argjson dependents "$dependents" \
                 --arg timestamp "$current_timestamp" \

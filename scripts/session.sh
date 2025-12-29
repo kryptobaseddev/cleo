@@ -316,12 +316,12 @@ parse_scope_string() {
   if [[ "$scope_type" == "custom" ]]; then
     local task_ids
     task_ids=$(echo "$root_id" | tr ',' '\n' | jq -R . | jq -sc .)
-    jq -n --arg type "$scope_type" --argjson ids "$task_ids" '{
+    jq -nc --arg type "$scope_type" --argjson ids "$task_ids" '{
       type: $type,
       taskIds: $ids
     }'
   else
-    jq -n --arg type "$scope_type" --arg root "$root_id" '{
+    jq -nc --arg type "$scope_type" --arg root "$root_id" '{
       type: $type,
       rootTaskId: $root
     }'
@@ -455,7 +455,7 @@ cmd_start() {
   # Handle --dry-run mode
   if [[ "$DRY_RUN" == "true" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg sid "$session_id" \
         --arg ts "$timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
@@ -625,7 +625,7 @@ cmd_start_multi_session() {
     preview_id=$(generate_session_id)
 
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg sid "$preview_id" \
         --arg ts "$timestamp" \
         --argjson scope "$scope_def" \
@@ -773,7 +773,7 @@ cmd_end() {
   # Handle --dry-run mode
   if [[ "$DRY_RUN" == "true" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg sid "$current_session" \
         --arg ts "$timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
@@ -833,7 +833,7 @@ cmd_end() {
     log_id="log_$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n')"
     local details_json
     if [[ -n "$note" ]]; then
-      details_json=$(jq -n --arg note "$note" '{note: $note}')
+      details_json=$(jq -nc --arg note "$note" '{note: $note}')
     else
       details_json="null"
     fi
@@ -919,7 +919,7 @@ cmd_status() {
     local current_timestamp
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    jq -n \
+    jq -nc \
       --arg timestamp "$current_timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg session "$session_id" \
@@ -1247,7 +1247,7 @@ cmd_list() {
 
   if [[ ! -f "$sessions_file" ]]; then
     if [[ "$output_format" == "json" ]]; then
-      jq -n '{
+      jq -nc '{
         "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "success": true,
         "sessions": [],
@@ -1265,7 +1265,7 @@ cmd_list() {
   if [[ "$output_format" == "json" ]]; then
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    jq -n \
+    jq -nc \
       --arg ts "$timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --argjson sessions "$sessions" \
@@ -1336,7 +1336,7 @@ cmd_show_session() {
   if [[ "$output_format" == "json" ]]; then
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    jq -n \
+    jq -nc \
       --arg ts "$timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --argjson session "$session_info" \

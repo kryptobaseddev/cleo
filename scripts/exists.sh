@@ -254,7 +254,7 @@ main() {
   if [[ "$found" == true ]]; then
     if [[ "$QUIET" == false ]]; then
       if [[ "$FORMAT" == "json" ]]; then
-        jq -n --arg id "$task_id" --arg loc "$location" --arg ver "$version" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        jq -nc --arg id "$task_id" --arg loc "$location" --arg ver "$version" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {
@@ -278,7 +278,7 @@ main() {
   else
     if [[ "$QUIET" == false ]]; then
       if [[ "$FORMAT" == "json" ]]; then
-        jq -n --arg id "$task_id" --argjson archive "$INCLUDE_ARCHIVE" --arg ver "$version" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        jq -nc --arg id "$task_id" --argjson archive "$INCLUDE_ARCHIVE" --arg ver "$version" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
           '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {

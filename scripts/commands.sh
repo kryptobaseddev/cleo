@@ -34,8 +34,6 @@ if [[ -n "${CLEO_HOME:-}" ]] && [[ -f "$CLEO_HOME/docs/commands/COMMANDS-INDEX.j
     COMMANDS_INDEX="$CLEO_HOME/docs/commands/COMMANDS-INDEX.json"
 elif [[ -f "${SCRIPT_DIR}/../docs/commands/COMMANDS-INDEX.json" ]]; then
     COMMANDS_INDEX="${SCRIPT_DIR}/../docs/commands/COMMANDS-INDEX.json"
-elif [[ -f "/mnt/projects/claude-todo/docs/commands/COMMANDS-INDEX.json" ]]; then
-    COMMANDS_INDEX="/mnt/projects/claude-todo/docs/commands/COMMANDS-INDEX.json"
 fi
 
 # ============================================================================
@@ -237,7 +235,7 @@ output_json() {
 
     # Build output based on what was requested
     if [[ "$SHOW_WORKFLOWS" == true ]]; then
-        jq -n \
+        jq -nc \
             --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \
@@ -255,7 +253,7 @@ output_json() {
                 "workflows": $index[0].agentWorkflows
             }'
     elif [[ "$SHOW_LOOKUP" == true ]]; then
-        jq -n \
+        jq -nc \
             --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \
@@ -274,7 +272,7 @@ output_json() {
             }'
     elif [[ -n "$COMMAND_NAME_FILTER" ]]; then
         # Single command detail
-        jq -n \
+        jq -nc \
             --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \
@@ -293,7 +291,7 @@ output_json() {
             }'
     else
         # Full commands list
-        jq -n \
+        jq -nc \
             --arg schema "https://cleo-dev.com/schemas/v1/output.schema.json" \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg cmd "$COMMAND_NAME" \

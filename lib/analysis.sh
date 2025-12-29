@@ -279,7 +279,7 @@ get_analysis_summary() {
     tier_groups=$(group_by_tiers "$todo_file") || return 1
 
     # Combine into single JSON object
-    jq -n \
+    jq -nc \
         --argjson leverage "$leverage_scores" \
         --argjson bottlenecks "$bottlenecks" \
         --argjson tiers "$tier_groups" \

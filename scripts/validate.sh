@@ -739,7 +739,7 @@ if jq -e 'if (.project | type) == "object" then .project.phases else null end' "
       ' --arg keep "$SELECTED_PHASE"; then
         # Log the recovery action
         if declare -f log_operation >/dev/null 2>&1; then
-          RECOVERY_DETAILS=$(jq -n \
+          RECOVERY_DETAILS=$(jq -nc \
             --arg selected "$SELECTED_PHASE" \
             --argjson count "$ACTIVE_PHASE_COUNT" \
             --argjson interactive "$IS_INTERACTIVE" \
@@ -949,6 +949,88 @@ elif [[ -f "CLAUDE.md" ]]; then
   fi
 fi
 
+# 12. Check AGENTS.md injection version (same logic as CLAUDE.md)
+if [[ -f "AGENTS.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
+  # Check for versioned CLEO:START tag first, then legacy CLAUDE-TODO:START
+  AGENTS_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
+  HAS_CLEO_TAG=$(grep -q 'CLEO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
+  HAS_LEGACY_TAG=$(grep -q 'CLAUDE-TODO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
+  INSTALLED_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' "$CLEO_HOME/templates/AGENT-INJECTION.md" 2>/dev/null || echo "")
+
+  if [[ "$HAS_LEGACY_TAG" == "true" ]]; then
+    # Has old CLAUDE-TODO:START tag - needs migration to CLEO:START
+    if [[ "$FIX" == true ]]; then
+      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
+      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
+      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
+        echo "  Fixed: Migrated AGENTS.md injection (CLAUDE-TODO → CLEO v${INSTALLED_INJECTION_VERSION})"
+        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
+      else
+        log_warn "AGENTS.md has legacy CLAUDE-TODO tag. Run: cleo init --update-claude-md --target AGENTS.md"
+      fi
+    else
+      log_warn "AGENTS.md has legacy CLAUDE-TODO tag. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
+    fi
+  elif [[ -z "$AGENTS_INJECTION_VERSION" ]] && [[ "$HAS_CLEO_TAG" == "true" ]]; then
+    # Has unversioned CLEO:START - needs version update
+    if [[ "$FIX" == true ]]; then
+      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
+      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
+      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
+        echo "  Fixed: Updated legacy AGENTS.md injection (unversioned → v${INSTALLED_INJECTION_VERSION})"
+        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
+      else
+        log_warn "AGENTS.md has legacy (unversioned) injection. Run: cleo init --update-claude-md --target AGENTS.md"
+      fi
+    else
+      log_warn "AGENTS.md has legacy (unversioned) injection. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
+    fi
+  elif [[ -z "$AGENTS_INJECTION_VERSION" ]]; then
+    # No injection at all
+    if [[ "$FIX" == true ]]; then
+      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
+      if grep -qP 'CLEO:START v[0-9.]+' AGENTS.md 2>/dev/null; then
+        echo "  Fixed: Added AGENTS.md injection (v${INSTALLED_INJECTION_VERSION})"
+        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
+      else
+        log_warn "No cleo injection found in AGENTS.md. Run: cleo init --update-claude-md --target AGENTS.md"
+      fi
+    else
+      log_warn "No cleo injection found in AGENTS.md. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
+    fi
+  elif [[ -n "$INSTALLED_INJECTION_VERSION" ]] && [[ "$AGENTS_INJECTION_VERSION" != "$INSTALLED_INJECTION_VERSION" ]]; then
+    # Has versioned injection but outdated
+    if [[ "$FIX" == true ]]; then
+      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
+      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
+      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
+        echo "  Fixed: Updated AGENTS.md injection (${AGENTS_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION})"
+        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
+      else
+        log_warn "AGENTS.md injection outdated (${AGENTS_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION}). Run: cleo init --update-claude-md --target AGENTS.md"
+      fi
+    else
+      log_warn "AGENTS.md injection outdated (${AGENTS_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION}). Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
+    fi
+  else
+    log_info "AGENTS.md injection current (v${AGENTS_INJECTION_VERSION})" "agents_md"
+  fi
+elif [[ -f "AGENTS.md" ]]; then
+  # AGENTS.md exists but no injection template to compare against
+  HAS_CLEO_TAG=$(grep -q 'CLEO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
+  HAS_LEGACY_TAG=$(grep -q 'CLAUDE-TODO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
+  AGENTS_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
+  if [[ -n "$AGENTS_INJECTION_VERSION" ]]; then
+    log_info "AGENTS.md injection present (v${AGENTS_INJECTION_VERSION})" "agents_md"
+  elif [[ "$HAS_LEGACY_TAG" == "true" ]]; then
+    log_warn "AGENTS.md has legacy CLAUDE-TODO tag. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
+  elif [[ "$HAS_CLEO_TAG" == "true" ]]; then
+    log_warn "AGENTS.md has legacy (unversioned) injection. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
+  else
+    log_warn "AGENTS.md exists but has no cleo injection. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
+  fi
+fi
+
 # Summary
 if [[ "$FORMAT" == "json" ]]; then
   # Don't print blank line for JSON output
@@ -964,7 +1046,7 @@ if [[ "$FORMAT" == "json" ]]; then
     DETAILS_ARRAY=$(printf '%s\n' "${DETAILS_JSON[@]}" | jq -s '.')
   fi
 
-  jq -n \
+  jq -nc \
     --argjson errors "$ERRORS" \
     --argjson warnings "$WARNINGS" \
     --argjson valid "$VALID" \

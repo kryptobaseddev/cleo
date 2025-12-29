@@ -120,10 +120,10 @@ Priority Hierarchy:
   CLI flags > Environment vars > Project config > Global config > Defaults
 
 Environment Variables:
-  CLAUDE_TODO_FORMAT                 Output format override
-  CLAUDE_TODO_OUTPUT_SHOW_COLOR      Enable/disable colors
-  CLAUDE_TODO_ARCHIVE_ENABLED        Enable/disable archiving
-  CLAUDE_TODO_VALIDATION_STRICT_MODE Enable strict validation
+  CLEO_FORMAT                 Output format override
+  CLEO_OUTPUT_SHOW_COLOR      Enable/disable colors
+  CLEO_ARCHIVE_ENABLED        Enable/disable archiving
+  CLEO_VALIDATION_STRICT_MODE Enable strict validation
   (See docs/reference/configuration.md for full list)
 
 Examples:
@@ -155,7 +155,7 @@ output_json() {
     local timestamp
     timestamp=$(get_iso_timestamp 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    jq -n \
+    jq -nc \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         --arg scope "$SCOPE" \
         --arg ts "$timestamp" \
@@ -181,7 +181,7 @@ output_change_json() {
     local timestamp
     timestamp=$(get_iso_timestamp 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    jq -n \
+    jq -nc \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         --arg scope "$SCOPE" \
         --arg ts "$timestamp" \
@@ -274,7 +274,7 @@ cmd_get() {
     if [[ "$FORMAT" == "json" ]]; then
         local timestamp
         timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq -n \
+        jq -nc \
             --arg path "$path" \
             --arg value "$value" \
             --arg timestamp "$timestamp" \
@@ -330,7 +330,7 @@ cmd_set() {
 
     if [[ "$DRY_RUN" == true ]]; then
         if [[ "$FORMAT" == "json" ]]; then
-            jq -n \
+            jq -nc \
                 --arg path "$path" \
                 --arg old "$old_value" \
                 --arg new "$value" \
@@ -410,7 +410,7 @@ cmd_reset() {
 
     if [[ "$DRY_RUN" == true ]]; then
         if [[ "$FORMAT" == "json" ]]; then
-            jq -n --arg section "$section" '{"dryRun": true, "section": (if $section == "" then "all" else $section end), "message": "Would reset to defaults"}'
+            jq -nc --arg section "$section" '{"dryRun": true, "section": (if $section == "" then "all" else $section end), "message": "Would reset to defaults"}'
         else
             echo "[DRY RUN] Would reset ${section:-entire config} to defaults"
         fi
@@ -487,9 +487,9 @@ cmd_validate() {
 
     if [[ "$FORMAT" == "json" ]]; then
         if [[ "$valid" == true ]]; then
-            jq -n '{"valid": true, "errors": []}'
+            jq -nc '{"valid": true, "errors": []}'
         else
-            jq -n --argjson errs "$(printf '%s\n' "${errors[@]}" | jq -R . | jq -s .)" '{"valid": false, "errors": $errs}'
+            jq -nc --argjson errs "$(printf '%s\n' "${errors[@]}" | jq -R . | jq -s .)" '{"valid": false, "errors": $errs}'
         fi
     else
         if [[ "$valid" == true ]]; then

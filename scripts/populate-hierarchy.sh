@@ -129,7 +129,7 @@ fi
 timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
         --arg version "$VERSION" \
         --arg cmd "$COMMAND_NAME" \
         --arg ts "$timestamp" \

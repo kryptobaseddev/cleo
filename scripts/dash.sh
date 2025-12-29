@@ -339,7 +339,7 @@ get_completion_counts() {
     '[.entries[] | select(.action == "status_changed" and .after.status == "done" and .timestamp >= $start)] | length' \
     "$DASH_LOG_FILE" 2>/dev/null || echo "0")
 
-  jq -n --argjson today "$today_count" --argjson week "$week_count" --argjson month "$month_count" \
+  jq -nc --argjson today "$today_count" --argjson week "$week_count" --argjson month "$month_count" \
     '{today: $today, thisWeek: $week, thisMonth: $month}'
 }
 
@@ -363,7 +363,7 @@ get_recent_completions() {
   # Enrich with task titles from archive or current tasks
   local enriched="[]"
   if [[ -f "$ARCHIVE_FILE" ]]; then
-    enriched=$(jq -n --argjson completions "$completions" --slurpfile archive "$ARCHIVE_FILE" --slurpfile todo "$TODO_FILE" '
+    enriched=$(jq -nc --argjson completions "$completions" --slurpfile archive "$ARCHIVE_FILE" --slurpfile todo "$TODO_FILE" '
       $completions | map(
         . as $comp |
         (($archive[0].archivedTasks // [] | map(select(.id == $comp.taskId)) | .[0]) //
@@ -412,7 +412,7 @@ get_activity_metrics() {
     rate=$(echo "scale=0; $completed * 100 / $created" | bc 2>/dev/null || echo "0")
   fi
 
-  jq -n --argjson created "$created" --argjson completed "$completed" --argjson rate "$rate" \
+  jq -nc --argjson created "$created" --argjson completed "$completed" --argjson rate "$rate" \
     '{created: $created, completed: $completed, rate: $rate}'
 }
 
@@ -448,7 +448,7 @@ get_current_phase() {
       phase_name=$(jq -r --arg slug "$current_phase_slug" '.phases[$slug].name // $slug' "$TODO_FILE" 2>/dev/null)
 
       # Return JSON object with slug and name
-      jq -n --arg slug "$current_phase_slug" --arg name "$phase_name" \
+      jq -nc --arg slug "$current_phase_slug" --arg name "$phase_name" \
         '{slug: $slug, name: $name}'
       return
     fi
@@ -1140,7 +1140,7 @@ output_json_format() {
   local session_id
   session_id=$(get_session_status)
 
-  jq -n \
+  jq -nc \
     --arg project "$project" \
     --arg timestamp "$(get_timestamp)" \
     --argjson currentPhase "$current_phase_info" \

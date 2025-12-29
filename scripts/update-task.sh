@@ -1257,7 +1257,7 @@ HAS_CHANGES=$(check_idempotent_no_change)
 if [[ "$HAS_CHANGES" == "false" ]]; then
     # No actual changes - return idempotent success
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg command "$COMMAND_NAME" \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
@@ -1314,7 +1314,7 @@ UPDATED_TASK=$(echo "$UPDATED_TODO" | jq --arg id "$TASK_ID" '.tasks[] | select(
 if [[ "$DRY_RUN" == true ]]; then
   if [[ "$FORMAT" == "json" ]]; then
     # JSON dry-run output (LLM-Agent-First Spec v3.0 compliant)
-    jq -n \
+    jq -nc \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg command "$COMMAND_NAME" \
       --arg timestamp "$TIMESTAMP" \
@@ -1405,7 +1405,7 @@ fi
 # Success output
 if [[ "$FORMAT" == "json" ]]; then
   # JSON success output
-  jq -n \
+  jq -nc \
     --arg version "${CLEO_VERSION:-$(get_version)}" \
     --arg command "$COMMAND_NAME" \
     --arg timestamp "$TIMESTAMP" \

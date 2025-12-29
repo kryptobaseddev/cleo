@@ -317,7 +317,7 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
   if [[ "$FORMAT" == "json" ]]; then
     # JSON output with noChange: true per spec Part 5.6
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    jq -n \
+    jq -nc \
       --arg version "${CLEO_VERSION:-unknown}" \
       --arg timestamp "$TIMESTAMP" \
       --arg taskId "$TASK_ID" \
@@ -381,7 +381,7 @@ if [[ "$DRY_RUN" == true ]]; then
   fi
 
   if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
       --arg version "${CLEO_VERSION:-unknown}" \
       --arg timestamp "$DRY_TIMESTAMP" \
       --arg taskId "$TASK_ID" \
@@ -948,7 +948,7 @@ prompt_session_completion() {
 
   if [[ "$format" == "json" ]]; then
     # JSON output with completion prompt for LLM agents
-    jq -n \
+    jq -nc \
       --arg epicId "$epic_id" \
       --arg epicTitle "$epic_title" \
       --argjson epic "$epic_task" \
@@ -1014,7 +1014,7 @@ if [[ "$FORMAT" == "json" ]]; then
   # Build JSON output with all completion details
   AUTO_COMPLETED_JSON=$(printf '%s\n' "${AUTO_COMPLETED_PARENTS[@]}" | jq -R . | jq -s .)
   
-  jq -n \
+  jq -nc \
     --arg version "${CLEO_VERSION:-unknown}" \
     --arg timestamp "$TIMESTAMP" \
     --arg taskId "$TASK_ID" \
