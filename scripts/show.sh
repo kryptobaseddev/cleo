@@ -66,6 +66,34 @@ SHOW_RELATED=false
 QUIET=false
 COMMAND_NAME="show"
 
+# Get session context if active
+# Returns JSON object with session info or null if no session
+get_session_context() {
+  local session_id focus_task session_note next_action
+  session_id=$(jq -r '._meta.activeSession // ""' "$TODO_FILE" 2>/dev/null)
+
+  if [[ -z "$session_id" || "$session_id" == "null" ]]; then
+    echo "null"
+    return
+  fi
+
+  focus_task=$(jq -r '.focus.currentTask // ""' "$TODO_FILE" 2>/dev/null)
+  session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE" 2>/dev/null)
+  next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE" 2>/dev/null)
+
+  jq -n \
+    --arg sessionId "$session_id" \
+    --arg focusTask "$focus_task" \
+    --arg sessionNote "$session_note" \
+    --arg nextAction "$next_action" \
+    '{
+      sessionId: $sessionId,
+      focusTask: (if $focusTask == "" then null else $focusTask end),
+      sessionNote: (if $sessionNote == "" then null else $sessionNote end),
+      nextAction: (if $nextAction == "" then null else $nextAction end)
+    }'
+}
+
 usage() {
   cat << EOF
 Usage: cleo show <task-id> [OPTIONS]
@@ -478,6 +506,40 @@ display_text() {
     fi
   fi
 
+  # Session context (only if session is active)
+  local session_ctx
+  session_ctx=$(get_session_context)
+  if [[ "$session_ctx" != "null" ]]; then
+    local sess_id sess_focus sess_note sess_next is_focused
+    sess_id=$(echo "$session_ctx" | jq -r '.sessionId')
+    sess_focus=$(echo "$session_ctx" | jq -r '.focusTask // ""')
+    sess_note=$(echo "$session_ctx" | jq -r '.sessionNote // ""')
+    sess_next=$(echo "$session_ctx" | jq -r '.nextAction // ""')
+
+    echo -e "├─────────────────────────────────────────────────────────────────┤"
+    echo -e "│  ${BOLD}Session Context${NC}"
+    echo -e "│  ${DIM}Session:${NC}     $sess_id"
+
+    # Indicate if this task is the focused task
+    if [[ "$sess_focus" == "$id" ]]; then
+      echo -e "│  ${DIM}Focus:${NC}       ${GREEN}◉ THIS TASK${NC}"
+    elif [[ -n "$sess_focus" && "$sess_focus" != "null" ]]; then
+      echo -e "│  ${DIM}Focus:${NC}       $sess_focus"
+    fi
+
+    if [[ -n "$sess_note" && "$sess_note" != "null" ]]; then
+      local short_sess_note=$(echo "$sess_note" | cut -c1-50)
+      [[ ${#sess_note} -gt 50 ]] && short_sess_note="${short_sess_note}…"
+      echo -e "│  ${DIM}Note:${NC}        $short_sess_note"
+    fi
+
+    if [[ -n "$sess_next" && "$sess_next" != "null" ]]; then
+      local short_next=$(echo "$sess_next" | cut -c1-50)
+      [[ ${#sess_next} -gt 50 ]] && short_next="${short_next}…"
+      echo -e "│  ${DIM}Next:${NC}        $short_next"
+    fi
+  fi
+
   echo -e "╰─────────────────────────────────────────────────────────────────╯"
   echo ""
 }
@@ -528,21 +590,38 @@ display_json() {
     task_data=$(echo "$task_data" | jq --argjson rel "$related" '. + {_related: $rel}')
   fi
 
+  # Get session context
+  local session_ctx
+  session_ctx=$(get_session_context)
+
+  # Check if this task is the focused task
+  local is_focused="false"
+  if [[ "$session_ctx" != "null" ]]; then
+    local focus_task
+    focus_task=$(echo "$session_ctx" | jq -r '.focusTask // ""')
+    if [[ "$focus_task" == "$id" ]]; then
+      is_focused="true"
+    fi
+  fi
+
   # Output with standard schema and meta wrapper
   jq -n \
     --arg version "$version" \
     --arg timestamp "$timestamp" \
     --argjson task "$task_data" \
+    --argjson session "$session_ctx" \
+    --argjson isFocused "$is_focused" \
     '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
         "format": "json",
         "command": "show",
         "timestamp": $timestamp,
-        "version": $version
+        "version": $version,
+        "session": $session
       },
       "success": true,
-      "task": $task
+      "task": ($task + {_isFocused: $isFocused})
     }'
 }
 

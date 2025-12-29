@@ -5,6 +5,39 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.2] - 2025-12-29
+
+### Fixed
+- **Session lock deadlock** - Fixed double-locking issue in `suspend_session`, `close_session`, and `end_session`
+  - These functions now use `aw_atomic_write` directly instead of `save_json` when locks are already held
+  - Resolves "Failed to acquire lock" errors during session lifecycle operations
+
+- **Auto-focus priority selection** (T973) - Fixed `auto_select_focus_task()` to exclude epic-type tasks
+  - Now correctly selects highest priority pending task (not the epic container)
+  - Sort order: critical > high > medium > low, then by createdAt
+
+- **Focus scope validation** (T977) - Fixed `set_session_focus()` to update `focus.currentTask` in todo.json
+  - Focus changes within session scope now correctly sync global focus state
+
+- **Scope conflict detection** (T978) - Fixed bash `$?` capture pattern in `start_session`
+  - `local code=$?` resets exit code; now uses `|| conflict_code=$?` pattern
+  - E_SCOPE_CONFLICT correctly returned when scopes overlap
+
+- **Scope invalid detection** (T979) - Added root task existence validation in `start_session`
+  - Starting session with non-existent epic now returns E_SCOPE_INVALID
+
+- **Dry-run for session start** (T980) - Fixed `--dry-run` flag parsing in `cmd_start_multi_session`
+  - All global flags (--dry-run, --format, --json, --human, --quiet) now parsed after subcommand
+
+- **Dry-run for session suspend** (T981) - Added `--dry-run` flag parsing to `cmd_suspend`
+  - Suspend dry-run now shows preview without modifying state
+
+### Added
+- **Context-aware output** (T969) - Added session context to `show`, `list`, and `analyze` commands
+  - When session is active, output includes session ID, focus info, and available actions
+  - JSON output includes `_meta.session` field with session context
+  - Text output shows "Session Context" section with session details
+
 ## [0.41.1] - 2025-12-29
 
 ### Fixed

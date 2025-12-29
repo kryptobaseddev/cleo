@@ -97,6 +97,34 @@ COMMAND_NAME="analyze"
 CLEO_DIR=".cleo"
 TODO_FILE="${CLEO_DIR}/todo.json"
 
+# Get session context if active
+# Returns JSON object with session info or null if no session
+get_session_context() {
+  local session_id focus_task session_note next_action
+  session_id=$(jq -r '._meta.activeSession // ""' "$TODO_FILE" 2>/dev/null)
+
+  if [[ -z "$session_id" || "$session_id" == "null" ]]; then
+    echo "null"
+    return
+  fi
+
+  focus_task=$(jq -r '.focus.currentTask // ""' "$TODO_FILE" 2>/dev/null)
+  session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE" 2>/dev/null)
+  next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE" 2>/dev/null)
+
+  jq -n \
+    --arg sessionId "$session_id" \
+    --arg focusTask "$focus_task" \
+    --arg sessionNote "$session_note" \
+    --arg nextAction "$next_action" \
+    '{
+      sessionId: $sessionId,
+      focusTask: (if $focusTask == "" then null else $focusTask end),
+      sessionNote: (if $sessionNote == "" then null else $sessionNote end),
+      nextAction: (if $nextAction == "" then null else $nextAction end)
+    }'
+}
+
 #####################################################################
 # Usage
 #####################################################################

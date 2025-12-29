@@ -353,6 +353,8 @@ set_session_focus() {
         .status = "active" | .updatedAt = $ts
       else . end
     ] |
+    # Update global focus to match session focus
+    .focus.currentTask = $taskId |
     ._meta.lastModified = $ts
     ')
 
