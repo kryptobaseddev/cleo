@@ -36,13 +36,16 @@ cleo focus clear                    # Clear focus
 cleo focus note "Progress text"     # Set session progress note
 cleo focus next "Next action"       # Set suggested next action
 cleo session start                  # Begin work session
-cleo session end                    # End session
+cleo session end                    # End session (resumable)
+cleo session suspend                # Pause session (resumable)
+cleo session resume <id>            # Resume suspended/ended session
+cleo session close <id>             # Permanently close (all tasks must be done)
 cleo session status                 # Show session info
 ```
 
-### Multi-Session (v0.38.0+ - DRAFT)
+### Multi-Session (v0.41.0+)
 
-> **Status**: Schema designed, implementation pending. See [MULTI-SESSION-SPEC.md](specs/MULTI-SESSION-SPEC.md)
+> **Status**: Fully implemented with Epic-Bound Session Architecture. See [MULTI-SESSION-SPEC.md](specs/MULTI-SESSION-SPEC.md)
 
 Enables multiple concurrent LLM agents to work on different task groups (epics, phases) simultaneously.
 
@@ -357,7 +360,7 @@ cleo archive                        # Optional: clean up old done tasks
 cleo session end
 ```
 
-### Multi-Session Mode (v0.38.0+ - DRAFT)
+### Multi-Session Mode (v0.41.0+)
 
 When `multiSession.enabled: true`, multiple agents can work concurrently.
 
@@ -399,7 +402,14 @@ cleo session resume --last --scope epic:T001
 #### AGENT END
 ```bash
 cleo session end --note "Completed JWT validation"
-# Session moves to history, tasks remain
+# Session moves to "ended" state (resumable)
+```
+
+#### AGENT CLOSE (Permanent)
+```bash
+cleo session close <session-id>
+# Permanently archives session when ALL scoped tasks complete
+# Returns E_SESSION_CLOSE_BLOCKED (37) if tasks incomplete
 ```
 
 #### Conflict Prevention

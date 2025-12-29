@@ -332,7 +332,7 @@ parse_scope_string() {
 cmd_start() {
   local scope_str="" focus_task="" session_name="" agent_id="" auto_focus=false phase_filter=""
 
-  # Parse multi-session options
+  # Parse multi-session options (including global flags passed after subcommand)
   while [[ $# -gt 0 ]]; do
     case $1 in
       --scope) scope_str="$2"; shift 2 ;;
@@ -341,9 +341,17 @@ cmd_start() {
       --name) session_name="$2"; shift 2 ;;
       --agent) agent_id="$2"; shift 2 ;;
       --phase) phase_filter="$2"; shift 2 ;;
+      --dry-run) DRY_RUN=true; shift ;;
+      -f|--format) FORMAT="$2"; shift 2 ;;
+      --json) FORMAT="json"; shift ;;
+      --human) FORMAT="text"; shift ;;
+      -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
   done
+
+  # Resolve format with TTY-aware detection after parsing
+  FORMAT=$(resolve_format "$FORMAT")
 
   check_todo_exists
 
@@ -651,9 +659,9 @@ cmd_start_multi_session() {
   fi
 
   # Call the multi-session start function
-  local session_id
-  if ! session_id=$(start_session "$scope_def" "$focus_task" "$session_name" "$agent_id"); then
-    local exit_code=$?
+  local session_id exit_code=0
+  session_id=$(start_session "$scope_def" "$focus_task" "$session_name" "$agent_id") || exit_code=$?
+  if [[ $exit_code -ne 0 ]]; then
     log_error "Failed to start multi-session" "E_SESSION_START_FAILED" "$exit_code"
     exit "$exit_code"
   fi
@@ -1054,6 +1062,11 @@ cmd_suspend() {
     case $1 in
       --note) note="$2"; shift 2 ;;
       --session) session_id="$2"; shift 2 ;;
+      --dry-run) DRY_RUN=true; shift ;;
+      -f|--format) FORMAT="$2"; shift 2 ;;
+      --json) FORMAT="json"; shift ;;
+      --human) FORMAT="text"; shift ;;
+      -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
   done
@@ -1064,18 +1077,39 @@ cmd_suspend() {
     exit "$EXIT_INVALID_INPUT"
   fi
 
+  # Handle dry-run early (before session validation)
+  if [[ "$DRY_RUN" == "true" ]]; then
+    # Get session ID for preview (don't fail if missing)
+    if [[ -z "$session_id" ]]; then
+      session_id=$(get_current_session_id 2>/dev/null || echo "current-session")
+    fi
+    log_info "[DRY-RUN] Would suspend session: $session_id"
+    [[ -n "$note" ]] && log_info "[DRY-RUN] Would add note: $note"
+    exit "$EXIT_SUCCESS"
+  fi
+
   # Get session ID if not provided
   if [[ -z "$session_id" ]]; then
     session_id=$(get_current_session_id 2>/dev/null || true)
+    
+    # If no current session context, try to auto-detect single active session
     if [[ -z "$session_id" ]]; then
-      log_error "No current session. Use --session ID or set CLEO_SESSION" "E_SESSION_NOT_FOUND" "$EXIT_NOT_FOUND"
-      exit "$EXIT_NOT_FOUND"
+      local active_sessions
+      active_sessions=$(list_sessions "active")
+      local active_count
+      active_count=$(echo "$active_sessions" | jq 'length')
+      
+      if [[ "$active_count" -eq 1 ]]; then
+        # Exactly one active session, use it automatically
+        session_id=$(echo "$active_sessions" | jq -r '.[0].id')
+      elif [[ "$active_count" -gt 1 ]]; then
+        log_error "Multiple active sessions found. Use --session ID to specify which one to suspend" "E_AMBIGUOUS_SESSION" "$EXIT_NOT_FOUND"
+        exit "$EXIT_NOT_FOUND"
+      else
+        log_error "No current session. Use --session ID or set CLEO_SESSION" "E_SESSION_NOT_FOUND" "$EXIT_NOT_FOUND"
+        exit "$EXIT_NOT_FOUND"
+      fi
     fi
-  fi
-
-  if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[DRY-RUN] Would suspend session: $session_id"
-    exit "$EXIT_SUCCESS"
   fi
 
   if suspend_session "$session_id" "$note"; then

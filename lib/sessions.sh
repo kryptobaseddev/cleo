@@ -462,6 +462,23 @@ start_session() {
         return 30  # Max sessions reached
     fi
 
+    # Validate root task exists (for non-custom scopes)
+    local scope_type root_task_id
+    scope_type=$(echo "$scope_def" | jq -r '.type')
+    root_task_id=$(echo "$scope_def" | jq -r '.rootTaskId // ""')
+
+    if [[ -n "$root_task_id" ]] && [[ "$scope_type" != "custom" ]]; then
+        local root_exists
+        root_exists=$(echo "$todo_content" | jq --arg id "$root_task_id" '[.tasks[] | select(.id == $id)] | length')
+        if [[ "$root_exists" -eq 0 ]]; then
+            unlock_file "$todo_fd"
+            unlock_file "$sessions_fd"
+            trap - EXIT ERR
+            echo "Error: Scope invalid - root task $root_task_id not found" >&2
+            return ${EXIT_SCOPE_INVALID:-33}
+        fi
+    fi
+
     # Compute scope tasks
     local computed_ids
     computed_ids=$(compute_scope_tasks "$todo_content" "$scope_def")
@@ -484,11 +501,13 @@ start_session() {
     fi
 
     # Check for conflicts
-    local conflict_info
+    local conflict_info conflict_code
     conflict_info=$(detect_scope_conflict "$sessions_content" "$computed_ids")
 
-    if ! validate_scope_conflict "$conflict_info" "$sessions_content"; then
-        local conflict_code=$?
+    # Capture exit code before any other commands (local resets $?)
+    validate_scope_conflict "$conflict_info" "$sessions_content" || conflict_code=$?
+
+    if [[ ${conflict_code:-0} -ne 0 ]]; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
@@ -661,7 +680,10 @@ suspend_session() {
         ._meta.lastModified = $ts
         ')
 
-    if ! save_json "$sessions_file" "$updated_sessions"; then
+    # Write directly using aw_atomic_write (lock already held, avoid double-lock)
+    local pretty_json
+    pretty_json=$(echo "$updated_sessions" | jq '.')
+    if ! aw_atomic_write "$sessions_file" "$pretty_json" "${MAX_BACKUPS:-10}"; then
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Failed to save sessions.json" >&2
@@ -763,8 +785,13 @@ resume_session() {
             ')
     fi
 
-    # Save both files
-    if ! save_json "$sessions_file" "$updated_sessions"; then
+    # Pretty-print JSON for atomic writes (we already hold locks)
+    local pretty_sessions pretty_todo
+    pretty_sessions=$(echo "$updated_sessions" | jq '.')
+    pretty_todo=$(echo "$updated_todo" | jq '.')
+
+    # Write directly using aw_atomic_write (we already hold locks, so no double-locking)
+    if ! aw_atomic_write "$sessions_file" "$pretty_sessions"; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
@@ -772,7 +799,7 @@ resume_session() {
         return 1
     fi
 
-    if ! save_json "$todo_file" "$updated_todo"; then
+    if ! aw_atomic_write "$todo_file" "$pretty_todo"; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
@@ -873,8 +900,10 @@ end_session() {
             ')
     fi
 
-    # Save both files
-    if ! save_json "$sessions_file" "$updated_sessions"; then
+    # Save both files (using aw_atomic_write directly - locks already held)
+    local pretty_sessions pretty_todo
+    pretty_sessions=$(echo "$updated_sessions" | jq '.')
+    if ! aw_atomic_write "$sessions_file" "$pretty_sessions" "${MAX_BACKUPS:-10}"; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
@@ -882,7 +911,8 @@ end_session() {
         return 1
     fi
 
-    if ! save_json "$todo_file" "$updated_todo"; then
+    pretty_todo=$(echo "$updated_todo" | jq '.')
+    if ! aw_atomic_write "$todo_file" "$pretty_todo" "${MAX_BACKUPS:-10}"; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
@@ -1023,8 +1053,10 @@ close_session() {
             ')
     fi
 
-    # Save both files
-    if ! save_json "$sessions_file" "$updated_sessions"; then
+    # Save both files (using aw_atomic_write directly - locks already held)
+    local pretty_sessions pretty_todo
+    pretty_sessions=$(echo "$updated_sessions" | jq '.')
+    if ! aw_atomic_write "$sessions_file" "$pretty_sessions" "${MAX_BACKUPS:-10}"; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
@@ -1032,7 +1064,8 @@ close_session() {
         return 1
     fi
 
-    if ! save_json "$todo_file" "$updated_todo"; then
+    pretty_todo=$(echo "$updated_todo" | jq '.')
+    if ! aw_atomic_write "$todo_file" "$pretty_todo" "${MAX_BACKUPS:-10}"; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
@@ -1247,6 +1280,8 @@ set_session_focus() {
                 .status = "active" | .updatedAt = $ts
             else . end
         ] |
+        # Update global focus to match session focus
+        .focus.currentTask = $taskId |
         ._meta.lastModified = $ts
         ')
 
@@ -1380,7 +1415,8 @@ auto_select_focus_task() {
 
         [.tasks[] |
             select(.id as $id | $ids | index($id)) |
-            select(.status == "pending")
+            select(.status == "pending") |
+            select(.type != "epic")
         ] |
         sort_by([(.priority | priority_score) * -1, .createdAt]) |
         .[0].id // ""

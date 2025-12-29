@@ -116,6 +116,34 @@ TREE_TITLE_WIDTH=$((TERM_WIDTH - TREE_OVERHEAD))
 # Valid format values
 VALID_FORMATS="text json jsonl markdown table"
 
+# Get session context if active
+# Returns JSON object with session info or null if no session
+get_session_context() {
+  local session_id focus_task session_note next_action
+  session_id=$(jq -r '._meta.activeSession // ""' "$TODO_FILE" 2>/dev/null)
+
+  if [[ -z "$session_id" || "$session_id" == "null" ]]; then
+    echo "null"
+    return
+  fi
+
+  focus_task=$(jq -r '.focus.currentTask // ""' "$TODO_FILE" 2>/dev/null)
+  session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE" 2>/dev/null)
+  next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE" 2>/dev/null)
+
+  jq -n \
+    --arg sessionId "$session_id" \
+    --arg focusTask "$focus_task" \
+    --arg sessionNote "$session_note" \
+    --arg nextAction "$next_action" \
+    '{
+      sessionId: $sessionId,
+      focusTask: (if $focusTask == "" then null else $focusTask end),
+      sessionNote: (if $sessionNote == "" then null else $sessionNote end),
+      nextAction: (if $nextAction == "" then null else $nextAction end)
+    }'
+}
+
 usage() {
   cat << EOF
 Usage: cleo list [OPTIONS]
@@ -779,6 +807,9 @@ case "$FORMAT" in
     echo "$FILTERED_TASKS" > "$TEMP_TASKS_FILE"
     echo "$TREE_JSON" > "$TEMP_TREE_FILE"
 
+    # Get session context
+    SESSION_CTX=$(get_session_context)
+
     # Use --slurpfile to read large JSON from files instead of command line
     jq -n \
       --slurpfile tasks "$TEMP_TASKS_FILE" \
@@ -800,6 +831,7 @@ case "$FORMAT" in
       --argjson done "$DONE_COUNT" \
       --argjson cancelled "$CANCELLED_COUNT" \
       --argjson show_tree "$(if [[ "$SHOW_TREE" == true ]]; then echo true; else echo false; fi)" \
+      --argjson session "$SESSION_CTX" \
       '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
@@ -809,7 +841,8 @@ case "$FORMAT" in
         timestamp: $timestamp,
         checksum: $checksum,
         execution_ms: $execution_ms,
-        source: $source
+        source: $source,
+        session: $session
       },
       "success": true,
       filters: {
@@ -951,6 +984,24 @@ case "$FORMAT" in
         [[ -n "$PHASE_FILTER" ]] && echo -n -e "${DIM}phase=${NC}$PHASE_FILTER "
         [[ -n "$LABEL_FILTER" ]] && echo -n -e "${DIM}label=${NC}$LABEL_FILTER "
         echo ""
+      fi
+
+      # Show session context if active
+      session_ctx=$(get_session_context)
+      if [[ "$session_ctx" != "null" ]]; then
+        sess_id=$(echo "$session_ctx" | jq -r '.sessionId')
+        sess_focus=$(echo "$session_ctx" | jq -r '.focusTask // ""')
+        sess_note=$(echo "$session_ctx" | jq -r '.sessionNote // ""')
+
+        echo -e "${DIM}Session: ${NC}${CYAN}$sess_id${NC}"
+        if [[ -n "$sess_focus" && "$sess_focus" != "null" ]]; then
+          echo -e "${DIM}Focus: ${NC}${GREEN}$sess_focus${NC}"
+        fi
+        if [[ -n "$sess_note" && "$sess_note" != "null" ]]; then
+          local short_note=$(echo "$sess_note" | cut -c1-50)
+          [[ ${#sess_note} -gt 50 ]] && short_note="${short_note}…"
+          echo -e "${DIM}Note: ${NC}$short_note"
+        fi
       fi
     fi
 

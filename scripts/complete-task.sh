@@ -892,10 +892,120 @@ cascade_parent_auto_complete() {
   return 0
 }
 
+# === SESSION-AWARE COMPLETION PROMPT ===
+# Check if we're in an active session and all scope tasks are complete
+# If so, prompt agent instead of auto-completing Epic
+check_session_scope_completion() {
+  local task_id="$1"
+  local todo_file="$2"
+  local format="$3"
+
+  # Check if session enforcement is enabled and we have an active session
+  if ! declare -f get_active_session_info >/dev/null 2>&1; then
+    return 1  # Session lib not available
+  fi
+
+  local session_info
+  session_info=$(get_active_session_info 2>/dev/null) || return 1
+
+  # Get session scope
+  local scope_ids
+  scope_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+
+  # Check if all tasks in scope are complete
+  local incomplete_count
+  incomplete_count=$(jq --argjson ids "$scope_ids" '
+    [.tasks[] | select(.id as $id | $ids | index($id)) | select(.status != "done")] | length
+  ' "$todo_file")
+
+  if [[ "$incomplete_count" -gt 0 ]]; then
+    return 1  # Still have incomplete tasks
+  fi
+
+  # Get root task (Epic) for the session
+  local root_task_id
+  root_task_id=$(echo "$session_info" | jq -r '.scope.rootTaskId // ""')
+
+  if [[ -z "$root_task_id" ]]; then
+    return 1  # No Epic in scope
+  fi
+
+  # All scope tasks complete - output completion prompt instead of auto-completing
+  prompt_session_completion "$root_task_id" "$todo_file" "$format"
+  return 0
+}
+
+# Prompt agent for session completion action
+prompt_session_completion() {
+  local epic_id="$1"
+  local todo_file="$2"
+  local format="$3"
+
+  # Get Epic details
+  local epic_task epic_title
+  epic_task=$(jq --arg id "$epic_id" '.tasks[] | select(.id == $id)' "$todo_file")
+  epic_title=$(echo "$epic_task" | jq -r '.title')
+
+  if [[ "$format" == "json" ]]; then
+    # JSON output with completion prompt for LLM agents
+    jq -n \
+      --arg epicId "$epic_id" \
+      --arg epicTitle "$epic_title" \
+      --argjson epic "$epic_task" \
+      '{
+        "completionPrompt": true,
+        "message": "All tasks in session scope complete",
+        "epic": {
+          "id": $epicId,
+          "title": $epicTitle,
+          "status": $epic.status
+        },
+        "options": [
+          {
+            "action": "close",
+            "command": "cleo session close",
+            "description": "Close session and mark Epic as complete"
+          },
+          {
+            "action": "add_tasks",
+            "command": "cleo add \"Task title\" --parent " + $epicId,
+            "description": "Add more tasks to the Epic"
+          },
+          {
+            "action": "review",
+            "command": "cleo list --tree --parent " + $epicId,
+            "description": "Review Epic tasks before closing"
+          }
+        ],
+        "suggestion": "Review completed tasks and choose an action: close session, add more tasks, or continue review"
+      }' >&2
+  else
+    # Human-readable prompt
+    echo "" >&2
+    echo -e "${YELLOW}[SESSION COMPLETE]${NC} All tasks in scope are done" >&2
+    echo "" >&2
+    echo -e "${BLUE}Epic:${NC} $epic_title ($epic_id)" >&2
+    echo "" >&2
+    echo "What would you like to do?" >&2
+    echo "  1. Close session and complete Epic: cleo session close" >&2
+    echo "  2. Add more tasks: cleo add \"Task\" --parent $epic_id" >&2
+    echo "  3. Review tasks: cleo list --tree --parent $epic_id" >&2
+    echo "" >&2
+    echo -e "${YELLOW}Epic will not auto-complete until you close the session${NC}" >&2
+  fi
+}
+
 # Handle parent auto-complete with recursive cascade using SOLID/DRY functions
+# BUT: skip if session scope is complete (delegate to session close)
 if [[ "$AUTO_COMPLETE_PARENT" == "true" && "$AUTO_COMPLETE_MODE" != "off" ]]; then
-  # Use recursive cascade function to handle all levels of hierarchy
-  cascade_parent_auto_complete "$TASK_ID" "$TODO_FILE" "$FORMAT" "$AUTO_COMPLETE_MODE" "$TIMESTAMP" "AUTO_COMPLETED_PARENTS"
+  # Check if we should prompt instead of auto-completing
+  if ! check_session_scope_completion "$TASK_ID" "$TODO_FILE" "$FORMAT"; then
+    # Not in session or scope not complete - proceed with normal auto-complete
+    cascade_parent_auto_complete "$TASK_ID" "$TODO_FILE" "$FORMAT" "$AUTO_COMPLETE_MODE" "$TIMESTAMP" "AUTO_COMPLETED_PARENTS"
+  else
+    # Session scope complete - prompt was output, skip auto-complete
+    [[ "$FORMAT" != "json" ]] && log_info "Session scope complete - Epic will be completed on session close"
+  fi
 fi
 # End of refactored parent auto-complete section
 
