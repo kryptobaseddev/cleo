@@ -182,7 +182,7 @@ Provides all validation functions:
 ```json
 {
   "hierarchy": {
-    "maxSiblings": 20,
+    "maxSiblings": 0,
     "maxDepth": 3,
     "countDoneInLimit": false,
     "maxActiveSiblings": 8
@@ -190,13 +190,14 @@ Provides all validation functions:
 }
 ```
 
-### LLM-Agent-First Changes (v1.3.0 → v2.0.0)
+### LLM-Agent-First Changes (v1.3.0 → v2.0.0 → v2.1.0)
 
-Changed default `maxSiblings` from 7 to 20 based on:
+Changed default `maxSiblings` from 7 → 20 → 0 (unlimited) based on:
 - LLM agents don't have human cognitive limits
 - 200K+ token context windows vs 4-5 item human working memory
 - Done tasks excluded by default (historical, not active context)
 - `maxActiveSiblings=8` for TodoWrite sync alignment
+- No technical reason to limit siblings for agents; limits only create friction
 
 ---
 

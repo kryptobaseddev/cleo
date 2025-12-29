@@ -29,7 +29,7 @@ This document defines all exit codes used by cleo CLI and the retry protocol for
 |:----:|------|---------|:-----------:|
 | 10 | `EXIT_PARENT_NOT_FOUND` | Parent task does not exist | No |
 | 11 | `EXIT_DEPTH_EXCEEDED` | Max hierarchy depth (3) exceeded | No |
-| 12 | `EXIT_SIBLING_LIMIT` | Max siblings (7) exceeded | No |
+| 12 | `EXIT_SIBLING_LIMIT` | Max siblings exceeded (configurable, default unlimited) | No |
 | 13 | `EXIT_INVALID_PARENT_TYPE` | Parent cannot have children (subtask) | No |
 | 14 | `EXIT_CIRCULAR_REFERENCE` | Would create dependency cycle | No |
 | 15 | `EXIT_ORPHAN_DETECTED` | Task references invalid parent | No |

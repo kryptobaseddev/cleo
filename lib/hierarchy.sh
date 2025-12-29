@@ -70,7 +70,7 @@ get_hierarchy_config() {
         echo "$value"
     else
         case "$key" in
-            maxSiblings) echo "20" ;;           # Default: 20 (was 7)
+            maxSiblings) echo "0" ;;            # Default: 0 (unlimited) - LLM agents don't need limits
             maxDepth) echo "3" ;;               # Default: 3 levels
             countDoneInLimit) echo "false" ;;   # Default: exclude done
             maxActiveSiblings) echo "8" ;;      # Default: align with TodoWrite

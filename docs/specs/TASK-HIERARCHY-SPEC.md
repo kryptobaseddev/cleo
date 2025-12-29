@@ -187,7 +187,7 @@ The sibling limit is designed for **LLM agents as primary users**, not human cog
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `hierarchy.maxSiblings` | `20` | Total children limit (0 = unlimited) |
+| `hierarchy.maxSiblings` | `0` | Total children limit (0 = unlimited, recommended) |
 | `hierarchy.countDoneInLimit` | `false` | Whether done tasks count toward limit |
 | `hierarchy.maxActiveSiblings` | `8` | Active (non-done) children limit |
 | `hierarchy.maxDepth` | `3` | Maximum hierarchy depth |

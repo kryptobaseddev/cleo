@@ -185,7 +185,7 @@ cleo list --children T001           # Direct children of task
 cleo list --tree                    # Hierarchical tree view
 ```
 
-**Constraints**: max depth 3 (epic→task→subtask), max 7 siblings per parent.
+**Constraints**: max depth 3 (epic→task→subtask), unlimited siblings by default (configurable via `hierarchy.maxSiblings`).
 
 ### Task Cancellation (v0.32.0+)
 ```bash

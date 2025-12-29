@@ -189,7 +189,7 @@ View with: jq '.tasks[] | select(.id == "T001")' .cleo/todo.json
 | `7` | Lock timeout | **Yes** |
 | `10` | Parent task not found | No |
 | `11` | Max hierarchy depth exceeded (max 3 levels) | No |
-| `12` | Max siblings exceeded (max 7 per parent) | No |
+| `12` | Max siblings exceeded (configurable, default unlimited) | No |
 | `13` | Invalid parent type (subtasks cannot have children) | No |
 | `20` | Checksum mismatch | **Yes** |
 | `102` | No change (idempotent operation) | N/A |

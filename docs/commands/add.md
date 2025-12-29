@@ -57,7 +57,7 @@ This command includes:
 
 **Hierarchy Constraints:**
 - Maximum depth: 3 levels (epic → task → subtask)
-- Maximum siblings: 7 children per parent
+- Maximum siblings: Unlimited by default (configurable via `hierarchy.maxSiblings`)
 - Subtasks cannot have children
 - Type is inferred if not specified (task under epic, subtask under task)
 

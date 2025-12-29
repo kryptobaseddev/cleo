@@ -63,16 +63,17 @@ if [[ -f "$LIB_DIR/error-json.sh" ]]; then
   source "$LIB_DIR/error-json.sh"
 fi
 
+# Source config library for validation settings
+# IMPORTANT: Must be sourced BEFORE hierarchy.sh so config functions are available
+if [[ -f "$LIB_DIR/config.sh" ]]; then
+  # shellcheck source=../lib/config.sh
+  source "$LIB_DIR/config.sh"
+fi
+
 # Source hierarchy library for type/parent/size validation
 if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
   # shellcheck source=../lib/hierarchy.sh
   source "$LIB_DIR/hierarchy.sh"
-fi
-
-# Source config library for validation settings
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
 fi
 
 # Source session enforcement for Epic-Bound Sessions (v0.40.0)

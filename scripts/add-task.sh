@@ -53,16 +53,17 @@ elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
   source "$LIB_DIR/exit-codes.sh"
 fi
 
+# Source config library for defaults resolution (v0.24.0)
+# IMPORTANT: Must be sourced BEFORE hierarchy.sh so config functions are available
+if [[ -f "$LIB_DIR/config.sh" ]]; then
+  # shellcheck source=../lib/config.sh
+  source "$LIB_DIR/config.sh"
+fi
+
 # Source hierarchy library for parent/type/depth validation (v0.17.0)
 if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
   # shellcheck source=../lib/hierarchy.sh
   source "$LIB_DIR/hierarchy.sh"
-fi
-
-# Source config library for defaults resolution (v0.24.0)
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
 fi
 
 # Source phase tracking library for phase context validation (v2.2.0)

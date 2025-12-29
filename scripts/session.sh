@@ -293,6 +293,14 @@ export -f maybe_auto_start_session 2>/dev/null || true
 
 # Get current session info
 get_current_session() {
+  # Multi-session aware resolution
+  # Use resolve_current_session_id() if multi-session enabled and available
+  if is_multi_session_enabled && declare -f resolve_current_session_id >/dev/null 2>&1; then
+    resolve_current_session_id
+    return $?
+  fi
+  
+  # Fallback: check todo.json for single-session mode
   jq -r '._meta.activeSession // ""' "$TODO_FILE"
 }
 
@@ -666,10 +674,61 @@ cmd_start_multi_session() {
     exit "$exit_code"
   fi
 
-  log_step "Multi-session started: $session_id"
-  log_info "Scope: $scope_str"
-  log_info "Focus: $focus_task"
-  [[ -n "$session_name" ]] && log_info "Name: $session_name"
+  # Auto-bind session (T1012) - write .current-session file
+  if declare -f auto_bind_session >/dev/null 2>&1; then
+    auto_bind_session "$session_id"
+  fi
+
+  # Get CLEO_DIR for binding output
+  local cleo_dir
+  if declare -f get_cleo_dir >/dev/null 2>&1; then
+    cleo_dir="$(get_cleo_dir)"
+  else
+    cleo_dir=".cleo"
+  fi
+
+  # Output with binding information
+  if [[ "$FORMAT" == "json" ]]; then
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    jq -nc \
+      --arg sid "$session_id" \
+      --arg ts "$timestamp" \
+      --argjson scope "$scope_def" \
+      --arg focus "$focus_task" \
+      --arg name "$session_name" \
+      --arg agent "$agent_id" \
+      --arg version "${CLEO_VERSION:-$(get_version)}" \
+      --arg bindFile "${cleo_dir}/.current-session" \
+      '{
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+        "_meta": {
+          "format": "json",
+          "command": "session start",
+          "timestamp": $ts,
+          "version": $version
+        },
+        "success": true,
+        "sessionId": $sid,
+        "agentId": (if $agent == "" then null else $agent end),
+        "scope": $scope,
+        "focusedTask": $focus,
+        "name": (if $name == "" then null else $name end),
+        "binding": {
+          "file": $bindFile,
+          "envVar": "CLEO_SESSION",
+          "export": ("export CLEO_SESSION=" + $sid)
+        },
+        "hint": "Session context auto-bound. All subsequent commands will use this session."
+      }'
+  else
+    log_step "Multi-session started: $session_id"
+    log_info "Scope: $scope_str"
+    log_info "Focus: $focus_task"
+    [[ -n "$session_name" ]] && log_info "Name: $session_name"
+    log_info "Session bound to: ${cleo_dir}/.current-session"
+    log_info "Or set: export CLEO_SESSION=$session_id"
+  fi
 
   # Log session start
   if [[ -f "$LOG_FILE" ]]; then
@@ -905,15 +964,56 @@ cmd_status() {
 
   check_todo_exists
 
-  local session_id
-  local focus_task
-  local session_note
-  local next_action
+  local session_id=""
+  local focus_task=""
+  local session_note=""
+  local next_action=""
+  local multi_session_enabled=false
+  local active_count=0
+  local scope_type=""
+  local scope_root=""
 
-  session_id=$(jq -r '._meta.activeSession // ""' "$TODO_FILE")
-  focus_task=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
-  session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE")
-  next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE")
+  # Check if multi-session mode is enabled
+  if declare -f is_multi_session_enabled >/dev/null 2>&1; then
+    if is_multi_session_enabled "$CONFIG_FILE"; then
+      multi_session_enabled=true
+    fi
+  fi
+
+  if [[ "$multi_session_enabled" == "true" ]]; then
+    # Multi-session mode: check sessions.json via resolve_current_session_id
+    local sessions_file
+    sessions_file=$(get_sessions_file 2>/dev/null || echo ".cleo/sessions.json")
+
+    if declare -f resolve_current_session_id >/dev/null 2>&1; then
+      session_id=$(resolve_current_session_id "" 2>/dev/null || true)
+    fi
+
+    # Get focus from sessions.json if we have a session
+    if [[ -n "$session_id" ]] && [[ -f "$sessions_file" ]]; then
+      focus_task=$(jq -r --arg sid "$session_id" \
+        '.sessions[] | select(.id == $sid) | .focus.currentTask // ""' "$sessions_file")
+      session_note=$(jq -r --arg sid "$session_id" \
+        '.sessions[] | select(.id == $sid) | .focus.sessionNote // ""' "$sessions_file")
+      next_action=$(jq -r --arg sid "$session_id" \
+        '.sessions[] | select(.id == $sid) | .focus.nextAction // ""' "$sessions_file")
+      scope_type=$(jq -r --arg sid "$session_id" \
+        '.sessions[] | select(.id == $sid) | .scope.type // ""' "$sessions_file")
+      scope_root=$(jq -r --arg sid "$session_id" \
+        '.sessions[] | select(.id == $sid) | .scope.rootTaskId // ""' "$sessions_file")
+    fi
+
+    # Count active sessions
+    if [[ -f "$sessions_file" ]]; then
+      active_count=$(jq '[.sessions[] | select(.status == "active")] | length' "$sessions_file")
+    fi
+  else
+    # Single-session mode: check todo.json (legacy)
+    session_id=$(jq -r '._meta.activeSession // ""' "$TODO_FILE")
+    focus_task=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
+    session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE")
+    next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE")
+  fi
 
   if [[ "$output_format" == "json" ]]; then
     local current_timestamp
@@ -926,6 +1026,10 @@ cmd_status() {
       --arg focus "$focus_task" \
       --arg note "$session_note" \
       --arg next "$next_action" \
+      --argjson multi "$multi_session_enabled" \
+      --argjson count "$active_count" \
+      --arg scopeType "$scope_type" \
+      --arg scopeRoot "$scope_root" \
       '{
         "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
@@ -935,19 +1039,33 @@ cmd_status() {
           "version": $version
         },
         "success": true,
+        "multiSessionEnabled": $multi,
+        "activeSessionCount": $count,
         "session": {
           "active": ($session != ""),
           "sessionId": (if $session == "" then null else $session end),
           "focusTask": (if $focus == "" then null else $focus end),
           "sessionNote": (if $note == "" then null else $note end),
-          "nextAction": (if $next == "" then null else $next end)
+          "nextAction": (if $next == "" then null else $next end),
+          "scope": (if $scopeType == "" then null else {type: $scopeType, rootTaskId: (if $scopeRoot == "" then null else $scopeRoot end)} end)
         }
       }'
   else
+    # Text output
+    if [[ "$multi_session_enabled" == "true" ]]; then
+      echo -e "${BLUE}Multi-Session Mode${NC}: ${GREEN}Enabled${NC} (${active_count} active)"
+    fi
+
     if [[ -n "$session_id" ]]; then
       echo -e "${GREEN}Session Active${NC}: $session_id"
+      if [[ -n "$scope_type" ]]; then
+        echo -e "Scope: ${scope_type}${scope_root:+:$scope_root}"
+      fi
     else
       echo -e "${YELLOW}No Active Session${NC}"
+      if [[ "$multi_session_enabled" == "true" ]] && [[ "$active_count" -gt 0 ]]; then
+        echo -e "Hint: Set CLEO_SESSION or use 'cleo session list' to see active sessions"
+      fi
     fi
 
     if [[ -n "$focus_task" ]]; then
@@ -1429,6 +1547,129 @@ cmd_switch() {
   [[ -n "$focus_task" ]] && log_info "Focus: $focus_task"
 }
 
+# Cleanup stale sessions
+# Removes: empty-scope sessions, ended sessions older than specified days
+cmd_cleanup() {
+  local format_arg=""
+  local dry_run=false
+  local empty_scope=false
+  local ended_before=""
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -f|--format) format_arg="$2"; shift 2 ;;
+      --json) format_arg="json"; shift ;;
+      --human) format_arg="text"; shift ;;
+      --dry-run) dry_run=true; shift ;;
+      --empty-scope) empty_scope=true; shift ;;
+      --ended-before) ended_before="$2"; shift 2 ;;
+      -q|--quiet) QUIET=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  local output_format
+  output_format=$(resolve_format "$format_arg")
+
+  if ! is_multi_session_enabled "$CONFIG_FILE" 2>/dev/null; then
+    log_error "Multi-session mode not enabled" "E_CONFIG_ERROR" 8 "Enable with: cleo config set multiSession.enabled true"
+    exit 8
+  fi
+
+  local sessions_file
+  sessions_file=$(get_sessions_file 2>/dev/null || echo ".cleo/sessions.json")
+
+  if [[ ! -f "$sessions_file" ]]; then
+    log_error "Sessions file not found" "E_FILE_NOT_FOUND" 4
+    exit 4
+  fi
+
+  local to_remove=()
+  local reasons=()
+
+  # Find empty-scope sessions (always included)
+  while IFS= read -r sid; do
+    to_remove+=("$sid")
+    reasons+=("empty-scope")
+  done < <(jq -r '.sessions[] | select(.scope.computedTaskIds == [] or .scope.computedTaskIds == null) | .id' "$sessions_file")
+
+  # Find ended sessions older than X days (if specified)
+  if [[ -n "$ended_before" ]]; then
+    local days_ago
+    days_ago=$(date -d "$ended_before days ago" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -v-"${ended_before}"d -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+    if [[ -n "$days_ago" ]]; then
+      while IFS= read -r sid; do
+        if [[ ! " ${to_remove[*]} " =~ " $sid " ]]; then
+          to_remove+=("$sid")
+          reasons+=("ended-old")
+        fi
+      done < <(jq -r --arg cutoff "$days_ago" '.sessions[] | select(.status == "ended" and .lastActivity < $cutoff) | .id' "$sessions_file")
+    fi
+  fi
+
+  local removed_count=${#to_remove[@]}
+
+  if [[ "$output_format" == "json" ]]; then
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if [[ "$dry_run" == "true" ]]; then
+      jq -nc \
+        --arg ts "$timestamp" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
+        --argjson count "$removed_count" \
+        --argjson sessions "$(printf '%s\n' "${to_remove[@]}" | jq -R . | jq -s .)" \
+        '{
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+          "_meta": {"format": "json", "command": "session cleanup", "timestamp": $ts, "version": $version},
+          "success": true,
+          "dryRun": true,
+          "wouldRemove": $count,
+          "sessions": $sessions
+        }'
+    else
+      # Actually remove sessions
+      for sid in "${to_remove[@]}"; do
+        jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+      done
+
+      jq -nc \
+        --arg ts "$timestamp" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
+        --argjson count "$removed_count" \
+        --argjson sessions "$(printf '%s\n' "${to_remove[@]}" | jq -R . | jq -s .)" \
+        '{
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+          "_meta": {"format": "json", "command": "session cleanup", "timestamp": $ts, "version": $version},
+          "success": true,
+          "removed": $count,
+          "sessions": $sessions
+        }'
+    fi
+  else
+    if [[ "$removed_count" -eq 0 ]]; then
+      echo "No stale sessions to clean up"
+    else
+      if [[ "$dry_run" == "true" ]]; then
+        echo "Would remove $removed_count stale session(s):"
+        for i in "${!to_remove[@]}"; do
+          echo "  - ${to_remove[$i]} (${reasons[$i]})"
+        done
+        echo "(use without --dry-run to actually remove)"
+      else
+        # Actually remove sessions
+        for sid in "${to_remove[@]}"; do
+          jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+        done
+        echo "Removed $removed_count stale session(s)"
+        for sid in "${to_remove[@]}"; do
+          echo "  - $sid"
+        done
+      fi
+    fi
+  fi
+}
+
 # Main command dispatch
 COMMAND="${1:-help}"
 shift || true
@@ -1444,6 +1685,7 @@ case "$COMMAND" in
   list)    cmd_list "$@" ;;
   show)    cmd_show_session "$@" ;;
   switch)  cmd_switch "$@" ;;
+  cleanup) cmd_cleanup "$@" ;;
   -h|--help|help) usage ;;
   *)
     log_error "Unknown command: $COMMAND" "E_INPUT_INVALID" "$EXIT_INVALID_INPUT" "Run 'cleo session --help' for usage"

@@ -341,7 +341,7 @@ Configuration for Epic → Task → Subtask hierarchy constraints.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `maxSiblings` | integer | `20` | Maximum children per parent (0 = unlimited) |
+| `maxSiblings` | integer | `0` | Maximum children per parent (0 = unlimited, recommended for LLM agents) |
 | `maxDepth` | integer | `3` | Maximum hierarchy depth (epic=0, task=1, subtask=2) |
 | `countDoneInLimit` | boolean | `false` | Include done tasks in sibling count |
 | `maxActiveSiblings` | integer | `8` | Maximum active/pending children for context management |
@@ -352,10 +352,10 @@ The sibling limits are designed for **LLM agents as primary users**, not human c
 
 | Setting | Purpose | Rationale |
 |---------|---------|-----------|
-| `maxSiblings: 20` | Organizational limit | Practical grouping without artificial constraints |
+| `maxSiblings: 0` | No limit (default) | LLM agents don't need cognitive limits; organize freely |
 | `countDoneInLimit: false` | Done tasks excluded | Completed work is historical; doesn't consume context |
 | `maxActiveSiblings: 8` | Context management | Aligns with TodoWrite sync limit (Part 3.1 of TODOWRITE-SYNC-SPEC) |
-| `0 = unlimited` | No artificial ceiling | LLM agents can process any list size |
+| Set non-zero | Optional limit | Use for organization if desired, not required |
 
 **Key Insight**: The original 7-sibling limit was based on Miller's 7±2 law for human short-term memory. LLM agents:
 - Have 200K+ token context windows, not 4-5 item working memory

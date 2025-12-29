@@ -63,6 +63,14 @@ elif [[ -f "$LIB_DIR/error-json.sh" ]]; then
   source "$LIB_DIR/error-json.sh"
 fi
 
+# Source config library for multi-session check
+# IMPORTANT: Must be sourced BEFORE hierarchy.sh so config functions are available
+if [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
+  source "$CLEO_HOME/lib/config.sh"
+elif [[ -f "$LIB_DIR/config.sh" ]]; then
+  source "$LIB_DIR/config.sh"
+fi
+
 # Source hierarchy library for hierarchy awareness (T345)
 if [[ -f "$CLEO_HOME/lib/hierarchy.sh" ]]; then
   source "$CLEO_HOME/lib/hierarchy.sh"
@@ -75,13 +83,6 @@ if [[ -f "$CLEO_HOME/lib/sessions.sh" ]]; then
   source "$CLEO_HOME/lib/sessions.sh"
 elif [[ -f "$LIB_DIR/sessions.sh" ]]; then
   source "$LIB_DIR/sessions.sh"
-fi
-
-# Source config library for multi-session check
-if [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
-  source "$CLEO_HOME/lib/config.sh"
-elif [[ -f "$LIB_DIR/config.sh" ]]; then
-  source "$LIB_DIR/config.sh"
 fi
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"

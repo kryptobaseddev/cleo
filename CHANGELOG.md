@@ -5,6 +5,28 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.7] - 2025-12-29
+
+### Changed
+- **hierarchy.maxSiblings now defaults to 0 (unlimited)** - LLM-Agent-First design update
+  - Schema default: `maxSiblings: 0` (was 20, originally 7)
+  - LLM agents don't need cognitive limits; limits only create friction
+  - `countDoneInLimit: false` still excludes completed tasks by default
+  - `maxActiveSiblings: 8` still available for optional context management
+
+### Fixed
+- **Library sourcing order in scripts** - Fixed potential config initialization issues
+  - `config.sh` now sourced BEFORE `hierarchy.sh` in all affected scripts
+  - Ensures config functions available when hierarchy functions initialize
+  - Fixed in: `add-task.sh`, `update-task.sh`, `reopen.sh`, `focus.sh`, `uncancel.sh`
+
+### Documentation
+- Updated 14 documentation files to reflect unlimited siblings default
+  - Removed all references to "max 7 siblings" constraint
+  - Updated specs: TASK-HIERARCHY-SPEC, CONFIG-SYSTEM-SPEC, LLM-AGENT-FIRST-SPEC
+  - Updated commands: add.md, update.md, hierarchy.md, exit-codes.md
+  - Updated migration guides and implementation reports
+
 ## [0.41.6] - 2025-12-29
 
 ### Changed

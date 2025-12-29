@@ -485,7 +485,7 @@
 #### ...implement hierarchy features (v0.17.0+)
 1. Read [HIERARCHY-ENHANCEMENT-SPEC.md](specs/HIERARCHY-ENHANCEMENT-SPEC.md) for full spec
 2. Reference [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) for ID contract
-3. Follow Epic → Task → Subtask taxonomy (max depth: 3, max siblings: 7)
+3. Follow Epic → Task → Subtask taxonomy (max depth: 3, unlimited siblings by default)
 4. Review [commands/add.md](commands/add.md) for `--type`, `--parent`, `--size` flags
 5. Review [commands/list.md](commands/list.md) for `--type`, `--parent`, `--children`, `--tree` filters
 6. Run `cleo migrate run` to upgrade to schema v2.3.0

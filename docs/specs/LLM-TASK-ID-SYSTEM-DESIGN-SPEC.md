@@ -574,8 +574,8 @@ Action: Decompose into medium/small tasks before proceeding
 
 | Constraint | Value | Rationale |
 |------------|-------|-----------|
-| Max depth | 3 | Cognitive limit; deeper = navigation overhead |
-| Max siblings | 7 | 4-5 in working memory + buffer |
+| Max depth | 3 | Organizational; deeper = navigation overhead |
+| Max siblings | 0 (unlimited) | LLM agents don't need cognitive limits |
 | Min ID digits | 3 | `T001` not `T1` |
 | ID pattern | `^T\d{3,}$` | Simple, bounded, unmistakable |
 
@@ -602,7 +602,7 @@ EXIT_NOT_FOUND=4              # Task not found (general)
 # Hierarchy Errors (10-19)
 EXIT_PARENT_NOT_FOUND=10      # parentId references non-existent task
 EXIT_DEPTH_EXCEEDED=11        # Max hierarchy depth (3) exceeded
-EXIT_SIBLING_LIMIT=12         # Max siblings (7) exceeded
+EXIT_SIBLING_LIMIT=12         # Max siblings exceeded (if configured)
 EXIT_INVALID_PARENT_TYPE=13   # subtask cannot have children
 EXIT_CIRCULAR_REFERENCE=14    # Task would be ancestor of itself
 EXIT_ORPHAN_DETECTED=15       # Task has invalid parentId

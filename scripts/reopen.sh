@@ -70,16 +70,17 @@ elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
     source "$LIB_DIR/exit-codes.sh"
 fi
 
+# Source config library for unified config access
+# IMPORTANT: Must be sourced BEFORE hierarchy.sh so config functions are available
+if [[ -f "$LIB_DIR/config.sh" ]]; then
+    # shellcheck source=../lib/config.sh
+    source "$LIB_DIR/config.sh"
+fi
+
 # Source hierarchy library for child operations
 if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
     # shellcheck source=../lib/hierarchy.sh
     source "$LIB_DIR/hierarchy.sh"
-fi
-
-# Source config library for unified config access
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-    # shellcheck source=../lib/config.sh
-    source "$LIB_DIR/config.sh"
 fi
 
 # Fallback exit codes if libraries not loaded

@@ -108,7 +108,7 @@ is_multi_session_enabled() {
     fi
 
     local enabled
-    enabled=$(jq -r '.multiSession.enabled // false' "$config_file" 2>/dev/null)
+    enabled=$(jq -r '.multiSession.enabled // true' "$config_file" 2>/dev/null)
 
     [[ "$enabled" == "true" ]]
 }
@@ -1151,6 +1151,83 @@ get_current_session_id() {
     return 1
 }
 
+
+# Resolve current session ID using priority order:
+# 1. Explicit --session flag (passed as $1)
+# 2. CLEO_SESSION environment variable
+# 3. .current-session file
+# 4. Auto-detect single active session
+# Returns: session ID on success, empty on failure
+# Exit code: 0 on success, 1 if no session found
+resolve_current_session_id() {
+    local provided="${1:-}"
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+    
+    # Helper function to validate session exists and is active/suspended
+    _validate_session_exists() {
+        local sid="$1"
+        if [[ ! -f "$sessions_file" ]]; then
+            return 1
+        fi
+        local status
+        status=$(jq -r --arg id "$sid" '.sessions[] | select(.id == $id) | .status' "$sessions_file" 2>/dev/null)
+        # Session must exist and be active or suspended (not ended/closed)
+        [[ "$status" == "active" || "$status" == "suspended" ]]
+    }
+    
+    # Priority 1: Explicit flag
+    if [[ -n "$provided" ]]; then
+        if _validate_session_exists "$provided"; then
+            echo "$provided"
+            return 0
+        fi
+        return 1  # Invalid session ID
+    fi
+    
+    # Priority 2: Environment variable
+    if [[ -n "${CLEO_SESSION:-}" ]]; then
+        if _validate_session_exists "$CLEO_SESSION"; then
+            echo "$CLEO_SESSION"
+            return 0
+        fi
+        return 1  # Invalid env var
+    fi
+    
+    # Priority 3: .current-session file
+    local current_file
+    current_file="$(get_cleo_dir)/.current-session"
+    if [[ -f "$current_file" ]]; then
+        local file_session
+        file_session=$(cat "$current_file" 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "$file_session" ]]; then
+            if _validate_session_exists "$file_session"; then
+                echo "$file_session"
+                return 0
+            fi
+            # File points to invalid session - clear it
+            rm -f "$current_file" 2>/dev/null
+        fi
+    fi
+    
+    # Priority 4: Auto-detect single active session
+    if [[ -f "$sessions_file" ]]; then
+        local active_sessions
+        active_sessions=$(jq -c '[.sessions[] | select(.status == "active")]' "$sessions_file" 2>/dev/null)
+        local active_count
+        active_count=$(echo "$active_sessions" | jq 'length')
+        
+        if [[ "$active_count" -eq 1 ]]; then
+            local active_session
+            active_session=$(echo "$active_sessions" | jq -r '.[0].id')
+            echo "$active_session"
+            return 0
+        fi
+    fi
+    
+    return 1  # Could not resolve
+}
+
 # ============================================================================
 # SESSION FOCUS FUNCTIONS
 # ============================================================================
@@ -1395,6 +1472,43 @@ clear_session_focus() {
 }
 
 # ============================================================================
+# AUTO-BINDING (T1012)
+# ============================================================================
+
+# Auto-bind session after successful session start
+# Writes session ID to .cleo/.current-session file for auto-detection
+# Args: $1 - session ID
+# Returns: 0 on success
+auto_bind_session() {
+    local session_id="$1"
+    local cleo_dir
+
+    cleo_dir="$(get_cleo_dir)"
+
+    # Write session ID to .current-session file
+    # Use mode 0600 for security (per MULTI-SESSION-BINDING-SPEC.md)
+    local current_session_file="${cleo_dir}/.current-session"
+    echo "$session_id" > "$current_session_file"
+    chmod 600 "$current_session_file" 2>/dev/null || true
+
+    return 0
+}
+
+# Clear session binding on session end
+# Removes .cleo/.current-session file
+# Args: none
+# Returns: 0 on success
+clear_session_binding() {
+    local cleo_dir
+    cleo_dir="$(get_cleo_dir)"
+
+    local current_session_file="${cleo_dir}/.current-session"
+    rm -f "$current_session_file" 2>/dev/null || true
+
+    return 0
+}
+
+# ============================================================================
 # AUTO-FOCUS
 # ============================================================================
 
@@ -1485,5 +1599,8 @@ export -f close_session
 export -f list_sessions
 export -f get_session
 export -f get_current_session_id
+export -f resolve_current_session_id
+export -f auto_bind_session
+export -f clear_session_binding
 export -f auto_select_focus_task
 export -f discover_available_epics

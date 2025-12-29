@@ -300,7 +300,7 @@ fi
 | **Hierarchy (10-19)** |
 | 10 | `EXIT_PARENT_NOT_FOUND` | parentId references non-existent task | Yes | --parent T999 invalid |
 | 11 | `EXIT_DEPTH_EXCEEDED` | Max hierarchy depth (3) exceeded | Yes | Too deeply nested |
-| 12 | `EXIT_SIBLING_LIMIT` | Max siblings (7) exceeded | Yes | Parent has 7 children |
+| 12 | `EXIT_SIBLING_LIMIT` | Max siblings exceeded (if configured) | Yes | Parent at configured limit |
 | 13 | `EXIT_INVALID_PARENT_TYPE` | subtask cannot have children | Yes | subtask as parent |
 | 14 | `EXIT_CIRCULAR_REFERENCE` | Task would be ancestor of itself | No | Cycle detected |
 | 15 | `EXIT_ORPHAN_DETECTED` | Task has invalid parentId | Yes | Parent was deleted |

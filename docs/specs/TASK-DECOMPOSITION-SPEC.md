@@ -1028,7 +1028,7 @@ Scope Assessment: {scope_json}
 
 ## Constraints
 1. Maximum depth: 3 levels (epic → task → subtask)
-2. Maximum siblings: 7 per parent
+2. Maximum siblings: Unlimited by default (configurable via `hierarchy.maxSiblings`)
 3. Each leaf task MUST pass atomicity criteria:
    - Single file scope (≤3 files)
    - Single cognitive concern

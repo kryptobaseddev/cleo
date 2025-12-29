@@ -102,7 +102,7 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 
 | Document | Version | Status | Last Updated | Synopsis |
 |----------|---------|--------|--------------|----------|
-| [**TASK-HIERARCHY-SPEC.md**](TASK-HIERARCHY-SPEC.md) | 1.2.0 | **APPROVED** | 2025-01-17 | Epic → Task → Subtask taxonomy with max depth 3, max 7 siblings. Flat ID + parentId design. Schema v2.3.0. |
+| [**TASK-HIERARCHY-SPEC.md**](TASK-HIERARCHY-SPEC.md) | 2.0.0 | **APPROVED** | 2025-12-29 | Epic → Task → Subtask taxonomy with max depth 3, unlimited siblings by default. Flat ID + parentId design. LLM-Agent-First. |
 | [**TODOWRITE-SYNC-SPEC.md**](TODOWRITE-SYNC-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-18 | Bidirectional sync between cleo (durable) and Claude Code TodoWrite (ephemeral). Lossy by design with ID preservation via [T###] prefix. |
 | [**FIND-COMMAND-SPEC.md**](FIND-COMMAND-SPEC.md) | 1.0 | **DRAFT** | 2025-12-18 | Fuzzy task search command. Context reduction 355KB→1KB (99.7%). ID prefix matching, match scoring, minimal output. |
 | [**RELEASE-VERSION-MANAGEMENT-SPEC.md**](RELEASE-VERSION-MANAGEMENT-SPEC.md) | 2.0.0 | **DRAFT** | 2025-12-18 | Release version tracking with 4-state lifecycle (planning→development→released/cancelled). VERSION file integration, git tags. |

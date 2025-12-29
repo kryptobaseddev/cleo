@@ -47,7 +47,7 @@ The hierarchy system enforces strict constraints for maintainability:
 | Constraint | Value | Rationale |
 |------------|-------|-----------|
 | Maximum depth | 3 levels | Prevents over-decomposition |
-| Maximum siblings | 7 per parent | Cognitive load management |
+| Maximum siblings | Unlimited (0) | LLM agents don't need cognitive limits; configurable |
 | Subtask children | Not allowed | Enforces atomic operations |
 | Epic parent | Not allowed | Epics must be root-level |
 
@@ -243,12 +243,12 @@ cleo add "Too deep" --parent T005
 ### Maximum Siblings Exceeded (Exit Code 12)
 
 ```bash
-# T001 already has 7 children
-cleo add "Eighth child" --parent T001
-# ERROR: Maximum siblings (7) exceeded for parent T001
+# T001 has reached maxSiblings limit (if configured)
+cleo add "Another child" --parent T001
+# ERROR: Maximum siblings exceeded for parent T001
 ```
 
-**Fix**: Consider creating a new epic or grouping related tasks.
+**Fix**: Set `hierarchy.maxSiblings` to 0 for unlimited, or group related tasks under a new parent.
 
 ### Invalid Parent Type (Exit Code 13)
 
