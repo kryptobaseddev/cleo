@@ -5,6 +5,24 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.1] - 2025-12-29
+
+### Fixed
+- **Session exit codes** - Fixed return statements using `E_*` (strings) instead of `EXIT_*` (numbers)
+  - All session functions now return proper numeric exit codes (30-39)
+  - Functions: `start_session`, `suspend_session`, `resume_session`, `end_session`, `close_session`
+
+- **jq scoping bugs in session functions**
+  - `discover_available_epics()` - Fixed `.tasks[]` reference inside nested iteration
+  - `_compute_subtree()` - Fixed recursive function to pass tasks array as parameter
+  - Both functions now correctly compute task hierarchies for Epic scopes
+
+### Added
+- **Integration tests** - New `tests/integration/epic-sessions.bats`
+  - 42 test cases covering session lifecycle, focus locking, write enforcement
+  - Discovery mode, migration, error scenarios, scope types
+  - 33 tests passing, 9 edge cases pending (tracked as subtasks)
+
 ## [0.41.0] - 2025-12-29
 
 ### Added
