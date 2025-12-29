@@ -271,7 +271,7 @@ ALREADY_ACTIVE_COUNT=$(echo "$ALREADY_ACTIVE_IDS" | jq 'length')
 if [[ "$ALREADY_ACTIVE_COUNT" -eq "${#TASK_IDS[@]}" ]]; then
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg ts "$TIMESTAMP" \
             --arg ver "${CLEO_VERSION:-$(get_version)}" \
             --argjson taskIds "$ALREADY_ACTIVE_IDS" \
@@ -316,7 +316,7 @@ REQUESTED_COUNT=$(echo "$TASK_IDS_JSON" | jq 'length')
 if [[ "$FOUND_COUNT" -eq 0 ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq -n \
+        jq -nc \
             --arg ts "$TIMESTAMP" \
             --arg ver "${CLEO_VERSION:-$(get_version)}" \
             --argjson requestedIds "$TASK_IDS_JSON" \
@@ -397,7 +397,7 @@ if [[ "$DRY_RUN" == true ]]; then
         REMAINING_ARCHIVED=$((ARCHIVE_TOTAL - FOUND_COUNT))
         NEW_TODO_TOTAL=$((TODO_TOTAL + FOUND_COUNT))
 
-        jq -n \
+        jq -nc \
             --arg ts "$TIMESTAMP" \
             --arg ver "${CLEO_VERSION:-$(get_version)}" \
             --arg status "$RESTORE_STATUS" \
@@ -595,7 +595,7 @@ TODO_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
 if [[ "$FORMAT" == "json" ]]; then
     OUTPUT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    jq -n \
+    jq -nc \
         --arg ts "$OUTPUT_TIMESTAMP" \
         --arg ver "${CLEO_VERSION:-$(get_version)}" \
         --arg status "$RESTORE_STATUS" \

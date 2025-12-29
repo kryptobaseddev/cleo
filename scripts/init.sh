@@ -230,8 +230,9 @@ if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
   fi
 
   action_taken="updated"
-  if grep -q "CLEO:START" "$TARGET_FILE" 2>/dev/null; then
+  if grep -qE "CLEO:START|CLAUDE-TODO:START" "$TARGET_FILE" 2>/dev/null; then
     # Remove ALL existing injection blocks (handles multiple/duplicates)
+    # Including legacy CLAUDE-TODO:START blocks
     # and place new injection at TOP of file
     temp_file=$(mktemp)
 
@@ -239,10 +240,13 @@ if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
     cat "$injection_template" > "$temp_file"
 
     # Strip ALL injection blocks using awk (handles multiple START/END pairs)
+    # Handles both CLEO:START/END and legacy CLAUDE-TODO:START/END blocks
     # Also removes any leading blank lines from the cleaned content
     awk '
       /<!-- CLEO:START/ { skip = 1; next }
       /<!-- CLEO:END -->/ { skip = 0; next }
+      /<!-- CLAUDE-TODO:START/ { skip = 1; next }
+      /<!-- CLAUDE-TODO:END -->/ { skip = 0; next }
       !skip { print }
     ' "$TARGET_FILE" | sed '/./,$!d' >> "$temp_file"
 
@@ -260,7 +264,7 @@ if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
   fi
 
   if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg action "$action_taken" \
       --arg version "$VERSION" \
@@ -353,7 +357,7 @@ _create_init_safety_backup() {
     if command -v jq &>/dev/null; then
         local ts_iso
         ts_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq -n \
+        jq -nc \
             --arg type "safety" \
             --arg ts "$ts_iso" \
             --arg ver "$VERSION" \
@@ -385,7 +389,7 @@ if _project_initialized; then
         # Project exists, --force not provided
         # Exit with EXIT_ALREADY_EXISTS (101) per LLM-Agent-First spec
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            jq -n \
+            jq -nc \
                 --arg version "$VERSION" \
                 --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
                 --argjson existingFiles "$existing_count" \
@@ -428,7 +432,7 @@ if _project_initialized; then
         # --force provided but --confirm-wipe not provided
         # Exit with EXIT_INVALID_INPUT (2) - missing required confirmation
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-            jq -n \
+            jq -nc \
                 --arg version "$VERSION" \
                 --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
                 --argjson existingFiles "$existing_count" \
@@ -790,7 +794,7 @@ CREATED_FILES=(
 
 if [[ "$FORMAT" == "json" ]]; then
   # JSON output
-  jq -n \
+  jq -nc \
     --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
     --arg projectName "$PROJECT_NAME" \
     --arg directory "$TODO_DIR" \

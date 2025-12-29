@@ -271,7 +271,7 @@ enrich_completions() {
   echo "$archive_tasks" > "$temp_dir/archive.json"
   echo "$current_tasks" > "$temp_dir/current.json"
 
-  jq -n --slurpfile completions "$temp_dir/completions.json" \
+  jq -nc --slurpfile completions "$temp_dir/completions.json" \
         --slurpfile archive "$temp_dir/archive.json" \
         --slurpfile current "$temp_dir/current.json" '
     $completions[0] | map(
@@ -362,7 +362,7 @@ calculate_velocity() {
     average=$(echo "scale=1; $total_completed / $total_days" | bc 2>/dev/null || echo "0")
   fi
 
-  jq -n --argjson total "$total_completed" \
+  jq -nc --argjson total "$total_completed" \
         --argjson peak "$peak" \
         --arg average "$average" \
         '{total: $total, peak: $peak, average: ($average | tonumber)}'
@@ -568,7 +568,7 @@ output_json_format() {
   velocity=$(calculate_velocity "$by_day" "$total_days")
 
   # Build JSON output
-  jq -n \
+  jq -nc \
     --arg start "$start_date" \
     --arg end "$end_date" \
     --argjson days "$total_days" \

@@ -288,7 +288,7 @@ generate_research_plan() {
 
   # Build the research plan JSON
   local plan
-  plan=$(jq -n \
+  plan=$(jq -nc \
     --arg id "$research_id" \
     --arg mode "$MODE" \
     --arg query "$QUERY" \
@@ -519,7 +519,7 @@ main() {
   # Output based on format
   if [[ "$FORMAT" == "json" ]]; then
     # Full JSON output with meta envelope
-    jq -n \
+    jq -nc \
       --arg version "$VERSION" \
       --arg cmd_version "$COMMAND_VERSION" \
       --arg timestamp "$(timestamp_iso)" \

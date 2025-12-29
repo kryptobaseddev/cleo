@@ -502,7 +502,7 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
     COMPLETED_AT=$(echo "$TASK" | jq -r '.completedAt // "unknown"')
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -541,7 +541,7 @@ if [[ "$CURRENT_STATUS" == "cancelled" ]]; then
     CANCELLED_AT=$(echo "$TASK" | jq -r '.cancelledAt // "unknown"')
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -643,7 +643,7 @@ if [[ "$CHILDREN_COUNT" -gt 0 ]]; then
             fi
 
             # Build affected tasks list - combine parent with cascade tasks
-            AFFECTED_TASKS=$(jq -n --arg parent "$TASK_ID" --argjson cascade "$CASCADE_TASKS" '[$parent] + $cascade')
+            AFFECTED_TASKS=$(jq -nc --arg parent "$TASK_ID" --argjson cascade "$CASCADE_TASKS" '[$parent] + $cascade')
 
             log_info "Will cascade delete $TOTAL_AFFECTED task(s)"
             ;;
@@ -719,7 +719,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -1035,7 +1035,7 @@ fi
 # ============================================================================
 
 if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
         --arg version "${CLEO_VERSION:-unknown}" \
         --arg timestamp "$TIMESTAMP" \
         --arg taskId "$TASK_ID" \

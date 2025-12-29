@@ -177,7 +177,7 @@ if save_json "$TODO_FILE" "$UPDATED_JSON"; then
 
     # Output
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg taskId "$TASK_ID" \
             --arg oldParent "$OLD_PARENT" \

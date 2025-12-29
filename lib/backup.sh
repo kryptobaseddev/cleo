@@ -174,7 +174,7 @@ _init_manifest() {
     if [[ ! -f "$manifest_path" ]]; then
         local timestamp
         timestamp=$(get_iso_timestamp)
-        jq -n \
+        jq -nc \
             --arg schema "https://cleo-dev.com/schemas/v1/backup-manifest.schema.json" \
             --arg version "$MANIFEST_VERSION" \
             --arg created "$timestamp" \
@@ -239,7 +239,7 @@ _add_to_manifest() {
     # Create backup entry
     local entry
     if [[ -n "$custom_name" ]]; then
-        entry=$(jq -n \
+        entry=$(jq -nc \
             --arg id "$backup_id" \
             --arg type "$backup_type" \
             --arg timestamp "$timestamp" \
@@ -261,7 +261,7 @@ _add_to_manifest() {
                 name: $name
             }')
     else
-        entry=$(jq -n \
+        entry=$(jq -nc \
             --arg id "$backup_id" \
             --arg type "$backup_type" \
             --arg timestamp "$timestamp" \
@@ -447,7 +447,7 @@ _rebuild_manifest() {
     local temp_manifest
     temp_manifest=$(mktemp)
 
-    jq -n \
+    jq -nc \
         --arg schema "https://cleo-dev.com/schemas/v1/backup-manifest.schema.json" \
         --arg version "$MANIFEST_VERSION" \
         --arg created "$timestamp" \
@@ -516,7 +516,7 @@ _rebuild_manifest() {
 
             # Create entry
             local entry
-            entry=$(jq -n \
+            entry=$(jq -nc \
                 --arg id "$backup_id" \
                 --arg type "$type" \
                 --arg timestamp "$backup_timestamp" \
@@ -593,7 +593,7 @@ _log_rotation_error() {
     # Log to audit trail if logging function available
     if declare -f log_operation >/dev/null 2>&1; then
         local details
-        details=$(jq -n \
+        details=$(jq -nc \
             --arg type "$backup_type" \
             --arg error "$message" \
             '{operation: "backup_rotation", type: $type, error: $error}')
@@ -618,7 +618,7 @@ _log_rotation_summary() {
     # Log to audit trail if logging function available
     if declare -f log_operation >/dev/null 2>&1; then
         local details
-        details=$(jq -n \
+        details=$(jq -nc \
             --arg type "$backup_type" \
             --argjson deleted "$deleted_count" \
             --argjson retained "$retained_count" \
@@ -699,7 +699,7 @@ _create_backup_metadata() {
     timestamp=$(get_iso_timestamp)
     version="${CLEO_VERSION:-0.9.8}"
 
-    jq -n \
+    jq -nc \
         --arg type "$backup_type" \
         --arg ts "$timestamp" \
         --arg ver "$version" \
@@ -835,7 +835,7 @@ create_snapshot_backup() {
                 local checksum
                 checksum=$(safe_checksum "$dest_file")
 
-                files_backed_up+=("$(jq -n \
+                files_backed_up+=("$(jq -nc \
                     --arg src "$file" \
                     --arg backup "$file" \
                     --argjson size "$file_size" \
@@ -872,7 +872,7 @@ create_snapshot_backup() {
 
     # Log backup creation
     log_operation "backup_created" "system" "null" "null" "null" \
-        "$(jq -n --arg type "$BACKUP_TYPE_SNAPSHOT" --arg path "$backup_path" '{type: $type, path: $path}')" \
+        "$(jq -nc --arg type "$BACKUP_TYPE_SNAPSHOT" --arg path "$backup_path" '{type: $type, path: $path}')" \
         "null" 2>/dev/null || true
 
     # Add to manifest for O(1) lookups
@@ -941,7 +941,7 @@ create_safety_backup() {
     checksum=$(safe_checksum "$dest_file")
 
     local files_json
-    files_json=$(jq -n \
+    files_json=$(jq -nc \
         --arg src "$filename" \
         --arg backup "$filename" \
         --argjson size "$file_size" \
@@ -1021,7 +1021,7 @@ create_incremental_backup() {
     checksum=$(safe_checksum "$dest_file")
 
     local files_json
-    files_json=$(jq -n \
+    files_json=$(jq -nc \
         --arg src "$filename" \
         --arg backup "$filename" \
         --argjson size "$file_size" \
@@ -1099,7 +1099,7 @@ create_archive_backup() {
             local checksum
             checksum=$(safe_checksum "$dest_file")
 
-            files_backed_up+=("$(jq -n \
+            files_backed_up+=("$(jq -nc \
                 --arg src "$file" \
                 --arg backup "$file" \
                 --argjson size "$file_size" \
@@ -1183,7 +1183,7 @@ create_migration_backup() {
             local checksum
             checksum=$(safe_checksum "$dest_file")
 
-            files_backed_up+=("$(jq -n \
+            files_backed_up+=("$(jq -nc \
                 --arg src "$file" \
                 --arg backup "$file" \
                 --argjson size "$file_size" \
@@ -1467,7 +1467,7 @@ restore_typed_backup() {
             echo "ERROR: Checksum verification failed ($verify_errors errors)" >&2
             # Log verification failure
             log_operation "backup_verify_failed" "system" "null" "null" "null" \
-                "$(jq -n --arg path "$backup_path" --argjson errors "$verify_errors" '{path: $path, verifyErrors: $errors}')" \
+                "$(jq -nc --arg path "$backup_path" --argjson errors "$verify_errors" '{path: $path, verifyErrors: $errors}')" \
                 "null" 2>/dev/null || true
             return "${EXIT_CHECKSUM_MISMATCH:-20}"
         fi
@@ -1507,7 +1507,7 @@ restore_typed_backup() {
 
     # Log restore operation (include verification status)
     log_operation "backup_restored" "system" "null" "null" "null" \
-        "$(jq -n --arg path "$backup_path" --argjson verified "$([[ "$skip_verify" != "true" ]] && echo true || echo false)" '{path: $path, checksumVerified: $verified}')" \
+        "$(jq -nc --arg path "$backup_path" --argjson verified "$([[ "$skip_verify" != "true" ]] && echo true || echo false)" '{path: $path, checksumVerified: $verified}')" \
         "null" 2>/dev/null || true
 
     return 0
@@ -1891,7 +1891,7 @@ find_backups() {
                 snippets_json=$(printf '%s\n' "${matched_snippets[@]}" | jq -R -s 'split("\n") | map(select(length > 0))')
             fi
 
-            result_entry=$(jq -n \
+            result_entry=$(jq -nc \
                 --arg name "$backup_name" \
                 --arg path "$backup_path" \
                 --arg type "$backup_type" \
@@ -2122,7 +2122,7 @@ schedule_backup() {
     fi
 
     # Write schedule state
-    jq -n \
+    jq -nc \
         --arg lastBackup "$timestamp" \
         --arg nextScheduled "$next_scheduled" \
         --argjson intervalMinutes "$SCHEDULED_INTERVAL_MINUTES" \

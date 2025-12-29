@@ -255,7 +255,7 @@ case "$SUBCOMMAND" in
       entries=$(jq -c "$JQ_FILTER" "$LOG_FILE")
       entry_count=$(echo "$entries" | jq 'length')
 
-      jq -n \
+      jq -nc \
         --arg timestamp "$current_timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         --argjson entries "$entries" \
@@ -531,7 +531,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 LOG_ID="log_$(head -c 6 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 12)"
 
 # Build entry JSON
-ENTRY=$(jq -n \
+ENTRY=$(jq -nc \
   --arg id "$LOG_ID" \
   --arg ts "$TIMESTAMP" \
   --arg sid "$SESSION_ID" \

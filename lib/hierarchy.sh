@@ -905,7 +905,7 @@ cleanup_dependencies() {
     local existing_lock="${3:-}"
 
     if [[ ! -f "$todo_file" ]]; then
-        jq -n --arg id "$task_id" '{
+        jq -nc --arg id "$task_id" '{
             "success": false,
             "error": "Todo file not found",
             "taskId": $id
@@ -919,7 +919,7 @@ cleanup_dependencies() {
 
     if [[ -z "$dependents" ]]; then
         # No dependents to clean up
-        jq -n --arg id "$task_id" '{
+        jq -nc --arg id "$task_id" '{
             "success": true,
             "taskId": $id,
             "dependentsAffected": [],
@@ -944,7 +944,7 @@ cleanup_dependencies() {
     ' "$todo_file")
 
     if [[ $? -ne 0 ]]; then
-        jq -n --arg id "$task_id" '{
+        jq -nc --arg id "$task_id" '{
             "success": false,
             "error": "Failed to update dependencies",
             "taskId": $id
@@ -955,7 +955,7 @@ cleanup_dependencies() {
     # Save using save_json if available, otherwise direct write
     if declare -f save_json >/dev/null 2>&1; then
         if ! save_json "$todo_file" "$updated_json"; then
-            jq -n --arg id "$task_id" '{
+            jq -nc --arg id "$task_id" '{
                 "success": false,
                 "error": "Failed to save dependency cleanup",
                 "taskId": $id
@@ -970,7 +970,7 @@ cleanup_dependencies() {
     local affected_json
     affected_json=$(echo "$dependents" | tr ' ' '\n' | jq -R . | jq -s .)
 
-    jq -n \
+    jq -nc \
         --arg id "$task_id" \
         --argjson affected "$affected_json" \
         --argjson count "$dependent_count" \
@@ -998,7 +998,7 @@ cleanup_dependencies_for_ids() {
     local todo_file="$2"
 
     if [[ ! -f "$todo_file" ]]; then
-        jq -n --argjson ids "$task_ids_json" '{
+        jq -nc --argjson ids "$task_ids_json" '{
             "success": false,
             "error": "Todo file not found",
             "taskIds": $ids
@@ -1011,7 +1011,7 @@ cleanup_dependencies_for_ids() {
     dependents=$(get_dependent_tasks_for_ids "$task_ids_json" "$todo_file")
 
     if [[ -z "$dependents" ]]; then
-        jq -n --argjson ids "$task_ids_json" '{
+        jq -nc --argjson ids "$task_ids_json" '{
             "success": true,
             "taskIds": $ids,
             "dependentsAffected": [],
@@ -1035,7 +1035,7 @@ cleanup_dependencies_for_ids() {
     ' "$todo_file")
 
     if [[ $? -ne 0 ]]; then
-        jq -n --argjson ids "$task_ids_json" '{
+        jq -nc --argjson ids "$task_ids_json" '{
             "success": false,
             "error": "Failed to update dependencies",
             "taskIds": $ids
@@ -1046,7 +1046,7 @@ cleanup_dependencies_for_ids() {
     # Save
     if declare -f save_json >/dev/null 2>&1; then
         if ! save_json "$todo_file" "$updated_json"; then
-            jq -n --argjson ids "$task_ids_json" '{
+            jq -nc --argjson ids "$task_ids_json" '{
                 "success": false,
                 "error": "Failed to save dependency cleanup",
                 "taskIds": $ids
@@ -1060,7 +1060,7 @@ cleanup_dependencies_for_ids() {
     local affected_json
     affected_json=$(echo "$dependents" | tr ' ' '\n' | jq -R . | jq -s .)
 
-    jq -n \
+    jq -nc \
         --argjson ids "$task_ids_json" \
         --argjson affected "$affected_json" \
         --argjson count "$dependent_count" \

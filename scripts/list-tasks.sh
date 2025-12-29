@@ -131,7 +131,7 @@ get_session_context() {
   session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE" 2>/dev/null)
   next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE" 2>/dev/null)
 
-  jq -n \
+  jq -nc \
     --arg sessionId "$session_id" \
     --arg focusTask "$focus_task" \
     --arg sessionNote "$session_note" \
@@ -286,7 +286,7 @@ fi
 check_deps
 
 # Resolve format with TTY-aware auto-detection (LLM-Agent-First)
-# Priority: CLI arg > CLAUDE_TODO_FORMAT env > config > TTY auto-detect
+# Priority: CLI arg > CLEO_FORMAT env > config > TTY auto-detect
 # When piped/redirected: defaults to json (agent-friendly)
 # When interactive TTY: defaults to text (human-friendly)
 if declare -f resolve_format >/dev/null 2>&1; then
@@ -391,7 +391,7 @@ if [[ "$SHOW_ARCHIVED" == true ]]; then
   if [[ ! -f "$ARCHIVE_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
       # Return proper JSON envelope for empty archive
-      jq -n \
+      jq -nc \
         --arg version "$VERSION" \
         --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{
@@ -435,7 +435,7 @@ fi
 if [[ -z "$TASKS" ]]; then
   if [[ "$FORMAT" == "json" ]]; then
     # Return proper JSON envelope with _meta.format for programmatic detection
-    jq -n \
+    jq -nc \
       --arg version "$VERSION" \
       --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --arg source "$DATA_SOURCE" \
@@ -811,7 +811,7 @@ case "$FORMAT" in
     SESSION_CTX=$(get_session_context)
 
     # Use --slurpfile to read large JSON from files instead of command line
-    jq -n \
+    jq -nc \
       --slurpfile tasks "$TEMP_TASKS_FILE" \
       --slurpfile tree_data "$TEMP_TREE_FILE" \
       --arg version "$VERSION" \

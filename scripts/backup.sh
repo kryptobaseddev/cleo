@@ -222,7 +222,7 @@ list_backups() {
 
   if [[ ! -d "$backup_dir" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg dir "$backup_dir" \
         '{
@@ -449,7 +449,7 @@ list_backups() {
   if [[ "$FORMAT" == "json" ]]; then
     local count
     count=$(echo "$json_backups" | jq 'length')
-    jq -n \
+    jq -nc \
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg dir "$backup_dir" \
       --argjson backups "$json_backups" \
@@ -555,7 +555,7 @@ verify_backup() {
   local backup_path
   if ! backup_path=$(resolve_backup_path "$target" "$backup_dir"); then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg target "$target" \
         '{
@@ -594,7 +594,7 @@ verify_backup() {
 
   if [[ -z "$metadata_file" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg backup_id "$backup_id" \
         --arg path "$backup_path" \
@@ -631,7 +631,7 @@ verify_backup() {
   local metadata
   if ! metadata=$(cat "$metadata_file" 2>/dev/null); then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg backup_id "$backup_id" \
         '{
@@ -814,7 +814,7 @@ verify_backup() {
 
   # Output results
   if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg backup_id "$backup_id" \
       --arg path "$backup_path" \
@@ -916,7 +916,7 @@ show_status() {
   # Check if backup directory exists
   if [[ ! -d "$backup_dir" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg dir "$backup_dir" \
         '{
@@ -1252,7 +1252,7 @@ show_status() {
       health_issues_json=$(echo "$health_issues_json" | jq --arg i "$issue" '. + [$i]')
     done
 
-    jq -n \
+    jq -nc \
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg dir "$backup_dir" \
       --arg status "$overall_health" \
@@ -1454,7 +1454,7 @@ if [[ "$LIST_MODE" != true && "$VERIFY_MODE" != true ]]; then
 
   if [[ "$BACKUP_ENABLED" != "true" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1496,7 +1496,7 @@ fi
 if [[ "$VERIFY_MODE" == true ]]; then
   if [[ -z "$VERIFY_TARGET" ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1553,7 +1553,7 @@ if [[ "$AUTO_MODE" == true ]]; then
 
     if [[ -n "$backup_path" ]]; then
       if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
           --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
           --arg path "$backup_path" \
           '{
@@ -1576,7 +1576,7 @@ if [[ "$AUTO_MODE" == true ]]; then
       fi
     else
       if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
           --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
           '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1599,7 +1599,7 @@ if [[ "$AUTO_MODE" == true ]]; then
     # Backup not due
     if [[ "$FORMAT" == "json" ]]; then
       last_backup=$(get_last_backup_time "$CONFIG_FILE")
-      jq -n \
+      jq -nc \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg lastBackup "${last_backup:-null}" \
         '{
@@ -1651,7 +1651,7 @@ if [[ "$FIND_MODE" == true ]]; then
 
   if [[ "$FORMAT" == "json" ]]; then
     # JSON output
-    jq -n \
+    jq -nc \
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg dir "$BACKUP_DIR" \
       --argjson results "$results_json" \
@@ -1927,7 +1927,7 @@ fi
 # Summary
 if [[ "$FORMAT" == "json" ]]; then
   # JSON output
-  jq -n \
+  jq -nc \
     --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
     --arg path "$BACKUP_PATH" \
     --arg name "$BACKUP_NAME" \

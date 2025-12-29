@@ -148,7 +148,7 @@ init_sessions_file() {
     project_name=$(basename "$(pwd)")
 
     local initial_content
-    initial_content=$(jq -n \
+    initial_content=$(jq -nc \
         --arg version "1.0.0" \
         --arg project "$project_name" \
         --arg ts "$timestamp" \
@@ -521,7 +521,7 @@ start_session() {
 
     # Create session entry
     local session_entry
-    session_entry=$(jq -n \
+    session_entry=$(jq -nc \
         --arg id "$session_id" \
         --arg name "$session_name" \
         --arg agent "$agent_id" \

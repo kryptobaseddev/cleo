@@ -343,7 +343,7 @@ convert_to_todowrite() {
 
         # Build todo item
         local todo_item
-        todo_item=$(jq -n \
+        todo_item=$(jq -nc \
             --arg content "$content" \
             --arg activeForm "$active_form" \
             --arg status "$todowrite_status" \
@@ -353,7 +353,7 @@ convert_to_todowrite() {
     done < <(echo "$tasks_json" | jq -c '.[]')
 
     # Return final format
-    jq -n --argjson todos "$todowrite_todos" '{todos: $todos}'
+    jq -nc --argjson todos "$todowrite_todos" '{todos: $todos}'
 }
 
 # Save session state for extraction phase
@@ -375,7 +375,7 @@ save_session_state() {
     local task_metadata
     task_metadata=$(jq -c '[.tasks[] | {id, phase, priority, status}] | map({(.id): {phase, priority, status}}) | add' "$TODO_FILE")
 
-    jq -n \
+    jq -nc \
         --arg session_id "$session_id" \
         --arg injected_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
         --arg injected_phase "$current_phase" \
@@ -448,7 +448,7 @@ main() {
         fi
 
         if [[ "$FORMAT" == "json" ]]; then
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 '{
@@ -496,7 +496,7 @@ main() {
         fi
 
         if [[ "$FORMAT" == "json" ]]; then
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 --argjson taskCount "$task_count" \
@@ -550,7 +550,7 @@ main() {
     # Output result with proper JSON envelope
     local final_output
     if [[ "$FORMAT" == "json" ]]; then
-        final_output=$(jq -n \
+        final_output=$(jq -nc \
             --arg version "$version" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson taskCount "$task_count" \

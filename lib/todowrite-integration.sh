@@ -434,7 +434,7 @@ task_to_todowrite() {
     local active_form=$(convert_to_active_form "$title")
     local todowrite_status=$(map_status_to_todowrite "$status")
 
-    jq -n \
+    jq -nc \
         --arg content "$title" \
         --arg activeForm "$active_form" \
         --arg status "$todowrite_status" \
@@ -486,7 +486,7 @@ export_to_todowrite() {
         local active_form=$(convert_to_active_form "$title")
         local todowrite_status=$(map_status_to_todowrite "$status")
 
-        local todo_item=$(jq -n \
+        local todo_item=$(jq -nc \
             --arg content "$title" \
             --arg activeForm "$active_form" \
             --arg status "$todowrite_status" \
@@ -496,7 +496,7 @@ export_to_todowrite() {
     done < <(echo "$tasks" | jq -c '.[]')
 
     # Output final format
-    jq -n --argjson todos "$todowrite_tasks" '{todos: $todos}'
+    jq -nc --argjson todos "$todowrite_tasks" '{todos: $todos}'
 }
 
 # -----------------------------------------------------------------------------

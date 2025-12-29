@@ -112,7 +112,7 @@ get_session_context() {
   session_note=$(jq -r '.focus.sessionNote // ""' "$TODO_FILE" 2>/dev/null)
   next_action=$(jq -r '.focus.nextAction // ""' "$TODO_FILE" 2>/dev/null)
 
-  jq -n \
+  jq -nc \
     --arg sessionId "$session_id" \
     --arg focusTask "$focus_task" \
     --arg sessionNote "$session_note" \
@@ -546,7 +546,7 @@ output_json() {
   pending_count=$(jq -r '[.tasks[] | select(.status == "pending")] | length' "$todo_file")
 
   if [[ "$pending_count" -eq 0 ]]; then
-    jq -n --arg version "$VERSION" '{
+    jq -nc --arg version "$VERSION" '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {"format": "json", "command": "analyze", "version": $version, "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))},
       "success": true,
@@ -885,7 +885,7 @@ main() {
 
       if [[ "$OUTPUT_MODE" == "json" ]]; then
         echo ""
-        jq -n --arg task "$rec_task" '{
+        jq -nc --arg task "$rec_task" '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "auto_focus": {"set": $task, "status": "success"}
         }'

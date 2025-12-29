@@ -660,7 +660,7 @@ fi
 case "$FORMAT" in
     json)
         # JSON output with LLM-Agent-First envelope
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
             --arg timestamp "$CURRENT_TIMESTAMP" \
             --argjson execution_ms "$EXECUTION_MS" \

@@ -411,7 +411,7 @@ if [[ "$CURRENT_STATUS" != "done" ]]; then
 
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -473,7 +473,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -617,7 +617,7 @@ REOPENED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FI
 # ============================================================================
 
 if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
         --arg version "${CLEO_VERSION:-unknown}" \
         --arg timestamp "$TIMESTAMP" \
         --arg taskId "$TASK_ID" \

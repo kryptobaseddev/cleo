@@ -200,7 +200,7 @@ detect_legacy_backups() {
         [[ -d "$backup_path" ]] && is_dir="true"
 
         local backup_json
-        backup_json=$(jq -n \
+        backup_json=$(jq -nc \
             --arg path "$backup_path" \
             --arg type "$type" \
             --arg ts "$timestamp" \
@@ -344,7 +344,7 @@ migrate_single_backup() {
         local checksum
         checksum=$(safe_checksum "$file")
 
-        file_info+=("$(jq -n \
+        file_info+=("$(jq -nc \
             --arg src "$filename" \
             --arg backup "$filename" \
             --argjson size "$file_size" \
@@ -360,7 +360,7 @@ migrate_single_backup() {
 
     # Create metadata with migration flags
     local metadata
-    metadata=$(jq -n \
+    metadata=$(jq -nc \
         --arg type "$backup_type" \
         --arg ts "$(get_iso_timestamp)" \
         --arg ver "${CLEO_VERSION:-0.9.8}" \
@@ -463,7 +463,7 @@ migrate_all_backups() {
                 version="0.16.0"
             fi
 
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 --argjson dryRun "$dry_run" \
@@ -524,7 +524,7 @@ migrate_all_backups() {
             version="0.16.0"
         fi
 
-        jq -n \
+        jq -nc \
             --arg version "$version" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson dryRun "$dry_run" \
@@ -588,7 +588,7 @@ cleanup_legacy_backups() {
                 version="0.16.0"
             fi
 
-            jq -n \
+            jq -nc \
                 --arg version "$version" \
                 --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                 --arg legacyDir "$legacy_dir" \
@@ -662,7 +662,7 @@ cleanup_legacy_backups() {
             version="0.16.0"
         fi
 
-        jq -n \
+        jq -nc \
             --arg version "$version" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg legacyDir "$legacy_dir" \
@@ -706,7 +706,7 @@ display_detected_backups() {
             version="0.16.0"
         fi
 
-        jq -n \
+        jq -nc \
             --arg version "$version" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson count "$count" \

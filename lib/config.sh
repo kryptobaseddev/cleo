@@ -62,57 +62,57 @@ ENV_PREFIX="CLEO"
 # ============================================================================
 
 # Map of environment variables to config paths
-# Special cases and common overrides
+# CLEO_* variables only - no legacy CLAUDE_TODO_* support (clean break)
 declare -A ENV_TO_CONFIG=(
     # Special case - short form
-    ["CLAUDE_TODO_FORMAT"]="output.defaultFormat"
+    ["CLEO_FORMAT"]="output.defaultFormat"
 
     # Output settings
-    ["CLAUDE_TODO_OUTPUT_DEFAULT_FORMAT"]="output.defaultFormat"
-    ["CLAUDE_TODO_OUTPUT_SHOW_COLOR"]="output.showColor"
-    ["CLAUDE_TODO_OUTPUT_SHOW_UNICODE"]="output.showUnicode"
-    ["CLAUDE_TODO_OUTPUT_SHOW_PROGRESS_BARS"]="output.showProgressBars"
-    ["CLAUDE_TODO_OUTPUT_DATE_FORMAT"]="output.dateFormat"
+    ["CLEO_OUTPUT_DEFAULT_FORMAT"]="output.defaultFormat"
+    ["CLEO_OUTPUT_SHOW_COLOR"]="output.showColor"
+    ["CLEO_OUTPUT_SHOW_UNICODE"]="output.showUnicode"
+    ["CLEO_OUTPUT_SHOW_PROGRESS_BARS"]="output.showProgressBars"
+    ["CLEO_OUTPUT_DATE_FORMAT"]="output.dateFormat"
 
     # Archive settings
-    ["CLAUDE_TODO_ARCHIVE_ENABLED"]="archive.enabled"
-    ["CLAUDE_TODO_ARCHIVE_DAYS_UNTIL_ARCHIVE"]="archive.daysUntilArchive"
-    ["CLAUDE_TODO_ARCHIVE_MAX_COMPLETED_TASKS"]="archive.maxCompletedTasks"
-    ["CLAUDE_TODO_ARCHIVE_PRESERVE_RECENT_COUNT"]="archive.preserveRecentCount"
-    ["CLAUDE_TODO_ARCHIVE_EXEMPT_LABELS"]="archive.exemptLabels"
+    ["CLEO_ARCHIVE_ENABLED"]="archive.enabled"
+    ["CLEO_ARCHIVE_DAYS_UNTIL_ARCHIVE"]="archive.daysUntilArchive"
+    ["CLEO_ARCHIVE_MAX_COMPLETED_TASKS"]="archive.maxCompletedTasks"
+    ["CLEO_ARCHIVE_PRESERVE_RECENT_COUNT"]="archive.preserveRecentCount"
+    ["CLEO_ARCHIVE_EXEMPT_LABELS"]="archive.exemptLabels"
 
     # Logging settings
-    ["CLAUDE_TODO_LOGGING_ENABLED"]="logging.enabled"
-    ["CLAUDE_TODO_LOGGING_LEVEL"]="logging.level"
-    ["CLAUDE_TODO_LOGGING_RETENTION_DAYS"]="logging.retentionDays"
+    ["CLEO_LOGGING_ENABLED"]="logging.enabled"
+    ["CLEO_LOGGING_LEVEL"]="logging.level"
+    ["CLEO_LOGGING_RETENTION_DAYS"]="logging.retentionDays"
 
     # Validation settings
-    ["CLAUDE_TODO_VALIDATION_STRICT_MODE"]="validation.strictMode"
-    ["CLAUDE_TODO_VALIDATION_CHECKSUM_ENABLED"]="validation.checksumEnabled"
-    ["CLAUDE_TODO_VALIDATION_REQUIRE_DESCRIPTION"]="validation.requireDescription"
+    ["CLEO_VALIDATION_STRICT_MODE"]="validation.strictMode"
+    ["CLEO_VALIDATION_CHECKSUM_ENABLED"]="validation.checksumEnabled"
+    ["CLEO_VALIDATION_REQUIRE_DESCRIPTION"]="validation.requireDescription"
 
     # Session settings
-    ["CLAUDE_TODO_SESSION_REQUIRE_SESSION_NOTE"]="session.requireSessionNote"
-    ["CLAUDE_TODO_SESSION_WARN_ON_NO_FOCUS"]="session.warnOnNoFocus"
-    ["CLAUDE_TODO_SESSION_TIMEOUT_HOURS"]="session.sessionTimeoutHours"
+    ["CLEO_SESSION_REQUIRE_SESSION_NOTE"]="session.requireSessionNote"
+    ["CLEO_SESSION_WARN_ON_NO_FOCUS"]="session.warnOnNoFocus"
+    ["CLEO_SESSION_TIMEOUT_HOURS"]="session.sessionTimeoutHours"
 
     # Display settings
-    ["CLAUDE_TODO_DISPLAY_SHOW_ARCHIVE_COUNT"]="display.showArchiveCount"
-    ["CLAUDE_TODO_DISPLAY_SHOW_LOG_SUMMARY"]="display.showLogSummary"
-    ["CLAUDE_TODO_DISPLAY_WARN_STALE_DAYS"]="display.warnStaleDays"
+    ["CLEO_DISPLAY_SHOW_ARCHIVE_COUNT"]="display.showArchiveCount"
+    ["CLEO_DISPLAY_SHOW_LOG_SUMMARY"]="display.showLogSummary"
+    ["CLEO_DISPLAY_WARN_STALE_DAYS"]="display.warnStaleDays"
 
     # Debug settings
-    ["CLAUDE_TODO_DEBUG"]="cli.debug.enabled"
+    ["CLEO_DEBUG"]="cli.debug.enabled"
 
     # Cancellation settings
     # NOTE: These mappings are explicit overrides for documentation purposes.
     # While env_to_config_path() would auto-convert these, explicit mappings
     # make the supported environment variables discoverable and self-documenting.
-    ["CLAUDE_TODO_CANCELLATION_CASCADE_CONFIRM_THRESHOLD"]="cancellation.cascadeConfirmThreshold"
-    ["CLAUDE_TODO_CANCELLATION_REQUIRE_REASON"]="cancellation.requireReason"
-    ["CLAUDE_TODO_CANCELLATION_DAYS_UNTIL_ARCHIVE"]="cancellation.daysUntilArchive"
-    ["CLAUDE_TODO_CANCELLATION_ALLOW_CASCADE"]="cancellation.allowCascade"
-    ["CLAUDE_TODO_CANCELLATION_DEFAULT_CHILD_STRATEGY"]="cancellation.defaultChildStrategy"
+    ["CLEO_CANCELLATION_CASCADE_CONFIRM_THRESHOLD"]="cancellation.cascadeConfirmThreshold"
+    ["CLEO_CANCELLATION_REQUIRE_REASON"]="cancellation.requireReason"
+    ["CLEO_CANCELLATION_DAYS_UNTIL_ARCHIVE"]="cancellation.daysUntilArchive"
+    ["CLEO_CANCELLATION_ALLOW_CASCADE"]="cancellation.allowCascade"
+    ["CLEO_CANCELLATION_DEFAULT_CHILD_STRATEGY"]="cancellation.defaultChildStrategy"
 )
 
 # ============================================================================
@@ -120,7 +120,7 @@ declare -A ENV_TO_CONFIG=(
 # ============================================================================
 
 # Convert environment variable name to config path
-# Args: $1 = env var name (e.g., "CLAUDE_TODO_OUTPUT_SHOW_COLOR")
+# Args: $1 = env var name (e.g., "CLEO_OUTPUT_SHOW_COLOR")
 # Returns: config path (e.g., "output.showColor") or empty if not mapped
 env_to_config_path() {
     local env_var="$1"
@@ -131,8 +131,8 @@ env_to_config_path() {
         return 0
     fi
 
-    # Try to convert automatically: CLAUDE_TODO_SECTION_KEY -> section.key
-    if [[ "$env_var" =~ ^CLAUDE_TODO_([A-Z]+)_(.+)$ ]]; then
+    # Try to convert automatically: CLEO_SECTION_KEY -> section.key
+    if [[ "$env_var" =~ ^CLEO_([A-Z]+)_(.+)$ ]]; then
         local section="${BASH_REMATCH[1],,}"  # lowercase
         local key="${BASH_REMATCH[2]}"
 

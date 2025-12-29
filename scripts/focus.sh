@@ -207,8 +207,8 @@ log_focus_change() {
   local before_json="null"
   local after_json="null"
 
-  [[ -n "$old_task" ]] && before_json=$(jq -n --arg t "$old_task" '{currentTask: $t}')
-  [[ -n "$new_task" ]] && after_json=$(jq -n --arg t "$new_task" '{currentTask: $t}')
+  [[ -n "$old_task" ]] && before_json=$(jq -nc --arg t "$old_task" '{currentTask: $t}')
+  [[ -n "$new_task" ]] && after_json=$(jq -nc --arg t "$new_task" '{currentTask: $t}')
 
   local updated_log
   updated_log=$(jq --arg id "$log_id" \
@@ -439,7 +439,7 @@ cmd_set() {
     if [[ "$FORMAT" == "json" ]]; then
       local current_timestamp
       current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-      jq -n \
+      jq -nc \
         --arg timestamp "$current_timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         --arg task_id "$task_id" \
@@ -492,7 +492,7 @@ cmd_set() {
   # Dry-run mode - show what would happen
   if [[ "$DRY_RUN" == "true" ]]; then
     if [[ "${FORMAT:-}" == "json" ]]; then
-      jq -n \
+      jq -nc \
         --arg taskId "$task_id" \
         --arg oldFocus "$old_focus" \
         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
@@ -584,7 +584,7 @@ cmd_set() {
     local task_details
     task_details=$(jq --arg id "$task_id" '.tasks[] | select(.id == $id) | {id: .id, title: .title, status: .status, priority: .priority, phase: .phase}' "$TODO_FILE")
 
-    jq -n \
+    jq -nc \
       --arg timestamp "$current_timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg task_id "$task_id" \
@@ -621,7 +621,7 @@ cmd_clear() {
     if [[ "$FORMAT" == "json" ]]; then
       local current_timestamp
       current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-      jq -n \
+      jq -nc \
         --arg timestamp "$current_timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         '{
@@ -673,7 +673,7 @@ cmd_clear() {
   if [[ "$FORMAT" == "json" ]]; then
     local current_timestamp
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    jq -n \
+    jq -nc \
       --arg timestamp "$current_timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg old_focus "$old_focus" \
@@ -767,7 +767,7 @@ cmd_show() {
       breadcrumb=$(build_breadcrumb "$current_task")
       
       # Create hierarchy context JSON
-      hierarchy_context=$(jq -n \
+      hierarchy_context=$(jq -nc \
         --arg parent "$parent_context" \
         --arg children "$children_context" \
         --arg breadcrumb "$breadcrumb" \
@@ -778,7 +778,7 @@ cmd_show() {
         }')
     fi
 
-    jq -n \
+    jq -nc \
       --arg timestamp "$current_timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --argjson focus "$focus_obj" \
@@ -919,7 +919,7 @@ cmd_note() {
   if [[ "$FORMAT" == "json" ]]; then
     local current_timestamp
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    jq -n \
+    jq -nc \
       --arg timestamp "$current_timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg note "$note" \
@@ -977,7 +977,7 @@ cmd_next() {
   if [[ "$FORMAT" == "json" ]]; then
     local current_timestamp
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    jq -n \
+    jq -nc \
       --arg timestamp "$current_timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg action "$action" \

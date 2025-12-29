@@ -543,7 +543,7 @@ if [[ "$DRY_RUN" == true ]]; then
   done
 
   if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg from "$BACKUP_SOURCE" \
       --argjson files "$(printf '%s\n' "${WOULD_RESTORE_FILES[@]}" | jq -R . | jq -s .)" \
@@ -577,7 +577,7 @@ fi
 # Check for no-change condition (idempotency)
 if check_no_change; then
   if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
       --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg from "$BACKUP_SOURCE" \
       '{
@@ -751,7 +751,7 @@ fi
 # Success output
 if [[ "$FORMAT" == "json" ]]; then
   # JSON output
-  jq -n \
+  jq -nc \
     --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
     --arg from "$BACKUP_SOURCE" \
     --arg safetyBackup "${SAFETY_BACKUP:-}" \

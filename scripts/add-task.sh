@@ -299,7 +299,7 @@ output_duplicate_json() {
   local timestamp
   timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-  jq -n \
+  jq -nc \
     --arg version "$version" \
     --arg timestamp "$timestamp" \
     --argjson task "$duplicate_task" \
@@ -568,7 +568,7 @@ log_operation() {
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
   local log_entry
-  log_entry=$(jq -n \
+  log_entry=$(jq -nc \
     --arg id "$log_id" \
     --arg ts "$timestamp" \
     --arg action "$operation" \
@@ -856,11 +856,11 @@ if [[ -n "$PARENT_ID" ]]; then
     if ! validate_parent_exists "$PARENT_ID" "$TODO_FILE"; then
       _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
 
-      _err_ctx_json=$(jq -n \
+      _err_ctx_json=$(jq -nc \
         --arg pid "$PARENT_ID" \
         '{requestedParent: $pid, reason: "task does not exist"}')
 
-      _err_alts_json=$(jq -n \
+      _err_alts_json=$(jq -nc \
         --arg t1 "ct add '$_err_escaped_title' --type task" \
         --arg t2 "ct exists $PARENT_ID --include-archive" \
         --arg t3 "ct find '$PARENT_ID'" \
@@ -891,7 +891,7 @@ if [[ -n "$PARENT_ID" ]]; then
       _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
 
       # Build context JSON
-      _err_ctx_json=$(jq -n \
+      _err_ctx_json=$(jq -nc \
         --arg pid "$PARENT_ID" \
         --arg ptype "$_err_parent_type" \
         --argjson pdepth "$_err_parent_depth" \
@@ -900,7 +900,7 @@ if [[ -n "$PARENT_ID" ]]; then
 
       # Build alternatives JSON with concrete commands
       if [[ "$_err_grandparent_id" != "null" && -n "$_err_grandparent_id" ]]; then
-        _err_alts_json=$(jq -n \
+        _err_alts_json=$(jq -nc \
           --arg t1 "ct add '$_err_escaped_title' --type task" \
           --arg t2 "ct add '$_err_escaped_title' --parent $_err_grandparent_id --type subtask" \
           --arg t3 "ct update $PARENT_ID --type task" \
@@ -910,7 +910,7 @@ if [[ -n "$PARENT_ID" ]]; then
             {"action": "Promote parent to task first", "command": $t3}
           ]')
       else
-        _err_alts_json=$(jq -n \
+        _err_alts_json=$(jq -nc \
           --arg t1 "ct add '$_err_escaped_title' --type task" \
           --arg t2 "ct update $PARENT_ID --type task" \
           '[
@@ -936,14 +936,14 @@ if [[ -n "$PARENT_ID" ]]; then
       _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
       _err_grandparent=$(get_task_parent "$PARENT_ID" "$TODO_FILE")
 
-      _err_ctx_json=$(jq -n \
+      _err_ctx_json=$(jq -nc \
         --arg pid "$PARENT_ID" \
         --argjson max "$_err_max_sibs" \
         --argjson cur "$_err_current_sibs" \
         '{parentId: $pid, maxSiblings: $max, currentSiblings: $cur}')
 
       if [[ "$_err_grandparent" != "null" && -n "$_err_grandparent" ]]; then
-        _err_alts_json=$(jq -n \
+        _err_alts_json=$(jq -nc \
           --arg t1 "ct add '$_err_escaped_title' --type task" \
           --arg t2 "ct add '$_err_escaped_title' --parent $_err_grandparent" \
           --arg t3 "ct config set hierarchy.maxSiblings 0" \
@@ -953,7 +953,7 @@ if [[ -n "$PARENT_ID" ]]; then
             {"action": "Remove sibling limit", "command": $t3}
           ]')
       else
-        _err_alts_json=$(jq -n \
+        _err_alts_json=$(jq -nc \
           --arg t1 "ct add '$_err_escaped_title' --type task" \
           --arg t2 "ct config set hierarchy.maxSiblings 0" \
           '[
@@ -978,13 +978,13 @@ if [[ -n "$PARENT_ID" ]]; then
       _err_grandparent=$(get_task_parent "$PARENT_ID" "$TODO_FILE")
       _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
 
-      _err_ctx_json=$(jq -n \
+      _err_ctx_json=$(jq -nc \
         --arg pid "$PARENT_ID" \
         --arg ptype "$_err_parent_type" \
         '{parentId: $pid, parentType: $ptype, reason: "subtasks cannot have children"}')
 
       if [[ "$_err_grandparent" != "null" && -n "$_err_grandparent" ]]; then
-        _err_alts_json=$(jq -n \
+        _err_alts_json=$(jq -nc \
           --arg t1 "ct add '$_err_escaped_title' --parent $_err_grandparent --type subtask" \
           --arg t2 "ct add '$_err_escaped_title' --type task" \
           --arg t3 "ct update $PARENT_ID --type task" \
@@ -995,7 +995,7 @@ if [[ -n "$PARENT_ID" ]]; then
           ]')
         _err_fix="ct add '$_err_escaped_title' --parent $_err_grandparent --type subtask"
       else
-        _err_alts_json=$(jq -n \
+        _err_alts_json=$(jq -nc \
           --arg t1 "ct add '$_err_escaped_title' --type task" \
           --arg t2 "ct update $PARENT_ID --type task" \
           '[
@@ -1156,7 +1156,7 @@ log_info "Generated task ID: $TASK_ID"
 CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Build task object with hierarchy fields (v0.17.0)
-TASK_JSON=$(jq -n \
+TASK_JSON=$(jq -nc \
   --arg id "$TASK_ID" \
   --arg title "$TITLE" \
   --arg status "$STATUS" \
@@ -1241,7 +1241,7 @@ if [[ "$DRY_RUN" == true ]]; then
   trap - EXIT ERR INT TERM
 
   if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --argjson task "$TASK_JSON" \
@@ -1342,7 +1342,7 @@ unlock_file "$ADD_LOCK_FD"
 trap - EXIT ERR INT TERM
 
 # Log operation
-task_details=$(jq -n \
+task_details=$(jq -nc \
   --arg title "$TITLE" \
   --arg status "$STATUS" \
   --arg priority "$PRIORITY" \
@@ -1354,7 +1354,7 @@ if [[ "$FORMAT" == "json" ]]; then
   # Get the full created task as JSON
   TASK_JSON_OUTPUT=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 
-  jq -n \
+  jq -nc \
     --arg version "${CLEO_VERSION:-$(get_version)}" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson task "$TASK_JSON_OUTPUT" \

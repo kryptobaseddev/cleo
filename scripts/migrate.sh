@@ -195,7 +195,7 @@ cmd_repair() {
         local needs_repair
         needs_repair=$(echo "$actions" | jq -r '.needs_repair // false')
 
-        jq -n \
+        jq -nc \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --arg projectDir "$project_dir" \
             --arg todoFile "$todo_file" \
@@ -303,7 +303,7 @@ cmd_status() {
                 }]')
         done
 
-        jq -n \
+        jq -nc \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --arg projectDir "$project_dir" \
             --argjson files "$files_json" \
@@ -381,7 +381,7 @@ cmd_check() {
                     local current_version expected_version
                     current_version=$(detect_file_version "$file")
                     expected_version=$(get_expected_version "$file_type")
-                    jq -n \
+                    jq -nc \
                         --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
                         --arg file "$file" \
                         --arg current "$current_version" \
@@ -407,7 +407,7 @@ cmd_check() {
     done
 
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --argjson needed "$needs_migration" \
             '{

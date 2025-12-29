@@ -370,7 +370,7 @@ fi
 if [[ "$IS_CANCELLED" != true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -408,7 +408,7 @@ fi
 if [[ "$CURRENT_STATUS" == "pending" ]]; then
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -456,7 +456,7 @@ if [[ "$CASCADE" == true ]]; then
 
             if [[ "$CASCADE_COUNT" -gt 0 ]]; then
                 CASCADE_CHILDREN="$CANCELLED_CHILDREN"
-                TASKS_TO_RESTORE=$(jq -n --arg parent "$TASK_ID" --argjson children "$CANCELLED_CHILDREN" '[$parent] + $children')
+                TASKS_TO_RESTORE=$(jq -nc --arg parent "$TASK_ID" --argjson children "$CANCELLED_CHILDREN" '[$parent] + $children')
                 log_info "Will restore $CASCADE_COUNT cancelled child task(s)"
             fi
         fi
@@ -469,7 +469,7 @@ if [[ "$CASCADE" == true ]]; then
 
         if [[ "$CASCADE_COUNT" -gt 0 ]]; then
             CASCADE_CHILDREN="$CANCELLED_CHILDREN"
-            TASKS_TO_RESTORE=$(jq -n --arg parent "$TASK_ID" --argjson children "$CANCELLED_CHILDREN" '[$parent] + $children')
+            TASKS_TO_RESTORE=$(jq -nc --arg parent "$TASK_ID" --argjson children "$CANCELLED_CHILDREN" '[$parent] + $children')
             log_info "Will restore $CASCADE_COUNT cancelled child task(s)"
         fi
     fi
@@ -485,7 +485,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if [[ "$DRY_RUN" == true ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg version "${CLEO_VERSION:-unknown}" \
             --arg timestamp "$TIMESTAMP" \
             --arg taskId "$TASK_ID" \
@@ -678,7 +678,7 @@ fi
 # ============================================================================
 
 if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
         --arg version "${CLEO_VERSION:-unknown}" \
         --arg timestamp "$TIMESTAMP" \
         --arg taskId "$TASK_ID" \

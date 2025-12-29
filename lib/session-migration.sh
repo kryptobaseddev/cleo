@@ -104,7 +104,7 @@ migrate_to_epic_sessions() {
     if [[ -n "$old_session" ]]; then
         # Migrate existing session to new format
         # Create a session with global scope (all tasks) since old sessions weren't scoped
-        initial_sessions=$(jq -n --arg sid "$old_session" --arg ts "$timestamp" '[{
+        initial_sessions=$(jq -nc --arg sid "$old_session" --arg ts "$timestamp" '[{
             id: $sid,
             status: "active",
             name: "Migrated Legacy Session",
@@ -134,7 +134,7 @@ migrate_to_epic_sessions() {
 
     # Step 4: Create sessions.json
     local sessions_content
-    sessions_content=$(jq -n \
+    sessions_content=$(jq -nc \
         --arg version "1.0.0" \
         --arg project "$project_name" \
         --arg ts "$timestamp" \
@@ -294,7 +294,7 @@ get_migration_status() {
         migration_needed="true"
     fi
 
-    jq -n \
+    jq -nc \
         --argjson sessionsExists "$sessions_exists" \
         --argjson sessionsValid "$sessions_valid" \
         --argjson multiSessionEnabled "$multi_session_enabled" \

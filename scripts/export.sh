@@ -362,7 +362,7 @@ export_todowrite() {
         local active_form=$(convert_to_active_form "$title")
         local todowrite_status=$(map_status_to_todowrite "$status")
 
-        local todo_item=$(jq -n \
+        local todo_item=$(jq -nc \
             --arg content "$title" \
             --arg activeForm "$active_form" \
             --arg status "$todowrite_status" \
@@ -372,7 +372,7 @@ export_todowrite() {
     done < <(echo "$tasks" | jq -c '.[]')
 
     # Output final format
-    jq -n --argjson todos "$todowrite_tasks" '{todos: $todos}'
+    jq -nc --argjson todos "$todowrite_tasks" '{todos: $todos}'
 }
 
 # -----------------------------------------------------------------------------
@@ -397,7 +397,7 @@ export_json() {
     version=$(cat "${SCRIPT_DIR}/../VERSION" 2>/dev/null || echo "0.8.3")
 
     # Wrap in _meta envelope for programmatic detection
-    jq -n \
+    jq -nc \
       --argjson tasks "$tasks" \
       --arg version "$version" \
       --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

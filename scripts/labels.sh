@@ -337,7 +337,7 @@ output_list_text() {
 output_list_json() {
   local label_data="$1"
 
-  jq -n \
+  jq -nc \
     --argjson labels "$label_data" \
     --arg version "$VERSION" \
     '{
@@ -407,7 +407,7 @@ output_show_json() {
   local label="$1"
   local tasks="$2"
 
-  jq -n \
+  jq -nc \
     --arg label "$label" \
     --argjson tasks "$tasks" \
     --arg version "$VERSION" \
@@ -485,7 +485,7 @@ output_stats_json() {
   local stats="$2"
   local cooccurrence="$3"
 
-  jq -n \
+  jq -nc \
     --argjson labels "$label_data" \
     --argjson stats "$stats" \
     --argjson cooccurrence "$cooccurrence" \

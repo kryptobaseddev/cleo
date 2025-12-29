@@ -509,7 +509,7 @@ if [[ "$COMPLETED_COUNT" -eq 0 ]]; then
     ONLY_LABELS_OUTPUT="null"
     [[ -n "$ONLY_LABELS" ]] && ONLY_LABELS_OUTPUT=$(echo "$ONLY_LABELS" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$"; ""))')
 
-    jq -n \
+    jq -nc \
       --arg ts "$TIMESTAMP" \
       --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson total "$REMAINING_TOTAL" \
@@ -581,7 +581,7 @@ if [[ -n "$PHASE_TRIGGER" ]]; then
   COMPLETED_COUNT=$(echo "$COMPLETED_TASKS" | jq 'length')
 
   # Build phase trigger info for JSON output
-  PHASE_TRIGGER_INFO=$(jq -n \
+  PHASE_TRIGGER_INFO=$(jq -nc \
     --arg phase "$PHASE_TRIGGER" \
     --argjson tasksInPhase "$PHASE_TASKS_COUNT" \
     --argjson tasksAfterFilter "$COMPLETED_COUNT" \
@@ -605,7 +605,7 @@ if [[ -n "$PHASE_TRIGGER" ]]; then
       REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
       TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-      jq -n \
+      jq -nc \
         --arg ts "$TIMESTAMP" \
         --arg ver "${CLEO_VERSION:-$(get_version)}" \
         --argjson total "$REMAINING_TOTAL" \
@@ -743,7 +743,7 @@ if [[ "$ARCHIVE_COUNT" -eq 0 && "$ALREADY_ARCHIVED_COUNT" -gt 0 ]]; then
   REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
 
   if [[ "$FORMAT" == "json" ]]; then
-    jq -n \
+    jq -nc \
       --arg ts "$TIMESTAMP" \
       --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson tasksSkipped "$ALREADY_ARCHIVED_IDS" \
@@ -820,7 +820,7 @@ if [[ -n "$CASCADE_FROM" ]]; then
   ARCHIVE_COUNT=$(echo "$TASKS_TO_ARCHIVE" | jq 'length')
 
   # Build cascade-from info for JSON output
-  CASCADE_FROM_INFO=$(jq -n \
+  CASCADE_FROM_INFO=$(jq -nc \
     --arg rootTask "$CASCADE_FROM" \
     --argjson totalDescendants "$TOTAL_DESCENDANTS" \
     --argjson completedDescendants "$((COMPLETED_COUNT - 1))" \
@@ -848,7 +848,7 @@ if [[ "$CASCADE_ARCHIVE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
   # A "cascadable family" requires:
   # 1. Parent is in TASKS_TO_ARCHIVE (done/cancelled and eligible)
   # 2. ALL children of that parent are also archivable (done or cancelled)
-  CASCADE_RESULT=$(jq -n \
+  CASCADE_RESULT=$(jq -nc \
     --argjson tasks "$ALL_TASKS" \
     --argjson candidates "$CANDIDATE_IDS_FOR_CASCADE" \
     '
@@ -893,7 +893,7 @@ if [[ "$CASCADE_ARCHIVE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
     CHILDREN_TO_ADD=$(echo "$COMPLETE_FAMILIES" | jq '[.[].children[]] | unique')
 
     # Add children to archive list if not already there
-    TASKS_TO_ARCHIVE=$(jq -n \
+    TASKS_TO_ARCHIVE=$(jq -nc \
       --argjson current "$TASKS_TO_ARCHIVE" \
       --argjson allTasks "$ALL_TASKS" \
       --argjson childrenIds "$CHILDREN_TO_ADD" \
@@ -1051,7 +1051,7 @@ if [[ "$ARCHIVE_COUNT" -eq 0 ]]; then
     ONLY_LABELS_OUTPUT="null"
     [[ -n "$ONLY_LABELS" ]] && ONLY_LABELS_OUTPUT="$ONLY_LABELS_JSON"
 
-    jq -n \
+    jq -nc \
       --arg ts "$TIMESTAMP" \
       --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson total "$REMAINING_TOTAL" \
@@ -1186,7 +1186,7 @@ if [[ "$DRY_RUN" == true ]]; then
     ONLY_LABELS_OUTPUT="null"
     [[ -n "$ONLY_LABELS" ]] && ONLY_LABELS_OUTPUT="$ONLY_LABELS_JSON"
 
-    jq -n \
+    jq -nc \
       --arg ts "$TIMESTAMP" \
       --arg ver "${CLEO_VERSION:-$(get_version)}" \
       --argjson count "$ARCHIVE_COUNT" \
@@ -1287,7 +1287,7 @@ if [[ -n "${PHASE_TRIGGER:-}" ]]; then
 fi
 
 # Build trigger details JSON
-TRIGGER_DETAILS=$(jq -n \
+TRIGGER_DETAILS=$(jq -nc \
   --arg configRule "daysUntilArchive=$DAYS_UNTIL_ARCHIVE" \
   '{
     "configRule": $configRule
@@ -1629,7 +1629,7 @@ if [[ "$FORMAT" == "json" ]]; then
   ONLY_LABELS_OUTPUT="null"
   [[ -n "$ONLY_LABELS" ]] && ONLY_LABELS_OUTPUT="$ONLY_LABELS_JSON"
 
-  jq -n \
+  jq -nc \
     --arg ts "$OUTPUT_TIMESTAMP" \
     --arg ver "${CLEO_VERSION:-$(get_version)}" \
     --argjson count "$ARCHIVE_COUNT" \

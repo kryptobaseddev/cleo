@@ -645,7 +645,7 @@ output_json_format() {
   local total_pending
   total_pending=$(jq -r '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
 
-  jq -n \
+  jq -nc \
     --argjson suggestions "$suggestions" \
     --arg currentPhase "$current_phase" \
     --arg currentFocus "$current_focus" \

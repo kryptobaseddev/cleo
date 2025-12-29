@@ -778,8 +778,8 @@ count_children() {
     run bash "$ADD_SCRIPT" "Test Epic" --description "Epic" --type epic --size large --dry-run --format json
     assert_success
 
-    # Should show dry run flag in JSON output
-    assert_output --partial '"dryRun": true'
+    # Should show dry run flag in JSON output (compact JSON has no spaces after colons)
+    assert_output --partial '"dryRun":true'
 
     # Verify no task was created
     local count

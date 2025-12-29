@@ -106,7 +106,7 @@ calculate_affected_tasks() {
     fi
 
     # Build the result
-    jq -n \
+    jq -nc \
         --argjson primary "$primary_task" \
         --argjson children "$children_json" \
         --argjson total "$total_count" \
@@ -194,7 +194,7 @@ calculate_impact() {
     fi
 
     # Build the impact result
-    jq -n \
+    jq -nc \
         --argjson pending "$pending_lost" \
         --argjson active "$active_lost" \
         --argjson blocked "$blocked_lost" \
@@ -342,7 +342,7 @@ preview_delete() {
 
     # Validate inputs
     if [[ -z "$task_id" ]]; then
-        jq -n '{
+        jq -nc '{
             "success": false,
             "dryRun": true,
             "error": {
@@ -354,7 +354,7 @@ preview_delete() {
     fi
 
     if [[ ! -f "$todo_file" ]]; then
-        jq -n --arg file "${todo_file:-<empty>}" '{
+        jq -nc --arg file "${todo_file:-<empty>}" '{
             "success": false,
             "dryRun": true,
             "error": {
@@ -370,7 +370,7 @@ preview_delete() {
     task_exists=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .id' "$todo_file" 2>/dev/null || true)
 
     if [[ -z "$task_exists" ]]; then
-        jq -n --arg id "$task_id" '{
+        jq -nc --arg id "$task_id" '{
             "success": false,
             "dryRun": true,
             "error": {
@@ -386,7 +386,7 @@ preview_delete() {
     task_status=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .status' "$todo_file" 2>/dev/null || true)
 
     if [[ "$task_status" == "done" ]]; then
-        jq -n --arg id "$task_id" '{
+        jq -nc --arg id "$task_id" '{
             "success": false,
             "dryRun": true,
             "error": {
@@ -404,7 +404,7 @@ preview_delete() {
         has_children=$(jq -r --arg id "$task_id" '.tasks | map(select(.parentId == $id)) | length' "$todo_file" 2>/dev/null || echo "0")
 
         if [[ "$has_children" -gt 0 ]]; then
-            jq -n --arg id "$task_id" --argjson count "$has_children" '{
+            jq -nc --arg id "$task_id" --argjson count "$has_children" '{
                 "success": false,
                 "dryRun": true,
                 "error": {
@@ -447,7 +447,7 @@ preview_delete() {
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    jq -n \
+    jq -nc \
         --arg ts "$timestamp" \
         --arg strat "$strategy" \
         --arg reason "$reason" \

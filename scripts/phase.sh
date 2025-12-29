@@ -93,7 +93,7 @@ cmd_show() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg version "${CLEO_VERSION:-$(get_version)}" \
                 '{
@@ -192,7 +192,7 @@ cmd_set() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -229,7 +229,7 @@ cmd_set() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         --arg from "$old_phase" \
                         --arg to "$slug" \
@@ -263,7 +263,7 @@ cmd_set() {
                     # JSON mode always requires --force for non-interactive
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         '{
                             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -315,7 +315,7 @@ cmd_set() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg prev "${old_phase:-null}" \
                 --arg curr "$slug" \
@@ -364,7 +364,7 @@ cmd_set() {
             if [[ "$is_skip" == "true" ]]; then
                 skip_warning="Skipped $skipped_phases intermediate phase(s)"
             fi
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg prev "${old_phase:-null}" \
                 --arg curr "$slug" \
@@ -409,7 +409,7 @@ cmd_set() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -439,7 +439,7 @@ cmd_start() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -467,7 +467,7 @@ cmd_start() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 --arg status "$current_status" \
@@ -493,7 +493,7 @@ cmd_start() {
         local started_at
         started_at=$(get_iso_timestamp)
         if [[ "$FORMAT" == "json" ]]; then
-            jq -n \
+            jq -nc \
                 --arg ts "$started_at" \
                 --arg slug "$slug" \
                 '{
@@ -516,7 +516,7 @@ cmd_start() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -547,7 +547,7 @@ cmd_complete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -575,7 +575,7 @@ cmd_complete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 --arg status "$current_status" \
@@ -607,7 +607,7 @@ cmd_complete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 --argjson count "$incomplete_count" \
@@ -637,7 +637,7 @@ cmd_complete() {
         local completed_at
         completed_at=$(get_iso_timestamp)
         if [[ "$FORMAT" == "json" ]]; then
-            jq -n \
+            jq -nc \
                 --arg ts "$completed_at" \
                 --arg slug "$slug" \
                 --arg started "$started_at" \
@@ -662,7 +662,7 @@ cmd_complete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -699,7 +699,7 @@ cmd_advance() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         --arg arg "$1" \
                         '{
@@ -729,7 +729,7 @@ cmd_advance() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 '{
                     "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -768,7 +768,7 @@ cmd_advance() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg current "$current" \
                 '{
@@ -823,7 +823,7 @@ cmd_advance() {
             if [[ "$FORMAT" == "json" ]]; then
                 local timestamp
                 timestamp=$(get_iso_timestamp)
-                jq -n \
+                jq -nc \
                     --arg ts "$timestamp" \
                     --arg slug "$current" \
                     --argjson count "$critical_count" \
@@ -863,7 +863,7 @@ cmd_advance() {
             if [[ "$FORMAT" == "json" ]]; then
                 local timestamp
                 timestamp=$(get_iso_timestamp)
-                jq -n \
+                jq -nc \
                     --arg ts "$timestamp" \
                     --arg slug "$current" \
                     --argjson count "$incomplete_count" \
@@ -918,7 +918,7 @@ cmd_advance() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         --arg current "$current" \
                         '{
@@ -960,7 +960,7 @@ cmd_advance() {
         advanced_at=$(get_iso_timestamp)
 
         if [[ "$FORMAT" == "json" ]]; then
-            jq -n \
+            jq -nc \
                 --arg ts "$advanced_at" \
                 --arg prev "$current" \
                 --arg curr "$new_phase" \
@@ -988,7 +988,7 @@ cmd_advance() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg msg "$result" \
                 '{
@@ -1078,7 +1078,7 @@ cmd_rename() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$old_name" \
                 '{
@@ -1105,7 +1105,7 @@ cmd_rename() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$new_name" \
                 '{
@@ -1131,7 +1131,7 @@ cmd_rename() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$new_name" \
                 '{
@@ -1168,7 +1168,7 @@ cmd_rename() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 '{
                     "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1236,7 +1236,7 @@ cmd_rename() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 '{
                     "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1263,7 +1263,7 @@ cmd_rename() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 '{
                     "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1297,7 +1297,7 @@ cmd_rename() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 '{
                     "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1322,7 +1322,7 @@ cmd_rename() {
     # Log the rename operation
     if command -v log_operation >/dev/null 2>&1; then
         local details
-        details=$(jq -n \
+        details=$(jq -nc \
             --arg old "$old_name" \
             --arg new "$new_name" \
             --argjson count "$updated_count" \
@@ -1333,7 +1333,7 @@ cmd_rename() {
     # Output success
     if [[ "$FORMAT" == "json" ]]; then
         timestamp=$(get_iso_timestamp)
-        jq -n \
+        jq -nc \
             --arg ts "$timestamp" \
             --arg old "$old_name" \
             --arg new "$new_name" \
@@ -1378,7 +1378,7 @@ cmd_delete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -1406,7 +1406,7 @@ cmd_delete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -1445,7 +1445,7 @@ cmd_delete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 --argjson total "$task_count" \
@@ -1485,7 +1485,7 @@ cmd_delete() {
             if [[ "$FORMAT" == "json" ]]; then
                 local timestamp
                 timestamp=$(get_iso_timestamp)
-                jq -n \
+                jq -nc \
                     --arg ts "$timestamp" \
                     --arg slug "$reassign_to" \
                     '{
@@ -1512,7 +1512,7 @@ cmd_delete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 --arg slug "$slug" \
                 '{
@@ -1543,7 +1543,7 @@ cmd_delete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp
             timestamp=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp" \
                 '{
                     "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1614,7 +1614,7 @@ cmd_delete() {
         if [[ "$FORMAT" == "json" ]]; then
             local timestamp_err
             timestamp_err=$(get_iso_timestamp)
-            jq -n \
+            jq -nc \
                 --arg ts "$timestamp_err" \
                 '{
                     "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1644,7 +1644,7 @@ cmd_delete() {
 
     # Success output
     if [[ "$FORMAT" == "json" ]]; then
-        jq -n \
+        jq -nc \
             --arg ts "$timestamp" \
             --arg slug "$slug" \
             --arg reassign "${reassign_to:-null}" \
@@ -1789,7 +1789,7 @@ main() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         '{
                             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1815,7 +1815,7 @@ main() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         '{
                             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1841,7 +1841,7 @@ main() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         '{
                             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1873,7 +1873,7 @@ main() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         '{
                             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1913,7 +1913,7 @@ main() {
                         if [[ "$FORMAT" == "json" ]]; then
                             local timestamp
                             timestamp=$(get_iso_timestamp)
-                            jq -n \
+                            jq -nc \
                                 --arg ts "$timestamp" \
                                 --arg flag "$1" \
                                 '{
@@ -1943,7 +1943,7 @@ main() {
                 if [[ "$FORMAT" == "json" ]]; then
                     local timestamp
                     timestamp=$(get_iso_timestamp)
-                    jq -n \
+                    jq -nc \
                         --arg ts "$timestamp" \
                         '{
                             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1968,7 +1968,7 @@ main() {
             if [[ "$FORMAT" == "json" ]]; then
                 local timestamp
                 timestamp=$(get_iso_timestamp)
-                jq -n \
+                jq -nc \
                     --arg ts "$timestamp" \
                     --arg cmd "$subcommand" \
                     '{
