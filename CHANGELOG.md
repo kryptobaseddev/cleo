@@ -5,6 +5,29 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.6] - 2025-12-29
+
+### Changed
+- **multiSession.enabled defaults to true** - Multi-session support now enabled by default
+  - Project config template: `multiSession.enabled: true`
+  - Global config template: Added full `multiSession` section with `enabled: true`
+  - Aligns with Epic-Bound Session Architecture as a core feature
+
+## [0.41.5] - 2025-12-29
+
+### Fixed
+- **Complete CLEO rebrand env var cleanup** - TRUE CLEAN BREAK for environment variables
+  - Replaced all `CLAUDE_TODO_*` env var mappings with `CLEO_*` in `lib/config.sh`
+  - Updated auto-conversion regex from `CLAUDE_TODO_` prefix to `CLEO_` prefix
+  - Updated `lib/output-format.sh` to use `CLEO_FORMAT` instead of `CLAUDE_TODO_FORMAT`
+  - Updated help text in `scripts/config.sh` with correct `CLEO_*` env var names
+  - Removed hardcoded development path from `scripts/commands.sh`
+
+### Changed
+- **Test updates for CLEO env vars**
+  - Updated `tests/unit/output-format.bats` to use `CLEO_FORMAT`
+  - Updated `tests/unit/completion.bats` to use `cleo` command instead of `claude-todo`
+
 ## [0.41.4] - 2025-12-29
 
 ### Changed

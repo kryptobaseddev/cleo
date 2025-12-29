@@ -1,8 +1,9 @@
 # RCSD-PIPELINE-SPEC Implementation Report
 
-**Purpose**: Track implementation progress against RCSD-PIPELINE-SPEC
+**Purpose**: Track implementation progress against RCSD-PIPELINE-SPEC v2.0.0
 **Related Spec**: [RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md)
-**Last Updated**: 2025-12-23
+**Last Updated**: 2025-12-29
+**Implementation Epic**: T982
 
 ---
 
@@ -11,277 +12,353 @@
 | Metric | Value |
 |--------|-------|
 | Overall Progress | 0% |
-| Components Complete | 0/12 |
-| Current Phase | Planning |
-| Status | NOT STARTED |
+| Components Complete | 0/20 |
+| Current Phase | Planning Complete |
+| Status | READY FOR IMPLEMENTATION |
+| Implementation | Python (Anthropic Agent SDK) |
+
+---
+
+## Implementation Architecture
+
+### v2.0.0 Key Decision: Python vs Bash
+
+**Decision**: Implement RCSD Pipeline in **Python using Anthropic Agent SDK**
+
+**Rationale**:
+- Bash cannot orchestrate 9 parallel AI agents with proper async handling
+- Python provides `asyncio.gather()` for parallel consensus agent execution
+- Anthropic Agent SDK provides native Claude integration patterns
+- Pydantic models enable robust JSON schema validation
+- Better error handling and type safety
+
+**Supersedes**: T719-T751 (bash-based approach)
 
 ---
 
 ## Component Status
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| RCSD directory structure | PENDING | `.cleo/rcsd/` path defined |
-| RCSD-INDEX.json schema | PENDING | Schema designed |
-| _manifest.json schema | PENDING | Schema designed |
-| Research output schema | PENDING | Schema designed |
-| Consensus report schema | PENDING | Schema designed |
-| `ct research` task-aware mode | PENDING | Command integration needed |
-| `ct consensus` command | PENDING | New command |
-| `ct spec` command | PENDING | New command |
-| `ct decompose --from-task` | PENDING | Flag addition |
-| Agent prompt templates | PENDING | 9 agents defined |
-| Task schema extensions | PENDING | shortName, workflow, associations |
-| Phase integration | PENDING | Research->setup, Decomposed->core |
+| Component | Status | Task ID | Notes |
+|-----------|--------|---------|-------|
+| Python package structure (`lib/rcsd/`) | PENDING | T993 | Package initialization |
+| Pydantic models | PENDING | T994 | Manifest, Research, Consensus, Task models |
+| LLM-AGENT-FIRST output formatter | PENDING | T995 | JSON envelope compliance |
+| Exit code constants | PENDING | T996 | Exit codes 30-39 |
+| Schema validation utilities | PENDING | T997 | JSON Schema validation |
+| BaseAgent class | PENDING | T984 | Abstract agent base class |
+| ResearchAgent | PENDING | T985 | Stage 1 agent |
+| TechnicalValidatorAgent | PENDING | T986 | Consensus worker |
+| DesignPhilosophyAgent | PENDING | T986 | Consensus worker |
+| DocumentationAgent | PENDING | T986 | Consensus worker |
+| ImplementationAgent | PENDING | T986 | Consensus worker |
+| ChallengeAgent | PENDING | T986 | Consensus red team |
+| SynthesisAgent | PENDING | T986 | Consensus consolidation |
+| SpecAgent | PENDING | T987 | Stage 3 agent |
+| DecomposeAgent | PENDING | T987 | Stage 4 agent |
+| Pipeline orchestrator | PENDING | T988 | RCSDPipeline class |
+| Parallel execution | PENDING | T988 | asyncio integration |
+| HITL gate handling | PENDING | T988 | Human-in-the-loop |
+| CLI entry point | PENDING | T989 | `python -m rcsd.cli` |
+| Bash wrapper integration | PENDING | T990 | `ct research`, `ct consensus`, etc. |
+
+---
+
+## Task Hierarchy
+
+### Epic: T982 - RCSD Python Agent Implementation (Anthropic Agent SDK)
+
+```
+T982: EPIC: RCSD Python Agent Implementation
+├── T983: Phase 1: Python Foundation [CRITICAL]
+│   ├── T993: PY-001: Create lib/rcsd/__init__.py
+│   ├── T994: PY-002: Create Pydantic models
+│   ├── T995: PY-003: Create output formatter
+│   ├── T996: PY-004: Create exit code constants
+│   └── T997: PY-005: Create schema validation utilities
+├── T984: Phase 2: Agent Base Classes [depends: T983]
+├── T985: Phase 3: Research Agent [depends: T984]
+├── T986: Phase 4: Consensus Agents [depends: T985]
+├── T987: Phase 5: Spec & Decompose Agents [depends: T986]
+├── T988: Phase 6: Orchestration [depends: T986, T987]
+├── T989: Phase 7: CLI Entry Point [depends: T988]
+├── T990: Phase 8: Bash Wrapper Integration [depends: T989]
+├── T992: Phase 9: Testing [depends: T990]
+└── T991: Phase 10: Documentation [depends: T992]
+```
 
 ---
 
 ## Phase Tracking
 
-### Phase 1: Foundation - PENDING
+### Phase 1: Python Foundation (T983) - PENDING
 
-- [ ] Create `.cleo/rcsd/` directory handling
-- [ ] Implement RCSD-INDEX.json read/write
-- [ ] Implement _manifest.json handling
-- [ ] Add shortName derivation algorithm
-- [ ] Create schema validation functions
+**Dependencies**: None (CRITICAL PATH)
 
-### Phase 2: Research Integration - PENDING
+- [ ] Create `lib/rcsd/__init__.py` package initialization
+- [ ] Create Pydantic models for JSON schemas:
+  - ManifestModel
+  - ResearchOutputModel
+  - ConsensusReportModel
+  - TaskModel
+  - HITLResolutionModel
+- [ ] Create LLM-AGENT-FIRST JSON output formatter
+- [ ] Define exit code constants (30-39)
+- [ ] Create JSON Schema validation utilities
 
-- [ ] Update `ct research` for task-aware mode
-- [ ] Implement research output to RCSD directory
-- [ ] Add research -> task linking
-- [ ] Create research JSON output schema validation
-- [ ] Integrate with WEB-AGGREGATION-PIPELINE-SPEC patterns
+### Phase 2: Agent Base Classes (T984) - PENDING
 
-### Phase 3: Consensus Command - PENDING
+**Dependencies**: T983
 
-- [ ] Create `scripts/consensus.sh`
-- [ ] Implement Technical Validation Agent prompt
-- [ ] Implement Design Philosophy Agent prompt
-- [ ] Implement Documentation Agent prompt
-- [ ] Implement Implementation Agent prompt
-- [ ] Implement Challenge Agent (Red Team) prompt
-- [ ] Implement Synthesis Agent prompt
-- [ ] Create consensus report output
-- [ ] Add HITL gate handling per CONSENSUS-FRAMEWORK-SPEC Part 10
-- [ ] Implement voting matrix generation
+- [ ] Create `BaseAgent` abstract class
+- [ ] Implement Anthropic SDK integration pattern
+- [ ] Define agent configuration interface
+- [ ] Implement evidence validation methods
+- [ ] Create anti-hallucination rule enforcement
 
-### Phase 4: Spec Generation - PENDING
+### Phase 3: Research Agent (T985) - PENDING
 
-- [ ] Create `scripts/spec.sh`
-- [ ] Implement spec generation from consensus report
-- [ ] Add SPEC-BIBLE-GUIDELINES compliance validation
-- [ ] Create spec frontmatter handling
-- [ ] Implement RFC 2119 keyword enforcement
-- [ ] Generate Related Specifications section
-- [ ] Create automatic Implementation Report stub
+**Dependencies**: T984
 
-### Phase 5: Decompose Integration - PENDING
+- [ ] Implement `ResearchAgent` class
+- [ ] Integrate Context7 MCP for library docs
+- [ ] Integrate Tavily MCP for web search
+- [ ] Implement source quality signal extraction
+- [ ] Create research output schema validation
+- [ ] Implement minimum source threshold checks
 
-- [ ] Add `--from-task` flag to decompose command
-- [ ] Implement spec -> task DAG conversion
-- [ ] Add atomicity validation per TASK-DECOMPOSITION-SPEC Part 4
-- [ ] Create parent-child task relationships
-- [ ] Implement phase assignment (Research->setup, Implementation->core)
-- [ ] Add decomposition ID linking
+### Phase 4: Consensus Agents (T986) - PENDING
 
----
+**Dependencies**: T985
 
-## Schema Definitions
+- [ ] Implement `TechnicalValidatorAgent` (backend-architect)
+- [ ] Implement `DesignPhilosophyAgent` (frontend-architect)
+- [ ] Implement `DocumentationAgent` (technical-writer)
+- [ ] Implement `ImplementationAgent` (refactoring-expert)
+- [ ] Implement `ChallengeAgent` (requirements-analyst)
+- [ ] Implement `SynthesisAgent` (project-supervisor-orchestrator)
+- [ ] Implement evidence weighting formula
+- [ ] Create voting matrix generation
+- [ ] Implement HITL gate trigger logic
 
-### RCSD-INDEX.json Schema
+### Phase 5: Spec & Decompose Agents (T987) - PENDING
 
-```json
-{
-  "$schema": "https://cleo.dev/schemas/v1/rcsd/index.schema.json",
-  "version": "1.0.0",
-  "investigations": [
-    {
-      "id": "RCSD-YYYYMMDD-NNN",
-      "shortName": "feature-name",
-      "taskId": "T001",
-      "status": "research|consensus|spec|decompose|complete",
-      "createdAt": "ISO8601",
-      "updatedAt": "ISO8601",
-      "path": "relative/path/to/investigation/"
-    }
-  ]
-}
-```
+**Dependencies**: T986
 
-### _manifest.json Schema
+- [ ] Implement `SpecAgent` (technical-writer)
+- [ ] Implement RFC 2119 keyword validation
+- [ ] Implement WHEN/THEN scenario validation
+- [ ] Create delta format generation
+- [ ] Implement `DecomposeAgent` (requirements-analyst)
+- [ ] Implement 6-point atomicity scoring
+- [ ] Create DAG generation and cycle detection
+- [ ] Implement provisional task marking
 
-```json
-{
-  "$schema": "https://cleo.dev/schemas/v1/rcsd/manifest.schema.json",
-  "id": "RCSD-YYYYMMDD-NNN",
-  "shortName": "feature-name",
-  "taskId": "T001",
-  "workflow": {
-    "research": {
-      "status": "pending|in-progress|complete",
-      "output": "research-findings.md",
-      "completedAt": "ISO8601"
-    },
-    "consensus": {
-      "status": "pending|in-progress|complete",
-      "agents": ["technical", "design", "docs", "impl", "challenge"],
-      "report": "CONSENSUS-REPORT.md",
-      "votingMatrix": "synthesis-voting-matrix.md",
-      "completedAt": "ISO8601"
-    },
-    "spec": {
-      "status": "pending|in-progress|complete",
-      "output": "FEATURE-SPEC.md",
-      "implementationReport": "FEATURE-SPEC-IMPLEMENTATION-REPORT.md",
-      "completedAt": "ISO8601"
-    },
-    "decompose": {
-      "status": "pending|in-progress|complete",
-      "tasksCreated": ["T002", "T003", "T004"],
-      "completedAt": "ISO8601"
-    }
-  }
-}
-```
+### Phase 6: Orchestration (T988) - PENDING
 
----
+**Dependencies**: T986, T987
 
-## Agent Prompt Templates
+- [ ] Create `RCSDPipeline` orchestrator class
+- [ ] Implement parallel agent execution with `asyncio.gather()`
+- [ ] Implement stage dependency validation
+- [ ] Create state machine transitions
+- [ ] Implement backward transition handling (revision_required)
+- [ ] Create HITL gate handling with timeouts
+- [ ] Implement metrics collection
 
-### Required Agent Prompts (9 total)
+### Phase 7: CLI Entry Point (T989) - PENDING
 
-| Agent | Prompt File | Subagent Type | Status |
-|-------|-------------|---------------|--------|
-| Technical Validator | `prompts/agent-technical.md` | backend-architect | PENDING |
-| Design Philosophy | `prompts/agent-design.md` | frontend-architect | PENDING |
-| Documentation | `prompts/agent-docs.md` | technical-writer | PENDING |
-| Implementation | `prompts/agent-impl.md` | refactoring-expert | PENDING |
-| Challenge (Red Team) | `prompts/agent-challenge.md` | requirements-analyst | PENDING |
-| Synthesis | `prompts/agent-synthesis.md` | project-supervisor-orchestrator | PENDING |
-| Spec Writer | `prompts/agent-spec-writer.md` | technical-writer | PENDING |
-| Decomposition | `prompts/agent-decompose.md` | requirements-analyst | PENDING |
-| HITL Formatter | `prompts/agent-hitl.md` | technical-writer | PENDING |
+**Dependencies**: T988
+
+- [ ] Create `rcsd/cli.py` entry point
+- [ ] Implement `research` subcommand
+- [ ] Implement `consensus` subcommand
+- [ ] Implement `spec` subcommand
+- [ ] Implement `decompose` subcommand
+- [ ] Implement `--dry-run` flag support
+- [ ] Implement `--eager-execution` flag support
+
+### Phase 8: Bash Wrapper Integration (T990) - PENDING
+
+**Dependencies**: T989
+
+- [ ] Create `scripts/research.sh` wrapper
+- [ ] Create `scripts/consensus.sh` wrapper
+- [ ] Create `scripts/spec.sh` wrapper
+- [ ] Update `scripts/decompose.sh` for `--from-task`
+- [ ] Integrate with existing cleo CLI
+- [ ] Ensure exit code propagation
+
+### Phase 9: Testing (T992) - PENDING
+
+**Dependencies**: T990
+
+- [ ] Create unit tests for Pydantic models
+- [ ] Create unit tests for each agent class
+- [ ] Create integration tests for pipeline stages
+- [ ] Create golden tests for JSON output format
+- [ ] Create BATS tests for bash wrappers
+- [ ] Achieve minimum 80% code coverage
+
+### Phase 10: Documentation (T991) - PENDING
+
+**Dependencies**: T992
+
+- [ ] Update RCSD-PIPELINE-SPEC with implementation details
+- [ ] Create AGENTS.md template
+- [ ] Create PROJECT-CONTEXT.md template
+- [ ] Create slash command documentation
+- [ ] Update this implementation report
 
 ---
 
-## Task Schema Extensions
+## Python Package Structure
 
-### New Fields (todo.schema.json v2.5.0)
-
-```json
-{
-  "shortName": {
-    "type": "string",
-    "pattern": "^[a-z0-9-]+$",
-    "description": "URL-safe short identifier derived from title"
-  },
-  "workflow": {
-    "type": "string",
-    "enum": ["rcsd", "standard", "research-only"],
-    "description": "Workflow type for this task"
-  },
-  "associations": {
-    "type": "object",
-    "properties": {
-      "rcsdId": {
-        "type": "string",
-        "pattern": "^RCSD-\\d{8}-\\d{3}$"
-      },
-      "specPath": {
-        "type": "string"
-      },
-      "researchPath": {
-        "type": "string"
-      }
-    }
-  }
-}
+```
+lib/rcsd/
+├── __init__.py                    # Package initialization
+├── cli.py                         # Entry point: python -m rcsd.cli
+├── agents/
+│   ├── __init__.py
+│   ├── base.py                    # BaseAgent abstract class
+│   ├── research.py                # ResearchAgent
+│   ├── consensus/
+│   │   ├── __init__.py
+│   │   ├── technical.py           # TechnicalValidatorAgent
+│   │   ├── design.py              # DesignPhilosophyAgent
+│   │   ├── documentation.py       # DocumentationAgent
+│   │   ├── implementation.py      # ImplementationAgent
+│   │   ├── challenge.py           # ChallengeAgent
+│   │   └── synthesis.py           # SynthesisAgent
+│   ├── spec.py                    # SpecAgent
+│   └── decompose.py               # DecomposeAgent
+├── models/
+│   ├── __init__.py
+│   ├── manifest.py                # ManifestModel (Pydantic)
+│   ├── research.py                # ResearchOutput models
+│   ├── consensus.py               # ConsensusReport models
+│   ├── task.py                    # Task models
+│   └── hitl.py                    # HITL Resolution models
+├── orchestration/
+│   ├── __init__.py
+│   ├── pipeline.py                # RCSDPipeline orchestrator
+│   ├── parallel.py                # Parallel agent execution
+│   └── hitl.py                    # HITL gate handling
+├── output/
+│   ├── __init__.py
+│   └── formatter.py               # LLM-AGENT-FIRST JSON formatter
+├── validation/
+│   ├── __init__.py
+│   ├── schema.py                  # JSON Schema validation
+│   └── spec.py                    # Spec format validation
+└── utils/
+    ├── __init__.py
+    ├── shortname.py               # Short-name derivation
+    └── files.py                   # File operations
 ```
 
 ---
 
-## CLI Command Specifications
+## Agent Subagent Type Mappings
 
-### `ct consensus` Command
+| Agent | `subagent_type` | Python Class | Rationale |
+|-------|-----------------|--------------|-----------|
+| Research Agent | `researcher` | `ResearchAgent` | Deep investigation, source synthesis |
+| Technical Validator | `backend-architect` | `TechnicalValidatorAgent` | System reliability, performance |
+| Design Philosophy | `frontend-architect` | `DesignPhilosophyAgent` | UX, API design, ergonomics |
+| Documentation Agent | `technical-writer` | `DocumentationAgent` | Documentation clarity, accuracy |
+| Implementation Agent | `refactoring-expert` | `ImplementationAgent` | Code quality, feasibility |
+| Challenge Agent | `requirements-analyst` | `ChallengeAgent` | Adversarial analysis, edge cases |
+| Synthesis Agent | `project-supervisor-orchestrator` | `SynthesisAgent` | Cross-domain consolidation |
+| Spec Agent | `technical-writer` | `SpecAgent` | Formal specification writing |
+| Decompose Agent | `requirements-analyst` | `DecomposeAgent` | Task breakdown, atomicity |
 
-```bash
-Usage: cleo consensus <task-id> [OPTIONS]
+---
 
-Run multi-agent consensus investigation for a task.
+## Schemas (Pydantic Models)
 
-Arguments:
-  <task-id>           Task to investigate
+### ManifestModel
 
-Options:
-  --agents AGENTS     Comma-separated agent list (default: all)
-  --skip-challenge    Skip Challenge Agent (NOT RECOMMENDED)
-  --output DIR        Output directory (default: .cleo/rcsd/{shortName}/)
-  --dry-run           Preview without creating files
-  -f, --format FMT    Output format (json|text|markdown)
-  -h, --help          Show this help message
+```python
+class StageAttempt(BaseModel):
+    attempt_id: str
+    started_at: datetime
+    completed_at: Optional[datetime]
+    inputs: dict
+    outputs: List[str]
+    result: Literal["success", "failed", "pending"]
 
-Exit Codes:
-  0   Success - consensus reached
-  30  HITL required (contested claims)
-  31  Consensus rejected (insufficient evidence)
+class StageStatus(BaseModel):
+    state: Literal["pending", "in_progress", "completed", "failed"]
+    attempts: List[StageAttempt] = []
+    outputs: List[str] = []
+    checksum: Optional[str]
+
+class ManifestModel(BaseModel):
+    task_id: str = Field(pattern=r"^T\d{3,}$")
+    short_name: str = Field(pattern=r"^[a-z][a-z0-9-]*$", max_length=30)
+    title: str
+    state: Literal["created", "researched", "validated", "specified", "decomposed", "revision_required"]
+    created_at: datetime
+    updated_at: datetime
+    stages: Dict[str, StageStatus]
+    revisions: List[dict] = []
+    revision_source: Optional[dict]
 ```
 
-### `ct spec` Command
+### Exit Codes (30-39)
 
-```bash
-Usage: cleo spec <task-id> [OPTIONS]
-
-Generate specification from consensus report.
-
-Arguments:
-  <task-id>           Task with completed consensus
-
-Options:
-  --consensus PATH    Path to consensus report (default: auto-detect)
-  --template TMPL     Spec template (default: standard)
-  --validate          Validate against SPEC-BIBLE-GUIDELINES
-  --dry-run           Preview without creating files
-  -f, --format FMT    Output format (json|text|markdown)
-  -h, --help          Show this help message
-
-Exit Codes:
-  0   Success - spec generated
-  4   Consensus report not found
-  6   Validation failed (SPEC-BIBLE non-compliant)
-```
-
-### `ct decompose --from-task` Flag
-
-```bash
-Usage: cleo decompose --from-task <task-id> [OPTIONS]
-
-Decompose from an existing task's spec.
-
-Options:
-  --from-task ID      Source task with associated spec
-  --spec PATH         Override spec path
-  --phase PHASE       Target phase for generated tasks
-  --dry-run           Preview without creating tasks
+```python
+class RCSDExitCode:
+    EXIT_RESEARCH_FAILED = 30
+    EXIT_INSUFFICIENT_SOURCES = 31
+    EXIT_CONSENSUS_FAILED = 32
+    EXIT_HITL_REQUIRED = 33
+    EXIT_SPEC_INVALID = 34
+    EXIT_ATOMICITY_FAILED = 35
+    EXIT_MANIFEST_CORRUPT = 36
+    EXIT_STAGE_PREREQUISITE = 37
+    EXIT_INDEX_CORRUPT = 38
+    EXIT_WORKFLOW_EXISTS = 39
 ```
 
 ---
 
 ## Superseded Tasks
 
-The following tasks are SUPERSEDED by this implementation:
+The following bash-based implementation tasks are **SUPERSEDED** by T982:
 
 | Task ID | Title | Status | Superseded By |
 |---------|-------|--------|---------------|
-| T204 | Multi-Phase Consensus Research Framework Plugin | SUPERSEDED | RCSD-PIPELINE-SPEC Part 1-4 |
-| T215 | Configuration Schema Design | SUPERSEDED | RCSD-PIPELINE-SPEC Part 5 |
-| T216 | Parameterized Prompt Templates | SUPERSEDED | RCSD-PIPELINE-SPEC Part 4 |
-| T217 | State Management Design | SUPERSEDED | _manifest.json + RCSD-INDEX.json |
-| T218 | Output JSON Schemas | SUPERSEDED | RCSD schemas |
-| T219 | Integration Points Specification | SUPERSEDED | RCSD-PIPELINE-SPEC Part 3 |
-| T220 | Error Recovery Protocols | SUPERSEDED | RCSD-PIPELINE-SPEC Part 8 |
-| T221 | Invocation Modes Specification | SUPERSEDED | RCSD-PIPELINE-SPEC Part 3 |
+| T719 | EPIC: RCSD Pipeline Implementation | SUPERSEDED | T982 |
+| T720 | Phase 1: Foundation | SUPERSEDED | T983 |
+| T721 | Phase 2: Research Integration | SUPERSEDED | T985 |
+| T722 | Phase 3: Consensus Command | SUPERSEDED | T986 |
+| T723 | Phase 4: Spec Generation | SUPERSEDED | T987 |
+| T724 | Phase 5: Decompose Integration | SUPERSEDED | T987 |
+| T725 | Schema Extensions | SUPERSEDED | T983, T994 |
+| T726-T751 | All subtasks | SUPERSEDED | T982 hierarchy |
+| T753 | EPIC: RCSD v1.1 Enhancement | SUPERSEDED | T982 |
+| T754 | Phase: RCSD Foundation v1.1 | SUPERSEDED | T982 |
+| T755 | Upgrade RCSD-PIPELINE-SPEC to v1.1 | SUPERSEDED | v2.0.0 spec complete |
+
+---
+
+## v1.1 Features Incorporated in v2.0.0
+
+| Feature | Status | Spec Part |
+|---------|--------|-----------|
+| Feedback Loops (`revision_required` state) | ✅ SPECIFIED | Part 9 |
+| HITL Formalization (timeouts, audit logging) | ✅ SPECIFIED | Part 10 |
+| Evidence Weighting Model | ✅ SPECIFIED | Part 11 |
+| Semantic Equivalence Idempotency | ✅ SPECIFIED | Part 3.5 |
+| Eager Execution Mode | ✅ SPECIFIED | Part 12 |
+| Delta Format (ADDED/MODIFIED/REMOVED) | ✅ SPECIFIED | Part 5 |
+| AGENTS.md Convention | ✅ SPECIFIED | Part 7.3 |
+| PROJECT-CONTEXT.md Template | ✅ SPECIFIED | Part 7.4 |
+| Slash Command Integration | ✅ SPECIFIED | Part 7.1 |
+| Structural Validation (RFC 2119 detection) | ✅ SPECIFIED | Part 13 |
+| Metrics and Observability | ✅ SPECIFIED | Part 14 |
+| 6-Point Atomicity Criteria | ✅ SPECIFIED | Appendix B |
 
 ---
 
@@ -308,29 +385,61 @@ The following tasks are SUPERSEDED by this implementation:
 
 ---
 
-## Directory Structure
+## RCSD Directory Structure
+
+The Python implementation follows the task-anchored directory structure defined in RCSD-PIPELINE-SPEC Part 4:
 
 ```
 .cleo/
-└── rcsd/
-    ├── RCSD-INDEX.json              # Master index of all investigations
-    └── {shortName}/                 # Per-investigation directory
-        ├── _manifest.json           # Investigation metadata
-        ├── research/
-        │   ├── research-findings.md
-        │   └── sources.json
-        ├── consensus/
-        │   ├── agent-technical-findings.md
-        │   ├── agent-design-findings.md
-        │   ├── agent-docs-findings.md
-        │   ├── agent-impl-findings.md
-        │   ├── agent-challenge-findings.md
-        │   ├── synthesis-voting-matrix.md
-        │   └── CONSENSUS-REPORT.md
-        └── spec/
-            ├── FEATURE-SPEC.md
-            └── FEATURE-SPEC-IMPLEMENTATION-REPORT.md
+├── rcsd/
+│   ├── RCSD-INDEX.json                          # Master index of all workflows
+│   └── T500_auth-system/                        # Task-anchored directory (TXXX_[short-name])
+│       ├── _manifest.json                       # Pipeline state and metadata
+│       ├── T500_auth-system_research.json       # Stage 1: Research output
+│       ├── T500_auth-system_research-sources.json # Stage 1: Source citations
+│       ├── T500_auth-system_consensus-report.json # Stage 2: Consensus output
+│       ├── T500_auth-system_voting-matrix.json  # Stage 2: Per-claim votes
+│       ├── AUTH-SYSTEM-SPEC.md                  # Stage 3: Generated spec
+│       ├── AUTH-SYSTEM-IMPLEMENTATION-REPORT.md # Stage 3: Implementation tracker
+│       ├── T500_auth-system_dag.json            # Stage 4: Task dependency graph
+│       ├── hitl/                                # HITL Resolution Records
+│       │   └── HITL-RESOLUTION-HR-001.json
+│       ├── metrics/                             # Observability artifacts
+│       │   └── RCSD-METRICS.json
+│       └── history/                             # Archived previous versions
+│           └── T500_auth-system_research_2025-12-23T10-00-00Z.json
+├── specs/                                       # SOURCE OF TRUTH (stable specs)
+│   └── [domain]/
+│       └── [SHORT-NAME]-SPEC.md
+├── changes/                                     # PROPOSALS (active work)
+│   └── [feature-name]/
+│       ├── proposal.md
+│       ├── tasks.md
+│       └── specs/[domain]/                      # DELTA specs
+│           └── [SHORT-NAME]-SPEC.md
+├── AGENTS.md                                    # Universal AI instructions
+└── PROJECT-CONTEXT.md                           # Project context for AI
 ```
+
+### Key Differences from v1.0 Structure
+
+| Aspect | v1.0 (Old) | v2.0 (Current) |
+|--------|------------|----------------|
+| Directory naming | `{shortName}/` | `TXXX_[short-name]/` (task-anchored) |
+| File organization | Nested subdirs (`research/`, `consensus/`) | Flat with task-prefixed filenames |
+| File naming | `research-findings.md` | `T500_auth-system_research.json` |
+| Output format | Mixed md/json | Primarily JSON with `.md` for specs |
+| HITL records | Not specified | Dedicated `hitl/` subdirectory |
+| Metrics | Not specified | Dedicated `metrics/` subdirectory |
+| History/versioning | Not specified | Dedicated `history/` subdirectory |
+
+### Three-Folder Architecture
+
+The v2.0 spec introduces a **three-folder architecture** (from OpenSpec research):
+
+1. **`.cleo/specs/`** - Source of truth (stable, approved specifications)
+2. **`.cleo/changes/`** - Proposals (active work with delta specs)
+3. **`.cleo/rcsd/`** - Pipeline artifacts (per-task workflow data)
 
 ---
 
@@ -346,118 +455,67 @@ The following tasks are SUPERSEDED by this implementation:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| LLM API rate limits during consensus | Medium | High | Implement backoff, sequential agent execution |
-| Agent agreement without substantive challenge | High | Medium | Rubber-stamp detection per CONSENSUS-FRAMEWORK-SPEC |
-| Spec generation violates SPEC-BIBLE | Medium | High | Validation step before output |
-| Schema migration complexity | Low | High | Backward compatibility via optional fields |
+| Anthropic SDK API changes | Low | Medium | Pin SDK version, monitor changelog |
+| LLM rate limits during consensus | Medium | High | Implement backoff, sequential fallback |
+| Agent agreement without challenge | High | Medium | Challenge Agent quality scoring |
+| Pydantic schema migration | Low | Medium | Maintain backward compatibility |
 
 ---
 
 ## Success Criteria
 
 ### Phase 1 Complete When
-- [ ] RCSD directory created on first investigation
-- [ ] RCSD-INDEX.json passes schema validation
-- [ ] _manifest.json created for each investigation
-- [ ] shortName derivation produces valid identifiers
-
-### Phase 2 Complete When
-- [ ] `ct research --task T001` links output to RCSD directory
-- [ ] Research findings stored in correct path
-- [ ] Sources tracked with reliability tiers
-
-### Phase 3 Complete When
-- [ ] `ct consensus T001` spawns 5 worker agents + synthesis
-- [ ] All agent findings files created
-- [ ] Voting matrix generated with per-claim verdicts
-- [ ] HITL gates triggered for contested claims
+- [ ] `lib/rcsd/` package imports successfully
+- [ ] All Pydantic models pass validation
+- [ ] Exit codes match LLM-AGENT-FIRST-SPEC
+- [ ] Schema validation functions work
 
 ### Phase 4 Complete When
-- [ ] `ct spec T001` generates compliant specification
-- [ ] RFC 2119 keywords properly capitalized
-- [ ] Implementation Report stub created
-- [ ] Related Specifications section populated
+- [ ] 5 consensus agents execute in parallel
+- [ ] Evidence weighting formula produces scores
+- [ ] Voting matrix generates correctly
+- [ ] HITL gates trigger on CONTESTED claims
 
-### Phase 5 Complete When
-- [ ] `ct decompose --from-task T001` creates atomic tasks
-- [ ] Tasks linked via associations.rcsdId
-- [ ] Phase assignments match RCSD stage
-- [ ] Parent-child relationships respect depth limits
+### Phase 8 Complete When
+- [ ] `ct research T500` invokes Python agent
+- [ ] `ct consensus T500` runs 6 agents
+- [ ] `ct spec T500` generates RFC 2119 spec
+- [ ] `ct decompose --from-task T500` creates DAG
 
----
-
-## Pending Spec Cross-References
-
-The following specifications need updates to add RCSD pipeline cross-references:
-
-### CONSENSUS-FRAMEWORK-SPEC.md (v2.0.0 → v2.1.0)
-
-**Location**: Related Specifications section (Part 17)
-**Change**: Added RCSD-PIPELINE-SPEC.md as "Used By"
-
-**Status**: ✅ APPLIED (2025-12-23)
-
----
-
-### WEB-AGGREGATION-PIPELINE-SPEC.md (v1.0.0 → v1.1.0)
-
-**Location**: Related Specifications section
-**Change**: Added RCSD-PIPELINE-SPEC.md as "Stage: RESEARCH"
-
-**Status**: ✅ APPLIED (2025-12-23)
-
----
-
-### TASK-DECOMPOSITION-SPEC.md (v1.0.0 → v1.1.0)
-
-**Location**: Related Specifications section (Part 17)
-**Change**: Added RCSD-PIPELINE-SPEC.md as "Stage: DECOMPOSE"
-
-**Status**: ✅ APPLIED (2025-12-23)
-
----
-
-### PHASE-SYSTEM-SPEC.md (v2.2.0 → v2.3.0)
-
-**Location**: Related Specifications section
-**Change**: Added RCSD-PIPELINE-SPEC.md with phase context (Research→setup, Decompose→core)
-
-**Note**: Part 14 (RCSD Phase Assignment) not added - phase mapping documented in RCSD-PIPELINE-SPEC Part 7 instead.
-
-**Status**: ✅ APPLIED (2025-12-23)
-
----
-
-### LLM-AGENT-FIRST-SPEC.md (v3.1 → v3.2.0)
-
-**Location**: Related Specifications section
-**Change**: Added RCSD-PIPELINE-SPEC.md as "Uses" relationship
-
-**Note**: Command Inventory (Part 1) and Compliance Matrix (Part 9) updates for consensus, spec, decompose commands deferred until implementation. Cross-reference link added.
-
-**Status**: ✅ PARTIAL (2025-12-23) - Cross-reference added; command inventory update pending implementation
+### Final Complete When
+- [ ] All tests pass (minimum 80% coverage)
+- [ ] Documentation complete
+- [ ] End-to-end pipeline tested
+- [ ] Performance benchmarks acceptable
 
 ---
 
 ## Changelog
 
+### 2025-12-29 - Python Implementation Architecture
+
+- **Major Change**: Shifted from Bash to Python implementation
+- Updated to RCSD-PIPELINE-SPEC v2.0.0
+- Created new epic T982 with 10 phases, 16+ tasks
+- Superseded T719-T751 bash-based approach
+- Incorporated all v1.1 features into v2.0.0 spec
+- Documented Python package structure
+- Documented Pydantic model schemas
+- Documented agent subagent_type mappings
+
 ### 2025-12-23 - Cross-Reference Updates
-- Applied cross-references to 5 related specifications:
-  - CONSENSUS-FRAMEWORK-SPEC.md: Added RCSD "Used By" reference
-  - WEB-AGGREGATION-PIPELINE-SPEC.md: Added RCSD "RESEARCH stage" reference
-  - TASK-DECOMPOSITION-SPEC.md: Added RCSD "DECOMPOSE stage" reference
-  - PHASE-SYSTEM-SPEC.md: Added RCSD phase context reference
-  - LLM-AGENT-FIRST-SPEC.md: Added RCSD "Uses" reference (command inventory update pending)
+
+- Applied cross-references to 5 related specifications
 - Updated SPEC-INDEX.json with RCSD-PIPELINE-SPEC and dependencies
 
 ### 2025-12-23 - Initial Report
+
 - Created implementation report with 5 phases, 12 components
 - Defined RCSD-INDEX.json and _manifest.json schemas
 - Listed 9 required agent prompt templates
-- Documented task schema extensions (shortName, workflow, associations)
-- Specified CLI commands (consensus, spec, decompose --from-task)
+- Documented task schema extensions
+- Specified CLI commands
 - Identified 8 superseded tasks
-- Documented integration points with dependent specifications
 
 ---
 
