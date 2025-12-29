@@ -49,7 +49,7 @@
   },
 
   "multiSession": {
-    "enabled": false,
+    "enabled": true,
     "maxConcurrentSessions": 5,
     "maxActiveTasksPerScope": 1,
     "scopeValidation": "strict",
@@ -89,7 +89,7 @@
       "autoDiscover": true
     },
     "debug": {
-      "enabled": false,
+      "enabled": true,
       "validateMappings": true,
       "checksumVerify": true,
       "showTimings": false
