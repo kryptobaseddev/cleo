@@ -1,9 +1,42 @@
-<!-- CLEO:START v0.38.0 -->
+<!-- CLEO:START v0.40.0 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
 
-### ALWAYS USE Data Integrity
+### CRITICAL: Error Handling
+**NEVER ignore exit codes. Failed commands mean tasks were NOT created/updated.**
+
+**After EVERY command, check:**
+1. Exit code `0` = success, `1-22` = error, `100+` = special (not error)
+2. JSON field `"success": false` = operation failed
+3. **Execute `error.fix`** - Copy-paste-ready command to resolve the error
+4. **Or choose from `error.alternatives`** - Array of {action, command} options
+5. Check `error.context` for structured error data
+
+**Common Errors and Fixes:**
+| Exit | Code | Meaning | Fix |
+|:----:|------|---------|-----|
+| 6 | `E_VALIDATION_*` | Validation failed | Check field lengths, escape `$` in notes |
+| 10 | `E_PARENT_NOT_FOUND` | Parent doesn't exist | Verify with `ct exists <parent-id>` |
+| 11 | `E_DEPTH_EXCEEDED` | Max depth (3) exceeded | Use shallower hierarchy (epic→task→subtask max) |
+| 12 | `E_SIBLING_LIMIT` | Too many siblings (7) | Move task to different parent |
+| 4 | `E_NOT_FOUND` | Task doesn't exist | Use `ct find` or `ct list` to verify |
+
+**Recoverable errors (retry with backoff):** 7, 20, 21, 22
+**Special codes (not errors):** 100 = no data, 101 = already exists, 102 = no change needed
+
+**Shell escaping for notes:** Always escape `$` as `\$` in notes to prevent shell interpolation:
+```bash
+ct update T001 --notes "Price: \$395"  # Correct
+ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
+```
+
+**Compact JSON for agents:** Set `CLEO_AGENT_MODE=1` for single-line JSON output (prevents truncation):
+```bash
+export CLEO_AGENT_MODE=1  # Compact JSON, shows full error in one line
+```
+
+### Data Integrity
 - **JSON auto-detection**: Piped output → JSON (no `--format` needed)
 - **Native filters**: Use `--status`, `--label`, `--phase` instead of jq
 - **Context-efficient**: Prefer `find` over `list` for task discovery
