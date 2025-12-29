@@ -2,7 +2,7 @@
 
 > **Authoritative standard for LLM-agent-first CLI design**
 >
-> **Version**: 3.2 | **Updated**: 2025-12-19
+> **Version**: 3.3 | **Updated**: 2025-12-29
 > **Scope**: 34 commands, universal standards for agent automation
 
 ---
@@ -281,6 +281,7 @@ fi
 - `1-9`: General errors
 - `10-19`: Hierarchy errors (see LLM-TASK-ID-SYSTEM-DESIGN-SPEC)
 - `20-29`: Concurrency errors
+- `30-39`: Session errors (multi-session, scope, focus)
 - `100+`: Special conditions (not errors)
 
 #### Complete Exit Code Table
@@ -308,6 +309,17 @@ fi
 | 20 | `EXIT_CHECKSUM_MISMATCH` | File modified externally | Yes | Retry operation |
 | 21 | `EXIT_CONCURRENT_MODIFICATION` | Multi-agent conflict | Yes | Retry with backoff |
 | 22 | `EXIT_ID_COLLISION` | ID generation conflict | Yes | Regenerate ID |
+| **Session (30-39)** |
+| 30 | `EXIT_SESSION_EXISTS` | Session already active for scope | Yes | Use existing session or end it first |
+| 31 | `EXIT_SESSION_NOT_FOUND` | Session ID not found | Yes | List sessions, start new |
+| 32 | `EXIT_SCOPE_CONFLICT` | Scope overlaps with existing session | Yes | Use different scope |
+| 33 | `EXIT_SCOPE_INVALID` | Invalid scope format or empty | Yes | Check scope syntax |
+| 34 | `EXIT_TASK_NOT_IN_SCOPE` | Task outside session scope | Yes | Focus task within scope |
+| 35 | `EXIT_TASK_CLAIMED` | Task focused by another session | Yes | Choose different task |
+| 36 | `EXIT_SESSION_REQUIRED` | Operation requires active session | Yes | Start session first |
+| 37 | `EXIT_SESSION_CLOSE_BLOCKED` | Cannot close - tasks incomplete | Yes | Complete or remove tasks |
+| 38 | `EXIT_FOCUS_REQUIRED` | Operation requires focused task | Yes | Set focus first |
+| 39 | `EXIT_NOTES_REQUIRED` | Session notes required | Yes | Provide notes |
 | **Special (100+)** |
 | 100 | `EXIT_NO_DATA` | No data to process (not error) | N/A | Empty query result |
 | 101 | `EXIT_ALREADY_EXISTS` | Resource already exists | N/A | Task ID exists |
@@ -328,6 +340,12 @@ Commands **MUST** use the following exit codes:
 | Would create circular reference | 14 | `E_CIRCULAR_REFERENCE` |
 | Lock acquisition timeout | 7 | N/A (no E_ code) |
 | Empty query result | 100 | N/A (not an error) |
+| Session not found | 31 | `E_SESSION_NOT_FOUND` |
+| Scope conflicts with existing session | 32 | `E_SCOPE_CONFLICT` |
+| Task outside session scope | 34 | `E_TASK_NOT_IN_SCOPE` |
+| Task claimed by another session | 35 | `E_TASK_CLAIMED` |
+| Session required for operation | 36 | `E_SESSION_REQUIRED` |
+| Focus required for operation | 38 | `E_FOCUS_REQUIRED` |
 
 ### 3.2 Error Code Standard (AUTHORITATIVE)
 
@@ -364,8 +382,18 @@ Commands **MUST** use the following exit codes:
 | | `E_PHASE_NOT_FOUND` | 4 | Phase slug does not exist |
 | | `E_PHASE_INVALID` | 2 | Phase definition invalid |
 | **Session Errors** |
-| | `E_SESSION_ACTIVE` | 101 | Session already active |
-| | `E_SESSION_NOT_ACTIVE` | 4 | No active session |
+| | `E_SESSION_ACTIVE` | 101 | Session already active (legacy) |
+| | `E_SESSION_NOT_ACTIVE` | 4 | No active session (legacy) |
+| | `E_SESSION_EXISTS` | 30 | Session already active for scope |
+| | `E_SESSION_NOT_FOUND` | 31 | Session ID not found |
+| | `E_SCOPE_CONFLICT` | 32 | Scope overlaps with existing session |
+| | `E_SCOPE_INVALID` | 33 | Invalid scope format or empty |
+| | `E_TASK_NOT_IN_SCOPE` | 34 | Task outside session scope |
+| | `E_TASK_CLAIMED` | 35 | Task focused by another session |
+| | `E_SESSION_REQUIRED` | 36 | Operation requires active session |
+| | `E_SESSION_CLOSE_BLOCKED` | 37 | Cannot close session - tasks incomplete |
+| | `E_FOCUS_REQUIRED` | 38 | Operation requires focused task |
+| | `E_NOTES_REQUIRED` | 39 | Session notes required |
 | **General Errors** |
 | | `E_UNKNOWN` | 1 | Unknown/unspecified error |
 | | `E_NOT_INITIALIZED` | 4 | Project not initialized |
@@ -1313,6 +1341,13 @@ These commands exemplify best practices:
                          20  CHECKSUM_MISMATCH
                          21  CONCURRENT_MODIFICATION
                          22  ID_COLLISION
+
+SESSION (30-39):
+30  SESSION_EXISTS       35  TASK_CLAIMED
+31  SESSION_NOT_FOUND    36  SESSION_REQUIRED
+32  SCOPE_CONFLICT       37  SESSION_CLOSE_BLOCKED
+33  SCOPE_INVALID        38  FOCUS_REQUIRED
+34  TASK_NOT_IN_SCOPE    39  NOTES_REQUIRED
 ```
 
 ### Error Code Quick Reference
@@ -1326,7 +1361,9 @@ Hierarchy:  E_PARENT_NOT_FOUND, E_DEPTH_EXCEEDED, E_SIBLING_LIMIT, E_INVALID_PAR
             E_CIRCULAR_REFERENCE, E_ORPHAN_DETECTED
 Concurrency: E_CHECKSUM_MISMATCH, E_CONCURRENT_MODIFICATION, E_ID_COLLISION
 Phase:      E_PHASE_NOT_FOUND, E_PHASE_INVALID
-Session:    E_SESSION_ACTIVE, E_SESSION_NOT_ACTIVE
+Session:    E_SESSION_EXISTS, E_SESSION_NOT_FOUND, E_SCOPE_CONFLICT, E_SCOPE_INVALID,
+            E_TASK_NOT_IN_SCOPE, E_TASK_CLAIMED, E_SESSION_REQUIRED, E_SESSION_CLOSE_BLOCKED,
+            E_FOCUS_REQUIRED, E_NOTES_REQUIRED (legacy: E_SESSION_ACTIVE, E_SESSION_NOT_ACTIVE)
 General:    E_UNKNOWN, E_NOT_INITIALIZED, E_DEPENDENCY_MISSING, E_DEPENDENCY_VERSION
 ```
 
@@ -1343,6 +1380,6 @@ General:    E_UNKNOWN, E_NOT_INITIALIZED, E_DEPENDENCY_MISSING, E_DEPENDENCY_VER
 
 ---
 
-*Specification v3.0 - Authoritative Standard for LLM-Agent-First CLI Design*
+*Specification v3.3 - Authoritative Standard for LLM-Agent-First CLI Design*
 *Applicable to: cleo and any LLM-agent-first CLI project*
-*Last updated: 2025-12-18*
+*Last updated: 2025-12-29*
