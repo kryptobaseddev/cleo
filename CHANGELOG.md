@@ -5,6 +5,36 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2025-12-29
+
+### Added
+- **Actionable Error System (LLM-Agent-First)** - Errors now include executable recovery commands
+  - New `error.fix` field: Primary recovery command, copy-paste ready
+  - New `error.alternatives` array: Multiple {action, command} recovery options
+  - New `error.context` object: Structured error data for agent decision-making
+  - Hierarchy errors (E_DEPTH_EXCEEDED, E_SIBLING_LIMIT, E_PARENT_NOT_FOUND, E_INVALID_PARENT_TYPE) now provide concrete fix commands
+  - Example: `"fix": "ct add 'Task' --type task"` with alternatives for different recovery paths
+
+- **Compact JSON Output for Agents** - New `CLEO_AGENT_MODE=1` environment variable
+  - Single-line JSON output prevents truncation ("+N lines" issue)
+  - Agents see full error including suggestion and fix commands
+  - Also triggered by `CLEO_COMPACT_JSON=1` or non-TTY output
+
+- **`output_error_actionable()` function** in `lib/error-json.sh`
+  - Enhanced error output with fix, alternatives, and context parameters
+  - Backward-compatible with existing `output_error()` calls
+
+### Changed
+- **Error handling instructions** in agent injection template
+  - Added CRITICAL error handling section at top of CLAUDE.md injection
+  - Documents `error.fix` and `error.alternatives` usage
+  - Includes shell escaping guidance for `$` in notes
+
+### Fixed
+- **Shell variable expansion in notes** - Documentation now warns agents to escape `$` as `\$`
+  - `"Price: $395"` → shell interprets as `$3` variable (empty), causing validation errors
+  - `"Price: \$395"` → correct, literal `$395`
+
 ## [0.39.2] - 2025-12-28
 
 ### Fixed

@@ -838,23 +838,165 @@ if [[ -n "$PARENT_ID" ]]; then
   # Validate hierarchy constraints using lib/hierarchy.sh
   if declare -f validate_hierarchy >/dev/null 2>&1; then
     if ! validate_parent_exists "$PARENT_ID" "$TODO_FILE"; then
-      output_error "$E_PARENT_NOT_FOUND" "Parent task not found: $PARENT_ID" "${EXIT_PARENT_NOT_FOUND:-10}" "true" "Use 'ct exists $PARENT_ID' to verify task ID"
+      _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
+
+      _err_ctx_json=$(jq -n \
+        --arg pid "$PARENT_ID" \
+        '{requestedParent: $pid, reason: "task does not exist"}')
+
+      _err_alts_json=$(jq -n \
+        --arg t1 "ct add '$_err_escaped_title' --type task" \
+        --arg t2 "ct exists $PARENT_ID --include-archive" \
+        --arg t3 "ct find '$PARENT_ID'" \
+        '[
+          {"action": "Create as standalone task", "command": $t1},
+          {"action": "Check if archived", "command": $t2},
+          {"action": "Search for similar ID", "command": $t3}
+        ]')
+
+      output_error_actionable "$E_PARENT_NOT_FOUND" \
+        "Parent task not found: $PARENT_ID" \
+        "${EXIT_PARENT_NOT_FOUND:-10}" \
+        "true" \
+        "Task $PARENT_ID does not exist. It may have been deleted or archived." \
+        "ct add '$_err_escaped_title' --type task" \
+        "$_err_ctx_json" \
+        "$_err_alts_json"
       exit "${EXIT_PARENT_NOT_FOUND:-10}"
     fi
 
     if ! validate_max_depth "$PARENT_ID" "$TODO_FILE"; then
-      output_error "$E_DEPTH_EXCEEDED" "Cannot add child to $PARENT_ID: max hierarchy depth (3) would be exceeded" "${EXIT_DEPTH_EXCEEDED:-11}" "false" "Refactor task hierarchy to reduce nesting depth"
+      # Get context for actionable error
+      _err_parent_type=$(get_task_type "$PARENT_ID" "$TODO_FILE")
+      _err_parent_depth=$(get_task_depth "$PARENT_ID" "$TODO_FILE")
+      _err_grandparent_id=$(get_task_parent "$PARENT_ID" "$TODO_FILE")
+
+      # Escape title for use in commands
+      _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
+
+      # Build context JSON
+      _err_ctx_json=$(jq -n \
+        --arg pid "$PARENT_ID" \
+        --arg ptype "$_err_parent_type" \
+        --argjson pdepth "$_err_parent_depth" \
+        --argjson maxd "$MAX_HIERARCHY_DEPTH" \
+        '{parentId: $pid, parentType: $ptype, parentDepth: $pdepth, maxDepth: $maxd}')
+
+      # Build alternatives JSON with concrete commands
+      if [[ "$_err_grandparent_id" != "null" && -n "$_err_grandparent_id" ]]; then
+        _err_alts_json=$(jq -n \
+          --arg t1 "ct add '$_err_escaped_title' --type task" \
+          --arg t2 "ct add '$_err_escaped_title' --parent $_err_grandparent_id --type subtask" \
+          --arg t3 "ct update $PARENT_ID --type task" \
+          '[
+            {"action": "Create as standalone task", "command": $t1},
+            {"action": "Add to grandparent instead", "command": $t2},
+            {"action": "Promote parent to task first", "command": $t3}
+          ]')
+      else
+        _err_alts_json=$(jq -n \
+          --arg t1 "ct add '$_err_escaped_title' --type task" \
+          --arg t2 "ct update $PARENT_ID --type task" \
+          '[
+            {"action": "Create as standalone task", "command": $t1},
+            {"action": "Promote parent to task first", "command": $t2}
+          ]')
+      fi
+
+      output_error_actionable "$E_DEPTH_EXCEEDED" \
+        "Cannot add child to $PARENT_ID: max hierarchy depth (3) would be exceeded" \
+        "${EXIT_DEPTH_EXCEEDED:-11}" \
+        "true" \
+        "$PARENT_ID is a $_err_parent_type at depth $_err_parent_depth. Adding a child would exceed max depth ($MAX_HIERARCHY_DEPTH)." \
+        "ct add '$_err_escaped_title' --type task" \
+        "$_err_ctx_json" \
+        "$_err_alts_json"
       exit "${EXIT_DEPTH_EXCEEDED:-11}"
     fi
 
     if ! validate_max_siblings "$PARENT_ID" "$TODO_FILE"; then
-      max_sibs=$(get_max_siblings)
-      output_error "$E_SIBLING_LIMIT" "Cannot add child to $PARENT_ID: max siblings ($max_sibs) exceeded" "${EXIT_SIBLING_LIMIT:-12}" "false" "Complete tasks, set hierarchy.maxSiblings=0 for unlimited, or group under new epic"
+      _err_max_sibs=$(get_max_siblings)
+      _err_current_sibs=$(count_siblings "$PARENT_ID" "$TODO_FILE")
+      _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
+      _err_grandparent=$(get_task_parent "$PARENT_ID" "$TODO_FILE")
+
+      _err_ctx_json=$(jq -n \
+        --arg pid "$PARENT_ID" \
+        --argjson max "$_err_max_sibs" \
+        --argjson cur "$_err_current_sibs" \
+        '{parentId: $pid, maxSiblings: $max, currentSiblings: $cur}')
+
+      if [[ "$_err_grandparent" != "null" && -n "$_err_grandparent" ]]; then
+        _err_alts_json=$(jq -n \
+          --arg t1 "ct add '$_err_escaped_title' --type task" \
+          --arg t2 "ct add '$_err_escaped_title' --parent $_err_grandparent" \
+          --arg t3 "ct config set hierarchy.maxSiblings 0" \
+          '[
+            {"action": "Create as standalone task", "command": $t1},
+            {"action": "Add to grandparent instead", "command": $t2},
+            {"action": "Remove sibling limit", "command": $t3}
+          ]')
+      else
+        _err_alts_json=$(jq -n \
+          --arg t1 "ct add '$_err_escaped_title' --type task" \
+          --arg t2 "ct config set hierarchy.maxSiblings 0" \
+          '[
+            {"action": "Create as standalone task", "command": $t1},
+            {"action": "Remove sibling limit", "command": $t2}
+          ]')
+      fi
+
+      output_error_actionable "$E_SIBLING_LIMIT" \
+        "Cannot add child to $PARENT_ID: max siblings ($_err_max_sibs) exceeded" \
+        "${EXIT_SIBLING_LIMIT:-12}" \
+        "true" \
+        "$PARENT_ID already has $_err_current_sibs children (max: $_err_max_sibs)." \
+        "ct add '$_err_escaped_title' --type task" \
+        "$_err_ctx_json" \
+        "$_err_alts_json"
       exit "${EXIT_SIBLING_LIMIT:-12}"
     fi
 
     if ! validate_parent_type "$PARENT_ID" "$TODO_FILE"; then
-      output_error "$E_INVALID_PARENT_TYPE" "Cannot add child to $PARENT_ID: subtasks cannot have children" "${EXIT_INVALID_PARENT_TYPE:-13}" "false" "Choose a task or epic as parent instead of a subtask"
+      _err_parent_type=$(get_task_type "$PARENT_ID" "$TODO_FILE")
+      _err_grandparent=$(get_task_parent "$PARENT_ID" "$TODO_FILE")
+      _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")
+
+      _err_ctx_json=$(jq -n \
+        --arg pid "$PARENT_ID" \
+        --arg ptype "$_err_parent_type" \
+        '{parentId: $pid, parentType: $ptype, reason: "subtasks cannot have children"}')
+
+      if [[ "$_err_grandparent" != "null" && -n "$_err_grandparent" ]]; then
+        _err_alts_json=$(jq -n \
+          --arg t1 "ct add '$_err_escaped_title' --parent $_err_grandparent --type subtask" \
+          --arg t2 "ct add '$_err_escaped_title' --type task" \
+          --arg t3 "ct update $PARENT_ID --type task" \
+          '[
+            {"action": "Add as sibling of parent", "command": $t1},
+            {"action": "Create as standalone task", "command": $t2},
+            {"action": "Promote parent to task first", "command": $t3}
+          ]')
+        _err_fix="ct add '$_err_escaped_title' --parent $_err_grandparent --type subtask"
+      else
+        _err_alts_json=$(jq -n \
+          --arg t1 "ct add '$_err_escaped_title' --type task" \
+          --arg t2 "ct update $PARENT_ID --type task" \
+          '[
+            {"action": "Create as standalone task", "command": $t1},
+            {"action": "Promote parent to task first", "command": $t2}
+          ]')
+        _err_fix="ct add '$_err_escaped_title' --type task"
+      fi
+
+      output_error_actionable "$E_INVALID_PARENT_TYPE" \
+        "Cannot add child to $PARENT_ID: subtasks cannot have children" \
+        "${EXIT_INVALID_PARENT_TYPE:-13}" \
+        "true" \
+        "$PARENT_ID is a $_err_parent_type. Only epics and tasks can have children." \
+        "$_err_fix" \
+        "$_err_ctx_json" \
+        "$_err_alts_json"
       exit "${EXIT_INVALID_PARENT_TYPE:-13}"
     fi
   fi

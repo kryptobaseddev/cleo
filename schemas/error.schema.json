@@ -88,7 +88,17 @@
             "E_CANCEL_REASON_REQUIRED",
             "E_CHECKSUM_MISMATCH",
             "E_CONCURRENT_MODIFICATION",
-            "E_ID_COLLISION"
+            "E_ID_COLLISION",
+            "E_SESSION_EXISTS",
+            "E_SESSION_NOT_FOUND",
+            "E_SCOPE_CONFLICT",
+            "E_SCOPE_INVALID",
+            "E_TASK_NOT_IN_SCOPE",
+            "E_TASK_CLAIMED",
+            "E_SESSION_REQUIRED",
+            "E_SESSION_CLOSE_BLOCKED",
+            "E_FOCUS_REQUIRED",
+            "E_NOTES_REQUIRED"
           ]
         },
         "message": {
@@ -109,6 +119,28 @@
         "suggestion": {
           "type": ["string", "null"],
           "description": "Suggested action to resolve the error"
+        },
+        "fix": {
+          "type": ["string", "null"],
+          "description": "Concrete command to fix the error (copy-paste ready)"
+        },
+        "alternatives": {
+          "type": "array",
+          "description": "Alternative recovery actions with executable commands",
+          "items": {
+            "type": "object",
+            "required": ["action", "command"],
+            "properties": {
+              "action": {
+                "type": "string",
+                "description": "Short description of what this alternative does"
+              },
+              "command": {
+                "type": "string",
+                "description": "Executable command (copy-paste ready)"
+              }
+            }
+          }
         },
         "context": {
           "type": "object",

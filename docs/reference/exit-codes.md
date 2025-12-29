@@ -42,6 +42,21 @@ This document defines all exit codes used by cleo CLI and the retry protocol for
 | 21 | `EXIT_CONCURRENT_MODIFICATION` | Multi-agent conflict detected | **Yes** |
 | 22 | `EXIT_ID_COLLISION` | Generated ID already exists | **Yes** |
 
+### Session Codes (30-39) - Epic-Bound Sessions
+
+| Code | Name | Meaning | Recoverable |
+|:----:|------|---------|:-----------:|
+| 30 | `EXIT_SESSION_EXISTS` | Session already active for this scope | **Yes** |
+| 31 | `EXIT_SESSION_NOT_FOUND` | Session ID not found | **Yes** |
+| 32 | `EXIT_SCOPE_CONFLICT` | Session scope conflicts with existing session | **Yes** |
+| 33 | `EXIT_SCOPE_INVALID` | Invalid session scope | **Yes** |
+| 34 | `EXIT_TASK_NOT_IN_SCOPE` | Task is not within session scope | **Yes** |
+| 35 | `EXIT_TASK_CLAIMED` | Task is already claimed by another agent | **Yes** |
+| 36 | `EXIT_SESSION_REQUIRED` | Operation requires an active session | **Yes** |
+| 37 | `EXIT_SESSION_CLOSE_BLOCKED` | Cannot close session with incomplete tasks | No |
+| 38 | `EXIT_FOCUS_REQUIRED` | Operation requires a focused task | **Yes** |
+| 39 | `EXIT_NOTES_REQUIRED` | Session notes required for operation | **Yes** |
+
 ### Special Codes (100+)
 
 | Code | Name | Meaning | Recoverable |
@@ -51,6 +66,18 @@ This document defines all exit codes used by cleo CLI and the retry protocol for
 | 102 | `EXIT_NO_CHANGE` | Valid command but no state change | N/A |
 
 ---
+
+## Agent Environment Setup
+
+For optimal LLM agent integration, set these environment variables:
+
+```bash
+export CLEO_AGENT_MODE=1    # Compact single-line JSON (prevents output truncation)
+export CLEO_FORMAT=json     # Explicit JSON format
+export NO_COLOR=1           # Disable ANSI colors
+```
+
+**CLEO_AGENT_MODE=1** enables compact JSON output so error messages fit in a single line, preventing the "+N lines" truncation that causes agents to miss critical error details like `error.suggestion`.
 
 ## Retry Protocol for LLM Agents
 
@@ -139,27 +166,49 @@ Agents **SHOULD** treat EXIT_NO_CHANGE (102) as success:
 
 ## Error JSON Response
 
-All errors return structured JSON with the following envelope:
+All errors return structured JSON with actionable recovery information:
 
 ```json
 {
   "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
   "_meta": {
     "format": "json",
-    "version": "0.31.1",
+    "version": "0.40.0",
     "command": "add",
-    "timestamp": "2025-12-23T10:00:00Z"
+    "timestamp": "2025-12-29T05:00:00Z"
   },
   "success": false,
   "error": {
-    "code": "E_TASK_NOT_FOUND",
-    "message": "Task T999 not found",
-    "exitCode": 4,
-    "recoverable": false,
-    "suggestion": "Use 'cleo list' to see available tasks"
+    "code": "E_DEPTH_EXCEEDED",
+    "message": "Cannot add child to T550: max hierarchy depth (3) would be exceeded",
+    "exitCode": 11,
+    "recoverable": true,
+    "suggestion": "T550 is a subtask at depth 2. Adding a child would exceed max depth (3).",
+    "fix": "ct add 'My Task' --type task",
+    "alternatives": [
+      {"action": "Create as standalone task", "command": "ct add 'My Task' --type task"},
+      {"action": "Add to grandparent", "command": "ct add 'My Task' --parent T545 --type subtask"},
+      {"action": "Promote parent first", "command": "ct update T550 --type task"}
+    ],
+    "context": {
+      "parentId": "T550",
+      "parentType": "subtask",
+      "parentDepth": 2,
+      "maxDepth": 3
+    }
   }
 }
 ```
+
+### Actionable Error Fields (v0.40.0+)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fix` | string | Primary recovery command (copy-paste ready) |
+| `alternatives` | array | Alternative {action, command} options |
+| `context` | object | Structured error data for decision-making |
+
+**Agent Usage**: Read `error.fix` and execute directly, or choose from `error.alternatives` based on intent.
 
 ### Error Code Categories
 
@@ -170,7 +219,11 @@ All errors return structured JSON with the following envelope:
 | `E_INPUT_*` | Input validation | `E_INPUT_MISSING`, `E_INPUT_INVALID` |
 | `E_VALIDATION_*` | Data validation | `E_VALIDATION_SCHEMA`, `E_VALIDATION_REQUIRED` |
 | `E_PHASE_*` | Phase operations | `E_PHASE_NOT_FOUND`, `E_PHASE_INVALID` |
-| `E_SESSION_*` | Session operations | `E_SESSION_ACTIVE`, `E_SESSION_NOT_ACTIVE` |
+| `E_SESSION_*` | Session operations | `E_SESSION_EXISTS`, `E_SCOPE_CONFLICT` |
+| `E_SCOPE_*` | Scope validation | `E_SCOPE_INVALID`, `E_SCOPE_CONFLICT` |
+| `E_TASK_*` (session) | Task-session ops | `E_TASK_NOT_IN_SCOPE`, `E_TASK_CLAIMED` |
+| `E_FOCUS_*` | Focus operations | `E_FOCUS_REQUIRED` |
+| `E_NOTES_*` | Notes requirements | `E_NOTES_REQUIRED` |
 | `E_CHECKSUM_*` | Concurrency | `E_CHECKSUM_MISMATCH` |
 | `E_ALREADY_*` | Already exists | `E_ALREADY_INITIALIZED` |
 | `E_CONFIRMATION_*` | Confirmation required | `E_CONFIRMATION_REQUIRED` |

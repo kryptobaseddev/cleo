@@ -3,8 +3,12 @@
 #
 # LAYER: 1 (Core Infrastructure)
 # DEPENDENCIES: exit-codes.sh, platform-compat.sh
-# PROVIDES: output_error, output_error_with_context, format_error_json,
-#           add_error_context, get_error_code_name
+# PROVIDES: output_error, output_error_json, output_error_actionable,
+#           output_warning, output_session_error, get_session_error_suggestion,
+#           get_session_error_message, E_SESSION_EXISTS, E_SESSION_NOT_FOUND,
+#           E_SCOPE_CONFLICT, E_SCOPE_INVALID, E_TASK_NOT_IN_SCOPE,
+#           E_TASK_CLAIMED, E_SESSION_REQUIRED, E_SESSION_CLOSE_BLOCKED,
+#           E_FOCUS_REQUIRED, E_NOTES_REQUIRED
 #
 # Critical component for LLM-agent-first design:
 # - Reliable error parsing in automation workflows
@@ -135,8 +139,16 @@ output_error_json() {
         recoverable_bool="false"
     fi
 
+    # Determine if we should use compact JSON output
+    # Compact output when: CLEO_AGENT_MODE=1, CLEO_COMPACT_JSON=1, or not a TTY
+    local jq_opts=""
+    if [[ "${CLEO_AGENT_MODE:-}" == "1" ]] || [[ "${CLEO_COMPACT_JSON:-}" == "1" ]] || [[ ! -t 1 ]]; then
+        jq_opts="-c"
+    fi
+
     # Build JSON using jq
-    jq -n \
+    # shellcheck disable=SC2086
+    jq -n $jq_opts \
         --arg version "$version" \
         --arg command "$command" \
         --arg timestamp "$timestamp" \
@@ -212,6 +224,123 @@ output_error() {
 
     return "$exit_code"
 }
+
+# output_error_actionable - Enhanced error with concrete fix commands (LLM-Agent-First)
+#
+# Outputs a structured error with actionable recovery commands that agents can execute.
+# This is the preferred function for errors where automated recovery is possible.
+#
+# Arguments:
+#   $1 - error_code    : Error code string (e.g., "E_DEPTH_EXCEEDED")
+#   $2 - message       : Human-readable error message
+#   $3 - exit_code     : Exit code number
+#   $4 - recoverable   : Boolean string "true" or "false"
+#   $5 - suggestion    : Human-readable suggestion
+#   $6 - fix           : Primary fix command (copy-paste ready)
+#   $7 - context_json  : JSON object with error context (optional)
+#   $8 - alternatives_json : JSON array of {action, command} objects (optional)
+#
+# Example:
+#   output_error_actionable "E_DEPTH_EXCEEDED" \
+#     "Cannot add subtask: max depth exceeded" 11 true \
+#     "T297 is a subtask (depth 2), cannot have children" \
+#     "ct add \"$TITLE\" --type task" \
+#     '{"parentId":"T297","parentType":"subtask","depth":2}' \
+#     '[{"action":"Create as task","command":"ct add \"Task\" --type task"}]'
+#
+output_error_actionable() {
+    local error_code="$1"
+    local message="$2"
+    local exit_code="${3:-1}"
+    local recoverable="${4:-false}"
+    local suggestion="${5:-}"
+    local fix="${6:-}"
+    local context_json="${7:-null}"
+    local alternatives_json="${8:-[]}"
+
+    # Get context variables with defaults
+    local command="${COMMAND_NAME:-unknown}"
+    local version="${VERSION:-${_ERROR_JSON_VERSION}}"
+
+    # Get timestamp
+    local timestamp
+    if command -v get_iso_timestamp &>/dev/null; then
+        timestamp=$(get_iso_timestamp)
+    else
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    fi
+
+    # Convert recoverable to JSON boolean
+    local recoverable_bool="false"
+    [[ "$recoverable" == "true" ]] && recoverable_bool="true"
+
+    # Validate context_json is valid JSON, default to null if not
+    if [[ "$context_json" != "null" ]] && ! echo "$context_json" | jq . >/dev/null 2>&1; then
+        context_json="null"
+    fi
+
+    # Validate alternatives_json is valid JSON array, default to empty if not
+    if ! echo "$alternatives_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        alternatives_json="[]"
+    fi
+
+    # Determine compact output
+    local jq_opts=""
+    if [[ "${CLEO_AGENT_MODE:-}" == "1" ]] || [[ "${CLEO_COMPACT_JSON:-}" == "1" ]] || [[ ! -t 1 ]]; then
+        jq_opts="-c"
+    fi
+
+    if [[ "${FORMAT:-text}" == "json" ]]; then
+        # Build enhanced JSON with fix and alternatives
+        # shellcheck disable=SC2086
+        jq -n $jq_opts \
+            --arg version "$version" \
+            --arg command "$command" \
+            --arg timestamp "$timestamp" \
+            --arg code "$error_code" \
+            --arg msg "$message" \
+            --argjson exit "$exit_code" \
+            --argjson rec "$recoverable_bool" \
+            --arg sug "$suggestion" \
+            --arg fix "$fix" \
+            --argjson ctx "$context_json" \
+            --argjson alts "$alternatives_json" \
+            '{
+                "$schema": "https://cleo-dev.com/schemas/v1/error.schema.json",
+                "_meta": {
+                    "format": "json",
+                    "version": $version,
+                    "command": $command,
+                    "timestamp": $timestamp
+                },
+                "success": false,
+                "error": {
+                    "code": $code,
+                    "message": $msg,
+                    "exitCode": $exit,
+                    "recoverable": $rec,
+                    "suggestion": (if $sug != "" then $sug else null end),
+                    "fix": (if $fix != "" then $fix else null end),
+                    "alternatives": (if ($alts | length) > 0 then $alts else null end),
+                    "context": (if $ctx != null then $ctx else null end)
+                }
+            }'
+    else
+        # Text output to stderr
+        echo -e "${RED}[ERROR]${NC} $message" >&2
+        if [[ -n "$suggestion" ]]; then
+            echo -e "${DIM}Suggestion: $suggestion${NC}" >&2
+        fi
+        if [[ -n "$fix" ]]; then
+            echo -e "${DIM}Fix: $fix${NC}" >&2
+        fi
+    fi
+
+    return "$exit_code"
+}
+
+# Export the new function
+export -f output_error_actionable
 
 # output_warning - Format-aware warning output
 #
@@ -299,9 +428,21 @@ readonly E_DEPENDENCY_VERSION="E_DEPENDENCY_VERSION"
 readonly E_PHASE_NOT_FOUND="E_PHASE_NOT_FOUND"
 readonly E_PHASE_INVALID="E_PHASE_INVALID"
 
-# Session errors
+# Session errors (legacy single-session)
 readonly E_SESSION_ACTIVE="E_SESSION_ACTIVE"
 readonly E_SESSION_NOT_ACTIVE="E_SESSION_NOT_ACTIVE"
+
+# Epic-Bound Session errors (see EPIC-SESSION-SPEC.md Part 7)
+readonly E_SESSION_EXISTS="E_SESSION_EXISTS"
+readonly E_SESSION_NOT_FOUND="E_SESSION_NOT_FOUND"
+readonly E_SCOPE_CONFLICT="E_SCOPE_CONFLICT"
+readonly E_SCOPE_INVALID="E_SCOPE_INVALID"
+readonly E_TASK_NOT_IN_SCOPE="E_TASK_NOT_IN_SCOPE"
+readonly E_TASK_CLAIMED="E_TASK_CLAIMED"
+readonly E_SESSION_REQUIRED="E_SESSION_REQUIRED"
+readonly E_SESSION_CLOSE_BLOCKED="E_SESSION_CLOSE_BLOCKED"
+readonly E_FOCUS_REQUIRED="E_FOCUS_REQUIRED"
+readonly E_NOTES_REQUIRED="E_NOTES_REQUIRED"
 
 # General errors
 readonly E_UNKNOWN="E_UNKNOWN"
@@ -329,6 +470,170 @@ readonly E_CONCURRENT_MODIFICATION="E_CONCURRENT_MODIFICATION"
 readonly E_ID_COLLISION="E_ID_COLLISION"
 
 # ============================================================================
+# SESSION ERROR HELPERS
+# ============================================================================
+
+# get_session_error_suggestion - Get contextual suggestion for session errors
+#
+# Returns a human-readable suggestion for resolving session-related errors.
+# These suggestions are designed to help both human users and LLM agents
+# understand how to recover from common session error conditions.
+#
+# Arguments:
+#   $1 - error_code : Error code string or exit code number
+#   $2 - context    : Optional context string (e.g., session ID, task ID)
+#
+# Returns: Suggestion string via stdout
+#
+# Example:
+#   suggestion=$(get_session_error_suggestion "E_SESSION_EXISTS" "session_abc123")
+#
+get_session_error_suggestion() {
+    local error_code="$1"
+    local context="${2:-}"
+
+    case "$error_code" in
+        E_SESSION_EXISTS|30)
+            echo "Use 'cleo session resume <session-id>' to continue existing session, or 'cleo session end' first"
+            ;;
+        E_SESSION_NOT_FOUND|31)
+            echo "Use 'cleo session list' to see available sessions"
+            ;;
+        E_SCOPE_CONFLICT|32)
+            echo "Use 'cleo session list --status active' to see existing session scopes, or use disjoint scopes"
+            ;;
+        E_SCOPE_INVALID|33)
+            echo "Specify a valid scope with --epic <task-id> where task is an epic or has subtasks"
+            ;;
+        E_TASK_NOT_IN_SCOPE|34)
+            echo "Focus a task within your session scope, or start a new session for this task's epic"
+            ;;
+        E_TASK_CLAIMED|35)
+            echo "Choose a different task or wait for the other agent to release focus"
+            ;;
+        E_SESSION_REQUIRED|36)
+            echo "Start a session first: cleo session start --epic <task-id>"
+            ;;
+        E_SESSION_CLOSE_BLOCKED|37)
+            echo "Complete all tasks in scope before closing, or use 'cleo session end' to end without closing"
+            ;;
+        E_FOCUS_REQUIRED|38)
+            echo "Set focus first: cleo focus set <task-id>"
+            ;;
+        E_NOTES_REQUIRED|39)
+            echo "Add notes with --note 'Your session summary'"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# get_session_error_message - Get human-readable message for session errors
+#
+# Returns a descriptive message for session error codes.
+#
+# Arguments:
+#   $1 - error_code : Error code string or exit code number
+#
+# Returns: Error message string via stdout
+#
+get_session_error_message() {
+    local error_code="$1"
+
+    case "$error_code" in
+        E_SESSION_EXISTS|30)
+            echo "Session already active for this scope"
+            ;;
+        E_SESSION_NOT_FOUND|31)
+            echo "Session not found"
+            ;;
+        E_SCOPE_CONFLICT|32)
+            echo "Session scope conflicts with existing session"
+            ;;
+        E_SCOPE_INVALID|33)
+            echo "Invalid session scope"
+            ;;
+        E_TASK_NOT_IN_SCOPE|34)
+            echo "Task is not within session scope"
+            ;;
+        E_TASK_CLAIMED|35)
+            echo "Task is already claimed by another agent"
+            ;;
+        E_SESSION_REQUIRED|36)
+            echo "Operation requires an active session"
+            ;;
+        E_SESSION_CLOSE_BLOCKED|37)
+            echo "Cannot close session with incomplete tasks"
+            ;;
+        E_FOCUS_REQUIRED|38)
+            echo "Operation requires a focused task"
+            ;;
+        E_NOTES_REQUIRED|39)
+            echo "Session notes are required for this operation"
+            ;;
+        *)
+            echo "Unknown session error"
+            ;;
+    esac
+}
+
+# output_session_error - Output a session error with full context
+#
+# Convenience function for session errors that automatically includes
+# the appropriate suggestion based on error code.
+#
+# Arguments:
+#   $1 - error_code    : Session error code (e.g., E_SESSION_EXISTS)
+#   $2 - message       : Specific error message (overrides default if provided)
+#   $3 - exit_code     : Exit code number (default: derived from error_code)
+#   $4 - context_json  : Optional JSON object with error context
+#
+# Example:
+#   output_session_error "E_TASK_NOT_IN_SCOPE" \
+#       "Task T050 is not in epic T001's scope" \
+#       34 \
+#       '{"taskId":"T050","epicId":"T001","sessionId":"session_abc"}'
+#
+output_session_error() {
+    local error_code="$1"
+    local message="${2:-$(get_session_error_message "$error_code")}"
+    local exit_code="${3:-}"
+    local context_json="${4:-null}"
+
+    # Derive exit code from error code if not provided
+    if [[ -z "$exit_code" ]]; then
+        case "$error_code" in
+            E_SESSION_EXISTS)      exit_code=30 ;;
+            E_SESSION_NOT_FOUND)   exit_code=31 ;;
+            E_SCOPE_CONFLICT)      exit_code=32 ;;
+            E_SCOPE_INVALID)       exit_code=33 ;;
+            E_TASK_NOT_IN_SCOPE)   exit_code=34 ;;
+            E_TASK_CLAIMED)        exit_code=35 ;;
+            E_SESSION_REQUIRED)    exit_code=36 ;;
+            E_SESSION_CLOSE_BLOCKED) exit_code=37 ;;
+            E_FOCUS_REQUIRED)      exit_code=38 ;;
+            E_NOTES_REQUIRED)      exit_code=39 ;;
+            *)                     exit_code=1 ;;
+        esac
+    fi
+
+    # Get suggestion for this error
+    local suggestion
+    suggestion=$(get_session_error_suggestion "$error_code")
+
+    # Determine if recoverable (most session errors are recoverable by user action)
+    local recoverable="true"
+    [[ "$exit_code" -eq 37 ]] && recoverable="false"  # SESSION_CLOSE_BLOCKED
+
+    # Use actionable error output
+    output_error_actionable "$error_code" "$message" "$exit_code" "$recoverable" \
+        "$suggestion" "" "$context_json" "[]"
+
+    return "$exit_code"
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -336,6 +641,9 @@ readonly E_ID_COLLISION="E_ID_COLLISION"
 export -f output_error_json
 export -f output_error
 export -f output_warning
+export -f get_session_error_suggestion
+export -f get_session_error_message
+export -f output_session_error
 
 # Export error code constants
 export E_TASK_NOT_FOUND E_TASK_ALREADY_EXISTS E_TASK_INVALID_ID E_TASK_INVALID_STATUS
@@ -345,6 +653,10 @@ export E_INPUT_MISSING E_INPUT_INVALID E_INPUT_FORMAT
 export E_DEPENDENCY_MISSING E_DEPENDENCY_VERSION
 export E_PHASE_NOT_FOUND E_PHASE_INVALID
 export E_SESSION_ACTIVE E_SESSION_NOT_ACTIVE
+# Epic-Bound Session error codes
+export E_SESSION_EXISTS E_SESSION_NOT_FOUND E_SCOPE_CONFLICT E_SCOPE_INVALID
+export E_TASK_NOT_IN_SCOPE E_TASK_CLAIMED E_SESSION_REQUIRED
+export E_SESSION_CLOSE_BLOCKED E_FOCUS_REQUIRED E_NOTES_REQUIRED
 export E_UNKNOWN E_NOT_INITIALIZED E_ALREADY_INITIALIZED E_CONFIRMATION_REQUIRED
 # Hierarchy error codes
 export E_PARENT_NOT_FOUND E_DEPTH_EXCEEDED E_SIBLING_LIMIT
