@@ -44,5 +44,12 @@
   "defaults": {
     "priority": "medium",
     "labels": []
+  },
+  "multiSession": {
+    "enabled": true,
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict",
+    "allowScopeOverlap": false
   }
 }
