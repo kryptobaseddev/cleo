@@ -245,14 +245,17 @@ _compute_subtree() {
     local max_depth="${3:-10}"
 
     echo "$todo_content" | jq -c --arg root "$root_id" --argjson maxDepth "$max_depth" '
-        def descendants($id; $depth):
+        # Store tasks array at the top level
+        .tasks as $all_tasks |
+
+        def descendants($tasks; $id; $depth):
             if $depth <= 0 then []
             else
-                [.tasks[] | select(.parentId == $id) | .id] as $children |
-                $children + ([$children[] | descendants(.; $depth - 1)] | flatten)
+                [$tasks[] | select(.parentId == $id) | .id] as $children |
+                $children + ([$children[] | descendants($tasks; .; $depth - 1)] | flatten)
             end;
 
-        [$root] + (.tasks as $tasks | descendants($root; $maxDepth))
+        [$root] + descendants($all_tasks; $root; $maxDepth)
     '
 }
 
@@ -359,18 +362,18 @@ validate_scope_conflict() {
             local message
             message=$(echo "$conflict_info" | jq -r '.message // "Task already claimed"')
             echo "Error: HARD conflict - $message" >&2
-            return $E_TASK_CLAIMED
+            return ${EXIT_TASK_CLAIMED:-35}
             ;;
         identical)
             echo "Error: Scope identical to session $session_id" >&2
-            return $E_SCOPE_CONFLICT
+            return ${EXIT_SCOPE_CONFLICT:-32}
             ;;
         nested)
             local allow_nested
             allow_nested=$(echo "$sessions_content" | jq -r '.config.allowNestedScopes // true')
             if [[ "$allow_nested" != "true" ]]; then
                 echo "Error: Scope nested within session $session_id (allowNestedScopes=false)" >&2
-                return $E_SCOPE_CONFLICT
+                return ${EXIT_SCOPE_CONFLICT:-32}
             fi
             echo "Warning: Scope nested within session $session_id" >&2
             return 0
@@ -380,7 +383,7 @@ validate_scope_conflict() {
             allow_overlap=$(echo "$sessions_content" | jq -r '.config.allowScopeOverlap // false')
             if [[ "$allow_overlap" != "true" ]]; then
                 echo "Error: Scope overlaps with session $session_id (allowScopeOverlap=false)" >&2
-                return $E_SCOPE_CONFLICT
+                return ${EXIT_SCOPE_CONFLICT:-32}
             fi
             echo "Warning: Scope overlaps with session $session_id" >&2
             return 0
@@ -415,7 +418,7 @@ start_session() {
     # Validate focus task is provided
     if [[ -z "$focus_task" ]]; then
         echo "Error: Session requires --focus <task-id> or --auto-focus" >&2
-        return $E_FOCUS_REQUIRED
+        return ${EXIT_FOCUS_REQUIRED:-38}
     fi
 
     # Initialize sessions file if needed
@@ -456,7 +459,7 @@ start_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Maximum concurrent sessions reached ($max_sessions)" >&2
-        return $E_MAX_SESSIONS
+        return 30  # Max sessions reached
     fi
 
     # Compute scope tasks
@@ -468,7 +471,7 @@ start_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Scope is empty - no tasks match criteria" >&2
-        return $E_SCOPE_INVALID
+        return ${EXIT_SCOPE_INVALID:-33}
     fi
 
     # Validate focus task is in scope
@@ -477,7 +480,7 @@ start_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Focus task $focus_task is not in scope" >&2
-        return $E_TASK_NOT_IN_SCOPE
+        return ${EXIT_TASK_NOT_IN_SCOPE:-34}
     fi
 
     # Check for conflicts
@@ -626,14 +629,14 @@ suspend_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Session not found: $session_id" >&2
-        return $E_SESSION_NOT_FOUND
+        return ${EXIT_SESSION_NOT_FOUND:-31}
     fi
 
     if [[ "$session_status" != "active" ]]; then
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Session is not active: $session_id" >&2
-        return $E_SESSION_SUSPENDED
+        return 30  # Session already suspended
     fi
 
     local timestamp
@@ -711,7 +714,7 @@ resume_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Session not found: $session_id" >&2
-        return $E_SESSION_NOT_FOUND
+        return ${EXIT_SESSION_NOT_FOUND:-31}
     fi
 
     local session_status focus_task
@@ -724,7 +727,7 @@ resume_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Session cannot be resumed (status: $session_status)" >&2
-        return $E_SESSION_EXISTS
+        return ${EXIT_SESSION_EXISTS:-30}
     fi
 
     local timestamp
@@ -826,7 +829,7 @@ end_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Session not found: $session_id" >&2
-        return $E_SESSION_NOT_FOUND
+        return ${EXIT_SESSION_NOT_FOUND:-31}
     fi
 
     local focus_task
@@ -934,7 +937,7 @@ close_session() {
         unlock_file "$sessions_fd"
         trap - EXIT ERR
         echo "Error: Session not found: $session_id" >&2
-        return $E_SESSION_NOT_FOUND
+        return ${EXIT_SESSION_NOT_FOUND:-31}
     fi
 
     # Get scope task IDs
@@ -953,7 +956,7 @@ close_session() {
         trap - EXIT ERR
         echo "Error: Cannot close session - $incomplete_count tasks incomplete" >&2
         echo "Complete all tasks in scope first, or use 'session end' to end without closing" >&2
-        return $E_SESSION_CLOSE_BLOCKED
+        return ${EXIT_SESSION_CLOSE_BLOCKED:-37}
     fi
 
     local timestamp
@@ -1397,6 +1400,9 @@ discover_available_epics() {
     fi
 
     jq -c '
+        # Store root tasks array for use inside iteration
+        .tasks as $all_tasks |
+
         # Get all epic tasks that are not done
         [.tasks[] | select(.type == "epic" and .status != "done")] as $epics |
 
@@ -1408,8 +1414,8 @@ discover_available_epics() {
                 title: ($epic.title // $epic.content // "Untitled"),
                 status: $epic.status,
                 priority: ($epic.priority // "medium"),
-                childCount: [.tasks[] | select(.parentId == $epic.id)] | length,
-                pendingCount: [.tasks[] | select(.parentId == $epic.id and .status == "pending")] | length
+                childCount: [$all_tasks[] | select(.parentId == $epic.id)] | length,
+                pendingCount: [$all_tasks[] | select(.parentId == $epic.id and .status == "pending")] | length
             }
         ] |
 
