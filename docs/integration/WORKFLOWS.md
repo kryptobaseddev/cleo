@@ -237,9 +237,9 @@ cleo session end
 
 ### Current Sprint
 
-<!-- CLAUDE-TODO-START -->
+<!-- CLEO-START -->
 Run: cleo list --status pending,active --format markdown
-<!-- CLAUDE-TODO-END -->
+<!-- CLEO-END -->
 ```
 
 ### TodoWrite Integration Pattern

@@ -126,7 +126,7 @@ cleo init --force --confirm-wipe
 # [INFO] Creating safety backup before reinitialize...
 # [INFO] Safety backup created at: .cleo/backups/safety/safety_20251223_120000_init_reinitialize
 # [WARN] Proceeding with DESTRUCTIVE reinitialize - wiping existing data...
-# [INFO] Initializing CLAUDE-TODO for project: my-project
+# [INFO] Initializing CLEO for project: my-project
 # ...
 ```
 
@@ -235,12 +235,12 @@ When reinitializing with `--force --confirm-wipe`, a safety backup is automatica
 The init command adds a task management section to CLAUDE.md:
 
 ```markdown
-<!-- CLAUDE-TODO:START v0.32.1 -->
+<!-- CLEO:START v0.32.1 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations.
 ...
-<!-- CLAUDE-TODO:END -->
+<!-- CLEO:END -->
 ```
 
 This section:

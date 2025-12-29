@@ -1,6 +1,6 @@
-# Claude-Todo Test Suite
+# CLEO Test Suite
 
-Comprehensive BATS test suite for claude-todo CLI tool.
+Comprehensive BATS test suite for cleo CLI tool.
 
 ## Directory Structure
 
@@ -14,7 +14,7 @@ tests/
 │   └── bats-file/           # File operation assertions
 ├── test_helper/             # Shared test helpers
 │   ├── common_setup.bash    # Common setup/teardown and paths
-│   ├── assertions.bash      # Custom assertions for claude-todo
+│   ├── assertions.bash      # Custom assertions for cleo
 │   └── fixtures.bash        # Test data generators
 ├── unit/                    # Unit tests for individual scripts
 │   ├── add-task.bats
@@ -221,7 +221,7 @@ teardown_file() {
 | `common_teardown_file` | File-level cleanup (runs once per .bats file) |
 | `common_setup` | Legacy: Combined setup (deprecated, use per_test) |
 | `common_teardown` | Legacy: Combined teardown (deprecated, use per_test) |
-| `$PROJECT_ROOT` | Path to claude-todo project root |
+| `$PROJECT_ROOT` | Path to cleo project root |
 | `$TODO_FILE` | Path to test todo.json |
 | `$CONFIG_FILE` | Path to test config.json |
 | `$ARCHIVE_FILE` | Path to test archive.json |

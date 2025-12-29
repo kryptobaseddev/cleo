@@ -1,6 +1,6 @@
-# Contributing to CLAUDE-TODO
+# Contributing to CLEO
 
-Thank you for your interest in contributing to CLAUDE-TODO! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to CLEO! This document provides guidelines and instructions for contributing.
 
 ## Table of Contents
 
@@ -53,12 +53,12 @@ Install for development (uses symlinks so changes are reflected immediately):
 ./install.sh
 
 # Verify installation
-claude-todo version
+cleo version
 
 # Create a test project directory
 mkdir /tmp/test-project
 cd /tmp/test-project
-claude-todo init
+cleo init
 ```
 
 ### Running Tests
@@ -73,13 +73,13 @@ claude-todo init
 ./tests/test-add-task.sh
 
 # Run with verbose output
-CLAUDE_TODO_LOG_LEVEL=debug ./tests/run-all-tests.sh
+CLEO_LOG_LEVEL=debug ./tests/run-all-tests.sh
 ```
 
 ### Project Structure
 
 ```
-claude-todo/
+cleo/
 ├── scripts/           # Main CLI scripts (add, complete, list, etc.)
 ├── lib/               # Shared library functions
 │   ├── validation.sh  # Schema and semantic validation
@@ -220,7 +220,7 @@ Before submitting, validate your changes:
 ./tests/run-all-tests.sh
 
 # Validate JSON files
-claude-todo validate
+cleo validate
 
 # Check scripts for syntax errors
 bash -n scripts/*.sh lib/*.sh
@@ -420,4 +420,4 @@ Contributors will be recognized in:
 - CHANGELOG.md for their contributions
 - README.md contributors section (for significant contributions)
 
-Thank you for contributing to CLAUDE-TODO!
+Thank you for contributing to CLEO!

@@ -1,14 +1,14 @@
-# CLAUDE-TODO Installation Guide
+# CLEO Installation Guide
 
 ## Overview
 
-CLAUDE-TODO is a robust task management system designed for Claude Code with anti-hallucination validation, automatic archiving, and comprehensive change logging. This guide covers global installation and per-project initialization.
+CLEO is a robust task management system designed for Claude Code with anti-hallucination validation, automatic archiving, and comprehensive change logging. This guide covers global installation and per-project initialization.
 
 ---
 
 ## Prerequisites
 
-Before installing CLAUDE-TODO, ensure your system has the following:
+Before installing CLEO, ensure your system has the following:
 
 ### Required Software
 
@@ -57,7 +57,7 @@ cd cleo
 
 ### Step 2: Run the Installation Script
 
-The installer will set up CLAUDE-TODO in `~/.cleo/` by default.
+The installer will set up CLEO in `~/.cleo/` by default.
 
 ```bash
 # Run the installer
@@ -156,7 +156,7 @@ cleo help
 
 ## Per-Project Initialization
 
-Once globally installed, initialize CLAUDE-TODO in each project where you want task tracking.
+Once globally installed, initialize CLEO in each project where you want task tracking.
 
 ### Step 1: Navigate to Project Root
 
@@ -224,7 +224,7 @@ your-project/
 
 Add to `.gitignore`:
 ```gitignore
-# CLAUDE-TODO files (exclude from version control)
+# CLEO files (exclude from version control)
 .cleo/todo.json
 .cleo/todo-archive.json
 .cleo/todo-log.json
@@ -237,7 +237,7 @@ Add to `.gitignore`:
 
 **Alternative**: Track only configuration
 ```gitignore
-# CLAUDE-TODO files
+# CLEO files
 .cleo/todo.json
 .cleo/todo-archive.json
 .cleo/todo-log.json
@@ -251,7 +251,7 @@ If your project has a `CLAUDE.md` file, the initialization script automatically 
 
 **Added section:**
 ```markdown
-<!-- CLAUDE-TODO:START -->
+<!-- CLEO:START -->
 ## Task Management
 
 Tasks in `.cleo/todo.json`. **Read at session start, verify checksum.**
@@ -272,7 +272,7 @@ Tasks in `.cleo/todo.json`. **Read at session start, verify checksum.**
 - `.cleo/todo-archive.json` - Completed (immutable)
 - `.cleo/config.json` - Settings
 - `.cleo/todo-log.json` - Audit trail
-<!-- CLAUDE-TODO:END -->
+<!-- CLEO:END -->
 ```
 
 To skip this integration, use:
@@ -540,13 +540,13 @@ $ ./install.sh
 CLAUDE.md exists but no task section added.
 
 **Cause:**
-Existing `<!-- CLAUDE-TODO:START -->` marker detected.
+Existing `<!-- CLEO:START -->` marker detected.
 
 **Solutions:**
 
 1. **Check for existing integration:**
    ```bash
-   grep "CLAUDE-TODO:START" CLAUDE.md
+   grep "CLEO:START" CLAUDE.md
    ```
 
 2. **Manually add section:**
@@ -562,7 +562,7 @@ Existing `<!-- CLAUDE-TODO:START -->` marker detected.
 
 ## Upgrade/Update Instructions
 
-### Upgrading CLAUDE-TODO
+### Upgrading CLEO
 
 ```bash
 # Navigate to repository
@@ -625,7 +625,7 @@ rm -rf .cleo/
 
 # Remove CLAUDE.md integration (if added)
 # Edit CLAUDE.md and remove section between:
-# <!-- CLAUDE-TODO:START --> and <!-- CLAUDE-TODO:END -->
+# <!-- CLEO:START --> and <!-- CLEO:END -->
 ```
 
 ---

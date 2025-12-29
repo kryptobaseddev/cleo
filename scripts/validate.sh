@@ -914,10 +914,10 @@ if [[ -f "CLAUDE.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; t
         echo "  Fixed: Added CLAUDE.md injection (v${INSTALLED_INJECTION_VERSION})"
         log_info "CLAUDE.md injection current (v${INSTALLED_INJECTION_VERSION})" "claude_md"
       else
-        log_warn "No CLAUDE-TODO injection found in CLAUDE.md. Run: cleo init --update-claude-md"
+        log_warn "No cleo injection found in CLAUDE.md. Run: cleo init --update-claude-md"
       fi
     else
-      log_warn "No CLAUDE-TODO injection found in CLAUDE.md. Run with --fix or: cleo init --update-claude-md"
+      log_warn "No cleo injection found in CLAUDE.md. Run with --fix or: cleo init --update-claude-md"
     fi
   elif [[ -n "$INSTALLED_INJECTION_VERSION" ]] && [[ "$CURRENT_INJECTION_VERSION" != "$INSTALLED_INJECTION_VERSION" ]]; then
     # Has versioned injection but outdated
@@ -951,27 +951,11 @@ fi
 
 # 12. Check AGENTS.md injection version (same logic as CLAUDE.md)
 if [[ -f "AGENTS.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
-  # Check for versioned CLEO:START tag first, then legacy CLAUDE-TODO:START
   AGENTS_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
   HAS_CLEO_TAG=$(grep -q 'CLEO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
-  HAS_LEGACY_TAG=$(grep -q 'CLAUDE-TODO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
   INSTALLED_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' "$CLEO_HOME/templates/AGENT-INJECTION.md" 2>/dev/null || echo "")
 
-  if [[ "$HAS_LEGACY_TAG" == "true" ]]; then
-    # Has old CLAUDE-TODO:START tag - needs migration to CLEO:START
-    if [[ "$FIX" == true ]]; then
-      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
-      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
-      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
-        echo "  Fixed: Migrated AGENTS.md injection (CLAUDE-TODO → CLEO v${INSTALLED_INJECTION_VERSION})"
-        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
-      else
-        log_warn "AGENTS.md has legacy CLAUDE-TODO tag. Run: cleo init --update-claude-md --target AGENTS.md"
-      fi
-    else
-      log_warn "AGENTS.md has legacy CLAUDE-TODO tag. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
-    fi
-  elif [[ -z "$AGENTS_INJECTION_VERSION" ]] && [[ "$HAS_CLEO_TAG" == "true" ]]; then
+  if [[ -z "$AGENTS_INJECTION_VERSION" ]] && [[ "$HAS_CLEO_TAG" == "true" ]]; then
     # Has unversioned CLEO:START - needs version update
     if [[ "$FIX" == true ]]; then
       "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
@@ -1018,12 +1002,9 @@ if [[ -f "AGENTS.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; t
 elif [[ -f "AGENTS.md" ]]; then
   # AGENTS.md exists but no injection template to compare against
   HAS_CLEO_TAG=$(grep -q 'CLEO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
-  HAS_LEGACY_TAG=$(grep -q 'CLAUDE-TODO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
   AGENTS_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
   if [[ -n "$AGENTS_INJECTION_VERSION" ]]; then
     log_info "AGENTS.md injection present (v${AGENTS_INJECTION_VERSION})" "agents_md"
-  elif [[ "$HAS_LEGACY_TAG" == "true" ]]; then
-    log_warn "AGENTS.md has legacy CLAUDE-TODO tag. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
   elif [[ "$HAS_CLEO_TAG" == "true" ]]; then
     log_warn "AGENTS.md has legacy (unversioned) injection. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
   else

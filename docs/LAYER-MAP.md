@@ -1,4 +1,4 @@
-# Claude-TODO Library Layer Map
+# CLEO Library Layer Map
 
 **Version**: 0.33.0
 **Last Updated**: 2025-12-24

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 #####################################################################
-# bash-completion.sh - Bash completion for claude-todo CLI
+# bash-completion.sh - Bash completion for cleo CLI
 #
 # Installation:
 #   # Add to ~/.bashrc or ~/.bash_profile:
-#   source ~/.claude-todo/completions/bash-completion.sh
+#   source ~/.cleo/completions/bash-completion.sh
 #
 #   # Or install system-wide:
-#   sudo cp ~/.claude-todo/completions/bash-completion.sh \
-#       /etc/bash_completion.d/claude-todo
+#   sudo cp ~/.cleo/completions/bash-completion.sh \
+#       /etc/bash_completion.d/cleo
 #
 # Part of: Hierarchy Enhancement Phase 2 (T347)
 #####################################################################
 
-_claude_todo_completions() {
+_cleo_completions() {
     local cur prev opts
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -357,6 +357,6 @@ _complete_labels() {
     COMPREPLY=($(compgen -W "$labels" -- "$cur"))
 }
 
-# Register completion for claude-todo and ct alias
-complete -F _claude_todo_completions claude-todo
-complete -F _claude_todo_completions ct
+# Register completion for cleo and ct alias
+complete -F _cleo_completions cleo
+complete -F _cleo_completions ct

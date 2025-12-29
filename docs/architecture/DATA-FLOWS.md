@@ -1,10 +1,10 @@
-# CLAUDE-TODO Data Flow Diagrams
+# CLEO Data Flow Diagrams
 
 ## System Component Relationships
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        CLAUDE-TODO SYSTEM                           │
+│                        CLEO SYSTEM                           │
 │                                                                     │
 │  ┌────────────────────────────────────────────────────────────┐   │
 │  │                   Global Installation                       │   │

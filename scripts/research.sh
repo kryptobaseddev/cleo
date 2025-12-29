@@ -302,7 +302,7 @@ generate_research_plan() {
     --arg link_task "$LINK_TASK" \
     --argjson urls "$(printf '%s\n' "${URLS[@]:-}" | jq -R . | jq -s .)" \
     '{
-      "$schema": "claude-todo://research/plan/v1",
+      "$schema": "cleo://research/plan/v1",
       "research_id": $id,
       "created_at": $timestamp,
       "status": "pending",

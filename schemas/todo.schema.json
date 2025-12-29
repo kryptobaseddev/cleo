@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
   "schemaVersion": "2.4.0",
-  "title": "CLAUDE-TODO Task Schema",
+  "title": "CLEO Task Schema",
   "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
   "type": "object",
   "required": ["version", "project", "lastUpdated", "tasks", "_meta"],

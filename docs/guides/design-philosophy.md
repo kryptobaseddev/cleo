@@ -1,4 +1,4 @@
-# Design Philosophy: Why Claude-TODO Works This Way
+# Design Philosophy: Why CLEO Works This Way
 
 > **For solo developers building with AI coding agents**
 
@@ -6,7 +6,7 @@
 
 ## The Vision
 
-Claude-TODO isn't just another task tracker. It's the **contract between you and your AI coding agent**—a structured protocol that prevents hallucination, maintains context across sessions, and turns chaotic AI-assisted development into a reliable workflow.
+CLEO isn't just another task tracker. It's the **contract between you and your AI coding agent**—a structured protocol that prevents hallucination, maintains context across sessions, and turns chaotic AI-assisted development into a reliable workflow.
 
 **One developer. One AI agent. One source of truth.**
 
@@ -24,7 +24,7 @@ Traditional task management assumes human users. But when your primary "user" is
 | **Context** | Maintains mental model | Loses context between sessions |
 | **Completion** | Knows when "done" | Needs explicit success criteria |
 
-**Claude-TODO is built for agents first, with human accessibility second.**
+**CLEO is built for agents first, with human accessibility second.**
 
 ---
 
@@ -117,7 +117,7 @@ Every exit code is a **named constant** in `lib/exit-codes.sh`—no magic number
 
 **Why validate before every operation?**
 
-LLMs hallucinate. They'll reference task `T999` that doesn't exist, create duplicate IDs, or claim completion without actually finishing. Claude-TODO validates **before** executing:
+LLMs hallucinate. They'll reference task `T999` that doesn't exist, create duplicate IDs, or claim completion without actually finishing. CLEO validates **before** executing:
 
 ```bash
 # Anti-hallucination layers
@@ -152,7 +152,7 @@ Time estimates are:
 - **Meaningless** for agents
 - **Actively harmful** for planning
 
-Claude-TODO uses **scope dimensions** instead:
+CLEO uses **scope dimensions** instead:
 
 | Size | File Scope | Complexity | Context Risk |
 |------|------------|------------|--------------|
@@ -231,7 +231,7 @@ cleo focus set T042  # Marks T042 active, others pending
 
 ## Anti-Hallucination Checklist
 
-Before any operation, Claude-TODO validates:
+Before any operation, CLEO validates:
 
 | Check | Purpose |
 |-------|---------|
@@ -249,7 +249,7 @@ Before any operation, Claude-TODO validates:
 
 ## The Contract
 
-When you use Claude-TODO with Claude Code, you're establishing a **formal contract**:
+When you use CLEO with Claude Code, you're establishing a **formal contract**:
 
 1. **Tasks are identified by stable IDs** (`T001`) that never change
 2. **All output is machine-parseable** by default (JSON)
@@ -272,7 +272,7 @@ You're building something. You have Claude Code as your pair programmer. But wit
 - Hallucinated references break your workflow
 - Context degrades over long sessions
 
-**Claude-TODO solves this** by giving both you and Claude a shared, validated, persistent view of your project's tasks.
+**CLEO solves this** by giving both you and Claude a shared, validated, persistent view of your project's tasks.
 
 ```bash
 # Your morning routine
@@ -317,4 +317,4 @@ cleo list --format json | jq '.tasks[] | select(.status == "pending")'
 
 ---
 
-*Claude-TODO: The contract between you and your AI coding agent.*
+*CLEO: The contract between you and your AI coding agent.*

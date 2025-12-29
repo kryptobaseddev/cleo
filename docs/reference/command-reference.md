@@ -650,7 +650,7 @@ cleo claude-migrate --all
 **File Transformations:**
 - Config: `todo-config.json` → `config.json`
 - Log: `todo-log.json` (unchanged)
-- Directories: `.claude/` → `.cleo/`, `~/.claude-todo/` → `~/.cleo/`
+- Directories: `.claude/` → `.cleo/`, `~/.cleo/` → `~/.cleo/`
 
 **Exit Codes (--check mode):**
 - `0`: Legacy found (migration needed)

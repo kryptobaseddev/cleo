@@ -268,7 +268,7 @@ cleo init --update-claude-md
 ```
 
 This command:
-- Replaces content between `<!-- CLAUDE-TODO:START -->` and `<!-- CLAUDE-TODO:END -->`
+- Replaces content between `<!-- CLEO:START -->` and `<!-- CLEO:END -->`
 - Adds injection if not present
 - Safe to run anytime (idempotent)
 - Does NOT re-initialize the project or touch `.cleo/` files
@@ -282,7 +282,7 @@ Run `init --update-claude-md` after:
 ### Check Current Version
 ```bash
 # Compare injection to installed template
-diff <(sed -n '/CLAUDE-TODO:START/,/CLAUDE-TODO:END/p' CLAUDE.md) \
+diff <(sed -n '/CLEO:START/,/CLEO:END/p' CLAUDE.md) \
      ~/.cleo/templates/CLAUDE-INJECTION.md
 ```
 

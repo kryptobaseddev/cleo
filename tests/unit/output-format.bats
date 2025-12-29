@@ -35,12 +35,12 @@ setup() {
     export SAVED_LANG="${LANG:-}"
     export SAVED_LC_ALL="${LC_ALL:-}"
     export SAVED_COLUMNS="${COLUMNS:-}"
-    export SAVED_CLAUDE_TODO_FORMAT="${CLAUDE_TODO_FORMAT:-}"
+    export SAVED_CLEO_FORMAT="${CLEO_FORMAT:-}"
 
     # Clear environment for clean test state
     unset NO_COLOR
     unset FORCE_COLOR
-    unset CLAUDE_TODO_FORMAT
+    unset CLEO_FORMAT
 }
 
 teardown() {
@@ -50,7 +50,7 @@ teardown() {
     [[ -n "$SAVED_LANG" ]] && export LANG="$SAVED_LANG" || unset LANG
     [[ -n "$SAVED_LC_ALL" ]] && export LC_ALL="$SAVED_LC_ALL" || unset LC_ALL
     [[ -n "$SAVED_COLUMNS" ]] && export COLUMNS="$SAVED_COLUMNS" || unset COLUMNS
-    [[ -n "$SAVED_CLAUDE_TODO_FORMAT" ]] && export CLAUDE_TODO_FORMAT="$SAVED_CLAUDE_TODO_FORMAT" || unset CLAUDE_TODO_FORMAT
+    [[ -n "$SAVED_CLEO_FORMAT" ]] && export CLEO_FORMAT="$SAVED_CLEO_FORMAT" || unset CLEO_FORMAT
 
     common_teardown_per_test
 }
@@ -174,14 +174,14 @@ teardown_file() {
 # =============================================================================
 
 @test "resolve_format returns CLI argument when provided" {
-    CLAUDE_TODO_FORMAT=markdown
+    CLEO_FORMAT=markdown
     run resolve_format json
     assert_success
     assert_output "json"
 }
 
 @test "resolve_format returns env variable when CLI not provided" {
-    CLAUDE_TODO_FORMAT=markdown
+    CLEO_FORMAT=markdown
     run resolve_format
     assert_success
     assert_output "markdown"
@@ -190,14 +190,14 @@ teardown_file() {
 @test "resolve_format returns 'json' in non-TTY when nothing set" {
     # LLM-Agent-First: non-TTY defaults to JSON for agent compatibility
     # TTY would default to 'text' but tests run in non-TTY (bats/CI)
-    unset CLAUDE_TODO_FORMAT
+    unset CLEO_FORMAT
     run resolve_format
     assert_success
     assert_output "json"
 }
 
 @test "resolve_format CLI takes precedence over env" {
-    CLAUDE_TODO_FORMAT=json
+    CLEO_FORMAT=json
     run resolve_format markdown
     assert_success
     assert_output "markdown"

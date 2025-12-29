@@ -13,18 +13,18 @@ You are executing a focused CLEO migration session.
 
 ### 1. Session Start
 ```bash
-claude-todo session start
-claude-todo dash                    # Verify project state
-claude-todo list --parent T6XX      # See session tasks
+cleo session start
+cleo dash                    # Verify project state
+cleo list --parent T6XX      # See session tasks
 ```
 
 ### 2. For Each Subtask
 ```bash
-claude-todo focus set <task-id>     # Set focus
+cleo focus set <task-id>     # Set focus
 # ... implement ...
 bats tests/unit/<relevant>.bats     # Test
 git add -A && git commit -m "..."   # Commit
-claude-todo complete <id> --notes "summary"
+cleo complete <id> --notes "summary"
 ```
 
 ### 3. Validation (after all subtasks)
@@ -36,7 +36,7 @@ git push origin cleo-migration
 
 ### 4. Session End
 ```bash
-claude-todo session end --note "Session X complete: summary of changes"
+cleo session end --note "Session X complete: summary of changes"
 ```
 
 ## Critical Rules
@@ -54,5 +54,5 @@ claude-todo session end --note "Session X complete: summary of changes"
 When session complete:
 1. Push all commits
 2. Note any blockers for next session
-3. Verify task statuses: `claude-todo list --parent T6XX`
+3. Verify task statuses: `cleo list --parent T6XX`
 </START_SESSION>

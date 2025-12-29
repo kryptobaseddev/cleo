@@ -205,7 +205,7 @@ Single command to update app version everywhere with validation.
 **What It Updates** (automatically):
 1. `VERSION` file (source of truth)
 2. `README.md` version badge (`version-X.Y.Z-blue.svg`)
-3. `templates/CLAUDE-INJECTION.md` version tag (`CLAUDE-TODO:START vX.Y.Z`)
+3. `templates/CLAUDE-INJECTION.md` version tag (`CLEO:START vX.Y.Z`)
 4. `CLAUDE.md` injection tag (if present)
 
 **New Features (v0.16.0+)**:

@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.41.2 -->
+<!-- CLEO:START v0.41.5 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
@@ -135,7 +135,7 @@ ct validate --fix-orphans delete     # Delete orphaned tasks
 
 ## Project Overview
 
-**CLAUDE-TODO** is the task management protocol for solo developers and their AI coding agents. Built specifically for Claude Code with LLM-agent-first design principles.
+**CLEO** is the task management protocol for solo developers and their AI coding agents. Built specifically for Claude Code with LLM-agent-first design principles.
 
 ### Core Mission
 - **Anti-hallucination validation**: Every operation is validated before execution
@@ -362,7 +362,7 @@ Before any task operation, validate:
 
 ## Project Overview
 
-**CLAUDE-TODO** is the task management protocol for solo developers and their AI coding agents. Built specifically for Claude Code with LLM-agent-first design principles.
+**CLEO** is the task management protocol for solo developers and their AI coding agents. Built specifically for Claude Code with LLM-agent-first design principles.
 
 ### Core Mission
 - **Anti-hallucination validation**: Every operation is validated before execution

@@ -21,7 +21,7 @@ The `claude-migrate` command helps users transition from the legacy `claude-todo
 - **Atomic Operations**: All migrations are atomic (complete or rollback)
 - **File Renaming**: Renames `todo-config.json` → `config.json`
 - **Gitignore Updates**: Updates `.gitignore` from `.claude` to `.cleo`
-- **Marker Updates**: Updates `CLAUDE-TODO:` markers to `CLEO:` in CLAUDE.md
+- **Marker Updates**: Updates `CLEO:` markers to `CLEO:` in CLAUDE.md
 
 ## Modes
 
@@ -34,9 +34,9 @@ cleo claude-migrate --check
 ```
 
 Detects:
-- Global installation: `~/.claude-todo/`
+- Global installation: `~/.cleo/`
 - Project directory: `.claude/`
-- Environment variables: `CLAUDE_TODO_*`
+- Environment variables: `CLEO_*`
 
 **Exit Codes** (check mode):
 | Code | Meaning |
@@ -72,7 +72,7 @@ cleo claude-migrate --project
 2. Move directory to `.cleo`
 3. Rename `todo-config.json` → `config.json`
 4. Update `.gitignore` entries
-5. Update `CLAUDE-TODO:` markers in `CLAUDE.md`
+5. Update `CLEO:` markers in `CLAUDE.md`
 
 ### --all
 
@@ -121,7 +121,7 @@ cleo claude-migrate --check --format json
 CLEO Migration Check
 ====================
 
-✗ Global: ~/.claude-todo/ found (legacy)
+✗ Global: ~/.cleo/ found (legacy)
 ✗ Project: .claude/ found (legacy)
 ✓ Environment: Clean (no legacy vars)
 
@@ -251,7 +251,7 @@ Shows additional details including:
 
 | Legacy | CLEO |
 |--------|------|
-| `~/.claude-todo/` | `~/.cleo/` |
+| `~/.cleo/` | `~/.cleo/` |
 | `.claude/` | `.cleo/` |
 
 ### .gitignore Updates
@@ -266,8 +266,8 @@ Shows additional details including:
 ### CLAUDE.md Marker Updates
 
 ```diff
-- <!-- CLAUDE-TODO:START -->
-- <!-- CLAUDE-TODO:END -->
+- <!-- CLEO:START -->
+- <!-- CLEO:END -->
 + <!-- CLEO:START -->
 + <!-- CLEO:END -->
 ```
@@ -305,10 +305,10 @@ The command detects legacy environment variables:
 
 | Legacy Variable | CLEO Equivalent |
 |-----------------|-----------------|
-| `CLAUDE_TODO_HOME` | `CLEO_HOME` |
-| `CLAUDE_TODO_DIR` | `CLEO_DIR` |
-| `CLAUDE_TODO_FORMAT` | `CLEO_FORMAT` |
-| `CLAUDE_TODO_DEBUG` | `CLEO_DEBUG` |
+| `CLEO_HOME` | `CLEO_HOME` |
+| `CLEO_DIR` | `CLEO_DIR` |
+| `CLEO_FORMAT` | `CLEO_FORMAT` |
+| `CLEO_DEBUG` | `CLEO_DEBUG` |
 
 **Note**: Environment variables cannot be migrated automatically. Users must update their shell configuration.
 

@@ -230,9 +230,8 @@ if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
   fi
 
   action_taken="updated"
-  if grep -qE "CLEO:START|CLAUDE-TODO:START" "$TARGET_FILE" 2>/dev/null; then
+  if grep -q "CLEO:START" "$TARGET_FILE" 2>/dev/null; then
     # Remove ALL existing injection blocks (handles multiple/duplicates)
-    # Including legacy CLAUDE-TODO:START blocks
     # and place new injection at TOP of file
     temp_file=$(mktemp)
 
@@ -240,13 +239,10 @@ if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
     cat "$injection_template" > "$temp_file"
 
     # Strip ALL injection blocks using awk (handles multiple START/END pairs)
-    # Handles both CLEO:START/END and legacy CLAUDE-TODO:START/END blocks
     # Also removes any leading blank lines from the cleaned content
     awk '
       /<!-- CLEO:START/ { skip = 1; next }
       /<!-- CLEO:END -->/ { skip = 0; next }
-      /<!-- CLAUDE-TODO:START/ { skip = 1; next }
-      /<!-- CLAUDE-TODO:END -->/ { skip = 0; next }
       !skip { print }
     ' "$TARGET_FILE" | sed '/./,$!d' >> "$temp_file"
 

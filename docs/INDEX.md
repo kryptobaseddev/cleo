@@ -1,6 +1,6 @@
-# CLAUDE-TODO Documentation Index
+# CLEO Documentation Index
 
-> Complete guide to the CLAUDE-TODO system architecture and implementation
+> Complete guide to the CLEO system architecture and implementation
 
 ## 📚 Documentation Structure
 
@@ -9,7 +9,7 @@
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
 | **[README.md](../README.md)** | LLM-Agent-First overview and quick start | First document - the vision |
-| **[Design Philosophy](guides/design-philosophy.md)** | Why Claude-TODO works this way | Understanding the design decisions |
+| **[Design Philosophy](guides/design-philosophy.md)** | Why CLEO works this way | Understanding the design decisions |
 | **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** | Quick reference card | Daily reference during development |
 
 ### 💡 Guides
@@ -614,7 +614,7 @@
 
 ## 🎯 Success Criteria
 
-You understand the CLAUDE-TODO system when you can:
+You understand the CLEO system when you can:
 
 - [ ] Explain the anti-hallucination mechanisms (4 layers)
 - [ ] Describe the atomic write pattern

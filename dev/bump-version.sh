@@ -364,8 +364,8 @@ update_file_sed \
 INJECTION_TEMPLATE="$PROJECT_ROOT/templates/CLAUDE-INJECTION.md"
 update_file_sed \
     "$INJECTION_TEMPLATE" \
-    "CLAUDE-TODO:START v[0-9]\+\.[0-9]\+\.[0-9]\+" \
-    "CLAUDE-TODO:START v${NEW_VERSION}" \
+    "CLEO:START v[0-9]\+\.[0-9]\+\.[0-9]\+" \
+    "CLEO:START v${NEW_VERSION}" \
     "templates/CLAUDE-INJECTION.md"
 
 # 4. Update CLAUDE.md injection tag (if present)
@@ -373,8 +373,8 @@ CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
 if [[ -f "$CLAUDE_MD" ]]; then
     update_file_sed \
         "$CLAUDE_MD" \
-        "CLAUDE-TODO:START v[0-9]\+\.[0-9]\+\.[0-9]\+" \
-        "CLAUDE-TODO:START v${NEW_VERSION}" \
+        "CLEO:START v[0-9]\+\.[0-9]\+\.[0-9]\+" \
+        "CLEO:START v${NEW_VERSION}" \
         "CLAUDE.md injection tag"
 fi
 

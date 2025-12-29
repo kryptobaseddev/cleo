@@ -1,12 +1,12 @@
 # Documentation Index
 
-Welcome to the CLAUDE-TODO documentation. This directory contains comprehensive guides for installation, usage, and system architecture.
+Welcome to the CLEO documentation. This directory contains comprehensive guides for installation, usage, and system architecture.
 
 ---
 
 ## Getting Started
 
-New to CLAUDE-TODO? Start here:
+New to CLEO? Start here:
 
 - **[Installation Guide](reference/installation.md)** - Global installation and per-project setup
   - Prerequisites and dependencies
@@ -22,7 +22,7 @@ New to CLAUDE-TODO? Start here:
 
 ## User Guides
 
-Learn how to use CLAUDE-TODO effectively:
+Learn how to use CLEO effectively:
 
 ### Core Workflows
 - **[Usage Guide](usage.md)** - Main usage documentation

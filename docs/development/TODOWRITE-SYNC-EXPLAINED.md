@@ -1,4 +1,4 @@
-# How Claude-Todo Syncs with Claude Code's TodoWrite
+# How CLEO Syncs with Claude Code's TodoWrite
 
 > A plain-English explanation of bidirectional task synchronization
 
