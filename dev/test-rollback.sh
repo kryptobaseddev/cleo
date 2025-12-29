@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test-rollback.sh - Manual test script for phase rollback feature
-# Part of claude-todo development tooling
+# Part of cleo-dev.comelopment tooling
 #
 # This script follows LLM-Agent-First principles:
 # - JSON output by default for non-TTY
@@ -86,7 +86,7 @@ output_error() {
             --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg ver "$TOOL_VERSION" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/error.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": $cmd,
@@ -385,7 +385,7 @@ output_results() {
             --argjson failed "$FAILED_TESTS" \
             --argjson success "$success" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/test-results.schema.json",
+                "$schema": "https://cleo-dev.com/schemas/v1/test-results.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": $cmd,

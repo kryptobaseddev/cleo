@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
   "schemaVersion": "2.2.0",
-  "title": "CLAUDE-TODO Configuration Schema",
+  "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
   "required": ["version"],
@@ -427,7 +427,7 @@
             "directories": {
               "type": "array",
               "items": { "type": "string" },
-              "default": ["~/.claude-todo/plugins", "./.claude/plugins"],
+              "default": ["~/.cleo/plugins", "./.claude/plugins"],
               "description": "Directories to scan for plugins (in order of priority)."
             },
             "autoDiscover": {

@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://claude-todo.dev/schemas/v1/sessions.schema.json",
+  "$id": "https://cleo.dev/schemas/v1/sessions.schema.json",
   "schemaVersion": "1.0.0",
-  "title": "CLAUDE-TODO Sessions Registry Schema",
+  "title": "CLEO Sessions Registry Schema",
   "description": "Multi-session management for concurrent LLM agents. Enables parallel work on different task groups (epic, taskGroup, phase-filtered) within the same project. Each session maintains isolated focus state and scope boundaries.",
   "type": "object",
   "required": ["version", "project", "sessions", "_meta"],

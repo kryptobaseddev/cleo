@@ -1,4 +1,4 @@
-# Claude-TODO Library Architecture Specification
+# CLEO Library Architecture Specification
 
 **Version**: 1.0.0
 **Status**: DRAFT

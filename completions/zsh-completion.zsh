@@ -1,12 +1,12 @@
-#compdef claude-todo ct
+#compdef cleo ct
 #####################################################################
-# zsh-completion.zsh - Zsh completion for claude-todo CLI
+# zsh-completion.zsh - Zsh completion for cleo CLI
 #
 # Installation:
 #   # Copy to your fpath (e.g., ~/.zsh/completions/):
 #   mkdir -p ~/.zsh/completions
-#   cp ~/.claude-todo/completions/zsh-completion.zsh \
-#       ~/.zsh/completions/_claude-todo
+#   cp ~/.cleo/completions/zsh-completion.zsh \
+#       ~/.zsh/completions/_cleo
 #
 #   # Add to ~/.zshrc:
 #   fpath=(~/.zsh/completions $fpath)
@@ -15,7 +15,7 @@
 # Part of: Hierarchy Enhancement Phase 2 (T347)
 #####################################################################
 
-_claude_todo() {
+_cleo() {
     local curcontext="$curcontext" state line
     typeset -A opt_args
 
@@ -70,20 +70,20 @@ _claude_todo() {
 
     case $state in
         command)
-            _describe -t commands 'claude-todo commands' commands
+            _describe -t commands 'cleo commands' commands
             ;;
         args)
             case $words[2] in
                 add|new)
                     _arguments \
-                        '--parent[Parent task ID]:parent task:_claude_todo_parent_tasks' \
+                        '--parent[Parent task ID]:parent task:_cleo_parent_tasks' \
                         '--type[Task type]:type:(epic task subtask)' \
                         '--priority[Priority level]:priority:(critical high medium low)' \
                         '--status[Status]:status:(pending active blocked done)' \
-                        '--phase[Project phase]:phase:_claude_todo_phases' \
+                        '--phase[Project phase]:phase:_cleo_phases' \
                         '--size[Task size]:size:(small medium large)' \
-                        '--labels[Labels (comma-separated)]:labels:_claude_todo_labels' \
-                        '--depends[Dependencies]:depends:_claude_todo_task_ids' \
+                        '--labels[Labels (comma-separated)]:labels:_cleo_labels' \
+                        '--depends[Dependencies]:depends:_cleo_task_ids' \
                         '--description[Description]:description:' \
                         '--blocked-by[Blocked reason]:reason:' \
                         '(-q --quiet)'{-q,--quiet}'[Minimal output]' \
@@ -92,16 +92,16 @@ _claude_todo() {
 
                 update|edit)
                     _arguments \
-                        '1:task id:_claude_todo_task_ids' \
+                        '1:task id:_cleo_task_ids' \
                         '--title[New title]:title:' \
                         '--description[Description]:description:' \
                         '--priority[Priority]:priority:(critical high medium low)' \
                         '--status[Status]:status:(pending active blocked done)' \
-                        '--labels[Labels]:labels:_claude_todo_labels' \
-                        '--depends[Dependencies]:depends:_claude_todo_task_ids' \
+                        '--labels[Labels]:labels:_cleo_labels' \
+                        '--depends[Dependencies]:depends:_cleo_task_ids' \
                         '--notes[Add note]:notes:' \
-                        '--phase[Phase]:phase:_claude_todo_phases' \
-                        '--parent[Parent task]:parent:_claude_todo_parent_tasks' \
+                        '--phase[Phase]:phase:_cleo_phases' \
+                        '--parent[Parent task]:parent:_cleo_parent_tasks' \
                         '--type[Task type]:type:(epic task subtask)' \
                         '--size[Size]:size:(small medium large)' \
                         '--blocked-by[Blocked reason]:reason:'
@@ -109,7 +109,7 @@ _claude_todo() {
 
                 complete|done)
                     _arguments \
-                        '1:task id:_claude_todo_pending_tasks' \
+                        '1:task id:_cleo_pending_tasks' \
                         '--notes[Completion notes]:notes:' \
                         '--skip-notes[Skip notes prompt]' \
                         '(-q --quiet)'{-q,--quiet}'[Minimal output]' \
@@ -120,11 +120,11 @@ _claude_todo() {
                     _arguments \
                         '--status[Filter by status]:status:(pending active blocked done)' \
                         '--priority[Filter by priority]:priority:(critical high medium low)' \
-                        '--phase[Filter by phase]:phase:_claude_todo_phases' \
-                        '--label[Filter by label]:label:_claude_todo_labels' \
+                        '--phase[Filter by phase]:phase:_cleo_phases' \
+                        '--label[Filter by label]:label:_cleo_labels' \
                         '--type[Filter by type]:type:(epic task subtask)' \
-                        '--parent[Filter by parent]:parent:_claude_todo_parent_tasks' \
-                        '--children[Show children of task]:task:_claude_todo_task_ids' \
+                        '--parent[Filter by parent]:parent:_cleo_parent_tasks' \
+                        '--children[Show children of task]:task:_cleo_task_ids' \
                         '--tree[Show as hierarchy tree]' \
                         '--group-priority[Group by priority]' \
                         '--format[Output format]:format:(text json jsonl markdown table)' \
@@ -134,7 +134,7 @@ _claude_todo() {
 
                 show)
                     _arguments \
-                        '1:task id:_claude_todo_task_ids' \
+                        '1:task id:_cleo_task_ids' \
                         '--history[Include task history]' \
                         '--related[Show related tasks]' \
                         '--include-archive[Search archive]' \
@@ -152,20 +152,20 @@ _claude_todo() {
                     )
                     _arguments \
                         '1:subcommand:((${(j: :)focus_cmds}))' \
-                        '2:task id:_claude_todo_pending_tasks'
+                        '2:task id:_cleo_pending_tasks'
                     ;;
 
                 reparent)
                     _arguments \
-                        '1:task id:_claude_todo_task_ids' \
-                        '--to[New parent (empty for root)]:parent:_claude_todo_parent_tasks' \
+                        '1:task id:_cleo_task_ids' \
+                        '--to[New parent (empty for root)]:parent:_cleo_parent_tasks' \
                         '--format[Output format]:format:(text json)' \
                         '(-q --quiet)'{-q,--quiet}'[Minimal output]'
                     ;;
 
                 promote)
                     _arguments \
-                        '1:task id:_claude_todo_task_ids' \
+                        '1:task id:_cleo_task_ids' \
                         '--no-type-update[Keep subtask type]' \
                         '--format[Output format]:format:(text json)' \
                         '(-q --quiet)'{-q,--quiet}'[Minimal output]'
@@ -182,7 +182,7 @@ _claude_todo() {
                     )
                     _arguments \
                         '1:subcommand:((${(j: :)phase_cmds}))' \
-                        '2:phase:_claude_todo_phases'
+                        '2:phase:_cleo_phases'
                     ;;
 
                 session)
@@ -199,7 +199,7 @@ _claude_todo() {
 
                 deps)
                     _arguments \
-                        '1:task id:_claude_todo_task_ids' \
+                        '1:task id:_cleo_task_ids' \
                         'tree:Show full dependency tree' \
                         '--format[Output format]:format:(text json)'
                     ;;
@@ -239,7 +239,7 @@ _claude_todo() {
 }
 
 # Complete parent-eligible tasks (epic and task types)
-_claude_todo_parent_tasks() {
+_cleo_parent_tasks() {
     local todo_file="${TODO_FILE:-.claude/todo.json}"
     if [[ ! -f "$todo_file" ]]; then
         return
@@ -251,7 +251,7 @@ _claude_todo_parent_tasks() {
 }
 
 # Complete all task IDs
-_claude_todo_task_ids() {
+_cleo_task_ids() {
     local todo_file="${TODO_FILE:-.claude/todo.json}"
     if [[ ! -f "$todo_file" ]]; then
         return
@@ -263,7 +263,7 @@ _claude_todo_task_ids() {
 }
 
 # Complete pending/active task IDs
-_claude_todo_pending_tasks() {
+_cleo_pending_tasks() {
     local todo_file="${TODO_FILE:-.claude/todo.json}"
     if [[ ! -f "$todo_file" ]]; then
         return
@@ -275,7 +275,7 @@ _claude_todo_pending_tasks() {
 }
 
 # Complete phases
-_claude_todo_phases() {
+_cleo_phases() {
     local todo_file="${TODO_FILE:-.claude/todo.json}"
 
     local -a phases
@@ -291,7 +291,7 @@ _claude_todo_phases() {
 }
 
 # Complete labels
-_claude_todo_labels() {
+_cleo_labels() {
     local todo_file="${TODO_FILE:-.claude/todo.json}"
     if [[ ! -f "$todo_file" ]]; then
         return
@@ -302,4 +302,4 @@ _claude_todo_labels() {
     _describe -t labels 'label' labels
 }
 
-_claude_todo "$@"
+_cleo "$@"

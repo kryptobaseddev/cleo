@@ -53,16 +53,16 @@ mock_session_id() {
 # Usage: mock_project_root "/tmp/test_project"
 mock_project_root() {
     local path="${1:-$BATS_TEST_TMPDIR}"
-    export CLAUDE_TODO_PROJECT_ROOT="$path"
-    _MOCKED_ENV_VARS+=("CLAUDE_TODO_PROJECT_ROOT")
+    export CLEO_PROJECT_ROOT="$path"
+    _MOCKED_ENV_VARS+=("CLEO_PROJECT_ROOT")
 }
 
 # Mock home directory for config testing
 # Usage: mock_home_dir "/tmp/test_home"
 mock_home_dir() {
     local path="${1:-$BATS_TEST_TMPDIR}"
-    export CLAUDE_TODO_HOME="$path"
-    _MOCKED_ENV_VARS+=("CLAUDE_TODO_HOME")
+    export CLEO_HOME="$path"
+    _MOCKED_ENV_VARS+=("CLEO_HOME")
 }
 
 # Set arbitrary environment variable (tracked for cleanup)

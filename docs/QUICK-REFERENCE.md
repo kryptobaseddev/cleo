@@ -1,4 +1,4 @@
-# CLAUDE-TODO Quick Reference Card
+# CLEO Quick Reference Card
 
 ## Architecture at a Glance
 

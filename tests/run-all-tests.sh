@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-all-tests.sh - Claude-Todo Test Suite Runner
+# run-all-tests.sh - CLEO Test Suite Runner
 # =============================================================================
 # Runs all BATS tests in the test suite.
 #
@@ -99,7 +99,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help|-h)
-            echo "Claude-Todo Test Suite Runner"
+            echo "CLEO Test Suite Runner"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -155,7 +155,7 @@ fi
 
 echo ""
 echo -e "${BLUE}============================================${NC}"
-echo -e "${BLUE}      Claude-Todo Test Suite${NC}"
+echo -e "${BLUE}      CLEO Test Suite${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo ""
 

@@ -1,12 +1,12 @@
 # Schema Reference
 
-Complete technical reference for CLAUDE-TODO JSON schemas with validation rules, field definitions, and anti-hallucination safeguards.
+Complete technical reference for CLEO JSON schemas with validation rules, field definitions, and anti-hallucination safeguards.
 
 ---
 
 ## Overview
 
-The CLAUDE-TODO system uses four JSON schemas with strict validation:
+The CLEO system uses four JSON schemas with strict validation:
 
 - **todo.schema.json** - Active task tracking with session state
 - **archive.schema.json** - Immutable completed task storage

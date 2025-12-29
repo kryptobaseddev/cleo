@@ -23,7 +23,7 @@
         "version": {
           "type": "string",
           "pattern": "^\\d+\\.\\d+\\.\\d+",
-          "description": "claude-todo version (semver)"
+          "description": "cleo version (semver)"
         },
         "command": {
           "type": "string",

@@ -860,7 +860,7 @@ When initializing new projects with v2.2.0:
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "cleo-schema-v2.2",
-  "title": "CLAUDE-TODO Task Schema with Project Phases",
+  "title": "CLEO Task Schema with Project Phases",
   "version": "2.2.0",
 
   "type": "object",

@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.41.2 -->
+<!-- CLEO:START v0.41.4 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
@@ -135,7 +135,7 @@ ct validate --fix-orphans delete     # Delete orphaned tasks
 
 ## Project Overview
 
-**CLAUDE-TODO** is the task management protocol for solo developers and their AI coding agents. Built specifically for Claude Code with LLM-agent-first design principles.
+**CLEO** is the task management protocol for solo developers and their AI coding agents. Built specifically for Claude Code with LLM-agent-first design principles.
 
 ### Core Mission
 - **Anti-hallucination validation**: Every operation is validated before execution
@@ -178,8 +178,8 @@ git submodule update --init --recursive  # Pull BATS helper libraries
 
 ### Validation & Testing
 ```bash
-claude-todo version                 # Verify CLI installation
-claude-todo --validate              # Validate installation and data integrity
+cleo version                 # Verify CLI installation
+cleo --validate              # Validate installation and data integrity
 ./tests/run-all-tests.sh            # Run full BATS test suite
 bats tests/unit/*.bats              # Run specific unit tests
 bats tests/integration/*.bats       # Run integration tests
@@ -275,7 +275,7 @@ Format: `<type>: <summary>`
 
 ### Data Integrity
 - **CLI only** - Never edit `.claude/*.json` directly
-- **Verify state** - Use `claude-todo list` before assuming
+- **Verify state** - Use `cleo list` before assuming
 - **Session discipline** - Start/end sessions properly
 
 ## Key Files & Entry Points
@@ -318,14 +318,14 @@ Before any task operation, validate:
 LLM agents MUST NOT hardcode backup paths. Use:
 ```bash
 # Get backup directory from config
-claude-todo config get backup.directory
+cleo config get backup.directory
 # Default: .claude/backups/
 ```
 
 ### Creating Backups
 ```bash
 # Manual snapshot (recommended before major changes)
-claude-todo backup
+cleo backup
 
 # System creates safety backups automatically before:
 # - validate --fix
@@ -336,17 +336,17 @@ claude-todo backup
 
 ### Listing Backups
 ```bash
-claude-todo backup --list           # All backups
-claude-todo backup --list --type snapshot  # Filter by type
+cleo backup --list           # All backups
+cleo backup --list --type snapshot  # Filter by type
 ```
 
 ### Restoring Backups
 ```bash
 # ALWAYS verify what you're restoring first
-claude-todo backup --list
+cleo backup --list
 
 # Restore specific backup
-claude-todo restore <backup-id>
+cleo restore <backup-id>
 
 # System creates safety backup before restore
 ```
@@ -355,8 +355,8 @@ claude-todo restore <backup-id>
 If backup operations fail:
 1. Check disk space: `df -h .claude/`
 2. Check permissions: `ls -la .claude/backups/`
-3. Run validation: `claude-todo validate --fix`
-4. Check audit log: `claude-todo log --operation backup`
+3. Run validation: `cleo validate --fix`
+4. Check audit log: `cleo log --operation backup`
 
 ### Best Practices
 - Create snapshot before multi-task operations

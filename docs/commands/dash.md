@@ -66,7 +66,7 @@ cleo dash
 Output:
 ```
 ╔══════════════════════════════════════════════════════════╗
-║                  CLAUDE-TODO DASHBOARD                   ║
+║                  CLEO DASHBOARD                   ║
 ╚══════════════════════════════════════════════════════════╝
 
 📍 CURRENT FOCUS
@@ -116,7 +116,7 @@ cleo dash --compact
 
 Output:
 ```
-CLAUDE-TODO: 24 total | 12 pending | 1 active | 3 blocked | 8 done | Focus: T015
+CLEO: 24 total | 12 pending | 1 active | 3 blocked | 8 done | Focus: T015
 ```
 
 ### Custom Sections

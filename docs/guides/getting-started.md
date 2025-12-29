@@ -85,7 +85,7 @@ cleo claude-migrate --check
 
 ```bash
 cleo claude-migrate --global
-# Moves ~/.claude-todo/ → ~/.cleo/
+# Moves ~/.cleo/ → ~/.cleo/
 ```
 
 ### Migrate Project Data

@@ -1,4 +1,4 @@
-# Claude-TODO LLM-Agent-First Specification
+# CLEO LLM-Agent-First Specification
 
 > **Authoritative standard for LLM-agent-first CLI design**
 >
@@ -401,7 +401,7 @@ Commands **MUST** use the following exit codes:
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo.dev/schemas/v1/output.schema.json",
-  "title": "Claude-TODO Response Envelope",
+  "title": "CLEO Response Envelope",
   "type": "object",
   "required": ["_meta", "success"],
   "properties": {
@@ -434,7 +434,7 @@ Commands **MUST** use the following exit codes:
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo.dev/schemas/v1/error.schema.json",
-  "title": "Claude-TODO Error Envelope",
+  "title": "CLEO Error Envelope",
   "type": "object",
   "required": ["_meta", "success", "error"],
   "properties": {

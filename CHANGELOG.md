@@ -1,9 +1,30 @@
 # Changelog
 
-All notable changes to the claude-todo system will be documented in this file.
+All notable changes to the CLEO system will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.41.4] - 2025-12-29
+
+### Changed
+- **Complete CLAUDE-TODO → CLEO rename cleanup** - Removed ALL remaining "claude-todo" references
+  - Schema titles: All `*.schema.json` files now use "CLEO" branding
+  - Dev scripts: `bump-version.sh`, `validate-version.sh` now use `CLEO:START` markers
+  - Injection markers: Removed legacy `CLAUDE-TODO:START` handling from `validate.sh` and `init.sh`
+  - Completions: `bash-completion.sh` and `zsh-completion.zsh` functions renamed to `_cleo_*`
+  - Documentation: All `docs/*.md` files updated with `cleo` command references
+  - Tests: Completion tests updated for new function names
+  - Core files: `CONTRIBUTING.md`, `AGENTS.md`, `CLAUDE.md` updated with CLEO branding
+
+### Added
+- **AGENTS.md validation** - `validate` command now checks AGENTS.md injection version
+  - Reports outdated or missing injection with actionable fix commands
+  - Can auto-fix with `--fix` flag
+
+### Fixed
+- **Injection tag consistency** - All injection markers now use `CLEO:START`/`CLEO:END` exclusively
+  - No more legacy `CLAUDE-TODO:START` detection or migration code
 
 ## [0.41.3] - 2025-12-29
 

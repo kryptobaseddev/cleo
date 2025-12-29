@@ -70,9 +70,9 @@ teardown_file() {
 # Bash Completion Function Tests
 # =============================================================================
 
-@test "bash completion defines _claude_todo_completions function" {
+@test "bash completion defines _cleo_completions function" {
     source "$BASH_COMPLETION"
-    run type -t _claude_todo_completions
+    run type -t _cleo_completions
     assert_output "function"
 }
 
@@ -126,7 +126,7 @@ EOF
     source "$BASH_COMPLETION"
 
     # Simulate completion context
-    COMP_WORDS=(claude-todo add --parent "")
+    COMP_WORDS=(cleo add --parent "")
     COMP_CWORD=3
     COMPREPLY=()
 
@@ -150,7 +150,7 @@ EOF
     export TODO_FILE
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo show "")
+    COMP_WORDS=(cleo show "")
     COMP_CWORD=2
     COMPREPLY=()
 
@@ -184,7 +184,7 @@ EOF
     export TODO_FILE
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo complete "")
+    COMP_WORDS=(cleo complete "")
     COMP_CWORD=2
     COMPREPLY=()
 
@@ -206,7 +206,7 @@ EOF
 
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo add --phase "")
+    COMP_WORDS=(cleo add --phase "")
     COMP_CWORD=3
     COMPREPLY=()
 
@@ -245,7 +245,7 @@ EOF
     export TODO_FILE
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo phase set "")
+    COMP_WORDS=(cleo phase set "")
     COMP_CWORD=3
     COMPREPLY=()
 
@@ -278,7 +278,7 @@ EOF
     export TODO_FILE
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo list --label "")
+    COMP_WORDS=(cleo list --label "")
     COMP_CWORD=3
     COMPREPLY=()
 
@@ -312,8 +312,8 @@ EOF
     assert_output --partial "#!/usr/bin/env bash"
 }
 
-@test "bash completion registers for claude-todo command" {
-    run grep -E "^complete.*claude-todo" "$BASH_COMPLETION"
+@test "bash completion registers for cleo command" {
+    run grep -E "^complete.*cleo$" "$BASH_COMPLETION"
     assert_success
 }
 
@@ -340,11 +340,11 @@ EOF
     source "$BASH_COMPLETION"
 
     # Simulate completing options for add command
-    COMP_WORDS=(claude-todo add "Test task" --)
+    COMP_WORDS=(cleo add "Test task" --)
     COMP_CWORD=3
     COMPREPLY=()
 
-    _claude_todo_completions
+    _cleo_completions
 
     local reply_str="${COMPREPLY[*]}"
 
@@ -355,11 +355,11 @@ EOF
 @test "bash completion handles list command options" {
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo list --)
+    COMP_WORDS=(cleo list --)
     COMP_CWORD=2
     COMPREPLY=()
 
-    _claude_todo_completions
+    _cleo_completions
 
     local reply_str="${COMPREPLY[*]}"
 
@@ -376,7 +376,7 @@ EOF
 
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo show "")
+    COMP_WORDS=(cleo show "")
     COMP_CWORD=2
     COMPREPLY=()
 
@@ -391,7 +391,7 @@ EOF
     export TODO_FILE
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo complete "")
+    COMP_WORDS=(cleo complete "")
     COMP_CWORD=2
     COMPREPLY=()
 
@@ -408,7 +408,7 @@ EOF
     export TODO_FILE
     source "$BASH_COMPLETION"
 
-    COMP_WORDS=(claude-todo show "")
+    COMP_WORDS=(cleo show "")
     COMP_CWORD=2
     COMPREPLY=()
 
@@ -422,12 +422,12 @@ EOF
 # Zsh Completion Tests
 # =============================================================================
 
-@test "zsh completion defines _claude_todo function" {
+@test "zsh completion defines _cleo function" {
     if ! command -v zsh &>/dev/null; then
         skip "zsh not available"
     fi
 
-    run grep -E "^_claude_todo\(\)" "$ZSH_COMPLETION"
+    run grep -E "^_cleo\(\)" "$ZSH_COMPLETION"
     assert_success
 }
 
@@ -443,14 +443,14 @@ EOF
 
 @test "zsh completion defines helper functions" {
     # Check for parent task completer
-    run grep -E "^_claude_todo_parent_tasks\(\)" "$ZSH_COMPLETION"
+    run grep -E "^_cleo_parent_tasks\(\)" "$ZSH_COMPLETION"
     assert_success
 
     # Check for task id completer
-    run grep -E "^_claude_todo_task_ids\(\)" "$ZSH_COMPLETION"
+    run grep -E "^_cleo_task_ids\(\)" "$ZSH_COMPLETION"
     assert_success
 
     # Check for phases completer
-    run grep -E "^_claude_todo_phases\(\)" "$ZSH_COMPLETION"
+    run grep -E "^_cleo_phases\(\)" "$ZSH_COMPLETION"
     assert_success
 }

@@ -217,7 +217,7 @@ validate_format() {
 #
 # Priority order (CLI > env > config > JSON default):
 # 1. CLI argument (highest priority)
-# 2. CLAUDE_TODO_FORMAT environment variable
+# 2. CLEO_FORMAT environment variable
 # 3. config.output.defaultFormat from config.json
 # 4. JSON default (LLM-Agent-First):
 #    - JSON is always the default output format
@@ -240,8 +240,8 @@ resolve_format() {
   if [[ -n "$cli_format" ]]; then
     resolved_format="$cli_format"
   # Environment variable
-  elif [[ -n "${CLAUDE_TODO_FORMAT:-}" ]]; then
-    resolved_format="$CLAUDE_TODO_FORMAT"
+  elif [[ -n "${CLEO_FORMAT:-}" ]]; then
+    resolved_format="$CLEO_FORMAT"
   # Config file setting (if jq available and config exists)
   elif command -v jq &>/dev/null && [[ -f ".cleo/config.json" ]]; then
     resolved_format=$(jq -r '.output.defaultFormat // empty' .cleo/config.json 2>/dev/null)

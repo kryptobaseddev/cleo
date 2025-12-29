@@ -143,8 +143,8 @@ extract_version() {
         'version-\K[0-9]+\.[0-9]+\.[0-9]+')
             grep -o 'version-[0-9]\+\.[0-9]\+\.[0-9]\+' "$file" 2>/dev/null | head -1 | sed 's/version-//' || echo ""
             ;;
-        'CLAUDE-TODO:START v\K[0-9]+\.[0-9]+\.[0-9]+')
-            grep -o 'CLAUDE-TODO:START v[0-9]\+\.[0-9]\+\.[0-9]\+' "$file" 2>/dev/null | head -1 | sed 's/CLAUDE-TODO:START v//' || echo ""
+        'CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+')
+            grep -o 'CLEO:START v[0-9]\+\.[0-9]\+\.[0-9]\+' "$file" 2>/dev/null | head -1 | sed 's/CLEO:START v//' || echo ""
             ;;
         *)
             echo ""
@@ -177,8 +177,8 @@ fi
 # Files to check
 declare -A FILES_TO_CHECK
 FILES_TO_CHECK["README.md"]='version-\K[0-9]+\.[0-9]+\.[0-9]+'
-FILES_TO_CHECK["templates/CLAUDE-INJECTION.md"]='CLAUDE-TODO:START v\K[0-9]+\.[0-9]+\.[0-9]+'
-FILES_TO_CHECK["CLAUDE.md"]='CLAUDE-TODO:START v\K[0-9]+\.[0-9]+\.[0-9]+'
+FILES_TO_CHECK["templates/CLAUDE-INJECTION.md"]='CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+'
+FILES_TO_CHECK["CLAUDE.md"]='CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+'
 
 # Track results for JSON output
 declare -a FILE_RESULTS=()
@@ -223,7 +223,7 @@ for file in "${!FILES_TO_CHECK[@]}"; do
                     [[ "$FORMAT" == "text" ]] && log_info "  → Fixed: synced to $SOURCE_VERSION"
                     ;;
                 "templates/CLAUDE-INJECTION.md"|"CLAUDE.md")
-                    sed_inplace "s/CLAUDE-TODO:START v[0-9]\+\.[0-9]\+\.[0-9]\+/CLAUDE-TODO:START v${SOURCE_VERSION}/g" "$filepath"
+                    sed_inplace "s/CLEO:START v[0-9]\+\.[0-9]\+\.[0-9]\+/CLEO:START v${SOURCE_VERSION}/g" "$filepath"
                     [[ "$FORMAT" == "text" ]] && log_info "  → Fixed: synced to $SOURCE_VERSION"
                     ;;
             esac
@@ -282,7 +282,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson files "$FILES_JSON" \
         --argjson fix_mode "$FIX_MODE" \
         '{
-            "$schema": "https://claude-todo.dev/schemas/validate-version.schema.json",
+            "$schema": "https://cleo-dev.com/schemas/validate-version.schema.json",
             "_meta": {
                 "format": $fmt,
                 "command": $cmd,

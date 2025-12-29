@@ -1,8 +1,8 @@
-# CLAUDE-TODO System Architecture
+# CLEO System Architecture
 
 ## Executive Summary
 
-The CLAUDE-TODO system is a production-grade task management solution specifically designed for Claude Code with comprehensive anti-hallucination mechanisms, automatic archiving, and complete audit trails. This document provides the complete system architecture and design specifications.
+The CLEO system is a production-grade task management solution specifically designed for Claude Code with comprehensive anti-hallucination mechanisms, automatic archiving, and complete audit trails. This document provides the complete system architecture and design specifications.
 
 **Key Features**:
 - **Robust**: Schema validation + multi-layer anti-hallucination checks
@@ -46,7 +46,7 @@ The CLAUDE-TODO system is a production-grade task management solution specifical
 
 ### Core Philosophy
 
-CLAUDE-TODO is built on three foundational pillars designed specifically for AI-assisted development:
+CLEO is built on three foundational pillars designed specifically for AI-assisted development:
 
 **1. Anti-Hallucination First**
 Multi-layer validation prevents AI-generated errors from corrupting task data. Every operation undergoes schema enforcement, semantic validation, and cross-file integrity checks.

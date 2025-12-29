@@ -67,7 +67,7 @@ fi
 
 # Project paths
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.claude-todo}"
+CLAUDE_TODO_HOME="${CLAUDE_TODO_HOME:-$HOME/.cleo}"
 
 # Command identification (for error reporting and JSON output)
 COMMAND_NAME="benchmark-performance"
@@ -111,7 +111,7 @@ output_benchmark_error() {
             --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg ver "$TOOL_VERSION" \
             '{
-                "$schema": "https://claude-todo.dev/schemas/v1/error.schema.json",
+                "$schema": "https://cleo.dev/schemas/v1/error.schema.json",
                 "_meta": {
                     "format": "json",
                     "command": $cmd,
@@ -139,7 +139,7 @@ Performance Benchmark for Claude Todo v${TOOL_VERSION}
 
 Usage: $(basename "$0") [OPTIONS]
 
-Test claude-todo performance with varying dataset sizes.
+Test cleo performance with varying dataset sizes.
 
 Options:
   --sizes "100 500 1000"  Custom dataset sizes (default: 100 500 1000 2000)
@@ -469,7 +469,7 @@ format_json_output() {
     failed_tests=$((total_tests - passed_tests))
 
     jq -n \
-        --arg schema "https://claude-todo.dev/schemas/v1/benchmark-report.schema.json" \
+        --arg schema "https://cleo.dev/schemas/v1/benchmark-report.schema.json" \
         --arg cmd "$COMMAND_NAME" \
         --arg ver "$TOOL_VERSION" \
         --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

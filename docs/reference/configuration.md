@@ -1,6 +1,6 @@
 # Configuration Reference
 
-CLAUDE-TODO uses a hierarchical configuration system allowing customization at multiple levels while maintaining sensible defaults.
+CLEO uses a hierarchical configuration system allowing customization at multiple levels while maintaining sensible defaults.
 
 ## Config Command (v0.18.0+)
 
@@ -891,7 +891,7 @@ cleo validate .cleo/config.json
 
 ## See Also
 
-- [Installation Guide](installation.md) - Setting up CLAUDE-TODO
+- [Installation Guide](installation.md) - Setting up CLEO
 - [Usage Guide](../usage.md) - Working with tasks
 - [Schema Reference](../architecture/SCHEMAS.md) - Complete schema documentation
 - [Troubleshooting](troubleshooting.md) - Common issues and solutions

@@ -279,7 +279,7 @@ Categories:
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo.dev/schemas/v1/health.schema.json",
-  "title": "Claude-TODO Health Check Response",
+  "title": "CLEO Health Check Response",
   "type": "object",
   "required": ["_meta", "success", "healthy", "summary", "categories"],
   "properties": {
@@ -1042,7 +1042,7 @@ See Part 3 for complete schema.
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo.dev/schemas/v1/health-fix.schema.json",
-  "title": "Claude-TODO Health Fix Response",
+  "title": "CLEO Health Fix Response",
   "type": "object",
   "required": ["_meta", "success"],
   "properties": {
@@ -1109,7 +1109,7 @@ See Part 3 for complete schema.
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo.dev/schemas/v1/coordination.schema.json",
-  "title": "Claude-TODO Multi-Agent Coordination",
+  "title": "CLEO Multi-Agent Coordination",
   "definitions": {
     "agent_identity": {
       "type": "object",

@@ -868,7 +868,7 @@ case "$CMD" in
         fi
       else
         echo "Unknown command: $2"
-        echo "Run 'claude-todo help' for available commands."
+        echo "Run 'cleo help' for available commands."
         exit 1
       fi
     else
@@ -947,7 +947,7 @@ case "$CMD" in
       fi
 
       echo ""
-      echo "Run 'claude-todo help' for available commands."
+      echo "Run 'cleo help' for available commands."
       exit 1
     fi
     ;;
@@ -1235,18 +1235,18 @@ else
   echo "$ALIAS_MARKER" >> "$SHELL_CONFIG"
   if [[ "$SHELL_NAME" == "fish" ]]; then
     # Fish shell alias syntax
-    echo "alias ct='claude-todo'" >> "$SHELL_CONFIG"
-    echo "alias ct-add='claude-todo add'" >> "$SHELL_CONFIG"
-    echo "alias ct-list='claude-todo list'" >> "$SHELL_CONFIG"
-    echo "alias ct-done='claude-todo complete'" >> "$SHELL_CONFIG"
-    echo "alias ct-focus='claude-todo focus'" >> "$SHELL_CONFIG"
+    echo "alias ct='cleo'" >> "$SHELL_CONFIG"
+    echo "alias ct-add='cleo add'" >> "$SHELL_CONFIG"
+    echo "alias ct-list='cleo list'" >> "$SHELL_CONFIG"
+    echo "alias ct-done='cleo complete'" >> "$SHELL_CONFIG"
+    echo "alias ct-focus='cleo focus'" >> "$SHELL_CONFIG"
   else
     # Bash/Zsh alias syntax
-    echo "alias ct='claude-todo'" >> "$SHELL_CONFIG"
-    echo "alias ct-add='claude-todo add'" >> "$SHELL_CONFIG"
-    echo "alias ct-list='claude-todo list'" >> "$SHELL_CONFIG"
-    echo "alias ct-done='claude-todo complete'" >> "$SHELL_CONFIG"
-    echo "alias ct-focus='claude-todo focus'" >> "$SHELL_CONFIG"
+    echo "alias ct='cleo'" >> "$SHELL_CONFIG"
+    echo "alias ct-add='cleo add'" >> "$SHELL_CONFIG"
+    echo "alias ct-list='cleo list'" >> "$SHELL_CONFIG"
+    echo "alias ct-done='cleo complete'" >> "$SHELL_CONFIG"
+    echo "alias ct-focus='cleo focus'" >> "$SHELL_CONFIG"
   fi
   log_info "Added aliases to $SHELL_CONFIG"
 fi

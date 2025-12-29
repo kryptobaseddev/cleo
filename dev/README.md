@@ -43,7 +43,7 @@ See [`lib/README.md`](lib/README.md) for detailed documentation.
 
 ## Compliance Checker
 
-The `check-compliance.sh` tool validates all claude-todo commands against the LLM-AGENT-FIRST-SPEC.md requirements.
+The `check-compliance.sh` tool validates all cleo commands against the LLM-AGENT-FIRST-SPEC.md requirements.
 
 ### Quick Start
 
@@ -154,4 +154,4 @@ dev/
 
 ## Note
 
-These scripts are excluded from `install.sh` and never copied to `~/.claude-todo/`.
+These scripts are excluded from `install.sh` and never copied to `~/.cleo/`.

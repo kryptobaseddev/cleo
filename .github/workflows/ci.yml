@@ -110,13 +110,13 @@ jobs:
 
       - name: Verify installation
         run: |
-          ~/.local/bin/claude-todo version
-          ~/.local/bin/claude-todo help
+          ~/.local/bin/cleo version
+          ~/.local/bin/cleo help
 
       - name: Test project initialization
         run: |
           mkdir -p /tmp/test-project
           cd /tmp/test-project
-          ~/.local/bin/claude-todo init test-project
+          ~/.local/bin/cleo init test-project
           ls -la .claude/
-          ~/.local/bin/claude-todo validate
+          ~/.local/bin/cleo validate
