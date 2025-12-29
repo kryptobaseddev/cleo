@@ -111,8 +111,13 @@
         },
         "status": {
           "type": "string",
-          "enum": ["active", "suspended"],
-          "description": "active=currently working, suspended=paused but resumable."
+          "enum": ["active", "suspended", "ended"],
+          "description": "active=currently working, suspended=paused but resumable, ended=finished but can resume."
+        },
+        "endedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When session was ended. Null if active or suspended."
         },
         "agentId": {
           "type": ["string", "null"],

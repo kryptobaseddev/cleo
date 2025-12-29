@@ -85,6 +85,13 @@ elif [[ -f "$LIB_DIR/sessions.sh" ]]; then
   source "$LIB_DIR/sessions.sh"
 fi
 
+# Source session migration library for automatic migration (v0.39.3+)
+if [[ -f "$CLEO_HOME/lib/session-migration.sh" ]]; then
+  source "$CLEO_HOME/lib/session-migration.sh"
+elif [[ -f "$LIB_DIR/session-migration.sh" ]]; then
+  source "$LIB_DIR/session-migration.sh"
+fi
+
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 # Note: LOG_FILE is set by lib/logging.sh (readonly) - don't reassign here
@@ -142,7 +149,9 @@ Manage cleo work sessions.
 Commands:
   start         Start a new session (single-session mode)
                 Start with scope (multi-session mode)
-  end           End the current session
+  end           End the current session (resumable)
+  close         Close session permanently (multi-session)
+                Requires all tasks in scope complete
   status        Show current session status
   info          Show detailed session information
   suspend       Suspend current session (multi-session)
@@ -202,6 +211,7 @@ Examples (Multi-Session):
   cleo session suspend --note "Waiting for review"
   cleo session resume session_20251227_...
   cleo session switch session_20251227_...
+  cleo session close session_20251227_... # Close when all tasks done
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -337,6 +347,11 @@ cmd_start() {
 
   check_todo_exists
 
+  # Ensure migrated to Epic-Bound Sessions (v0.39.3+)
+  if declare -f ensure_migrated >/dev/null 2>&1; then
+    ensure_migrated "$(dirname "$TODO_FILE")"
+  fi
+
   # Check if multi-session mode is enabled
   local multi_session_enabled=false
   if declare -f is_multi_session_enabled >/dev/null 2>&1; then
@@ -354,6 +369,53 @@ cmd_start() {
 
     cmd_start_multi_session "$scope_str" "$focus_task" "$session_name" "$agent_id" "$auto_focus" "$phase_filter"
     return
+  fi
+
+  # Discovery mode: Multi-session enabled but no scope provided
+  # Show available Epics and prompt for selection (EPIC-SESSION-SPEC.md Part 2.2)
+  if [[ "$multi_session_enabled" == "true" ]]; then
+    log_step "Discovery Mode: Multi-session enabled, no scope provided"
+
+    # Check for existing sessions first
+    local existing_sessions
+    if declare -f list_sessions >/dev/null 2>&1; then
+      existing_sessions=$(list_sessions "active" 2>/dev/null || echo "[]")
+      local active_count
+      active_count=$(echo "$existing_sessions" | jq 'length')
+
+      if [[ "$active_count" -gt 0 ]]; then
+        log_warn "Found $active_count active session(s). Consider resuming or ending them first."
+        echo ""
+        log_info "Active sessions:"
+        echo "$existing_sessions" | jq -r '.[] | "  - \(.id) [\(.scope.type):\(.scope.rootTaskId // "N/A")]"'
+        echo ""
+      fi
+    fi
+
+    # Show available Epics
+    if declare -f discover_available_epics >/dev/null 2>&1; then
+      local available_epics
+      available_epics=$(discover_available_epics "$TODO_FILE" 2>/dev/null || echo "[]")
+      local epic_count
+      epic_count=$(echo "$available_epics" | jq 'length')
+
+      if [[ "$epic_count" -eq 0 ]]; then
+        log_warn "No Epics found. Create an Epic first: cleo add 'Epic Title' --type epic"
+        log_info "Then start a session: cleo session start --scope epic:T###"
+        exit "${EXIT_NO_DATA:-100}"
+      fi
+
+      log_info "Available Epics ($epic_count):"
+      echo "$available_epics" | jq -r '.[] | "  \(.id): \(.title) [pending: \(.pendingCount)]"'
+      echo ""
+      log_info "Start a session with: cleo session start --scope epic:<EPIC_ID>"
+      log_info "Example: cleo session start --scope epic:$(echo "$available_epics" | jq -r '.[0].id')"
+    else
+      log_warn "Discovery function not available. Specify scope explicitly."
+      log_info "Example: cleo session start --scope epic:T001"
+    fi
+
+    exit "${EXIT_NO_DATA:-100}"
   fi
 
   # Single-session mode (original behavior)
@@ -1083,6 +1145,52 @@ cmd_resume() {
   fi
 }
 
+# Close session permanently (requires all tasks complete)
+cmd_close() {
+  local session_id=""
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --session) session_id="$2"; shift 2 ;;
+      -*) shift ;;
+      *) session_id="$1"; shift ;;
+    esac
+  done
+
+  # Check multi-session enabled
+  if ! is_multi_session_enabled "$CONFIG_FILE" 2>/dev/null; then
+    log_error "Multi-session mode not enabled" "E_CONFIG_ERROR" "$EXIT_INVALID_INPUT"
+    exit "$EXIT_INVALID_INPUT"
+  fi
+
+  # Get session ID if not provided
+  if [[ -z "$session_id" ]]; then
+    session_id=$(get_current_session_id 2>/dev/null || true)
+    if [[ -z "$session_id" ]]; then
+      log_error "Session ID required. Use: cleo session close <session-id>" "E_INVALID_INPUT" "$EXIT_INVALID_INPUT"
+      exit "$EXIT_INVALID_INPUT"
+    fi
+  fi
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[DRY-RUN] Would close session: $session_id"
+    exit "$EXIT_SUCCESS"
+  fi
+
+  if close_session "$session_id"; then
+    log_step "Session closed: $session_id"
+    log_info "Session archived. Epic marked complete."
+  else
+    local exit_code=$?
+    if [[ $exit_code -eq 39 ]]; then
+      log_error "Cannot close session - tasks incomplete" "E_SESSION_CLOSE_BLOCKED" 39
+    else
+      log_error "Failed to close session" "E_SESSION_CLOSE_FAILED" "$exit_code"
+    fi
+    exit $exit_code
+  fi
+}
+
 # List all sessions
 cmd_list() {
   local status_filter="all" format_arg=""
@@ -1294,6 +1402,7 @@ shift || true
 case "$COMMAND" in
   start)   cmd_start "$@" ;;
   end)     cmd_end "$@" ;;
+  close)   cmd_close "$@" ;;
   status)  cmd_status "$@" ;;
   info)    cmd_info "$@" ;;
   suspend) cmd_suspend "$@" ;;

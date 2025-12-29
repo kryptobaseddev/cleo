@@ -71,6 +71,12 @@ if [[ -f "$LIB_DIR/phase-tracking.sh" ]]; then
   source "$LIB_DIR/phase-tracking.sh"
 fi
 
+# Source session enforcement for Epic-Bound Sessions (v0.40.0)
+if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
+  # shellcheck source=../lib/session-enforcement.sh
+  source "$LIB_DIR/session-enforcement.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -717,6 +723,16 @@ if [[ -z "$TITLE" ]]; then
   echo "Usage: cleo add \"Task Title\" [OPTIONS]" >&2
   echo "Use --help for more information" >&2
   exit "${EXIT_INVALID_INPUT:-2}"
+fi
+
+# ============================================================================
+# SESSION ENFORCEMENT (Epic-Bound Sessions v0.40.0)
+# Require active session for write operations when multiSession.enabled=true
+# ============================================================================
+if declare -f require_active_session >/dev/null 2>&1; then
+  if ! require_active_session "add" "$FORMAT"; then
+    exit $?
+  fi
 fi
 
 # Normalize labels to remove duplicates

@@ -48,19 +48,25 @@ fi
 # ============================================================================
 
 # Error codes for multi-session operations (30-39 range per MULTI-SESSION-SPEC.md)
-readonly E_SESSION_EXISTS=30
-readonly E_SESSION_NOT_FOUND=31
-readonly E_SCOPE_CONFLICT=32
-readonly E_SCOPE_INVALID=33
-readonly E_TASK_NOT_IN_SCOPE=34
-readonly E_TASK_CLAIMED=35
-readonly E_SESSION_SUSPENDED=36
-readonly E_MAX_SESSIONS=37
-readonly E_FOCUS_REQUIRED=38
+# Use error-json.sh definitions if available, otherwise define here
+: "${E_SESSION_EXISTS:=E_SESSION_EXISTS}"
+: "${E_SESSION_NOT_FOUND:=E_SESSION_NOT_FOUND}"
+: "${E_SCOPE_CONFLICT:=E_SCOPE_CONFLICT}"
+: "${E_SCOPE_INVALID:=E_SCOPE_INVALID}"
+: "${E_TASK_NOT_IN_SCOPE:=E_TASK_NOT_IN_SCOPE}"
+: "${E_TASK_CLAIMED:=E_TASK_CLAIMED}"
+: "${E_SESSION_SUSPENDED:=E_SESSION_SUSPENDED}"
+: "${E_MAX_SESSIONS:=E_MAX_SESSIONS}"
+: "${E_FOCUS_REQUIRED:=E_FOCUS_REQUIRED}"
 
 # Session status values
 readonly SESSION_STATUS_ACTIVE="active"
 readonly SESSION_STATUS_SUSPENDED="suspended"
+readonly SESSION_STATUS_ENDED="ended"
+readonly SESSION_STATUS_CLOSED="closed"
+
+# Additional error code for close operation
+: "${E_SESSION_CLOSE_BLOCKED:=E_SESSION_CLOSE_BLOCKED}"
 
 # Scope types
 readonly SCOPE_TYPE_TASK="task"
@@ -665,7 +671,7 @@ suspend_session() {
     return 0
 }
 
-# Resume a suspended session
+# Resume a suspended or ended session
 # Args: $1 - session ID
 # Returns: 0 on success
 resume_session() {
@@ -694,7 +700,7 @@ resume_session() {
     sessions_content=$(cat "$sessions_file")
     todo_content=$(cat "$todo_file")
 
-    # Verify session exists and is suspended
+    # Verify session exists and is resumable (suspended or ended)
     local session_info
     session_info=$(echo "$sessions_content" | jq -c --arg id "$session_id" '
         .sessions[] | select(.id == $id)
@@ -712,18 +718,19 @@ resume_session() {
     session_status=$(echo "$session_info" | jq -r '.status')
     focus_task=$(echo "$session_info" | jq -r '.focus.currentTask // ""')
 
-    if [[ "$session_status" != "suspended" ]]; then
+    # Allow resuming both "suspended" and "ended" sessions
+    if [[ "$session_status" != "suspended" && "$session_status" != "ended" ]]; then
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
-        echo "Error: Session is not suspended: $session_id" >&2
+        echo "Error: Session cannot be resumed (status: $session_status)" >&2
         return $E_SESSION_EXISTS
     fi
 
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    # Update session
+    # Update session - clear both suspendedAt and endedAt
     local updated_sessions
     updated_sessions=$(echo "$sessions_content" | jq \
         --arg id "$session_id" \
@@ -733,6 +740,7 @@ resume_session() {
             if .id == $id then
                 .status = "active" |
                 .suspendedAt = null |
+                .endedAt = null |
                 .lastActivity = $ts |
                 .stats.resumeCount += 1
             else . end
@@ -776,7 +784,8 @@ resume_session() {
     return 0
 }
 
-# End a session
+# End a session (ENDED state - notes required, resumable)
+# Changed from moving to history - now just changes status to "ended"
 # Args: $1 - session ID, $2 - note (optional)
 # Returns: 0 on success
 end_session() {
@@ -806,7 +815,7 @@ end_session() {
     sessions_content=$(cat "$sessions_file")
     todo_content=$(cat "$todo_file")
 
-    # Get session info before removal
+    # Get session info
     local session_info
     session_info=$(echo "$sessions_content" | jq -c --arg id "$session_id" '
         .sessions[] | select(.id == $id)
@@ -826,33 +835,21 @@ end_session() {
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    # Create history entry and remove from active sessions
+    # Update session status to "ended" (NOT moving to history)
     local updated_sessions
     updated_sessions=$(echo "$sessions_content" | jq \
         --arg id "$session_id" \
         --arg ts "$timestamp" \
         --arg note "$note" \
         '
-        # Find and prepare session for history
-        (.sessions[] | select(.id == $id)) as $session |
-
-        # Remove from sessions
-        .sessions = [.sessions[] | select(.id != $id)] |
-
-        # Add to history
-        .sessionHistory += [{
-            id: $session.id,
-            name: $session.name,
-            agentId: $session.agentId,
-            scopeType: $session.scope.type,
-            rootTaskId: $session.scope.rootTaskId,
-            startedAt: $session.startedAt,
-            endedAt: $ts,
-            stats: $session.stats,
-            endNote: (if $note == "" then null else $note end),
-            resumable: true
-        }] |
-
+        .sessions = [.sessions[] |
+            if .id == $id then
+                .status = "ended" |
+                .endedAt = $ts |
+                .lastActivity = $ts |
+                (if $note != "" then .focus.sessionNote = $note else . end)
+            else . end
+        ] |
         ._meta.lastModified = $ts
         ')
 
@@ -897,12 +894,163 @@ end_session() {
     return 0
 }
 
+# Close a session permanently (CLOSED state - all tasks must be complete)
+# Args: $1 - session ID
+# Returns: 0 on success, E_SESSION_CLOSE_BLOCKED if tasks incomplete
+close_session() {
+    local session_id="$1"
+
+    local sessions_file todo_file
+    sessions_file=$(get_sessions_file)
+    todo_file=$(get_todo_file)
+
+    # Lock both files
+    local sessions_fd todo_fd
+    if ! lock_file "$sessions_file" sessions_fd 30; then
+        echo "Error: Failed to acquire lock on sessions.json" >&2
+        return $FO_LOCK_FAILED
+    fi
+
+    if ! lock_file "$todo_file" todo_fd 30; then
+        unlock_file "$sessions_fd"
+        echo "Error: Failed to acquire lock on todo.json" >&2
+        return $FO_LOCK_FAILED
+    fi
+
+    trap "unlock_file $todo_fd; unlock_file $sessions_fd" EXIT ERR
+
+    local sessions_content todo_content
+    sessions_content=$(cat "$sessions_file")
+    todo_content=$(cat "$todo_file")
+
+    # Get session info
+    local session_info
+    session_info=$(echo "$sessions_content" | jq -c --arg id "$session_id" '
+        .sessions[] | select(.id == $id)
+    ')
+
+    if [[ -z "$session_info" ]]; then
+        unlock_file "$todo_fd"
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Session not found: $session_id" >&2
+        return $E_SESSION_NOT_FOUND
+    fi
+
+    # Get scope task IDs
+    local scope_task_ids
+    scope_task_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+
+    # Check if all tasks in scope are complete
+    local incomplete_count
+    incomplete_count=$(echo "$todo_content" | jq --argjson ids "$scope_task_ids" '
+        [.tasks[] | select(.id as $id | $ids | index($id)) | select(.status != "done")] | length
+    ')
+
+    if [[ "$incomplete_count" -gt 0 ]]; then
+        unlock_file "$todo_fd"
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Cannot close session - $incomplete_count tasks incomplete" >&2
+        echo "Complete all tasks in scope first, or use 'session end' to end without closing" >&2
+        return $E_SESSION_CLOSE_BLOCKED
+    fi
+
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Get root task ID for Epic completion
+    local root_task_id
+    root_task_id=$(echo "$session_info" | jq -r '.scope.rootTaskId // ""')
+
+    # Create history entry and remove from sessions
+    local session_notes
+    session_notes=$(echo "$session_info" | jq -r '.focus.sessionNote // ""')
+
+    local updated_sessions
+    updated_sessions=$(echo "$sessions_content" | jq \
+        --arg id "$session_id" \
+        --arg ts "$timestamp" \
+        '
+        (.sessions[] | select(.id == $id)) as $session |
+
+        .sessions = [.sessions[] | select(.id != $id)] |
+
+        .sessionHistory += [{
+            id: $session.id,
+            name: $session.name,
+            agentId: $session.agentId,
+            scope: $session.scope,
+            startedAt: $session.startedAt,
+            endedAt: $ts,
+            endReason: "completed",
+            endNote: $session.focus.sessionNote,
+            lastFocusedTask: $session.focus.currentTask,
+            stats: $session.stats,
+            resumable: false
+        }] |
+
+        ._meta.lastModified = $ts
+        ')
+
+    # Mark Epic/root task as complete if it exists
+    local updated_todo="$todo_content"
+    if [[ -n "$root_task_id" ]]; then
+        # Aggregate session notes to Epic
+        local aggregated_note="Session completed: $session_notes"
+
+        updated_todo=$(echo "$todo_content" | jq \
+            --arg taskId "$root_task_id" \
+            --arg ts "$timestamp" \
+            --arg note "$aggregated_note" \
+            '
+            .tasks = [.tasks[] |
+                if .id == $taskId then
+                    .status = "done" |
+                    .completedAt = $ts |
+                    .updatedAt = $ts |
+                    .notes = (.notes // []) + [{
+                        timestamp: $ts,
+                        type: "session_completion",
+                        content: $note
+                    }]
+                else . end
+            ] |
+            ._meta.lastModified = $ts
+            ')
+    fi
+
+    # Save both files
+    if ! save_json "$sessions_file" "$updated_sessions"; then
+        unlock_file "$todo_fd"
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Failed to save sessions.json" >&2
+        return 1
+    fi
+
+    if ! save_json "$todo_file" "$updated_todo"; then
+        unlock_file "$todo_fd"
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Failed to save todo.json" >&2
+        return 1
+    fi
+
+    unlock_file "$todo_fd"
+    unlock_file "$sessions_fd"
+    trap - EXIT ERR
+
+    echo "Session closed and archived"
+    return 0
+}
+
 # ============================================================================
 # SESSION QUERIES
 # ============================================================================
 
-# List active sessions
-# Args: $1 - status filter (optional: "active", "suspended", "all")
+# List sessions
+# Args: $1 - status filter (optional: "active", "suspended", "ended", "all")
 # Returns: JSON array of sessions
 list_sessions() {
     local status_filter="${1:-all}"
@@ -920,6 +1068,9 @@ list_sessions() {
             ;;
         suspended)
             jq -c '[.sessions[] | select(.status == "suspended")]' "$sessions_file"
+            ;;
+        ended)
+            jq -c '[.sessions[] | select(.status == "ended")]' "$sessions_file"
             ;;
         all|*)
             jq -c '.sessions' "$sessions_file"
@@ -964,6 +1115,251 @@ get_current_session_id() {
     return 1
 }
 
+# ============================================================================
+# SESSION FOCUS FUNCTIONS
+# ============================================================================
+
+# Get session focus (current task for a session)
+# Args: $1 - session ID
+# Returns: Task ID or empty if no focus
+# Exit codes: 0 = success, 31 = session not found
+get_session_focus() {
+    local session_id="$1"
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    if [[ ! -f "$sessions_file" ]]; then
+        return 31  # E_SESSION_NOT_FOUND
+    fi
+
+    local session_info
+    session_info=$(jq -c --arg id "$session_id" '.sessions[] | select(.id == $id)' "$sessions_file" 2>/dev/null)
+
+    if [[ -z "$session_info" ]]; then
+        return 31  # E_SESSION_NOT_FOUND
+    fi
+
+    # Return focus.currentTask (empty string if not set)
+    echo "$session_info" | jq -r '.focus.currentTask // ""'
+    return 0
+}
+
+# Set session focus (focus task within session)
+# Args: $1 - session ID, $2 - task ID
+# Returns: Previous focus task ID (empty if none)
+# Exit codes: 0 = success, 31 = session not found, 34 = task not in scope, 35 = task claimed by another session
+set_session_focus() {
+    local session_id="$1"
+    local task_id="$2"
+
+    local sessions_file todo_file
+    sessions_file=$(get_sessions_file)
+    todo_file="$(get_cleo_dir)/todo.json"
+
+    if [[ ! -f "$sessions_file" ]]; then
+        echo "Error: Sessions file not found" >&2
+        return 31  # E_SESSION_NOT_FOUND
+    fi
+
+    local sessions_content todo_content
+    sessions_content=$(cat "$sessions_file")
+    todo_content=$(cat "$todo_file")
+
+    # Get session info
+    local session_info
+    session_info=$(echo "$sessions_content" | jq -c --arg id "$session_id" '.sessions[] | select(.id == $id)')
+
+    if [[ -z "$session_info" ]]; then
+        echo "Error: Session not found: $session_id" >&2
+        return 31  # E_SESSION_NOT_FOUND
+    fi
+
+    # Verify task is in session scope
+    local in_scope
+    in_scope=$(echo "$session_info" | jq --arg taskId "$task_id" '.scope.computedTaskIds | index($taskId)')
+
+    if [[ "$in_scope" == "null" ]]; then
+        echo "Error: Task $task_id is not in session scope" >&2
+        return 34  # E_TASK_NOT_IN_SCOPE
+    fi
+
+    # Verify no other session has this task focused
+    local claimed_by
+    claimed_by=$(echo "$sessions_content" | jq -r --arg taskId "$task_id" --arg sessId "$session_id" '
+        .sessions[] | select(.id != $sessId and .focus.currentTask == $taskId and .status == "active") | .id
+    ' | head -1)
+
+    if [[ -n "$claimed_by" ]]; then
+        echo "Error: Task $task_id already focused by session $claimed_by" >&2
+        return 35  # E_TASK_CLAIMED
+    fi
+
+    local timestamp old_focus
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    old_focus=$(echo "$session_info" | jq -r '.focus.currentTask // ""')
+
+    # Update session focus
+    local updated_sessions
+    updated_sessions=$(echo "$sessions_content" | jq \
+        --arg sessId "$session_id" \
+        --arg taskId "$task_id" \
+        --arg ts "$timestamp" \
+        --arg oldFocus "$old_focus" \
+        '
+        .sessions = [.sessions[] |
+            if .id == $sessId then
+                .focus.previousTask = (if $oldFocus == "" then null else $oldFocus end) |
+                .focus.currentTask = $taskId |
+                .focus.focusHistory += [{
+                    taskId: $taskId,
+                    timestamp: $ts,
+                    action: "focused"
+                }] |
+                .lastActivity = $ts |
+                .stats.focusChanges += 1
+            else . end
+        ] |
+        ._meta.lastModified = $ts
+        ')
+
+    # Update task status in todo.json
+    local scope_ids
+    scope_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds')
+
+    local updated_todo
+    updated_todo=$(echo "$todo_content" | jq \
+        --arg taskId "$task_id" \
+        --arg ts "$timestamp" \
+        --argjson scopeIds "$scope_ids" \
+        '
+        # Reset other active tasks in scope to pending
+        .tasks = [.tasks[] |
+            if (.id as $id | $scopeIds | index($id)) and .status == "active" and .id != $taskId then
+                .status = "pending" | .updatedAt = $ts
+            else . end
+        ] |
+        # Set focus task to active
+        .tasks = [.tasks[] |
+            if .id == $taskId then
+                .status = "active" | .updatedAt = $ts
+            else . end
+        ] |
+        ._meta.lastModified = $ts
+        ')
+
+    # Save both files atomically
+    if ! echo "$updated_sessions" | jq '.' > "$sessions_file.tmp"; then
+        rm -f "$sessions_file.tmp"
+        return 1
+    fi
+    mv "$sessions_file.tmp" "$sessions_file"
+
+    if ! echo "$updated_todo" | jq '.' > "$todo_file.tmp"; then
+        rm -f "$todo_file.tmp"
+        return 1
+    fi
+    mv "$todo_file.tmp" "$todo_file"
+
+    echo "$old_focus"
+    return 0
+}
+
+# Clear session focus
+# Args: $1 - session ID
+# Returns: Previous focus task ID (empty if none)
+# Exit codes: 0 = success, 31 = session not found
+clear_session_focus() {
+    local session_id="$1"
+
+    local sessions_file todo_file
+    sessions_file=$(get_sessions_file)
+    todo_file="$(get_cleo_dir)/todo.json"
+
+    if [[ ! -f "$sessions_file" ]]; then
+        echo "Error: Sessions file not found" >&2
+        return 31  # E_SESSION_NOT_FOUND
+    fi
+
+    local sessions_content todo_content
+    sessions_content=$(cat "$sessions_file")
+    todo_content=$(cat "$todo_file")
+
+    # Get session info
+    local session_info
+    session_info=$(echo "$sessions_content" | jq -c --arg id "$session_id" '.sessions[] | select(.id == $id)')
+
+    if [[ -z "$session_info" ]]; then
+        echo "Error: Session not found: $session_id" >&2
+        return 31  # E_SESSION_NOT_FOUND
+    fi
+
+    local timestamp old_focus
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    old_focus=$(echo "$session_info" | jq -r '.focus.currentTask // ""')
+
+    # If no focus, nothing to clear
+    if [[ -z "$old_focus" ]]; then
+        echo ""
+        return 0
+    fi
+
+    # Update session to clear focus
+    local updated_sessions
+    updated_sessions=$(echo "$sessions_content" | jq \
+        --arg sessId "$session_id" \
+        --arg ts "$timestamp" \
+        --arg oldFocus "$old_focus" \
+        '
+        .sessions = [.sessions[] |
+            if .id == $sessId then
+                .focus.previousTask = $oldFocus |
+                .focus.currentTask = null |
+                .focus.focusHistory += [{
+                    taskId: $oldFocus,
+                    timestamp: $ts,
+                    action: "cleared"
+                }] |
+                .lastActivity = $ts
+            else . end
+        ] |
+        ._meta.lastModified = $ts
+        ')
+
+    # Reset task status in todo.json from active to pending
+    local updated_todo
+    updated_todo=$(echo "$todo_content" | jq \
+        --arg taskId "$old_focus" \
+        --arg ts "$timestamp" \
+        '
+        .tasks = [.tasks[] |
+            if .id == $taskId and .status == "active" then
+                .status = "pending" | .updatedAt = $ts
+            else . end
+        ] |
+        ._meta.lastModified = $ts
+        ')
+
+    # Save both files atomically
+    if ! echo "$updated_sessions" | jq '.' > "$sessions_file.tmp"; then
+        rm -f "$sessions_file.tmp"
+        return 1
+    fi
+    mv "$sessions_file.tmp" "$sessions_file"
+
+    if ! echo "$updated_todo" | jq '.' > "$todo_file.tmp"; then
+        rm -f "$todo_file.tmp"
+        return 1
+    fi
+    mv "$todo_file.tmp" "$todo_file"
+
+    echo "$old_focus"
+    return 0
+}
+
+# ============================================================================
+# AUTO-FOCUS
+# ============================================================================
+
 # Auto-focus: Select highest priority pending task in scope
 # Args: $1 - todo content (JSON), $2 - computed task IDs (JSON array)
 # Returns: Task ID or empty
@@ -988,6 +1384,46 @@ auto_select_focus_task() {
     '
 }
 
+# Discover available Epics for session binding
+# Args: $1 - todo file path (optional, defaults to .cleo/todo.json)
+# Returns: JSON array of available Epics with id, title, status, childCount, pendingCount
+# Output format: [{"id":"T001","title":"Epic Title","status":"pending","childCount":5,"pendingCount":3}, ...]
+discover_available_epics() {
+    local todo_file="${1:-$(get_cleo_dir)/todo.json}"
+
+    if [[ ! -f "$todo_file" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    jq -c '
+        # Get all epic tasks that are not done
+        [.tasks[] | select(.type == "epic" and .status != "done")] as $epics |
+
+        # For each epic, count children and pending children
+        [
+            $epics[] | . as $epic |
+            {
+                id: $epic.id,
+                title: ($epic.title // $epic.content // "Untitled"),
+                status: $epic.status,
+                priority: ($epic.priority // "medium"),
+                childCount: [.tasks[] | select(.parentId == $epic.id)] | length,
+                pendingCount: [.tasks[] | select(.parentId == $epic.id and .status == "pending")] | length
+            }
+        ] |
+
+        # Sort by priority (critical > high > medium > low), then by pending count desc
+        sort_by([
+            (if .priority == "critical" then 0
+             elif .priority == "high" then 1
+             elif .priority == "medium" then 2
+             else 3 end),
+            (-.pendingCount)
+        ])
+    ' "$todo_file" 2>/dev/null || echo "[]"
+}
+
 # ============================================================================
 # EXPORTS
 # ============================================================================
@@ -1003,7 +1439,9 @@ export -f start_session
 export -f suspend_session
 export -f resume_session
 export -f end_session
+export -f close_session
 export -f list_sessions
 export -f get_session
 export -f get_current_session_id
 export -f auto_select_focus_task
+export -f discover_available_epics

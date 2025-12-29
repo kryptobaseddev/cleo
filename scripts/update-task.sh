@@ -75,6 +75,12 @@ if [[ -f "$LIB_DIR/config.sh" ]]; then
   source "$LIB_DIR/config.sh"
 fi
 
+# Source session enforcement for Epic-Bound Sessions (v0.40.0)
+if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
+  # shellcheck source=../lib/session-enforcement.sh
+  source "$LIB_DIR/session-enforcement.sh"
+fi
+
 # Fallback exit codes if libraries not loaded (for robustness)
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_INVALID_INPUT:=2}"
@@ -605,6 +611,16 @@ if [[ ! "$TASK_ID" =~ ^T[0-9]{3,}$ ]]; then
     log_error "Invalid task ID format: $TASK_ID (must be T### format)"
   fi
   exit "${EXIT_INVALID_INPUT:-2}"
+fi
+
+# ============================================================================
+# SESSION ENFORCEMENT (Epic-Bound Sessions v0.40.0)
+# Require active session for write operations when multiSession.enabled=true
+# ============================================================================
+if declare -f require_active_session >/dev/null 2>&1; then
+  if ! require_active_session "update" "$FORMAT"; then
+    exit $?
+  fi
 fi
 
 # Check todo file exists

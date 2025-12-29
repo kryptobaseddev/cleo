@@ -31,11 +31,6 @@ ct update T001 --notes "Price: \$395"  # Correct
 ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```
 
-**Compact JSON for agents:** Set `CLEO_AGENT_MODE=1` for single-line JSON output (prevents truncation):
-```bash
-export CLEO_AGENT_MODE=1  # Compact JSON, shows full error in one line
-```
-
 ### Data Integrity
 - **JSON auto-detection**: Piped output → JSON (no `--format` needed)
 - **Native filters**: Use `--status`, `--label`, `--phase` instead of jq

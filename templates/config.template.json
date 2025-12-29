@@ -1,6 +1,6 @@
 {
   "$schema": "../schemas/config.schema.json",
-  "version": "2.2.0",
+  "version": "2.3.0",
 
   "archive": {
     "enabled": true,
@@ -35,10 +35,26 @@
   },
 
   "session": {
-    "requireSessionNote": true,
+    "requireSession": true,
+    "requireNotesOnEnd": true,
+    "requireNotesOnComplete": true,
     "warnOnNoFocus": true,
+    "allowNestedSessions": true,
+    "allowParallelAgents": true,
+    "sessionTimeout": 3600,
+    "autoDiscoveryOnStart": true,
+    "requireSessionNote": true,
     "autoStartSession": true,
     "sessionTimeoutHours": 24
+  },
+
+  "multiSession": {
+    "enabled": false,
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict",
+    "allowNestedScopes": true,
+    "allowScopeOverlap": false
   },
 
   "display": {

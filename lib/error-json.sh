@@ -139,12 +139,11 @@ output_error_json() {
         recoverable_bool="false"
     fi
 
-    # Determine if we should use compact JSON output
-    # Compact output when: CLEO_AGENT_MODE=1, CLEO_COMPACT_JSON=1, or not a TTY
-    local jq_opts=""
-    if [[ "${CLEO_AGENT_MODE:-}" == "1" ]] || [[ "${CLEO_COMPACT_JSON:-}" == "1" ]] || [[ ! -t 1 ]]; then
-        jq_opts="-c"
-    fi
+    # Always use compact JSON output (LLM-Agent-First principle)
+    # - Agents parse JSON programmatically, formatting doesn't matter
+    # - Compact prevents truncation issues ("+N lines")
+    # - Humans can pipe through `| jq .` for pretty output
+    local jq_opts="-c"
 
     # Build JSON using jq
     # shellcheck disable=SC2086
@@ -284,11 +283,8 @@ output_error_actionable() {
         alternatives_json="[]"
     fi
 
-    # Determine compact output
-    local jq_opts=""
-    if [[ "${CLEO_AGENT_MODE:-}" == "1" ]] || [[ "${CLEO_COMPACT_JSON:-}" == "1" ]] || [[ ! -t 1 ]]; then
-        jq_opts="-c"
-    fi
+    # Always use compact JSON (LLM-Agent-First)
+    local jq_opts="-c"
 
     if [[ "${FORMAT:-text}" == "json" ]]; then
         # Build enhanced JSON with fix and alternatives

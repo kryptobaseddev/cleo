@@ -10,7 +10,10 @@
 #           EXIT_CIRCULAR_REFERENCE, EXIT_ORPHAN_DETECTED, EXIT_HAS_CHILDREN,
 #           EXIT_TASK_COMPLETED, EXIT_CASCADE_FAILED, EXIT_HAS_DEPENDENTS,
 #           EXIT_CHECKSUM_MISMATCH, EXIT_CONCURRENT_MODIFICATION, EXIT_ID_COLLISION,
-#           EXIT_NO_DATA, EXIT_ALREADY_EXISTS, EXIT_NO_CHANGE,
+#           EXIT_SESSION_EXISTS, EXIT_SESSION_NOT_FOUND, EXIT_SCOPE_CONFLICT,
+#           EXIT_SCOPE_INVALID, EXIT_TASK_NOT_IN_SCOPE, EXIT_TASK_CLAIMED,
+#           EXIT_SESSION_REQUIRED, EXIT_SESSION_CLOSE_BLOCKED, EXIT_FOCUS_REQUIRED,
+#           EXIT_NOTES_REQUIRED, EXIT_NO_DATA, EXIT_ALREADY_EXISTS, EXIT_NO_CHANGE,
 #           get_exit_code_name, is_error_code, is_recoverable_code,
 #           is_no_change_code, is_success_code
 #
@@ -131,6 +134,51 @@ readonly EXIT_CONCURRENT_MODIFICATION=21
 readonly EXIT_ID_COLLISION=22
 
 # ============================================================================
+# SESSION ERROR CODES (30-39)
+# Epic-Bound Session System errors (see EPIC-SESSION-SPEC.md Part 7)
+# ============================================================================
+
+# Session already active for this scope
+# Examples: starting session when one exists for same epic
+readonly EXIT_SESSION_EXISTS=30
+
+# Session ID not found
+# Examples: resume/end with invalid session ID
+readonly EXIT_SESSION_NOT_FOUND=31
+
+# Session scope conflicts with existing session
+# Examples: two sessions trying to claim overlapping epic scope
+readonly EXIT_SCOPE_CONFLICT=32
+
+# Invalid session scope (no epic, empty, etc.)
+# Examples: --epic T999 where T999 doesn't exist or isn't an epic
+readonly EXIT_SCOPE_INVALID=33
+
+# Task is not within session scope
+# Examples: focus set T050 when T050 is not in session's epic tree
+readonly EXIT_TASK_NOT_IN_SCOPE=34
+
+# Task is already claimed by another agent
+# Examples: focus set T001 when another session has it focused
+readonly EXIT_TASK_CLAIMED=35
+
+# Operation requires an active session
+# Examples: focus set without starting session first
+readonly EXIT_SESSION_REQUIRED=36
+
+# Cannot close session with incomplete tasks
+# Examples: session close when tasks in scope are still pending
+readonly EXIT_SESSION_CLOSE_BLOCKED=37
+
+# Operation requires a focused task
+# Examples: complete without having focus set
+readonly EXIT_FOCUS_REQUIRED=38
+
+# Session notes required for operation
+# Examples: session end without --note when notes are required
+readonly EXIT_NOTES_REQUIRED=39
+
+# ============================================================================
 # SPECIAL CODES (100+)
 # These indicate notable states but are NOT errors
 # ============================================================================
@@ -219,6 +267,17 @@ get_exit_code_name() {
         20)  echo "CHECKSUM_MISMATCH" ;;
         21)  echo "CONCURRENT_MODIFICATION" ;;
         22)  echo "ID_COLLISION" ;;
+        # Session (30-39)
+        30)  echo "SESSION_EXISTS" ;;
+        31)  echo "SESSION_NOT_FOUND" ;;
+        32)  echo "SCOPE_CONFLICT" ;;
+        33)  echo "SCOPE_INVALID" ;;
+        34)  echo "TASK_NOT_IN_SCOPE" ;;
+        35)  echo "TASK_CLAIMED" ;;
+        36)  echo "SESSION_REQUIRED" ;;
+        37)  echo "SESSION_CLOSE_BLOCKED" ;;
+        38)  echo "FOCUS_REQUIRED" ;;
+        39)  echo "NOTES_REQUIRED" ;;
         # Special (100+)
         100) echo "NO_DATA" ;;
         101) echo "ALREADY_EXISTS" ;;
@@ -252,6 +311,10 @@ is_recoverable_code() {
         18) return 1 ;;
         # Recoverable concurrency errors (retry may succeed)
         20|21|22) return 0 ;;
+        # Session errors - some recoverable by user action
+        30|31|32|33|34|35|36|38|39) return 0 ;;
+        # Not recoverable: session close blocked (requires completing tasks first)
+        37) return 1 ;;
         # Special codes are not errors, so "recoverable" doesn't apply
         *)    return 1 ;;
     esac
@@ -327,6 +390,18 @@ export EXIT_HAS_DEPENDENTS
 export EXIT_CHECKSUM_MISMATCH
 export EXIT_CONCURRENT_MODIFICATION
 export EXIT_ID_COLLISION
+
+# Export constants - Session (30-39)
+export EXIT_SESSION_EXISTS
+export EXIT_SESSION_NOT_FOUND
+export EXIT_SCOPE_CONFLICT
+export EXIT_SCOPE_INVALID
+export EXIT_TASK_NOT_IN_SCOPE
+export EXIT_TASK_CLAIMED
+export EXIT_SESSION_REQUIRED
+export EXIT_SESSION_CLOSE_BLOCKED
+export EXIT_FOCUS_REQUIRED
+export EXIT_NOTES_REQUIRED
 
 # Export constants - Special (100+)
 export EXIT_NO_DATA

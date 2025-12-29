@@ -5,6 +5,55 @@ All notable changes to the claude-todo system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2025-12-29
+
+### Added
+- **Epic-Bound Session Architecture Foundation** (T958) - Multi-agent session management
+  - New 4-state session lifecycle: ACTIVE → SUSPENDED → ENDED → CLOSED
+  - `session close` command - Permanently archives session when all tasks complete
+  - `session end` now creates resumable "ended" state (can resume with `session resume`)
+  - Session discovery mode - Shows available Epics when starting without scope
+
+- **Session Enforcement for Write Operations** (T963)
+  - New `lib/session-enforcement.sh` library
+  - `require_active_session()` - Enforces session before add/update/complete
+  - `validate_task_in_scope()` - Validates tasks are within session scope
+  - Enforcement modes: strict (block), warn, none
+  - Integrated into `add-task.sh`, `update-task.sh`, `complete-task.sh`
+
+- **Automatic Migration System** (T967)
+  - New `lib/session-migration.sh` library
+  - `needs_session_migration()` - Detects legacy single-session projects
+  - `migrate_to_epic_sessions()` - Upgrades projects to Epic-Bound Sessions
+  - `ensure_migrated()` - Auto-runs on session commands
+  - Idempotent - safe to run multiple times
+
+- **Enhanced Session Error Codes** (T968)
+  - Exit codes 30-39 for session operations
+  - E_SESSION_EXISTS (30), E_SESSION_NOT_FOUND (31), E_SCOPE_CONFLICT (32)
+  - E_SESSION_REQUIRED (36), E_SESSION_CLOSE_BLOCKED (37), E_NOTES_REQUIRED (39)
+  - Actionable error messages with recovery suggestions
+
+- **Session Focus Locking** (T964)
+  - `set_session_focus()` - Validates scope and prevents cross-session conflicts
+  - Focus bound to session scope (cannot focus out-of-scope tasks)
+  - Prevents two sessions from focusing same task
+
+- **Sessions Schema and Template**
+  - New `schemas/sessions.schema.json` - Full multi-session validation
+  - New `templates/sessions.template.json` - Initial sessions file structure
+  - `init` command now creates sessions.json
+
+### Changed
+- **Config template** - Added `multiSession` section (disabled by default)
+- **Session resume** - Now works for both "suspended" and "ended" sessions
+- **list_sessions()** - Added "ended" filter option
+
+### Fixed
+- **Backward compatibility** - `multiSession.enabled: false` by default
+  - Existing single-session workflows continue to work unchanged
+  - Enable Epic-Bound Sessions with `multiSession.enabled: true` in config
+
 ## [0.40.0] - 2025-12-29
 
 ### Added
@@ -15,10 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hierarchy errors (E_DEPTH_EXCEEDED, E_SIBLING_LIMIT, E_PARENT_NOT_FOUND, E_INVALID_PARENT_TYPE) now provide concrete fix commands
   - Example: `"fix": "ct add 'Task' --type task"` with alternatives for different recovery paths
 
-- **Compact JSON Output for Agents** - New `CLEO_AGENT_MODE=1` environment variable
-  - Single-line JSON output prevents truncation ("+N lines" issue)
-  - Agents see full error including suggestion and fix commands
-  - Also triggered by `CLEO_COMPACT_JSON=1` or non-TTY output
+- **Compact JSON Output by Default** - All JSON output is now single-line
+  - Prevents truncation issues ("+N lines") that caused agents to miss error details
+  - Agents always see full error including suggestion and fix commands
+  - Humans can pipe through `| jq .` for pretty output if needed
 
 - **`output_error_actionable()` function** in `lib/error-json.sh`
   - Enhanced error output with fix, alternatives, and context parameters

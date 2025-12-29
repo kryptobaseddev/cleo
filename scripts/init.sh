@@ -122,8 +122,9 @@ Exit Codes:
 Creates:
   .cleo/todo.json         Active tasks
   .cleo/todo-archive.json Completed tasks
-  .cleo/config.json  Configuration
+  .cleo/config.json       Configuration
   .cleo/todo-log.json     Change history
+  .cleo/sessions.json     Multi-session management
   .cleo/schemas/          JSON Schema files
   .cleo/.backups/         Backup directory
 
@@ -668,6 +669,23 @@ else
   exit 1
 fi
 
+# Create sessions.json from template (for Epic-Bound Session architecture)
+log_info "Creating sessions.json from template..."
+if [[ -f "$TEMPLATES_DIR/sessions.template.json" ]]; then
+  cp "$TEMPLATES_DIR/sessions.template.json" "$TODO_DIR/sessions.json"
+
+  # Substitute placeholders
+  sed -i "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TODO_DIR/sessions.json"
+  sed -i "s/{{TIMESTAMP}}/$TIMESTAMP/g" "$TODO_DIR/sessions.json"
+
+  # Fix schema path from relative to local
+  sed -i 's|"\$schema": "../schemas/sessions.schema.json"|"$schema": "./schemas/sessions.schema.json"|' "$TODO_DIR/sessions.json"
+
+  log_info "Created $TODO_DIR/sessions.json"
+else
+  log_warn "Template not found: $TEMPLATES_DIR/sessions.template.json (multi-session will initialize on first use)"
+fi
+
 # Recalculate checksum from actual tasks array to ensure validity
 log_info "Recalculating checksum from actual tasks array..."
 if command -v jq &> /dev/null && [[ -f "$TODO_DIR/todo.json" ]]; then
@@ -685,7 +703,7 @@ fi
 # Validate created files
 log_info "Validating created files..."
 if command -v jq &> /dev/null; then
-  # Validate JSON syntax
+  # Validate JSON syntax for required files
   for file in "$TODO_DIR/todo.json" "$TODO_DIR/todo-archive.json" "$TODO_DIR/config.json" "$TODO_DIR/todo-log.json"; do
     if jq empty "$file" 2>/dev/null; then
       log_info "✓ Valid JSON: $(basename "$file")"
@@ -694,6 +712,15 @@ if command -v jq &> /dev/null; then
       exit 1
     fi
   done
+  # Validate optional sessions.json if it was created
+  if [[ -f "$TODO_DIR/sessions.json" ]]; then
+    if jq empty "$TODO_DIR/sessions.json" 2>/dev/null; then
+      log_info "✓ Valid JSON: sessions.json"
+    else
+      log_error "✗ Invalid JSON: $TODO_DIR/sessions.json"
+      exit 1
+    fi
+  fi
 else
   log_warn "jq not installed - skipping JSON validation"
 fi
@@ -758,6 +785,8 @@ CREATED_FILES=(
   "config.json"
   "todo-log.json"
 )
+# Only include sessions.json if it was actually created
+[[ -f "$TODO_DIR/sessions.json" ]] && CREATED_FILES+=("sessions.json")
 
 if [[ "$FORMAT" == "json" ]]; then
   # JSON output
@@ -793,8 +822,9 @@ else
   echo "Files created in .cleo/:"
   echo "  - .cleo/todo.json         (active tasks)"
   echo "  - .cleo/todo-archive.json (completed tasks)"
-  echo "  - .cleo/config.json  (settings)"
+  echo "  - .cleo/config.json       (settings)"
   echo "  - .cleo/todo-log.json     (change history)"
+  echo "  - .cleo/sessions.json     (multi-session management)"
   echo "  - .cleo/schemas/          (JSON schemas for validation)"
   echo "  - .cleo/backups/          (automatic backups)"
   echo "    ├── snapshot/             (point-in-time snapshots)"

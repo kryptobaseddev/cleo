@@ -67,18 +67,6 @@ This document defines all exit codes used by cleo CLI and the retry protocol for
 
 ---
 
-## Agent Environment Setup
-
-For optimal LLM agent integration, set these environment variables:
-
-```bash
-export CLEO_AGENT_MODE=1    # Compact single-line JSON (prevents output truncation)
-export CLEO_FORMAT=json     # Explicit JSON format
-export NO_COLOR=1           # Disable ANSI colors
-```
-
-**CLEO_AGENT_MODE=1** enables compact JSON output so error messages fit in a single line, preventing the "+N lines" truncation that causes agents to miss critical error details like `error.suggestion`.
-
 ## Retry Protocol for LLM Agents
 
 LLM agents **SHOULD** implement retry logic for recoverable errors using exponential backoff.
