@@ -43,6 +43,11 @@ if [[ -f "$_LIB_DIR/exit-codes.sh" ]]; then
     source "$_LIB_DIR/exit-codes.sh"
 fi
 
+# Source error-json for LLM-agent-first structured error output
+if [[ -f "$_LIB_DIR/error-json.sh" ]]; then
+    source "$_LIB_DIR/error-json.sh"
+fi
+
 # ============================================================================
 # CONSTANTS
 # ============================================================================
@@ -735,7 +740,21 @@ resume_session() {
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
-        echo "Error: Session not found: $session_id" >&2
+
+        # LLM-Agent-First: Provide actionable error with fix command
+        local context_json
+        context_json=$(jq -nc --arg sid "$session_id" '{"requestedSessionId": $sid}')
+
+        output_error_actionable \
+            "E_SESSION_NOT_FOUND" \
+            "Session not found: $session_id" \
+            "${EXIT_SESSION_NOT_FOUND:-31}" \
+            "true" \
+            "Session $session_id does not exist. List available sessions to find the correct ID." \
+            "cleo session list" \
+            "$context_json" \
+            '[{"action": "List all sessions", "command": "cleo session list"}, {"action": "List active sessions", "command": "cleo session list --status active"}, {"action": "Start new session", "command": "cleo session start --scope epic:<EPIC_ID>"}]'
+
         return ${EXIT_SESSION_NOT_FOUND:-31}
     fi
 
@@ -748,7 +767,44 @@ resume_session() {
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
-        echo "Error: Session cannot be resumed (status: $session_status)" >&2
+
+        # LLM-Agent-First: Provide actionable error with fix command
+        local scope_info focus_info
+        scope_info=$(echo "$session_info" | jq -r '.scope | "\(.type):\(.rootTaskId // "N/A")"')
+        focus_info=$(echo "$session_info" | jq -r '.focus.currentTask // "none"')
+
+        local context_json
+        context_json=$(jq -nc \
+            --arg sid "$session_id" \
+            --arg status "$session_status" \
+            --arg scope "$scope_info" \
+            --arg focus "$focus_info" \
+            '{
+                "sessionId": $sid,
+                "status": $status,
+                "scope": $scope,
+                "focusedTask": $focus
+            }')
+
+        local alternatives_json
+        alternatives_json=$(jq -nc \
+            --arg sid "$session_id" \
+            '[
+                {"action": "Run command directly", "command": "Session is active - just run your command without session start/resume"},
+                {"action": "Check session status", "command": "cleo session status"},
+                {"action": "Switch to this session", "command": ("cleo session switch " + $sid)}
+            ]')
+
+        output_error_actionable \
+            "E_SESSION_RESUME_FAILED" \
+            "Session cannot be resumed (status: $session_status). Session is already active - run your command directly." \
+            "${EXIT_SESSION_EXISTS:-30}" \
+            "true" \
+            "Session $session_id is already active. You don't need to resume it - just run your command." \
+            "cleo session status" \
+            "$context_json" \
+            "$alternatives_json"
+
         return ${EXIT_SESSION_EXISTS:-30}
     fi
 

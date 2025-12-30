@@ -92,6 +92,7 @@ OUTPUT_MODE="json"
 AUTO_FOCUS=false
 QUIET=false
 COMMAND_NAME="analyze"
+PARENT_ID=""  # Epic scoping: filter to parent and all descendants
 
 # File paths
 CLEO_DIR=".cleo"
@@ -137,6 +138,7 @@ Analyze task dependencies and identify high-leverage work.
 Default output is LLM-optimized JSON with comprehensive analysis.
 
 Options:
+    --parent ID     Scope analysis to epic/task and all descendants
     --human         Human-readable text output (brief summary)
     --full          Comprehensive human-readable report with all tiers
     --auto-focus    Automatically set focus to recommended task
@@ -151,6 +153,11 @@ Analysis Components:
     action_order:   Suggested sequence of tasks to maximize throughput
     recommendation: Single best task to start with reasoning
 
+Epic-Scoped Analysis (--parent):
+    phases:         Progress and waves grouped by phase
+    inventory:      Tasks categorized as completed/ready/blocked
+    executionPlan:  Critical path and parallel execution waves
+
 Output Modes:
     JSON (default):   LLM-optimized structured data for autonomous agents
     Human (--human):  Brief summary for quick human review
@@ -158,6 +165,8 @@ Output Modes:
 
 Examples:
     cleo analyze                    # JSON output (LLM default)
+    cleo analyze --parent T998      # Epic-scoped analysis
+    cleo analyze --parent T998 --human  # Epic analysis with ASCII viz
     cleo analyze --human            # Brief human-readable
     cleo analyze --full             # Detailed human-readable
     cleo analyze --auto-focus       # Analyze and set focus
@@ -188,6 +197,787 @@ get_colors() {
     NC='\033[0m'
   else
     RED='' GREEN='' YELLOW='' BLUE='' CYAN='' MAGENTA='' BOLD='' DIM='' NC=''
+  fi
+}
+
+#####################################################################
+# Epic-Scoped Analysis Functions
+#####################################################################
+
+# Get all tasks scoped to a parent (parent + all descendants)
+# Arguments:
+#   $1 - Path to todo.json file
+#   $2 - Parent task ID
+# Outputs:
+#   JSON array of scoped tasks
+get_scoped_tasks() {
+  local todo_file="$1"
+  local parent_id="$2"
+
+  jq --arg parent "$parent_id" '
+    # Build parent-child relationships
+    .tasks as $all_tasks |
+
+    # Recursive function to collect all descendant IDs
+    def collect_descendants($id):
+      [$all_tasks[] | select(.parentId == $id) | .id] as $children |
+      if ($children | length) == 0 then []
+      else $children + [$children[] | collect_descendants(.) | .[]]
+      end;
+
+    # Get parent task + all descendants
+    [$parent] + collect_descendants($parent) | unique as $scoped_ids |
+
+    # Filter tasks to scoped set
+    [$all_tasks[] | select(.id as $id | $scoped_ids | index($id))]
+  ' "$todo_file"
+}
+
+# Run epic-scoped analysis with full schema output
+# Arguments:
+#   $1 - Path to todo.json file
+#   $2 - Parent task ID (epic root)
+# Outputs:
+#   JSON object with epic analysis (phases, waves, inventory, execution plan)
+run_epic_analysis() {
+  local todo_file="$1"
+  local parent_id="$2"
+
+  jq --arg parent "$parent_id" --arg version "$VERSION" '
+    # ================================================================
+    # SETUP: Filter to scoped tasks
+    # ================================================================
+
+    .tasks as $all_tasks |
+
+    # Recursive function to collect all descendant IDs
+    def collect_descendants($id):
+      [$all_tasks[] | select(.parentId == $id) | .id] as $children |
+      if ($children | length) == 0 then []
+      else $children + [$children[] | collect_descendants(.) | .[]]
+      end;
+
+    # Get parent task + all descendants
+    ([$parent] + collect_descendants($parent) | unique) as $scoped_ids |
+
+    # Filter tasks to scoped set
+    [$all_tasks[] | select(.id as $id | $scoped_ids | index($id))] as $scoped_tasks |
+
+    # Get the epic (parent) task info
+    ($scoped_tasks[] | select(.id == $parent)) as $epic_task |
+
+    # Build lookup maps
+    (reduce $scoped_tasks[] as $t ({}; .[$t.id] = $t)) as $lookup |
+    ([.tasks[] | select(.status == "done") | .id]) as $done_ids |
+
+    # ================================================================
+    # WAVE COMPUTATION: Calculate dependency depth
+    # ================================================================
+
+    # Compute waves within scoped tasks
+    # Wave 0 = no in-scope deps, Wave N = max(dep waves) + 1
+    # NOTE: Use any(. == $x) instead of index($x) because in jq, index() returns
+    # a numeric index (0, 1, 2...) and 0 is falsy in boolean context, causing
+    # elements at index 0 to incorrectly fail the filter.
+    def compute_wave($id; $memo; $visiting):
+      if ($memo | has($id)) then $memo
+      elif ($visiting | any(. == $id)) then $memo | .[$id] = 0  # Cycle - treat as 0
+      elif ($lookup[$id].status == "done") then $memo | .[$id] = -1
+      else
+        ($lookup[$id].depends // []) as $deps |
+        # Filter to in-scope, non-done dependencies
+        # Use any(. == $d) for proper boolean membership test
+        [$deps[] | select(
+          (. as $d | $scoped_ids | any(. == $d)) and
+          (. as $d | $done_ids | any(. == $d) | not)
+        )] as $active_deps |
+
+        if ($active_deps | length) == 0 then
+          $memo | .[$id] = 0
+        else
+          # Compute waves for all deps first (with cycle detection)
+          (reduce $active_deps[] as $dep ($memo;
+            compute_wave($dep; .; $visiting + [$id])
+          )) as $updated_memo |
+          # Max dep wave + 1
+          ([$active_deps[] | $updated_memo[.] // 0] | max + 1) as $wave |
+          $updated_memo | .[$id] = $wave
+        end
+      end;
+
+    (reduce $scoped_ids[] as $id ({}; compute_wave($id; .; []))) as $waves |
+
+    # ================================================================
+    # PHASE GROUPING: Group tasks by phase with progress
+    # ================================================================
+
+    # Phase order mapping
+    {"setup": 1, "core": 2, "testing": 3, "polish": 4, "maintenance": 5} as $phase_order |
+
+    # Exclude the epic itself from child counts, group remaining by phase
+    [$scoped_tasks[] | select(.id != $parent)] as $child_tasks |
+
+    ($child_tasks | group_by(.phase // "core") | map({
+      phase: (.[0].phase // "core"),
+      displayOrder: ($phase_order[.[0].phase // "core"] // 99),
+      tasks: .,
+      progress: {
+        done: ([.[] | select(.status == "done")] | length),
+        total: (. | length),
+        percent: (if (. | length) == 0 then 0 else (([.[] | select(.status == "done")] | length) * 100 / (. | length) | floor) end)
+      },
+      status: (
+        if ([.[] | select(.status == "done")] | length) == (. | length) then "complete"
+        elif ([.[] | select(.status == "done")] | length) > 0 then "in_progress"
+        else "pending"
+        end
+      ),
+      waves: (
+        . as $phase_tasks |
+        [.[] | . + {wave: ($waves[.id] // 0)}] |
+        group_by(.wave) |
+        [.[] | select(.[0].wave >= 0) | {
+          depth: .[0].wave,
+          tasks: [.[].id],
+          status: (
+            if all(.[]; .status == "done") then "complete"
+            elif any(.[]; .status == "done") then "partial"
+            else "pending"
+            end
+          )
+        }] | sort_by(.depth)
+      )
+    }) | sort_by(.displayOrder)) as $phases |
+
+    # ================================================================
+    # INVENTORY: Categorize tasks
+    # ================================================================
+
+    # Reverse dependency map (who depends on each task)
+    (reduce $scoped_tasks[] as $task ({};
+      if $task.depends then
+        reduce $task.depends[] as $dep (.;
+          .[$dep] += [$task.id]
+        )
+      else . end
+    )) as $reverse_deps |
+
+    {
+      completed: [$child_tasks[] | select(.status == "done") | {
+        id: .id,
+        title: .title,
+        phase: (.phase // "core"),
+        completedAt: .completedAt,
+        depends: (.depends // [])
+      }],
+      ready: [$child_tasks[] | select(.status != "done") | select(
+        (.depends == null) or (.depends | length == 0) or
+        ((.depends // []) | all(. as $d | $done_ids | index($d)))
+      ) | {
+        id: .id,
+        title: .title,
+        phase: (.phase // "core"),
+        priority: (.priority // "medium"),
+        depends: (.depends // []),
+        unlocks: (($reverse_deps[.id] // []) | length),
+        reason: (
+          if (.depends == null) or (.depends | length == 0) then "No dependencies"
+          else "All dependencies satisfied"
+          end
+        )
+      }] | sort_by(-.unlocks),
+      blocked: [$child_tasks[] | select(.status != "done") | select(
+        (.depends != null) and (.depends | length > 0) and
+        ((.depends // []) | any(. as $d | $done_ids | index($d) | not))
+      ) | {
+        id: .id,
+        title: .title,
+        phase: (.phase // "core"),
+        priority: (.priority // "medium"),
+        depends: (.depends // []),
+        waitingOn: [(.depends // [])[] | select(. as $d | $done_ids | index($d) | not)],
+        chainDepth: ($waves[.id] // 0)
+      }]
+    } as $inventory |
+
+    # ================================================================
+    # EXECUTION PLAN: Critical path and waves
+    # ================================================================
+
+    # Find task with maximum wave (longest chain endpoint)
+    ([$child_tasks[] | select(.status != "done") | {id: .id, wave: ($waves[.id] // 0)}] |
+      sort_by(-.wave) | .[0]) as $deepest |
+
+    # Build critical path by tracing back from deepest
+    # NOTE: Use explicit variable binding (. as $d) because in jq, bare dot inside
+    # nested filters like select($arr | index($d)) does not correctly reference the
+    # current iteration item - it references the filters input instead.
+    (if $deepest then
+      def trace_path($id; $path):
+        $lookup[$id] as $task |
+        # Filter deps to those in scope - use any(. == $d) for proper boolean test
+        [($task.depends // [])[] | . as $d | select($scoped_ids | any(. == $d))] as $scope_deps |
+        # Filter to active (non-done) deps
+        [$scope_deps[] | . as $d | select($done_ids | any(. == $d) | not)] as $active_deps |
+        if ($active_deps | length) == 0 then $path
+        else
+          # Find dep with highest wave
+          ($active_deps | map({id: ., wave: ($waves[.] // 0)}) | sort_by(-.wave) | .[0].id) as $next |
+          trace_path($next; [$lookup[$next]] + $path)
+        end;
+      trace_path($deepest.id; [$lookup[$deepest.id]])
+    else [] end) as $critical_path |
+
+    # Group ALL pending tasks into execution waves (ready + blocked)
+    # Wave numbering: wave 0 = ready to start, wave N = depends on wave N-1
+    ([$child_tasks[] | select(.status != "done") | {id: .id, wave: ($waves[.id] // 0)}] |
+      group_by(.wave) | sort_by(.[0].wave) | map({
+        wave: .[0].wave,
+        parallel: [.[].id],
+        count: (. | length),
+        status: (if .[0].wave == 0 then "ready" else "blocked" end)
+      })) as $exec_waves |
+
+    {
+      summary: {
+        totalWaves: ($exec_waves | length),
+        criticalPathLength: ($critical_path | length),
+        parallelOpportunities: ([$exec_waves[] | select(.count > 1)] | length)
+      },
+      criticalPath: {
+        path: [$critical_path[] | {id: .id, title: .title, phase: (.phase // "core")}],
+        length: ($critical_path | length),
+        entryTask: (if ($critical_path | length) > 0 then $critical_path[0].id else null end)
+      },
+      waves: $exec_waves,
+      recommendation: (
+        if ($inventory.ready | length) > 0 then
+          ($inventory.ready | sort_by(-.unlocks) | .[0]) as $best |
+          {
+            nextTask: $best.id,
+            reason: (if $best.unlocks > 0 then "Unblocks \($best.unlocks) tasks" else "Ready to start" end),
+            command: "ct focus set \($best.id)"
+          }
+        else null end
+      )
+    } as $execution_plan |
+
+    # ================================================================
+    # FINAL OUTPUT
+    # ================================================================
+
+    {
+      "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+      "_meta": {
+        "format": "json",
+        "version": $version,
+        "command": "analyze --parent",
+        "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        "algorithm": "epic_scoped_analysis",
+        "scope": {
+          "type": "epic",
+          "rootTaskId": $parent,
+          "includesRoot": true
+        }
+      },
+      "success": true,
+
+      "epic": {
+        "id": $epic_task.id,
+        "title": $epic_task.title,
+        "type": ($epic_task.type // "epic"),
+        "status": $epic_task.status,
+        "priority": ($epic_task.priority // "high"),
+        "phase": ($epic_task.phase // "core"),
+        "progress": {
+          "done": ([$child_tasks[] | select(.status == "done")] | length),
+          "total": ($child_tasks | length),
+          "percent": (if ($child_tasks | length) == 0 then 0 else (([$child_tasks[] | select(.status == "done")] | length) * 100 / ($child_tasks | length) | floor) end),
+          "byStatus": (reduce $child_tasks[] as $t ({};
+            .[$t.status] = ((.[$t.status] // 0) + 1)
+          ))
+        }
+      },
+
+      "phases": $phases,
+
+      "inventory": $inventory,
+
+      "executionPlan": $execution_plan,
+
+      "summary": {
+        "totalTasks": ($child_tasks | length),
+        "byStatus": (reduce $child_tasks[] as $t ({};
+          .[$t.status] = ((.[$t.status] // 0) + 1)
+        )),
+        "byPhase": (reduce $phases[] as $p ({};
+          .[$p.phase] = {done: $p.progress.done, total: $p.progress.total}
+        )),
+        "readyCount": ($inventory.ready | length),
+        "blockedCount": ($inventory.blocked | length),
+        "criticalPathLength": ($critical_path | length)
+      }
+    }
+  ' "$todo_file"
+}
+
+# Render a linear chain with arrows (for chains with single root)
+# Format: ✅T001 → ✅T002 → ⏳T003
+# Arguments:
+#   $1 - JSON array of task details
+render_chain_linear() {
+  local task_details="$1"
+
+  # Build dependency-ordered list using topological sort
+  # Start from root (no deps), follow children
+  local ordered_output
+  ordered_output=$(echo "$task_details" | jq -r '
+    # Build adjacency: task -> children
+    (reduce .[] as $t ({}; .[$t.id] = $t.children)) as $children_map |
+    (reduce .[] as $t ({}; .[$t.id] = $t)) as $lookup |
+
+    # Find root (no deps)
+    [.[] | select(.deps | length == 0) | .id][0] as $root |
+
+    # BFS from root to build order
+    def bfs_order($start):
+      {queue: [$start], visited: [$start], order: [$start]} |
+      until(.queue | length == 0;
+        . as $state |
+        $state.queue[0] as $current |
+        $state.queue[1:] as $rest |
+        (($children_map[$current] // []) | sort) as $kids |
+        # Filter kids not in visited - use explicit $state reference
+        ([$kids[] | select(. as $k | $state.visited | index($k) | not)]) as $new_nodes |
+        {
+          queue: ($rest + $new_nodes),
+          visited: ($state.visited + $new_nodes),
+          order: ($state.order + $new_nodes)
+        }
+      ) | .order;
+
+    if $root then
+      bfs_order($root) | map(
+        . as $id |
+        $lookup[$id] |
+        (if .status == "done" then "✅" else "⏳" end) + .id
+      ) | join(" → ")
+    else
+      # Fallback: just list by ID
+      [.[] | (if .status == "done" then "✅" else "⏳" end) + .id] | sort | join(" → ")
+    end
+  ')
+
+  echo "  $ordered_output"
+}
+
+# Render a tree-structured chain (for chains with multiple roots or branching)
+# Format with branching arrows:
+#   ✅T001 ─┬→ ⏳T002 → ⏳T004
+#           └→ ⏳T003 → ⏳T005
+# Arguments:
+#   $1 - JSON array of task details
+#   $2 - JSON array of root task IDs
+render_chain_tree() {
+  local task_details="$1"
+  local roots_json="$2"
+
+  # For complex chains, render as a dependency list with branching indicators
+  echo "$task_details" | jq -r --argjson roots "$roots_json" '
+    # Build maps
+    (reduce .[] as $t ({}; .[$t.id] = $t)) as $lookup |
+    (reduce .[] as $t ({}; .[$t.id] = $t.children)) as $children_map |
+
+    # Status icon helper
+    def icon: if .status == "done" then "✅" else "⏳" end;
+
+    # Render function for a subtree
+    def render_subtree($id; $prefix; $is_last):
+      $lookup[$id] as $task |
+      ($task | icon) as $status_icon |
+      ($children_map[$id] // []) | sort as $kids |
+
+      # Current node
+      ($prefix + $status_icon + $id) as $line |
+
+      if ($kids | length) == 0 then
+        [$line]
+      elif ($kids | length) == 1 then
+        # Single child - continue on same line
+        [$line + " → " + ($lookup[$kids[0]] | icon) + $kids[0]] +
+        (if ($children_map[$kids[0]] // []) | length > 0 then
+          render_subtree($kids[0]; $prefix + "        "; true) | .[1:]
+        else [] end)
+      else
+        # Multiple children - branch
+        [$line + " ─┬→ " + ($lookup[$kids[0]] | icon) + $kids[0]] +
+        (if ($children_map[$kids[0]] // []) | length > 0 then
+          render_subtree($kids[0]; $prefix + "   │     "; false) | .[1:]
+        else [] end) +
+        ([$kids[1:-1][] | . as $kid |
+          $prefix + "   ├→ " + ($lookup[$kid] | icon) + $kid
+        ]) +
+        (if ($kids | length) > 1 then
+          [$prefix + "   └→ " + ($lookup[$kids[-1]] | icon) + $kids[-1]] +
+          (if ($children_map[$kids[-1]] // []) | length > 0 then
+            render_subtree($kids[-1]; $prefix + "         "; true) | .[1:]
+          else [] end)
+        else [] end)
+      end;
+
+    # Render from each root
+    if ($roots | length) == 1 then
+      render_subtree($roots[0]; "  "; true) | .[]
+    else
+      # Multiple roots - render each
+      [$roots[] | . as $root |
+        render_subtree($root; "  "; true)
+      ] | add | .[]
+    end
+  '
+}
+
+# Output epic analysis in human-readable format
+# Arguments:
+#   $1 - Path to todo.json file
+#   $2 - Parent task ID (epic root)
+output_epic_human() {
+  get_colors
+
+  local todo_file="$1"
+  local parent_id="$2"
+  local analysis
+  analysis=$(run_epic_analysis "$todo_file" "$parent_id")
+
+  local unicode
+  detect_unicode_support 2>/dev/null && unicode="true" || unicode="false"
+
+  # Epic header
+  local epic_title epic_progress_done epic_progress_total epic_progress_pct
+  epic_title=$(echo "$analysis" | jq -r '.epic.title')
+  epic_progress_done=$(echo "$analysis" | jq -r '.epic.progress.done')
+  epic_progress_total=$(echo "$analysis" | jq -r '.epic.progress.total')
+  epic_progress_pct=$(echo "$analysis" | jq -r '.epic.progress.percent')
+
+  echo ""
+  if [[ "$unicode" == "true" ]]; then
+    echo -e "${BOLD}═══════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}📊 EPIC ANALYSIS: ${parent_id}${NC}"
+    echo -e "${BOLD}═══════════════════════════════════════════════════════════════════${NC}"
+  else
+    echo -e "${BOLD}====================================================================${NC}"
+    echo -e "${BOLD}EPIC ANALYSIS: ${parent_id}${NC}"
+    echo -e "${BOLD}====================================================================${NC}"
+  fi
+  echo ""
+  echo -e "${BOLD}$epic_title${NC}"
+  echo -e "Progress: ${GREEN}$epic_progress_done${NC}/$epic_progress_total tasks (${epic_progress_pct}%)"
+  echo ""
+
+  # Phase breakdown with wave details
+  echo -e "${BOLD}${CYAN}PHASES${NC}"
+  if [[ "$unicode" == "true" ]]; then
+    echo -e "───────────────────────────────────────────────────────────────────"
+  else
+    echo -e "-------------------------------------------------------------------"
+  fi
+
+  # Render phases with waves using jq for efficient single-pass rendering
+  # This avoids nested while loops with large JSON data
+  local phases_output
+  phases_output=$(echo "$analysis" | jq -r --arg green "$GREEN" --arg yellow "$YELLOW" --arg dim "$DIM" --arg nc "$NC" '
+    .phases[] |
+    # Status icon and text
+    (if .status == "complete" then {icon: ($green + "✓" + $nc), text: "COMPLETE"}
+     elif .status == "in_progress" then {icon: ($yellow + "→" + $nc), text: "IN PROGRESS"}
+     elif .status == "pending" then {icon: ($dim + "○" + $nc), text: "PENDING"}
+     else {icon: " ", text: ""} end) as $st |
+
+    # Phase header
+    "\n\($st.icon) PHASE: \(.phase | ascii_upcase) (\($st.text) \(.progress.done)/\(.progress.total))",
+
+    # Waves within phase
+    ((.waves | length) as $wave_count |
+     if $wave_count > 0 then
+      .waves | sort_by(.depth) | to_entries[] |
+      (if .key == ($wave_count - 1) then "└─" else "├─" end) as $branch |
+      (if .value.status == "complete" then ($green + "✓" + $nc)
+       elif .value.status == "partial" then ($yellow + "~" + $nc)
+       elif .value.status == "pending" then ($dim + "○" + $nc)
+       else " " end) as $wave_icon |
+      (if .value.depth == 0 then "no dependencies"
+       else "depends on Wave \(.value.depth - 1)" end) as $wave_desc |
+      "   \($branch) Wave \(.value.depth): \($wave_icon) \(.value.tasks | join(", ")) (\($wave_desc))"
+    else empty end)
+  ')
+
+  echo -e "$phases_output"
+  echo ""
+
+  # Ready tasks
+  local ready_count
+  ready_count=$(echo "$analysis" | jq '.inventory.ready | length')
+  echo -e "${BOLD}${GREEN}READY TO START${NC} ${DIM}($ready_count tasks)${NC}"
+  if [[ "$unicode" == "true" ]]; then
+    echo -e "───────────────────────────────────────────────────────────────────"
+  else
+    echo -e "-------------------------------------------------------------------"
+  fi
+
+  if [[ "$ready_count" -gt 0 ]]; then
+    echo "$analysis" | jq -r '.inventory.ready[0:5][] | "  \(.id) [\(.priority)] \(.title) (unlocks: \(.unlocks))"'
+    if [[ "$ready_count" -gt 5 ]]; then
+      echo -e "  ${DIM}... and $((ready_count - 5)) more${NC}"
+    fi
+  else
+    echo -e "  ${DIM}No ready tasks${NC}"
+  fi
+  echo ""
+
+  # Blocked tasks
+  local blocked_count
+  blocked_count=$(echo "$analysis" | jq '.inventory.blocked | length')
+  if [[ "$blocked_count" -gt 0 ]]; then
+    echo -e "${BOLD}${RED}BLOCKED${NC} ${DIM}($blocked_count tasks)${NC}"
+    if [[ "$unicode" == "true" ]]; then
+      echo -e "───────────────────────────────────────────────────────────────────"
+    else
+      echo -e "-------------------------------------------------------------------"
+    fi
+    echo "$analysis" | jq -r '.inventory.blocked[0:5][] | "  \(.id) [\(.priority)] \(.title) → waiting on: \(.waitingOn | join(", "))"'
+    if [[ "$blocked_count" -gt 5 ]]; then
+      echo -e "  ${DIM}... and $((blocked_count - 5)) more${NC}"
+    fi
+    echo ""
+  fi
+
+  # Execution plan
+  echo -e "${BOLD}${MAGENTA}EXECUTION PLAN${NC}"
+  if [[ "$unicode" == "true" ]]; then
+    echo -e "───────────────────────────────────────────────────────────────────"
+  else
+    echo -e "-------------------------------------------------------------------"
+  fi
+
+  local critical_length
+  critical_length=$(echo "$analysis" | jq -r '.executionPlan.criticalPath.length')
+  echo -e "  Critical path length: ${BOLD}$critical_length${NC} tasks"
+
+  # Show execution waves
+  local wave_count
+  wave_count=$(echo "$analysis" | jq '.executionPlan.waves | length')
+  if [[ "$wave_count" -gt 0 ]]; then
+    echo ""
+    echo -e "  ${CYAN}Execution Waves:${NC}"
+    echo "$analysis" | jq -r '.executionPlan.waves[0:5][] | "    Wave \(.wave): \(.parallel | join(", ")) (\(.count) parallel)"'
+  fi
+  echo ""
+
+  # Recommendation
+  local rec_task rec_reason
+  rec_task=$(echo "$analysis" | jq -r '.executionPlan.recommendation.nextTask // empty')
+  if [[ -n "$rec_task" ]]; then
+    rec_reason=$(echo "$analysis" | jq -r '.executionPlan.recommendation.reason')
+    echo -e "${BOLD}${GREEN}RECOMMENDATION${NC}"
+    echo -e "  ${CYAN}→ ct focus set $rec_task${NC}"
+    echo -e "  ${DIM}$rec_reason${NC}"
+    echo ""
+  fi
+
+  # Dependency Chains Section
+  # Computed at render time from depends[] edges (not stored)
+  # Per TASK-HIERARCHY-SPEC Part 8: Find connected components, identify roots, render ASCII
+
+  local chains_json
+  chains_json=$(echo "$analysis" | jq '
+    # ================================================================
+    # CHAIN COMPUTATION: Connected Components Algorithm
+    # Per TASK-HIERARCHY-SPEC Part 8: Chains are COMPUTED, not stored
+    # ================================================================
+
+    # Collect all scoped tasks (completed + ready + blocked, exclude epic itself)
+    # IMPORTANT: Use .depends (original dependency array) for chain computation,
+    # NOT .waitingOn (filtered to active deps only). Chain detection needs ALL edges.
+    (
+      [.inventory.completed[]? | {id: .id, title: .title, status: "done", phase: .phase, depends: .depends}] +
+      [.inventory.ready[]? | {id: .id, title: .title, status: "pending", phase: .phase, depends: .depends}] +
+      [.inventory.blocked[]? | {id: .id, title: .title, status: "pending", phase: .phase, depends: .depends}]
+    ) | unique_by(.id) as $all_tasks |
+
+    # Handle empty case
+    if ($all_tasks | length) == 0 then
+      {chains: [], totalChains: 0, totalTasks: 0}
+    else
+      # Build scoped task ID set
+      [$all_tasks[].id] as $scope_ids |
+
+      # Build lookup map for task info
+      (reduce $all_tasks[] as $t ({}; .[$t.id] = $t)) as $lookup |
+
+      # Build bidirectional adjacency for component detection
+      # Forward: task -> tasks it depends on (filtered to scope)
+      (reduce $all_tasks[] as $t ({};
+        .[$t.id] = (($t.depends // []) | map(select(. as $d | $scope_ids | index($d))))
+      )) as $forward_deps |
+
+      # Reverse: task -> tasks that depend on it
+      (reduce $all_tasks[] as $t ({};
+        reduce ($t.depends // [])[] as $dep (.;
+          if ($scope_ids | index($dep)) then
+            .[$dep] += [$t.id]
+          else . end
+        )
+      )) as $reverse_deps |
+
+      # Bidirectional adjacency: union of forward and reverse edges
+      (reduce $scope_ids[] as $id ({};
+        .[$id] = ((($forward_deps[$id] // []) + ($reverse_deps[$id] // [])) | unique)
+      )) as $adj |
+
+      # BFS to find connected component from a starting node
+      def bfs_component($start; $all_visited):
+        if ($all_visited | index($start)) then {visited: $all_visited, component: []}
+        else
+          # BFS queue-based traversal
+          {queue: [$start], visited: ($all_visited + [$start]), component: [$start]} |
+          until(.queue | length == 0;
+            . as $state |
+            $state.queue[0] as $current |
+            $state.queue[1:] as $rest |
+            ($adj[$current] // []) as $neighbors |
+            # Filter neighbors not yet visited - use $state to access .visited
+            ([$neighbors[] | select(. as $n | $state.visited | index($n) | not)]) as $new_nodes |
+            {
+              queue: ($rest + $new_nodes),
+              visited: ($state.visited + $new_nodes),
+              component: ($state.component + $new_nodes)
+            }
+          ) | {visited: .visited, component: (.component | unique | sort)}
+        end;
+
+      # Find all connected components
+      (reduce $scope_ids[] as $id ({visited: [], components: []};
+        if (.visited | index($id)) then .
+        else
+          bfs_component($id; .visited) as $result |
+          if ($result.component | length) > 0 then
+            {
+              visited: $result.visited,
+              components: (.components + [$result.component])
+            }
+          else
+            {visited: $result.visited, components: .components}
+          end
+        end
+      )) as $component_result |
+
+      # For each component, find roots (tasks with no deps within component)
+      ($component_result.components | map(. as $comp |
+        # Root = task where all its deps are outside the component (or no deps)
+        ($comp | map(select(
+          . as $id |
+          (($forward_deps[$id] // []) | map(select(. as $d | $comp | index($d)))) | length == 0
+        ))) as $roots |
+        {
+          tasks: $comp,
+          roots: $roots,
+          root: ($roots | sort | .[0] // $comp[0]),
+          taskCount: ($comp | length)
+        }
+      )) as $components_with_roots |
+
+      # Sort components by root ID and assign labels A, B, C...
+      ($components_with_roots | sort_by(.root) | to_entries | map(
+        .value + {
+          label: (65 + .key | [.] | implode),
+          rootTitle: ($lookup[.value.root].title // "Unknown")[:40]
+        }
+      )) as $labeled_chains |
+
+      # Build task details for rendering each chain
+      ($labeled_chains | map(. as $chain |
+        ($chain.tasks | map(. as $id | {
+          id: $id,
+          title: ($lookup[$id].title // "")[:35],
+          status: ($lookup[$id].status // "pending"),
+          phase: ($lookup[$id].phase // ""),
+          deps: (($forward_deps[$id] // []) | map(select(. as $d | $chain.tasks | index($d)))),
+          children: (($reverse_deps[$id] // []) | map(select(. as $d | $chain.tasks | index($d))))
+        }) | sort_by(.id)) as $task_details |
+        $chain + {taskDetails: $task_details}
+      )) |
+
+      # Return final chain data
+      {
+        chains: .,
+        totalChains: (. | length),
+        totalTasks: ([.[].taskCount] | add // 0)
+      }
+    end
+  ')
+
+  local chain_count total_tasks
+  chain_count=$(echo "$chains_json" | jq -r '.totalChains')
+  total_tasks=$(echo "$chains_json" | jq -r '.totalTasks')
+
+  if [[ "$chain_count" -gt 0 ]]; then
+    echo -e "${BOLD}${BLUE}DEPENDENCY CHAINS${NC} ${DIM}(computed from depends[])${NC}"
+    if [[ "$unicode" == "true" ]]; then
+      echo -e "───────────────────────────────────────────────────────────────────"
+    else
+      echo -e "-------------------------------------------------------------------"
+    fi
+
+    # Render each chain with ASCII visualization
+    echo "$chains_json" | jq -r '.chains[] | @base64' | while read -r chain_b64; do
+      local chain_data label root_id root_title task_count
+      chain_data=$(echo "$chain_b64" | base64 -d)
+      label=$(echo "$chain_data" | jq -r '.label')
+      root_id=$(echo "$chain_data" | jq -r '.root')
+      root_title=$(echo "$chain_data" | jq -r '.rootTitle')
+      task_count=$(echo "$chain_data" | jq -r '.taskCount')
+
+      # Chain header with task count
+      echo -e "${YELLOW}CHAIN $label:${NC} ${DIM}$root_title ($task_count tasks)${NC}"
+
+      # Render chain as ASCII dependency flow
+      # Get task details for this chain
+      local task_details
+      task_details=$(echo "$chain_data" | jq -r '.taskDetails')
+
+      # Render using topological order with status icons
+      # Format: ✅T001 → ✅T002 → ⏳T003 for linear chains
+      # Or tree format for branching chains
+      local roots_in_chain num_roots
+      roots_in_chain=$(echo "$task_details" | jq -r '[.[] | select(.deps | length == 0) | .id]')
+      num_roots=$(echo "$roots_in_chain" | jq -r 'length')
+
+      if [[ "$task_count" -eq 1 ]]; then
+        # Single task chain - standalone
+        local single_id single_status single_icon
+        single_id=$(echo "$task_details" | jq -r '.[0].id')
+        single_status=$(echo "$task_details" | jq -r '.[0].status')
+        [[ "$single_status" == "done" ]] && single_icon="✅" || single_icon="⏳"
+        echo "  ${single_icon}${single_id}"
+      elif [[ "$num_roots" -eq 1 ]]; then
+        # Single root - render linear chain with arrows
+        render_chain_linear "$task_details"
+      else
+        # Multiple roots or complex - render tree structure
+        render_chain_tree "$task_details" "$roots_in_chain"
+      fi
+
+      echo ""
+    done
+
+    echo -e "${DIM}Note: Chains computed at render time from depends[] edges${NC}"
+    echo ""
+  fi
+
+  if [[ "$unicode" == "true" ]]; then
+    echo -e "${BOLD}═══════════════════════════════════════════════════════════════════${NC}"
+  else
+    echo -e "${BOLD}====================================================================${NC}"
   fi
 }
 
@@ -777,6 +1567,10 @@ output_full() {
 parse_arguments() {
   while [[ $# -gt 0 ]]; do
     case $1 in
+      --parent)
+        PARENT_ID="$2"
+        shift 2
+        ;;
       --human)
         OUTPUT_MODE="human"
         shift
@@ -856,7 +1650,57 @@ main() {
     fi
   fi
 
-  # Output in requested format
+  # Epic-scoped analysis mode (--parent)
+  if [[ -n "$PARENT_ID" ]]; then
+    # Validate parent task exists
+    local parent_exists
+    parent_exists=$(jq -r --arg id "$PARENT_ID" '.tasks[] | select(.id == $id) | .id' "$TODO_FILE")
+    if [[ -z "$parent_exists" ]]; then
+      if [[ "$OUTPUT_MODE" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
+        output_error "E_NOT_FOUND" "Parent task not found: $PARENT_ID" "${EXIT_NOT_FOUND:-4}" true "Use 'ct list --type epic' to see available epics"
+      else
+        log_error "Parent task not found: $PARENT_ID"
+      fi
+      exit "${EXIT_NOT_FOUND:-4}"
+    fi
+
+    # Run epic-scoped analysis
+    case "$OUTPUT_MODE" in
+      json)
+        run_epic_analysis "$TODO_FILE" "$PARENT_ID"
+        ;;
+      human|full)
+        output_epic_human "$TODO_FILE" "$PARENT_ID"
+        ;;
+    esac
+
+    # Auto-focus if requested (for epic mode)
+    if [[ "$AUTO_FOCUS" == "true" ]]; then
+      local analysis
+      analysis=$(run_epic_analysis "$TODO_FILE" "$PARENT_ID")
+      local rec_task
+      rec_task=$(echo "$analysis" | jq -r '.executionPlan.recommendation.nextTask // empty')
+
+      if [[ -n "$rec_task" ]]; then
+        if [[ "$OUTPUT_MODE" != "json" ]]; then
+          echo ""
+          echo "Setting focus to $rec_task..."
+        fi
+        "$SCRIPT_DIR/focus-command.sh" set "$rec_task" >/dev/null 2>&1
+
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+          echo ""
+          jq -nc --arg task "$rec_task" '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "auto_focus": {"set": $task, "status": "success"}
+          }'
+        fi
+      fi
+    fi
+    exit "$EXIT_SUCCESS"
+  fi
+
+  # Standard project-wide analysis
   case "$OUTPUT_MODE" in
     json)
       output_json "$TODO_FILE"

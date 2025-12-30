@@ -440,6 +440,10 @@ readonly E_SESSION_CLOSE_BLOCKED="E_SESSION_CLOSE_BLOCKED"
 readonly E_FOCUS_REQUIRED="E_FOCUS_REQUIRED"
 readonly E_NOTES_REQUIRED="E_NOTES_REQUIRED"
 
+# Additional session errors for LLM-agent-first design
+readonly E_SESSION_DISCOVERY_MODE="E_SESSION_DISCOVERY_MODE"
+readonly E_SESSION_RESUME_ACTIVE="E_SESSION_RESUME_ACTIVE"
+
 # General errors
 readonly E_UNKNOWN="E_UNKNOWN"
 readonly E_NOT_INITIALIZED="E_NOT_INITIALIZED"
@@ -574,6 +578,108 @@ get_session_error_message() {
     esac
 }
 
+# get_session_error_fix - Get copy-paste ready fix command for session errors
+#
+# Returns a concrete command that agents can execute to resolve the error.
+# This is the primary actionable field for LLM-agent-first design.
+#
+# Arguments:
+#   $1 - error_code : Error code string or exit code number
+#   $2 - context    : Optional context (e.g., session ID, task ID)
+#
+# Returns: Fix command string via stdout (empty if no specific fix)
+#
+get_session_error_fix() {
+    local error_code="$1"
+    local context="${2:-}"
+
+    case "$error_code" in
+        E_SESSION_EXISTS|30)
+            if [[ -n "$context" ]]; then
+                echo "cleo session status"
+            else
+                echo "cleo session status"
+            fi
+            ;;
+        E_SESSION_NOT_FOUND|31)
+            echo "cleo session list"
+            ;;
+        E_SCOPE_CONFLICT|32)
+            echo "cleo session list --status active"
+            ;;
+        E_SCOPE_INVALID|33)
+            echo "cleo list --type epic"
+            ;;
+        E_TASK_NOT_IN_SCOPE|34)
+            echo "cleo session status"
+            ;;
+        E_TASK_CLAIMED|35)
+            echo "cleo session list --status active"
+            ;;
+        E_SESSION_REQUIRED|36)
+            echo "cleo session start --scope epic:<EPIC_ID>"
+            ;;
+        E_SESSION_CLOSE_BLOCKED|37)
+            echo "cleo list --status pending"
+            ;;
+        E_FOCUS_REQUIRED|38)
+            echo "cleo focus set <task-id>"
+            ;;
+        E_NOTES_REQUIRED|39)
+            echo "cleo session end --note 'Your session summary'"
+            ;;
+        E_SESSION_DISCOVERY_MODE|100)
+            echo "cleo session status"
+            ;;
+        E_SESSION_RESUME_ACTIVE|30)
+            echo "cleo session status"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# get_session_error_alternatives - Get alternative actions for session errors
+#
+# Returns a JSON array of {action, command} objects that agents can choose from.
+# Provides multiple recovery paths for flexibility.
+#
+# Arguments:
+#   $1 - error_code : Error code string or exit code number
+#   $2 - context    : Optional context JSON (e.g., session ID, scope info)
+#
+# Returns: JSON array via stdout
+#
+get_session_error_alternatives() {
+    local error_code="$1"
+    local context="${2:-}"
+
+    case "$error_code" in
+        E_SESSION_EXISTS|E_SESSION_RESUME_ACTIVE|30)
+            echo '[{"action":"Check session status","command":"cleo session status"},{"action":"Run command directly","command":"Session already active - run your command without session start/resume"},{"action":"List active sessions","command":"cleo session list --status active"}]'
+            ;;
+        E_SESSION_NOT_FOUND|31)
+            echo '[{"action":"List all sessions","command":"cleo session list"},{"action":"List active sessions","command":"cleo session list --status active"},{"action":"Start new session","command":"cleo session start --scope epic:<EPIC_ID>"}]'
+            ;;
+        E_SCOPE_CONFLICT|32)
+            echo '[{"action":"List active sessions","command":"cleo session list --status active"},{"action":"End conflicting session","command":"cleo session end --session <session-id>"},{"action":"Use different scope","command":"cleo session start --scope epic:<OTHER_EPIC>"}]'
+            ;;
+        E_SESSION_REQUIRED|36)
+            echo '[{"action":"Start session","command":"cleo session start --scope epic:<EPIC_ID>"},{"action":"List available epics","command":"cleo list --type epic"}]'
+            ;;
+        E_FOCUS_REQUIRED|38)
+            echo '[{"action":"Set focus","command":"cleo focus set <task-id>"},{"action":"List pending tasks","command":"cleo list --status pending"}]'
+            ;;
+        E_SESSION_DISCOVERY_MODE|100)
+            echo '[{"action":"Check session status","command":"cleo session status"},{"action":"Run command directly","command":"Session already active - run your command without session start"},{"action":"List active sessions","command":"cleo session list --status active"}]'
+            ;;
+        *)
+            echo '[]'
+            ;;
+    esac
+}
+
 # output_session_error - Output a session error with full context
 #
 # Convenience function for session errors that automatically includes
@@ -600,31 +706,35 @@ output_session_error() {
     # Derive exit code from error code if not provided
     if [[ -z "$exit_code" ]]; then
         case "$error_code" in
-            E_SESSION_EXISTS)      exit_code=30 ;;
-            E_SESSION_NOT_FOUND)   exit_code=31 ;;
-            E_SCOPE_CONFLICT)      exit_code=32 ;;
-            E_SCOPE_INVALID)       exit_code=33 ;;
-            E_TASK_NOT_IN_SCOPE)   exit_code=34 ;;
-            E_TASK_CLAIMED)        exit_code=35 ;;
-            E_SESSION_REQUIRED)    exit_code=36 ;;
+            E_SESSION_EXISTS)        exit_code=30 ;;
+            E_SESSION_RESUME_ACTIVE) exit_code=30 ;;
+            E_SESSION_NOT_FOUND)     exit_code=31 ;;
+            E_SCOPE_CONFLICT)        exit_code=32 ;;
+            E_SCOPE_INVALID)         exit_code=33 ;;
+            E_TASK_NOT_IN_SCOPE)     exit_code=34 ;;
+            E_TASK_CLAIMED)          exit_code=35 ;;
+            E_SESSION_REQUIRED)      exit_code=36 ;;
             E_SESSION_CLOSE_BLOCKED) exit_code=37 ;;
-            E_FOCUS_REQUIRED)      exit_code=38 ;;
-            E_NOTES_REQUIRED)      exit_code=39 ;;
-            *)                     exit_code=1 ;;
+            E_FOCUS_REQUIRED)        exit_code=38 ;;
+            E_NOTES_REQUIRED)        exit_code=39 ;;
+            E_SESSION_DISCOVERY_MODE) exit_code=100 ;;
+            *)                       exit_code=1 ;;
         esac
     fi
 
-    # Get suggestion for this error
-    local suggestion
+    # Get suggestion, fix, and alternatives for this error (LLM-agent-first)
+    local suggestion fix alternatives
     suggestion=$(get_session_error_suggestion "$error_code")
+    fix=$(get_session_error_fix "$error_code" "$context_json")
+    alternatives=$(get_session_error_alternatives "$error_code" "$context_json")
 
     # Determine if recoverable (most session errors are recoverable by user action)
     local recoverable="true"
     [[ "$exit_code" -eq 37 ]] && recoverable="false"  # SESSION_CLOSE_BLOCKED
 
-    # Use actionable error output
+    # Use actionable error output with fix and alternatives
     output_error_actionable "$error_code" "$message" "$exit_code" "$recoverable" \
-        "$suggestion" "" "$context_json" "[]"
+        "$suggestion" "$fix" "$context_json" "$alternatives"
 
     return "$exit_code"
 }
@@ -639,6 +749,8 @@ export -f output_error
 export -f output_warning
 export -f get_session_error_suggestion
 export -f get_session_error_message
+export -f get_session_error_fix
+export -f get_session_error_alternatives
 export -f output_session_error
 
 # Export error code constants
@@ -653,6 +765,8 @@ export E_SESSION_ACTIVE E_SESSION_NOT_ACTIVE
 export E_SESSION_EXISTS E_SESSION_NOT_FOUND E_SCOPE_CONFLICT E_SCOPE_INVALID
 export E_TASK_NOT_IN_SCOPE E_TASK_CLAIMED E_SESSION_REQUIRED
 export E_SESSION_CLOSE_BLOCKED E_FOCUS_REQUIRED E_NOTES_REQUIRED
+# Additional LLM-agent-first session error codes
+export E_SESSION_DISCOVERY_MODE E_SESSION_RESUME_ACTIVE
 export E_UNKNOWN E_NOT_INITIALIZED E_ALREADY_INITIALIZED E_CONFIRMATION_REQUIRED
 # Hierarchy error codes
 export E_PARENT_NOT_FOUND E_DEPTH_EXCEEDED E_SIBLING_LIMIT

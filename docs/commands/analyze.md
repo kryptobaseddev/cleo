@@ -122,10 +122,157 @@ Tasks are dynamically grouped by their labels to identify thematic clusters:
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
+| `--parent ID` | | Scope analysis to epic/task and all descendants | (project-wide) |
 | `--human` | | Human-readable text output | (JSON) |
 | `--full` | | Comprehensive human-readable report | (JSON) |
 | `--auto-focus` | | Automatically set focus to top recommendation | `false` |
 | `--help` | `-h` | Show help message | |
+
+## Epic-Scoped Analysis (`--parent`)
+
+The `--parent` flag enables epic-scoped analysis, providing detailed breakdown of an epic and all its children. This is particularly useful for:
+
+- Understanding epic progress across phases
+- Identifying ready vs blocked tasks within an epic
+- Planning execution waves for parallel work
+- Finding the critical path through the epic
+
+### Usage
+
+```bash
+# JSON output (default for LLM agents)
+cleo analyze --parent T998
+
+# Human-readable output
+cleo analyze --parent T998 --human
+```
+
+### Epic-Scoped Output Structure
+
+```json
+{
+  "_meta": {
+    "algorithm": "epic_scoped_analysis",
+    "scope": {
+      "type": "epic",
+      "rootTaskId": "T998",
+      "includesRoot": true
+    }
+  },
+  "epic": {
+    "id": "T998",
+    "title": "EPIC: Feature Implementation",
+    "progress": {
+      "done": 8,
+      "total": 30,
+      "percent": 27,
+      "byStatus": { "done": 8, "pending": 18, "active": 2, "blocked": 2 }
+    }
+  },
+  "phases": [
+    {
+      "phase": "setup",
+      "status": "complete",
+      "progress": { "done": 4, "total": 4, "percent": 100 },
+      "waves": [
+        { "depth": 0, "tasks": ["T001"], "status": "complete" },
+        { "depth": 1, "tasks": ["T002"], "status": "complete" }
+      ]
+    },
+    {
+      "phase": "core",
+      "status": "in_progress",
+      "progress": { "done": 4, "total": 16, "percent": 25 },
+      "waves": [
+        { "depth": 0, "tasks": ["T003", "T004"], "status": "partial" }
+      ]
+    }
+  ],
+  "inventory": {
+    "completed": [...],
+    "ready": [
+      { "id": "T003", "title": "...", "unlocks": 3, "reason": "All dependencies satisfied" }
+    ],
+    "blocked": [
+      { "id": "T005", "title": "...", "waitingOn": ["T003"], "chainDepth": 1 }
+    ]
+  },
+  "executionPlan": {
+    "criticalPath": {
+      "path": [...],
+      "length": 5,
+      "entryTask": "T003"
+    },
+    "waves": [
+      { "wave": 1, "parallel": ["T003", "T004"], "count": 2 }
+    ],
+    "recommendation": {
+      "nextTask": "T003",
+      "reason": "Unblocks 3 tasks",
+      "command": "ct focus set T003"
+    }
+  },
+  "summary": {
+    "totalTasks": 30,
+    "byStatus": { ... },
+    "byPhase": { ... },
+    "readyCount": 5,
+    "blockedCount": 8,
+    "criticalPathLength": 5
+  }
+}
+```
+
+### Human Output (`--human`)
+
+```
+═══════════════════════════════════════════════════════════════════
+📊 EPIC ANALYSIS: T998
+═══════════════════════════════════════════════════════════════════
+
+EPIC: Session System Enhancement
+Progress: 8/30 tasks (27%)
+
+PHASES
+───────────────────────────────────────────────────────────────────
+  ✓ setup        4/4 (100%)
+  → core         4/16 (25%)
+  ○ testing      0/5 (0%)
+  ○ polish       0/5 (0%)
+
+READY TO START (5 tasks)
+───────────────────────────────────────────────────────────────────
+  T003 [high] Implement feature X (unlocks: 3)
+  T004 [medium] Add documentation (unlocks: 1)
+
+BLOCKED (8 tasks)
+───────────────────────────────────────────────────────────────────
+  T005 [high] Integration → waiting on: T003
+  T006 [medium] Testing → waiting on: T005
+
+EXECUTION PLAN
+───────────────────────────────────────────────────────────────────
+  Critical path length: 5 tasks
+
+  Execution Waves:
+    Wave 1: T003, T004 (2 parallel)
+    Wave 2: T005 (1 parallel)
+
+RECOMMENDATION
+  → ct focus set T003
+  Unblocks 3 tasks
+
+═══════════════════════════════════════════════════════════════════
+```
+
+### Wave Computation
+
+Waves represent the parallel execution order based on dependency depth:
+
+- **Wave 0**: Tasks with no dependencies (entry points)
+- **Wave N**: Tasks whose max dependency wave is N-1
+
+Waves are computed within each phase, allowing you to understand the execution order even when tasks span multiple phases.
 
 ## Output Formats
 
@@ -376,6 +523,7 @@ Domains are grouped by labels. Use this to:
 
 ## Version History
 
+- **v0.42.0**: Epic-scoped analysis with `--parent` flag - phase grouping, wave computation, inventory, execution plan, human ASCII output
 - **v0.39.0**: Hierarchy-aware leverage scoring with configurable weights (parentChild, crossEpic, crossPhase)
 - **v0.16.0**: Major rewrite - JSON default, --human flag, domain grouping, action order, improved tier logic
 - **v0.15.0**: Initial implementation with leverage scoring, bottleneck detection, tier system

@@ -5,6 +5,21 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.8] - 2025-12-30
+
+### Fixed
+- **Chain visualization connected components** - Fixed BFS traversal in `analyze --parent --human`
+  - Inventory categories (completed, ready, blocked) now preserve original `.depends` arrays
+  - Chain computation uses full dependency graph instead of empty arrays for non-blocked tasks
+  - Before: Every task shown as isolated chain (26 single-task chains)
+  - After: Properly connected chains (e.g., 5 chains showing task relationships)
+  - Added `depends` field to inventory output for completed, ready, and blocked tasks
+  - Per CHAIN-VISUALIZATION-SPEC Part 3: Chain Detection Algorithm
+
+### Technical Details
+- `scripts/analyze.sh` lines 366-400: Added `depends: (.depends // [])` to all inventory templates
+- `scripts/analyze.sh` lines 802-804: Changed chain computation to use `.depends` instead of `[]`
+
 ## [0.41.7] - 2025-12-29
 
 ### Changed

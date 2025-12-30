@@ -1,9 +1,9 @@
 # Task Hierarchy Specification
 
-**Version**: 2.0.0
+**Version**: 3.1.0
 **Status**: ACTIVE
-**Effective**: v0.17.0+
-**Last Updated**: 2025-12-20
+**Effective**: v0.42.0+
+**Last Updated**: 2025-12-30
 
 ---
 
@@ -38,6 +38,21 @@ This specification defines hierarchical task management for cleo, designed for *
 | **Always Be Shipping** | SHOULD use smallest completable increment |
 | **Anti-Hallucination** | MUST have validation guardrails for all features |
 | **Flat ID Stability** | IDs MUST NOT change; hierarchy via `parentId` field |
+
+### Quick Reference
+
+| Concept | Stored? | Purpose | Example |
+|---------|---------|---------|---------|
+| Epic | `type: "epic"` | Container for related work | T998: Session System |
+| Task | `type: "task"` | Discrete deliverable | T1022: Fix session end |
+| Subtask | `type: "subtask"` | Atomic work item | T1014: Research agents |
+| Phase | `phase: "core"` | Lifecycle stage | setup→core→testing→polish |
+| Wave | COMPUTED | Parallel execution group | Wave 0, 1, 2... |
+| Depends | `depends: [...]` | Ordering constraint | T1017 depends on T1022 |
+
+**Key Distinction**:
+- **Phase** = Schema field (stored) — WHEN in lifecycle
+- **Wave** = Computed from deps — EXECUTION ORDER within phase
 
 ---
 
@@ -274,9 +289,336 @@ Migration from pre-hierarchy schema MUST:
 
 ---
 
-## Part 5: CLI Requirements
+## Part 5: Phase Integration
 
-### 5.1 Required Flags
+> **Cross-reference**: [PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md) is the authoritative source for phase lifecycle management.
+> This section covers task-level phase assignment and cross-phase dependencies.
+
+### 5.1 Task Phase Assignment
+
+Each task MUST have a `phase` field indicating its lifecycle stage:
+
+| Phase | Purpose | Examples |
+|-------|---------|----------|
+| `setup` | Research, design, architecture, planning | Design API, Research libraries |
+| `core` | Main implementation, feature development | Implement endpoint, Fix bug |
+| `testing` | Test creation, validation, QA | Write unit tests, Integration tests |
+| `polish` | Documentation, refactoring, cleanup | Update README, Code review |
+| `maintenance` | Ongoing support, post-release fixes | Hotfix, Security patch |
+
+**Phase Flow** (typical progression):
+```
+setup ──→ core ──→ testing ──→ polish ──→ maintenance
+  │         │         │          │
+  │         │         │          └── Docs, cleanup
+  │         │         └── Validation, QA
+  │         └── Implementation
+  └── Research, design
+```
+
+**Schema**:
+```json
+{
+  "phase": "core"  // enum: setup|core|testing|polish|maintenance
+}
+```
+
+### 5.2 Phase vs. Status
+
+| Concept | Purpose | Example |
+|---------|---------|---------|
+| **Phase** | WHEN in lifecycle (categorization) | `phase: "core"` |
+| **Status** | WHAT state (progress) | `status: "pending"` |
+
+A task can be `phase: "testing"` with `status: "pending"` (test task not yet started).
+
+### 5.3 Cross-Phase Dependencies
+
+Dependencies MAY cross phases. The system MUST handle cross-phase dependencies as follows:
+
+```
+setup:T1032 ──→ core:T1035 (design must complete before implementation)
+core:T1039 ──→ testing:T1040 (implementation before tests)
+testing:T1040 ──→ polish:T1041 (tests before docs)
+```
+
+**Resolution Rules**:
+
+| Dependency State | Effect on Dependent Task |
+|-----------------|--------------------------|
+| In earlier phase, `done` | Satisfied; dependent task can proceed |
+| In earlier phase, NOT `done` | Blocked until dependency completes |
+| In same phase | Affects wave calculation (see Part 6) |
+| In later phase | Configuration error; SHOULD warn |
+
+---
+
+## Part 6: Wave Computation
+
+### 6.1 Wave Definition
+
+> **IMMUTABLE PRINCIPLE**: Waves are COMPUTED from dependency depth, NOT stored in the schema.
+
+Waves represent parallel execution order within a scope:
+- **Wave 0**: Tasks with no unsatisfied dependencies (entry points)
+- **Wave N**: Tasks whose maximum dependency wave is N-1
+
+Tasks in the same wave MAY execute in PARALLEL.
+
+### 6.2 Wave Calculation Algorithm
+
+The system MUST use this algorithm:
+
+```
+FUNCTION computeWave(task, scoped_tasks, memo):
+    IF task.id IN memo:
+        RETURN memo[task.id]
+
+    IF task.status == "done":
+        RETURN -1  // Completed tasks excluded
+
+    deps = task.depends OR []
+    scoped_deps = FILTER deps WHERE dep IN scoped_tasks
+    active_deps = FILTER scoped_deps WHERE dep.status != "done"
+
+    IF length(active_deps) == 0:
+        wave = 0  // No blocking dependencies = entry point
+    ELSE:
+        max_dep_wave = MAX(active_deps.map(d => computeWave(d, scoped_tasks, memo)))
+        wave = max_dep_wave + 1
+
+    memo[task.id] = wave
+    RETURN wave
+```
+
+**Formula** (simplified):
+```
+wave(task) = max(deps.filter(d => d.status != "done").map(d => wave(d))) + 1
+wave(task with no active deps) = 0
+```
+
+### 6.3 Scope Filtering
+
+Wave computation MUST respect the analysis scope:
+
+| Scope Type | Tasks Considered |
+|------------|------------------|
+| Project-wide | All non-done tasks |
+| Epic-scoped (`--parent T001`) | Epic and all descendants |
+| Phase-scoped | Tasks in specified phase |
+
+**Dependency filtering within scope**:
+- Dependencies INSIDE scope: Affect wave calculation
+- Dependencies OUTSIDE scope but `done`: Treated as satisfied
+- Dependencies OUTSIDE scope but NOT `done`: Task is BLOCKED (not in waves)
+
+### 6.4 Cycle Detection
+
+Circular dependencies MUST be detected and handled:
+
+```
+A depends on B, B depends on A  // Circular
+```
+
+**Handling**: Implementations MUST either:
+1. Treat cyclic tasks as Wave 0 (allow progress), OR
+2. Mark cyclic tasks as validation errors
+
+The system SHOULD warn when cycles are detected.
+
+### 6.5 Wave Visualization
+
+For `--human` output, waves SHOULD be displayed grouped:
+
+```
+PHASE: core
+├─ Wave 0: T1022, T1019 (no dependencies)
+├─ Wave 1: T1017, T1025, T1026 (depends on Wave 0)
+├─ Wave 2: T1018, T1023 (depends on Wave 1)
+└─ Wave 3: T1020, T1021 (depends on Wave 2)
+```
+
+### 6.6 Agent Execution Model
+
+For LLM agents and parallel workers, the system SHOULD support this execution pattern:
+
+**Workflow**:
+1. Query current phase focus
+2. Get Wave 0 tasks in that phase (ready to start)
+3. Execute Wave 0 tasks in parallel
+4. When Wave 0 complete, Wave 1 becomes ready
+5. Repeat until phase complete
+6. Move to next phase
+
+**Example Session**:
+```
+Agent A: "Starting session on epic:T1028"
+
+> cleo analyze --parent T1028
+
+Ready (Wave 0): T1029, T1030
+
+Agent A: Works on T1029
+Agent B: Works on T1030 (parallel)
+
+Both complete → Wave 1 unlocks: T1031, T1033
+
+Agent A: Works on T1031
+Agent B: Works on T1033 (parallel)
+
+... continues through waves and phases ...
+```
+
+**Integration with Multi-Session**:
+- Each agent SHOULD scope to a specific epic or subtree
+- Agents in the same scope coordinate via wave ordering
+- Cross-scope dependencies are handled by the ready/blocked calculation
+
+---
+
+## Part 7: Ready/Blocked Calculation
+
+### 7.1 Ready Task Formula
+
+A task is **READY** when it can be started immediately:
+
+```
+ready(task) =
+    task.status IN ["pending", "active"] AND
+    (task.depends == [] OR
+     task.depends.every(d => getTask(d).status == "done"))
+```
+
+**Ready conditions**:
+- Status is `pending` or `active` (not `blocked` or `done`)
+- Has no dependencies, OR
+- All dependencies have `status: "done"`
+
+### 7.2 Blocked Task Detection
+
+A task is **BLOCKED** when it cannot proceed:
+
+```
+blocked(task) =
+    task.depends.some(d => getTask(d).status != "done")
+```
+
+**Blocked conditions**:
+- Has dependencies
+- At least one dependency has `status != "done"`
+
+### 7.3 Inventory Categories
+
+For epic analysis, tasks MUST be categorized:
+
+| Category | Criteria | LLM Action |
+|----------|----------|------------|
+| `completed` | `status == "done"` | Reference only |
+| `ready` | Ready formula = true | Can start immediately |
+| `blocked` | Blocked formula = true | Wait for blockers |
+
+### 7.4 Phase Status Derivation
+
+Phase status MUST be computed from task states:
+
+| Phase Status | Condition |
+|--------------|-----------|
+| `complete` | All tasks in phase have `status: "done"` |
+| `in_progress` | Some tasks `done`, some not |
+| `blocked` | Has tasks with unmet dependencies from other phases |
+| `pending` | No tasks started (`done` count = 0) |
+
+---
+
+## Part 8: Chain Visualization
+
+### 8.1 Core Principle
+
+> **IMMUTABLE**: Dependency chains are COMPUTED at render time, NOT stored in the schema.
+
+The dependency graph (stored as `depends[]` on each task) contains all information
+needed to derive chains. Explicit chain storage would create:
+- Sync burden (chains change as tasks complete)
+- Redundancy (derivable from edges)
+- Schema complexity (no value for LLM agents)
+
+**Principle**: Store EDGES (`depends[]`), Compute PATHS (chains).
+
+### 8.2 Chain Definition
+
+A **dependency chain** is a connected component in the task dependency graph:
+
+- **Root**: Task with no dependencies within the scoped task set
+- **Chain membership**: All tasks reachable from a root via dependency edges
+- **Independent chains**: Disjoint connected components (no shared tasks)
+
+### 8.3 Chain Detection Algorithm
+
+Implementations SHOULD use this algorithm for `--human` visualization:
+
+```
+FUNCTION findChains(scoped_tasks):
+    // Build bidirectional adjacency (deps are directed, but for
+    // component detection treat as undirected)
+    adjacency = buildBidirectionalAdjacency(scoped_tasks)
+
+    // Find connected components via BFS/DFS
+    components = findConnectedComponents(adjacency)
+
+    // For each component, find root(s)
+    FOR component IN components:
+        roots = tasks WHERE (depends ∩ component) == ∅
+        component.root = min(roots)  // Lowest ID for determinism
+
+    // Label by root ID order
+    SORT components BY component.root
+    FOR i, component IN enumerate(components):
+        component.id = chr(65 + i)  // A, B, C...
+
+    RETURN components
+```
+
+### 8.4 Chain Identification Format
+
+| Context | Format | Example |
+|---------|--------|---------|
+| JSON output | NOT INCLUDED | Chains not in JSON; use waves/criticalPath |
+| Human output ID | Letter (A, B, C) | `CHAIN A:` |
+| Human output name | Generated from root title | `"Fix session end..." (6 tasks)` |
+| Programmatic reference | `chain-T{root_id}` | `chain-T1022` |
+
+### 8.5 What LLM Agents MUST Use Instead
+
+Agents MUST NOT rely on chain data in JSON output. Instead:
+
+| Need | Use This |
+|------|----------|
+| Execution order | `executionPlan.waves[]` |
+| Longest path | `executionPlan.criticalPath` |
+| Ready tasks | `inventory.ready[]` |
+| Blocked tasks | `inventory.blocked[].waitingOn` |
+| Work distribution | Multi-session scopes |
+
+### 8.6 Human Visualization Only
+
+Chain visualization is a **presentation concern** for `--human` output only:
+
+```bash
+cleo analyze --parent T998 --human   # Shows chain visualization
+cleo analyze --parent T998           # JSON output, NO chains field
+```
+
+The renderer MUST:
+1. Compute chains from `depends[]` at display time
+2. Label chains by root task ID order (A, B, C...)
+3. Generate descriptive names from entry task titles
+4. Render ASCII visualization with phase/wave/chain hierarchy
+
+---
+
+## Part 9: CLI Requirements
+
+### 9.1 Required Flags
 
 The `add` command MUST support:
 
@@ -299,7 +641,7 @@ The `list` command MUST support:
 | `--leaf` | Only tasks without children |
 | `--type TYPE` | Filter by type |
 
-### 5.2 Required Commands
+### 9.2 Required Commands
 
 The system MUST provide:
 
@@ -309,7 +651,7 @@ The system MUST provide:
 | `reparent ID --to PARENT` | Move task to new parent |
 | `promote ID` | Remove parent (make root-level) |
 
-### 5.3 Output Format Requirements
+### 9.3 Output Format Requirements
 
 **Tree View** MUST display:
 ```
@@ -336,7 +678,7 @@ T001 [epic] ◉ active  Authentication System
 }
 ```
 
-### 5.4 Validation Messages (Agent-Friendly)
+### 9.4 Validation Messages (Agent-Friendly)
 
 Error messages MUST be structured for agent recovery:
 
@@ -355,9 +697,9 @@ Error messages MUST be structured for agent recovery:
 
 ---
 
-## Part 6: Automation Behaviors
+## Part 10: Automation Behaviors
 
-### 6.1 Parent Auto-Complete
+### 10.1 Parent Auto-Complete
 
 When all children complete, the system SHOULD auto-complete the parent based on configuration:
 
@@ -377,11 +719,11 @@ Configuration:
 }
 ```
 
-### 6.2 Blocked Task Auto-Activation
+### 10.2 Blocked Task Auto-Activation
 
 When all blockers complete, blocked tasks MUST transition to `pending` status automatically.
 
-### 6.3 Orphan Detection
+### 10.3 Orphan Detection
 
 The `validate` command MUST detect and report:
 - Tasks with invalid `parentId` references
@@ -389,11 +731,11 @@ The `validate` command MUST detect and report:
 
 ---
 
-## Part 7: Anti-Hallucination Guardrails
+## Part 11: Anti-Hallucination Guardrails
 
 > **Cross-reference**: [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) Part 5 covers ID-specific anti-hallucination design.
 
-### 7.1 Pre-Operation Validation
+### 11.1 Pre-Operation Validation
 
 | Operation | Required Validations |
 |-----------|---------------------|
@@ -402,7 +744,7 @@ The `validate` command MUST detect and report:
 | `delete/archive` | No active children |
 | `reparent` | New parent exists, no cycle created, depth valid |
 
-### 7.2 Error Codes
+### 11.2 Error Codes
 
 Hierarchy operations MUST use these exit codes:
 
@@ -417,9 +759,9 @@ Hierarchy operations MUST use these exit codes:
 
 ---
 
-## Part 8: Focus Integration
+## Part 12: Focus Integration
 
-### 8.1 Focus on Hierarchy
+### 12.1 Focus on Hierarchy
 
 When focusing on an epic, the system MUST:
 - Show epic context with child summary
@@ -430,7 +772,7 @@ When focusing on a child task, the system MUST:
 - Show parent context
 - Display sibling awareness
 
-### 8.2 Next Task Suggestion
+### 12.2 Next Task Suggestion
 
 The `next` command MUST consider hierarchy:
 - Prefer tasks in currently focused epic
@@ -440,7 +782,7 @@ The `next` command MUST consider hierarchy:
 
 ---
 
-## Part 9: Design Decisions (Resolved)
+## Part 13: Design Decisions (Resolved)
 
 All major design questions have been resolved. See [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) for ID system rationale.
 
@@ -571,6 +913,26 @@ cleo validate --fix-orphans [--unlink|--delete]
 
 ---
 
+## Appendix D: Conceptual Summary
+
+| Concept | Purpose |
+|---------|---------|
+| **EPIC** | Container — groups related work |
+| **TASK** | Work unit — discrete deliverable |
+| **SUBTASK** | Atomic unit — smallest trackable work |
+| **PHASE** | Workflow stage — when in lifecycle (schema field) |
+| **WAVE** | Execution order — parallel groups (computed from deps) |
+| **depends** | Ordering constraint — what must complete first |
+| **parentId** | Hierarchy — structural containment |
+
+**Key Insight**:
+- **Hierarchy** (Epic/Task/Subtask) = WHAT to organize
+- **Phase** = WHEN in lifecycle
+- **Wave** = ORDER of execution (computed, not stored)
+- **Dependencies** = CONSTRAINTS between tasks
+
+---
+
 ## Version History
 
 | Version | Date | Change |
@@ -580,6 +942,8 @@ cleo validate --fix-orphans [--unlink|--delete]
 | 1.2.0 | 2025-01-17 | Version reconciliation: v0.15.0/v0.16.0 → v0.17.0/v0.18.0 |
 | 1.3.0 | 2025-12-20 | LLM-Agent-First sibling limits: maxSiblings=20, done tasks excluded |
 | 2.0.0 | 2025-12-20 | Renamed to TASK-HIERARCHY-SPEC; RFC 2119 compliance; separated implementation report |
+| 3.0.0 | 2025-12-29 | Added Parts 5-8: Phase Integration, Wave Computation, Ready/Blocked, Chain Visualization (computed, not stored). Merged content from CLEO-TASK-ORGANIZATION-SPEC.md. Renumbered parts 5-9 → 9-13. |
+| 3.1.0 | 2025-12-30 | Merged remaining content from T1028-CLEO-TASK-ORGANIZATION.md: Quick Reference table, Phase Flow diagram, Agent Execution Model (6.6), Conceptual Summary (Appendix D). |
 
 ---
 
@@ -589,9 +953,27 @@ cleo validate --fix-orphans [--unlink|--delete]
 |----------|--------------|
 | **[SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md)** | **AUTHORITATIVE** for specification standards |
 | **[LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md)** | **AUTHORITATIVE** for ID system design; this spec defers to it |
+| **[PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md)** | **AUTHORITATIVE** for phase lifecycle; Part 5 cross-references |
 | **[LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md)** | LLM-first design principles underlying both specs |
 | **[CONFIG-SYSTEM-SPEC.md](CONFIG-SYSTEM-SPEC.md)** | Hierarchy configuration settings |
+| **[CHAIN-VISUALIZATION-SPEC.md](CHAIN-VISUALIZATION-SPEC.md)** | **AUTHORITATIVE** for chain visualization; extends Part 8 |
 | **[TASK-HIERARCHY-IMPLEMENTATION-REPORT.md](TASK-HIERARCHY-IMPLEMENTATION-REPORT.md)** | Tracks implementation status |
+
+### Archived (Content Merged)
+
+| Document | Disposition |
+|----------|-------------|
+| `CLEO-TASK-ORGANIZATION-SPEC.md` | Content merged into Parts 5-8; archived to `archive/specs/` |
+| `claudedocs/T1028-CLEO-TASK-ORGANIZATION.md` | Content merged into v3.1.0; archived to `claudedocs/archive/` |
+| `claudedocs/T1028-EPIC-Enhanced-Epic.md` | Historical T1028 analysis; archived to `claudedocs/archive/` |
+
+### Design References
+
+| Document | Purpose |
+|----------|---------|
+| `claudedocs/T1028-DEFINITIVE-WORK-MAP.md` | Consensus decisions for chain visualization (computed, not stored) |
+| `claudedocs/T1032-WAVE-COMPUTATION-ALGORITHM.md` | Detailed wave algorithm implementation |
+| `claudedocs/T1028-Subgraph-Detection-Algorithm-ASCII-Render.md` | Chain detection algorithm for --human output |
 
 ---
 

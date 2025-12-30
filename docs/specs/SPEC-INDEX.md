@@ -4,9 +4,9 @@
 > For programmatic access, use the JSON file directly.
 
 **Purpose**: Human-readable view of the specification catalog
-**Last Updated**: 2025-12-19
-**Total Specifications**: 14 | **Implementation Reports**: 6
-**Index Version**: 1.0.0
+**Last Updated**: 2025-12-29
+**Total Specifications**: 22 | **Implementation Reports**: 6
+**Index Version**: 1.1.0
 
 ---
 
@@ -107,6 +107,26 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 | [**FIND-COMMAND-SPEC.md**](FIND-COMMAND-SPEC.md) | 1.0 | **DRAFT** | 2025-12-18 | Fuzzy task search command. Context reduction 355KB→1KB (99.7%). ID prefix matching, match scoring, minimal output. |
 | [**RELEASE-VERSION-MANAGEMENT-SPEC.md**](RELEASE-VERSION-MANAGEMENT-SPEC.md) | 2.0.0 | **DRAFT** | 2025-12-18 | Release version tracking with 4-state lifecycle (planning→development→released/cancelled). VERSION file integration, git tags. |
 
+### Pipeline & Orchestration Specifications
+
+| Document | Version | Status | Last Updated | Synopsis |
+|----------|---------|--------|--------------|----------|
+| [**CLEO-SYSTEM-ARCHITECTURE-SPEC.md**](CLEO-SYSTEM-ARCHITECTURE-SPEC.md) | 1.0.0 | **DRAFT** | 2025-12-29 | High-level architecture connecting all CLEO subsystems. Complete lifecycle from idea to release. Exit code allocation. |
+| [**RCSD-PIPELINE-SPEC.md**](RCSD-PIPELINE-SPEC.md) | 2.0.0 | **DRAFT** | 2025-12-29 | Research-Consensus-Spec-Decompose pipeline. 4-stage workflow transforming research into atomic tasks. Exit codes 30-39. |
+| [**CONSENSUS-FRAMEWORK-SPEC.md**](CONSENSUS-FRAMEWORK-SPEC.md) | 2.0.0 | **ACTIVE** | 2025-12-23 | 7-agent consensus framework (5 workers + synthesis + orchestrator). Adversarial validation with HITL gates. |
+| [**TASK-DECOMPOSITION-SPEC.md**](TASK-DECOMPOSITION-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-23 | HTN-style task decomposition with atomicity validation. Wave computation from dependency DAG. |
+| [**IMPLEMENTATION-ORCHESTRATION-SPEC.md**](IMPLEMENTATION-ORCHESTRATION-SPEC.md) | 1.1.0 | **DRAFT** | 2025-12-29 | 7-agent implementation workflow (Planner→Coder→Testing→QA→Cleanup→Security→Docs). Verification gates. Exit codes 40-49. |
+| [**RELEASE-MANAGEMENT-SPEC.md**](RELEASE-MANAGEMENT-SPEC.md) | 1.0.0 | **DRAFT** | 2025-12-29 | Release lifecycle (planned→staging→released). Changelog generation, roadmap, git tags. Exit codes 50-59. |
+| [**ISSUE-LIFECYCLE-SPEC.md**](ISSUE-LIFECYCLE-SPEC.md) | 1.0.0 | **DRAFT** | 2025-12-29 | Bug/issue tracking via origin field. Triage, severity, verification protocol. Exit codes 60-69. |
+
+### Session & Lifecycle Specifications
+
+| Document | Version | Status | Last Updated | Synopsis |
+|----------|---------|--------|--------------|----------|
+| [**MULTI-SESSION-SPEC.md**](MULTI-SESSION-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-27 | Concurrent agent sessions with scope isolation. Epic-bound session architecture. Exit codes 20-29. |
+| [**EPIC-SESSION-SPEC.md**](EPIC-SESSION-SPEC.md) | 1.0.0 | **ACTIVE** | 2025-12-27 | Epic-scoped session binding. Session-task relationship management. |
+| [**PROJECT-LIFECYCLE-SPEC.md**](PROJECT-LIFECYCLE-SPEC.md) | 1.0.0 | **DRAFT** | 2025-12-22 | Greenfield/brownfield/grayfield patterns. Two-dimensional work model (Epics × Phases). |
+
 ### Planning Documents
 
 | Document | Version | Status | Last Updated | Synopsis |
@@ -143,6 +163,7 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 
 | Domain | Authoritative Spec | Defers To |
 |--------|-------------------|-----------|
+| **System Architecture** | [CLEO-SYSTEM-ARCHITECTURE-SPEC.md](CLEO-SYSTEM-ARCHITECTURE-SPEC.md) | All domain specs for details |
 | **Task IDs** | [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) | - |
 | **Specification Writing** | [SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md) | - |
 | **LLM-First Design** | [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) | SPEC-BIBLE-GUIDELINES for spec structure |
@@ -153,6 +174,14 @@ jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
 | **File Operations** | [FILE-LOCKING-SPEC.md](FILE-LOCKING-SPEC.md) | - |
 | **Versioning** | [RELEASE-VERSION-MANAGEMENT-SPEC.md](RELEASE-VERSION-MANAGEMENT-SPEC.md) | - |
 | **Search** | [FIND-COMMAND-SPEC.md](FIND-COMMAND-SPEC.md) | LLM-TASK-ID-SYSTEM-DESIGN-SPEC for ID validation |
+| **RCSD Pipeline** | [RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md) | CONSENSUS-FRAMEWORK-SPEC, TASK-DECOMPOSITION-SPEC |
+| **Multi-Agent Consensus** | [CONSENSUS-FRAMEWORK-SPEC.md](CONSENSUS-FRAMEWORK-SPEC.md) | - |
+| **Task Decomposition** | [TASK-DECOMPOSITION-SPEC.md](TASK-DECOMPOSITION-SPEC.md) | PHASE-SYSTEM-SPEC for phases |
+| **Implementation Orchestration** | [IMPLEMENTATION-ORCHESTRATION-SPEC.md](IMPLEMENTATION-ORCHESTRATION-SPEC.md) | MULTI-SESSION-SPEC for sessions |
+| **Release Management** | [RELEASE-MANAGEMENT-SPEC.md](RELEASE-MANAGEMENT-SPEC.md) | IMPLEMENTATION-ORCHESTRATION-SPEC |
+| **Issue Lifecycle** | [ISSUE-LIFECYCLE-SPEC.md](ISSUE-LIFECYCLE-SPEC.md) | RELEASE-MANAGEMENT-SPEC |
+| **Multi-Session** | [MULTI-SESSION-SPEC.md](MULTI-SESSION-SPEC.md) | - |
+| **Project Lifecycle** | [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) | PHASE-SYSTEM-SPEC |
 
 ---
 
@@ -213,9 +242,11 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 
 ## Specifications by Category
 
-### Design Philosophy
+### Architecture & Design Philosophy
+- [CLEO-SYSTEM-ARCHITECTURE-SPEC.md](CLEO-SYSTEM-ARCHITECTURE-SPEC.md) - High-level system architecture
 - [SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md) - Specification writing standards
 - [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) - Agent-optimized design principles
+- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - Greenfield/brownfield patterns
 
 ### Core Systems
 - [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) - Task identification
@@ -226,12 +257,24 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 - [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) - Epic/Task/Subtask structure
 - [PHASE-SYSTEM-SPEC.md](PHASE-SYSTEM-SPEC.md) - Phase lifecycle
 - [FIND-COMMAND-SPEC.md](FIND-COMMAND-SPEC.md) - Task search
+- [TASK-DECOMPOSITION-SPEC.md](TASK-DECOMPOSITION-SPEC.md) - Task breakdown algorithms
+
+### Pipeline & Orchestration
+- [RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md) - Research to task decomposition
+- [CONSENSUS-FRAMEWORK-SPEC.md](CONSENSUS-FRAMEWORK-SPEC.md) - Multi-agent validation
+- [IMPLEMENTATION-ORCHESTRATION-SPEC.md](IMPLEMENTATION-ORCHESTRATION-SPEC.md) - Implementation workflow
+
+### Session Management
+- [MULTI-SESSION-SPEC.md](MULTI-SESSION-SPEC.md) - Concurrent agent sessions
+- [EPIC-SESSION-SPEC.md](EPIC-SESSION-SPEC.md) - Epic-bound sessions
+
+### Release & Issue Management
+- [RELEASE-MANAGEMENT-SPEC.md](RELEASE-MANAGEMENT-SPEC.md) - Release lifecycle
+- [ISSUE-LIFECYCLE-SPEC.md](ISSUE-LIFECYCLE-SPEC.md) - Bug/issue tracking
+- [RELEASE-VERSION-MANAGEMENT-SPEC.md](RELEASE-VERSION-MANAGEMENT-SPEC.md) - Version management
 
 ### Integration
 - [TODOWRITE-SYNC-SPEC.md](TODOWRITE-SYNC-SPEC.md) - Claude Code integration
-
-### Process
-- [RELEASE-VERSION-MANAGEMENT-SPEC.md](RELEASE-VERSION-MANAGEMENT-SPEC.md) - Versioning and releases
 
 ---
 
@@ -247,11 +290,21 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 - [CONFIG-SYSTEM-SPEC.md](CONFIG-SYSTEM-SPEC.md) - v1.0.0
 - [FILE-LOCKING-SPEC.md](FILE-LOCKING-SPEC.md) - v1.0.0
 - [TODOWRITE-SYNC-SPEC.md](TODOWRITE-SYNC-SPEC.md) - v1.0.0
+- [CONSENSUS-FRAMEWORK-SPEC.md](CONSENSUS-FRAMEWORK-SPEC.md) - v2.0.0
+- [TASK-DECOMPOSITION-SPEC.md](TASK-DECOMPOSITION-SPEC.md) - v1.0.0
+- [MULTI-SESSION-SPEC.md](MULTI-SESSION-SPEC.md) - v1.0.0
+- [EPIC-SESSION-SPEC.md](EPIC-SESSION-SPEC.md) - v1.0.0
 
 ### APPROVED (Endorsed, Formal Amendments)
-- [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) - v1.2.0
+- [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) - v2.0.0
 
 ### DRAFT (Work in Progress)
+- [CLEO-SYSTEM-ARCHITECTURE-SPEC.md](CLEO-SYSTEM-ARCHITECTURE-SPEC.md) - v1.0.0
+- [RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md) - v2.0.0
+- [IMPLEMENTATION-ORCHESTRATION-SPEC.md](IMPLEMENTATION-ORCHESTRATION-SPEC.md) - v1.1.0
+- [RELEASE-MANAGEMENT-SPEC.md](RELEASE-MANAGEMENT-SPEC.md) - v1.0.0
+- [ISSUE-LIFECYCLE-SPEC.md](ISSUE-LIFECYCLE-SPEC.md) - v1.0.0
+- [PROJECT-LIFECYCLE-SPEC.md](PROJECT-LIFECYCLE-SPEC.md) - v1.0.0
 - [FIND-COMMAND-SPEC.md](FIND-COMMAND-SPEC.md) - v1.0
 - [RELEASE-VERSION-MANAGEMENT-SPEC.md](RELEASE-VERSION-MANAGEMENT-SPEC.md) - v2.0.0
 
@@ -264,6 +317,17 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 
 | Date | Specification | Change | Version | Description |
 |------|--------------|--------|---------|-------------|
+| 2025-12-29 | CLEO-SYSTEM-ARCHITECTURE-SPEC | Created | 1.0.0 | High-level system architecture |
+| 2025-12-29 | IMPLEMENTATION-ORCHESTRATION-SPEC | Updated | 1.1.0 | Added Epic lifecycle integration |
+| 2025-12-29 | RELEASE-MANAGEMENT-SPEC | Created | 1.0.0 | Release lifecycle, changelog, roadmap |
+| 2025-12-29 | ISSUE-LIFECYCLE-SPEC | Created | 1.0.0 | Bug/issue tracking via origin field |
+| 2025-12-29 | SCHEMA-CHANGES-SUMMARY | Created | 1.0.0 | Consolidated schema changes reference |
+| 2025-12-29 | SPEC-INDEX.md | Updated | 1.1.0 | Added pipeline & orchestration specs |
+| 2025-12-29 | TASK-HIERARCHY-SPEC | Updated | 2.0.0 | Schema v2.4.0 |
+| 2025-12-27 | MULTI-SESSION-SPEC | Updated | 1.0.0 | Epic-bound session architecture |
+| 2025-12-23 | RCSD-PIPELINE-SPEC | Updated | 2.0.0 | Python Agent SDK implementation |
+| 2025-12-23 | CONSENSUS-FRAMEWORK-SPEC | Updated | 2.0.0 | 7-agent architecture |
+| 2025-12-22 | PROJECT-LIFECYCLE-SPEC | Created | 1.0.0 | Greenfield/brownfield patterns |
 | 2025-12-19 | SPEC-INDEX.md | Created | 1.0.0 | Initial specification index |
 | 2025-12-19 | CONFIG-SYSTEM-SPEC | Updated | 1.0.0 | Status updated |
 | 2025-12-19 | FILE-LOCKING-SPEC | Updated | 1.0.0 | Status updated |
@@ -273,8 +337,6 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 | 2025-12-18 | RELEASE-VERSION-MANAGEMENT-SPEC | Updated | 2.0.0 | Research complete |
 | 2025-12-17 | SPEC-BIBLE-GUIDELINES | Finalized | 1.0.0 | Set to IMMUTABLE |
 | 2025-12-17 | PHASE-SYSTEM-SPEC | Updated | v2.2.0+ | Phase lifecycle commands |
-| 2025-12-17 | LLM-TASK-ID-SYSTEM-DESIGN-SPEC | Finalized | 1.0.0 | Set to IMMUTABLE |
-| 2025-01-17 | TASK-HIERARCHY-SPEC | Updated | 1.2.0 | Schema v2.3.0 |
 
 ---
 
@@ -338,4 +400,4 @@ CONFIG-SYSTEM-SPEC.md (Infrastructure)
 
 ---
 
-*Last validated: 2025-12-19*
+*Last validated: 2025-12-29*

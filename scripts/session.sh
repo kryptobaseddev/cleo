@@ -388,48 +388,87 @@ cmd_start() {
   fi
 
   # Discovery mode: Multi-session enabled but no scope provided
-  # Show available Epics and prompt for selection (EPIC-SESSION-SPEC.md Part 2.2)
+  # Output structured JSON for LLM agents (EPIC-SESSION-SPEC.md Part 2.2)
   if [[ "$multi_session_enabled" == "true" ]]; then
-    log_step "Discovery Mode: Multi-session enabled, no scope provided"
-
     # Check for existing sessions first
-    local existing_sessions
+    local existing_sessions="[]"
+    local active_count=0
     if declare -f list_sessions >/dev/null 2>&1; then
       existing_sessions=$(list_sessions "active" 2>/dev/null || echo "[]")
-      local active_count
       active_count=$(echo "$existing_sessions" | jq 'length')
-
-      if [[ "$active_count" -gt 0 ]]; then
-        log_warn "Found $active_count active session(s). Consider resuming or ending them first."
-        echo ""
-        log_info "Active sessions:"
-        echo "$existing_sessions" | jq -r '.[] | "  - \(.id) [\(.scope.type):\(.scope.rootTaskId // "N/A")]"'
-        echo ""
-      fi
     fi
 
-    # Show available Epics
+    # Get available Epics
+    local available_epics="[]"
+    local epic_count=0
     if declare -f discover_available_epics >/dev/null 2>&1; then
-      local available_epics
       available_epics=$(discover_available_epics "$TODO_FILE" 2>/dev/null || echo "[]")
-      local epic_count
       epic_count=$(echo "$available_epics" | jq 'length')
-
-      if [[ "$epic_count" -eq 0 ]]; then
-        log_warn "No Epics found. Create an Epic first: cleo add 'Epic Title' --type epic"
-        log_info "Then start a session: cleo session start --scope epic:T###"
-        exit "${EXIT_NO_DATA:-100}"
-      fi
-
-      log_info "Available Epics ($epic_count):"
-      echo "$available_epics" | jq -r '.[] | "  \(.id): \(.title) [pending: \(.pendingCount)]"'
-      echo ""
-      log_info "Start a session with: cleo session start --scope epic:<EPIC_ID>"
-      log_info "Example: cleo session start --scope epic:$(echo "$available_epics" | jq -r '.[0].id')"
-    else
-      log_warn "Discovery function not available. Specify scope explicitly."
-      log_info "Example: cleo session start --scope epic:T001"
     fi
+
+    # Build alternatives array for LLM agents
+    local alternatives_json="[]"
+    local fix_command=""
+    local suggestion=""
+
+    if [[ "$active_count" -gt 0 ]]; then
+      # Suggest using existing session or switching
+      local first_session_id first_session_scope
+      first_session_id=$(echo "$existing_sessions" | jq -r '.[0].id')
+      first_session_scope=$(echo "$existing_sessions" | jq -r '.[0].scope | "\(.type):\(.rootTaskId // "N/A")"')
+
+      fix_command="cleo session status"
+      suggestion="You have $active_count active session(s). Use session status to check current session, or run your command directly if already in correct scope."
+
+      alternatives_json=$(jq -nc \
+        --arg sid "$first_session_id" \
+        --arg scope "$first_session_scope" \
+        --argjson count "$active_count" \
+        '[
+          {"action": "Check current session", "command": "cleo session status"},
+          {"action": "Run command directly", "command": "Session already active - run your command without session start"},
+          {"action": "Switch to session", "command": ("cleo session switch " + $sid)},
+          {"action": "List all sessions", "command": "cleo session list --status active"}
+        ]')
+    elif [[ "$epic_count" -gt 0 ]]; then
+      # Suggest starting a session with first available epic
+      local first_epic_id
+      first_epic_id=$(echo "$available_epics" | jq -r '.[0].id')
+
+      fix_command="cleo session start --scope epic:$first_epic_id"
+      suggestion="No active sessions. Start a session with an available epic."
+
+      alternatives_json=$(echo "$available_epics" | jq -c '[.[:4][] | {"action": ("Start session for " + .id), "command": ("cleo session start --scope epic:" + .id)}]')
+    else
+      fix_command="cleo add 'Epic Title' --type epic"
+      suggestion="No epics found. Create an epic first, then start a session."
+      alternatives_json='[{"action": "Create epic", "command": "cleo add \"Epic Title\" --type epic"}]'
+    fi
+
+    # Build context JSON
+    local context_json
+    context_json=$(jq -nc \
+      --argjson sessions "$existing_sessions" \
+      --argjson epics "$available_epics" \
+      --argjson activeCount "$active_count" \
+      --argjson epicCount "$epic_count" \
+      '{
+        "activeSessions": $activeCount,
+        "availableEpics": $epicCount,
+        "sessions": $sessions,
+        "epics": $epics
+      }')
+
+    # Output structured error using LLM-agent-first format
+    output_error_actionable \
+      "E_SESSION_DISCOVERY_MODE" \
+      "Multi-session enabled but no scope provided" \
+      "${EXIT_NO_DATA:-100}" \
+      "true" \
+      "$suggestion" \
+      "$fix_command" \
+      "$context_json" \
+      "$alternatives_json"
 
     exit "${EXIT_NO_DATA:-100}"
   fi
@@ -861,30 +900,43 @@ cmd_end() {
     exit "$EXIT_SUCCESS"
   fi
 
-  # Build update JSON
-  local update_expr='
-    ._meta.activeSession = null |
-    ._meta.lastModified = $ts
-  '
+  # Multi-session mode: use end_session() from lib/sessions.sh
+  if is_multi_session_enabled && declare -f end_session >/dev/null 2>&1; then
+    if ! end_session "$current_session" "$note"; then
+      local end_exit=$?
+      log_error "Failed to end session" "E_SESSION_END_FAILED" "$end_exit"
+      exit "$end_exit"
+    fi
 
-  if [[ -n "$note" ]]; then
-    update_expr="$update_expr | .focus.sessionNote = \$note"
-  fi
-
-  # Update todo.json
-  local updated_todo
-  if [[ -n "$note" ]]; then
-    updated_todo=$(jq --arg ts "$timestamp" --arg note "$note" "$update_expr" "$TODO_FILE")
+    # Clear .current-session binding
+    if declare -f clear_session_binding >/dev/null 2>&1; then
+      clear_session_binding
+    fi
   else
-    updated_todo=$(jq --arg ts "$timestamp" '
+    # Legacy single-session mode: update todo.json directly
+    local update_expr='
       ._meta.activeSession = null |
       ._meta.lastModified = $ts
-    ' "$TODO_FILE")
+    '
+
+    if [[ -n "$note" ]]; then
+      update_expr="$update_expr | .focus.sessionNote = \$note"
+    fi
+
+    local updated_todo
+    if [[ -n "$note" ]]; then
+      updated_todo=$(jq --arg ts "$timestamp" --arg note "$note" "$update_expr" "$TODO_FILE")
+    else
+      updated_todo=$(jq --arg ts "$timestamp" '
+        ._meta.activeSession = null |
+        ._meta.lastModified = $ts
+      ' "$TODO_FILE")
+    fi
+    save_json "$TODO_FILE" "$updated_todo" || {
+      log_error "Failed to end session" "E_FILE_WRITE_ERROR" "$EXIT_FILE_ERROR" "Check file permissions on $TODO_FILE"
+      exit "$EXIT_FILE_ERROR"
+    }
   fi
-  save_json "$TODO_FILE" "$updated_todo" || {
-    log_error "Failed to end session" "E_FILE_WRITE_ERROR" "$EXIT_FILE_ERROR" "Check file permissions on $TODO_FILE"
-    exit "$EXIT_FILE_ERROR"
-  }
 
   # Log session end
   if [[ -f "$LOG_FILE" ]]; then
@@ -1224,8 +1276,8 @@ cmd_suspend() {
         log_error "Multiple active sessions found. Use --session ID to specify which one to suspend" "E_AMBIGUOUS_SESSION" "$EXIT_NOT_FOUND"
         exit "$EXIT_NOT_FOUND"
       else
-        log_error "No current session. Use --session ID or set CLEO_SESSION" "E_SESSION_NOT_FOUND" "$EXIT_NOT_FOUND"
-        exit "$EXIT_NOT_FOUND"
+        output_session_error "E_SESSION_NOT_FOUND" "No current session. Use --session ID or set CLEO_SESSION"
+        exit "$EXIT_SESSION_NOT_FOUND"
       fi
     fi
   fi
@@ -1264,8 +1316,8 @@ cmd_resume() {
   if [[ "$last_mode" == "true" ]]; then
     session_id=$(jq -r '[.sessions[] | select(.status == "suspended")] | sort_by(.suspendedAt) | last | .id // ""' "$sessions_file")
     if [[ -z "$session_id" ]]; then
-      log_error "No suspended sessions to resume" "E_SESSION_NOT_FOUND" "$EXIT_NOT_FOUND"
-      exit "$EXIT_NOT_FOUND"
+      output_session_error "E_SESSION_NOT_FOUND" "No suspended sessions to resume"
+      exit "$EXIT_SESSION_NOT_FOUND"
     fi
   fi
 
@@ -1279,6 +1331,7 @@ cmd_resume() {
     exit "$EXIT_SUCCESS"
   fi
 
+  local resume_exit_code
   if resume_session "$session_id"; then
     log_step "Session resumed: $session_id"
 
@@ -1292,8 +1345,10 @@ cmd_resume() {
     [[ -n "$session_name" ]] && log_info "Name: $session_name"
     [[ -n "$focus_task" ]] && log_info "Focus: $focus_task"
   else
-    log_error "Failed to resume session" "E_SESSION_RESUME_FAILED" "$?"
-    exit $?
+    resume_exit_code=$?
+    # Library function already output structured error via output_error_actionable
+    # Don't add duplicate error message - just exit with the same code
+    exit $resume_exit_code
   fi
 }
 
@@ -1335,7 +1390,7 @@ cmd_close() {
   else
     local exit_code=$?
     if [[ $exit_code -eq 39 ]]; then
-      log_error "Cannot close session - tasks incomplete" "E_SESSION_CLOSE_BLOCKED" 39
+      output_session_error "E_SESSION_CLOSE_BLOCKED" "Cannot close session - tasks incomplete"
     else
       log_error "Failed to close session" "E_SESSION_CLOSE_FAILED" "$exit_code"
     fi
@@ -1447,8 +1502,8 @@ cmd_show_session() {
   session_info=$(get_session "$session_id")
 
   if [[ -z "$session_info" ]]; then
-    log_error "Session not found: $session_id" "E_SESSION_NOT_FOUND" "$EXIT_NOT_FOUND"
-    exit "$EXIT_NOT_FOUND"
+    output_session_error "E_SESSION_NOT_FOUND" "Session not found: $session_id"
+    exit "$EXIT_SESSION_NOT_FOUND"
   fi
 
   if [[ "$output_format" == "json" ]]; then
@@ -1518,8 +1573,8 @@ cmd_switch() {
   session_info=$(get_session "$session_id" 2>/dev/null)
 
   if [[ -z "$session_info" ]]; then
-    log_error "Session not found: $session_id" "E_SESSION_NOT_FOUND" "$EXIT_NOT_FOUND"
-    exit "$EXIT_NOT_FOUND"
+    output_session_error "E_SESSION_NOT_FOUND" "Session not found: $session_id"
+    exit "$EXIT_SESSION_NOT_FOUND"
   fi
 
   # Write to .current-session file

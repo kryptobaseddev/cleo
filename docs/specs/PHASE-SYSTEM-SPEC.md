@@ -1,8 +1,8 @@
 # Phase System Specification
 
 **Status**: ACTIVE
-**Version**: v2.2.0+
-**Last Updated**: 2025-12-17
+**Version**: v2.2.2
+**Last Updated**: 2025-12-30
 **Schema Version**: 2.2.0
 
 ---
@@ -656,6 +656,7 @@ ct migrate run
 |---------|------|---------|
 | v2.2.0 | 2025-12-15 | Initial phase system implementation |
 | v2.2.1 | 2025-12-17 | Added phaseHistory, rollback logging, archive stats |
+| v2.2.2 | 2025-12-30 | Added Appendix C (wave computation cross-reference), updated Related Specifications with TASK-HIERARCHY-SPEC Parts 5-6 and CHAIN-VISUALIZATION-SPEC |
 
 ---
 
@@ -722,9 +723,50 @@ Key definitions:
 |----------|--------------|
 | [SPEC-BIBLE-GUIDELINES.md](SPEC-BIBLE-GUIDELINES.md) | **AUTHORITATIVE** for specification standards |
 | [LLM-AGENT-FIRST-SPEC.md](LLM-AGENT-FIRST-SPEC.md) | Related: LLM-first command design principles |
+| [TASK-HIERARCHY-SPEC.md](TASK-HIERARCHY-SPEC.md) | Related: Wave computation algorithm (Part 6); task hierarchy complements phase lifecycle |
+| [CHAIN-VISUALIZATION-SPEC.md](CHAIN-VISUALIZATION-SPEC.md) | Related: Chain visualization across phases (computed at render time) |
 | [CONFIG-SYSTEM-SPEC.md](CONFIG-SYSTEM-SPEC.md) | Related: Configuration system authority |
 | [RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md) | Related: Defines phase context for RCSD pipeline stages (Research→setup, Decompose→core) |
 | PHASE-SYSTEM-IMPLEMENTATION-REPORT.md | Tracks implementation status (pending creation) |
+
+---
+
+## Appendix C: Wave Computation Cross-Reference
+
+### C.1 Phases vs Waves
+
+| Concept | Storage | Purpose |
+|---------|---------|---------|
+| **Phase** | `task.phase` (stored) | Workflow lifecycle stage (setup → core → testing → polish) |
+| **Wave** | COMPUTED | Execution order within scope based on dependency depth |
+
+Phases represent **WHEN** in the project lifecycle. Waves represent **WHAT ORDER** to execute tasks based on dependencies.
+
+### C.2 Wave Computation Algorithm
+
+> **See**: [TASK-HIERARCHY-SPEC.md Part 6](TASK-HIERARCHY-SPEC.md) for the complete wave computation specification.
+
+**Summary**:
+```
+wave(task) =
+  if task.status == "done" then -1 (excluded)
+  else if task.depends is empty then 0
+  else max(task.depends.filter(in_scope).map(d => wave(d))) + 1
+```
+
+- **Wave 0**: Tasks with no in-scope, non-done dependencies (can start immediately)
+- **Wave N**: Tasks whose deepest dependency is at Wave N-1
+- **Scope filtering**: Only dependencies within the analysis scope are considered
+
+### C.3 Cross-Phase Dependencies
+
+Tasks MAY depend on tasks in different phases. The wave computation handles cross-phase dependencies by:
+
+1. Including all scoped dependencies regardless of phase
+2. Computing wave depth across the entire dependency graph
+3. Allowing parallel execution within the same wave, even across phases
+
+**Example**: A `testing` phase task depending on a `core` phase task will have wave = core_task_wave + 1.
 
 ---
 
