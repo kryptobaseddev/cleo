@@ -1,10 +1,15 @@
 # Task Decomposition Specification
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: DRAFT
 **Created**: 2025-12-19
+**Updated**: 2025-12-30
 **Target**: v0.22.0+
 **Implementation Report**: [TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md](TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md)
+
+> **v1.1.0 CHANGE**: Refactored to be implementation-agnostic. Removed Bash-specific code,
+> retained algorithms as pseudocode. This spec is now AUTHORITATIVE for decomposition principles,
+> applicable to any implementation language (Python, Bash, TypeScript, etc.).
 
 ---
 
@@ -566,7 +571,12 @@ FUNCTION specify_tasks(dag: DAG, phase: string) -> Task[]:
             acceptance: node.acceptance or [],
             depends: get_dependencies(node, dag, id_mapping),
             createdAt: now_iso8601(),
-            labels: ["decomposed", f"decomposition:{decomposition_id}"]
+            labels: ["decomposed", f"decomposition:{decomposition_id}"],
+            # v1.1.0: Spec traceability (optional, from ct-decompose)
+            associations: {
+                specRequirement: node.sourceRequirement,  # e.g., "REQ-001"
+                acceptanceCriteria: node.sourceAC or []   # e.g., ["AC-001", "AC-002"]
+            } IF node.sourceRequirement ELSE null
         }
 
         # Validate against schema
@@ -694,6 +704,7 @@ cleo decompose "Add dark mode" --phase ui --dry-run
 | `--parent` | task ID | - | Parent task for all generated tasks |
 | `--dry-run` | boolean | false | Preview without creating tasks |
 | `--no-challenge` | boolean | false | Skip adversarial validation (NOT RECOMMENDED) |
+| `--eager-execution` | boolean | false | Begin on stable spec sections (see 9.6) |
 | `--format, -f` | string | auto | Output format (json/text/markdown) |
 | `--quiet, -q` | boolean | false | Suppress non-essential output |
 | `--verbose, -v` | boolean | false | Show detailed phase outputs |
@@ -711,6 +722,7 @@ cleo decompose "Add dark mode" --phase ui --dry-run
 | 14 | `EXIT_CIRCULAR_REFERENCE` | DAG contains cycles |
 | 30 | `EXIT_HITL_REQUIRED` | Decomposition blocked by ambiguity |
 | 31 | `EXIT_CHALLENGE_REJECTED` | Challenge agent rejected decomposition |
+| 35 | `EXIT_ATOMICITY_FAILED` | Tasks fail atomicity criteria (score < 100) |
 | 102 | `EXIT_NO_CHANGE` | Request already decomposed (idempotent) |
 
 ### 9.4 Error Codes
@@ -721,297 +733,177 @@ cleo decompose "Add dark mode" --phase ui --dry-run
 | `E_DECOMPOSE_AMBIGUOUS` | 30 | Request has unresolved ambiguities |
 | `E_DECOMPOSE_CYCLE` | 14 | Generated DAG has cycles |
 | `E_DECOMPOSE_REJECTED` | 31 | Challenge agent rejected decomposition |
+| `E_DECOMPOSE_ATOMICITY` | 35 | Tasks fail atomicity criteria |
 | `E_DECOMPOSE_DEPTH` | 11 | Recursive decomposition exceeded depth |
 | `E_DECOMPOSE_SIBLINGS` | 12 | Too many sibling tasks generated |
 
-### 9.5 Script Implementation Pattern
+### 9.5 Implementation Pipeline (Language-Agnostic)
 
-```bash
-#!/usr/bin/env bash
-# scripts/decompose.sh
-set -euo pipefail
+> **v1.1.0 CHANGE**: Implementation-specific code removed. See pseudocode below.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
+The decompose command MUST implement the following pipeline:
 
-# Source required libraries (per LLM-AGENT-FIRST-SPEC Part 4)
-source "${LIB_DIR}/exit-codes.sh"
-source "${LIB_DIR}/error-json.sh"
-source "${LIB_DIR}/output-format.sh"
-source "${LIB_DIR}/decomposition.sh"  # NEW: Decomposition functions
+```
+FUNCTION decompose_main(request, options):
 
-COMMAND_NAME="decompose"
-VERSION=$(cat "${SCRIPT_DIR}/../VERSION" | tr -d '[:space:]')
-
-# Flag defaults
-FORMAT=""
-QUIET=false
-VERBOSE=false
-DRY_RUN=false
-NO_CHALLENGE=false
-PHASE=""
-PARENT=""
-INPUT_FILE=""
-
-show_help() {
-    cat << 'EOF'
-Usage: cleo decompose <request> [OPTIONS]
-
-Decompose a high-level request into atomic, executable tasks.
-
-Arguments:
-  <request>           Natural language description of work to decompose
-
-Options:
-  -i, --file FILE     Read request from file instead of argument
-  --phase PHASE       Target phase for generated tasks
-  --parent ID         Parent task ID for all generated tasks
-  --dry-run           Preview decomposition without creating tasks
-  --no-challenge      Skip adversarial validation (NOT RECOMMENDED)
-  -f, --format FMT    Output format (json|text|markdown)
-  -q, --quiet         Suppress non-essential output
-  -v, --verbose       Show detailed phase outputs
-  -h, --help          Show this help message
-
-Exit Codes:
-  0   Success - tasks created
-  2   Invalid input
-  6   Validation error
-  14  Circular reference detected
-  30  HITL required (ambiguities)
-  31  Challenge rejected decomposition
-
-Examples:
-  cleo decompose "Add user authentication"
-  cleo decompose --file requirements.md --phase core
-  cleo decompose "Fix login bug" --dry-run --format json
-EOF
-}
-
-# Argument parsing
-parse_args() {
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -f|--format)   FORMAT="$2"; shift 2 ;;
-            --json)        FORMAT="json"; shift ;;
-            --human)       FORMAT="text"; shift ;;
-            -q|--quiet)    QUIET=true; shift ;;
-            -v|--verbose)  VERBOSE=true; shift ;;
-            --dry-run)     DRY_RUN=true; shift ;;
-            --no-challenge) NO_CHALLENGE=true; shift ;;
-            --phase)       PHASE="$2"; shift 2 ;;
-            --parent)      PARENT="$2"; shift 2 ;;
-            -i|--file)     INPUT_FILE="$2"; shift 2 ;;
-            -h|--help)     show_help; exit 0 ;;
-            -*)            output_error "E_INPUT_INVALID" "Unknown option: $1" 2; exit 2 ;;
-            *)             REQUEST="$1"; shift ;;
-        esac
-    done
-
-    FORMAT=$(resolve_format "$FORMAT")
-}
-
-main() {
-    parse_args "$@"
-
-    # Get request
-    if [[ -n "$INPUT_FILE" ]]; then
-        [[ -f "$INPUT_FILE" ]] || { output_error "E_FILE_NOT_FOUND" "File not found: $INPUT_FILE" 4; exit 4; }
-        REQUEST=$(cat "$INPUT_FILE")
-    fi
-
-    [[ -z "${REQUEST:-}" ]] && { output_error "E_DECOMPOSE_EMPTY_INPUT" "No request provided" 2; exit 2; }
+    # Validate input
+    IF request IS empty:
+        RETURN error(E_DECOMPOSE_EMPTY_INPUT, exit_code=2)
 
     # Phase 1: Scope Analysis
-    scope_result=$(analyze_scope "$REQUEST")
+    scope_result = analyze_scope(request)
 
-    if [[ $(echo "$scope_result" | jq -r '.hitlRequired') == "true" ]]; then
-        output_hitl_gate "$scope_result"
-        exit $EXIT_HITL_REQUIRED
-    fi
+    IF scope_result.hitlRequired:
+        RETURN hitl_gate(scope_result, exit_code=30)
 
     # Phase 2: Goal Decomposition
-    goal_result=$(decompose_goals "$REQUEST" "$scope_result")
+    goal_result = decompose_goals(request, scope_result)
 
-    if [[ "$NO_CHALLENGE" != "true" ]]; then
-        challenge_result=$(challenge_decomposition "$goal_result" "goals")
-        if [[ $(echo "$challenge_result" | jq -r '.verdict') == "REJECTED" ]]; then
-            output_error "E_DECOMPOSE_REJECTED" "Challenge agent rejected decomposition" 31
-            exit $EXIT_CHALLENGE_REJECTED
-        fi
-    fi
+    IF NOT options.no_challenge:
+        challenge_result = challenge_decomposition(goal_result, phase="goals")
+        IF challenge_result.verdict == "REJECTED":
+            RETURN error(E_DECOMPOSE_REJECTED, exit_code=31)
 
     # Phase 3: Dependency Graph
-    dag_result=$(build_dependency_graph "$goal_result")
+    dag_result = build_dependency_graph(goal_result)
 
-    if [[ $(echo "$dag_result" | jq -r '.hasCycle') == "true" ]]; then
-        output_error "E_DECOMPOSE_CYCLE" "Circular dependency detected" 14
-        exit $EXIT_CIRCULAR_REFERENCE
-    fi
+    IF dag_result.hasCycle:
+        RETURN error(E_DECOMPOSE_CYCLE, exit_code=14)
 
-    if [[ "$NO_CHALLENGE" != "true" ]]; then
-        challenge_result=$(challenge_decomposition "$dag_result" "dag")
-    fi
+    IF NOT options.no_challenge:
+        challenge_decomposition(dag_result, phase="dag")
 
     # Phase 4: Task Specification
-    tasks_result=$(specify_tasks "$dag_result" "$PHASE" "$PARENT")
+    tasks_result = specify_tasks(dag_result, options.phase, options.parent)
 
-    if [[ "$NO_CHALLENGE" != "true" ]]; then
-        challenge_result=$(challenge_decomposition "$tasks_result" "tasks")
-    fi
+    IF NOT options.no_challenge:
+        challenge_decomposition(tasks_result, phase="tasks")
 
     # Output or create
-    if [[ "$DRY_RUN" == "true" ]]; then
-        output_dry_run "$tasks_result"
-    else
-        created=$(create_tasks "$tasks_result")
-        output_success "$created"
-    fi
-
-    exit $EXIT_SUCCESS
-}
-
-main "$@"
+    IF options.dry_run:
+        RETURN preview(tasks_result)
+    ELSE:
+        created = create_tasks(tasks_result)
+        RETURN success(created, exit_code=0)
 ```
+
+**Implementation Requirements:**
+- Implementations MUST follow the 4-phase pipeline order
+- Challenge validation at each phase is RECOMMENDED (skip with `--no-challenge`)
+- HITL gates MUST block execution until user input received
+- All exit codes MUST match those in Part 9.3
+
+### 9.6 Eager Execution Mode
+
+> **v1.1.0 ADDITION**: From RCSD Pipeline v1.1 ct-decompose specification.
+
+When `--eager-execution` is enabled, decomposition MAY begin on stable (non-provisional)
+spec sections before the full specification is finalized.
+
+**Provisional Task Marking:**
+
+Tasks generated from incomplete or provisional spec sections MUST be marked:
+
+```json
+{
+  "id": "T503",
+  "provisional": true,
+  "provisionReason": "Pending spec resolution for REQ-004"
+}
+```
+
+**Constraints:**
+- Provisional tasks MUST NOT be scheduled for execution
+- Provisional tasks MUST be re-validated when source spec finalizes
+- Removing `provisional: true` requires atomicity re-check
+
+**Use Cases:**
+- Large specifications where some sections are stable
+- Parallel spec writing and task planning
+- Early dependency graph visualization
 
 ---
 
-## Part 10: Library Functions
+## Part 10: Core Functions (Language-Agnostic)
 
-### 10.1 New Library: `lib/decomposition.sh`
+> **v1.1.0 CHANGE**: Bash-specific library code removed. Functions defined as abstract specifications.
 
-```bash
-#!/usr/bin/env bash
-# lib/decomposition.sh - Task decomposition functions
+### 10.1 Required Function Signatures
 
-# Analyze scope of a request
-# Arguments: $1 = request text
-# Returns: JSON ScopeAssessment
-analyze_scope() {
-    local request="$1"
-    local timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+Implementations MUST provide the following functions. Return types are JSON objects.
 
-    # Entity extraction (simplified - full impl uses LLM)
-    local file_count=$(echo "$request" | grep -oE '\b[a-z]+\.(ts|js|sh|py|json)\b' | wc -l)
-    local component_count=$(echo "$request" | grep -oE '\b(component|service|controller|model|schema)\b' | wc -l)
+```
+FUNCTION analyze_scope(request: string) -> ScopeAssessment:
+    """
+    Analyze request complexity and determine decomposition strategy.
 
-    # Complexity assessment
-    local complexity="low"
-    [[ $file_count -gt 5 ]] && complexity="medium"
-    [[ $file_count -gt 10 ]] && complexity="high"
-
-    # Classification
-    local classification="task"
-    local requires_decomposition=false
-    [[ $file_count -gt 10 || $component_count -gt 3 ]] && {
-        classification="epic"
-        requires_decomposition=true
+    Returns: {
+        "_meta": { "phase": "scope-analysis", "timestamp": ISO8601 },
+        "input": { "request": string },
+        "assessment": {
+            "classification": "epic" | "task" | "subtask",
+            "requiresDecomposition": boolean,
+            "complexity": { "fileCount": int, "componentCount": int, "reasoning": string },
+            "hitlRequired": boolean,
+            "ambiguities": string[]
+        }
     }
-    [[ $file_count -le 2 && "$complexity" == "low" ]] && classification="subtask"
+    """
 
-    # Generate output
-    jq -n \
-        --arg ts "$timestamp" \
-        --arg req "$request" \
-        --arg class "$classification" \
-        --argjson decomp "$requires_decomposition" \
-        --argjson files "$file_count" \
-        --argjson comps "$component_count" \
-        --arg complex "$complexity" \
-        '{
-            "_meta": {
-                "phase": "scope-analysis",
-                "timestamp": $ts
-            },
-            "input": {"request": $req},
-            "assessment": {
-                "classification": $class,
-                "requiresDecomposition": $decomp,
-                "complexity": {
-                    "fileCount": $files,
-                    "componentCount": $comps,
-                    "reasoning": $complex
-                },
-                "hitlRequired": false,
-                "ambiguities": []
-            }
-        }'
-}
+FUNCTION decompose_goals(request: string, scope: ScopeAssessment) -> GoalTree:
+    """
+    Recursively decompose request into hierarchical goal tree.
+    Uses HTN-inspired methods (Part 6).
 
-# Decompose goals into task tree
-# Arguments: $1 = request, $2 = scope_result JSON
-# Returns: JSON GoalTree
-decompose_goals() {
-    local request="$1"
-    local scope="$2"
+    Returns: GoalTree with nested children, max depth 3, max siblings 7.
+    """
 
-    # This would invoke LLM for actual decomposition
-    # Simplified stub for spec
-    echo "$scope" | jq '.goalTree = {"id": "G001", "title": "Root goal", "children": []}'
-}
+FUNCTION build_dependency_graph(goals: GoalTree) -> DAGResult:
+    """
+    Flatten goal tree to DAG nodes, detect dependencies, validate acyclicity.
+    Uses detection algorithms from Part 19.
 
-# Build dependency graph from goal tree
-# Arguments: $1 = goal_result JSON
-# Returns: JSON DAG
-build_dependency_graph() {
-    local goals="$1"
-
-    # Extract nodes, compute edges, validate DAG
-    # Simplified stub
-    echo "$goals" | jq '. + {
+    Returns: {
         "dag": {
             "nodes": [],
             "edges": [],
-            "hasCycle": false,
+            "hasCycle": boolean,
             "parallelGroups": [],
-            "executionOrder": []
+            "executionOrder": [],
+            "criticalPath": []  # v1.1.0: Longest dependency chain (from ct-decompose)
         }
-    }'
-}
+    }
+    """
 
-# Challenge decomposition via adversarial agent
-# Arguments: $1 = result JSON, $2 = phase name
-# Returns: JSON ChallengeResult
-challenge_decomposition() {
-    local result="$1"
-    local phase="$2"
+FUNCTION challenge_decomposition(result: any, phase: string) -> ChallengeResult:
+    """
+    Invoke adversarial challenge agent per CONSENSUS-FRAMEWORK-SPEC.
 
-    # Would spawn challenge agent per CONSENSUS-FRAMEWORK-SPEC
-    # Simplified stub
-    jq -n --arg phase "$phase" '{
-        "phase": $phase,
-        "verdict": "VALID",
-        "findings": [],
-        "timestamp": (now | todate)
-    }'
-}
+    Returns: { "phase": string, "verdict": "VALID" | "NEEDS_REVISION" | "REJECTED", "findings": [] }
+    """
 
-# Convert DAG to schema-compliant tasks
-# Arguments: $1 = dag_result JSON, $2 = phase, $3 = parent
-# Returns: JSON Task[]
-specify_tasks() {
-    local dag="$1"
-    local phase="${2:-}"
-    local parent="${3:-null}"
+FUNCTION specify_tasks(dag: DAGResult, phase: string, parent: string?) -> TasksResult:
+    """
+    Convert DAG nodes to schema-compliant tasks with IDs, labels, dependencies.
 
-    # Generate task objects from DAG nodes
-    # Would apply id generation, field mapping, validation
-    echo "$dag" | jq --arg phase "$phase" --arg parent "$parent" '. + {
-        "tasks": []
-    }'
-}
+    Returns: { "tasks": Task[], atomicityScore: int }
+    """
 
-# Create tasks in todo.json
-# Arguments: $1 = tasks_result JSON
-# Returns: JSON with created task IDs
-create_tasks() {
-    local tasks="$1"
+FUNCTION create_tasks(tasks: TasksResult) -> CreationResult:
+    """
+    Persist tasks to storage (todo.json or equivalent).
 
-    # Would call add-task.sh for each task
-    # Returns summary of created tasks
-    echo "$tasks" | jq '.created = true'
-}
+    Returns: { "created": boolean, "taskIds": string[] }
+    """
 ```
+
+### 10.2 Implementation Notes
+
+- All functions MUST return valid JSON per LLM-AGENT-FIRST-SPEC
+- `analyze_scope` MAY use heuristics for simple cases, SHOULD use LLM for complex cases
+- `decompose_goals` MUST use LLM invocation per Part 18
+- `challenge_decomposition` MUST spawn separate agent with adversarial prompts
+- Implementations MAY add language-specific optimizations while maintaining interface compliance
 
 ---
 
@@ -1393,33 +1285,38 @@ PROMPT_STRUCTURE = {
 
 ### 18.4 Model Selection Logic
 
-```bash
-# lib/llm-invoke.sh
+> **v1.1.0 CHANGE**: Bash-specific code removed. Selection logic as decision table.
 
-select_model() {
-    local phase="$1"
-    local complexity="${2:-medium}"
-
-    case "$phase" in
-        scope|dag|tasks)
-            echo "haiku"  # Fast, low-cost for structured extraction
-            ;;
-        goals)
-            if [[ "$complexity" == "high" ]]; then
-                echo "sonnet"  # Complex reasoning
-            else
-                echo "haiku"
-            fi
-            ;;
-        challenge)
-            echo "sonnet"  # Always use capable model for adversarial
-            ;;
-        *)
-            echo "haiku"
-            ;;
-    esac
-}
 ```
+FUNCTION select_model(phase: string, complexity: string = "medium") -> ModelTier:
+    """
+    Select appropriate model tier based on phase and complexity.
+    Model tiers are implementation-defined (e.g., "haiku", "sonnet", "opus").
+    """
+
+    # Decision table
+    IF phase IN ["scope", "dag", "tasks"]:
+        RETURN "fast"       # Low-cost tier for structured extraction
+
+    IF phase == "goals":
+        IF complexity == "high":
+            RETURN "standard"  # Complex reasoning requires capable model
+        ELSE:
+            RETURN "fast"
+
+    IF phase == "challenge":
+        RETURN "standard"   # Adversarial validation requires capable model
+
+    RETURN "fast"           # Default to low-cost tier
+```
+
+**Model Tier Mapping (implementation-specific):**
+
+| Tier | Claude Models | OpenAI Models | Purpose |
+|------|---------------|---------------|---------|
+| `fast` | claude-3-haiku | gpt-4o-mini | Structured extraction, low latency |
+| `standard` | claude-sonnet-4 | gpt-4o | Complex reasoning, adversarial |
+| `capable` | claude-opus-4 | o3 | Maximum capability (reserved) |
 
 ### 18.5 Fallback Strategy
 
@@ -1860,47 +1757,58 @@ The following fields SHOULD be added to `todo.schema.json` v2.4.0:
 
 ### 23.2 Computed Field Calculation
 
+> **v1.1.0 CHANGE**: Bash-specific code removed. Algorithms as pseudocode.
+
 Computed fields are NOT stored in todo.json but calculated on read:
 
-```bash
-# lib/computed-fields.sh
+```
+FUNCTION compute_children(task_id: string, tasks: Task[]) -> string[]:
+    """Return IDs of direct children (tasks with parentId == task_id)."""
+    RETURN [t.id FOR t IN tasks WHERE t.parentId == task_id]
 
-compute_children() {
-    local task_id="$1"
-    local todo_file="$2"
 
-    jq -r --arg id "$task_id" \
-        '.tasks[] | select(.parentId == $id) | .id' \
-        "$todo_file" | jq -Rs 'split("\n") | map(select(. != ""))'
-}
+FUNCTION compute_depth(task_id: string, tasks: Task[]) -> int:
+    """Calculate hierarchy depth (0 = root, 1 = child, etc.)."""
+    depth = 0
+    current = task_id
 
-compute_depth() {
-    local task_id="$1"
-    local todo_file="$2"
+    WHILE current IS NOT null:
+        task = find_task(current, tasks)
+        IF task IS null OR task.parentId IS null:
+            BREAK
+        depth += 1
+        current = task.parentId
 
-    local depth=0
-    local current="$task_id"
+    RETURN depth
 
-    while true; do
-        parent=$(jq -r --arg id "$current" '.tasks[] | select(.id == $id) | .parentId // empty' "$todo_file")
-        [[ -z "$parent" ]] && break
-        ((depth++))
-        current="$parent"
-    done
 
-    echo "$depth"
-}
+FUNCTION compute_blocked_by(task_id: string, tasks: Task[]) -> string[]:
+    """Return IDs of incomplete dependencies blocking this task."""
+    task = find_task(task_id, tasks)
+    IF task IS null OR task.depends IS empty:
+        RETURN []
 
-compute_blocked_by() {
-    local task_id="$1"
-    local todo_file="$2"
+    RETURN [
+        dep_id FOR dep_id IN task.depends
+        WHERE find_task(dep_id, tasks).status != "done"
+    ]
 
-    jq -r --arg id "$task_id" '
-        (.tasks[] | select(.id == $id) | .depends // []) as $deps |
-        .tasks[] | select(.id as $tid | $deps | index($tid)) |
-        select(.status != "done") | .id
-    ' "$todo_file" | jq -Rs 'split("\n") | map(select(. != ""))'
-}
+
+FUNCTION compute_dependents(task_id: string, tasks: Task[]) -> string[]:
+    """Return IDs of tasks that depend on this task (inverse of depends)."""
+    RETURN [t.id FOR t IN tasks WHERE task_id IN (t.depends OR [])]
+
+
+FUNCTION compute_ancestors(task_id: string, tasks: Task[]) -> string[]:
+    """Return IDs of all ancestor tasks (transitive parentId)."""
+    ancestors = []
+    current = find_task(task_id, tasks).parentId
+
+    WHILE current IS NOT null:
+        ancestors.append(current)
+        current = find_task(current, tasks).parentId
+
+    RETURN ancestors
 ```
 
 ### 23.3 Materialization Strategy
