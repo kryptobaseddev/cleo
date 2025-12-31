@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
-  "schemaVersion": "2.4.0",
+  "schemaVersion": "2.5.0",
   "title": "CLEO Task Schema",
   "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
   "type": "object",
@@ -308,6 +308,12 @@
           "uniqueItems": true,
           "description": "Task IDs that must be 'done' before this can start. Validates on activation."
         },
+        "epicLifecycle": {
+          "type": ["string", "null"],
+          "enum": ["backlog", "planning", "active", "review", "released", "archived", null],
+          "default": null,
+          "description": "Epic lifecycle state. Only applicable when type=epic. Null for tasks/subtasks."
+        },
         "blockedBy": {
           "type": "string",
           "maxLength": 300,
@@ -345,6 +351,88 @@
           "maxLength": 300,
           "pattern": "^[^`$;|&<>]*$",
           "description": "Reason for cancellation. REQUIRED when status='cancelled'. 5-300 chars, no shell metacharacters."
+        },
+        "verification": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Implementation verification state. Tracks pass/fail status across validation gates.",
+          "additionalProperties": false,
+          "properties": {
+            "passed": {
+              "type": "boolean",
+              "default": false,
+              "description": "Overall verification status. True only when ALL required gates pass."
+            },
+            "round": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Current implementation round (0 = not started)."
+            },
+            "gates": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "implemented": {
+                  "type": ["boolean", "null"],
+                  "default": null,
+                  "description": "Coder Agent completed implementation."
+                },
+                "testsPassed": {
+                  "type": ["boolean", "null"],
+                  "default": null,
+                  "description": "Testing Agent verified all tests pass."
+                },
+                "qaPassed": {
+                  "type": ["boolean", "null"],
+                  "default": null,
+                  "description": "QA Agent verified acceptance criteria."
+                },
+                "cleanupDone": {
+                  "type": ["boolean", "null"],
+                  "default": null,
+                  "description": "Cleanup Agent completed refactoring."
+                },
+                "securityPassed": {
+                  "type": ["boolean", "null"],
+                  "default": null,
+                  "description": "Security Agent found no critical issues."
+                },
+                "documented": {
+                  "type": ["boolean", "null"],
+                  "default": null,
+                  "description": "Docs Agent completed documentation."
+                }
+              }
+            },
+            "lastAgent": {
+              "type": ["string", "null"],
+              "enum": ["planner", "coder", "testing", "qa", "cleanup", "security", "docs", null],
+              "default": null,
+              "description": "Last agent to work on this task."
+            },
+            "lastUpdated": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "description": "Timestamp of last verification update."
+            },
+            "failureLog": {
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "object",
+                "required": ["round", "agent", "reason", "timestamp"],
+                "additionalProperties": false,
+                "properties": {
+                  "round": { "type": "integer", "minimum": 1 },
+                  "agent": { "type": "string" },
+                  "reason": { "type": "string", "maxLength": 500 },
+                  "timestamp": { "type": "string", "format": "date-time" }
+                }
+              },
+              "description": "Log of verification failures for debugging."
+            }
+          }
         }
       },
       "allOf": [

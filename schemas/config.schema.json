@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
-  "schemaVersion": "2.2.0",
+  "schemaVersion": "2.3.0",
   "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
@@ -259,6 +259,50 @@
               "description": "Show warning when task phase differs from project phase."
             }
           }
+        }
+      }
+    },
+
+    "verification": {
+      "type": "object",
+      "description": "Verification gates configuration for task quality tracking.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable verification gates for task completion. When true, parent auto-complete requires verification.passed = true."
+        },
+        "maxRounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 5,
+          "description": "Maximum implementation rounds before HITL escalation."
+        },
+        "requiredGates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+          },
+          "default": ["implemented", "testsPassed", "qaPassed", "securityPassed", "documented"],
+          "description": "Gates required to pass for verification.passed = true. cleanupDone excluded by default."
+        },
+        "autoSetImplementedOnComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically set gates.implemented = true when ct complete runs."
+        },
+        "requireForParentAutoComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require verification.passed = true for parent auto-complete."
+        },
+        "allowManualOverride": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow --skip-verification flag on ct complete."
         }
       }
     },
