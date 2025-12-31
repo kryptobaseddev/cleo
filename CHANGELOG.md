@@ -5,6 +5,25 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.10] - 2025-12-31
+
+### Fixed
+- **multiSession.enabled=false was ignored** - Fixed jq alternative operator bug
+  - Root cause: jq's `//` operator treats `false` as falsy (`false // true` = `true`)
+  - When user set `multiSession.enabled: false`, system still behaved as if enabled
+  - Result: Chicken-and-egg problem - couldn't create epic without session, couldn't start session without epic
+  - Fix: Changed `// true` default to explicit null check: `if .multiSession.enabled == null then true else .multiSession.enabled end`
+  - Fixed in: `lib/sessions.sh` (is_multi_session_enabled), `lib/session-enforcement.sh` (is_session_enforcement_enabled)
+
+- **session start --help threw error** - Added --help flag handling to cmd_start()
+  - Previously: `--help` was swallowed by `*) shift ;;` catch-all, triggering multi-session discovery mode
+  - Now: `--help` is handled before any session logic, correctly shows usage
+
+### Technical Details
+- `lib/sessions.sh:118`: Changed `jq -r '.multiSession.enabled // true'` to explicit null check
+- `lib/session-enforcement.sh:93`: Same fix for session enforcement check
+- `scripts/session.sh:347`: Added `-h|--help) usage; exit 0 ;;` to cmd_start() argument parser
+
 ## [0.41.9] - 2025-12-31
 
 ### Fixed

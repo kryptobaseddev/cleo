@@ -344,6 +344,7 @@ cmd_start() {
   # Parse multi-session options (including global flags passed after subcommand)
   while [[ $# -gt 0 ]]; do
     case $1 in
+      -h|--help) usage; exit 0 ;;
       --scope) scope_str="$2"; shift 2 ;;
       --focus) focus_task="$2"; shift 2 ;;
       --auto-focus) auto_focus=true; shift ;;

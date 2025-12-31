@@ -113,7 +113,9 @@ is_multi_session_enabled() {
     fi
 
     local enabled
-    enabled=$(jq -r '.multiSession.enabled // true' "$config_file" 2>/dev/null)
+    # Note: Using explicit null check instead of // operator because
+    # jq's // treats false as falsy (false // true = true, which is wrong)
+    enabled=$(jq -r 'if .multiSession.enabled == null then true else .multiSession.enabled end' "$config_file" 2>/dev/null)
 
     [[ "$enabled" == "true" ]]
 }
