@@ -513,6 +513,81 @@ Domains are grouped by labels. Use this to:
 | **deps** | Visualize dependency tree | Understand task relationships |
 | **dash** | Project overview | High-level status check |
 
+## Stale Task Detection
+
+The analyze command includes intelligent stale task detection to identify tasks that may need review or intervention.
+
+### Stale Indicators
+
+| Type | Condition | Default Threshold |
+|------|-----------|-------------------|
+| `urgent_neglected` | High/critical priority, untouched | 7 days |
+| `long_blocked` | Blocked without progress | 7 days |
+| `old_pending` | Created long ago, still pending | 30 days |
+| `no_updates` | No notes/activity | 14 days |
+
+### JSON Output
+
+Stale tasks are included in the analysis output:
+
+```json
+{
+  "staleCount": 9,
+  "staleTasks": [
+    {
+      "taskId": "T301",
+      "title": "Important feature",
+      "priority": "high",
+      "status": "pending",
+      "staleness": {
+        "type": "urgent_neglected",
+        "daysSinceCreated": 14,
+        "daysSinceUpdate": 14,
+        "reason": "HIGH priority task untouched for 14 days"
+      }
+    }
+  ]
+}
+```
+
+### Human Output
+
+```
+STALE TASKS (need review - 9 total)
+  T301 [high] - HIGH priority task untouched for 14 days
+  T310 [high] - HIGH priority task untouched for 14 days
+  T456 [medium] - Blocked for 21 days without progress
+  ... and 6 more
+```
+
+### Configuration
+
+Configure thresholds in `config.json`:
+
+```json
+{
+  "analyze": {
+    "staleDetection": {
+      "enabled": true,
+      "pendingDays": 30,
+      "noUpdateDays": 14,
+      "blockedDays": 7,
+      "urgentNeglectedDays": 7
+    }
+  }
+}
+```
+
+Set `enabled: false` to disable stale detection in output.
+
+### Epic-Scoped Staleness
+
+When using `--parent`, stale tasks are filtered to only those within the epic scope:
+
+```bash
+cleo analyze --parent T001  # Only shows stale tasks in T001 subtree
+```
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -523,7 +598,8 @@ Domains are grouped by labels. Use this to:
 
 ## Version History
 
-- **v0.42.0**: Epic-scoped analysis with `--parent` flag - phase grouping, wave computation, inventory, execution plan, human ASCII output
+- **v0.42.0**: Stale task detection - identifies old pending, no updates, long blocked, and urgent neglected tasks with configurable thresholds
+- **v0.41.0**: Epic-scoped analysis with `--parent` flag - phase grouping, wave computation, inventory, execution plan, human ASCII output
 - **v0.39.0**: Hierarchy-aware leverage scoring with configurable weights (parentChild, crossEpic, crossPhase)
 - **v0.16.0**: Major rewrite - JSON default, --human flag, domain grouping, action order, improved tier logic
 - **v0.15.0**: Initial implementation with leverage scoring, bottleneck detection, tier system

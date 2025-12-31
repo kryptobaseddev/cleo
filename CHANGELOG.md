@@ -5,6 +5,49 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2025-12-31
+
+### Added
+- **Stale task detection** - Analyze command now identifies tasks needing review
+  - `urgent_neglected`: High/critical priority untouched for 7+ days
+  - `long_blocked`: Blocked without progress for 7+ days
+  - `old_pending`: Pending for 30+ days without activity
+  - `no_updates`: No notes/activity for 14+ days
+  - JSON output includes `staleTasks` array and `staleCount`
+  - Human output shows "STALE TASKS" section with reasons
+  - Epic-scoped analysis filters stale tasks to scope
+  - Configurable thresholds via `analyze.staleDetection` config
+
+### New Files
+- `lib/staleness.sh` - Core staleness detection library
+  - `is_task_stale()` - Check if task meets staleness criteria
+  - `get_stale_tasks()` - Get all stale tasks with metadata
+  - `categorize_staleness()` - Determine staleness type
+  - `get_staleness_metadata()` - Get detailed staleness info
+
+### Configuration
+```json
+{
+  "analyze": {
+    "staleDetection": {
+      "enabled": true,
+      "pendingDays": 30,
+      "noUpdateDays": 14,
+      "blockedDays": 7,
+      "urgentNeglectedDays": 7
+    }
+  }
+}
+```
+
+### Technical Details
+- `lib/staleness.sh`: New 600+ line library with source guard, jq-based analysis
+- `lib/config.sh`: Added 6 getter functions for stale detection config
+- `schemas/config.schema.json`: Added staleDetection schema under analyze
+- `scripts/analyze.sh`: Integrated staleness in output_json, output_human, epic analysis
+- `tests/unit/staleness.bats`: 57 unit tests covering all functions and edge cases
+- `tests/integration/analyze-staleness.bats`: 28 integration tests for end-to-end behavior
+
 ## [0.41.10] - 2025-12-31
 
 ### Fixed

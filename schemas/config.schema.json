@@ -632,6 +632,82 @@
       }
     },
 
+    "analyze": {
+      "type": "object",
+      "description": "Configuration for the analyze command and task prioritization algorithms.",
+      "additionalProperties": false,
+      "properties": {
+        "phaseBoost": {
+          "type": "object",
+          "description": "Phase alignment boost multipliers for task prioritization. Tasks in the current project phase get higher priority.",
+          "additionalProperties": false,
+          "properties": {
+            "current": {
+              "type": "number",
+              "default": 1.5,
+              "minimum": 1.0,
+              "maximum": 3.0,
+              "description": "Boost multiplier for tasks in current project phase."
+            },
+            "adjacent": {
+              "type": "number",
+              "default": 1.25,
+              "minimum": 1.0,
+              "maximum": 2.0,
+              "description": "Boost multiplier for tasks in adjacent phases (order +/- 1)."
+            },
+            "distant": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 1.0,
+              "maximum": 1.5,
+              "description": "Boost multiplier for tasks in distant phases (order diff > 1)."
+            }
+          }
+        },
+        "staleDetection": {
+          "type": "object",
+          "description": "Stale task detection settings for analyze command.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable stale task detection in analyze output."
+            },
+            "pendingDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30,
+              "description": "Days before pending task is considered stale."
+            },
+            "noUpdateDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 14,
+              "description": "Days without notes/updates before task is stale."
+            },
+            "blockedDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 7,
+              "description": "Days blocked without progress before stale warning."
+            },
+            "urgentNeglectedDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 7,
+              "description": "Days high/critical priority task untouched before warning."
+            }
+          }
+        }
+      }
+    },
+
     "multiSession": {
       "type": "object",
       "description": "Multi-session concurrent agent configuration. Enables multiple LLM agents to work on different task groups simultaneously with isolated focus and scope boundaries.",

@@ -1,0 +1,71 @@
+{
+  "version": "1.0.0",
+  "tasks": [
+    {
+      "id": "T060",
+      "title": "Task with null createdAt",
+      "description": "Missing createdAt should be handled gracefully",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": null,
+      "notes": []
+    },
+    {
+      "id": "T061",
+      "title": "Task with missing createdAt",
+      "description": "No createdAt field at all",
+      "status": "pending",
+      "priority": "medium",
+      "notes": []
+    },
+    {
+      "id": "T062",
+      "title": "Task with empty notes",
+      "description": "Empty notes array should use createdAt",
+      "status": "pending",
+      "priority": "low",
+      "createdAt": "{{OLD_DATE}}",
+      "notes": []
+    },
+    {
+      "id": "T063",
+      "title": "Task with object notes",
+      "description": "Notes as objects with timestamp field",
+      "status": "active",
+      "priority": "medium",
+      "createdAt": "{{MONTH_AGO}}",
+      "notes": [
+        {
+          "timestamp": "{{RECENT_DATE}}",
+          "content": "Recent update as object"
+        }
+      ]
+    },
+    {
+      "id": "T064",
+      "title": "Task with mixed note formats",
+      "description": "Both string and object notes",
+      "status": "active",
+      "priority": "medium",
+      "createdAt": "{{MONTH_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Old string note",
+        {
+          "timestamp": "{{RECENT_DATE}}",
+          "content": "Recent object note"
+        }
+      ]
+    },
+    {
+      "id": "T065",
+      "title": "Multiple staleness types applicable",
+      "description": "Old pending AND no updates - should return old_pending",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "{{OLD_DATE}}",
+      "notes": [
+        "{{OLD_NOTE}} Some old note"
+      ]
+    }
+  ]
+}

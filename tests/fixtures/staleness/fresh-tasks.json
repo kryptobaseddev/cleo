@@ -1,0 +1,54 @@
+{
+  "version": "1.0.0",
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Fresh pending task",
+      "description": "Task created recently with no staleness",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "{{RECENT_DATE}}",
+      "notes": []
+    },
+    {
+      "id": "T002",
+      "title": "Fresh blocked task",
+      "description": "Blocked task that is not long-blocked",
+      "status": "blocked",
+      "priority": "low",
+      "createdAt": "{{RECENT_DATE}}",
+      "notes": [
+        "{{RECENT_NOTE}} Waiting on external API"
+      ]
+    },
+    {
+      "id": "T003",
+      "title": "Fresh high priority task",
+      "description": "High priority task with recent activity",
+      "status": "active",
+      "priority": "high",
+      "createdAt": "{{WEEK_AGO}}",
+      "notes": [
+        "{{RECENT_NOTE}} Made progress on implementation"
+      ]
+    },
+    {
+      "id": "T004",
+      "title": "Completed task",
+      "description": "Completed task should never be stale",
+      "status": "done",
+      "priority": "high",
+      "createdAt": "{{OLD_DATE}}",
+      "completedAt": "{{RECENT_DATE}}"
+    },
+    {
+      "id": "T005",
+      "title": "Cancelled task",
+      "description": "Cancelled task should never be stale",
+      "status": "cancelled",
+      "priority": "critical",
+      "createdAt": "{{OLD_DATE}}",
+      "cancelledAt": "{{RECENT_DATE}}"
+    }
+  ]
+}

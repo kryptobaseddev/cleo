@@ -87,6 +87,22 @@ elif [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
   source "$CLEO_HOME/lib/config.sh"
 fi
 
+# Source phase-tracking library for phase boost calculations
+if [[ -f "${LIB_DIR}/phase-tracking.sh" ]]; then
+  # shellcheck source=../lib/phase-tracking.sh
+  source "${LIB_DIR}/phase-tracking.sh"
+elif [[ -f "$CLEO_HOME/lib/phase-tracking.sh" ]]; then
+  source "$CLEO_HOME/lib/phase-tracking.sh"
+fi
+
+# Source staleness library for stale task detection
+if [[ -f "${LIB_DIR}/staleness.sh" ]]; then
+  # shellcheck source=../lib/staleness.sh
+  source "${LIB_DIR}/staleness.sh"
+elif [[ -f "$CLEO_HOME/lib/staleness.sh" ]]; then
+  source "$CLEO_HOME/lib/staleness.sh"
+fi
+
 # Default configuration - JSON output for LLM agents
 OUTPUT_MODE="json"
 AUTO_FOCUS=false
@@ -974,6 +990,40 @@ output_epic_human() {
     echo ""
   fi
 
+  # Stale Tasks (if enabled) - scoped to epic
+  local stale_enabled
+  stale_enabled=$(get_stale_detection_enabled 2>/dev/null || echo "true")
+
+  if [[ "$stale_enabled" == "true" ]] && declare -f get_stale_tasks >/dev/null 2>&1; then
+    local all_stale_tasks scoped_ids scoped_stale stale_count
+    all_stale_tasks=$(get_stale_tasks "$todo_file" 2>/dev/null || echo "[]")
+
+    # Get scoped task IDs from epic analysis
+    scoped_ids=$(echo "$analysis" | jq -r '[.inventory.completed[].id, .inventory.ready[].id, .inventory.blocked[].id] | unique')
+
+    # Filter stale tasks to only those in epic scope
+    scoped_stale=$(echo "$all_stale_tasks" | jq --argjson scopedIds "$scoped_ids" '
+      [.[] | select(.taskId as $id | $scopedIds | index($id))]
+    ')
+    stale_count=$(echo "$scoped_stale" | jq 'length')
+
+    if [[ "$stale_count" -gt 0 ]]; then
+      echo -e "${BOLD}${YELLOW}STALE TASKS${NC} ${DIM}(need review - $stale_count in this epic)${NC}"
+      if [[ "$unicode" == "true" ]]; then
+        echo -e "───────────────────────────────────────────────────────────────────"
+      else
+        echo -e "-------------------------------------------------------------------"
+      fi
+      # Show top 5 stale tasks, sorted by severity
+      echo "$scoped_stale" | jq -r '.[0:5][] |
+        "  \(.taskId) [\(.priority)] - \(.staleness.reason)"'
+      if [[ "$stale_count" -gt 5 ]]; then
+        echo -e "  ${DIM}... and $((stale_count - 5)) more${NC}"
+      fi
+      echo ""
+    fi
+  fi
+
   if [[ "$unicode" == "true" ]]; then
     echo -e "${BOLD}═══════════════════════════════════════════════════════════════════${NC}"
   else
@@ -995,10 +1045,23 @@ run_complete_analysis() {
   weight_cross_epic=$(get_config_value "analyze.hierarchyWeight.crossEpic" "1.0" 2>/dev/null || echo "1.0")
   weight_cross_phase=$(get_config_value "analyze.hierarchyWeight.crossPhase" "1.5" 2>/dev/null || echo "1.5")
 
+  # Read phase boost config values with defaults
+  local boost_current boost_adjacent boost_distant current_phase
+  boost_current=$(get_config_value "analyze.phaseBoost.current" "1.5" 2>/dev/null || echo "1.5")
+  boost_adjacent=$(get_config_value "analyze.phaseBoost.adjacent" "1.25" 2>/dev/null || echo "1.25")
+  boost_distant=$(get_config_value "analyze.phaseBoost.distant" "1.0" 2>/dev/null || echo "1.0")
+
+  # Get current project phase for phase boost calculation
+  current_phase=$(get_current_phase "$todo_file")
+
   jq --arg version "$VERSION" \
      --argjson w_parent_child "$weight_parent_child" \
      --argjson w_cross_epic "$weight_cross_epic" \
-     --argjson w_cross_phase "$weight_cross_phase" '
+     --argjson w_cross_phase "$weight_cross_phase" \
+     --argjson boost_current "$boost_current" \
+     --argjson boost_adjacent "$boost_adjacent" \
+     --argjson boost_distant "$boost_distant" \
+     --arg current_phase "$current_phase" '
     # ================================================================
     # SETUP: Build dependency graphs and helper data
     # ================================================================
@@ -1046,6 +1109,24 @@ run_complete_analysis() {
       else 1.0
       end;
 
+    # Phase order map for distance calculation
+    {"setup": 1, "core": 2, "testing": 3, "polish": 4, "maintenance": 5} as $phase_orders |
+
+    # Function to get phase boost multiplier for a task based on phase distance
+    # Distance 0 (same phase) = boost_current, Distance 1 (adjacent) = boost_adjacent, Distance 2+ = boost_distant
+    def get_phase_boost($task_phase):
+      if $current_phase == "" or $current_phase == null then 1.0
+      elif $task_phase == null or $task_phase == "" then 1.0
+      elif $task_phase == $current_phase then $boost_current
+      else
+        # Calculate phase distance
+        (($phase_orders[$task_phase] // 0) - ($phase_orders[$current_phase] // 0)) as $diff |
+        (if $diff < 0 then -$diff else $diff end) as $distance |
+        if $distance == 1 then $boost_adjacent
+        else $boost_distant
+        end
+      end;
+
     # Reverse dependency map: task_id -> [tasks that depend on it]
     (
       reduce $all_tasks[] as $task (
@@ -1080,6 +1161,16 @@ run_complete_analysis() {
         0;
         . + get_dep_weight($task.id; $blocked_id)
       )) as $weighted_unlocks |
+      # Calculate phase boost for this task
+      get_phase_boost($task.phase // null) as $phase_boost |
+      # Calculate phase distance for phaseAlignment
+      (if $current_phase == "" or $current_phase == null then null
+       elif ($task.phase // null) == null then null
+       elif ($task.phase // null) == $current_phase then 0
+       else
+         (($phase_orders[$task.phase] // 0) - ($phase_orders[$current_phase] // 0)) |
+         if . < 0 then -. else . end
+       end) as $phase_distance |
       {
         id: $task.id,
         title: $task.title,
@@ -1091,6 +1182,19 @@ run_complete_analysis() {
         unlocks_count: ($blocked_by_this | length),
         weighted_unlocks: $weighted_unlocks,
         unlocks_tasks: $blocked_by_this,
+        phase_boost: $phase_boost,
+        phaseAlignment: {
+          taskPhase: ($task.phase // null),
+          projectPhase: (if $current_phase == "" then null else $current_phase end),
+          distance: $phase_distance,
+          boost: $phase_boost,
+          indicator: (
+            if $phase_boost >= 1.5 then "🎯"
+            elif $phase_boost >= 1.25 then "↔️"
+            else null
+            end
+          )
+        },
         # Check if this task is actionable (all deps satisfied)
         is_actionable: (
           if $task.depends then
@@ -1107,8 +1211,8 @@ run_complete_analysis() {
           end
         )
       } |
-      # Use weighted unlocks for leverage score (scaled by 15)
-      .leverage_score = ((.weighted_unlocks * 15) | floor) + .priority_score
+      # Use weighted unlocks for leverage score (scaled by 15), multiplied by phase boost
+      .leverage_score = (((((.weighted_unlocks * 15) | floor) + .priority_score) * .phase_boost) | floor)
     ] | sort_by(-(.leverage_score // 0)) as $leverage_data |
 
     # ================================================================
@@ -1138,7 +1242,7 @@ run_complete_analysis() {
       tier1_unblock: [
         $leverage_data[] |
         select(.unlocks_count >= 3 and .is_actionable) |
-        {id, title, priority, unlocks_count, weighted_unlocks, unlocks_tasks, leverage_score}
+        {id, title, priority, unlocks_count, weighted_unlocks, unlocks_tasks, leverage_score, phase_boost, phaseAlignment}
       ] | sort_by(-(.weighted_unlocks // 0)),
 
       tier2_critical: [
@@ -1148,7 +1252,7 @@ run_complete_analysis() {
           .unlocks_count < 3 and
           (.priority == "critical" or .priority == "high")
         ) |
-        {id, title, priority, unlocks_count, leverage_score}
+        {id, title, priority, unlocks_count, leverage_score, phase_boost, phaseAlignment}
       ] | sort_by(-(.leverage_score // 0)),
 
       tier3_blocked: [
@@ -1158,6 +1262,8 @@ run_complete_analysis() {
           id,
           title,
           priority,
+          phase_boost,
+          phaseAlignment,
           blocked_by: [.depends[] | select(. as $d | $done_ids | index($d) | type == "null")]
         }
       ],
@@ -1169,7 +1275,7 @@ run_complete_analysis() {
           .unlocks_count < 3 and
           (.priority == "medium" or .priority == "low")
         ) |
-        {id, title, priority, unlocks_count, leverage_score}
+        {id, title, priority, unlocks_count, leverage_score, phase_boost, phaseAlignment}
       ] | sort_by(-(.leverage_score // 0))
     } as $tiers |
 
@@ -1210,9 +1316,30 @@ run_complete_analysis() {
     # ================================================================
 
     (
-      ($tiers.tier1_unblock | map({id, title, priority, reason: "Unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))", tier: 1})) +
-      ($tiers.tier2_critical | map({id, title, priority, reason: "High priority, actionable", tier: 2})) +
-      ($tiers.tier4_routine[0:5] | map({id, title, priority, reason: "Quick win", tier: 4}))
+      ($tiers.tier1_unblock | map({
+        id, title, priority,
+        reason: ("Unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))" +
+          if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
+          else "" end),
+        tier: 1,
+        phaseAlignment
+      })) +
+      ($tiers.tier2_critical | map({
+        id, title, priority,
+        reason: ("High priority, actionable" +
+          if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
+          else "" end),
+        tier: 2,
+        phaseAlignment
+      })) +
+      ($tiers.tier4_routine[0:5] | map({
+        id, title, priority,
+        reason: ("Quick win" +
+          if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
+          else "" end),
+        tier: 4,
+        phaseAlignment
+      }))
     )[0:10] as $action_order |
 
     # ================================================================
@@ -1226,8 +1353,11 @@ run_complete_analysis() {
           task_id: .id,
           title: .title,
           priority: .priority,
-          reason: "Highest leverage - unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))",
+          reason: ("Highest leverage - unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))" +
+            if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
+            else "" end),
           unlocks: .unlocks_tasks,
+          phaseAlignment,
           command: "ct focus set \(.id)"
         }
       elif ($tiers.tier2_critical | length) > 0 then
@@ -1236,8 +1366,11 @@ run_complete_analysis() {
           task_id: .id,
           title: .title,
           priority: .priority,
-          reason: "Critical/high priority with clear path",
+          reason: ("Critical/high priority with clear path" +
+            if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
+            else "" end),
           unlocks: [],
+          phaseAlignment,
           command: "ct focus set \(.id)"
         }
       elif ($tiers.tier4_routine | length) > 0 then
@@ -1246,8 +1379,11 @@ run_complete_analysis() {
           task_id: .id,
           title: .title,
           priority: .priority,
-          reason: "Actionable task in backlog",
+          reason: ("Actionable task in backlog" +
+            if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
+            else "" end),
           unlocks: [],
+          phaseAlignment,
           command: "ct focus set \(.id)"
         }
       else
@@ -1283,6 +1419,12 @@ run_complete_analysis() {
           "parentChild": $w_parent_child,
           "crossEpic": $w_cross_epic,
           "crossPhase": $w_cross_phase
+        },
+        "phaseBoost": {
+          "currentPhase": (if $current_phase == "" then null else $current_phase end),
+          "boostCurrent": $boost_current,
+          "boostAdjacent": $boost_adjacent,
+          "boostDistant": $boost_distant
         }
       },
       "success": true,
@@ -1348,7 +1490,31 @@ output_json() {
     exit "$EXIT_NO_DATA"
   fi
 
-  run_complete_analysis "$todo_file"
+  # Run core analysis
+  local analysis
+  analysis=$(run_complete_analysis "$todo_file")
+
+  # Check if stale detection is enabled
+  local stale_enabled
+  stale_enabled=$(get_stale_detection_enabled 2>/dev/null || echo "true")
+
+  if [[ "$stale_enabled" == "true" ]] && declare -f get_stale_tasks >/dev/null 2>&1; then
+    # Get stale tasks and merge into analysis output
+    local stale_tasks stale_count
+    stale_tasks=$(get_stale_tasks "$todo_file" 2>/dev/null || echo "[]")
+    stale_count=$(echo "$stale_tasks" | jq 'length')
+
+    # Merge stale data into analysis JSON
+    echo "$analysis" | jq --argjson staleTasks "$stale_tasks" --argjson staleCount "$stale_count" '
+      . + {
+        staleTasks: $staleTasks,
+        staleCount: $staleCount
+      }
+    '
+  else
+    # Output analysis without stale data
+    echo "$analysis"
+  fi
 }
 
 # Output human-readable brief format
@@ -1385,12 +1551,17 @@ output_human() {
   echo ""
 
   # Recommendation
-  local rec_task rec_reason rec_unlocks
+  local rec_task rec_reason rec_unlocks rec_indicator
   rec_task=$(echo "$analysis" | jq -r '.recommendation.task_id // empty')
   if [[ -n "$rec_task" ]]; then
     rec_reason=$(echo "$analysis" | jq -r '.recommendation.reason')
+    rec_indicator=$(echo "$analysis" | jq -r '.recommendation.phaseAlignment.indicator // empty')
     echo -e "${BOLD}${GREEN}RECOMMENDATION${NC}"
-    echo -e "  ${CYAN}→ ct focus set $rec_task${NC}"
+    if [[ -n "$rec_indicator" ]]; then
+      echo -e "  ${CYAN}→ ct focus set $rec_task${NC} $rec_indicator"
+    else
+      echo -e "  ${CYAN}→ ct focus set $rec_task${NC}"
+    fi
     echo -e "  ${DIM}$rec_reason${NC}"
 
     # Show what it unblocks
@@ -1407,7 +1578,10 @@ output_human() {
   local action_count
   action_count=$(echo "$analysis" | jq '.action_order | length')
   if [[ "$action_count" -gt 0 ]]; then
-    echo "$analysis" | jq -r '.action_order[0:5][] | "  \(.id) [\(.priority)] \(.reason)"'
+    # Include phase indicator if present
+    echo "$analysis" | jq -r '.action_order[0:5][] |
+      (if .phaseAlignment.indicator then .phaseAlignment.indicator + " " else "" end) as $ind |
+      "  \(.id) [\(.priority)] \($ind)\(.reason)"'
   else
     echo -e "  ${DIM}No actionable tasks available${NC}"
   fi
@@ -1443,6 +1617,27 @@ output_human() {
     echo -e "${BOLD}${MAGENTA}DOMAINS${NC} ${DIM}(by label)${NC}"
     echo "$analysis" | jq -r '.domains[0:5][] | "  \(.domain): \(.actionable_count)/\(.count) actionable"'
     echo ""
+  fi
+
+  # Stale Tasks (if enabled)
+  local stale_enabled
+  stale_enabled=$(get_stale_detection_enabled 2>/dev/null || echo "true")
+
+  if [[ "$stale_enabled" == "true" ]] && declare -f get_stale_tasks >/dev/null 2>&1; then
+    local stale_tasks stale_count
+    stale_tasks=$(get_stale_tasks "$todo_file" 2>/dev/null || echo "[]")
+    stale_count=$(echo "$stale_tasks" | jq 'length')
+
+    if [[ "$stale_count" -gt 0 ]]; then
+      echo -e "${BOLD}${YELLOW}STALE TASKS${NC} ${DIM}(need review - $stale_count total)${NC}"
+      # Show top 5 stale tasks, sorted by severity (already sorted by get_stale_tasks)
+      echo "$stale_tasks" | jq -r '.[0:5][] |
+        "  \(.taskId) [\(.priority)] - \(.staleness.reason)"'
+      if [[ "$stale_count" -gt 5 ]]; then
+        echo -e "  ${DIM}... and $((stale_count - 5)) more${NC}"
+      fi
+      echo ""
+    fi
   fi
 }
 
@@ -1667,7 +1862,39 @@ main() {
     # Run epic-scoped analysis
     case "$OUTPUT_MODE" in
       json)
-        run_epic_analysis "$TODO_FILE" "$PARENT_ID"
+        # Run core epic analysis
+        local epic_analysis
+        epic_analysis=$(run_epic_analysis "$TODO_FILE" "$PARENT_ID")
+
+        # Check if stale detection is enabled
+        local stale_enabled
+        stale_enabled=$(get_stale_detection_enabled 2>/dev/null || echo "true")
+
+        if [[ "$stale_enabled" == "true" ]] && declare -f get_stale_tasks >/dev/null 2>&1; then
+          # Get stale tasks and filter to epic scope
+          local all_stale_tasks scoped_ids scoped_stale stale_count
+          all_stale_tasks=$(get_stale_tasks "$TODO_FILE" 2>/dev/null || echo "[]")
+
+          # Get scoped task IDs from epic analysis
+          scoped_ids=$(echo "$epic_analysis" | jq -r '[.inventory.completed[].id, .inventory.ready[].id, .inventory.blocked[].id] | unique')
+
+          # Filter stale tasks to only those in epic scope
+          scoped_stale=$(echo "$all_stale_tasks" | jq --argjson scopedIds "$scoped_ids" '
+            [.[] | select(.taskId as $id | $scopedIds | index($id))]
+          ')
+          stale_count=$(echo "$scoped_stale" | jq 'length')
+
+          # Merge stale data into epic analysis JSON
+          echo "$epic_analysis" | jq --argjson staleTasks "$scoped_stale" --argjson staleCount "$stale_count" '
+            . + {
+              staleTasks: $staleTasks,
+              staleCount: $staleCount
+            }
+          '
+        else
+          # Output epic analysis without stale data
+          echo "$epic_analysis"
+        fi
         ;;
       human|full)
         output_epic_human "$TODO_FILE" "$PARENT_ID"

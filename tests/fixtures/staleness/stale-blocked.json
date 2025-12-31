@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "tasks": [
+    {
+      "id": "T020",
+      "title": "Long blocked task",
+      "description": "Blocked for over 7 days without progress",
+      "status": "blocked",
+      "priority": "medium",
+      "createdAt": "{{WEEK_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Blocked by external dependency"
+      ]
+    },
+    {
+      "id": "T021",
+      "title": "Exactly 7 days blocked",
+      "description": "Task at blocked threshold boundary",
+      "status": "blocked",
+      "priority": "low",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{BLOCKED_THRESHOLD_NOTE}} Waiting on review"
+      ]
+    },
+    {
+      "id": "T022",
+      "title": "6 days blocked",
+      "description": "Task just under blocked threshold",
+      "status": "blocked",
+      "priority": "medium",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{JUST_UNDER_BLOCKED}} Waiting on API access"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "version": "1.0.0",
+  "tasks": [
+    {
+      "id": "T050",
+      "title": "Fresh task",
+      "description": "Should not appear in stale list",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "{{RECENT_DATE}}",
+      "notes": []
+    },
+    {
+      "id": "T051",
+      "title": "Old pending stale",
+      "description": "Should be categorized as old_pending",
+      "status": "pending",
+      "priority": "low",
+      "createdAt": "{{OLD_DATE}}",
+      "notes": []
+    },
+    {
+      "id": "T052",
+      "title": "Long blocked stale",
+      "description": "Should be categorized as long_blocked",
+      "status": "blocked",
+      "priority": "medium",
+      "createdAt": "{{WEEK_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Blocked on external"
+      ]
+    },
+    {
+      "id": "T053",
+      "title": "Urgent neglected stale",
+      "description": "Should be categorized as urgent_neglected",
+      "status": "active",
+      "priority": "critical",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Critical work"
+      ]
+    },
+    {
+      "id": "T054",
+      "title": "No updates stale",
+      "description": "Should be categorized as no_updates",
+      "status": "active",
+      "priority": "low",
+      "createdAt": "{{MONTH_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Some activity"
+      ]
+    },
+    {
+      "id": "T055",
+      "title": "Completed task",
+      "description": "Should never be stale",
+      "status": "done",
+      "priority": "critical",
+      "createdAt": "{{OLD_DATE}}",
+      "completedAt": "{{RECENT_DATE}}"
+    }
+  ]
+}

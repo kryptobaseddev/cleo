@@ -1,0 +1,47 @@
+{
+  "version": "1.0.0",
+  "tasks": [
+    {
+      "id": "T030",
+      "title": "No updates for 15 days",
+      "description": "Task with no activity for over 14 days",
+      "status": "active",
+      "priority": "medium",
+      "createdAt": "{{MONTH_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Started working on this"
+      ]
+    },
+    {
+      "id": "T031",
+      "title": "Exactly 14 days no update",
+      "description": "Task at no-update threshold boundary",
+      "status": "pending",
+      "priority": "low",
+      "createdAt": "{{MONTH_AGO}}",
+      "notes": [
+        "{{NO_UPDATE_THRESHOLD}} Initial note"
+      ]
+    },
+    {
+      "id": "T032",
+      "title": "13 days no update",
+      "description": "Task just under no-update threshold",
+      "status": "active",
+      "priority": "medium",
+      "createdAt": "{{MONTH_AGO}}",
+      "notes": [
+        "{{JUST_UNDER_NO_UPDATE}} Recent activity"
+      ]
+    },
+    {
+      "id": "T033",
+      "title": "No notes at all",
+      "description": "Task created long ago with empty notes array",
+      "status": "active",
+      "priority": "low",
+      "createdAt": "{{OLD_DATE}}",
+      "notes": []
+    }
+  ]
+}

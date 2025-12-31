@@ -1,0 +1,32 @@
+{
+  "version": "1.0.0",
+  "tasks": [
+    {
+      "id": "T010",
+      "title": "Old pending task",
+      "description": "Created over 30 days ago and still pending",
+      "status": "pending",
+      "priority": "medium",
+      "createdAt": "{{OLD_DATE}}",
+      "notes": []
+    },
+    {
+      "id": "T011",
+      "title": "Exactly 30 days old pending",
+      "description": "Task at threshold boundary",
+      "status": "pending",
+      "priority": "low",
+      "createdAt": "{{THRESHOLD_DATE}}",
+      "notes": []
+    },
+    {
+      "id": "T012",
+      "title": "29 days old pending",
+      "description": "Task just under threshold",
+      "status": "pending",
+      "priority": "low",
+      "createdAt": "{{JUST_UNDER_THRESHOLD}}",
+      "notes": []
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "version": "1.0.0",
+  "tasks": [
+    {
+      "id": "T040",
+      "title": "Neglected high priority",
+      "description": "High priority task untouched for over 7 days",
+      "status": "active",
+      "priority": "high",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Started initial work"
+      ]
+    },
+    {
+      "id": "T041",
+      "title": "Neglected critical priority",
+      "description": "Critical priority task untouched for over 7 days",
+      "status": "pending",
+      "priority": "critical",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Needs immediate attention"
+      ]
+    },
+    {
+      "id": "T042",
+      "title": "Exactly 7 days neglected high",
+      "description": "High priority at threshold boundary",
+      "status": "active",
+      "priority": "high",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{URGENT_THRESHOLD}} Work in progress"
+      ]
+    },
+    {
+      "id": "T043",
+      "title": "6 days old high priority",
+      "description": "High priority just under threshold",
+      "status": "active",
+      "priority": "high",
+      "createdAt": "{{WEEK_AGO}}",
+      "notes": [
+        "{{JUST_UNDER_URGENT}} Active work"
+      ]
+    },
+    {
+      "id": "T044",
+      "title": "Low priority old task",
+      "description": "Low priority task should NOT be urgent_neglected",
+      "status": "active",
+      "priority": "low",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Some old work"
+      ]
+    },
+    {
+      "id": "T045",
+      "title": "Medium priority old task",
+      "description": "Medium priority task should NOT be urgent_neglected",
+      "status": "active",
+      "priority": "medium",
+      "createdAt": "{{TWO_WEEKS_AGO}}",
+      "notes": [
+        "{{OLD_NOTE}} Some old work"
+      ]
+    }
+  ]
+}

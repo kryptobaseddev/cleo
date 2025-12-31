@@ -558,3 +558,101 @@ export -f get_cancel_days_until_archive
 export -f get_allow_cascade
 export -f get_default_child_strategy
 export -f get_cancellation_config
+
+# ============================================================================
+# ANALYZE CONFIGURATION GETTERS
+# ============================================================================
+
+# Get phase boost multiplier for current phase tasks
+# Returns: number (default: 1.5)
+# Usage: boost=$(get_phase_boost_current)
+get_phase_boost_current() {
+    get_config_value "analyze.phaseBoost.current" "1.5"
+}
+
+# Get phase boost multiplier for adjacent phase tasks
+# Returns: number (default: 1.25)
+# Usage: boost=$(get_phase_boost_adjacent)
+get_phase_boost_adjacent() {
+    get_config_value "analyze.phaseBoost.adjacent" "1.25"
+}
+
+# Get phase boost multiplier for distant phase tasks
+# Returns: number (default: 1.0)
+# Usage: boost=$(get_phase_boost_distant)
+get_phase_boost_distant() {
+    get_config_value "analyze.phaseBoost.distant" "1.0"
+}
+
+# Get entire phaseBoost config section as JSON
+# Returns: JSON object with all phaseBoost settings
+# Usage: config_json=$(get_phase_boost_config)
+get_phase_boost_config() {
+    get_config_section "analyze.phaseBoost" "effective"
+}
+
+# Get entire analyze config section as JSON
+# Returns: JSON object with all analyze settings
+# Usage: config_json=$(get_analyze_config)
+get_analyze_config() {
+    get_config_section "analyze" "effective"
+}
+
+export -f get_phase_boost_current
+export -f get_phase_boost_adjacent
+export -f get_phase_boost_distant
+export -f get_phase_boost_config
+export -f get_analyze_config
+
+# ============================================================================
+# STALE DETECTION CONFIGURATION GETTERS
+# ============================================================================
+
+# Check if stale detection is enabled
+# Returns: "true" or "false" (default: true)
+# Usage: if [[ "$(get_stale_detection_enabled)" == "true" ]]; then ...
+get_stale_detection_enabled() {
+    get_config_value "analyze.staleDetection.enabled" "true"
+}
+
+# Get days before pending task is considered stale
+# Returns: integer (default: 30)
+# Usage: days=$(get_stale_pending_days)
+get_stale_pending_days() {
+    get_config_value "analyze.staleDetection.pendingDays" "30"
+}
+
+# Get days without updates before task is considered stale
+# Returns: integer (default: 14)
+# Usage: days=$(get_stale_no_update_days)
+get_stale_no_update_days() {
+    get_config_value "analyze.staleDetection.noUpdateDays" "14"
+}
+
+# Get days blocked before stale warning
+# Returns: integer (default: 7)
+# Usage: days=$(get_stale_blocked_days)
+get_stale_blocked_days() {
+    get_config_value "analyze.staleDetection.blockedDays" "7"
+}
+
+# Get days high/critical priority task untouched before warning
+# Returns: integer (default: 7)
+# Usage: days=$(get_stale_urgent_neglected_days)
+get_stale_urgent_neglected_days() {
+    get_config_value "analyze.staleDetection.urgentNeglectedDays" "7"
+}
+
+# Get entire staleDetection config section as JSON
+# Returns: JSON object with all staleDetection settings
+# Usage: config_json=$(get_stale_detection_config)
+get_stale_detection_config() {
+    get_config_section "analyze.staleDetection" "effective"
+}
+
+export -f get_stale_detection_enabled
+export -f get_stale_pending_days
+export -f get_stale_no_update_days
+export -f get_stale_blocked_days
+export -f get_stale_urgent_neglected_days
+export -f get_stale_detection_config
