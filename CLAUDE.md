@@ -62,10 +62,38 @@ ct uncancel <id>           # Restore cancelled task
 cleo commands -r critical    # Show critical commands (no jq needed)
 ```
 
-### MUST use Session Protocol
+### Session Protocol
+
+**Sessions persist across Claude conversations.** Resume where you left off.
+
+**Sessions coexist.** No need to suspend one to start another.
+
+#### START (State Awareness)
 ```bash
-cleo session start           # Start work session
-cleo session end             # End work session
+ct session list              # Check existing sessions
+ct list                      # See task state
+ct dash                      # Project overview
+ct session resume <id>       # Resume existing
+# OR
+ct session start --scope epic:T001 --auto-focus --name "Feature Work"
+```
+
+#### WORK (Operational)
+```bash
+ct focus show                # Your focus
+ct next                      # Get task suggestion
+ct add "Subtask" --depends T005  # Add related tasks
+ct update T005 --notes "..."     # Add task notes
+ct focus note "Working on X"     # Session-level note
+ct complete T005             # Complete task
+ct focus set T006            # Next task
+```
+
+#### END (Cleanup)
+```bash
+ct complete <task-id>        # Complete current work
+ct archive                   # Clean up old done tasks
+ct session end --note "Progress notes"
 ```
 
 ### Phase Tracking

@@ -92,6 +92,7 @@ This script updates:
   - README.md badge
   - templates/CLAUDE-INJECTION.md version tag
   - CLAUDE.md injection tag (if present)
+  - plugin/plugin.json version (if present)
 
 Features:
   - Pre-bump validation of current version
@@ -376,6 +377,26 @@ if [[ -f "$CLAUDE_MD" ]]; then
         "CLEO:START v[0-9]\+\.[0-9]\+\.[0-9]\+" \
         "CLEO:START v${NEW_VERSION}" \
         "CLAUDE.md injection tag"
+fi
+
+# 5. Update plugin/plugin.json (if present)
+PLUGIN_JSON="$PROJECT_ROOT/plugin/plugin.json"
+if [[ -f "$PLUGIN_JSON" ]]; then
+    backup_file "$PLUGIN_JSON"
+    if [[ "$DRY_RUN" == true ]]; then
+        [[ "$QUIET" != true ]] && log_info "plugin/plugin.json (dry-run, no changes made)"
+    else
+        # Use jq to update version field in JSON
+        if command -v jq >/dev/null 2>&1; then
+            jq --arg v "$NEW_VERSION" '.version = $v' "$PLUGIN_JSON" > "$PLUGIN_JSON.tmp" && \
+                mv "$PLUGIN_JSON.tmp" "$PLUGIN_JSON"
+            [[ "$QUIET" != true ]] && log_info "plugin/plugin.json"
+        else
+            [[ "$QUIET" != true ]] && log_warn "plugin/plugin.json: jq not found, skipping"
+        fi
+    fi
+else
+    [[ "$VERBOSE" == true ]] && [[ "$QUIET" != true ]] && log_info "plugin/plugin.json: File not found (skipping)"
 fi
 
 [[ "$QUIET" != true ]] && echo ""

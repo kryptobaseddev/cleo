@@ -40,6 +40,7 @@
 | **[TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md)** | Task sizing and completion philosophy | Understanding "Always Be Shipping" principles for agents |
 | **[cli-output-formats.md](reference/cli-output-formats.md)** | Output formats reference | Understanding output formats (list: text/json/jsonl/markdown/table, export: csv/tsv) |
 | **[configuration.md](reference/configuration.md)** | Configuration reference | Customizing system behavior |
+| **[sessions-json.md](reference/sessions-json.md)** | sessions.json file structure | Multi-session data format |
 | **[schema-reference.md](architecture/SCHEMAS.md)** | Data schema documentation | Understanding data structures |
 | **[troubleshooting.md](reference/troubleshooting.md)** | Troubleshooting guide | Resolving issues |
 | **[disaster-recovery.md](reference/disaster-recovery.md)** | Disaster recovery procedures | Recovering from data loss and failures |

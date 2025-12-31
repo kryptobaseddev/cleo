@@ -334,90 +334,119 @@ cleo list | jq '.tasks[] | select(.type != "epic")'
 
 ## Session Protocol
 
-### Single-Session Mode (Default)
+### Core Concepts
 
-#### START
+**Sessions persist across Claude conversations.** When you end a Claude terminal session, cleo sessions remain. Resume them in your next conversation.
+
+**Sessions are scoped to epics/tasks.** Each session defines what you're working on (an epic or task group) and tracks your progress within that scope.
+
+**Sessions coexist.** You do NOT need to suspend one session to start another. Multiple sessions can be active simultaneously on different scopes.
+
+### Workflow
+
+#### START Phase (State Awareness)
 ```bash
-cleo session start
+cleo session list                   # Check existing sessions
 cleo list                           # See current task state
 cleo dash                           # Overview of project state
 cleo focus show                     # Check current focus
-```
 
-#### WORK
-```bash
-cleo focus set <task-id>            # ONE task only (global constraint)
-cleo next                           # Get task suggestion
-cleo add "Subtask" --depends T045   # Add related tasks
-cleo update T045 --notes "Progress" # Add task notes
-cleo focus note "Working on X"      # Update session note
-```
-
-#### END
-```bash
-cleo complete <task-id>
-cleo archive                        # Optional: clean up old done tasks
-cleo session end
-```
-
-### Multi-Session Mode (v0.41.0+)
-
-When `multiSession.enabled: true`, multiple agents can work concurrently.
-
-#### AGENT START (Scoped Session)
-```bash
-# Check existing sessions
-cleo session list --status active
-
-# Start with explicit scope (prevents conflicts)
-cleo session start --scope epic:T001 --name "Auth Work" --agent opus-1
-cleo list --phase $(cleo phase show -q)  # Tasks in current phase
-cleo focus set T005                       # Focus within scope
-```
-
-#### AGENT WORK (Isolated Focus)
-```bash
-cleo focus set T005                 # One active per scope (not global)
-cleo focus show                     # Shows session-specific focus
-cleo update T005 --notes "Progress"
-cleo complete T005
-cleo focus set T006                 # Next task in scope
-```
-
-#### AGENT PAUSE (Suspend for Later)
-```bash
-cleo session suspend --note "Waiting for API review"
-# Session state preserved: focus, notes, scope
-# Another agent can work on different scope
-```
-
-#### AGENT RESUME
-```bash
-cleo session list --status suspended
-cleo session resume <session-id>    # Restore focus and context
+# Resume existing or start new
+cleo session resume <session-id>
 # OR
+cleo session start --scope epic:T001 --auto-focus --name "Feature Work"
+```
+
+#### WORK Phase (Operational Commands)
+```bash
+cleo focus set <task-id>            # Set active task (one per scope)
+cleo next                           # Get task suggestion
+cleo add "Subtask" --depends T005   # Add related tasks
+cleo update T005 --notes "Progress" # Add task notes
+cleo focus note "Working on X"      # Session-level progress note
+cleo complete T005                  # Complete task
+cleo focus set T006                 # Move to next task
+```
+
+#### END Phase (Cleanup)
+```bash
+cleo complete <task-id>             # Complete current work
+cleo archive                        # Clean up old done tasks
+cleo session end --note "Progress summary"
+```
+
+### Session States
+
+| State | Meaning | Resumable |
+|-------|---------|-----------|
+| `active` | Currently working | N/A |
+| `suspended` | Paused (explicit) | Yes |
+| `ended` | Work complete for now | Yes |
+| `closed` | Permanently archived | No |
+
+### Multi-Session Concurrency
+
+Multiple sessions can be active simultaneously on different scopes:
+
+```bash
+# Agent 1: Working on auth epic
+cleo session start --scope epic:T001 --auto-focus
+
+# Agent 2: Working on UI epic (NO CONFLICT - different scope)
+cleo session start --scope epic:T050 --auto-focus
+
+# Both sessions are ACTIVE simultaneously
+cleo session list --status active
+```
+
+**Key insight:** Starting a new session does NOT affect other sessions. Each session is independent.
+
+### Session Binding
+
+When you start/resume a session, cleo writes to `.cleo/.current-session`. This **binds this terminal** to that session. All subsequent commands automatically use this session context.
+
+```bash
+# After session start, these commands know your session:
+cleo focus show      # Shows YOUR session's focus
+cleo focus set T005  # Sets focus within YOUR scope
+```
+
+To switch which session this terminal uses:
+```bash
+cleo session switch <other-session-id>
+```
+
+### Suspend vs End
+
+| Action | State | Use When |
+|--------|-------|----------|
+| `suspend` | Paused | Waiting on external blocker (review, API, etc.) |
+| `end` | Ended | Done for now, will resume later |
+| `close` | Closed | All scope tasks complete, archive permanently |
+
+### Useful Patterns
+
+```bash
+# Resume most recent session for a scope
 cleo session resume --last --scope epic:T001
+
+# Start with agent identifier
+cleo session start --scope epic:T001 --auto-focus --agent opus-1
+
+# Phase-filtered scope
+cleo session start --scope epicPhase --root T001 --phase testing
+
+# List tasks in current phase
+cleo list --phase $(cleo phase show -q)
 ```
 
-#### AGENT END
-```bash
-cleo session end --note "Completed JWT validation"
-# Session moves to "ended" state (resumable)
-```
+### Conflict Prevention
 
-#### AGENT CLOSE (Permanent)
-```bash
-cleo session close <session-id>
-# Permanently archives session when ALL scoped tasks complete
-# Returns E_SESSION_CLOSE_BLOCKED (37) if tasks incomplete
-```
-
-#### Conflict Prevention
 ```bash
 # Before starting, check scope availability
 cleo session list --scope T001
 
-# If scope conflict detected
+# If scope conflict detected:
 # ERROR (E_SCOPE_CONFLICT): Scope overlaps with session_...
 
 # Use disjoint scopes for parallel work

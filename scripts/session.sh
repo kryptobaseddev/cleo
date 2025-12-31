@@ -111,8 +111,9 @@ else
   RED='' GREEN='' YELLOW='' BLUE='' NC=''
 fi
 
-log_info()    { echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
+# Format-aware log functions: suppress text output when FORMAT=json (LLM-agent-first)
+log_info()    { [[ "${FORMAT:-}" != "json" ]] && echo -e "${GREEN}[INFO]${NC} $1" || true; }
+log_warn()    { [[ "${FORMAT:-}" != "json" ]] && echo -e "${YELLOW}[WARN]${NC} $1" >&2 || true; }
 # Format-aware log_error: uses output_error for JSON, text fallback otherwise
 log_error() {
   local message="$1"
@@ -131,7 +132,7 @@ log_error() {
     [[ -n "$suggestion" ]] && echo "Suggestion: $suggestion" >&2
   fi
 }
-log_step()    { echo -e "${BLUE}[SESSION]${NC} $1"; }
+log_step()    { [[ "${FORMAT:-}" != "json" ]] && echo -e "${BLUE}[SESSION]${NC} $1" || true; }
 
 # Global format variable for output_error (empty allows TTY auto-detection)
 FORMAT=""
