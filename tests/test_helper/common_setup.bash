@@ -94,6 +94,12 @@ _create_test_project() {
   "validation": {
     "strictMode": false,
     "requireDescription": false
+  },
+  "multiSession": {
+    "enabled": false
+  },
+  "session": {
+    "requireSession": false
   }
 }
 EOF

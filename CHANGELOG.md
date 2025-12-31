@@ -5,6 +5,27 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.9] - 2025-12-31
+
+### Fixed
+- **Parallel agent active task constraint** - Fixed `update --status active` blocking parallel agents
+  - When `session.allowParallelAgents: true`, active task constraint is now skipped entirely
+  - When `multiSession.enabled: true`, constraint checks within session scope only (not global)
+  - Previously: Global "one active task" check blocked all parallel agent work
+  - Now: Multiple subagents can activate their assigned tasks simultaneously
+  - Per MULTI-SESSION-SPEC Part 4: One active task per scope, not global
+
+- **Test fixture session enforcement** - Added explicit multiSession/session config to test fixtures
+  - Test config now sets `multiSession.enabled: false` and `session.requireSession: false`
+  - Prevents test failures from strict session enforcement in test environment
+
+### Technical Details
+- `scripts/update-task.sh` lines 889-932: Refactored active task constraint
+  - Checks `session.allowParallelAgents` first (skip if true)
+  - Falls back to scope-aware check if multiSession enabled
+  - Uses `get_active_session_info()` from session-enforcement.sh for scope resolution
+- `tests/test_helper/common_setup.bash` lines 97-103: Added multiSession/session config
+
 ## [0.41.8] - 2025-12-30
 
 ### Fixed

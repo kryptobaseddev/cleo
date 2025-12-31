@@ -888,16 +888,46 @@ fi
 
 # Check single active task constraint
 if [[ "$NEW_STATUS" == "active" && "$CURRENT_STATUS" != "active" ]]; then
-  active_count=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
-  if [[ "$active_count" -gt 0 ]]; then
-    current_active=$(jq -r '[.tasks[] | select(.status == "active")][0].id' "$TODO_FILE")
-    if [[ "$FORMAT" == "json" ]]; then
-      output_error "$E_VALIDATION_REQUIRED" "Cannot set status to active: only ONE active task allowed (current: $current_active)" "$EXIT_VALIDATION_ERROR" true "Use 'cleo focus set $TASK_ID' to change active task"
+  # Check if parallel agents are allowed (skip constraint entirely)
+  allow_parallel=$(jq -r '.session.allowParallelAgents // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+
+  if [[ "$allow_parallel" != "true" ]]; then
+    # Check if multi-session mode is enabled
+    multi_session_enabled=$(jq -r '.multiSession.enabled // false' "$CONFIG_FILE" 2>/dev/null || echo "false")
+
+    if [[ "$multi_session_enabled" == "true" ]]; then
+      # Multi-session mode: check active tasks within current session scope only
+      session_info=""
+      if declare -f get_active_session_info >/dev/null 2>&1; then
+        session_info=$(get_active_session_info 2>/dev/null) || session_info=""
+      fi
+
+      if [[ -n "$session_info" ]]; then
+        # Get computed task IDs from session scope and check for active tasks within scope
+        active_count=$(echo "$session_info" | jq -r '.scope.computedTaskIds // []' | \
+          jq --slurpfile todo "$TODO_FILE" '
+            . as $scope |
+            $todo[0].tasks | map(select(.status == "active" and (.id as $id | $scope | index($id)))) | length
+          ')
+      else
+        # No active session - fall back to global check
+        active_count=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+      fi
     else
-      log_error "Cannot set status to active: only ONE active task allowed"
-      echo "Current active task: $current_active" >&2
+      # Single-session mode: global check
+      active_count=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
     fi
-    exit "${EXIT_VALIDATION_ERROR:-6}"
+
+    if [[ "$active_count" -gt 0 ]]; then
+      current_active=$(jq -r '[.tasks[] | select(.status == "active")][0].id' "$TODO_FILE")
+      if [[ "$FORMAT" == "json" ]]; then
+        output_error "$E_VALIDATION_REQUIRED" "Cannot set status to active: only ONE active task allowed (current: $current_active)" "$EXIT_VALIDATION_ERROR" true "Use 'cleo focus set $TASK_ID' to change active task"
+      else
+        log_error "Cannot set status to active: only ONE active task allowed"
+        echo "Current active task: $current_active" >&2
+      fi
+      exit "${EXIT_VALIDATION_ERROR:-6}"
+    fi
   fi
 fi
 
