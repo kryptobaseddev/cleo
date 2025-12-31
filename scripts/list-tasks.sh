@@ -998,7 +998,7 @@ case "$FORMAT" in
           echo -e "${DIM}Focus: ${NC}${GREEN}$sess_focus${NC}"
         fi
         if [[ -n "$sess_note" && "$sess_note" != "null" ]]; then
-          local short_note=$(echo "$sess_note" | cut -c1-50)
+          short_note=$(echo "$sess_note" | cut -c1-50)
           [[ ${#sess_note} -gt 50 ]] && short_note="${short_note}…"
           echo -e "${DIM}Note: ${NC}$short_note"
         fi

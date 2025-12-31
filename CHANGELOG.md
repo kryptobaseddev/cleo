@@ -5,6 +5,14 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.2] - 2025-12-31
+
+### Fixed
+- **Bash syntax error in list-tasks.sh** - `local` keyword used outside function (T1164)
+  - Bug: Line 1001 used `local short_note=...` in main script body, not inside a function
+  - Result: Exit code 1 with error "local: can only be used in a function" on `cleo list`
+  - Fix: Removed `local` keyword since variable is in global scope
+
 ## [0.42.1] - 2025-12-31
 
 ### Fixed
