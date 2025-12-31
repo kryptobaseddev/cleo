@@ -5,6 +5,17 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.1] - 2025-12-31
+
+### Fixed
+- **maxConcurrentSessions config ignored** - Fixed config source for max sessions limit (T1163)
+  - Bug: `lib/sessions.sh` read from `sessions.json` (`.config.maxConcurrentSessions`) instead of project config
+  - Result: `cleo config set multiSession.maxConcurrentSessions 20` had no effect, limit stayed at 5
+  - Fix: Now reads from `config.json` (`.multiSession.maxConcurrentSessions`) via `get_config_file()`
+
+### Technical Details
+- `lib/sessions.sh:462`: Changed from `sessions.json` to project config file lookup
+
 ## [0.42.0] - 2025-12-31
 
 ### Added

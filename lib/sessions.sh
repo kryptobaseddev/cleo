@@ -456,10 +456,11 @@ start_session() {
     sessions_content=$(cat "$sessions_file")
     todo_content=$(cat "$todo_file")
 
-    # Check max sessions
-    local active_count max_sessions
+    # Check max sessions (read from project config, not sessions.json)
+    local active_count max_sessions config_file
     active_count=$(echo "$sessions_content" | jq '[.sessions[] | select(.status == "active")] | length')
-    max_sessions=$(echo "$sessions_content" | jq '.config.maxConcurrentSessions // 5')
+    config_file=$(get_config_file)
+    max_sessions=$(jq -r '.multiSession.maxConcurrentSessions // 5' "$config_file" 2>/dev/null || echo "5")
 
     if [[ "$active_count" -ge "$max_sessions" ]]; then
         unlock_file "$todo_fd"
