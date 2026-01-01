@@ -103,6 +103,14 @@ elif [[ -f "$CLEO_HOME/lib/staleness.sh" ]]; then
   source "$CLEO_HOME/lib/staleness.sh"
 fi
 
+# Source size-weighting library for size-based leverage scoring
+if [[ -f "${LIB_DIR}/size-weighting.sh" ]]; then
+  # shellcheck source=../lib/size-weighting.sh
+  source "${LIB_DIR}/size-weighting.sh"
+elif [[ -f "$CLEO_HOME/lib/size-weighting.sh" ]]; then
+  source "$CLEO_HOME/lib/size-weighting.sh"
+fi
+
 # Default configuration - JSON output for LLM agents
 OUTPUT_MODE="json"
 AUTO_FOCUS=false
@@ -1054,6 +1062,10 @@ run_complete_analysis() {
   # Get current project phase for phase boost calculation
   current_phase=$(get_current_phase "$todo_file")
 
+  # Read size weighting strategy config
+  local size_strategy
+  size_strategy=$(get_config_value "analyze.sizeStrategy" "balanced" 2>/dev/null || echo "balanced")
+
   jq --arg version "$VERSION" \
      --argjson w_parent_child "$weight_parent_child" \
      --argjson w_cross_epic "$weight_cross_epic" \
@@ -1061,7 +1073,8 @@ run_complete_analysis() {
      --argjson boost_current "$boost_current" \
      --argjson boost_adjacent "$boost_adjacent" \
      --argjson boost_distant "$boost_distant" \
-     --arg current_phase "$current_phase" '
+     --arg current_phase "$current_phase" \
+     --arg size_strategy "$size_strategy" '
     # ================================================================
     # SETUP: Build dependency graphs and helper data
     # ================================================================
@@ -1127,6 +1140,25 @@ run_complete_analysis() {
         end
       end;
 
+    # Function to get size weight multiplier based on strategy
+    # Returns: 1, 2, or 3 based on strategy and task size
+    def get_size_weight($task_size):
+      if $task_size == null or $task_size == "" then 1
+      elif $size_strategy == "quick-wins" then
+        if $task_size == "small" then 3
+        elif $task_size == "medium" then 2
+        elif $task_size == "large" then 1
+        else 1 end
+      elif $size_strategy == "big-impact" then
+        if $task_size == "small" then 1
+        elif $task_size == "medium" then 2
+        elif $task_size == "large" then 3
+        else 1 end
+      else
+        # balanced or unknown strategy
+        1
+      end;
+
     # Reverse dependency map: task_id -> [tasks that depend on it]
     (
       reduce $all_tasks[] as $task (
@@ -1163,6 +1195,8 @@ run_complete_analysis() {
       )) as $weighted_unlocks |
       # Calculate phase boost for this task
       get_phase_boost($task.phase // null) as $phase_boost |
+      # Calculate size weight multiplier for this task
+      get_size_weight($task.size // null) as $size_weight |
       # Calculate phase distance for phaseAlignment
       (if $current_phase == "" or $current_phase == null then null
        elif ($task.phase // null) == null then null
@@ -1177,12 +1211,14 @@ run_complete_analysis() {
         status: $task.status,
         priority: ($task.priority // "medium"),
         phase: ($task.phase // null),
+        size: ($task.size // null),
         labels: ($task.labels // []),
         depends: ($task.depends // []),
         unlocks_count: ($blocked_by_this | length),
         weighted_unlocks: $weighted_unlocks,
         unlocks_tasks: $blocked_by_this,
         phase_boost: $phase_boost,
+        size_weight: $size_weight,
         phaseAlignment: {
           taskPhase: ($task.phase // null),
           projectPhase: (if $current_phase == "" then null else $current_phase end),
@@ -1211,8 +1247,8 @@ run_complete_analysis() {
           end
         )
       } |
-      # Use weighted unlocks for leverage score (scaled by 15), multiplied by phase boost
-      .leverage_score = (((((.weighted_unlocks * 15) | floor) + .priority_score) * .phase_boost) | floor)
+      # Use weighted unlocks for leverage score (scaled by 15), multiplied by phase boost and size weight
+      .leverage_score = (((((.weighted_unlocks * 15) | floor) + .priority_score) * .phase_boost * .size_weight) | floor)
     ] | sort_by(-(.leverage_score // 0)) as $leverage_data |
 
     # ================================================================
@@ -1242,7 +1278,7 @@ run_complete_analysis() {
       tier1_unblock: [
         $leverage_data[] |
         select(.unlocks_count >= 3 and .is_actionable) |
-        {id, title, priority, unlocks_count, weighted_unlocks, unlocks_tasks, leverage_score, phase_boost, phaseAlignment}
+        {id, title, priority, size, unlocks_count, weighted_unlocks, unlocks_tasks, leverage_score, phase_boost, size_weight, phaseAlignment}
       ] | sort_by(-(.weighted_unlocks // 0)),
 
       tier2_critical: [
@@ -1252,7 +1288,7 @@ run_complete_analysis() {
           .unlocks_count < 3 and
           (.priority == "critical" or .priority == "high")
         ) |
-        {id, title, priority, unlocks_count, leverage_score, phase_boost, phaseAlignment}
+        {id, title, priority, size, unlocks_count, leverage_score, phase_boost, size_weight, phaseAlignment}
       ] | sort_by(-(.leverage_score // 0)),
 
       tier3_blocked: [
@@ -1262,7 +1298,9 @@ run_complete_analysis() {
           id,
           title,
           priority,
+          size,
           phase_boost,
+          size_weight,
           phaseAlignment,
           blocked_by: [.depends[] | select(. as $d | $done_ids | index($d) | type == "null")]
         }
@@ -1275,7 +1313,7 @@ run_complete_analysis() {
           .unlocks_count < 3 and
           (.priority == "medium" or .priority == "low")
         ) |
-        {id, title, priority, unlocks_count, leverage_score, phase_boost, phaseAlignment}
+        {id, title, priority, size, unlocks_count, leverage_score, phase_boost, size_weight, phaseAlignment}
       ] | sort_by(-(.leverage_score // 0))
     } as $tiers |
 
@@ -1425,6 +1463,9 @@ run_complete_analysis() {
           "boostCurrent": $boost_current,
           "boostAdjacent": $boost_adjacent,
           "boostDistant": $boost_distant
+        },
+        "sizeWeighting": {
+          "strategy": $size_strategy
         }
       },
       "success": true,

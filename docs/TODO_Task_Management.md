@@ -113,6 +113,9 @@ cleo sync --status                  # Show sync session state
 cleo analyze                        # Task triage with leverage scoring
 cleo analyze --json                 # Machine-readable triage output
 cleo analyze --auto-focus           # Analyze and auto-set focus to top task
+cleo config set analyze.sizeStrategy quick-wins  # Favor small tasks (3/2/1)
+cleo config set analyze.sizeStrategy big-impact  # Favor large tasks (1/2/3)
+cleo config set analyze.sizeStrategy balanced    # Neutral weighting (default)
 cleo dash                           # Project dashboard overview
 cleo dash --compact                 # Single-line status summary
 cleo next                           # Suggest next task (priority + deps)

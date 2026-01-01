@@ -32,14 +32,19 @@ Leverage measures downstream impact with hierarchy-aware weighting. Dependencies
 | Same Epic | 1.0x | Standard true blockers |
 | Cross-Phase | 1.5x | Phase alignment = higher strategic value |
 
+The leverage score formula incorporates multiple multipliers:
+
 ```
 weighted_unlocks = Σ(weight_for_each_blocked_task)
-leverage_score = floor(weighted_unlocks * 15) + priority_score
+base_score = floor(weighted_unlocks * 15) + priority_score
+leverage_score = floor(base_score * phase_boost * size_weight)
 ```
 
 **Components**:
 - **Priority Score**: Task's intrinsic priority (critical=100, high=75, medium=50, low=25)
 - **Weighted Unlocks**: Sum of dependency weights for all blocked tasks
+- **Phase Boost**: Multiplier based on task-project phase alignment (see Phase Boost section)
+- **Size Weight**: Multiplier based on task size and strategy (see Size Weighting section)
 
 **Examples**:
 ```
@@ -63,6 +68,39 @@ Leverage Score = floor(0.9 * 15) + 75 = 13 + 75 = 88
     }
   }
 }
+```
+
+### Size Weighting
+
+Size weighting allows prioritization based on task size using configurable strategies:
+
+| Strategy | small | medium | large | Use Case |
+|----------|-------|--------|-------|----------|
+| `quick-wins` | 3x | 2x | 1x | Build momentum with small tasks |
+| `big-impact` | 1x | 2x | 3x | Prioritize high-impact large tasks |
+| `balanced` | 1x | 1x | 1x | Neutral (default) |
+
+**Configuration** (via config.json):
+```json
+{
+  "analyze": {
+    "sizeStrategy": "balanced",
+    "sizeWeights": {
+      "small": 1.0,
+      "medium": 1.0,
+      "large": 1.0
+    }
+  }
+}
+```
+
+**Example with quick-wins strategy**:
+```
+Task T001 (small, high priority) - size_weight = 3
+base_score = 75, leverage_score = 75 * 1.0 * 3 = 225
+
+Task T002 (large, high priority) - size_weight = 1
+base_score = 75, leverage_score = 75 * 1.0 * 1 = 75
 ```
 
 ### 2. Actionable vs Blocked Detection

@@ -709,6 +709,40 @@
             }
           }
         },
+        "sizeStrategy": {
+          "type": "string",
+          "enum": ["quick-wins", "big-impact", "balanced"],
+          "default": "balanced",
+          "description": "Strategy for weighting tasks by size. quick-wins=favor small tasks, big-impact=favor large tasks, balanced=neutral."
+        },
+        "sizeWeights": {
+          "type": "object",
+          "description": "Custom weight multipliers by task size. Used when sizeStrategy is set to custom behavior or for fine-tuning.",
+          "additionalProperties": false,
+          "properties": {
+            "small": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 0.1,
+              "maximum": 3.0,
+              "description": "Weight multiplier for small tasks."
+            },
+            "medium": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 0.1,
+              "maximum": 3.0,
+              "description": "Weight multiplier for medium tasks."
+            },
+            "large": {
+              "type": "number",
+              "default": 1.0,
+              "minimum": 0.1,
+              "maximum": 3.0,
+              "description": "Weight multiplier for large tasks."
+            }
+          }
+        },
         "staleDetection": {
           "type": "object",
           "description": "Stale task detection settings for analyze command.",

@@ -5,6 +5,43 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-01-01
+
+### Added
+- **Size weighting for analyze scoring** - Task size now influences leverage scores (T546)
+  - Three strategies: `quick-wins` (favor small), `big-impact` (favor large), `balanced` (neutral)
+  - `quick-wins`: small=3x, medium=2x, large=1x weight multiplier
+  - `big-impact`: small=1x, medium=2x, large=3x weight multiplier
+  - `balanced`: all sizes weighted equally (default)
+  - Score formula: `leverage_score = base_score * phase_boost * size_weight`
+
+### New Files
+- `lib/size-weighting.sh` - Size weight calculation library
+  - `calculate_size_weight()` - Returns weight multiplier for task size/strategy
+  - `get_size_strategy()` - Reads current strategy from config
+
+### Configuration
+```json
+{
+  "analyze": {
+    "sizeStrategy": "balanced",
+    "sizeWeights": {
+      "small": 1.0,
+      "medium": 1.0,
+      "large": 1.0
+    }
+  }
+}
+```
+
+### Usage
+```bash
+cleo config set analyze.sizeStrategy quick-wins  # Favor small tasks
+cleo config set analyze.sizeStrategy big-impact  # Favor large tasks
+cleo config set analyze.sizeStrategy balanced    # Neutral (default)
+cleo analyze  # See size_weight in output
+```
+
 ## [0.42.2] - 2025-12-31
 
 ### Fixed
