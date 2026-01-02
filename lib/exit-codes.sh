@@ -13,7 +13,10 @@
 #           EXIT_SESSION_EXISTS, EXIT_SESSION_NOT_FOUND, EXIT_SCOPE_CONFLICT,
 #           EXIT_SCOPE_INVALID, EXIT_TASK_NOT_IN_SCOPE, EXIT_TASK_CLAIMED,
 #           EXIT_SESSION_REQUIRED, EXIT_SESSION_CLOSE_BLOCKED, EXIT_FOCUS_REQUIRED,
-#           EXIT_NOTES_REQUIRED, EXIT_NO_DATA, EXIT_ALREADY_EXISTS, EXIT_NO_CHANGE,
+#           EXIT_NOTES_REQUIRED, EXIT_VERIFICATION_INIT_FAILED, EXIT_GATE_UPDATE_FAILED,
+#           EXIT_INVALID_GATE, EXIT_INVALID_AGENT, EXIT_MAX_ROUNDS_EXCEEDED,
+#           EXIT_GATE_DEPENDENCY, EXIT_VERIFICATION_LOCKED, EXIT_ROUND_MISMATCH,
+#           EXIT_NO_DATA, EXIT_ALREADY_EXISTS, EXIT_NO_CHANGE,
 #           get_exit_code_name, is_error_code, is_recoverable_code,
 #           is_no_change_code, is_success_code
 #
@@ -179,6 +182,43 @@ readonly EXIT_FOCUS_REQUIRED=38
 readonly EXIT_NOTES_REQUIRED=39
 
 # ============================================================================
+# VERIFICATION ERROR CODES (40-49)
+# Verification gates system errors (see Implementation-Plan-Verification.txt)
+# ============================================================================
+
+# Verification initialization failed
+# Examples: cannot create verification object, invalid task state
+readonly EXIT_VERIFICATION_INIT_FAILED=40
+
+# Gate update failed
+# Examples: cannot update gate value, file write error during gate update
+readonly EXIT_GATE_UPDATE_FAILED=41
+
+# Invalid gate name
+# Examples: --gate unknownGate, gate name not in valid enum
+readonly EXIT_INVALID_GATE=42
+
+# Invalid agent name
+# Examples: --agent unknownAgent, agent name not in valid enum
+readonly EXIT_INVALID_AGENT=43
+
+# Maximum implementation rounds exceeded
+# Examples: round > maxRounds config value
+readonly EXIT_MAX_ROUNDS_EXCEEDED=44
+
+# Gate dependency not met
+# Examples: setting testsPassed before implemented
+readonly EXIT_GATE_DEPENDENCY=45
+
+# Verification is locked (cannot modify)
+# Examples: verification.passed = true and locked
+readonly EXIT_VERIFICATION_LOCKED=46
+
+# Round number mismatch
+# Examples: expected round 2, got round 1
+readonly EXIT_ROUND_MISMATCH=47
+
+# ============================================================================
 # SPECIAL CODES (100+)
 # These indicate notable states but are NOT errors
 # ============================================================================
@@ -278,6 +318,15 @@ get_exit_code_name() {
         37)  echo "SESSION_CLOSE_BLOCKED" ;;
         38)  echo "FOCUS_REQUIRED" ;;
         39)  echo "NOTES_REQUIRED" ;;
+        # Verification (40-47)
+        40)  echo "VERIFICATION_INIT_FAILED" ;;
+        41)  echo "GATE_UPDATE_FAILED" ;;
+        42)  echo "INVALID_GATE" ;;
+        43)  echo "INVALID_AGENT" ;;
+        44)  echo "MAX_ROUNDS_EXCEEDED" ;;
+        45)  echo "GATE_DEPENDENCY" ;;
+        46)  echo "VERIFICATION_LOCKED" ;;
+        47)  echo "ROUND_MISMATCH" ;;
         # Special (100+)
         100) echo "NO_DATA" ;;
         101) echo "ALREADY_EXISTS" ;;
@@ -315,6 +364,10 @@ is_recoverable_code() {
         30|31|32|33|34|35|36|38|39) return 0 ;;
         # Not recoverable: session close blocked (requires completing tasks first)
         37) return 1 ;;
+        # Verification errors - most recoverable by user action
+        40|41|42|43|44|45|47) return 0 ;;
+        # Not recoverable: verification locked (requires manual unlock)
+        46) return 1 ;;
         # Special codes are not errors, so "recoverable" doesn't apply
         *)    return 1 ;;
     esac
@@ -402,6 +455,16 @@ export EXIT_SESSION_REQUIRED
 export EXIT_SESSION_CLOSE_BLOCKED
 export EXIT_FOCUS_REQUIRED
 export EXIT_NOTES_REQUIRED
+
+# Export constants - Verification (40-47)
+export EXIT_VERIFICATION_INIT_FAILED
+export EXIT_GATE_UPDATE_FAILED
+export EXIT_INVALID_GATE
+export EXIT_INVALID_AGENT
+export EXIT_MAX_ROUNDS_EXCEEDED
+export EXIT_GATE_DEPENDENCY
+export EXIT_VERIFICATION_LOCKED
+export EXIT_ROUND_MISMATCH
 
 # Export constants - Special (100+)
 export EXIT_NO_DATA
