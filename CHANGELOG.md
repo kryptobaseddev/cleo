@@ -5,6 +5,18 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.1] - 2026-01-02
+
+### Added
+- **Multi-session context tracking** - Session-specific state files for isolated context monitoring
+  - `cleo context list` - List all context state files across sessions
+  - `--session <id>` flag to check specific session's context
+  - Session binding: writes to `.context-state-{session_id}.json` when CLEO session active
+
+### Fixed
+- **Statusline workspace path** - Use Claude Code's `workspace.current_dir` instead of shell `$PWD`
+- **Auto-install in init/upgrade** (T1232) - Statusline integration check during `cleo init` and `cleo upgrade`
+
 ## [0.47.0] - 2026-01-02
 
 ### Added
