@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
-  "schemaVersion": "2.5.0",
+  "schemaVersion": "2.6.0",
   "title": "CLEO Task Schema",
   "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
   "type": "object",
@@ -274,6 +274,18 @@
           "pattern": "^T\\d{3,}$",
           "default": null,
           "description": "Parent task ID for hierarchy. Null for root-level tasks. Must reference existing task. Max depth 3 (epic→task→subtask). Max 7 siblings per parent."
+        },
+        "position": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "default": null,
+          "description": "Display order within parent scope. 1-indexed, continuous sequence per parent. Null = not yet assigned (will be auto-assigned on next operation). See T805 for positional ordering system."
+        },
+        "positionVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Optimistic locking version for position changes. Incremented on each position modification."
         },
         "size": {
           "type": ["string", "null"],

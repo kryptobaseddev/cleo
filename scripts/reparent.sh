@@ -147,21 +147,62 @@ if [[ -n "$NEW_PARENT" ]]; then
     fi
 fi
 
-# Perform the reparent
+# Perform the reparent with position handling (T805)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-UPDATED_JSON=$(jq --arg id "$TASK_ID" --arg parent "$NEW_PARENT" --arg ts "$TIMESTAMP" '
-    .tasks |= map(
-        if .id == $id then
-            if $parent == "" then
-                del(.parentId)
-            else
-                .parentId = $parent
+# Get current position of task being moved
+OLD_POSITION=$(echo "$TASK_DATA" | jq -r '.position // 0')
+
+# Calculate new position in target parent (append at end)
+if [[ -n "$NEW_PARENT" ]]; then
+    NEW_POSITION=$(get_next_position "$NEW_PARENT" "$TODO_FILE" 2>/dev/null || echo 1)
+else
+    NEW_POSITION=$(get_next_position "null" "$TODO_FILE" 2>/dev/null || echo 1)
+fi
+
+# Build the jq update that:
+# 1. Closes gap in old parent (shift siblings with pos > old_pos down by 1)
+# 2. Sets new parent and position on the moved task
+if [[ -n "$OLD_PARENT" ]]; then
+    # Moving from a parent (non-root)
+    UPDATED_JSON=$(jq --arg id "$TASK_ID" --arg parent "$NEW_PARENT" --arg ts "$TIMESTAMP" \
+        --arg old_parent "$OLD_PARENT" --argjson old_pos "$OLD_POSITION" \
+        --argjson new_pos "$NEW_POSITION" '
+        .tasks = [.tasks[] |
+            if .id == $id then
+                # Move the task
+                (if $parent == "" then del(.parentId) else .parentId = $parent end) |
+                .position = $new_pos |
+                .positionVersion = ((.positionVersion // 0) + 1)
+            elif .parentId == $old_parent and (.position // 0) > $old_pos then
+                # Close gap in old parent
+                .position = (.position - 1) |
+                .positionVersion = ((.positionVersion // 0) + 1)
+            else .
             end
-        else . end
-    ) |
-    .lastUpdated = $ts
-' "$TODO_FILE")
+        ] |
+        .lastUpdated = $ts
+    ' "$TODO_FILE")
+else
+    # Moving from root level
+    UPDATED_JSON=$(jq --arg id "$TASK_ID" --arg parent "$NEW_PARENT" --arg ts "$TIMESTAMP" \
+        --argjson old_pos "$OLD_POSITION" --argjson new_pos "$NEW_POSITION" '
+        .tasks = [.tasks[] |
+            if .id == $id then
+                # Move the task
+                (if $parent == "" then del(.parentId) else .parentId = $parent end) |
+                .position = $new_pos |
+                .positionVersion = ((.positionVersion // 0) + 1)
+            elif (.parentId == null or .parentId == "null") and (.position // 0) > $old_pos then
+                # Close gap in old parent (root level)
+                .position = (.position - 1) |
+                .positionVersion = ((.positionVersion // 0) + 1)
+            else .
+            end
+        ] |
+        .lastUpdated = $ts
+    ' "$TODO_FILE")
+fi
 
 # Save with file locking
 if save_json "$TODO_FILE" "$UPDATED_JSON"; then

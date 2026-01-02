@@ -5,6 +5,30 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.0] - 2026-01-02
+
+### Added
+- **Explicit Positional Ordering System** (T805) - Per-parent position ordering for tasks
+  - `position` and `positionVersion` fields in task schema (v2.6.0)
+  - `cleo reorder TASK_ID [OPTIONS]` - Reorder tasks within sibling groups
+    - `--position N` - Move to position N (shuffles siblings)
+    - `--before TASK_ID` - Move before specified sibling
+    - `--after TASK_ID` - Move after specified sibling
+    - `--top` / `--bottom` - Move to first/last position
+  - `cleo swap TASK_ID1 TASK_ID2` - Exchange positions of two siblings
+  - Auto-assign position on task creation (max+1 or explicit via `--position`)
+  - Position handling on reparent operations
+  - Tree view shows children in position order with `[N]` indicators
+  - `cleo list --sort position` - Sort tasks by position
+  - Migration support for existing tasks (assigns by createdAt order)
+  - Full documentation in `docs/commands/reorder.md`
+
+### Changed
+- **Schema v2.6.0** - Added `position` (integer, 1-indexed) and `positionVersion` (optimistic locking)
+- **add command** - Added `--position` flag for explicit position on creation
+- **reparent command** - Now handles position updates in both source and target parent scopes
+- **list command** - Added `--sort position` option and position ordering in tree view
+
 ## [0.47.1] - 2026-01-02
 
 ### Added
