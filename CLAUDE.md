@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.47.0 -->
+<!-- CLEO:START v0.47.1 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
@@ -152,37 +152,6 @@ ct promote T005                      # Same as reparent --to ""
 ct validate --check-orphans          # Check for orphans
 ct validate --fix-orphans unlink     # Remove invalid parent references
 ct validate --fix-orphans delete     # Delete orphaned tasks
-```
-
-### Verification & Epic Completion (v0.43.0+)
-**Verification gates are required for parent auto-complete** (default: `requireForParentAutoComplete=true`).
-
-```bash
-ct verify <id>              # Show verification status
-ct verify <id> --all        # Mark all gates passed → verification.passed=true
-ct verify <id> --gate testsPassed  # Set specific gate
-```
-
-**Epic Completion Flow:**
-```bash
-# 1. Complete task (auto-sets verification.gates.implemented=true)
-ct complete T001
-
-# 2. Verify task (sets verification.passed=true)
-ct verify T001 --all
-
-# 3. When ALL children have verification.passed=true → parent auto-completes
-```
-
-**Filter by verification:**
-```bash
-ct list --verification-status pending    # Not yet verified
-ct list --verification-status passed     # Fully verified
-```
-
-**Disable verification requirement** (if needed):
-```bash
-ct config set verification.requireForParentAutoComplete false
 ```
 
 ### Data Integrity
