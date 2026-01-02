@@ -5,6 +5,26 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.1] - 2026-01-02
+
+### Added
+- **Verification status filter for list command** (T1158)
+  - `ct list --verification-status pending` - Tasks without verification
+  - `ct list --verification-status in-progress` - Tasks with some gates set
+  - `ct list --verification-status passed` - Fully verified tasks
+  - `ct list --verification-status failed` - Tasks with failure entries
+  - Input validation with helpful error messages
+
+### Documentation
+- **Verification system documentation** (T1159)
+  - Added verification section to CLAUDE.md
+  - Created `docs/commands/verify.md` full command reference
+  - Updated `docs/QUICK-REFERENCE.md` with verification commands
+  - Registered `verify` command in `COMMANDS-INDEX.json`
+
+### Completed
+- **Epic T1150: Progressive Verification System** - All 12 tasks complete
+
 ## [0.43.0] - 2026-01-01
 
 ### Added
