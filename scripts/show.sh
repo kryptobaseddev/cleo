@@ -63,6 +63,7 @@ FORMAT=""
 INCLUDE_ARCHIVE=false
 SHOW_HISTORY=false
 SHOW_RELATED=false
+SHOW_VERIFICATION=false
 QUIET=false
 COMMAND_NAME="show"
 
@@ -111,12 +112,14 @@ Options:
   --include-archive   Search archive if not found in active tasks
   --history           Show task history from log
   --related           Show related tasks (same labels)
+  --verification      Show detailed verification gate status
   -h, --help          Show this help message
 
 Examples:
   cleo show T001                    # Show task details
   cleo show T001 --history          # Include task history
   cleo show T001 --related          # Show related tasks
+  cleo show T001 --verification     # Show verification gates
   cleo show T001 --format json      # JSON output
   cleo show T050 --include-archive  # Search archive too
 EOF
@@ -506,6 +509,54 @@ display_text() {
     fi
   fi
 
+  # Verification gates (if requested) - T1158
+  if [[ "$SHOW_VERIFICATION" == true ]]; then
+    local verification
+    verification=$(echo "$task" | jq '.verification // null')
+    echo -e "├─────────────────────────────────────────────────────────────────┤"
+    echo -e "│  ${BOLD}Verification Gates${NC}"
+    if [[ "$verification" != "null" && -n "$verification" ]]; then
+      local v_passed v_round v_status
+      v_passed=$(echo "$verification" | jq -r '.passed // false')
+      v_round=$(echo "$verification" | jq -r '.round // 0')
+
+      # Source verification.sh if available
+      if [[ -f "$LIB_DIR/verification.sh" ]]; then
+        source "$LIB_DIR/verification.sh"
+        v_status=$(get_verification_status "$verification")
+      else
+        v_status="unknown"
+      fi
+
+      local status_color="$YELLOW"
+      [[ "$v_passed" == "true" ]] && status_color="$GREEN"
+      [[ "$v_status" == "failed" ]] && status_color="$RED"
+
+      echo -e "│  ${DIM}Status:${NC}      ${status_color}${v_status}${NC}"
+      echo -e "│  ${DIM}Passed:${NC}      $v_passed"
+      echo -e "│  ${DIM}Round:${NC}       $v_round"
+      echo -e "│"
+
+      # Show each gate
+      for gate in implemented testsPassed qaPassed cleanupDone securityPassed documented; do
+        local gate_value
+        gate_value=$(echo "$verification" | jq -r ".gates.$gate // \"null\"")
+        local indicator="○"
+        local gate_color="$DIM"
+        if [[ "$gate_value" == "true" ]]; then
+          indicator="✓"
+          gate_color="$GREEN"
+        elif [[ "$gate_value" == "false" ]]; then
+          indicator="✗"
+          gate_color="$RED"
+        fi
+        printf "│    ${gate_color}%s${NC} %-15s: %s\n" "$indicator" "$gate" "$gate_value"
+      done
+    else
+      echo -e "│  ${DIM}(no verification data)${NC}"
+    fi
+  fi
+
   # Session context (only if session is active)
   local session_ctx
   session_ctx=$(get_session_context)
@@ -590,6 +641,29 @@ display_json() {
     task_data=$(echo "$task_data" | jq --argjson rel "$related" '. + {_related: $rel}')
   fi
 
+  # Add verification details if requested (T1158)
+  if [[ "$SHOW_VERIFICATION" == true ]]; then
+    local verification
+    verification=$(echo "$task" | jq '.verification // null')
+    if [[ "$verification" != "null" ]]; then
+      # Source verification.sh for helper functions
+      if [[ -f "$LIB_DIR/verification.sh" ]]; then
+        source "$LIB_DIR/verification.sh"
+        local verif_status
+        verif_status=$(get_verification_status "$verification")
+        local required_gates
+        required_gates=$(get_config_value "verification.requiredGates" '["implemented","testsPassed","qaPassed","securityPassed","documented"]' 2>/dev/null || echo '["implemented","testsPassed","qaPassed","securityPassed","documented"]')
+        local missing_gates
+        missing_gates=$(get_missing_gates "$verification" "$required_gates" 2>/dev/null || echo '[]')
+        task_data=$(echo "$task_data" | jq \
+          --arg verifStatus "$verif_status" \
+          --argjson requiredGates "$required_gates" \
+          --argjson missingGates "$missing_gates" \
+          '. + {_verificationStatus: $verifStatus, _requiredGates: $requiredGates, _missingGates: $missingGates}')
+      fi
+    fi
+  fi
+
   # Get session context
   local session_ctx
   session_ctx=$(get_session_context)
@@ -655,6 +729,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --related)
       SHOW_RELATED=true
+      shift
+      ;;
+    --verification)
+      SHOW_VERIFICATION=true
       shift
       ;;
     -q|--quiet)

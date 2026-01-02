@@ -80,6 +80,7 @@ STATUS_FILTER=""
 PRIORITY_FILTER=""
 PHASE_FILTER=""
 LABEL_FILTER=""
+VERIFICATION_STATUS_FILTER=""  # Filter by verification status: pending|in-progress|passed|failed (T1158)
 FORMAT=""  # Empty - will be resolved after argument parsing via TTY detection
 COMMAND_NAME="list"
 INCLUDE_ARCHIVE=false
@@ -155,6 +156,8 @@ Filters:
   -p, --priority PRIORITY   Filter by priority: critical|high|medium|low
       --phase PHASE         Filter by phase slug
   -l, --label LABEL         Filter by label
+      --verification-status STATUS
+                            Filter by verification: pending|in-progress|passed|failed
       --since DATE          Show tasks created after date (ISO 8601: YYYY-MM-DD)
       --until DATE          Show tasks created before date (ISO 8601: YYYY-MM-DD)
       --all, --include-archive
@@ -240,6 +243,7 @@ while [[ $# -gt 0 ]]; do
     -p|--priority) PRIORITY_FILTER="$2"; shift 2 ;;
     --phase) PHASE_FILTER="$2"; shift 2 ;;
     -l|--label) LABEL_FILTER="$2"; shift 2 ;;
+    --verification-status) VERIFICATION_STATUS_FILTER="$2"; shift 2 ;;
     -t|--type) TASK_TYPE_FILTER="$2"; shift 2 ;;
     --parent) PARENT_FILTER="$2"; shift 2 ;;
     --children) CHILDREN_OF="$2"; shift 2 ;;
