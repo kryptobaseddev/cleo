@@ -5,6 +5,30 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] - 2026-01-02
+
+### Added
+- **`--verbose` flag for display commands** (T422)
+  - `cleo show -v` - Shows history, related tasks, all notes
+  - `cleo stats -v` - Shows priority and phase breakdowns
+  - `cleo dash -v` - Shows status symbols, priority brackets, more items
+  - Follows existing pattern from `list-tasks.sh` and `find.sh`
+
+### Verified
+- **`--dry-run` flag already complete for all write commands** (T423)
+  - Verified in: add, update, complete, archive, restore, migrate
+  - All follow consistent pattern with preview output and exit 0
+
+### Epic Completed
+- **EPIC: Config System Polish** (T752) - All 7 tasks complete
+  - T314: migrate repair checksum fix
+  - T391: interactive config editor
+  - T394: comprehensive config tests
+  - T395: schema synchronization
+  - T396: config reset behavior
+  - T422: --verbose flag
+  - T423: --dry-run flag verification
+
 ## [0.44.0] - 2026-01-02
 
 ### Added
