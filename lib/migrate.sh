@@ -1410,6 +1410,13 @@ execute_repair() {
         return 1
     fi
 
+    # Recalculate checksum after structural changes (T314)
+    local new_checksum
+    new_checksum=$(echo "$updated_content" | jq -c '.tasks' | sha256sum | cut -c1-16)
+    updated_content=$(echo "$updated_content" | jq --arg checksum "$new_checksum" '
+        ._meta.checksum = $checksum
+    ')
+
     # Atomic save using save_json
     save_json "$file" "$updated_content"
 
