@@ -1,7 +1,7 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/features.schema.json",
   "_meta": {
-    "version": "0.47.0",
+    "version": "0.47.1",
     "generatedAt": "2026-01-02T00:00:00Z",
     "description": "CLEO Feature Inventory - Source of truth for FEATURES.md generation"
   },
@@ -406,7 +406,7 @@
           "command": "cleo context",
           "description": "Monitor context window usage (status/check)",
           "status": "complete",
-          "version": "0.47.0",
+          "version": "0.47.1",
           "docs": "docs/commands/context.md"
         },
         {
@@ -415,7 +415,7 @@
           "command": "cleo safestop",
           "description": "Generate handoff with session state preservation",
           "status": "complete",
-          "version": "0.47.0",
+          "version": "0.47.1",
           "docs": "docs/commands/safestop.md"
         },
         {
@@ -423,7 +423,7 @@
           "name": "Context Exit Codes",
           "description": "EXIT_CONTEXT_WARNING (50) through EXIT_CONTEXT_STALE (54)",
           "status": "complete",
-          "version": "0.47.0"
+          "version": "0.47.1"
         }
       ]
     },
