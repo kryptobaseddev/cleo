@@ -1,6 +1,6 @@
 # CLEO Native Orchestration System Specification
 
-**Version**: 2.0.0
+**Version**: 2.2.0
 **Status**: Specification
 **Created**: 2025-12-30
 **Updated**: 2025-12-31
@@ -33,6 +33,26 @@ This specification **DEFERS TO**:
 ### 1.3 RFC 2119 Conformance
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are interpreted as described in RFC 2119.
+
+### 1.4 Decision Summary
+
+**Decision**: Build CLEO-native orchestration inspired by [claude_code_agent_farm](https://github.com/Dicklesworthstone/claude_code_agent_farm) patterns.
+
+**Alternatives Evaluated**:
+| Option | License | Verdict |
+|--------|---------|---------|
+| [Claude Squad](https://github.com/smtg-ai/claude-squad) | AGPL-3.0 | ❌ Rejected - copyleft incompatible with CLEO's MIT license |
+| [claude_code_agent_farm](https://github.com/Dicklesworthstone/claude_code_agent_farm) | MIT | ✅ Inspiration source - compatible license, good patterns |
+| Build from scratch | N/A | ❌ Rejected - reinventing proven patterns |
+
+**Decision Rationale**:
+1. **Licensing**: Agent Farm's MIT license is compatible with CLEO; Claude Squad's AGPL-3.0 would require CLEO to adopt copyleft
+2. **Integration Depth**: CLEO requires deep integration with `sessions.json` and existing session system
+3. **API Optimization**: Event-driven completion (Stop hooks) is more efficient than Agent Farm's polling approach
+4. **Scope Management**: Pre-assigned disjoint scopes eliminate runtime lock contention
+
+**Patterns Adopted**: See Part 2.2
+**CLEO Modernizations**: See Part 2.3
 
 ---
 
@@ -498,12 +518,75 @@ ELSE:
     "heartbeatTimeout": 120,
     "eventPollingMs": 5000,
     "waveSpawnDelay": 2000,
-    "agentProgram": "claude --model claude-sonnet-4"
+    "agentProgram": {
+      "command": "claude",
+      "flags": ["-p", "--dangerously-skip-permissions"],
+      "model": "claude-sonnet-4",
+      "outputFormat": "stream-json",
+      "env": {
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "true",
+        "ENABLE_BACKGROUND_TASKS": "true",
+        "FORCE_AUTO_BACKGROUND_TASKS": "true",
+        "CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL": "true"
+      }
+    }
   }
 }
 ```
 
-### 10.2 Exit Codes (50-59)
+### 10.2 Agent Environment Variables
+
+Each spawned agent receives two categories of environment variables:
+
+#### 10.2.1 Claude Code Optimization (from `agentProgram.env`)
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `true` | Disables telemetry, error reporting, auto-updates |
+| `ENABLE_BACKGROUND_TASKS` | `true` | Enables background task functionality (experimental) |
+| `FORCE_AUTO_BACKGROUND_TASKS` | `true` | Auto-backgrounds long-running commands (experimental) |
+| `CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL` | `true` | Unified file reading including Jupyter (experimental) |
+
+**Note**: Variables marked "experimental" are community-discovered and not officially documented by Anthropic. They may change in future Claude Code versions.
+
+#### 10.2.2 CLEO Orchestration Context (injected per-agent)
+
+| Variable | Example | Purpose |
+|----------|---------|---------|
+| `CLEO_SESSION` | `session_20251231_abc123` | Session ID for CLEO operations |
+| `CLEO_SCOPE` | `subtree:T998.1` | Agent's assigned task scope |
+| `CLEO_AGENT_ID` | `agent-0` | Unique agent identifier |
+| `CLEO_ORCHESTRATION_ID` | `orch_xyz` | Parent orchestration run ID |
+| `CLEO_WAVE` | `1` | Current wave number |
+| `CLEO_PROJECT_ROOT` | `/path/to/project` | Project root for hook scripts |
+
+#### 10.2.3 Spawn Command Construction
+
+The orchestrator constructs the full spawn command as:
+
+```bash
+env \
+  # Claude Code optimizations
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true \
+  ENABLE_BACKGROUND_TASKS=true \
+  FORCE_AUTO_BACKGROUND_TASKS=true \
+  CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true \
+  # CLEO context injection
+  CLEO_SESSION="${session_id}" \
+  CLEO_SCOPE="${scope}" \
+  CLEO_AGENT_ID="${agent_id}" \
+  CLEO_ORCHESTRATION_ID="${orch_id}" \
+  CLEO_WAVE="${wave}" \
+  CLEO_PROJECT_ROOT="${project_root}" \
+  # Claude Code command
+  claude -p \
+    --dangerously-skip-permissions \
+    --model claude-sonnet-4 \
+    --output-format stream-json \
+    < "${prompt_file}"
+```
+
+### 10.3 Exit Codes (50-59)
 
 | Code | Constant | Meaning |
 |------|----------|---------|
@@ -579,6 +662,7 @@ ELSE:
 - [SOLID-PROMPTING-SYSTEM-SPEC.md](SOLID-PROMPTING-SYSTEM-SPEC.md) - Prompt template design
 - [MULTI-SESSION-SPEC.md](MULTI-SESSION-SPEC.md) - Session scope binding
 - [IMPLEMENTATION-ORCHESTRATION-SPEC.md](IMPLEMENTATION-ORCHESTRATION-SPEC.md) - 7-agent pipeline
+- [CLAUDE-CLI-IMPROVED.md](../../CLAUDE-CLI-IMPROVED.md) - Claude Code CLI optimizations and shell aliases
 
 ---
 
@@ -588,9 +672,11 @@ ELSE:
 |---------|------|---------|
 | 1.0.0 | 2025-12-30 | Initial Claude Squad analysis |
 | 2.0.0 | 2025-12-31 | Complete rewrite: CLEO Native with Agent Farm patterns |
+| 2.1.0 | 2025-12-31 | Added Part 1.4 Decision Summary with licensing rationale |
+| 2.2.0 | 2025-12-31 | Expanded agentProgram config with env vars, added 10.2 Agent Environment Variables |
 
 ---
 
-*Specification v2.0.0 - CLEO Native Orchestration System*
+*Specification v2.2.0 - CLEO Native Orchestration System*
 *Applicable to: CLEO v0.42.0+*
 *Last updated: 2025-12-31*

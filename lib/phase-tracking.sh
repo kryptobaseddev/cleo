@@ -4,7 +4,8 @@
 # LAYER: 3 (Domain Logic)
 # DEPENDENCIES: file-ops.sh (transitive: platform-compat.sh)
 # PROVIDES: get_current_phase, set_current_phase, get_all_phases, get_phase,
-#           validate_phase_slug, update_phase_status, get_phase_progress
+#           validate_phase_slug, update_phase_status, get_phase_progress,
+#           get_phase_order, get_phase_distance
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_PHASE_TRACKING_LOADED:-}" ]] && return 0
@@ -80,6 +81,49 @@ count_phases_by_status() {
     # Guard against missing file - jq hangs on stdin if file doesn't exist
     [[ -f "$todo_file" ]] || { echo "0"; return 1; }
     jq --arg status "$status" '[.project.phases | to_entries[] | select(.value.status == $status)] | length' "$todo_file"
+}
+
+# ============================================================================
+# PHASE ORDER AND DISTANCE FUNCTIONS
+# ============================================================================
+
+# Get numeric order of a phase
+# Args: $1 = phase slug, $2 = todo file path (optional)
+# Returns: integer order or 0 if not found
+get_phase_order() {
+    local slug="$1"
+    local todo_file="${2:-$TODO_FILE}"
+    [[ -f "$todo_file" ]] || { echo "0"; return 1; }
+    jq -r --arg slug "$slug" '.project.phases[$slug].order // 0' "$todo_file"
+}
+
+# Calculate distance between task phase and current project phase
+# Args: $1 = task phase slug, $2 = current phase slug, $3 = todo file path (optional)
+# Returns: integer distance (0 = same, 1 = adjacent, 2+ = distant)
+get_phase_distance() {
+    local task_phase="$1"
+    local current_phase="$2"
+    local todo_file="${3:-$TODO_FILE}"
+
+    # Same phase = distance 0
+    [[ "$task_phase" == "$current_phase" ]] && { echo "0"; return 0; }
+
+    # Handle empty/missing phases
+    [[ -z "$task_phase" || -z "$current_phase" ]] && { echo "0"; return 0; }
+
+    # Get orders
+    local task_order current_order
+    task_order=$(get_phase_order "$task_phase" "$todo_file")
+    current_order=$(get_phase_order "$current_phase" "$todo_file")
+
+    # If either phase not found (order 0), return 0 distance
+    [[ "$task_order" -eq 0 || "$current_order" -eq 0 ]] && { echo "0"; return 0; }
+
+    # Calculate absolute difference
+    local diff=$((task_order - current_order))
+    [[ $diff -lt 0 ]] && diff=$((-diff))
+
+    echo "$diff"
 }
 
 # ============================================================================
@@ -434,6 +478,8 @@ export -f get_all_phases
 export -f get_phase
 export -f get_phase_status
 export -f count_phases_by_status
+export -f get_phase_order
+export -f get_phase_distance
 export -f set_current_phase
 export -f start_phase
 export -f complete_phase

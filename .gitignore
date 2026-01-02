@@ -167,3 +167,9 @@ docs/.doctrees/
 # !docs/
 # !tests/
 .cleo/research/
+
+# Tool configuration directories
+.serena/
+.nml/
+__pycache__/
+*.pyc
