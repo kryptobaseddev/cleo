@@ -200,19 +200,24 @@ _patch_existing_statusline() {
     # Create backup
     cp "$script_path" "${script_path}.bak"
 
-    # Add CLEO state file write snippet
+    # Add CLEO state file write snippet (with session binding support)
     local snippet='
 # === CLEO Context State Integration ===
 # Write context state for cleo context command
+# Uses $cwd from Claude Code JSON, NOT $PWD
 _write_cleo_state() {
+    # Use workspace dir from Claude Code, not shell PWD
+    local workspace="${cwd:-$PWD}"
     local cleo_dir=""
-    local dir="$PWD"
-    while [[ "$dir" != "/" ]]; do
-        if [[ -d "$dir/.cleo" ]]; then
-            cleo_dir="$dir/.cleo"
+    local search_dir="$workspace"
+
+    # Find .cleo directory from workspace path
+    while [[ "$search_dir" != "/" ]]; do
+        if [[ -d "$search_dir/.cleo" ]]; then
+            cleo_dir="$search_dir/.cleo"
             break
         fi
-        dir="$(dirname "$dir")"
+        search_dir="$(dirname "$search_dir")"
     done
 
     if [[ -n "$cleo_dir" ]] && [[ -n "${input:-}" ]]; then
@@ -225,14 +230,26 @@ _write_cleo_state() {
         [[ $pct -ge 85 ]] && [[ $pct -lt 90 ]] && status="caution"
         [[ $pct -ge 70 ]] && [[ $pct -lt 85 ]] && status="warning"
 
+        # Determine state file: session-specific if CLEO session active, else global
+        local state_file="$cleo_dir/.context-state.json"
+        local session_id=""
+        if [[ -f "$cleo_dir/.current-session" ]]; then
+            session_id=$(cat "$cleo_dir/.current-session" 2>/dev/null | tr -d '"'"'"'\n')
+            if [[ -n "$session_id" ]]; then
+                state_file="$cleo_dir/.context-state-${session_id}.json"
+            fi
+        fi
+
         jq -n \
             --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --argjson max "$size" \
             --argjson cur "$current" \
             --argjson pct "$pct" \
             --arg status "$status" \
-            "{version:\"1.0.0\",timestamp:\$ts,staleAfterMs:5000,contextWindow:{maxTokens:\$max,currentTokens:\$cur,percentage:\$pct},status:\$status}" \
-            > "$cleo_dir/.context-state.json" 2>/dev/null || true
+            --arg sid "${session_id:-}" \
+            --arg ws "$workspace" \
+            '"'"'{version:"1.0.0",timestamp:$ts,staleAfterMs:5000,contextWindow:{maxTokens:$max,currentTokens:$cur,percentage:$pct},status:$status,sessionId:$sid,workspace:$ws}'"'"' \
+            > "$state_file" 2>/dev/null || true
     fi
 }
 _write_cleo_state
