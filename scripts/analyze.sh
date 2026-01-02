@@ -111,12 +111,34 @@ elif [[ -f "$CLEO_HOME/lib/size-weighting.sh" ]]; then
   source "$CLEO_HOME/lib/size-weighting.sh"
 fi
 
+# Source lock-detection library for concurrent operation awareness
+if [[ -f "${LIB_DIR}/lock-detection.sh" ]]; then
+  # shellcheck source=../lib/lock-detection.sh
+  source "${LIB_DIR}/lock-detection.sh"
+elif [[ -f "$CLEO_HOME/lib/lock-detection.sh" ]]; then
+  source "$CLEO_HOME/lib/lock-detection.sh"
+fi
+
+# Source HITL warnings library for human-in-the-loop warnings
+if [[ -f "${LIB_DIR}/hitl-warnings.sh" ]]; then
+  # shellcheck source=../lib/hitl-warnings.sh
+  source "${LIB_DIR}/hitl-warnings.sh"
+elif [[ -f "$CLEO_HOME/lib/hitl-warnings.sh" ]]; then
+  source "$CLEO_HOME/lib/hitl-warnings.sh"
+fi
+
 # Default configuration - JSON output for LLM agents
 OUTPUT_MODE="json"
 AUTO_FOCUS=false
 QUIET=false
 COMMAND_NAME="analyze"
 PARENT_ID=""  # Epic scoping: filter to parent and all descendants
+
+# Lock awareness flags
+IGNORE_LOCKS=false
+WAIT_FOR_LOCKS=false
+WAIT_TIMEOUT=30
+SHOW_LOCKS_ONLY=false
 
 # File paths
 CLEO_DIR=".cleo"
@@ -169,6 +191,11 @@ Options:
     -q, --quiet     Suppress non-essential output (exit 0 if tasks exist)
     -h, --help      Show this help message
 
+Lock Awareness Options:
+    --ignore-locks          Bypass lock detection entirely
+    --wait-for-locks [SEC]  Wait for locks to release (default: 30s)
+    --show-locks            Only show current lock status, don't analyze
+
 Analysis Components:
     leverage:       Tasks ranked by downstream impact (how many they unblock)
     bottlenecks:    Tasks blocking the most others with cascade details
@@ -176,6 +203,7 @@ Analysis Components:
     tiers:          Strategic grouping (1=Unblock, 2=Critical, 3=Progress, 4=Routine)
     action_order:   Suggested sequence of tasks to maximize throughput
     recommendation: Single best task to start with reasoning
+    concurrency:    Active locks and concurrent operation warnings
 
 Epic-Scoped Analysis (--parent):
     phases:         Progress and waves grouped by phase
@@ -194,6 +222,8 @@ Examples:
     cleo analyze --human            # Brief human-readable
     cleo analyze --full             # Detailed human-readable
     cleo analyze --auto-focus       # Analyze and set focus
+    cleo analyze --show-locks       # Just show lock status
+    cleo analyze --wait-for-locks   # Wait for locks before analyzing
 
 Exit Codes:
     0:  Success
@@ -1546,16 +1576,22 @@ output_json() {
     stale_count=$(echo "$stale_tasks" | jq 'length')
 
     # Merge stale data into analysis JSON
-    echo "$analysis" | jq --argjson staleTasks "$stale_tasks" --argjson staleCount "$stale_count" '
+    analysis=$(echo "$analysis" | jq --argjson staleTasks "$stale_tasks" --argjson staleCount "$stale_count" '
       . + {
         staleTasks: $staleTasks,
         staleCount: $staleCount
       }
-    '
-  else
-    # Output analysis without stale data
-    echo "$analysis"
+    ')
   fi
+
+  # Add concurrency/lock awareness data if enabled and not ignored
+  if [[ "$IGNORE_LOCKS" != "true" ]] && declare -f get_concurrency_json >/dev/null 2>&1; then
+    local concurrency_data
+    concurrency_data=$(get_concurrency_json "$CLEO_DIR" 2>/dev/null || echo '{"enabled": false}')
+    analysis=$(echo "$analysis" | jq --argjson concurrency "$concurrency_data" '. + {concurrency: $concurrency}')
+  fi
+
+  echo "$analysis"
 }
 
 # Output human-readable brief format
@@ -1679,6 +1715,11 @@ output_human() {
       fi
       echo ""
     fi
+  fi
+
+  # Concurrency Warnings (if enabled and not ignored)
+  if [[ "$IGNORE_LOCKS" != "true" ]] && declare -f format_concurrency_section >/dev/null 2>&1; then
+    format_concurrency_section "$CLEO_DIR"
   fi
 }
 
@@ -1827,6 +1868,23 @@ parse_arguments() {
         QUIET=true
         shift
         ;;
+      --ignore-locks)
+        IGNORE_LOCKS=true
+        shift
+        ;;
+      --wait-for-locks)
+        WAIT_FOR_LOCKS=true
+        # Check if next arg is a number (timeout)
+        if [[ -n "${2:-}" ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+          WAIT_TIMEOUT="$2"
+          shift
+        fi
+        shift
+        ;;
+      --show-locks)
+        SHOW_LOCKS_ONLY=true
+        shift
+        ;;
       --help|-h)
         usage
         ;;
@@ -1873,6 +1931,65 @@ main() {
       log_error "jq is required but not installed"
     fi
     exit "${EXIT_DEPENDENCY_ERROR:-5}"
+  fi
+
+  # Handle --show-locks mode (just show lock status and exit)
+  if [[ "$SHOW_LOCKS_ONLY" == "true" ]]; then
+    if declare -f get_all_locks >/dev/null 2>&1; then
+      local all_locks
+      all_locks=$(get_all_locks "$CLEO_DIR")
+
+      if [[ "$OUTPUT_MODE" == "json" ]]; then
+        jq -nc \
+          --arg version "$VERSION" \
+          --argjson locks "$all_locks" \
+          '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {"format": "json", "command": "analyze --show-locks", "version": $version, "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))},
+            "success": true,
+            "locks": $locks,
+            "count": ($locks | length),
+            "byStatus": ($locks | group_by(.status) | map({key: .[0].status, value: length}) | from_entries)
+          }'
+      else
+        if declare -f format_lock_info >/dev/null 2>&1; then
+          format_lock_info "$all_locks"
+        else
+          echo "$all_locks" | jq -r '.[] | "\(.resource) - \(.status) (\(.age_human))"'
+        fi
+      fi
+      exit "$EXIT_SUCCESS"
+    else
+      log_error "Lock detection not available"
+      exit "${EXIT_DEPENDENCY_ERROR:-5}"
+    fi
+  fi
+
+  # Handle --wait-for-locks mode
+  if [[ "$WAIT_FOR_LOCKS" == "true" ]] && [[ "$IGNORE_LOCKS" != "true" ]]; then
+    if declare -f wait_for_locks >/dev/null 2>&1; then
+      if [[ "$OUTPUT_MODE" != "json" ]]; then
+        echo "Waiting for active locks to release (timeout: ${WAIT_TIMEOUT}s)..."
+      fi
+      if ! wait_for_locks "$WAIT_TIMEOUT" "$CLEO_DIR"; then
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+          jq -nc \
+            --arg version "$VERSION" \
+            --argjson timeout "$WAIT_TIMEOUT" \
+            '{
+              "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+              "_meta": {"format": "json", "command": "analyze", "version": $version, "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))},
+              "success": false,
+              "error": {
+                "code": "E_LOCK_TIMEOUT",
+                "message": "Timeout waiting for locks to release",
+                "timeout": $timeout
+              }
+            }'
+        fi
+        exit "${EXIT_TIMEOUT:-7}"
+      fi
+    fi
   fi
 
   # Quiet mode: just check if pending tasks exist and exit

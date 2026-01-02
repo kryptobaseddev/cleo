@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
-  "schemaVersion": "2.3.0",
+  "schemaVersion": "2.4.0",
   "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
@@ -780,6 +780,30 @@
               "maximum": 30,
               "default": 7,
               "description": "Days high/critical priority task untouched before warning."
+            }
+          }
+        },
+        "lockAwareness": {
+          "type": "object",
+          "description": "Lock file detection and concurrent operation awareness settings.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable lock detection in analyze output."
+            },
+            "staleThreshold": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 3600,
+              "default": 300,
+              "description": "Seconds before a lock file is considered stale (default: 5 minutes)."
+            },
+            "warnOnly": {
+              "type": "boolean",
+              "default": true,
+              "description": "Warn about locks but don't block operations. Set false to block on active locks."
             }
           }
         }
