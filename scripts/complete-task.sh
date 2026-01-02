@@ -82,6 +82,12 @@ if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
   source "$LIB_DIR/session-enforcement.sh"
 fi
 
+# Source verification library for gate management (v0.44.0)
+if [[ -f "$LIB_DIR/verification.sh" ]]; then
+  # shellcheck source=../lib/verification.sh
+  source "$LIB_DIR/verification.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -101,6 +107,7 @@ SKIP_NOTES=false
 FORMAT=""
 DRY_RUN=false
 QUIET=false
+SKIP_VERIFICATION=false
 
 usage() {
   cat << EOF
@@ -115,6 +122,7 @@ Options:
   -n, --notes TEXT        Completion notes describing what was done (required)
   --skip-notes            Skip notes requirement (use for quick completions)
   --skip-archive          Don't trigger auto-archive even if configured
+  --skip-verification     Skip setting verification.gates.implemented (requires allowManualOverride)
   -f, --format FORMAT     Output format: text (default) or json
   --human                 Force human-readable text output (same as --format text)
   --json                  Force JSON output (same as --format json)
@@ -200,6 +208,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true; shift ;;
     --skip-notes) SKIP_NOTES=true; shift ;;
     --skip-archive) SKIP_ARCHIVE=true; shift ;;
+    --skip-verification) SKIP_VERIFICATION=true; shift ;;
     -*) log_error "Unknown option: $1"; exit "$EXIT_INVALID_INPUT" ;;
     *) TASK_ID="$1"; shift ;;
   esac
@@ -380,6 +389,18 @@ if [[ "$DRY_RUN" == true ]]; then
     fi
   fi
 
+  # Check if verification would be updated
+  DRY_VERIF_WOULD_UPDATE=false
+  DRY_TASK_TYPE=$(echo "$TASK" | jq -r '.type // "task"')
+  if declare -f should_require_verification >/dev/null 2>&1; then
+    if [[ "$SKIP_VERIFICATION" != "true" ]] && should_require_verification "$DRY_TASK_TYPE"; then
+      AUTO_SET_IMPL=$(get_config_value "verification.autoSetImplementedOnComplete" "true")
+      if [[ "$AUTO_SET_IMPL" == "true" ]]; then
+        DRY_VERIF_WOULD_UPDATE=true
+      fi
+    fi
+  fi
+
   if [[ "$FORMAT" == "json" ]]; then
     jq -nc \
       --arg version "${CLEO_VERSION:-unknown}" \
@@ -388,6 +409,7 @@ if [[ "$DRY_RUN" == true ]]; then
       --arg completedAt "$DRY_TIMESTAMP" \
       --arg cycleTime "${DRY_CYCLE_TIME:-null}" \
       --arg currentStatus "$CURRENT_STATUS" \
+      --argjson wouldUpdateVerification "$DRY_VERIF_WOULD_UPDATE" \
       --argjson task "$TASK" \
       '{
         "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -404,7 +426,8 @@ if [[ "$DRY_RUN" == true ]]; then
           "title": $task.title,
           "currentStatus": $currentStatus,
           "completedAt": $completedAt,
-          "cycleTimeDays": (if $cycleTime == "null" then null else ($cycleTime | tonumber) end)
+          "cycleTimeDays": (if $cycleTime == "null" then null else ($cycleTime | tonumber) end),
+          "wouldUpdateVerification": $wouldUpdateVerification
         },
         "task": $task
       }'
@@ -420,6 +443,9 @@ if [[ "$DRY_RUN" == true ]]; then
     fi
     if [[ -n "$DRY_CYCLE_TIME" ]]; then
       echo -e "${BLUE}Cycle Time:${NC} ${DRY_CYCLE_TIME} days"
+    fi
+    if [[ "$DRY_VERIF_WOULD_UPDATE" == "true" ]]; then
+      echo -e "${BLUE}Verification:${NC} Would set gates.implemented = true"
     fi
     echo ""
     echo -e "${YELLOW}No changes made (dry-run mode)${NC}"
@@ -523,6 +549,86 @@ VERIFY_STATUS=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | .status'
 if [[ "$VERIFY_STATUS" != '"done"' ]]; then
   log_error "Failed to update task status."
   exit "$EXIT_FILE_ERROR"
+fi
+
+# ============================================================================
+# VERIFICATION GATE INITIALIZATION (v0.44.0)
+# Set gates.implemented = true when completing a task
+# ============================================================================
+VERIFICATION_UPDATED=false
+
+if declare -f should_require_verification >/dev/null 2>&1; then
+  # Get task type to check if verification applies
+  TASK_TYPE=$(jq -r --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | .type // "task"' "$TODO_FILE")
+
+  # Handle --skip-verification flag
+  if [[ "$SKIP_VERIFICATION" == "true" ]]; then
+    ALLOW_OVERRIDE=$(get_config_value "verification.allowManualOverride" "true")
+    if [[ "$ALLOW_OVERRIDE" != "true" ]]; then
+      [[ "$FORMAT" != "json" ]] && log_warn "--skip-verification requires allowManualOverride=true in config"
+    else
+      [[ "$FORMAT" != "json" ]] && log_info "Skipping verification gate update (--skip-verification)"
+    fi
+  # Check if verification should be applied (skip epics)
+  elif should_require_verification "$TASK_TYPE"; then
+    # Check if autoSetImplementedOnComplete is enabled
+    AUTO_SET_IMPLEMENTED=$(get_config_value "verification.autoSetImplementedOnComplete" "true")
+
+    if [[ "$AUTO_SET_IMPLEMENTED" == "true" ]]; then
+      # Get current verification object (may be null)
+      CURRENT_VERIFICATION=$(jq -r --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | .verification // "null"' "$TODO_FILE")
+
+      # Initialize verification if null
+      if [[ "$CURRENT_VERIFICATION" == "null" || -z "$CURRENT_VERIFICATION" ]]; then
+        CURRENT_VERIFICATION=$(init_verification)
+      fi
+
+      # Set gates.implemented = true
+      UPDATED_VERIFICATION=$(update_gate "$CURRENT_VERIFICATION" "implemented" "true" "coder")
+
+      # Compute verification.passed based on requiredGates
+      VERIFICATION_PASSED=$(compute_passed "$UPDATED_VERIFICATION")
+      UPDATED_VERIFICATION=$(set_verification_passed "$UPDATED_VERIFICATION" "$VERIFICATION_PASSED")
+
+      # Update task with new verification object
+      UPDATED_JSON=$(jq --arg id "$TASK_ID" --argjson verification "$UPDATED_VERIFICATION" '
+        .tasks |= map(
+          if .id == $id then
+            .verification = $verification
+          else . end
+        )
+      ' "$TODO_FILE")
+
+      # Recalculate checksum for verification update
+      VERIF_TASKS=$(echo "$UPDATED_JSON" | jq -c '.tasks')
+      VERIF_CHECKSUM=$(echo "$VERIF_TASKS" | sha256sum | cut -c1-16)
+      VERIF_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+      UPDATED_JSON=$(echo "$UPDATED_JSON" | jq --arg checksum "$VERIF_CHECKSUM" --arg ts "$VERIF_TS" '
+        ._meta.checksum = $checksum |
+        .lastUpdated = $ts
+      ')
+
+      # Save the updated file with verification
+      if save_json "$TODO_FILE" "$UPDATED_JSON"; then
+        VERIFICATION_UPDATED=true
+        [[ "$FORMAT" != "json" ]] && log_info "Verification gates.implemented set to true"
+        if [[ "$VERIFICATION_PASSED" == "true" ]]; then
+          [[ "$FORMAT" != "json" ]] && log_info "Verification passed (all required gates complete)"
+
+          # T1156: Check for epic lifecycle transition when verification passes
+          if declare -f check_epic_lifecycle_transition >/dev/null 2>&1; then
+            check_epic_lifecycle_transition "$TASK_ID" "$TODO_FILE" "$FORMAT" || true
+          fi
+        fi
+      else
+        [[ "$FORMAT" != "json" ]] && log_warn "Failed to update verification gates"
+      fi
+    fi
+  else
+    # Skip verification for epics (they derive from children)
+    [[ "$FORMAT" != "json" && "$TASK_TYPE" == "epic" ]] && log_info "Skipping verification for epic (derived from children)"
+  fi
 fi
 
 # Capture after state
@@ -813,7 +919,18 @@ handle_single_parent_auto_complete() {
   if ! all_siblings_completed "$parent_id" "$completed_task_id" "$todo_file"; then
     return 1
   fi
-  
+
+  # Check if verification is required for parent auto-complete (T1160)
+  if declare -f require_verification_for_parent_auto_complete >/dev/null 2>&1; then
+    if require_verification_for_parent_auto_complete; then
+      # Verification required - check all siblings have verification.passed = true
+      if ! all_siblings_verified "$parent_id" "$completed_task_id" "$todo_file"; then
+        [[ "$format" != "json" ]] && log_info "Parent auto-complete blocked: not all children verified ($parent_id)"
+        return 1
+      fi
+    fi
+  fi
+
   # All conditions met, prepare for auto-completion
   local parent_title
   parent_title=$(echo "$parent_task" | jq -r '.title')
@@ -1013,7 +1130,13 @@ fi
 if [[ "$FORMAT" == "json" ]]; then
   # Build JSON output with all completion details
   AUTO_COMPLETED_JSON=$(printf '%s\n' "${AUTO_COMPLETED_PARENTS[@]}" | jq -R . | jq -s .)
-  
+
+  # Get verification status for output
+  VERIFICATION_STATUS_OUT="null"
+  if [[ "$VERIFICATION_UPDATED" == "true" ]]; then
+    VERIFICATION_STATUS_OUT=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | .verification' "$TODO_FILE")
+  fi
+
   jq -nc \
     --arg version "${CLEO_VERSION:-unknown}" \
     --arg timestamp "$TIMESTAMP" \
@@ -1022,6 +1145,8 @@ if [[ "$FORMAT" == "json" ]]; then
     --arg cycleTime "${CYCLE_TIME_DAYS:-null}" \
     --argjson archived "$ARCHIVED" \
     --argjson focusCleared "$FOCUS_CLEARED" \
+    --argjson verificationUpdated "$VERIFICATION_UPDATED" \
+    --argjson verification "$VERIFICATION_STATUS_OUT" \
     --argjson task "$COMPLETED_TASK" \
     --argjson autoCompletedParents "$AUTO_COMPLETED_JSON" \
     '{
@@ -1038,6 +1163,8 @@ if [[ "$FORMAT" == "json" ]]; then
       "cycleTimeDays": (if $cycleTime == "null" then null else ($cycleTime | tonumber) end),
       "archived": $archived,
       "focusCleared": $focusCleared,
+      "verificationUpdated": $verificationUpdated,
+      "verification": $verification,
       "autoCompletedParents": $autoCompletedParents,
       "task": $task
     }'
@@ -1055,7 +1182,18 @@ else
   if [[ -n "$CYCLE_TIME_DAYS" ]]; then
     echo -e "${BLUE}Cycle Time:${NC} ${CYCLE_TIME_DAYS} days"
   fi
-  
+
+  # Show verification status if updated
+  if [[ "$VERIFICATION_UPDATED" == "true" ]]; then
+    VERIF_PASSED=$(jq -r --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | .verification.passed // false' "$TODO_FILE")
+    if [[ "$VERIF_PASSED" == "true" ]]; then
+      echo -e "${BLUE}Verification:${NC} ${GREEN}passed${NC} (all required gates complete)"
+    else
+      MISSING_GATES=$(jq -r --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | .verification.gates | to_entries | map(select(.value != true)) | map(.key) | join(", ")' "$TODO_FILE")
+      echo -e "${BLUE}Verification:${NC} ${YELLOW}in-progress${NC} (gates.implemented set, remaining: $MISSING_GATES)"
+    fi
+  fi
+
   # Show auto-completed parents if any
   if [[ ${#AUTO_COMPLETED_PARENTS[@]} -gt 0 ]]; then
     echo ""
