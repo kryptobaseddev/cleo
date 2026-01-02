@@ -219,6 +219,35 @@ readonly EXIT_VERIFICATION_LOCKED=46
 readonly EXIT_ROUND_MISMATCH=47
 
 # ============================================================================
+# CONTEXT SAFEGUARD EXIT CODES (50-59)
+# Context window monitoring and graceful shutdown (see CONTEXT-SAFEGUARD-SPEC.md)
+# ============================================================================
+
+# Context is OK (below warning threshold)
+# Exit code for: cleo context check
+readonly EXIT_CONTEXT_OK=0  # Uses EXIT_SUCCESS
+
+# Context warning threshold reached (70-84%)
+# Examples: context check when usage is 75%
+readonly EXIT_CONTEXT_WARNING=50
+
+# Context caution threshold reached (85-89%)
+# Examples: context check when usage is 87%
+readonly EXIT_CONTEXT_CAUTION=51
+
+# Context critical threshold reached (90-94%)
+# Examples: context check when usage is 92%
+readonly EXIT_CONTEXT_CRITICAL=52
+
+# Context emergency threshold reached (95%+)
+# Examples: context check when usage is 96%
+readonly EXIT_CONTEXT_EMERGENCY=53
+
+# Context state file is stale or missing
+# Examples: no status line integration, state file too old
+readonly EXIT_CONTEXT_STALE=54
+
+# ============================================================================
 # SPECIAL CODES (100+)
 # These indicate notable states but are NOT errors
 # ============================================================================
@@ -327,6 +356,12 @@ get_exit_code_name() {
         45)  echo "GATE_DEPENDENCY" ;;
         46)  echo "VERIFICATION_LOCKED" ;;
         47)  echo "ROUND_MISMATCH" ;;
+        # Context Safeguard (50-59)
+        50)  echo "CONTEXT_WARNING" ;;
+        51)  echo "CONTEXT_CAUTION" ;;
+        52)  echo "CONTEXT_CRITICAL" ;;
+        53)  echo "CONTEXT_EMERGENCY" ;;
+        54)  echo "CONTEXT_STALE" ;;
         # Special (100+)
         100) echo "NO_DATA" ;;
         101) echo "ALREADY_EXISTS" ;;
@@ -368,6 +403,9 @@ is_recoverable_code() {
         40|41|42|43|44|45|47) return 0 ;;
         # Not recoverable: verification locked (requires manual unlock)
         46) return 1 ;;
+        # Context safeguard - these are informational, not really errors
+        # Agent should respond to them by running safestop, not retry
+        50|51|52|53|54) return 1 ;;
         # Special codes are not errors, so "recoverable" doesn't apply
         *)    return 1 ;;
     esac
@@ -465,6 +503,14 @@ export EXIT_MAX_ROUNDS_EXCEEDED
 export EXIT_GATE_DEPENDENCY
 export EXIT_VERIFICATION_LOCKED
 export EXIT_ROUND_MISMATCH
+
+# Export constants - Context Safeguard (50-59)
+export EXIT_CONTEXT_OK
+export EXIT_CONTEXT_WARNING
+export EXIT_CONTEXT_CAUTION
+export EXIT_CONTEXT_CRITICAL
+export EXIT_CONTEXT_EMERGENCY
+export EXIT_CONTEXT_STALE
 
 # Export constants - Special (100+)
 export EXIT_NO_DATA

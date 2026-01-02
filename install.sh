@@ -503,6 +503,8 @@ declare -A CMD_MAP=(
   [verify]="verify.sh"
   [upgrade]="upgrade.sh"
   [roadmap]="roadmap.sh"
+  [context]="context.sh"
+  [safestop]="safestop.sh"
 )
 
 # Brief descriptions for main help
@@ -551,6 +553,8 @@ declare -A CMD_DESC=(
   [verify]="View/set verification gates for task quality control"
   [upgrade]="Upgrade project schemas, fix issues, update docs (unified)"
   [roadmap]="Generate roadmap from epics and CHANGELOG"
+  [context]="Monitor context window usage for agent safeguard"
+  [safestop]="Graceful shutdown for agents at context limits"
 )
 
 # ============================================

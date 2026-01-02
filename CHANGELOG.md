@@ -5,6 +5,27 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.0] - 2026-01-02
+
+### Added
+- **Context Safeguard System** (T1198) - Agent graceful shutdown at context limits
+  - `cleo context [status|check]` - Monitor context window usage
+  - `cleo safestop --reason <reason>` - Graceful shutdown with handoff generation
+  - Status line integration script (`lib/context-monitor.sh`)
+  - PreCompact hook template for emergency fallback at 95%
+  - Exit codes: EXIT_CONTEXT_WARNING (50), CAUTION (51), CRITICAL (52), EMERGENCY (53), STALE (54)
+  - JSON schema for context state file
+  - Full documentation in `docs/commands/context.md` and `docs/commands/safestop.md`
+
+### Epic Completed
+- **EPIC: Context Safeguard System** (T1198) - All 6 subtasks complete
+  - T1199: Context state schema
+  - T1200: Status line integration
+  - T1201: `cleo context` command
+  - T1202: `cleo safestop` command
+  - T1203: Agent protocol documentation
+  - T1204: PreCompact hook
+
 ## [0.46.0] - 2026-01-02
 
 ### Added
