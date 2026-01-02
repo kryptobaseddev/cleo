@@ -64,6 +64,7 @@ INCLUDE_ARCHIVE=false
 SHOW_HISTORY=false
 SHOW_RELATED=false
 SHOW_VERIFICATION=false
+VERBOSE=false
 QUIET=false
 COMMAND_NAME="show"
 
@@ -108,6 +109,7 @@ Options:
   -f, --format FORMAT Output format: text (default) or json
   --json              Shortcut for --format json
   --human             Shortcut for --format text
+  -v, --verbose       Show extended task details (history, related, all notes)
   -q, --quiet         Suppress decorative output (headers, borders)
   --include-archive   Search archive if not found in active tasks
   --history           Show task history from log
@@ -117,6 +119,7 @@ Options:
 
 Examples:
   cleo show T001                    # Show task details
+  cleo show T001 -v                 # Extended details (history, related, all notes)
   cleo show T001 --history          # Include task history
   cleo show T001 --related          # Show related tasks
   cleo show T001 --verification     # Show verification gates
@@ -461,11 +464,20 @@ display_text() {
   if [[ "$notes_count" -gt 0 ]]; then
     echo -e "├─────────────────────────────────────────────────────────────────┤"
     echo -e "│  ${BOLD}Notes${NC} ($notes_count)"
-    echo "$notes" | jq -r '.[]' | tail -5 | while read -r note; do
-      local short_note=$(echo "$note" | cut -c1-58)
-      echo -e "│    • $short_note"
-    done
-    [[ "$notes_count" -gt 5 ]] && echo -e "│    ${DIM}... and $((notes_count - 5)) more${NC}"
+    if [[ "$VERBOSE" == true ]]; then
+      # Show all notes in verbose mode
+      echo "$notes" | jq -r '.[]' | while read -r note; do
+        local short_note=$(echo "$note" | cut -c1-58)
+        echo -e "│    • $short_note"
+      done
+    else
+      # Show last 5 notes in normal mode
+      echo "$notes" | jq -r '.[]' | tail -5 | while read -r note; do
+        local short_note=$(echo "$note" | cut -c1-58)
+        echo -e "│    • $short_note"
+      done
+      [[ "$notes_count" -gt 5 ]] && echo -e "│    ${DIM}... and $((notes_count - 5)) more${NC}"
+    fi
   fi
 
   # Files
@@ -735,6 +747,10 @@ while [[ $# -gt 0 ]]; do
       SHOW_VERIFICATION=true
       shift
       ;;
+    -v|--verbose)
+      VERBOSE=true
+      shift
+      ;;
     -q|--quiet)
       QUIET=true
       shift
@@ -762,6 +778,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Verbose mode enables additional details
+if [[ "$VERBOSE" == true ]]; then
+  SHOW_HISTORY=true
+  SHOW_RELATED=true
+fi
 
 # Resolve format (TTY-aware auto-detection)
 FORMAT=$(resolve_format "${FORMAT:-}")

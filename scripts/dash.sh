@@ -116,6 +116,7 @@ FORMAT=""
 COMPACT_MODE=false
 SHOW_CHARTS=true
 SECTIONS="all"
+VERBOSE=false
 QUIET=false
 COMMAND_NAME="dash"
 
@@ -138,6 +139,7 @@ Generate a comprehensive dashboard view of your todo system.
 
 Options:
     -c, --compact     Condensed single-line view
+    -v, --verbose     Show full task details instead of summary
     -q, --quiet       Suppress decorative output (borders, headers)
     --period DAYS     Stats period in days (default: 7)
     --no-chart        Disable ASCII charts/progress bars
@@ -801,13 +803,26 @@ output_text_format() {
       print_box_separator "$width"
       print_box_line "${YELLOW}  HIGH PRIORITY ($high_count tasks)${NC}" "$width"
 
-      echo "$high_tasks" | jq -r '.[] | "\(.id) \(.title)"' | head -5 | while read -r line; do
-        local task_id="${line%% *}"
-        local task_title="${line#* }"
+      echo "$high_tasks" | jq -r '.[] | "\(.id) \(.title) |\(.status) |\(.priority)"' | head -5 | while read -r line; do
+        local task_id="${line%%|*}"
+        task_id="${task_id%% *}"
+        local rest="${line#*|}"
+        local task_title="${rest%%|*}"
+        local status="${rest#*|}"
+        status="${status%%|*}"
+        local priority="${rest##*|}"
+
         if [[ ${#task_title} -gt 45 ]]; then
           task_title="${task_title:0:42}..."
         fi
-        print_box_line "  $task_id $task_title" "$width"
+
+        # Verbose mode: show status and priority
+        if [[ "$VERBOSE" == true ]]; then
+          local sym=$(status_symbol "$status" "$unicode")
+          print_box_line "  $sym $task_id [$priority] $task_title" "$width"
+        else
+          print_box_line "  $task_id $task_title" "$width"
+        fi
       done
     fi
   fi
@@ -823,19 +838,31 @@ output_text_format() {
       print_box_separator "$width"
       print_box_line "${RED}  BLOCKED TASKS ($blocked_count)${NC}" "$width"
 
-      echo "$blocked_tasks" | jq -r '.[] | "\(.id) \(.title) |\(.blockedBy // "unknown")"' | head -3 | while read -r line; do
+      local limit=3
+      [[ "$VERBOSE" == true ]] && limit=10
+
+      echo "$blocked_tasks" | jq -r '.[] | "\(.id) \(.title) |\(.blockedBy // "unknown") |\(.priority // "medium")"' | head -$limit | while read -r line; do
         local task_id="${line%%|*}"
         task_id="${task_id%% *}"
         local rest="${line#* }"
         local task_title="${rest%%|*}"
-        local blocked_by="${rest#*|}"
+        rest="${rest#*|}"
+        local blocked_by="${rest%%|*}"
+        local priority="${rest#*|}"
 
         if [[ ${#task_title} -gt 35 ]]; then
           task_title="${task_title:0:32}..."
         fi
 
         local sym_blocked=$(status_symbol "blocked" "$unicode")
-        print_box_line "  ${sym_blocked} $task_id $task_title" "$width"
+
+        # Verbose mode: show priority
+        if [[ "$VERBOSE" == true ]]; then
+          print_box_line "  ${sym_blocked} $task_id [$priority] $task_title" "$width"
+        else
+          print_box_line "  ${sym_blocked} $task_id $task_title" "$width"
+        fi
+
         if [[ -n "$blocked_by" && "$blocked_by" != "unknown" && "$blocked_by" != "null" ]]; then
           if [[ ${#blocked_by} -gt 40 ]]; then
             blocked_by="${blocked_by:0:37}..."
@@ -1218,6 +1245,10 @@ parse_arguments() {
     case $1 in
       --compact|-c)
         COMPACT_MODE=true
+        shift
+        ;;
+      -v|--verbose)
+        VERBOSE=true
         shift
         ;;
       --period)

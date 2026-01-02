@@ -52,6 +52,7 @@ fi
 # Default configuration
 PERIOD_DAYS=30
 FORMAT=""
+VERBOSE=false
 QUIET=false
 COMMAND_NAME="stats"
 
@@ -118,6 +119,7 @@ Options:
     -f, --format FORMAT   Output format: text | json (default: text)
     --json                Shortcut for --format json
     --human               Shortcut for --format text
+    -v, --verbose         Show detailed breakdowns per category
     -q, --quiet           Suppress decorative output (headers, footers)
     -h, --help            Show this help message
 
@@ -370,6 +372,21 @@ output_text_format() {
     echo "In Progress:  $(pluralize "$in_progress_count" "Task")"
     echo "Completed:    $(pluralize "$completed_count" "Task")"
     echo "Total Active: $(pluralize "$total_active_count" "Task")"
+
+    # Verbose mode: show priority breakdown
+    if [[ "$VERBOSE" == true ]] && [[ -f "$TODO_FILE" ]]; then
+        local critical_count=$(jq -r '[.tasks[] | select(.priority == "critical" and .status != "done")] | length' "$TODO_FILE" 2>/dev/null || echo "0")
+        local high_count=$(jq -r '[.tasks[] | select(.priority == "high" and .status != "done")] | length' "$TODO_FILE" 2>/dev/null || echo "0")
+        local medium_count=$(jq -r '[.tasks[] | select(.priority == "medium" and .status != "done")] | length' "$TODO_FILE" 2>/dev/null || echo "0")
+        local low_count=$(jq -r '[.tasks[] | select(.priority == "low" and .status != "done")] | length' "$TODO_FILE" 2>/dev/null || echo "0")
+        echo ""
+        echo "By Priority (active tasks):"
+        echo "  Critical: $critical_count"
+        echo "  High:     $high_count"
+        echo "  Medium:   $medium_count"
+        echo "  Low:      $low_count"
+    fi
+
     echo ""
 
     # Completion Metrics
@@ -398,6 +415,14 @@ output_text_format() {
     echo "Tasks Completed:  $(pluralize "$activity_completed" "Task")"
     echo "Tasks Archived:   $(pluralize "$activity_archived" "Task")"
     echo "Busiest Day:      $(echo "$stats_json" | jq -r '.data.activity_metrics.busiest_day')"
+
+    # Verbose mode: show phase breakdown
+    if [[ "$VERBOSE" == true ]] && [[ -f "$TODO_FILE" ]]; then
+        echo ""
+        echo "By Phase (active tasks):"
+        jq -r '.phases // {} | to_entries | .[] | "  \(.value.name // .key): " + ([$.tasks[] | select(.phase == .key)] | length | tostring)' "$TODO_FILE" 2>/dev/null | sort || echo "  (no phases defined)"
+    fi
+
     echo ""
 
     # Archive Statistics
@@ -553,6 +578,10 @@ parse_arguments() {
                 ;;
             --human)
                 FORMAT="text"
+                shift
+                ;;
+            -v|--verbose)
+                VERBOSE=true
                 shift
                 ;;
             -q|--quiet)
