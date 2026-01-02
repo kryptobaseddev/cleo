@@ -1314,7 +1314,31 @@ run_complete_analysis() {
         )
       } |
       # Use weighted unlocks for leverage score (scaled by 15), multiplied by phase boost and size weight
-      .leverage_score = (((((.weighted_unlocks * 15) | floor) + .priority_score) * .phase_boost * .size_weight) | floor)
+      .leverage_score = (((((.weighted_unlocks * 15) | floor) + .priority_score) * .phase_boost * .size_weight) | floor) |
+      # ================================================================
+      # CONFIDENCE: Normalized 0.0-1.0 score for anti-hallucination
+      # Helps agents know when to proceed vs. ask for clarification
+      # ================================================================
+      .confidence = (
+        # Base confidence
+        0.50
+        # Phase alignment: +0.0 to +0.20 (based on phase_boost 1.0-1.5)
+        + ((.phase_boost - 1.0) * 0.40)
+        # Actionability: +0.20 if ready, -0.10 if blocked
+        + (if .is_actionable then 0.20 else -0.10 end)
+        # Metadata completeness: +0.05 each for size and labels
+        + (if .size != null then 0.05 else 0 end)
+        + (if (.labels | length) > 0 then 0.05 else 0 end)
+        # Priority boost: +0.10 critical, +0.05 high
+        + (if .priority == "critical" then 0.10
+           elif .priority == "high" then 0.05
+           else 0 end)
+        # Strategic value: +0.05 if unblocks other tasks
+        + (if .unlocks_count > 0 then 0.05 else 0 end)
+      ) |
+      # Clamp confidence to [0.10, 1.00] and round to 2 decimal places
+      .confidence as $c |
+      .confidence = ((if $c > 1.0 then 1.0 elif $c < 0.1 then 0.1 else $c end) * 100 | floor / 100)
     ] | sort_by(-(.leverage_score // 0)) as $leverage_data |
 
     # ================================================================
@@ -1379,7 +1403,7 @@ run_complete_analysis() {
       tier1_unblock: [
         $leverage_data[] |
         select(.unlocks_count >= 3 and .is_actionable) |
-        {id, title, priority, size, unlocks_count, weighted_unlocks, unlocks_tasks, leverage_score, phase_boost, size_weight, phaseAlignment}
+        {id, title, priority, size, unlocks_count, weighted_unlocks, unlocks_tasks, leverage_score, confidence, phase_boost, size_weight, phaseAlignment}
       ] | sort_by(-(.weighted_unlocks // 0)),
 
       tier2_critical: [
@@ -1389,7 +1413,7 @@ run_complete_analysis() {
           .unlocks_count < 3 and
           (.priority == "critical" or .priority == "high")
         ) |
-        {id, title, priority, size, unlocks_count, leverage_score, phase_boost, size_weight, phaseAlignment}
+        {id, title, priority, size, unlocks_count, leverage_score, confidence, phase_boost, size_weight, phaseAlignment}
       ] | sort_by(-(.leverage_score // 0)),
 
       tier3_blocked: [
@@ -1400,6 +1424,7 @@ run_complete_analysis() {
           title,
           priority,
           size,
+          confidence,
           phase_boost,
           size_weight,
           phaseAlignment,
@@ -1414,7 +1439,7 @@ run_complete_analysis() {
           .unlocks_count < 3 and
           (.priority == "medium" or .priority == "low")
         ) |
-        {id, title, priority, size, unlocks_count, leverage_score, phase_boost, size_weight, phaseAlignment}
+        {id, title, priority, size, unlocks_count, leverage_score, confidence, phase_boost, size_weight, phaseAlignment}
       ] | sort_by(-(.leverage_score // 0))
     } as $tiers |
 
@@ -1440,7 +1465,7 @@ run_complete_analysis() {
           tasks: [
             $leverage_data[] |
             select(.labels | index($label) | type == "number") |
-            {id, title, priority, is_actionable, unlocks_count, weighted_unlocks}
+            {id, title, priority, is_actionable, unlocks_count, weighted_unlocks, confidence}
           ],
           count: ([$leverage_data[] | select(.labels | index($label) | type == "number")] | length),
           actionable_count: ([$leverage_data[] | select(.labels | index($label) | type == "number") | select(.is_actionable)] | length)
@@ -1456,7 +1481,7 @@ run_complete_analysis() {
 
     (
       ($tiers.tier1_unblock | map({
-        id, title, priority,
+        id, title, priority, confidence,
         reason: ("Unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))" +
           if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
           else "" end),
@@ -1464,7 +1489,7 @@ run_complete_analysis() {
         phaseAlignment
       })) +
       ($tiers.tier2_critical | map({
-        id, title, priority,
+        id, title, priority, confidence,
         reason: ("High priority, actionable" +
           if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
           else "" end),
@@ -1472,7 +1497,7 @@ run_complete_analysis() {
         phaseAlignment
       })) +
       ($tiers.tier4_routine[0:5] | map({
-        id, title, priority,
+        id, title, priority, confidence,
         reason: ("Quick win" +
           if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
           else "" end),
@@ -1492,6 +1517,7 @@ run_complete_analysis() {
           task_id: .id,
           title: .title,
           priority: .priority,
+          confidence: .confidence,
           reason: ("Highest leverage - unblocks \(.unlocks_count) tasks (weighted: \(.weighted_unlocks | tostring | split(".")[0]))" +
             if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
             else "" end),
@@ -1505,6 +1531,7 @@ run_complete_analysis() {
           task_id: .id,
           title: .title,
           priority: .priority,
+          confidence: .confidence,
           reason: ("Critical/high priority with clear path" +
             if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
             else "" end),
@@ -1518,6 +1545,7 @@ run_complete_analysis() {
           task_id: .id,
           title: .title,
           priority: .priority,
+          confidence: .confidence,
           reason: ("Actionable task in backlog" +
             if .phase_boost > 1.0 then " (phase-aligned +\(((.phase_boost - 1) * 100) | floor)%)"
             else "" end),
@@ -1656,8 +1684,36 @@ output_json() {
     stale_tasks=$(get_stale_tasks "$todo_file" 2>/dev/null || echo "[]")
     stale_count=$(echo "$stale_tasks" | jq 'length')
 
-    # Merge stale data into analysis JSON
+    # Merge stale data and adjust confidence for stale tasks (-0.15 penalty)
     analysis=$(echo "$analysis" | jq --argjson staleTasks "$stale_tasks" --argjson staleCount "$stale_count" '
+      # Build set of stale task IDs for fast lookup
+      ([$staleTasks[].taskId] | map({(.): true}) | add // {}) as $staleIds |
+
+      # Helper to adjust confidence for stale tasks
+      def adjust_confidence:
+        if .id and $staleIds[.id] then
+          ((.confidence - 0.15) | if . < 0.1 then 0.1 else . end) as $adj |
+          .confidence = ($adj * 100 | floor / 100) |
+          .isStale = true
+        else . end;
+
+      # Helper for recommendation (uses task_id instead of id)
+      def adjust_recommendation_confidence:
+        if .task_id and $staleIds[.task_id] then
+          ((.confidence - 0.15) | if . < 0.1 then 0.1 else . end) as $adj |
+          .confidence = ($adj * 100 | floor / 100) |
+          .isStale = true
+        else . end;
+
+      # Adjust confidence in all task arrays
+      .recommendation |= (if . then adjust_recommendation_confidence else . end) |
+      .action_order |= map(adjust_confidence) |
+      .leverage |= map(adjust_confidence) |
+      .tiers.tier1_unblock.tasks |= map(adjust_confidence) |
+      .tiers.tier2_critical.tasks |= map(adjust_confidence) |
+      .tiers.tier3_blocked.tasks |= map(adjust_confidence) |
+      .tiers.tier4_routine.tasks |= map(adjust_confidence) |
+      .domains |= map(.tasks |= map(adjust_confidence)) |
       . + {
         staleTasks: $staleTasks,
         staleCount: $staleCount

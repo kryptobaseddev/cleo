@@ -5,6 +5,19 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] - 2026-01-02
+
+### Added
+- **Confidence scoring in analyze output** (T555)
+  - All task recommendations now include `confidence` score (0.0-1.0)
+  - Factors: phase alignment (+0.20), actionability (+0.20/-0.10), metadata (+0.05 each), priority (+0.10/+0.05), staleness (-0.15)
+  - Anti-hallucination value: agents know when to proceed vs. ask for clarification
+  - Present in: `recommendation`, `action_order`, `tiers`, `leverage`, `domains`
+  - Stale tasks flagged with `isStale: true` marker
+
+### Fixed
+- **Test: leverage_score calculation** - Updated test to account for phase_boost multiplication
+
 ## [0.45.0] - 2026-01-02
 
 ### Added

@@ -238,9 +238,11 @@ setup() {
     score=$(echo "$leverage" | jq '.leverage_score')
     priority=$(echo "$leverage" | jq -r '.priority')
 
-    # weighted_unlocks = 1.5 (cross-phase)
+    # weighted_unlocks = 1.5 (cross-phase dependency)
     # priority_score = 75 (high)
-    # leverage_score = floor(1.5 * 15) + 75 = 22 + 75 = 97
+    # phase_boost = 1.5 (T001 in setup phase = project.currentPhase)
+    # size_weight = 1 (balanced strategy default)
+    # leverage_score = floor((floor(1.5 * 15) + 75) * 1.5 * 1) = floor(97 * 1.5) = 145
     [[ "$weighted" == "1.5" ]]
-    [[ "$score" == "97" ]]
+    [[ "$score" == "145" ]]
 }
