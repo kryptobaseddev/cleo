@@ -5,6 +5,19 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.2] - 2026-01-02
+
+### Changed
+- **Refactored archive.sh and update-task.sh to use jq-helpers** (T836)
+  - Added jq-helpers.sh sourcing to both scripts
+  - Replaced direct jq calls with reusable wrapper functions:
+    - `get_task_by_id()` - Task lookup by ID
+    - `get_task_field()` - Field extraction from task JSON
+    - `count_tasks_by_status()` - Count tasks by status
+    - `get_task_count()` - Get total task count
+  - 51 helper usages added across both files
+  - Improves maintainability and testability
+
 ## [0.43.1] - 2026-01-02
 
 ### Added

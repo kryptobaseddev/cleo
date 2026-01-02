@@ -82,6 +82,12 @@ if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
   source "$LIB_DIR/session-enforcement.sh"
 fi
 
+# Source jq-helpers library for reusable jq wrapper functions
+if [[ -f "$LIB_DIR/jq-helpers.sh" ]]; then
+  # shellcheck source=../lib/jq-helpers.sh
+  source "$LIB_DIR/jq-helpers.sh"
+fi
+
 # Fallback exit codes if libraries not loaded (for robustness)
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_INVALID_INPUT:=2}"
@@ -635,8 +641,12 @@ if [[ ! -f "$TODO_FILE" ]]; then
   exit "${EXIT_FILE_ERROR:-3}"
 fi
 
-# Check task exists
-TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+# Check task exists (use jq-helper if available)
+if declare -f get_task_by_id >/dev/null 2>&1; then
+  TASK=$(get_task_by_id "$TASK_ID" "$TODO_FILE")
+else
+  TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+fi
 if [[ -z "$TASK" ]]; then
   if [[ "$FORMAT" == "json" ]]; then
     output_error "$E_TASK_NOT_FOUND" "Task $TASK_ID not found" "$EXIT_NOT_FOUND" true "Run 'cleo list' to see available tasks"
@@ -646,8 +656,12 @@ if [[ -z "$TASK" ]]; then
   exit "${EXIT_NOT_FOUND:-4}"
 fi
 
-# Get current status for transition validation
-CURRENT_STATUS=$(echo "$TASK" | jq -r '.status')
+# Get current status for transition validation (use jq-helper if available)
+if declare -f get_task_field >/dev/null 2>&1; then
+  CURRENT_STATUS=$(get_task_field "$TASK" "status")
+else
+  CURRENT_STATUS=$(echo "$TASK" | jq -r '.status')
+fi
 
 # Check if task is already done - allow metadata-only updates
 if [[ "$CURRENT_STATUS" == "done" ]]; then
@@ -792,9 +806,15 @@ if [[ -n "$NEW_PARENT_ID" ]]; then
   fi
 fi
 
-# Cross-validate type and parent constraints
-CURRENT_TYPE=$(echo "$TASK" | jq -r '.type // "task"')
-CURRENT_PARENT=$(echo "$TASK" | jq -r '.parentId // ""')
+# Cross-validate type and parent constraints (use jq-helpers if available)
+if declare -f get_task_field >/dev/null 2>&1; then
+  CURRENT_TYPE=$(get_task_field "$TASK" "type")
+  [[ -z "$CURRENT_TYPE" ]] && CURRENT_TYPE="task"
+  CURRENT_PARENT=$(get_task_field "$TASK" "parentId")
+else
+  CURRENT_TYPE=$(echo "$TASK" | jq -r '.type // "task"')
+  CURRENT_PARENT=$(echo "$TASK" | jq -r '.parentId // ""')
+fi
 FINAL_TYPE="${NEW_TYPE:-$CURRENT_TYPE}"
 FINAL_PARENT="${NEW_PARENT_ID:-$CURRENT_PARENT}"
 
@@ -910,12 +930,20 @@ if [[ "$NEW_STATUS" == "active" && "$CURRENT_STATUS" != "active" ]]; then
             $todo[0].tasks | map(select(.status == "active" and (.id as $id | $scope | index($id)))) | length
           ')
       else
-        # No active session - fall back to global check
-        active_count=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+        # No active session - fall back to global check (use jq-helper if available)
+        if declare -f count_tasks_by_status >/dev/null 2>&1; then
+          active_count=$(count_tasks_by_status "active" "$TODO_FILE")
+        else
+          active_count=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+        fi
       fi
     else
-      # Single-session mode: global check
-      active_count=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+      # Single-session mode: global check (use jq-helper if available)
+      if declare -f count_tasks_by_status >/dev/null 2>&1; then
+        active_count=$(count_tasks_by_status "active" "$TODO_FILE")
+      else
+        active_count=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+      fi
     fi
 
     if [[ "$active_count" -gt 0 ]]; then

@@ -75,6 +75,12 @@ if [[ -f "$LIB_DIR/validation.sh" ]]; then
   source "$LIB_DIR/validation.sh"
 fi
 
+# Source jq-helpers library for reusable jq wrapper functions
+if [[ -f "$LIB_DIR/jq-helpers.sh" ]]; then
+  # shellcheck source=../lib/jq-helpers.sh
+  source "$LIB_DIR/jq-helpers.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -322,8 +328,12 @@ fi
 
 # Validate --cascade-from task exists and is completed
 if [[ -n "$CASCADE_FROM" ]]; then
-  # Verify task exists
-  ROOT_TASK=$(jq --arg id "$CASCADE_FROM" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+  # Verify task exists (use jq-helper if available)
+  if declare -f get_task_by_id >/dev/null 2>&1; then
+    ROOT_TASK=$(get_task_by_id "$CASCADE_FROM" "$TODO_FILE")
+  else
+    ROOT_TASK=$(jq --arg id "$CASCADE_FROM" '.tasks[] | select(.id == $id)' "$TODO_FILE")
+  fi
   if [[ -z "$ROOT_TASK" || "$ROOT_TASK" == "null" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
       output_error "E_TASK_NOT_FOUND" "Task $CASCADE_FROM not found" "${EXIT_INVALID_INPUT:-1}" true
@@ -334,7 +344,11 @@ if [[ -n "$CASCADE_FROM" ]]; then
   fi
 
   # Verify task is completed or cancelled (both are archivable)
-  ROOT_STATUS=$(echo "$ROOT_TASK" | jq -r '.status')
+  if declare -f get_task_field >/dev/null 2>&1; then
+    ROOT_STATUS=$(get_task_field "$ROOT_TASK" "status")
+  else
+    ROOT_STATUS=$(echo "$ROOT_TASK" | jq -r '.status')
+  fi
   if [[ "$ROOT_STATUS" != "done" && "$ROOT_STATUS" != "cancelled" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
       output_error "E_INVALID_STATE" "Task $CASCADE_FROM is not archivable (status: $ROOT_STATUS)" "${EXIT_INVALID_INPUT:-1}" true "Complete or cancel the task before archiving with --cascade-from"
@@ -498,11 +512,18 @@ fi
 
 if [[ "$COMPLETED_COUNT" -eq 0 ]]; then
   if [[ "$FORMAT" == "json" ]]; then
-    # Get remaining task counts for JSON output
-    REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
-    REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
-    REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
-    REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+    # Get remaining task counts for JSON output (use jq-helpers if available)
+    if declare -f get_task_count >/dev/null 2>&1; then
+      REMAINING_TOTAL=$(get_task_count "$TODO_FILE")
+      REMAINING_PENDING=$(count_tasks_by_status "pending" "$TODO_FILE")
+      REMAINING_ACTIVE=$(count_tasks_by_status "active" "$TODO_FILE")
+      REMAINING_BLOCKED=$(count_tasks_by_status "blocked" "$TODO_FILE")
+    else
+      REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
+      REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
+      REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+      REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+    fi
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # Build onlyLabelsFilter JSON (null if not specified)
@@ -599,10 +620,18 @@ if [[ -n "$PHASE_TRIGGER" ]]; then
   # If no tasks in the specified phase, exit early with appropriate output
   if [[ "$COMPLETED_COUNT" -eq 0 ]]; then
     if [[ "$FORMAT" == "json" ]]; then
-      REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
-      REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
-      REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
-      REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+      # Get remaining task counts (use jq-helpers if available)
+      if declare -f get_task_count >/dev/null 2>&1; then
+        REMAINING_TOTAL=$(get_task_count "$TODO_FILE")
+        REMAINING_PENDING=$(count_tasks_by_status "pending" "$TODO_FILE")
+        REMAINING_ACTIVE=$(count_tasks_by_status "active" "$TODO_FILE")
+        REMAINING_BLOCKED=$(count_tasks_by_status "blocked" "$TODO_FILE")
+      else
+        REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
+        REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
+        REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+        REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+      fi
       TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
       jq -nc \
@@ -737,10 +766,18 @@ fi
 # If ALL eligible tasks were already archived, return no-change (idempotent)
 if [[ "$ARCHIVE_COUNT" -eq 0 && "$ALREADY_ARCHIVED_COUNT" -gt 0 ]]; then
   TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
-  REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
-  REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
-  REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+  # Get remaining task counts (use jq-helpers if available)
+  if declare -f get_task_count >/dev/null 2>&1; then
+    REMAINING_TOTAL=$(get_task_count "$TODO_FILE")
+    REMAINING_PENDING=$(count_tasks_by_status "pending" "$TODO_FILE")
+    REMAINING_ACTIVE=$(count_tasks_by_status "active" "$TODO_FILE")
+    REMAINING_BLOCKED=$(count_tasks_by_status "blocked" "$TODO_FILE")
+  else
+    REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
+    REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
+    REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+    REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+  fi
 
   if [[ "$FORMAT" == "json" ]]; then
     jq -nc \
@@ -1040,11 +1077,18 @@ fi
 
 if [[ "$ARCHIVE_COUNT" -eq 0 ]]; then
   if [[ "$FORMAT" == "json" ]]; then
-    # Get remaining task counts for JSON output
-    REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
-    REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
-    REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
-    REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+    # Get remaining task counts for JSON output (use jq-helpers if available)
+    if declare -f get_task_count >/dev/null 2>&1; then
+      REMAINING_TOTAL=$(get_task_count "$TODO_FILE")
+      REMAINING_PENDING=$(count_tasks_by_status "pending" "$TODO_FILE")
+      REMAINING_ACTIVE=$(count_tasks_by_status "active" "$TODO_FILE")
+      REMAINING_BLOCKED=$(count_tasks_by_status "blocked" "$TODO_FILE")
+    else
+      REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
+      REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
+      REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+      REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+    fi
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # Build onlyLabelsFilter JSON (null if not specified)
@@ -1174,11 +1218,18 @@ fi
 if [[ "$DRY_RUN" == true ]]; then
   if [[ "$FORMAT" == "json" ]]; then
     # Get remaining task counts for JSON output (would-be state after archive)
-    REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
+    if declare -f get_task_count >/dev/null 2>&1; then
+      REMAINING_TOTAL=$(get_task_count "$TODO_FILE")
+      REMAINING_PENDING=$(count_tasks_by_status "pending" "$TODO_FILE")
+      REMAINING_ACTIVE=$(count_tasks_by_status "active" "$TODO_FILE")
+      REMAINING_BLOCKED=$(count_tasks_by_status "blocked" "$TODO_FILE")
+    else
+      REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
+      REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
+      REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+      REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+    fi
     REMAINING_AFTER=$((REMAINING_TOTAL - ARCHIVE_COUNT))
-    REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
-    REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
-    REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
     ARCHIVE_IDS_JSON=$(echo "$TASKS_TO_ARCHIVE" | jq '[.[].id]')
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -1612,11 +1663,18 @@ fi
 # Remove trap since we succeeded
 trap - EXIT
 
-# Get remaining task counts for output
-REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
-REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
-REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
-REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+# Get remaining task counts for output (use jq-helpers if available)
+if declare -f get_task_count >/dev/null 2>&1; then
+  REMAINING_TOTAL=$(get_task_count "$TODO_FILE")
+  REMAINING_PENDING=$(count_tasks_by_status "pending" "$TODO_FILE")
+  REMAINING_ACTIVE=$(count_tasks_by_status "active" "$TODO_FILE")
+  REMAINING_BLOCKED=$(count_tasks_by_status "blocked" "$TODO_FILE")
+else
+  REMAINING_TOTAL=$(jq '.tasks | length' "$TODO_FILE")
+  REMAINING_PENDING=$(jq '[.tasks[] | select(.status == "pending")] | length' "$TODO_FILE")
+  REMAINING_ACTIVE=$(jq '[.tasks[] | select(.status == "active")] | length' "$TODO_FILE")
+  REMAINING_BLOCKED=$(jq '[.tasks[] | select(.status == "blocked")] | length' "$TODO_FILE")
+fi
 
 # Generate archived task IDs as JSON array
 ARCHIVE_IDS_JSON=$(echo "$TASKS_TO_ARCHIVE" | jq '[.[].id]')
