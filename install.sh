@@ -388,6 +388,17 @@ log_step "Installing templates..."
 # Copy all template files from repo
 if [[ -d "$SCRIPT_DIR/templates" ]]; then
   cp -r "$SCRIPT_DIR/templates/"* "$INSTALL_DIR/templates/"
+
+  # Update CLEO:START version markers in templates to match installed version
+  # This ensures templates always reference the current installed version
+  for template in "$INSTALL_DIR/templates/"*.md "$INSTALL_DIR/templates/agents/"*.md; do
+    [[ ! -f "$template" ]] && continue
+    if grep -q "CLEO:START v" "$template" 2>/dev/null; then
+      # Replace any CLEO:START vX.X.X with current VERSION
+      sed -i "s/CLEO:START v[0-9.]\+/CLEO:START v$VERSION/g" "$template"
+    fi
+  done
+
   log_info "Templates installed ($(ls -1 "$INSTALL_DIR/templates" | wc -l) files)"
 else
   log_error "Templates directory not found at $SCRIPT_DIR/templates"
@@ -490,6 +501,7 @@ declare -A CMD_MAP=(
   [claude-migrate]="claude-migrate.sh"
   [populate-hierarchy]="populate-hierarchy.sh"
   [verify]="verify.sh"
+  [upgrade]="upgrade.sh"
 )
 
 # Brief descriptions for main help
@@ -536,6 +548,7 @@ declare -A CMD_DESC=(
   [claude-migrate]="Migrate legacy .claude/ and ~/.claude-todo to CLEO"
   [populate-hierarchy]="Populate hierarchy fields (type, parentId) for migrated tasks"
   [verify]="View/set verification gates for task quality control"
+  [upgrade]="Upgrade project schemas, fix issues, update docs (unified)"
 )
 
 # ============================================
@@ -653,6 +666,45 @@ discover_plugins() {
       [[ "$DEBUG" == "1" ]] && echo "[DEBUG] Discovered plugin: $plugin_name -> $plugin" >&2
     done
   done
+}
+
+# ============================================
+# PROJECT VERSION CHECK (fast check for warnings)
+# ============================================
+# Commands that skip version warnings (they handle their own)
+VERSION_CHECK_SKIP="upgrade|migrate|init|validate|help|version|--help|-h|--version|-v"
+
+check_project_version() {
+  local cmd="${1:-}"
+
+  # Skip for commands that handle their own checks
+  [[ "$cmd" =~ ^($VERSION_CHECK_SKIP)$ ]] && return 0
+
+  # Skip if disabled
+  [[ -n "${CLEO_SKIP_VERSION_CHECK:-}" ]] && return 0
+
+  # Skip if not a cleo project
+  [[ ! -f "./.cleo/todo.json" ]] && return 0
+
+  # Fast check: look for legacy structure indicators
+  if command -v jq &>/dev/null; then
+    # Check for top-level phases (legacy structure)
+    if jq -e 'has("phases")' "./.cleo/todo.json" >/dev/null 2>&1; then
+      echo "[WARN] Project has legacy structure. Run: cleo upgrade" >&2
+      return 0
+    fi
+
+    # Check CLAUDE.md injection version
+    if [[ -f "./CLAUDE.md" ]]; then
+      local injection_ver installed_ver
+      injection_ver=$(grep -oP 'CLEO:START v\K[0-9.]+' "./CLAUDE.md" 2>/dev/null || echo "")
+      installed_ver=$(cat "$CLEO_HOME/VERSION" 2>/dev/null || echo "")
+
+      if [[ -n "$injection_ver" ]] && [[ -n "$installed_ver" ]] && [[ "$injection_ver" != "$installed_ver" ]]; then
+        echo "[WARN] CLAUDE.md outdated ($injection_ver → $installed_ver). Run: cleo upgrade" >&2
+      fi
+    fi
+  fi
 }
 
 # ============================================
@@ -883,6 +935,10 @@ case "$CMD" in
       shift
       # Parse resolved format: type:command:aliased_flags
       IFS=':' read -r resolved_type resolved_cmd resolved_flags <<< "$resolved"
+
+      # Check for project version warnings (fast, non-blocking)
+      check_project_version "$resolved_cmd"
+
       if [[ "$resolved_type" == "plugin" ]]; then
         [[ "$DEBUG" == "1" ]] && echo "[DEBUG] Executing plugin: $resolved_cmd" >&2
         # shellcheck disable=SC2086
