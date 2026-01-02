@@ -1210,6 +1210,42 @@ run_complete_analysis() {
     # Pending tasks only
     [$all_tasks[] | select(.status == "pending" or .status == "active")] as $pending_tasks |
 
+    # Pending task IDs for quick lookup
+    ([$pending_tasks[] | .id]) as $pending_ids |
+
+    # Build forward dependency map: task_id -> [tasks it depends on]
+    (reduce $pending_tasks[] as $task ({};
+      .[$task.id] = ($task.depends // [])
+    )) as $forward_deps |
+
+    # ================================================================
+    # WAVE COMPUTATION: Calculate dependency depth for each task
+    # Wave 0 = no pending deps, Wave N = max(dep waves) + 1
+    # ================================================================
+
+    def compute_wave($id; $memo; $visiting):
+      if ($memo | has($id)) then $memo
+      elif ($visiting | any(. == $id)) then $memo | .[$id] = 0  # Cycle detection
+      else
+        ($forward_deps[$id] // []) as $deps |
+        # Filter to pending dependencies only
+        [$deps[] | select(. as $d | $pending_ids | any(. == $d))] as $active_deps |
+        if ($active_deps | length) == 0 then
+          $memo | .[$id] = 0
+        else
+          # Compute waves for all deps first (with cycle detection)
+          (reduce $active_deps[] as $dep ($memo;
+            compute_wave($dep; .; $visiting + [$id])
+          )) as $updated_memo |
+          # Max dep wave + 1
+          ([$active_deps[] | $updated_memo[.] // 0] | max + 1) as $wave |
+          $updated_memo | .[$id] = $wave
+        end
+      end;
+
+    # Compute waves for all pending tasks
+    (reduce $pending_ids[] as $id ({}; compute_wave($id; .; []))) as $waves |
+
     # ================================================================
     # LEVERAGE: Calculate hierarchy-aware leverage scores
     # ================================================================
@@ -1298,6 +1334,41 @@ run_complete_analysis() {
         is_actionable: .is_actionable
       }
     ] | sort_by(-(.weighted_blocks // 0)) as $bottlenecks |
+
+    # ================================================================
+    # CRITICAL PATH: Longest dependency chain
+    # ================================================================
+
+    # Build task lookup for path tracing
+    (reduce $pending_tasks[] as $t ({}; .[$t.id] = $t)) as $task_lookup |
+
+    # Find task with maximum wave (end of longest chain)
+    ([$pending_tasks[] | {id: .id, wave: ($waves[.id] // 0)}] |
+      sort_by(-.wave) | .[0]) as $deepest |
+
+    # Trace critical path by following highest-wave dependencies backward
+    (if $deepest and ($deepest.wave // 0) > 0 then
+      def trace_path($id; $path):
+        $task_lookup[$id] as $task |
+        # Get pending dependencies
+        [($task.depends // [])[] | select(. as $d | $pending_ids | any(. == $d))] as $active_deps |
+        if ($active_deps | length) == 0 then $path
+        else
+          # Find dep with highest wave (on critical path)
+          ($active_deps | map({id: ., wave: ($waves[.] // 0)}) | sort_by(-.wave) | .[0].id) as $next |
+          trace_path($next; [$task_lookup[$next]] + $path)
+        end;
+      trace_path($deepest.id; [$task_lookup[$deepest.id]])
+    else [] end) as $critical_path |
+
+    # Calculate cascade impact for critical path tasks
+    ($critical_path | map({
+      id: .id,
+      title: .title,
+      phase: (.phase // "core"),
+      wave: ($waves[.id] // 0),
+      cascadeImpact: (($reverse_deps[.id] // []) | length)
+    })) as $critical_path_detailed |
 
     # ================================================================
     # TIERS: Group tasks by strategic value
@@ -1507,6 +1578,16 @@ run_complete_analysis() {
       "action_order": $action_order,
 
       "bottlenecks": ($bottlenecks | .[0:5]),
+
+      "criticalPath": {
+        "description": "Longest dependency chain - delays here cascade to all downstream tasks",
+        "length": ($critical_path | length),
+        "maxWave": ($deepest.wave // 0),
+        "path": $critical_path_detailed,
+        "entryTask": (if ($critical_path | length) > 0 then $critical_path[0].id else null end),
+        "exitTask": (if ($critical_path | length) > 0 then $critical_path[-1].id else null end),
+        "totalCascadeImpact": ($critical_path_detailed | map(.cascadeImpact) | add // 0)
+      },
 
       "leverage": ($leverage_data | map(select(.unlocks_count > 0)) | .[0:10]),
 
