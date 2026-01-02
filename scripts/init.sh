@@ -778,6 +778,19 @@ CLAUDE_EOF
   fi
 fi
 
+# Check/setup Claude Code statusline integration for context monitoring
+if [[ -f "$LIB_DIR/statusline-setup.sh" ]] || [[ -f "$CLEO_HOME/lib/statusline-setup.sh" ]]; then
+    if [[ -f "$LIB_DIR/statusline-setup.sh" ]]; then
+        source "$LIB_DIR/statusline-setup.sh"
+    else
+        source "$CLEO_HOME/lib/statusline-setup.sh"
+    fi
+
+    echo ""
+    log_info "Checking Claude Code statusline integration..."
+    install_statusline_integration "install" "true"
+fi
+
 # Build list of created files
 CREATED_FILES=(
   "todo.json"

@@ -70,7 +70,8 @@ WHAT IT DOES:
     1. Migrates schemas (todo.json, config.json, log, archive)
     2. Repairs structural issues (phases, checksums)
     3. Updates CLAUDE.md injection to current version
-    4. Validates the result
+    4. Sets up Claude Code statusline for context monitoring
+    5. Validates the result
 
 EXAMPLES:
     cleo upgrade                # Interactive upgrade
@@ -389,6 +390,29 @@ if [[ -n "${UPDATES_NEEDED[CLAUDE.md]:-}" ]]; then
     # Use init script's update function if available
     if [[ -x "$UPG_SCRIPT_DIR/init.sh" ]]; then
         "$UPG_SCRIPT_DIR/init.sh" --update-claude-md >/dev/null 2>&1 && ((UPDATES_APPLIED++)) || ERRORS+=("CLAUDE.md update failed")
+    fi
+fi
+
+# ============================================================================
+# STATUSLINE INTEGRATION CHECK
+# ============================================================================
+if [[ -f "$LIB_DIR/statusline-setup.sh" ]]; then
+    source "$LIB_DIR/statusline-setup.sh"
+
+    if ! is_json_output; then
+        echo "Checking statusline integration..."
+    fi
+
+    if ! check_statusline_integration; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            if ! is_json_output; then
+                echo "  Would setup statusline integration"
+            fi
+        elif [[ "$FORCE" == "true" ]]; then
+            install_statusline_integration "install" "false" && ((UPDATES_APPLIED++)) || ERRORS+=("Statusline setup failed")
+        else
+            install_statusline_integration "install" "true" && ((UPDATES_APPLIED++)) || true
+        fi
     fi
 fi
 
