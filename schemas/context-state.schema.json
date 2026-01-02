@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/context-state.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Context State Schema",
+  "description": "Real-time context window state from Claude Code status line integration",
+  "type": "object",
+  "required": ["version", "timestamp", "contextWindow", "status"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for validation."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Context state schema version."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when context state was captured."
+    },
+    "staleAfterMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "default": 5000,
+      "description": "Milliseconds after which this context state should be considered stale."
+    },
+
+    "contextWindow": {
+      "type": "object",
+      "description": "Current context window usage metrics.",
+      "required": ["maxTokens", "currentTokens", "percentage"],
+      "additionalProperties": false,
+      "properties": {
+        "maxTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum context window size in tokens."
+        },
+        "currentTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Current tokens used in context window."
+        },
+        "percentage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percentage of context window used."
+        },
+        "breakdown": {
+          "type": "object",
+          "description": "Detailed token usage breakdown.",
+          "additionalProperties": false,
+          "properties": {
+            "inputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Input tokens consumed."
+            },
+            "outputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Output tokens generated."
+            },
+            "cacheCreationTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Tokens used for cache creation."
+            },
+            "cacheReadTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Tokens read from cache."
+            }
+          }
+        }
+      }
+    },
+
+    "thresholds": {
+      "type": "object",
+      "description": "Percentage thresholds for context window alerts.",
+      "additionalProperties": false,
+      "properties": {
+        "warning": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 70,
+          "description": "Warning threshold percentage."
+        },
+        "caution": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 85,
+          "description": "Caution threshold percentage."
+        },
+        "critical": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 90,
+          "description": "Critical threshold percentage."
+        },
+        "emergency": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 95,
+          "description": "Emergency threshold percentage."
+        }
+      }
+    },
+
+    "status": {
+      "type": "string",
+      "enum": ["ok", "warning", "caution", "critical", "emergency", "stale", "unknown"],
+      "description": "Current context window status level."
+    },
+
+    "claudeSessionId": {
+      "type": "string",
+      "description": "Claude Code session identifier."
+    },
+
+    "cleoSessionId": {
+      "type": "string",
+      "description": "CLEO session identifier for correlation."
+    }
+  }
+}
