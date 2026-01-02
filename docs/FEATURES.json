@@ -1,0 +1,785 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/features.schema.json",
+  "_meta": {
+    "version": "0.47.0",
+    "generatedAt": "2026-01-02T00:00:00Z",
+    "description": "CLEO Feature Inventory - Source of truth for FEATURES.md generation"
+  },
+  "categories": [
+    {
+      "id": "task-management",
+      "name": "Task Management",
+      "description": "Core CRUD operations for tasks",
+      "status": "stable",
+      "features": [
+        {
+          "id": "add",
+          "name": "Task Creation",
+          "command": "cleo add",
+          "description": "Create tasks with hierarchy, priority, labels, phase, size, dependencies",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/add.md"
+        },
+        {
+          "id": "update",
+          "name": "Task Updates",
+          "command": "cleo update",
+          "description": "Modify any task field, add timestamped notes",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/update.md"
+        },
+        {
+          "id": "complete",
+          "name": "Task Completion",
+          "command": "cleo complete",
+          "description": "Mark tasks done, trigger parent auto-complete, initialize verification",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/complete.md"
+        },
+        {
+          "id": "delete",
+          "name": "Task Cancellation",
+          "command": "cleo delete",
+          "description": "Soft-delete/cancel tasks with required reason, cascade options",
+          "status": "complete",
+          "version": "0.32.0",
+          "docs": "docs/commands/delete.md"
+        },
+        {
+          "id": "show",
+          "name": "Task Details",
+          "command": "cleo show",
+          "description": "Display full task details, history, related tasks",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/show.md"
+        },
+        {
+          "id": "list",
+          "name": "Task Listing",
+          "command": "cleo list",
+          "description": "Filter by status/priority/phase/label, sort, tree view",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/list.md"
+        },
+        {
+          "id": "find",
+          "name": "Fuzzy Search",
+          "command": "cleo find",
+          "description": "Context-efficient fuzzy search (99% less tokens than list)",
+          "status": "complete",
+          "version": "0.19.2",
+          "docs": "docs/commands/find.md"
+        },
+        {
+          "id": "exists",
+          "name": "Task Existence Check",
+          "command": "cleo exists",
+          "description": "Verify task ID exists for scripting (exit code 0/1)",
+          "status": "complete",
+          "version": "0.15.0",
+          "docs": "docs/commands/exists.md"
+        }
+      ]
+    },
+    {
+      "id": "hierarchy",
+      "name": "Task Hierarchy",
+      "description": "Epic -> Task -> Subtask structure with 3-level depth",
+      "status": "stable",
+      "features": [
+        {
+          "id": "hierarchy-types",
+          "name": "Task Types",
+          "description": "Three types: epic (strategic), task (primary), subtask (atomic)",
+          "status": "complete",
+          "version": "0.17.0"
+        },
+        {
+          "id": "parent-id",
+          "name": "Parent Reference",
+          "description": "parentId field decouples hierarchy from task ID",
+          "status": "complete",
+          "version": "0.17.0"
+        },
+        {
+          "id": "reparent",
+          "name": "Task Reparenting",
+          "command": "cleo reparent",
+          "description": "Move tasks between parents",
+          "status": "complete",
+          "version": "0.17.0",
+          "docs": "docs/commands/reparent.md"
+        },
+        {
+          "id": "promote",
+          "name": "Task Promotion",
+          "command": "cleo promote",
+          "description": "Remove parent (make task a root)",
+          "status": "complete",
+          "version": "0.17.0",
+          "docs": "docs/commands/promote.md"
+        },
+        {
+          "id": "populate-hierarchy",
+          "name": "Hierarchy Population",
+          "command": "cleo populate-hierarchy",
+          "description": "Infer parentId from naming conventions (T001.1 -> parentId: T001)",
+          "status": "complete",
+          "version": "0.38.0"
+        },
+        {
+          "id": "auto-complete-parent",
+          "name": "Parent Auto-Complete",
+          "description": "Parent tasks auto-complete when all children are done",
+          "status": "complete",
+          "version": "0.24.0",
+          "config": "hierarchy.autoCompleteParent"
+        },
+        {
+          "id": "hierarchy-constraints",
+          "name": "Hierarchy Constraints",
+          "description": "Configurable max depth (3), max siblings (unlimited by default)",
+          "status": "complete",
+          "version": "0.17.0",
+          "config": "hierarchy.maxDepth, hierarchy.maxSiblings"
+        }
+      ]
+    },
+    {
+      "id": "sessions",
+      "name": "Session System",
+      "description": "Multi-agent session management with scope isolation",
+      "status": "stable",
+      "features": [
+        {
+          "id": "session-lifecycle",
+          "name": "Session Lifecycle",
+          "command": "cleo session",
+          "description": "4-state lifecycle: Active -> Suspended -> Ended -> Closed",
+          "status": "complete",
+          "version": "0.41.0",
+          "docs": "docs/commands/session.md"
+        },
+        {
+          "id": "session-scopes",
+          "name": "Session Scopes",
+          "description": "6 scope types: task, taskGroup, subtree, epicPhase, epic, custom",
+          "status": "complete",
+          "version": "0.37.0"
+        },
+        {
+          "id": "conflict-detection",
+          "name": "Scope Conflict Detection",
+          "description": "HARD/SOFT overlap detection between concurrent sessions",
+          "status": "complete",
+          "version": "0.41.0"
+        },
+        {
+          "id": "focus-locking",
+          "name": "Focus Locking",
+          "description": "Per-scope single active task enforcement",
+          "status": "complete",
+          "version": "0.41.0"
+        },
+        {
+          "id": "session-enforcement",
+          "name": "Session Enforcement",
+          "description": "Block/warn on writes without active session",
+          "status": "complete",
+          "version": "0.41.0",
+          "config": "session.requireSession"
+        },
+        {
+          "id": "multi-agent",
+          "name": "Multi-Agent Concurrency",
+          "description": "Parallel sessions on different scopes for multiple LLM agents",
+          "status": "complete",
+          "version": "0.37.1",
+          "config": "multiSession.enabled"
+        }
+      ]
+    },
+    {
+      "id": "focus",
+      "name": "Focus System",
+      "description": "Single active task management with progress tracking",
+      "status": "stable",
+      "features": [
+        {
+          "id": "focus-set",
+          "name": "Focus Management",
+          "command": "cleo focus",
+          "description": "Set/show/clear active task (only ONE can be active)",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/focus.md"
+        },
+        {
+          "id": "focus-note",
+          "name": "Session Notes",
+          "command": "cleo focus note",
+          "description": "Add session-level progress notes",
+          "status": "complete",
+          "version": "0.10.0"
+        },
+        {
+          "id": "focus-next",
+          "name": "Next Action",
+          "command": "cleo focus next",
+          "description": "Set suggested next action for handoff",
+          "status": "complete",
+          "version": "0.10.0"
+        }
+      ]
+    },
+    {
+      "id": "phases",
+      "name": "Phase Tracking",
+      "description": "Project phase workflow organization",
+      "status": "stable",
+      "features": [
+        {
+          "id": "phase-system",
+          "name": "5-Phase System",
+          "description": "setup, core, testing, polish, maintenance phases",
+          "status": "complete",
+          "version": "0.14.0"
+        },
+        {
+          "id": "phase-sync",
+          "name": "Phase Synchronization",
+          "description": "Focus changes automatically update project.currentPhase",
+          "status": "complete",
+          "version": "0.35.0"
+        },
+        {
+          "id": "phase-commands",
+          "name": "Phase Commands",
+          "command": "cleo phase, cleo phases",
+          "description": "Set current phase, view phases with progress bars",
+          "status": "complete",
+          "version": "0.14.0",
+          "docs": "docs/commands/phase.md"
+        }
+      ]
+    },
+    {
+      "id": "analyze",
+      "name": "Smart Analyze",
+      "description": "Intelligent task triage and recommendation engine",
+      "status": "stable",
+      "features": [
+        {
+          "id": "leverage-scoring",
+          "name": "Leverage Scoring",
+          "command": "cleo analyze",
+          "description": "Weighted dependency unlocks for prioritization",
+          "status": "complete",
+          "version": "0.20.0",
+          "docs": "docs/commands/analyze.md"
+        },
+        {
+          "id": "hierarchy-aware",
+          "name": "Hierarchy-Aware Scoring",
+          "description": "Parent/cross-epic/cross-phase dependency weights",
+          "status": "complete",
+          "version": "0.39.0"
+        },
+        {
+          "id": "phase-boost",
+          "name": "Phase-Priority Boost",
+          "description": "Current phase tasks get 1.5x, adjacent 1.25x boost",
+          "status": "complete",
+          "version": "0.43.0",
+          "config": "analyze.phaseBoost"
+        },
+        {
+          "id": "size-weighting",
+          "name": "Size Weighting",
+          "description": "quick-wins/big-impact/balanced strategies for task sizing",
+          "status": "complete",
+          "version": "0.43.0",
+          "config": "analyze.sizeStrategy"
+        },
+        {
+          "id": "stale-detection",
+          "name": "Stale Task Detection",
+          "description": "Identifies neglected, blocked, or aging tasks",
+          "status": "complete",
+          "version": "0.42.0",
+          "config": "analyze.staleDetection"
+        },
+        {
+          "id": "lock-detection",
+          "name": "Lock File Detection",
+          "description": "Warns about concurrent operations and conflicts",
+          "status": "complete",
+          "version": "0.43.0",
+          "config": "analyze.lockAwareness"
+        },
+        {
+          "id": "confidence-scoring",
+          "name": "Confidence Scoring",
+          "description": "0.0-1.0 confidence per recommendation for agent decision-making",
+          "status": "complete",
+          "version": "0.46.0"
+        },
+        {
+          "id": "critical-path",
+          "name": "Critical Path Analysis",
+          "command": "cleo blockers analyze",
+          "description": "Dependency chain analysis for bottleneck detection",
+          "status": "complete",
+          "version": "0.20.0"
+        },
+        {
+          "id": "epic-scoping",
+          "name": "Epic-Scoped Analysis",
+          "command": "cleo analyze --parent",
+          "description": "Analyze within specific epic scope",
+          "status": "complete",
+          "version": "0.41.0"
+        },
+        {
+          "id": "auto-focus",
+          "name": "Auto-Focus",
+          "command": "cleo analyze --auto-focus",
+          "description": "Automatically set focus to highest leverage task",
+          "status": "complete",
+          "version": "0.42.0"
+        }
+      ]
+    },
+    {
+      "id": "verification",
+      "name": "Verification System",
+      "description": "Progressive verification gates for task quality assurance",
+      "status": "stable",
+      "features": [
+        {
+          "id": "verification-gates",
+          "name": "Verification Gates",
+          "command": "cleo verify",
+          "description": "Configurable gates (implemented, tested, reviewed, documented)",
+          "status": "complete",
+          "version": "0.43.1",
+          "docs": "docs/commands/verify.md"
+        },
+        {
+          "id": "epic-lifecycle",
+          "name": "Epic Lifecycle",
+          "description": "Auto-transition epics based on children verification status",
+          "status": "complete",
+          "version": "0.43.1"
+        },
+        {
+          "id": "verification-schema",
+          "name": "Verification Schema",
+          "description": "verification and epicLifecycle fields in task schema",
+          "status": "complete",
+          "version": "0.43.0"
+        },
+        {
+          "id": "verification-filter",
+          "name": "Verification Filtering",
+          "command": "cleo list --verification-status",
+          "description": "Filter tasks by verification status (pending/in-progress/passed/failed)",
+          "status": "complete",
+          "version": "0.43.1"
+        }
+      ]
+    },
+    {
+      "id": "context-safeguard",
+      "name": "Context Safeguard",
+      "description": "Graceful agent shutdown at context limits",
+      "status": "stable",
+      "features": [
+        {
+          "id": "context-monitor",
+          "name": "Context Monitoring",
+          "command": "cleo context",
+          "description": "Monitor context window usage (status/check)",
+          "status": "complete",
+          "version": "0.47.0",
+          "docs": "docs/commands/context.md"
+        },
+        {
+          "id": "safestop",
+          "name": "Graceful Shutdown",
+          "command": "cleo safestop",
+          "description": "Generate handoff with session state preservation",
+          "status": "complete",
+          "version": "0.47.0",
+          "docs": "docs/commands/safestop.md"
+        },
+        {
+          "id": "context-exit-codes",
+          "name": "Context Exit Codes",
+          "description": "EXIT_CONTEXT_WARNING (50) through EXIT_CONTEXT_STALE (54)",
+          "status": "complete",
+          "version": "0.47.0"
+        }
+      ]
+    },
+    {
+      "id": "roadmap",
+      "name": "Roadmap Generation",
+      "description": "Automated roadmap generation from task data",
+      "status": "stable",
+      "features": [
+        {
+          "id": "roadmap-command",
+          "name": "Roadmap Command",
+          "command": "cleo roadmap",
+          "description": "Generate roadmap from pending epics with progress bars",
+          "status": "complete",
+          "version": "0.44.0",
+          "docs": "docs/commands/roadmap.md"
+        },
+        {
+          "id": "roadmap-markdown",
+          "name": "Markdown Output",
+          "command": "cleo roadmap -o",
+          "description": "Write directly to ROADMAP.md file",
+          "status": "complete",
+          "version": "0.44.0"
+        },
+        {
+          "id": "roadmap-history",
+          "name": "Changelog Integration",
+          "command": "cleo roadmap --include-history",
+          "description": "Include CHANGELOG.md release history",
+          "status": "complete",
+          "version": "0.44.0"
+        }
+      ]
+    },
+    {
+      "id": "data-integrity",
+      "name": "Data Integrity",
+      "description": "Anti-hallucination validation and atomic operations",
+      "status": "stable",
+      "features": [
+        {
+          "id": "json-schema",
+          "name": "JSON Schema Validation",
+          "description": "4-layer validation: schema, semantic, cross-file, state machine",
+          "status": "complete",
+          "version": "0.1.0"
+        },
+        {
+          "id": "atomic-writes",
+          "name": "Atomic Writes",
+          "description": "temp -> validate -> backup -> rename pattern",
+          "status": "complete",
+          "version": "0.1.0"
+        },
+        {
+          "id": "checksum",
+          "name": "Checksum System",
+          "command": "cleo validate",
+          "description": "SHA256 checksums for corruption detection",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/validate.md"
+        },
+        {
+          "id": "backup-system",
+          "name": "Backup System",
+          "command": "cleo backup, cleo restore",
+          "description": "2-tier backups: operational (per-write) and recovery (snapshots)",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/backup.md"
+        },
+        {
+          "id": "audit-logging",
+          "name": "Audit Logging",
+          "command": "cleo log",
+          "description": "Append-only todo-log.json for all operations",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/log.md"
+        }
+      ]
+    },
+    {
+      "id": "archive",
+      "name": "Archive System",
+      "description": "Task lifecycle completion and restoration",
+      "status": "stable",
+      "features": [
+        {
+          "id": "archive-command",
+          "name": "Archive Tasks",
+          "command": "cleo archive",
+          "description": "Move old done/cancelled tasks to archive",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/commands/archive.md"
+        },
+        {
+          "id": "unarchive",
+          "name": "Restore from Archive",
+          "command": "cleo unarchive",
+          "description": "Restore archived tasks to active",
+          "status": "complete",
+          "version": "0.15.0"
+        },
+        {
+          "id": "uncancel",
+          "name": "Restore Cancelled",
+          "command": "cleo uncancel",
+          "description": "Restore cancelled tasks from archive",
+          "status": "complete",
+          "version": "0.39.2"
+        },
+        {
+          "id": "reopen",
+          "name": "Reopen Completed",
+          "command": "cleo reopen",
+          "description": "Restore done tasks to pending with reason",
+          "status": "complete",
+          "version": "0.36.0"
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "name": "Configuration",
+      "description": "Global and project configuration management",
+      "status": "stable",
+      "features": [
+        {
+          "id": "config-hierarchy",
+          "name": "Config Priority",
+          "description": "Defaults -> Global -> Project -> Environment -> CLI flags",
+          "status": "complete",
+          "version": "0.10.0"
+        },
+        {
+          "id": "config-command",
+          "name": "Config Commands",
+          "command": "cleo config",
+          "description": "get/set/show/reset/edit configuration",
+          "status": "complete",
+          "version": "0.10.0",
+          "docs": "docs/commands/config.md"
+        },
+        {
+          "id": "config-editor",
+          "name": "Interactive Editor",
+          "command": "cleo config edit",
+          "description": "Interactive config editing with $EDITOR",
+          "status": "complete",
+          "version": "0.45.0"
+        }
+      ]
+    },
+    {
+      "id": "migration",
+      "name": "Migration & Compatibility",
+      "description": "Schema migrations and legacy support",
+      "status": "stable",
+      "features": [
+        {
+          "id": "schema-migration",
+          "name": "Schema Migrations",
+          "command": "cleo migrate",
+          "description": "Automatic schema version upgrades",
+          "status": "complete",
+          "version": "0.14.0",
+          "docs": "docs/commands/migrate.md"
+        },
+        {
+          "id": "cleo-rebrand",
+          "name": "CLEO Rebrand Migration",
+          "command": "cleo claude-migrate",
+          "description": "Migrate from claude-todo to cleo",
+          "status": "complete",
+          "version": "0.37.0"
+        }
+      ]
+    },
+    {
+      "id": "integration",
+      "name": "Integration",
+      "description": "External system integrations",
+      "status": "stable",
+      "features": [
+        {
+          "id": "todowrite-sync",
+          "name": "TodoWrite Sync",
+          "command": "cleo sync",
+          "description": "Bidirectional sync with Claude Code's ephemeral todos",
+          "status": "complete",
+          "version": "0.20.0",
+          "docs": "docs/commands/sync.md"
+        },
+        {
+          "id": "claude-md",
+          "name": "CLAUDE.md Injection",
+          "command": "cleo init --update-claude-md",
+          "description": "Inject task management instructions into CLAUDE.md",
+          "status": "complete",
+          "version": "0.20.0"
+        },
+        {
+          "id": "research",
+          "name": "Research Command",
+          "command": "cleo research",
+          "description": "Multi-source web research with Context7 and Tavily",
+          "status": "complete",
+          "version": "0.23.0",
+          "docs": "docs/commands/research.md"
+        }
+      ]
+    },
+    {
+      "id": "output",
+      "name": "Output & Error Handling",
+      "description": "LLM-Agent-First output design",
+      "status": "stable",
+      "features": [
+        {
+          "id": "json-default",
+          "name": "JSON by Default",
+          "description": "All commands output JSON for agent consumption",
+          "status": "complete",
+          "version": "0.1.0"
+        },
+        {
+          "id": "compact-json",
+          "name": "Compact JSON",
+          "description": "Single-line output to prevent truncation",
+          "status": "complete",
+          "version": "0.41.3"
+        },
+        {
+          "id": "human-flag",
+          "name": "Human-Readable Output",
+          "command": "--human",
+          "description": "Opt-in human-readable formatting",
+          "status": "complete",
+          "version": "0.1.0"
+        },
+        {
+          "id": "verbose-flag",
+          "name": "Verbose Output",
+          "command": "--verbose, -v",
+          "description": "Extended details for show/stats/dash",
+          "status": "complete",
+          "version": "0.45.0"
+        },
+        {
+          "id": "dry-run",
+          "name": "Dry Run",
+          "command": "--dry-run",
+          "description": "Preview changes without execution",
+          "status": "complete",
+          "version": "0.45.0"
+        },
+        {
+          "id": "exit-codes",
+          "name": "Exit Codes",
+          "description": "47+ documented exit codes for programmatic handling",
+          "status": "complete",
+          "version": "0.1.0",
+          "docs": "docs/specs/exit-codes.md"
+        },
+        {
+          "id": "actionable-errors",
+          "name": "Actionable Errors",
+          "description": "error.fix and error.alternatives for recovery",
+          "status": "complete",
+          "version": "0.40.0"
+        }
+      ]
+    },
+    {
+      "id": "analysis-commands",
+      "name": "Analysis Commands",
+      "description": "Project analysis and planning tools",
+      "status": "stable",
+      "features": [
+        {
+          "id": "dash",
+          "name": "Dashboard",
+          "command": "cleo dash",
+          "description": "Project overview with stats, phases, activity",
+          "status": "complete",
+          "version": "0.10.0",
+          "docs": "docs/commands/dash.md"
+        },
+        {
+          "id": "next",
+          "name": "Next Task Suggestion",
+          "command": "cleo next",
+          "description": "AI-informed next task recommendation",
+          "status": "complete",
+          "version": "0.10.0",
+          "docs": "docs/commands/next.md"
+        },
+        {
+          "id": "deps",
+          "name": "Dependency Visualization",
+          "command": "cleo deps",
+          "description": "Dependency tree and chain visualization",
+          "status": "complete",
+          "version": "0.15.0",
+          "docs": "docs/commands/deps.md"
+        },
+        {
+          "id": "blockers",
+          "name": "Blocker Analysis",
+          "command": "cleo blockers",
+          "description": "Show blocked tasks and critical path",
+          "status": "complete",
+          "version": "0.15.0",
+          "docs": "docs/commands/blockers.md"
+        },
+        {
+          "id": "stats",
+          "name": "Statistics",
+          "command": "cleo stats",
+          "description": "Task statistics and metrics",
+          "status": "complete",
+          "version": "0.10.0",
+          "docs": "docs/commands/stats.md"
+        },
+        {
+          "id": "history",
+          "name": "Completion History",
+          "command": "cleo history",
+          "description": "Recent completion timeline",
+          "status": "complete",
+          "version": "0.20.0",
+          "docs": "docs/commands/history.md"
+        },
+        {
+          "id": "labels",
+          "name": "Label Management",
+          "command": "cleo labels",
+          "description": "View labels with task counts",
+          "status": "complete",
+          "version": "0.15.0",
+          "docs": "docs/commands/labels.md"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "totalCategories": 16,
+    "totalFeatures": 85,
+    "completeFeatures": 85,
+    "pendingFeatures": 0,
+    "commands": 48,
+    "libraries": 34
+  }
+}

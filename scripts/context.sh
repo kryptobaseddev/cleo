@@ -12,8 +12,32 @@ source "$LIB_DIR/exit-codes.sh"
 [[ -f "$LIB_DIR/error-json.sh" ]] && source "$LIB_DIR/error-json.sh"
 
 TODO_DIR="${TODO_DIR:-.cleo}"
-STATE_FILE="$TODO_DIR/.context-state.json"
 COMMAND_NAME="context"
+
+# Determine which state file to use (session-specific or global)
+get_state_file() {
+    local session_id="${1:-}"
+
+    # If session specified, use that
+    if [[ -n "$session_id" ]]; then
+        echo "$TODO_DIR/.context-state-${session_id}.json"
+        return
+    fi
+
+    # Check for current session binding
+    if [[ -f "$TODO_DIR/.current-session" ]]; then
+        local current_session=$(cat "$TODO_DIR/.current-session" 2>/dev/null | tr -d '\n')
+        if [[ -n "$current_session" ]] && [[ -f "$TODO_DIR/.context-state-${current_session}.json" ]]; then
+            echo "$TODO_DIR/.context-state-${current_session}.json"
+            return
+        fi
+    fi
+
+    # Fall back to global state file
+    echo "$TODO_DIR/.context-state.json"
+}
+
+STATE_FILE=""  # Set dynamically based on session
 
 # Exit codes are defined in lib/exit-codes.sh:
 # EXIT_CONTEXT_OK (0), EXIT_CONTEXT_WARNING (50), EXIT_CONTEXT_CAUTION (51),
@@ -28,9 +52,11 @@ Monitor context window usage for agent safeguard system.
 Subcommands:
   status    Show current context state (default)
   check     Check threshold, return exit code for scripting
+  list      List all context state files (multi-session)
   watch     Continuous monitoring mode (planned)
 
 Options:
+  --session <id>      Check specific CLEO session (default: current or global)
   --format <format>   Output format: text (default) or json
   --json              Shortcut for --format json
   --human             Shortcut for --format text
@@ -44,10 +70,17 @@ Exit Codes (for 'check' subcommand):
   53  Emergency (95%+)
   54  Stale/no data
 
+Session Binding:
+  With active CLEO session: reads session-specific state file
+  Without session: reads global .context-state.json
+  Multi-session: each agent has isolated context tracking
+
 Examples:
-  cleo context                    # Show status
+  cleo context                    # Show status (current session or global)
   cleo context status --json      # JSON output
   cleo context check              # Exit code for scripting
+  cleo context list               # List all context state files
+  cleo context --session abc123   # Check specific session
 
   # Use in agent loop
   if ! cleo context check; then
@@ -152,15 +185,64 @@ do_check() {
     return $(status_to_exit_code "$status")
 }
 
+# List all context state files
+list_sessions() {
+    local format="$1"
+    local files=()
+    local data=()
+
+    # Find all context state files
+    for f in "$TODO_DIR"/.context-state*.json; do
+        [[ -f "$f" ]] || continue
+        files+=("$f")
+    done
+
+    if [[ ${#files[@]} -eq 0 ]]; then
+        if [[ "$format" == "json" ]]; then
+            jq -nc '{success: true, sessions: [], message: "No context state files found"}'
+        else
+            echo "No context state files found"
+        fi
+        return 0
+    fi
+
+    if [[ "$format" == "json" ]]; then
+        local sessions="[]"
+        for f in "${files[@]}"; do
+            local state=$(cat "$f")
+            local filename=$(basename "$f")
+            local session_id=$(echo "$state" | jq -r '.sessionId // ""')
+            sessions=$(echo "$sessions" | jq --arg fn "$filename" --argjson state "$state" '. + [($state + {file: $fn})]')
+        done
+        jq -nc --argjson sessions "$sessions" '{success: true, sessions: $sessions}'
+    else
+        echo "Context state files:"
+        for f in "${files[@]}"; do
+            local state=$(cat "$f")
+            local filename=$(basename "$f")
+            local pct=$(echo "$state" | jq -r '.contextWindow.percentage')
+            local status=$(echo "$state" | jq -r '.status')
+            local session=$(echo "$state" | jq -r '.sessionId // "global"')
+            local ts=$(echo "$state" | jq -r '.timestamp')
+            printf "  %-40s %3s%% %-10s %s\n" "$filename" "$pct" "$status" "$ts"
+        done
+    fi
+}
+
 main() {
     local subcommand="status"
     local format=""
+    local session_id=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            status|check|watch)
+            status|check|watch|list)
                 subcommand="$1"
+                ;;
+            --session)
+                session_id="$2"
+                shift
                 ;;
             --json)
                 format="json"
@@ -185,6 +267,9 @@ main() {
         shift
     done
 
+    # Set state file based on session
+    STATE_FILE=$(get_state_file "$session_id")
+
     # Resolve format
     if [[ -z "$format" ]]; then
         if [[ -t 1 ]]; then
@@ -200,6 +285,9 @@ main() {
             ;;
         check)
             do_check
+            ;;
+        list)
+            list_sessions "$format"
             ;;
         watch)
             echo "Watch mode not yet implemented" >&2

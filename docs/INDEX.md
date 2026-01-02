@@ -128,10 +128,19 @@
 | **[migration/v2.2.0-migration-guide.md](migration/v2.2.0-migration-guide.md)** | v2.2.0 specific migration guide | Detailed guide for upgrading to project phases |
 | **[testing.md](testing.md)** | BATS test suite guide | Writing and running tests |
 
+### 📊 Feature & Roadmap Documentation
+
+| Document | Purpose | When to Read |
+|----------|---------|--------------|
+| **[FEATURES.json](FEATURES.json)** | **Source of truth** - Structured feature inventory | Adding/updating features (edit this, then regenerate) |
+| **[FEATURES.md](FEATURES.md)** | Auto-generated feature documentation | Reviewing current capabilities |
+| **[ROADMAP.md](ROADMAP.md)** | Auto-generated roadmap from epics | Project planning and status |
+
 ### 🛠️ Development Tools
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
+| **[DEVELOPMENT.md](DEVELOPMENT.md)** | **Consolidated dev guide** - All dev tools in one place | First stop for contributors |
 | **[development/DEV-SCRIPTS-OVERVIEW.md](development/DEV-SCRIPTS-OVERVIEW.md)** | Dev scripts index and reference | Contributing to development tooling |
 | **[development/COMPLIANCE-CHECKING.md](development/COMPLIANCE-CHECKING.md)** | LLM-Agent-First compliance system | Understanding and running compliance checks |
 | **[development/PERFORMANCE-TESTING.md](development/PERFORMANCE-TESTING.md)** | Benchmarking workflow guide | Running and interpreting performance tests |

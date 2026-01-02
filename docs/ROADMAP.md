@@ -1,6 +1,6 @@
 # Roadmap
 
-> Auto-generated from CLEO task data. Current version: v0.43.2
+> Auto-generated from CLEO task data. Current version: v0.47.0
 
 ---
 
@@ -49,51 +49,6 @@ EXIT_RESEARCH_FAILED=30, EXIT_INSUFFICIENT_SOURCES=31, EXIT_CONSENSUS_FAILED=32,
 Single command to detect and fix all project-level issues when global cleo version updates. Consolidates validate --fix, migrate run, migrate repair, init --update-claude-md into one idempotent cleo update command.
 
 ### High Priority
-
-#### T542: Smart Analyze Command v2.0
-
-**Phase**: core | **Progress**: 87% (7/8 tasks)
-
-## Overview
-Comprehensive enhancement of the analyze command to provide intelligent, context-aware task recommendations based on hierarchy, phase, concurrency, and weighted algorithms.
-
-## Current Limitations
-- Counts all blocked tasks equally (parent-child = cross-epic)
-- Epic children inflate "unblocks X tasks" artificially
-- No phase awareness or current phase prioritization
-- No size/complexity weighting
-- No file locking or concurrency awareness
-- No HITL warnings for investigation needs
-- No stale task detection
-
-## v2.0 Feature Categories
-
-### Tier 1: Core Algorithm Improvements
-- Hierarchy-aware dependency scoring
-- Phase-priority boosting
-- Configurable algorithm weights
-
-### Tier 2: Concurrency & Safety
-- Active .lock file detection
-- Running operation awareness
-- Task conflict detection
-- HITL warning system
-
-### Tier 3: Intelligence Enhancements
-- Size-based complexity weighting
-- Label domain clustering
-- Stale task detection
-- Critical path analysis
-
-### Tier 4: Advanced Features
-- Historical velocity tracking
-- Recommendation confidence scoring
-- Multi-agent workload balancing
-
-## References
-- docs/specs/FILE-LOCKING-SPEC.md
-- docs/specs/FILE-LOCKING-IMPLEMENTATION-REPORT.md
-- scripts/analyze.sh
 
 #### T753: Task Decomposition System Implementation (TASK-DECOMPOSITION-SPEC v1.0.0)
 
@@ -171,7 +126,7 @@ Define the NEXUS Agent Protocol - a specification for HOW LLM agents behave and 
 
 #### T1198: Context Safeguard System (Agent Graceful Shutdown)
 
-**Phase**: core | **Progress**: 0% (0/6 tasks)
+**Phase**: core | **Progress**: 100% (6/6 tasks)
 
 Implement CLEO-integrated context window monitoring and graceful shutdown protocol. Enables agents to safely stop when approaching context limits by: updating task notes, committing git changes, generating handoff documents, and ending sessions properly. Integrates with Claude Code's status line hook for real-time context awareness.
 
@@ -237,12 +192,6 @@ Agent-agnostic sync adapter framework enabling cleo to work with multiple AI cod
 
 **Note**: Design principles are language-agnostic. Implementation will align with future tech stack (Python/DuckDB).
 
-#### T752: Config System Polish
-
-**Phase**: polish | **Progress**: 42% (3/7 tasks)
-
-Follow-up work for config system after core integration (T382) was completed. Includes interactive editor fixes, comprehensive testing, schema synchronization, and reset/init behavior improvements.
-
 #### T1171: Visual Showcase & Marketing Assets
 
 **Phase**: polish | **Progress**: 0% (0/9 tasks)
@@ -263,6 +212,10 @@ Parking lot for validated but deferred features. Tasks here are NOT abandoned - 
 
 | Version | Date |
 |---------|------|
+| v0.47.0 | 2026-01-02 |
+| v0.46.0 | 2026-01-02 |
+| v0.45.0 | 2026-01-02 |
+| v0.44.0 | 2026-01-02 |
 | v0.43.2 | 2026-01-02 |
 | v0.43.1 | 2026-01-02 |
 | v0.43.0 | 2026-01-01 |
@@ -274,10 +227,6 @@ Parking lot for validated but deferred features. Tasks here are NOT abandoned - 
 | v0.41.8 | 2025-12-30 |
 | v0.41.7 | 2025-12-29 |
 | v0.41.6 | 2025-12-29 |
-| v0.41.5 | 2025-12-29 |
-| v0.41.4 | 2025-12-29 |
-| v0.41.3 | 2025-12-29 |
-| v0.41.2 | 2025-12-29 |
 
 ---
 
