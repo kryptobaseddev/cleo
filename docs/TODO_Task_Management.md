@@ -252,6 +252,41 @@ cleo log --operation create         # Filter by operation type
 cleo log --task T001                # Filter by task ID
 ```
 
+### Verification (v0.43.0+)
+```bash
+cleo verify <id>                    # Show verification status
+cleo verify <id> --gate testsPassed # Set specific gate
+cleo verify <id> --all              # Set all required gates
+cleo verify <id> --reset            # Reset verification
+cleo list --verification-status pending     # Filter by verification
+cleo list --verification-status passed      # Fully verified tasks
+cleo show <id> --verification       # Show verification details
+```
+
+**Verification Gates** (required for parent auto-complete):
+- `implemented` - Auto-set by `complete`
+- `testsPassed` - Tests pass
+- `qaPassed` - QA review done
+- `securityPassed` - Security scan clear
+- `documented` - Documentation complete
+
+**Epic Completion Flow**:
+```bash
+# 1. Complete task (sets implemented gate)
+cleo complete T001
+
+# 2. Verify task (sets verification.passed=true)
+cleo verify T001 --all
+
+# 3. When all children verified → parent auto-completes
+```
+
+**Configuration**:
+```bash
+cleo config get verification.requireForParentAutoComplete  # default: true
+cleo config set verification.requireForParentAutoComplete false  # disable
+```
+
 ### History & Analytics
 ```bash
 cleo history                        # Recent completion timeline (30 days)

@@ -154,6 +154,37 @@ ct validate --fix-orphans unlink     # Remove invalid parent references
 ct validate --fix-orphans delete     # Delete orphaned tasks
 ```
 
+### Verification & Epic Completion (v0.43.0+)
+**Verification gates are required for parent auto-complete** (default: `requireForParentAutoComplete=true`).
+
+```bash
+ct verify <id>              # Show verification status
+ct verify <id> --all        # Mark all gates passed → verification.passed=true
+ct verify <id> --gate testsPassed  # Set specific gate
+```
+
+**Epic Completion Flow:**
+```bash
+# 1. Complete task (auto-sets verification.gates.implemented=true)
+ct complete T001
+
+# 2. Verify task (sets verification.passed=true)
+ct verify T001 --all
+
+# 3. When ALL children have verification.passed=true → parent auto-completes
+```
+
+**Filter by verification:**
+```bash
+ct list --verification-status pending    # Not yet verified
+ct list --verification-status passed     # Fully verified
+```
+
+**Disable verification requirement** (if needed):
+```bash
+ct config set verification.requireForParentAutoComplete false
+```
+
 ### Data Integrity
 - **CLI only** - Never edit `.cleo/*.json` directly
 - **Verify state** - Use `ct list` before assuming

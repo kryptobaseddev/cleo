@@ -95,6 +95,7 @@
 | **[commands/reopen.md](commands/reopen.md)** | Restore completed tasks documentation | Reopen done tasks (especially auto-completed epics) |
 | **[commands/update.md](commands/update.md)** | Update task command documentation | Modifying existing tasks |
 | **[commands/validate.md](commands/validate.md)** | Validate command documentation | Checking project integrity |
+| **[commands/verify.md](commands/verify.md)** | Verification gates command documentation | Managing task quality checkpoints for epic completion |
 
 ### 📐 Specifications (Immutable Design Documents)
 
