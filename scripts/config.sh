@@ -58,6 +58,9 @@ fi
 if [[ -f "$LIB_DIR/config.sh" ]]; then
   source "$LIB_DIR/config.sh"
 fi
+if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
+  source "$LIB_DIR/file-ops.sh"
+fi
 
 # Command identification
 COMMAND_NAME="config"
@@ -417,10 +420,21 @@ cmd_reset() {
         return 0
     fi
 
+    # Create backup before reset (atomic safety)
+    if type -t backup_file &>/dev/null; then
+        backup_file "$config_file" 2>/dev/null || true
+    fi
+
     if [[ -z "$section" ]]; then
-        # Reset entire config
-        cp "$template_file" "$config_file"
-        [[ "$QUIET" != true ]] && echo "Reset entire config to defaults"
+        # Reset entire config using atomic write pattern
+        local temp_file
+        temp_file=$(mktemp)
+        if cp "$template_file" "$temp_file" && mv "$temp_file" "$config_file"; then
+            [[ "$QUIET" != true ]] && echo "Reset entire config to defaults"
+        else
+            output_error "E_WRITE_FAILED" "Failed to reset config file" $EXIT_FILE_ERROR true
+            exit $EXIT_FILE_ERROR
+        fi
     else
         # Reset just one section
         local default_section
@@ -433,8 +447,19 @@ cmd_reset() {
 
         local temp_file
         temp_file=$(mktemp)
-        jq ".${section} = ${default_section}" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
-        [[ "$QUIET" != true ]] && echo "Reset '$section' section to defaults"
+        if jq ".${section} = ${default_section}" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"; then
+            [[ "$QUIET" != true ]] && echo "Reset '$section' section to defaults"
+        else
+            output_error "E_WRITE_FAILED" "Failed to reset config section" $EXIT_FILE_ERROR true
+            rm -f "$temp_file" 2>/dev/null || true
+            exit $EXIT_FILE_ERROR
+        fi
+    fi
+
+    # Validate config after reset
+    if ! jq -e '.' "$config_file" >/dev/null 2>&1; then
+        output_error "E_VALIDATION_FAILED" "Config validation failed after reset" $EXIT_VALIDATION_ERROR true
+        exit $EXIT_VALIDATION_ERROR
     fi
 
     if [[ "$FORMAT" == "json" ]]; then
@@ -504,6 +529,77 @@ cmd_validate() {
     fi
 }
 
+# Get schema file for current scope
+get_schema_file() {
+    if [[ "$SCOPE" == "global" ]]; then
+        echo "${CLEO_HOME:-$HOME/.cleo}/schemas/global-config.schema.json"
+    else
+        echo "${CLEO_HOME:-$HOME/.cleo}/schemas/config.schema.json"
+    fi
+}
+
+# Get editable sections from schema (excludes $schema, version)
+get_schema_sections() {
+    local schema_file="$1"
+    if [[ -f "$schema_file" ]]; then
+        jq -r '.properties | keys[]' "$schema_file" | grep -v '^\$schema$' | grep -v '^version$' | sort
+    else
+        # Fallback to hardcoded list if schema not found
+        echo -e "output\narchive\nlogging\nsession\nvalidation\ndefaults\ndisplay\ncli"
+    fi
+}
+
+# Get section description from schema
+get_section_description() {
+    local schema_file="$1"
+    local section="$2"
+    if [[ -f "$schema_file" ]]; then
+        jq -r ".properties.${section}.description // \"${section^} Settings\"" "$schema_file"
+    else
+        echo "${section^} Settings"
+    fi
+}
+
+# Get field type from schema
+get_field_type() {
+    local schema_file="$1"
+    local path="$2"  # e.g., "output.defaultFormat" or "defaults.labels"
+    if [[ -f "$schema_file" ]]; then
+        # Convert dotted path to jq path
+        local jq_path
+        jq_path=$(echo "$path" | sed 's/\./".properties."/g')
+        jq -r ".properties.\"${jq_path}\".type // \"string\"" "$schema_file"
+    else
+        echo "string"
+    fi
+}
+
+# Get enum values from schema
+get_field_enum() {
+    local schema_file="$1"
+    local path="$2"
+    if [[ -f "$schema_file" ]]; then
+        local jq_path
+        jq_path=$(echo "$path" | sed 's/\./".properties."/g')
+        jq -r ".properties.\"${jq_path}\".enum // empty | .[]" "$schema_file" 2>/dev/null
+    fi
+}
+
+# Check if field has nested properties
+has_nested_properties() {
+    local schema_file="$1"
+    local path="$2"
+    if [[ -f "$schema_file" ]]; then
+        local jq_path
+        jq_path=$(echo "$path" | sed 's/\./".properties."/g')
+        local props
+        props=$(jq -r ".properties.\"${jq_path}\".properties // empty | keys | length" "$schema_file" 2>/dev/null)
+        [[ -n "$props" ]] && [[ "$props" -gt 0 ]]
+    else
+        return 1
+    fi
+}
+
 # Interactive config editor
 cmd_edit() {
     local config_file
@@ -514,17 +610,24 @@ cmd_edit() {
         exit $EXIT_FILE_ERROR
     fi
 
-    # Define sections
-    declare -A SECTIONS=(
-        [1]="output:Output Settings"
-        [2]="archive:Archive Settings"
-        [3]="logging:Logging Settings"
-        [4]="session:Session Settings"
-        [5]="validation:Validation Settings"
-        [6]="defaults:Default Values"
-        [7]="display:Display Settings"
-        [8]="cli:CLI Settings"
-    )
+    # Get schema and sections dynamically
+    local schema_file
+    schema_file=$(get_schema_file)
+
+    # Build sections array from schema
+    declare -A SECTIONS=()
+    local i=1
+    while IFS= read -r section; do
+        local desc
+        desc=$(get_section_description "$schema_file" "$section")
+        # Create friendly display name
+        local display_name="${section^}"
+        display_name="${display_name//_/ }"
+        SECTIONS[$i]="${section}:${display_name} Settings"
+        ((i++))
+    done < <(get_schema_sections "$schema_file")
+
+    local section_count=$((i - 1))
 
     local changes_made=false
     local temp_config
@@ -553,15 +656,21 @@ cmd_edit() {
         echo "  s. Save & Exit"
         echo "  q. Quit without saving"
         echo ""
-        read -rp "Choice [1-8, s, q]: " choice
+        read -rp "Choice [1-${section_count}, s, q]: " choice
 
         case "$choice" in
-            [1-8])
-                local section_info="${SECTIONS[$choice]}"
-                local section_key="${section_info%%:*}"
-                local section_name="${section_info#*:}"
-                edit_section "$temp_config" "$section_key" "$section_name"
-                changes_made=true
+            [0-9]|[0-9][0-9])
+                # Validate numeric choice is within range
+                if [[ "$choice" -ge 1 ]] && [[ "$choice" -le "$section_count" ]]; then
+                    local section_info="${SECTIONS[$choice]}"
+                    local section_key="${section_info%%:*}"
+                    local section_name="${section_info#*:}"
+                    edit_section "$temp_config" "$section_key" "$section_name" "$schema_file"
+                    changes_made=true
+                else
+                    echo "Invalid choice. Press Enter to continue..."
+                    read -r
+                fi
                 ;;
             s|S)
                 if [[ "$changes_made" == true ]]; then
@@ -587,11 +696,198 @@ cmd_edit() {
     done
 }
 
-# Edit a config section
+# Get field info from schema
+get_field_info() {
+    local schema_file="$1"
+    local path="$2"  # e.g., "output" or "output.defaultFormat"
+
+    if [[ ! -f "$schema_file" ]]; then
+        echo '{"type":"string"}'
+        return
+    fi
+
+    # Build jq path for nested properties
+    local jq_path=".properties"
+    IFS='.' read -ra parts <<< "$path"
+    for part in "${parts[@]}"; do
+        jq_path="${jq_path}.${part}.properties"
+    done
+    # Remove trailing .properties to get the field itself
+    jq_path="${jq_path%.properties}"
+
+    jq "$jq_path // {\"type\":\"string\"}" "$schema_file" 2>/dev/null || echo '{"type":"string"}'
+}
+
+# Edit a value based on its type
+edit_value() {
+    local config_file="$1"
+    local path="$2"           # Full dotted path like "output.defaultFormat"
+    local schema_file="$3"
+    local current_value="$4"
+
+    local field_info
+    field_info=$(get_field_info "$schema_file" "$path")
+
+    local field_type
+    field_type=$(echo "$field_info" | jq -r '.type // "string"')
+
+    local enum_values
+    enum_values=$(echo "$field_info" | jq -r '.enum // empty | .[]' 2>/dev/null)
+
+    local min_val max_val
+    min_val=$(echo "$field_info" | jq -r '.minimum // empty' 2>/dev/null)
+    max_val=$(echo "$field_info" | jq -r '.maximum // empty' 2>/dev/null)
+
+    echo ""
+    echo "Current value of ${path}: $current_value"
+    echo "Type: $field_type"
+
+    local new_value=""
+
+    # Handle enum types
+    if [[ -n "$enum_values" ]]; then
+        echo ""
+        echo "Valid options:"
+        local opt_num=1
+        declare -A ENUM_OPTIONS=()
+        while IFS= read -r opt; do
+            if [[ "$opt" == "$current_value" ]]; then
+                echo "  $opt_num. $opt (current)"
+            else
+                echo "  $opt_num. $opt"
+            fi
+            ENUM_OPTIONS[$opt_num]="$opt"
+            ((opt_num++))
+        done <<< "$enum_values"
+        echo ""
+        read -rp "Select option [1-$((opt_num-1))] or Enter to cancel: " enum_choice
+
+        if [[ -n "$enum_choice" ]] && [[ "$enum_choice" =~ ^[0-9]+$ ]]; then
+            if [[ "$enum_choice" -ge 1 ]] && [[ "$enum_choice" -lt "$opt_num" ]]; then
+                new_value="${ENUM_OPTIONS[$enum_choice]}"
+            fi
+        fi
+    # Handle boolean types
+    elif [[ "$field_type" == "boolean" ]]; then
+        echo ""
+        if [[ "$current_value" == "true" ]]; then
+            echo "  1. true (current)"
+            echo "  2. false"
+        else
+            echo "  1. true"
+            echo "  2. false (current)"
+        fi
+        echo ""
+        read -rp "Select [1-2] or Enter to cancel: " bool_choice
+        case "$bool_choice" in
+            1) new_value="true" ;;
+            2) new_value="false" ;;
+        esac
+    # Handle array types
+    elif [[ "$field_type" == "array" ]]; then
+        echo ""
+        echo "Current items: $current_value"
+        echo ""
+        echo "  a. Add item"
+        echo "  r. Remove item"
+        echo "  c. Clear all"
+        echo "  Enter to cancel"
+        echo ""
+        read -rp "Action [a/r/c]: " array_action
+
+        case "$array_action" in
+            a|A)
+                read -rp "Enter new item: " new_item
+                if [[ -n "$new_item" ]]; then
+                    local temp_file
+                    temp_file=$(mktemp)
+                    jq ".${path} += [\"${new_item}\"]" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+                    echo "Added: $new_item"
+                    sleep 1
+                fi
+                return 0
+                ;;
+            r|R)
+                read -rp "Enter item to remove: " remove_item
+                if [[ -n "$remove_item" ]]; then
+                    local temp_file
+                    temp_file=$(mktemp)
+                    jq ".${path} -= [\"${remove_item}\"]" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+                    echo "Removed: $remove_item"
+                    sleep 1
+                fi
+                return 0
+                ;;
+            c|C)
+                read -rp "Clear all items? [y/N]: " confirm
+                if [[ "$confirm" == "y" ]] || [[ "$confirm" == "Y" ]]; then
+                    local temp_file
+                    temp_file=$(mktemp)
+                    jq ".${path} = []" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+                    echo "Cleared all items"
+                    sleep 1
+                fi
+                return 0
+                ;;
+        esac
+        return 0
+    # Handle integer/number with range
+    elif [[ "$field_type" == "integer" ]] || [[ "$field_type" == "number" ]]; then
+        local range_hint=""
+        if [[ -n "$min_val" ]] && [[ -n "$max_val" ]]; then
+            range_hint=" (range: $min_val-$max_val)"
+        elif [[ -n "$min_val" ]]; then
+            range_hint=" (min: $min_val)"
+        elif [[ -n "$max_val" ]]; then
+            range_hint=" (max: $max_val)"
+        fi
+        echo ""
+        read -rp "Enter new value${range_hint} or Enter to cancel: " new_value
+
+        if [[ -n "$new_value" ]]; then
+            # Validate range
+            if [[ -n "$min_val" ]] && (( $(echo "$new_value < $min_val" | bc -l) )); then
+                echo "Error: Value must be >= $min_val"
+                sleep 1
+                return 1
+            fi
+            if [[ -n "$max_val" ]] && (( $(echo "$new_value > $max_val" | bc -l) )); then
+                echo "Error: Value must be <= $max_val"
+                sleep 1
+                return 1
+            fi
+        fi
+    # Handle string types
+    else
+        echo ""
+        read -rp "Enter new value or Enter to cancel: " new_value
+    fi
+
+    # Apply the change if we have a new value
+    if [[ -n "$new_value" ]]; then
+        local jq_value
+        if [[ "$new_value" == "true" ]] || [[ "$new_value" == "false" ]]; then
+            jq_value="$new_value"
+        elif [[ "$new_value" =~ ^-?[0-9]+\.?[0-9]*$ ]]; then
+            jq_value="$new_value"
+        else
+            jq_value="\"$new_value\""
+        fi
+
+        local temp_file
+        temp_file=$(mktemp)
+        jq ".${path} = ${jq_value}" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+        echo "Updated ${path} = $new_value"
+        sleep 1
+    fi
+}
+
+# Edit a config section (supports nested navigation)
 edit_section() {
     local config_file="$1"
     local section="$2"
     local section_name="$3"
+    local schema_file="${4:-}"
 
     while true; do
         clear
@@ -604,55 +900,55 @@ edit_section() {
         section_data=$(jq ".${section}" "$config_file")
 
         if [[ "$section_data" == "null" ]]; then
-            echo "Section not found: $section"
+            echo "Section not found in config: $section"
+            echo "(This section may not be initialized yet)"
             echo ""
             read -rp "Press Enter to go back..." dummy
             return
         fi
 
-        # List fields with numbers
+        # List fields with numbers, marking nested objects
         local i=1
         declare -A FIELDS=()
-        while IFS='=' read -r key value; do
-            FIELDS[$i]="$key"
-            printf "  %d. %s: %s\n" "$i" "$key" "$value"
-            ((i++))
-        done < <(echo "$section_data" | jq -r 'to_entries | .[] | "\(.key)=\(.value)"')
+        declare -A FIELD_TYPES=()
 
+        while IFS=$'\t' read -r key value ftype; do
+            FIELDS[$i]="$key"
+            FIELD_TYPES[$i]="$ftype"
+
+            if [[ "$ftype" == "object" ]]; then
+                printf "  %d. %s: {...} [nested]\n" "$i" "$key"
+            elif [[ "$ftype" == "array" ]]; then
+                local arr_len
+                arr_len=$(echo "$section_data" | jq -r ".${key} | length")
+                printf "  %d. %s: [%d items]\n" "$i" "$key" "$arr_len"
+            else
+                printf "  %d. %s: %s\n" "$i" "$key" "$value"
+            fi
+            ((i++))
+        done < <(echo "$section_data" | jq -r 'to_entries | .[] | [.key, (.value | tostring), (.value | type)] | @tsv')
+
+        local field_count=$((i - 1))
         echo ""
         echo "  b. Back to main menu"
         echo ""
-        read -rp "Choice [1-$((i-1)), b]: " choice
+        read -rp "Choice [1-${field_count}, b]: " choice
 
         if [[ "$choice" == "b" ]] || [[ "$choice" == "B" ]]; then
             return
         fi
 
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -lt "$i" ]]; then
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le "$field_count" ]]; then
             local field="${FIELDS[$choice]}"
+            local field_type="${FIELD_TYPES[$choice]}"
             local current_value
             current_value=$(echo "$section_data" | jq -r ".${field}")
 
-            echo ""
-            echo "Current value of ${section}.${field}: $current_value"
-            read -rp "Enter new value (or press Enter to cancel): " new_value
-
-            if [[ -n "$new_value" ]]; then
-                # Determine type and update
-                local jq_value
-                if [[ "$new_value" == "true" ]] || [[ "$new_value" == "false" ]]; then
-                    jq_value="$new_value"
-                elif [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
-                    jq_value="$new_value"
-                else
-                    jq_value="\"$new_value\""
-                fi
-
-                local temp_file
-                temp_file=$(mktemp)
-                jq ".${section}.${field} = ${jq_value}" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
-                echo "Updated ${section}.${field} = $new_value"
-                sleep 1
+            # Handle nested objects by recursing
+            if [[ "$field_type" == "object" ]]; then
+                edit_section "$config_file" "${section}.${field}" "${section_name} > ${field^}" "$schema_file"
+            else
+                edit_value "$config_file" "${section}.${field}" "$schema_file" "$current_value"
             fi
         fi
     done
