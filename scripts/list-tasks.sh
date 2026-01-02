@@ -348,6 +348,33 @@ if [[ -n "$LABEL_FILTER" ]]; then
   PRE_FILTER="$PRE_FILTER | select(.labels // [] | index(\"$LABEL_FILTER\"))"
 fi
 
+# Apply verification status filter (T1158: Wave 3.2)
+# Status logic:
+#   pending: verification is null
+#   passed: verification.passed == true
+#   failed: failureLog has entries
+#   in-progress: some gates set but not passed
+if [[ -n "$VERIFICATION_STATUS_FILTER" ]]; then
+  case "$VERIFICATION_STATUS_FILTER" in
+    pending)
+      PRE_FILTER="$PRE_FILTER | select(.verification == null or .verification == {})"
+      ;;
+    passed)
+      PRE_FILTER="$PRE_FILTER | select(.verification.passed == true)"
+      ;;
+    failed)
+      PRE_FILTER="$PRE_FILTER | select((.verification.failureLog // []) | length > 0)"
+      ;;
+    in-progress)
+      PRE_FILTER="$PRE_FILTER | select(.verification != null and .verification.passed != true and ((.verification.failureLog // []) | length == 0) and ((.verification.gates // {}) | to_entries | map(select(.value != null)) | length > 0))"
+      ;;
+    *)
+      output_error "$E_INPUT_INVALID" "Invalid verification status: $VERIFICATION_STATUS_FILTER" "$EXIT_INVALID_INPUT" true "Valid values: pending, passed, failed, in-progress"
+      exit "$EXIT_INVALID_INPUT"
+      ;;
+  esac
+fi
+
 # Apply hierarchy filters (v0.17.0)
 # Validate --type filter value (T646 finding: missing validation)
 if [[ -n "$TASK_TYPE_FILTER" ]]; then
@@ -827,6 +854,7 @@ case "$FORMAT" in
       --arg priority "$PRIORITY_FILTER" \
       --arg phase "$PHASE_FILTER" \
       --arg label "$LABEL_FILTER" \
+      --arg verificationStatus "$VERIFICATION_STATUS_FILTER" \
       --argjson total "$TOTAL_TASKS" \
       --argjson filtered "$TASK_COUNT" \
       --argjson pending "$PENDING_COUNT" \
@@ -853,7 +881,8 @@ case "$FORMAT" in
         status: (if $status != "" then [$status] else null end),
         priority: (if $priority != "" then $priority else null end),
         phase: (if $phase != "" then $phase else null end),
-        label: (if $label != "" then $label else null end)
+        label: (if $label != "" then $label else null end),
+        verificationStatus: (if $verificationStatus != "" then $verificationStatus else null end)
       },
       summary: {
         total: $total,
@@ -897,12 +926,13 @@ case "$FORMAT" in
     # Markdown format
     echo "# Tasks"
     echo ""
-    if [[ -n "$STATUS_FILTER" ]] || [[ -n "$PRIORITY_FILTER" ]] || [[ -n "$PHASE_FILTER" ]] || [[ -n "$LABEL_FILTER" ]]; then
+    if [[ -n "$STATUS_FILTER" ]] || [[ -n "$PRIORITY_FILTER" ]] || [[ -n "$PHASE_FILTER" ]] || [[ -n "$LABEL_FILTER" ]] || [[ -n "$VERIFICATION_STATUS_FILTER" ]]; then
       echo "**Filters:**"
       [[ -n "$STATUS_FILTER" ]] && echo "- Status: $STATUS_FILTER"
       [[ -n "$PRIORITY_FILTER" ]] && echo "- Priority: $PRIORITY_FILTER"
       [[ -n "$PHASE_FILTER" ]] && echo "- Phase: $PHASE_FILTER"
       [[ -n "$LABEL_FILTER" ]] && echo "- Label: $LABEL_FILTER"
+      [[ -n "$VERIFICATION_STATUS_FILTER" ]] && echo "- Verification: $VERIFICATION_STATUS_FILTER"
       echo ""
     fi
     echo "**Total:** $TASK_COUNT tasks"
@@ -981,12 +1011,13 @@ case "$FORMAT" in
     fi
 
       # Show filters if any
-      if [[ -n "$STATUS_FILTER" ]] || [[ -n "$PRIORITY_FILTER" ]] || [[ -n "$PHASE_FILTER" ]] || [[ -n "$LABEL_FILTER" ]]; then
+      if [[ -n "$STATUS_FILTER" ]] || [[ -n "$PRIORITY_FILTER" ]] || [[ -n "$PHASE_FILTER" ]] || [[ -n "$LABEL_FILTER" ]] || [[ -n "$VERIFICATION_STATUS_FILTER" ]]; then
         echo -e "${DIM}Filters: ${NC}"
         [[ -n "$STATUS_FILTER" ]] && echo -n -e "${DIM}status=${NC}$STATUS_FILTER "
         [[ -n "$PRIORITY_FILTER" ]] && echo -n -e "${DIM}priority=${NC}$PRIORITY_FILTER "
         [[ -n "$PHASE_FILTER" ]] && echo -n -e "${DIM}phase=${NC}$PHASE_FILTER "
         [[ -n "$LABEL_FILTER" ]] && echo -n -e "${DIM}label=${NC}$LABEL_FILTER "
+        [[ -n "$VERIFICATION_STATUS_FILTER" ]] && echo -n -e "${DIM}verification=${NC}$VERIFICATION_STATUS_FILTER "
         echo ""
       fi
 

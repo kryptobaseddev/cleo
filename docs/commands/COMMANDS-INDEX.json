@@ -3,11 +3,11 @@
   "_meta": {
     "version": "1.0.0",
     "lastUpdated": "2025-12-27",
-    "totalCommands": 39,
+    "totalCommands": 40,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
-    "write": ["add", "archive", "complete", "focus", "phase", "populate-hierarchy", "promote", "reparent", "session", "unarchive", "update"],
+    "write": ["add", "archive", "complete", "focus", "phase", "populate-hierarchy", "promote", "reparent", "session", "unarchive", "update", "verify"],
     "read": ["analyze", "blockers", "commands", "dash", "deps", "exists", "export", "find", "history", "labels", "list", "log", "next", "phases", "research", "show", "stats"],
     "sync": ["extract", "inject", "sync"],
     "maintenance": ["backup", "claude-migrate", "config", "init", "migrate", "reorganize-backups", "restore", "validate"]
@@ -468,6 +468,17 @@
       "exitCodes": [0, 6],
       "jsonOutput": true,
       "agentRelevance": "medium"
+    },
+    {
+      "name": "verify",
+      "script": "verify.sh",
+      "category": "write",
+      "doc": "verify.md",
+      "synopsis": "Manage verification gates for tasks (implemented, testsPassed, qaPassed, securityPassed, documented)",
+      "flags": ["--gate", "--value", "--agent", "--all", "--reset"],
+      "exitCodes": [0, 4, 40, 41, 42, 43, 44, 45],
+      "jsonOutput": true,
+      "agentRelevance": "high"
     }
   ],
   "agentWorkflows": {

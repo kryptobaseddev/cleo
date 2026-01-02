@@ -41,6 +41,17 @@ cleo list --phase core         # Filter by phase
 
 # Note: complete command requires either --notes or --skip-notes flag
 
+# VERIFICATION GATES (v0.43.0+)
+cleo verify <id>                   # Show verification status
+cleo verify <id> --gate testsPassed  # Set specific gate
+cleo verify <id> --all             # Set all required gates
+cleo verify <id> --reset           # Reset verification
+cleo list --verification-status pending     # Filter by verification status
+cleo list --verification-status in-progress # Tasks with some gates set
+cleo list --verification-status passed      # Fully verified tasks
+cleo show <id> --verification      # Detailed gate status display
+# Note: ct complete auto-sets gates.implemented = true
+
 # FOCUS MANAGEMENT
 cleo focus set <id>            # Set focus to task (marks active)
 cleo focus clear               # Clear current focus
