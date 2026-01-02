@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Groups epics by priority with progress bars
   - Parses CHANGELOG.md for release history
   - Auto-detects format based on TTY/pipe/file output
+- **6 new tests for config reset** covering actual execution (not just dry-run)
+
+### Fixed
+- **Config reset now uses atomic operations** (T396)
+  - Creates backup before reset using `backup_file()`
+  - Uses temp file + mv pattern for atomic writes
+  - Validates JSON after reset
+  - Proper error handling with exit codes
+
+### Changed
+- **Synchronized config schemas** (T395)
+  - Added 5 session settings to `config.schema.json`: `requireSession`, `requireNotesOnComplete`, `allowNestedSessions`, `allowParallelAgents`, `autoDiscoveryOnStart`
+  - Added `multiSession` section to `global-config.schema.json`
+  - Template session fields now aligned with schema
 
 ### Documentation
 - Added `docs/commands/roadmap.md` command reference

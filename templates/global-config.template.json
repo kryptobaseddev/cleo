@@ -50,6 +50,7 @@
     "maxConcurrentSessions": 5,
     "maxActiveTasksPerScope": 1,
     "scopeValidation": "strict",
+    "allowNestedScopes": true,
     "allowScopeOverlap": false
   }
 }

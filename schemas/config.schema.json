@@ -335,20 +335,45 @@
       "description": "Session behavior settings.",
       "additionalProperties": false,
       "properties": {
+        "requireSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require an active session for task operations."
+        },
         "requireSessionNote": {
           "type": "boolean",
           "default": true,
           "description": "Warn if session ends without updating sessionNote."
+        },
+        "requireNotesOnComplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require notes when completing tasks."
         },
         "warnOnNoFocus": {
           "type": "boolean",
           "default": true,
           "description": "Warn if no task is active at session start."
         },
+        "allowNestedSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow nested session scopes."
+        },
+        "allowParallelAgents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow multiple agents to work concurrently."
+        },
         "autoStartSession": {
           "type": "boolean",
           "default": true,
           "description": "Automatically log session_start on first read."
+        },
+        "autoDiscoveryOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-discover existing sessions on start."
         },
         "sessionTimeoutHours": {
           "type": "integer",

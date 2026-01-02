@@ -36,15 +36,13 @@
 
   "session": {
     "requireSession": true,
-    "requireNotesOnEnd": true,
+    "requireSessionNote": true,
     "requireNotesOnComplete": true,
     "warnOnNoFocus": true,
     "allowNestedSessions": true,
     "allowParallelAgents": true,
-    "sessionTimeout": 3600,
-    "autoDiscoveryOnStart": true,
-    "requireSessionNote": true,
     "autoStartSession": true,
+    "autoDiscoveryOnStart": true,
     "sessionTimeoutHours": 24
   },
 

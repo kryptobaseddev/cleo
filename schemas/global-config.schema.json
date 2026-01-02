@@ -170,6 +170,48 @@
         }
       },
       "additionalProperties": false
+    },
+    "multiSession": {
+      "type": "object",
+      "description": "Multi-session configuration for concurrent agent work",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable multi-session support"
+        },
+        "maxConcurrentSessions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5,
+          "description": "Maximum concurrent sessions allowed"
+        },
+        "maxActiveTasksPerScope": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 1,
+          "description": "Maximum active tasks per session scope"
+        },
+        "scopeValidation": {
+          "type": "string",
+          "enum": ["strict", "warn", "none"],
+          "default": "strict",
+          "description": "Scope validation level"
+        },
+        "allowNestedScopes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow nested session scopes"
+        },
+        "allowScopeOverlap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow overlapping session scopes"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
