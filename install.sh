@@ -502,6 +502,7 @@ declare -A CMD_MAP=(
   [populate-hierarchy]="populate-hierarchy.sh"
   [verify]="verify.sh"
   [upgrade]="upgrade.sh"
+  [roadmap]="roadmap.sh"
 )
 
 # Brief descriptions for main help
@@ -549,6 +550,7 @@ declare -A CMD_DESC=(
   [populate-hierarchy]="Populate hierarchy fields (type, parentId) for migrated tasks"
   [verify]="View/set verification gates for task quality control"
   [upgrade]="Upgrade project schemas, fix issues, update docs (unified)"
+  [roadmap]="Generate roadmap from epics and CHANGELOG"
 )
 
 # ============================================
@@ -827,7 +829,7 @@ show_main_help() {
   echo "       cleo help <command>    Show detailed command help"
   echo ""
   echo "Commands:"
-  for cmd in init add update complete delete uncancel reopen list find focus session archive unarchive validate stats backup restore export migrate reorganize-backups log dash next labels deps blockers phases phase exists history show analyze config commands; do
+  for cmd in init add update complete delete uncancel reopen list find focus session archive unarchive validate stats backup restore export migrate reorganize-backups log dash next labels deps blockers phases phase exists history show analyze config commands roadmap; do
     printf "  %-14s %s\n" "$cmd" "${CMD_DESC[$cmd]}"
   done
   echo "  version        Show version"

@@ -7,10 +7,54 @@
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
-    "write": ["add", "archive", "complete", "focus", "phase", "populate-hierarchy", "promote", "reparent", "session", "unarchive", "update", "verify"],
-    "read": ["analyze", "blockers", "commands", "dash", "deps", "exists", "export", "find", "history", "labels", "list", "log", "next", "phases", "research", "show", "stats"],
-    "sync": ["extract", "inject", "sync"],
-    "maintenance": ["backup", "claude-migrate", "config", "init", "migrate", "reorganize-backups", "restore", "validate"]
+    "write": [
+      "add",
+      "archive",
+      "complete",
+      "focus",
+      "phase",
+      "populate-hierarchy",
+      "promote",
+      "reparent",
+      "session",
+      "unarchive",
+      "update",
+      "verify"
+    ],
+    "read": [
+      "analyze",
+      "blockers",
+      "commands",
+      "dash",
+      "deps",
+      "exists",
+      "export",
+      "find",
+      "history",
+      "labels",
+      "list",
+      "log",
+      "next",
+      "phases",
+      "research",
+      "show",
+      "stats"
+    ],
+    "sync": [
+      "extract",
+      "inject",
+      "sync"
+    ],
+    "maintenance": [
+      "backup",
+      "claude-migrate",
+      "config",
+      "init",
+      "migrate",
+      "reorganize-backups",
+      "restore",
+      "validate"
+    ]
   },
   "commands": [
     {
@@ -19,8 +63,26 @@
       "category": "write",
       "doc": "add.md",
       "synopsis": "Create new task with metadata (title, priority, labels, phase, dependencies)",
-      "flags": ["--format", "--quiet", "--json", "--human", "--dry-run"],
-      "exitCodes": [0, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--json",
+        "--human",
+        "--dry-run"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        10,
+        11,
+        12,
+        13
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
     },
@@ -30,8 +92,17 @@
       "category": "read",
       "doc": "analyze.md",
       "synopsis": "Task triage with leverage scoring and bottleneck detection. JSON default.",
-      "flags": ["--format", "--human", "--auto-focus", "--json"],
-      "exitCodes": [0, 2, 100],
+      "flags": [
+        "--format",
+        "--human",
+        "--auto-focus",
+        "--json"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        100
+      ],
       "jsonOutput": true,
       "jsonDefault": true,
       "agentRelevance": "critical"
@@ -42,8 +113,18 @@
       "category": "write",
       "doc": "archive.md",
       "synopsis": "Archive completed tasks based on policy (age, count preservation)",
-      "flags": ["--format", "--quiet", "--dry-run", "--force", "--all"],
-      "exitCodes": [0, 3, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--force",
+        "--all"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -53,8 +134,16 @@
       "category": "maintenance",
       "doc": "backup.md",
       "synopsis": "Create backup of todo files or list available backups",
-      "flags": ["--format", "--quiet", "--list", "--destination"],
-      "exitCodes": [0, 3],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--list",
+        "--destination"
+      ],
+      "exitCodes": [
+        0,
+        3
+      ],
       "jsonOutput": true,
       "agentRelevance": "low"
     },
@@ -64,8 +153,15 @@
       "category": "read",
       "doc": "blockers.md",
       "synopsis": "Show blocked tasks and analyze blocking chains/critical path",
-      "flags": ["--format", "--quiet", "--analyze"],
-      "exitCodes": [0, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--analyze"
+      ],
+      "exitCodes": [
+        0,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
     },
@@ -75,8 +171,21 @@
       "category": "maintenance",
       "doc": "claude-migrate.md",
       "synopsis": "Detect and migrate legacy claude-todo installations to CLEO format",
-      "flags": ["--format", "--verbose", "--check", "--global", "--project", "--all"],
-      "exitCodes": [0, 1, 2, 3, 4],
+      "flags": [
+        "--format",
+        "--verbose",
+        "--check",
+        "--global",
+        "--project",
+        "--all"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
       "jsonOutput": true,
       "agentRelevance": "low",
       "note": "Run with --check first to detect legacy installations"
@@ -87,8 +196,17 @@
       "category": "write",
       "doc": "complete.md",
       "synopsis": "Mark task as done with completion timestamp and cycle time",
-      "flags": ["--format", "--quiet", "--dry-run"],
-      "exitCodes": [0, 2, 4, 102],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        4,
+        102
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical"
     },
@@ -98,8 +216,22 @@
       "category": "read",
       "doc": "commands.md",
       "synopsis": "List and query available commands with filtering. JSON by default.",
-      "flags": ["--format", "--quiet", "--json", "--human", "--category", "--relevance", "--workflows", "--lookup"],
-      "exitCodes": [0, 2, 3, 4],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--json",
+        "--human",
+        "--category",
+        "--relevance",
+        "--workflows",
+        "--lookup"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        4
+      ],
       "jsonOutput": true,
       "jsonDefault": true,
       "agentRelevance": "high",
@@ -111,9 +243,23 @@
       "category": "maintenance",
       "doc": "config.md",
       "synopsis": "View and modify configuration (project and global)",
-      "flags": ["--format", "--quiet", "--global"],
-      "subcommands": ["show", "set", "get", "list", "reset"],
-      "exitCodes": [0, 2, 8],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--global"
+      ],
+      "subcommands": [
+        "show",
+        "set",
+        "get",
+        "list",
+        "reset"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        8
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -123,8 +269,14 @@
       "category": "read",
       "doc": "dash.md",
       "synopsis": "Project dashboard with status summary, phase progress, recent activity",
-      "flags": ["--format", "--quiet", "--compact"],
-      "exitCodes": [0],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--compact"
+      ],
+      "exitCodes": [
+        0
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
     },
@@ -134,8 +286,16 @@
       "category": "read",
       "doc": "deps.md",
       "synopsis": "Dependency visualization and analysis (tree view, what depends on X)",
-      "flags": ["--format", "--quiet", "--tree"],
-      "exitCodes": [0, 4, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--tree"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
     },
@@ -145,8 +305,18 @@
       "category": "read",
       "doc": "exists.md",
       "synopsis": "Validate task ID exists (scripting/CI). Exit 0=exists, 1=not found.",
-      "flags": ["--format", "--quiet", "--include-archive", "--verbose"],
-      "exitCodes": [0, 1, 2, 3],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--include-archive",
+        "--verbose"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        3
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical"
     },
@@ -156,8 +326,16 @@
       "category": "read",
       "doc": "export.md",
       "synopsis": "Export tasks to CSV, TSV, JSON, markdown, or TodoWrite format",
-      "flags": ["--format", "--quiet", "--output"],
-      "exitCodes": [0, 2, 3],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--output"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -167,8 +345,17 @@
       "category": "sync",
       "doc": "sync.md",
       "synopsis": "Extract/merge TodoWrite state back to cleo (session end)",
-      "flags": ["--format", "--quiet", "--dry-run"],
-      "exitCodes": [0, 2, 3, 6],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        6
+      ],
       "jsonOutput": true,
       "agentRelevance": "high",
       "note": "Usually called via 'sync --extract'"
@@ -179,11 +366,25 @@
       "category": "read",
       "doc": "find.md",
       "synopsis": "Fuzzy search tasks by title/description. ID prefix matching via --id.",
-      "flags": ["--format", "--quiet", "--id", "--exact", "--status", "--field", "--include-archive"],
-      "exitCodes": [0, 2, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--id",
+        "--exact",
+        "--status",
+        "--field",
+        "--include-archive"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical",
-      "aliases": ["search"]
+      "aliases": [
+        "search"
+      ]
     },
     {
       "name": "focus",
@@ -191,9 +392,22 @@
       "category": "write",
       "doc": "focus.md",
       "synopsis": "Single-task workflow discipline. Set/show/clear active task.",
-      "flags": ["--format", "--quiet"],
-      "subcommands": ["set", "show", "clear", "note", "next"],
-      "exitCodes": [0, 2, 4],
+      "flags": [
+        "--format",
+        "--quiet"
+      ],
+      "subcommands": [
+        "set",
+        "show",
+        "clear",
+        "note",
+        "next"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        4
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical"
     },
@@ -203,8 +417,16 @@
       "category": "read",
       "doc": "history.md",
       "synopsis": "Completion timeline and productivity analytics",
-      "flags": ["--format", "--quiet", "--days", "--since"],
-      "exitCodes": [0, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--days",
+        "--since"
+      ],
+      "exitCodes": [
+        0,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -214,8 +436,16 @@
       "category": "maintenance",
       "doc": "init.md",
       "synopsis": "Initialize project (.claude/ directory) or update CLAUDE.md injection",
-      "flags": ["--format", "--quiet", "--update-claude-md"],
-      "exitCodes": [0, 3, 101],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--update-claude-md"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        101
+      ],
       "jsonOutput": true,
       "agentRelevance": "low"
     },
@@ -225,8 +455,16 @@
       "category": "sync",
       "doc": "sync.md",
       "synopsis": "Inject/prepare tasks for TodoWrite format (session start)",
-      "flags": ["--format", "--quiet", "--dry-run", "--focused-only"],
-      "exitCodes": [0, 3],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--focused-only"
+      ],
+      "exitCodes": [
+        0,
+        3
+      ],
       "jsonOutput": true,
       "agentRelevance": "high",
       "note": "Usually called via 'sync --inject'"
@@ -237,9 +475,18 @@
       "category": "read",
       "doc": "labels.md",
       "synopsis": "List all labels with counts or show tasks with specific label",
-      "flags": ["--format", "--quiet"],
-      "subcommands": ["show"],
-      "exitCodes": [0, 4, 100],
+      "flags": [
+        "--format",
+        "--quiet"
+      ],
+      "subcommands": [
+        "show"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -249,11 +496,29 @@
       "category": "read",
       "doc": "list.md",
       "synopsis": "View tasks with filtering (status, priority, label, phase, type, parent)",
-      "flags": ["--format", "--quiet", "--status", "--priority", "--label", "--phase", "--type", "--parent", "--children", "--tree"],
-      "exitCodes": [0, 2, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--status",
+        "--priority",
+        "--label",
+        "--phase",
+        "--type",
+        "--parent",
+        "--children",
+        "--tree"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical",
-      "aliases": ["ls", "tree"]
+      "aliases": [
+        "ls",
+        "tree"
+      ]
     },
     {
       "name": "tree",
@@ -261,8 +526,21 @@
       "category": "read",
       "doc": "hierarchy.md",
       "synopsis": "Display task hierarchy as tree (alias for list --tree)",
-      "flags": ["--format", "--quiet", "--status", "--priority", "--label", "--phase", "--type", "--parent"],
-      "exitCodes": [0, 2, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--status",
+        "--priority",
+        "--label",
+        "--phase",
+        "--type",
+        "--parent"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
     },
@@ -272,8 +550,17 @@
       "category": "read",
       "doc": "log.md",
       "synopsis": "View audit log entries (operations, timestamps, changes)",
-      "flags": ["--format", "--quiet", "--limit", "--operation", "--task"],
-      "exitCodes": [0, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--limit",
+        "--operation",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -283,9 +570,20 @@
       "category": "maintenance",
       "doc": "migrate.md",
       "synopsis": "Schema version migrations (status check, run migrations)",
-      "flags": ["--format", "--quiet", "--dry-run"],
-      "subcommands": ["status", "run"],
-      "exitCodes": [0, 3, 6],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run"
+      ],
+      "subcommands": [
+        "status",
+        "run"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        6
+      ],
       "jsonOutput": true,
       "agentRelevance": "low"
     },
@@ -295,8 +593,18 @@
       "category": "maintenance",
       "doc": "reorganize-backups.md",
       "synopsis": "Migrate legacy backup structure to new taxonomy",
-      "flags": ["--format", "--quiet", "--dry-run", "--detect", "--run"],
-      "exitCodes": [0, 3, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--detect",
+        "--run"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "low"
     },
@@ -306,8 +614,15 @@
       "category": "read",
       "doc": "next.md",
       "synopsis": "Intelligent next task suggestion based on priority and dependencies",
-      "flags": ["--format", "--quiet", "--explain"],
-      "exitCodes": [0, 100],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--explain"
+      ],
+      "exitCodes": [
+        0,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical"
     },
@@ -317,9 +632,20 @@
       "category": "write",
       "doc": "phase.md",
       "synopsis": "Project-level phase lifecycle management (set, show, transitions)",
-      "flags": ["--format", "--quiet"],
-      "subcommands": ["set", "show", "history"],
-      "exitCodes": [0, 2, 4],
+      "flags": [
+        "--format",
+        "--quiet"
+      ],
+      "subcommands": [
+        "set",
+        "show",
+        "history"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        4
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -329,9 +655,19 @@
       "category": "read",
       "doc": "phases.md",
       "synopsis": "List phases with progress bars and statistics",
-      "flags": ["--format", "--quiet"],
-      "subcommands": ["show", "stats"],
-      "exitCodes": [0, 4, 100],
+      "flags": [
+        "--format",
+        "--quiet"
+      ],
+      "subcommands": [
+        "show",
+        "stats"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        100
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -341,8 +677,19 @@
       "category": "write",
       "doc": "hierarchy.md#populating-hierarchy-v0232",
       "synopsis": "Auto-populate parentId from naming conventions and depends→epic patterns",
-      "flags": ["--format", "--quiet", "--dry-run", "--json", "--human"],
-      "exitCodes": [0, 2, 3, 6],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--json",
+        "--human"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        6
+      ],
       "jsonOutput": true,
       "agentRelevance": "low"
     },
@@ -352,8 +699,18 @@
       "category": "write",
       "doc": "promote.md",
       "synopsis": "Remove parent from task, making it root-level",
-      "flags": ["--format", "--quiet", "--no-type-update"],
-      "exitCodes": [0, 1, 2, 3, 4],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--no-type-update"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -363,8 +720,23 @@
       "category": "write",
       "doc": "reparent.md",
       "synopsis": "Move task to different parent in hierarchy",
-      "flags": ["--format", "--quiet", "--to"],
-      "exitCodes": [0, 1, 2, 3, 4, 10, 11, 12, 13, 14],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--to"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -374,8 +746,16 @@
       "category": "maintenance",
       "doc": "restore.md",
       "synopsis": "Restore todo files from backup",
-      "flags": ["--format", "--quiet", "--dry-run"],
-      "exitCodes": [0, 3, 4],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        4
+      ],
       "jsonOutput": true,
       "agentRelevance": "low"
     },
@@ -385,11 +765,30 @@
       "category": "read",
       "doc": "research.md",
       "synopsis": "Multi-source web research aggregation with MCP servers (Tavily, Context7, Reddit)",
-      "flags": ["--format", "--depth", "--output", "--topic", "--subreddit", "--include-reddit", "--link-task", "--plan-only", "--json", "--url", "--reddit", "--library"],
-      "exitCodes": [0, 2, 3],
+      "flags": [
+        "--format",
+        "--depth",
+        "--output",
+        "--topic",
+        "--subreddit",
+        "--include-reddit",
+        "--link-task",
+        "--plan-only",
+        "--json",
+        "--url",
+        "--reddit",
+        "--library"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3
+      ],
       "jsonOutput": true,
       "agentRelevance": "high",
-      "aliases": ["dig"]
+      "aliases": [
+        "dig"
+      ]
     },
     {
       "name": "session",
@@ -397,9 +796,20 @@
       "category": "write",
       "doc": "session.md",
       "synopsis": "Work session lifecycle (start, end, status)",
-      "flags": ["--format", "--quiet"],
-      "subcommands": ["start", "end", "status"],
-      "exitCodes": [0, 4, 101],
+      "flags": [
+        "--format",
+        "--quiet"
+      ],
+      "subcommands": [
+        "start",
+        "end",
+        "status"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        101
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
     },
@@ -409,8 +819,18 @@
       "category": "read",
       "doc": "show.md",
       "synopsis": "Full task details view with history and related tasks",
-      "flags": ["--format", "--quiet", "--history", "--related", "--include-archive"],
-      "exitCodes": [0, 2, 4],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--history",
+        "--related",
+        "--include-archive"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        4
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
     },
@@ -420,8 +840,14 @@
       "category": "read",
       "doc": "stats.md",
       "synopsis": "Project statistics (counts, completion rates, velocity)",
-      "flags": ["--format", "--quiet", "--period"],
-      "exitCodes": [0],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--period"
+      ],
+      "exitCodes": [
+        0
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -431,8 +857,21 @@
       "category": "sync",
       "doc": "sync.md",
       "synopsis": "Bidirectional sync with Claude Code TodoWrite",
-      "flags": ["--format", "--quiet", "--dry-run", "--inject", "--extract", "--status", "--focused-only"],
-      "exitCodes": [0, 2, 3, 6],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--inject",
+        "--extract",
+        "--status",
+        "--focused-only"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        6
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical"
     },
@@ -442,8 +881,23 @@
       "category": "write",
       "doc": "unarchive.md",
       "synopsis": "Restore archived tasks back to todo.json with status options",
-      "flags": ["--format", "--quiet", "--dry-run", "--status", "--preserve-status", "--json", "--human"],
-      "exitCodes": [0, 1, 2, 3, 4, 6],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--status",
+        "--preserve-status",
+        "--json",
+        "--human"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -453,8 +907,32 @@
       "category": "write",
       "doc": "update.md",
       "synopsis": "Modify existing task fields (status, priority, labels, notes, etc.)",
-      "flags": ["--format", "--quiet", "--dry-run", "--status", "--priority", "--labels", "--notes", "--description", "--phase", "--blocked-by", "--depends"],
-      "exitCodes": [0, 1, 2, 3, 4, 6, 10, 11, 12, 13, 102],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--status",
+        "--priority",
+        "--labels",
+        "--notes",
+        "--description",
+        "--phase",
+        "--blocked-by",
+        "--depends"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        10,
+        11,
+        12,
+        13,
+        102
+      ],
       "jsonOutput": true,
       "agentRelevance": "critical"
     },
@@ -464,8 +942,15 @@
       "category": "maintenance",
       "doc": "validate.md",
       "synopsis": "Check file integrity, schema compliance, checksum verification",
-      "flags": ["--format", "--quiet", "--fix"],
-      "exitCodes": [0, 6],
+      "flags": [
+        "--format",
+        "--quiet",
+        "--fix"
+      ],
+      "exitCodes": [
+        0,
+        6
+      ],
       "jsonOutput": true,
       "agentRelevance": "medium"
     },
@@ -475,17 +960,67 @@
       "category": "write",
       "doc": "verify.md",
       "synopsis": "Manage verification gates for tasks (implemented, testsPassed, qaPassed, securityPassed, documented)",
-      "flags": ["--gate", "--value", "--agent", "--all", "--reset"],
-      "exitCodes": [0, 4, 40, 41, 42, 43, 44, 45],
+      "flags": [
+        "--gate",
+        "--value",
+        "--agent",
+        "--all",
+        "--reset"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45
+      ],
       "jsonOutput": true,
       "agentRelevance": "high"
+    },
+    {
+      "name": "roadmap",
+      "script": "roadmap.sh",
+      "category": "read",
+      "doc": null,
+      "synopsis": "Generate roadmap from pending epics and CHANGELOG history",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--include-history",
+        "--upcoming-only"
+      ],
+      "exitCodes": [
+        0,
+        3
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium"
     }
   ],
   "agentWorkflows": {
-    "sessionStart": ["session start", "dash --compact", "focus show"],
-    "taskSelection": ["analyze --json", "next --explain", "focus set <id>"],
-    "validation": ["exists <id> --quiet", "validate"],
-    "sessionEnd": ["complete <id>", "sync --extract", "session end"]
+    "sessionStart": [
+      "session start",
+      "dash --compact",
+      "focus show"
+    ],
+    "taskSelection": [
+      "analyze --json",
+      "next --explain",
+      "focus set <id>"
+    ],
+    "validation": [
+      "exists <id> --quiet",
+      "validate"
+    ],
+    "sessionEnd": [
+      "complete <id>",
+      "sync --extract",
+      "session end"
+    ]
   },
   "quickLookup": {
     "createTask": "add",
