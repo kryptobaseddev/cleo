@@ -118,5 +118,5 @@ jobs:
           mkdir -p /tmp/test-project
           cd /tmp/test-project
           ~/.local/bin/cleo init test-project
-          ls -la .claude/
+          ls -la .cleo/
           ~/.local/bin/cleo validate
