@@ -3,6 +3,7 @@
   "version": "{{SCHEMA_VERSION_LOG}}",
   "project": "{{PROJECT_NAME}}",
   "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_LOG}}",
     "totalEntries": 0,
     "firstEntry": null,
     "lastEntry": null,

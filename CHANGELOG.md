@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.50.0] - 2026-01-03
+## [0.50.1] - 2026-01-03
 
 ### Added
 - **Migration History Command** (T1266) - `cleo migrate history` shows applied migrations
@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **log_info undefined** - Added missing `log_info()` function to `lib/logging.sh`
 - **--dry-run creates file** - Fixed argument parsing in `scripts/migrate.sh`
 - **SCHEMA_DIR undefined** - Added definition to `scripts/validate.sh`
+- **_meta not created during migration** - `update_version_field()` and `bump_version_only()` now create `_meta` object if missing
+- **Templates missing _meta.schemaVersion** - Added `schemaVersion` to `_meta` in all templates (config, todo, archive, log, sessions)
 
 ## [0.49.0] - 2026-01-03
 

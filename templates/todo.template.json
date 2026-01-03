@@ -49,7 +49,7 @@
   },
   "lastUpdated": "{{TIMESTAMP}}",
   "_meta": {
-    "version": "{{SCHEMA_VERSION_TODO}}",
+    "schemaVersion": "{{SCHEMA_VERSION_TODO}}",
     "checksum": "{{CHECKSUM}}",
     "configVersion": "{{SCHEMA_VERSION_CONFIG}}",
     "lastSessionId": null,

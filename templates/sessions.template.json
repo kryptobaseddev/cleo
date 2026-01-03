@@ -3,6 +3,7 @@
   "version": "{{SCHEMA_VERSION_SESSIONS}}",
   "project": "{{PROJECT_NAME}}",
   "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_SESSIONS}}",
     "checksum": "",
     "lastModified": "{{TIMESTAMP}}",
     "totalSessionsCreated": 0

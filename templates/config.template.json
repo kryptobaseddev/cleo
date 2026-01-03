@@ -1,6 +1,11 @@
 {
   "$schema": "../schemas/config.schema.json",
   "version": "{{SCHEMA_VERSION_CONFIG}}",
+  "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_CONFIG}}",
+    "createdAt": "{{TIMESTAMP}}",
+    "updatedAt": "{{TIMESTAMP}}"
+  },
 
   "archive": {
     "enabled": true,

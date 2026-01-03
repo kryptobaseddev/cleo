@@ -378,7 +378,9 @@ bump_version_only() {
     local updated_content
     updated_content=$(jq --arg ver "$new_version" '
         .version = $ver |
-        if ._meta then ._meta.schemaVersion = $ver else . end
+        # Ensure _meta object exists before setting schemaVersion
+        if ._meta == null then ._meta = {} else . end |
+        ._meta.schemaVersion = $ver
     ' "$file") || {
         echo "ERROR: Failed to bump version" >&2
         return 1
@@ -875,10 +877,14 @@ update_version_field() {
     # - .version (top-level)
     # - ._meta.version (legacy, used by detect_file_version)
     # - ._meta.schemaVersion (canonical schema version)
+    # CRITICAL: Create _meta object if it doesn't exist
     local updated_content
     updated_content=$(jq --arg ver "$new_version" '
         .version = $ver |
-        if ._meta then (._meta.version = $ver | ._meta.schemaVersion = $ver) else . end
+        # Ensure _meta object exists before setting fields
+        if ._meta == null then ._meta = {} else . end |
+        ._meta.version = $ver |
+        ._meta.schemaVersion = $ver
     ' "$file") || {
         echo "ERROR: Failed to update version field" >&2
         return 1

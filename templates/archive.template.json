@@ -3,6 +3,7 @@
   "version": "{{SCHEMA_VERSION_ARCHIVE}}",
   "project": "{{PROJECT_NAME}}",
   "_meta": {
+    "schemaVersion": "{{SCHEMA_VERSION_ARCHIVE}}",
     "totalArchived": 0,
     "lastArchived": null,
     "oldestTask": null,
