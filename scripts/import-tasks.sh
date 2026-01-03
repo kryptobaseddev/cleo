@@ -536,7 +536,7 @@ apply_import_transformations() {
     local tasks="$1"
     local remap_table="$2"
     local import_options="$3"
-    local export_package="${4:-{}}"
+    local export_package="${4:-"{}"}"
 
     log_info "Applying import transformations..."
 
@@ -1022,9 +1022,35 @@ main() {
         # dry_run_preview exits, never returns
     fi
 
-    # Step 6: TODO - Write to todo.json (atomic operation with validation)
-    log_warn "STUB: Import write operation not yet implemented (T1283)"
-    log_info "Would import $task_count task(s) to $TODO_FILE"
+    # Step 6: Write to todo.json (atomic operation with validation)
+    log_info "Writing $task_count task(s) to $TODO_FILE..."
+
+    # Read current todo.json
+    local todo_data
+    if ! todo_data=$(cat "$TODO_FILE" 2>/dev/null); then
+        log_error "Failed to read target file: $TODO_FILE" "$E_IO"
+        exit "${EXIT_IO_ERROR:-3}"
+    fi
+
+    # Append imported tasks to existing tasks array
+    local updated_data
+    updated_data=$(echo "$todo_data" | jq \
+        --argjson new_tasks "$transformed_tasks" \
+        '.tasks += $new_tasks')
+
+    # Validate the updated data
+    if ! echo "$updated_data" | jq empty 2>/dev/null; then
+        log_error "Updated todo.json has invalid JSON" "$E_VALIDATION_REQUIRED"
+        exit "${EXIT_VALIDATION_ERROR:-6}"
+    fi
+
+    # Write atomically using file-ops.sh (content via stdin, no second arg)
+    if ! echo "$updated_data" | atomic_write "$TODO_FILE"; then
+        log_error "Failed to write imported tasks to $TODO_FILE"
+        exit "${EXIT_FILE_ERROR:-3}"
+    fi
+
+    log_info "Successfully imported $task_count task(s)"
 
     # Success output
     if [[ "$FORMAT" == "json" ]]; then
@@ -1059,13 +1085,12 @@ main() {
                 }
             }'
     else
-        log_info "Import completed successfully (STUB)"
+        log_info "Import completed successfully"
         echo ""
         echo "Tasks imported: $task_count"
         echo "ID remapping:"
         echo "$remap_table" | jq -r 'to_entries[] | "  \(.key) → \(.value)"'
         echo ""
-        echo "Note: Full import implementation pending (T1280-T1282 integration)"
     fi
 
     exit "${EXIT_SUCCESS:-0}"

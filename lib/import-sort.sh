@@ -97,7 +97,7 @@ topological_sort_tasks() {
         [.[] | {
             id: .id,
             inDegree: (
-                (if .parentId then 1 else 0 end) +
+                (if .parentId and ($id_to_idx[.parentId] != null) then 1 else 0 end) +
                 ((.depends // []) | length)
             ),
             children: [],

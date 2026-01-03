@@ -614,6 +614,13 @@ log_error() {
     log_operation "error_occurred" "system" "$task_id" "null" "null" "$details" "null"
 }
 
+# Print informational message to stdout (for user feedback, not audit log)
+# Args: $1 = message
+log_info() {
+    local message="$1"
+    echo "$message"
+}
+
 # ============================================================================
 # PHASE LOGGING FUNCTIONS
 # ============================================================================
@@ -894,7 +901,7 @@ log_task_cancelled() {
     local task_id="$1"
     local reason="$2"
     local child_mode="${3:-orphan}"
-    local affected_ids="${4:-[]}"
+    local affected_ids="${4:-"[]"}"
     local session_id="${5:-null}"
     local before
     local after

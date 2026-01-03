@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-01-03
+
+### Added
+- **Migration History Command** (T1266) - `cleo migrate history` shows applied migrations
+  - Human-readable table format with timestamp, file type, migration name, status, duration
+  - JSON output mode for programmatic access
+  - Graceful handling when no migrations exist (backward compatible)
+
+- **Migration Checksum Validation** (T1265) - Detect modified migration functions
+  - `record_migration_application()` records migrations to `.cleo/migrations.json`
+  - `validate_applied_checksums()` verifies migration integrity before running
+  - SHA-256 checksums calculated from migration function bodies
+  - `--force` flag to bypass validation when needed
+  - 12 new unit tests in `tests/unit/migrate-journal.bats`
+
+- **Dual-Pattern Migration Discovery** (T1268) - Support both semver and timestamp patterns
+  - Semver pattern: `migrate_<type>_to_<major>_<minor>_<patch>` (existing)
+  - Timestamp pattern: `migrate_<type>_<YYYYMMDDHHMMSS>_<description>` (new)
+  - `parse_migration_identifier()` helper for structured parsing
+  - Proper sort order: semver first, then timestamps
+  - 7 new unit tests for pattern discovery
+
+- **Migration Conversion Tooling** (T1269) - Tools for transitioning to timestamp format
+  - `dev/convert-migrations.sh` generates conversion commands
+  - Updated `docs/MIGRATION-SYSTEM.md` with pattern documentation
+  - Decision table for choosing semver vs timestamp patterns
+  - Deprecation notices added to existing semver migrations
+
+### Fixed
+- **log_info undefined** - Added missing `log_info()` function to `lib/logging.sh`
+- **--dry-run creates file** - Fixed argument parsing in `scripts/migrate.sh`
+- **SCHEMA_DIR undefined** - Added definition to `scripts/validate.sh`
+
 ## [0.49.0] - 2026-01-03
 
 ### Added
@@ -32,8 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Phase 1: Schema files as single source of truth (`get_schema_version_from_file()`)
   - Phase 2: Template placeholders (`{{SCHEMA_VERSION_*}}`)
   - Phase 3: `._meta.schemaVersion` standardization
-  - Phase 4: Migration journal (in progress)
-  - Phase 5: Timestamp migrations (in progress)
+  - Phase 4: Migration journal ✅ (completed in v0.50.0)
+  - Phase 5: Timestamp migrations ✅ (completed in v0.50.0)
 
 ### Removed
 - **SCHEMA_VERSION_* constants** - Deleted hardcoded version constants from `lib/migrate.sh`

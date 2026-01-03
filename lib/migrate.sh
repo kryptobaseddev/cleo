@@ -636,30 +636,113 @@ migrate_file() {
     return 0
 }
 
+# Parse migration function name into structured data
+# Supports two patterns:
+#   - Semver: migrate_<type>_to_<major>_<minor>_<patch>
+#   - Timestamp: migrate_<type>_<YYYYMMDDHHMMSS>_<description>
+# Args: $1 = function name
+# Returns: JSON object with {type, pattern, identifier, sortKey}
+#   - type: file type (todo, config, etc.)
+#   - pattern: "semver" or "timestamp"
+#   - identifier: version string (e.g., "2.6.0") or timestamp (e.g., "20260103120000")
+#   - sortKey: numeric key for sorting (e.g., "2006000" or "20260103120000")
+parse_migration_identifier() {
+    local func_name="$1"
+
+    # Semver pattern: migrate_<type>_to_<major>_<minor>_<patch>
+    if [[ "$func_name" =~ ^migrate_([^_]+)_to_([0-9]+)_([0-9]+)_([0-9]+)$ ]]; then
+        local type="${BASH_REMATCH[1]}"
+        local major="${BASH_REMATCH[2]}"
+        local minor="${BASH_REMATCH[3]}"
+        local patch="${BASH_REMATCH[4]}"
+        local version="${major}.${minor}.${patch}"
+        # Sort key: pad each component to 3 digits (e.g., 2.6.0 -> 002006000)
+        local sort_key
+        printf -v sort_key "%03d%03d%03d" "$major" "$minor" "$patch"
+
+        jq -nc --arg type "$type" \
+               --arg pattern "semver" \
+               --arg id "$version" \
+               --arg sort "$sort_key" \
+               '{type: $type, pattern: $pattern, identifier: $id, sortKey: $sort}'
+        return 0
+    fi
+
+    # Timestamp pattern: migrate_<type>_<YYYYMMDDHHMMSS>_<description>
+    if [[ "$func_name" =~ ^migrate_([^_]+)_([0-9]{14})_(.+)$ ]]; then
+        local type="${BASH_REMATCH[1]}"
+        local timestamp="${BASH_REMATCH[2]}"
+        local description="${BASH_REMATCH[3]}"
+
+        jq -nc --arg type "$type" \
+               --arg pattern "timestamp" \
+               --arg id "$timestamp" \
+               --arg sort "$timestamp" \
+               --arg desc "$description" \
+               '{type: $type, pattern: $pattern, identifier: $id, sortKey: $sort, description: $desc}'
+        return 0
+    fi
+
+    # Unknown pattern
+    return 1
+}
+
 # Discover migration versions dynamically using Bash introspection
-# Searches for all migration functions and extracts version numbers
+# Searches for all migration functions and extracts version numbers/timestamps
+# Supports two patterns:
+#   - Semver: migrate_<type>_to_<major>_<minor>_<patch> (e.g., migrate_todo_to_2_6_0)
+#   - Timestamp: migrate_<type>_<YYYYMMDDHHMMSS>_<description> (e.g., migrate_todo_20260103120000_add_field)
 # Args: $1 = file_type (optional) - filter for specific file type (e.g., "todo", "config")
-# Returns: sorted unique version strings (e.g., "2.2.0 2.3.0 2.4.0")
+# Returns: sorted unique version/timestamp strings (e.g., "2.2.0 2.3.0 20260103120000")
+#   - Semver migrations sorted by version number
+#   - Timestamp migrations sorted by timestamp
+#   - Semver migrations appear before timestamp migrations at same logical point
 discover_migration_versions() {
     local file_type="${1:-}"
-    
-    # Build grep pattern based on file_type filter
-    local pattern="migrate_.+_to_"
+
+    # Build function name prefix
+    local prefix="migrate_"
     if [[ -n "$file_type" ]]; then
-        pattern="migrate_${file_type}_to_"
+        prefix="migrate_${file_type}_"
     fi
-    
-    # Find all migration functions using declare -F
-    # Extract version numbers from function names
-    # Example: "migrate_todo_to_2_5_0" -> "2.5.0"
-    local versions
-    versions=$(declare -F | \
-        grep -oE "${pattern}[0-9]+_[0-9]+_[0-9]+" | \
-        sed -E 's/.*_to_([0-9]+)_([0-9]+)_([0-9]+)/\1.\2.\3/' | \
-        sort -uV)
-    
-    # Return sorted unique versions
-    echo "$versions"
+
+    # Collect all migration functions
+    local -a all_funcs=()
+    while IFS= read -r func_decl; do
+        # Extract function name from "declare -f function_name"
+        local func_name="${func_decl#declare -f }"
+
+        # Filter by prefix
+        if [[ "$func_name" == ${prefix}* ]]; then
+            all_funcs+=("$func_name")
+        fi
+    done < <(declare -F)
+
+    # Parse each function and collect structured data
+    local -a parsed_migrations=()
+    for func in "${all_funcs[@]}"; do
+        local parsed
+        if parsed=$(parse_migration_identifier "$func" 2>/dev/null); then
+            # Filter by file type if specified
+            if [[ -z "$file_type" ]] || [[ "$(echo "$parsed" | jq -r '.type')" == "$file_type" ]]; then
+                parsed_migrations+=("$parsed")
+            fi
+        fi
+    done
+
+    # If no migrations found, return empty
+    if [[ ${#parsed_migrations[@]} -eq 0 ]]; then
+        echo ""
+        return 0
+    fi
+
+    # Sort by sortKey and extract identifiers
+    # This naturally gives us: semver first (smaller numeric keys), then timestamps
+    printf '%s\n' "${parsed_migrations[@]}" | \
+        jq -rs 'sort_by(.sortKey) | .[].identifier' | \
+        tr -d '"' | \
+        tr '\n' ' ' | \
+        sed 's/ $//'  # Remove trailing space
 }
 
 # Find migration path between versions
@@ -983,6 +1066,8 @@ migrate_config_field_naming() {
 }
 
 # Migration from any 2.x version to 2.1.0 for config.json
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
+# See docs/MIGRATION-SYSTEM.md for migration naming conventions
 migrate_config_to_2_1_0() {
     local file="$1"
     local target_version
@@ -1001,6 +1086,8 @@ migrate_config_to_2_1_0() {
 # Migration from 2.1.0 to 2.2.0 for config.json
 # Adds hierarchy configuration section with LLM-Agent-First defaults
 # See CONFIG-SYSTEM-SPEC.md Appendix A.5, HIERARCHY-ENHANCEMENT-SPEC.md Part 3.2
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
+# See docs/MIGRATION-SYSTEM.md for migration naming conventions
 migrate_config_to_2_2_0() {
     local file="$1"
     local target_version
@@ -1018,6 +1105,7 @@ migrate_config_to_2_2_0() {
 }
 
 # Example: Migration from 2.0.0 to 2.1.0 for todo.json
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
 # migrate_todo_to_2_1_0() {
 #     local file="$1"
 #
@@ -1032,6 +1120,8 @@ migrate_config_to_2_2_0() {
 # Migration from 2.1.0 to 2.2.0 for todo.json
 # Converts project field from string to object with phases
 # IMPORTANT: Preserves existing top-level .phases and moves them into .project.phases
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
+# See docs/MIGRATION-SYSTEM.md for migration naming conventions
 migrate_todo_to_2_2_0() {
     local file="$1"
     local target_version
@@ -1148,6 +1238,8 @@ migrate_todo_to_2_2_0() {
 # Migration from 2.2.0 to 2.3.0 for todo.json
 # Adds hierarchy fields: type, parentId, size
 # Migrates label conventions to structured fields
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
+# See docs/MIGRATION-SYSTEM.md for migration naming conventions
 migrate_todo_to_2_3_0() {
     local file="$1"
     local target_version
@@ -1304,6 +1396,8 @@ migrate_todo_to_2_3_0() {
 # Migration from 2.3.0 to 2.4.0 for todo.json
 # Relaxes notes maxLength constraint from 500 to 5000 characters
 # No data transformation needed - just version bump
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
+# See docs/MIGRATION-SYSTEM.md for migration naming conventions
 migrate_todo_to_2_4_0() {
     local file="$1"
     local target_version
@@ -1348,6 +1442,8 @@ migrate_todo_to_2_4_0() {
 # Migration from 2.4.0 to 2.5.0 for todo.json
 # Adds position field to tasks for explicit ordering (T805)
 # Position is auto-assigned by createdAt order within each parent scope
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
+# See docs/MIGRATION-SYSTEM.md for migration naming conventions
 migrate_todo_to_2_5_0() {
     local file="$1"
     local target_version
@@ -1420,6 +1516,8 @@ migrate_todo_to_2_5_0() {
 # Migration from 2.5.0 to 2.6.0 for todo.json
 # Adds position and positionVersion fields to tasks (T805)
 # Position is auto-assigned by createdAt order within each parent scope
+# DEPRECATED: Semver pattern - use timestamp pattern for new migrations
+# See docs/MIGRATION-SYSTEM.md for migration naming conventions
 migrate_todo_to_2_6_0() {
     local file="$1"
     local target_version

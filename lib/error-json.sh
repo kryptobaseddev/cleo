@@ -255,7 +255,7 @@ output_error_actionable() {
     local suggestion="${5:-}"
     local fix="${6:-}"
     local context_json="${7:-null}"
-    local alternatives_json="${8:-[]}"
+    local alternatives_json="${8:-"[]"}"
 
     # Get context variables with defaults
     local command="${COMMAND_NAME:-unknown}"

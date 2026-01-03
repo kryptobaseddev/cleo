@@ -95,8 +95,8 @@ log_import_success() {
     local source_file="$1"
     local tasks_imported="$2"
     local id_remap="$3"
-    local conflicts="${4:-[]}"
-    local options="${5:-{}}"
+    local conflicts="${4:-"[]"}"
+    local options="${5:-"{}"}"
     local session_id="${6:-null}"
     local details
     local timestamp

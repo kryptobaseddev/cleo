@@ -310,3 +310,98 @@ EOF
     [[ "$status" -eq 0 ]] || [[ "$status" -eq 1 ]]
     # Should indicate already current or do nothing
 }
+
+# =============================================================================
+# Migration Pattern Discovery Tests (T1268)
+# =============================================================================
+
+@test "parse_migration_identifier recognizes semver pattern" {
+    source "$PROJECT_ROOT/lib/migrate.sh"
+
+    # Define a test function
+    migrate_test_to_2_5_0() { echo "test"; }
+
+    run parse_migration_identifier "migrate_test_to_2_5_0"
+    assert_success
+    assert_output_contains_any "semver" "2.5.0"
+}
+
+@test "parse_migration_identifier recognizes timestamp pattern" {
+    source "$PROJECT_ROOT/lib/migrate.sh"
+
+    # Define a test function
+    migrate_test_20260103120000_add_field() { echo "test"; }
+
+    run parse_migration_identifier "migrate_test_20260103120000_add_field"
+    assert_success
+    assert_output_contains_any "timestamp" "20260103120000" "add_field"
+}
+
+@test "parse_migration_identifier rejects invalid pattern" {
+    source "$PROJECT_ROOT/lib/migrate.sh"
+
+    run parse_migration_identifier "invalid_function_name"
+    assert_failure
+}
+
+@test "discover_migration_versions finds semver migrations" {
+    source "$PROJECT_ROOT/lib/migrate.sh"
+
+    # Define test functions
+    migrate_test_to_2_3_0() { echo "test"; }
+    migrate_test_to_2_5_0() { echo "test"; }
+
+    run discover_migration_versions "test"
+    assert_success
+    assert_output_contains_any "2.3.0" "2.5.0"
+}
+
+@test "discover_migration_versions finds timestamp migrations" {
+    source "$PROJECT_ROOT/lib/migrate.sh"
+
+    # Define test functions
+    migrate_test_20260103120000_add_field() { echo "test"; }
+    migrate_test_20260104080000_fix_bug() { echo "test"; }
+
+    run discover_migration_versions "test"
+    assert_success
+    assert_output_contains_any "20260103120000" "20260104080000"
+}
+
+@test "discover_migration_versions sorts semver before timestamp" {
+    source "$PROJECT_ROOT/lib/migrate.sh"
+
+    # Define mixed migrations
+    migrate_test_to_2_3_0() { echo "test"; }
+    migrate_test_20260103120000_add_field() { echo "test"; }
+    migrate_test_to_2_5_0() { echo "test"; }
+
+    # Get versions and check order
+    versions=$(discover_migration_versions "test")
+
+    # Extract positions of each version
+    semver_first_pos=$(echo "$versions" | tr ' ' '\n' | grep -n "^2\.3\.0$" | cut -d: -f1)
+    semver_second_pos=$(echo "$versions" | tr ' ' '\n' | grep -n "^2\.5\.0$" | cut -d: -f1)
+    timestamp_pos=$(echo "$versions" | tr ' ' '\n' | grep -n "^20260103120000$" | cut -d: -f1)
+
+    # Verify semver migrations come before timestamp
+    [[ $semver_first_pos -lt $timestamp_pos ]]
+    [[ $semver_second_pos -lt $timestamp_pos ]]
+}
+
+@test "discover_migration_versions filters by file type" {
+    source "$PROJECT_ROOT/lib/migrate.sh"
+
+    # Define migrations for different types
+    migrate_todo_to_2_3_0() { echo "test"; }
+    migrate_config_to_2_1_0() { echo "test"; }
+
+    # Get only todo migrations
+    versions=$(discover_migration_versions "todo")
+
+    # Should include todo migration
+    echo "$versions" | grep -q "2.3.0"
+
+    # Should NOT include config migration
+    ! echo "$versions" | grep -q "2.1.0"
+}

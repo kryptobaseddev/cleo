@@ -967,7 +967,7 @@ if [[ "$SAFE_MODE" == "true" && "$ARCHIVE_COUNT" -gt 0 ]]; then
 
   # For cascade-from mode, incomplete descendants are intentionally left behind
   # so we should NOT block the parent from being archived due to those children
-  CASCADE_FROM_DESCENDANTS="${ALL_DESCENDANTS:-[]}"
+  CASCADE_FROM_DESCENDANTS="${ALL_DESCENDANTS:-"[]"}"
 
   # Check for non-archivable children that would be orphaned (pending, active, blocked)
   # Exclude cascade-from descendants since those are handled intentionally

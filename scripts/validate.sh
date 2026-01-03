@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+SCHEMA_DIR="${SCHEMA_DIR:-$CLEO_HOME/schemas}"
 LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Command name for error-json library

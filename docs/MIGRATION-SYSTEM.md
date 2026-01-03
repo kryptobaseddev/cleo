@@ -85,12 +85,48 @@ discover_migration_versions
 # Returns: 2.1.0 2.2.0 2.3.0 2.4.0 2.5.0 2.6.0
 ```
 
-**Function naming convention:**
-- **Semver pattern:** `migrate_<type>_to_<major>_<minor>_<patch>`
-  - `migrate_todo_to_2_6_0`
-  - `migrate_config_to_2_4_0`
-- **Timestamp pattern (future):** `migrate_<type>_<YYYYMMDDHHMMSS>_<description>`
-  - `migrate_todo_20260103120000_add_verification_gates`
+**Function naming conventions:**
+
+The migration system supports **two naming patterns** that can coexist:
+
+1. **Semver Pattern (Legacy):**
+   - Format: `migrate_<type>_to_<major>_<minor>_<patch>`
+   - Examples:
+     - `migrate_todo_to_2_6_0`
+     - `migrate_config_to_2_4_0`
+   - **Use for:** Schema version changes that align with semver releases
+   - **Sort order:** Sorted by version number (2.2.0 < 2.3.0 < 2.6.0)
+
+2. **Timestamp Pattern (Recommended for new migrations):**
+   - Format: `migrate_<type>_<YYYYMMDDHHMMSS>_<description>`
+   - Examples:
+     - `migrate_todo_20260103120000_add_verification_gates`
+     - `migrate_config_20260104153000_update_defaults`
+   - **Use for:**
+     - Data-only migrations (no schema version change)
+     - Hotfixes that don't warrant version bump
+     - Migrations between minor releases
+     - Migrations that need clear chronological ordering
+   - **Sort order:** Sorted by timestamp (chronological)
+   - **Description:** Snake_case identifier describing the change
+
+**Migration Discovery Order:**
+
+When both patterns exist for a file type, migrations are discovered and executed in this order:
+1. All semver migrations (sorted by version)
+2. All timestamp migrations (sorted by timestamp)
+
+This ensures smooth transition from semver to timestamp pattern while maintaining backward compatibility.
+
+**When to Use Which Pattern:**
+
+| Scenario | Pattern | Example |
+|----------|---------|---------|
+| Schema version bump (new field added to schema) | Semver | `migrate_todo_to_2_7_0` |
+| Data cleanup (no schema change) | Timestamp | `migrate_todo_20260105120000_clean_orphans` |
+| Hotfix (urgent data correction) | Timestamp | `migrate_todo_20260105143000_fix_checksum` |
+| Between-release migration | Timestamp | `migrate_config_20260106080000_update_paths` |
+| Major schema change | Semver | `migrate_todo_to_3_0_0` |
 
 ## Migration Functions
 

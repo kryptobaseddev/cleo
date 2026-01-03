@@ -82,6 +82,7 @@ Schema version migration for cleo files.
 
 Commands:
   status                 Show version status of all files
+  history                Show migration history from journal
   check                  Check if migration is needed
   run                    Execute migration for all files
   file <path> <type>     Migrate specific file
@@ -176,7 +177,7 @@ create_migration() {
                 file_type="$2"
                 shift 2
                 ;;
-            --json|--human|-f|--format|-q|--quiet)
+            --json|--human|-f|--format|-q|--quiet|--dry-run)
                 # Skip format/output options (already handled by main)
                 if [[ "$1" == "-f" || "$1" == "--format" ]]; then
                     shift 2
@@ -230,12 +231,47 @@ create_migration() {
     local safe_desc
     safe_desc=$(echo "$description" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr -cd 'a-z0-9_')
 
-    # Create migrations directory if needed
+    # Define paths
     local migrations_dir="$SCRIPT_DIR/../lib/migrations"
-    mkdir -p "$migrations_dir"
-
     local filename="${timestamp}_${safe_desc}.sh"
     local filepath="$migrations_dir/$filename"
+    local fn_name="migrate_${file_type}_${timestamp}_${safe_desc}"
+
+    # Dry-run mode: show what would be created without creating
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -nc \
+                --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                --arg file "$filepath" \
+                --arg fn "$fn_name" \
+                --arg desc "$description" \
+                --arg type "$file_type" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        "command": "migrate",
+                        "subcommand": "create",
+                        "timestamp": $timestamp,
+                        "format": "json"
+                    },
+                    "success": true,
+                    "dryRun": true,
+                    "wouldCreate": {
+                        "file": $file,
+                        "functionName": $fn,
+                        "description": $desc,
+                        "fileType": $type
+                    }
+                }'
+        else
+            echo "[dry-run] Would create migration: $filepath"
+            echo "[dry-run] Function: $fn_name"
+        fi
+        return 0
+    fi
+
+    # Create migrations directory if needed
+    mkdir -p "$migrations_dir"
 
     # Generate migration template
     cat > "$filepath" << EOF
@@ -246,7 +282,7 @@ create_migration() {
 
 # Migration function - called by migrate.sh
 # Naming: migrate_<file_type>_<timestamp>_<description>
-migrate_${file_type}_${timestamp}_${safe_desc}() {
+${fn_name}() {
     local file="\$1"
     local current_version="\$2"
 
@@ -271,7 +307,7 @@ EOF
         jq -nc \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --arg file "$filepath" \
-            --arg fn "migrate_${file_type}_${timestamp}_${safe_desc}" \
+            --arg fn "$fn_name" \
             --arg desc "$description" \
             --arg type "$file_type" \
             '{
@@ -290,7 +326,99 @@ EOF
             }'
     else
         echo "Created migration: $filepath"
-        echo "Function: migrate_${file_type}_${timestamp}_${safe_desc}"
+        echo "Function: $fn_name"
+    fi
+}
+
+# Show migration history from journal
+cmd_history() {
+    local project_dir="${1:-.}"
+    local cleo_dir="$project_dir/.cleo"
+    local journal_file="$cleo_dir/migrations.json"
+
+    # Check if .cleo directory exists
+    if [[ ! -d "$cleo_dir" ]]; then
+        if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir" "${EXIT_NOT_FOUND:-4}" true "Run 'cleo init' to initialize the project"
+        else
+            output_error "$E_NOT_INITIALIZED" "No .cleo directory found in $project_dir"
+            echo "Run 'cleo init' to initialize the project" >&2
+        fi
+        exit "${EXIT_NOT_FOUND:-1}"
+    fi
+
+    # Check if migrations journal exists
+    if [[ ! -f "$journal_file" ]]; then
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -nc '{
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                "_meta": {
+                    "command": "migrate",
+                    "subcommand": "history",
+                    "timestamp": (now | todate),
+                    "format": "json"
+                },
+                "success": true,
+                "message": "No migration history found",
+                "migrations": []
+            }'
+        else
+            echo "No migration history found"
+            echo "Migrations will be tracked after the first migration is applied."
+        fi
+        return 0
+    fi
+
+    # Read migrations from journal
+    if [[ "$FORMAT" == "json" ]]; then
+        jq -n \
+            --slurpfile journal "$journal_file" \
+            '{
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                "_meta": {
+                    "command": "migrate",
+                    "subcommand": "history",
+                    "timestamp": (now | todate),
+                    "format": "json"
+                },
+                "success": true,
+                "migrations": $journal[0].appliedMigrations
+            }'
+    else
+        echo "Migration History"
+        echo "================="
+        echo ""
+
+        local count
+        count=$(jq '.appliedMigrations | length' "$journal_file")
+
+        if [[ "$count" == "0" ]]; then
+            echo "No migrations have been applied yet."
+            return 0
+        fi
+
+        # Display table header
+        printf "%-20s %-12s %-50s %-10s %-12s\n" "APPLIED AT" "FILE TYPE" "MIGRATION" "STATUS" "DURATION (ms)"
+        printf "%-20s %-12s %-50s %-10s %-12s\n" "--------------------" "------------" "---------------------------------------------------" "----------" "------------"
+
+        # Display each migration
+        jq -r '.appliedMigrations[] |
+            [.appliedAt, .fileType, .functionName // "version-bump", .status, (.executionTimeMs // 0 | tostring)] |
+            @tsv' "$journal_file" | while IFS=$'\t' read -r applied_at file_type function_name status duration; do
+            # Format timestamp (remove seconds for brevity)
+            local short_date
+            short_date=$(echo "$applied_at" | cut -d'T' -f1,2 | tr 'T' ' ' | cut -d':' -f1,2)
+
+            # Truncate function name if too long
+            if [[ ${#function_name} -gt 48 ]]; then
+                function_name="${function_name:0:45}..."
+            fi
+
+            printf "%-20s %-12s %-50s %-10s %-12s\n" "$short_date" "$file_type" "$function_name" "$status" "$duration"
+        done
+
+        echo ""
+        echo "Total migrations: $count"
     fi
 }
 
@@ -384,6 +512,19 @@ cmd_status() {
             echo "Run 'cleo init' to initialize the project" >&2
         fi
         exit "${EXIT_NOT_FOUND:-1}"
+    fi
+
+    # Validate migration checksums (detect modified migrations)
+    if [[ "$FORMAT" != "json" ]]; then
+        echo "Checking migration integrity..."
+    fi
+    if ! validate_applied_checksums "$cleo_dir"; then
+        if [[ "$FORMAT" == "json" ]]; then
+            # Silent in JSON mode, but add to output later
+            :
+        else
+            echo "⚠ WARNING: Some applied migrations have been modified" >&2
+        fi
     fi
 
     if [[ "$FORMAT" == "json" ]]; then
@@ -608,6 +749,23 @@ cmd_run() {
     echo "  config:  $(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")"
     echo "  archive: $(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")"
     echo "  log:     $(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")"
+    echo ""
+
+    # Validate migration checksums (detect modified migrations)
+    echo "Validating migration integrity..."
+    if ! validate_applied_checksums "$cleo_dir"; then
+        echo "" >&2
+        echo "⚠ WARNING: One or more applied migrations have been modified!" >&2
+        echo "This may indicate code tampering or version mismatch." >&2
+        echo "" >&2
+        if [[ "$force_migration" != "true" ]]; then
+            echo "Migration aborted. Use --force to proceed anyway." >&2
+            exit "${EXIT_VALIDATION_ERROR:-6}"
+        fi
+        echo "Continuing due to --force flag..." >&2
+    else
+        echo "✓ Migration integrity verified"
+    fi
     echo ""
 
     # Check status first
@@ -1114,6 +1272,7 @@ main() {
     local force_migration=false
     local backup_id=""
     local dry_run=false
+    local remaining_args=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1167,10 +1326,19 @@ main() {
                 exit "$EXIT_SUCCESS"
                 ;;
             *)
-                break
+                # Collect non-option args for subcommands like 'create'
+                remaining_args+=("$1")
+                shift
                 ;;
         esac
     done
+
+    # Restore non-option args (only if we have any)
+    if [[ ${#remaining_args[@]} -gt 0 ]]; then
+        set -- "${remaining_args[@]}"
+    else
+        set --
+    fi
 
     # Resolve output format (CLI > env > config > TTY-aware default)
     if declare -f resolve_format &>/dev/null; then
@@ -1191,6 +1359,9 @@ main() {
     case "$command" in
         "status")
             cmd_status "$project_dir"
+            ;;
+        "history")
+            cmd_history "$project_dir"
             ;;
         "check")
             cmd_check "$project_dir"
