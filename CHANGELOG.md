@@ -5,6 +5,19 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.3] - 2026-01-03
+
+### Fixed
+- **validate --fix atomicity bug** (T1247) - Fixed error counting before fix attempts
+  - `log_error()` was called BEFORE fix attempts, so even successful fixes counted as errors
+  - Restructured all fix operations: detect → attempt fix → log result based on success/failure
+  - Affected checks: duplicate IDs, archive duplicates, cross-duplicates, multiple active tasks, missing completedAt, focus mismatch, checksum
+  - `validate --fix` now returns `valid: true, errors: 0` when all fixes succeed
+- **upgrade validation** - Now runs `validate --fix` during upgrade to auto-correct fixable issues
+  - Backup is created before fixes, so safe to auto-fix
+  - Cross-duplicates, checksum mismatches, etc. are automatically resolved during upgrade
+- **CLAUDE.md update errors hidden** - Removed output suppression so errors are now visible
+
 ## [0.48.2] - 2026-01-03
 
 ### Fixed

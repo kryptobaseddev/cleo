@@ -327,7 +327,6 @@ TASK_IDS=$(jq -r '.tasks[].id' "$TODO_FILE" 2>/dev/null || echo "")
 DUPLICATE_IDS=$(echo "$TASK_IDS" | sort | uniq -d)
 
 if [[ -n "$DUPLICATE_IDS" ]]; then
-  log_error "Duplicate task IDs found in todo.json: $(echo "$DUPLICATE_IDS" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids"
   if [[ "$FIX" == true ]]; then
     # Keep only first occurrence of each ID (atomic write with locking)
     if safe_json_write "$TODO_FILE" '
@@ -337,10 +336,12 @@ if [[ -n "$DUPLICATE_IDS" ]]; then
         )
       )
     '; then
-      echo "  Fixed: Removed duplicate tasks (kept first occurrence)"
+      log_info "Fixed: Removed duplicate tasks (kept first occurrence)" "duplicate_ids"
     else
-      log_error "Failed to fix duplicate tasks (could not acquire lock or write failed)"
+      log_error "Failed to fix duplicate task IDs: $(echo "$DUPLICATE_IDS" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids"
     fi
+  else
+    log_error "Duplicate task IDs found in todo.json: $(echo "$DUPLICATE_IDS" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids"
   fi
 else
   log_info "No duplicate task IDs in todo.json" "duplicate_ids"
@@ -352,7 +353,6 @@ if [[ -f "$ARCHIVE_FILE" ]]; then
   ARCHIVE_DUPLICATES=$(echo "$ARCHIVE_IDS" | sort | uniq -d)
 
   if [[ -n "$ARCHIVE_DUPLICATES" ]]; then
-    log_error "Duplicate IDs in archive: $(echo "$ARCHIVE_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')"
     if [[ "$FIX" == true ]]; then
       # Keep only first occurrence in archive (atomic write with locking)
       if safe_json_write "$ARCHIVE_FILE" '
@@ -362,10 +362,12 @@ if [[ -f "$ARCHIVE_FILE" ]]; then
           )
         )
       '; then
-        echo "  Fixed: Removed duplicate tasks from archive (kept first occurrence)"
+        log_info "Fixed: Removed duplicate tasks from archive (kept first occurrence)" "archive_duplicates"
       else
-        log_error "Failed to fix archive duplicates (could not acquire lock or write failed)"
+        log_error "Failed to fix duplicate IDs in archive: $(echo "$ARCHIVE_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')" "archive_duplicates"
       fi
+    else
+      log_error "Duplicate IDs in archive: $(echo "$ARCHIVE_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')" "archive_duplicates"
     fi
   else
     log_info "No duplicate IDs in archive" "archive_duplicates"
@@ -375,7 +377,6 @@ if [[ -f "$ARCHIVE_FILE" ]]; then
   if [[ -n "$TASK_IDS" ]] && [[ -n "$ARCHIVE_IDS" ]]; then
     CROSS_DUPLICATES=$(comm -12 <(echo "$TASK_IDS" | sort) <(echo "$ARCHIVE_IDS" | sort))
     if [[ -n "$CROSS_DUPLICATES" ]]; then
-      log_error "IDs exist in both todo.json and archive: $(echo "$CROSS_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')"
       if [[ "$FIX" == true ]]; then
         # Remove from archive (keep in active todo.json) - atomic write with locking
         cross_fix_failed=false
@@ -386,10 +387,12 @@ if [[ -f "$ARCHIVE_FILE" ]]; then
           fi
         done
         if [[ "$cross_fix_failed" == true ]]; then
-          log_error "Failed to fix cross-duplicates (could not acquire lock or write failed)"
+          log_error "Failed to fix cross-duplicates: $(echo "$CROSS_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')" "cross_duplicates"
         else
-          echo "  Fixed: Removed cross-duplicates from archive (kept in todo.json)"
+          log_info "Fixed: Removed cross-duplicates from archive (kept in todo.json)" "cross_duplicates"
         fi
+      else
+        log_error "IDs exist in both todo.json and archive: $(echo "$CROSS_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')" "cross_duplicates"
       fi
     else
       log_info "No cross-file duplicate IDs" "cross_duplicates"
@@ -460,17 +463,18 @@ if declare -f get_max_active_tasks >/dev/null 2>&1; then
 fi
 
 if [[ "$ACTIVE_COUNT" -gt "$MAX_ACTIVE_TASKS" ]]; then
-  log_error "Too many active tasks found ($ACTIVE_COUNT). Maximum allowed: $MAX_ACTIVE_TASKS"
   if [[ "$FIX" == true ]]; then
     # Keep only the first N active tasks (atomic write with locking)
     FIRST_ACTIVE=$(jq -r '[.tasks[] | select(.status == "active")][0].id' "$TODO_FILE")
     if safe_json_write "$TODO_FILE" \
       '.tasks |= map(if .status == "active" and .id != $keep then .status = "pending" else . end)' \
       --arg keep "$FIRST_ACTIVE"; then
-      echo "  Fixed: Set all but $FIRST_ACTIVE to pending"
+      log_info "Fixed: Set all but $FIRST_ACTIVE to pending" "active_task"
     else
-      log_error "Failed to fix multiple active tasks (could not acquire lock or write failed)"
+      log_error "Failed to fix multiple active tasks ($ACTIVE_COUNT found, max: $MAX_ACTIVE_TASKS)" "active_task"
     fi
+  else
+    log_error "Too many active tasks found ($ACTIVE_COUNT). Maximum allowed: $MAX_ACTIVE_TASKS" "active_task"
   fi
 elif [[ "$ACTIVE_COUNT" -ge 1 ]]; then
   if [[ "$MAX_ACTIVE_TASKS" -eq 1 ]]; then
@@ -538,17 +542,18 @@ fi
 # 7. Check done tasks have completedAt
 DONE_NO_DATE=$(jq '[.tasks[] | select(.status == "done" and (.completedAt == null or .completedAt == ""))] | length' "$TODO_FILE")
 if [[ "$DONE_NO_DATE" -gt 0 ]]; then
-  log_error "$DONE_NO_DATE done task(s) missing completedAt"
   if [[ "$FIX" == true ]]; then
     # Atomic write with locking
     NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     if safe_json_write "$TODO_FILE" \
       '.tasks |= map(if .status == "done" and (.completedAt == null or .completedAt == "") then .completedAt = $now else . end)' \
       --arg now "$NOW"; then
-      echo "  Fixed: Set completedAt to now"
+      log_info "Fixed: Set completedAt to now for $DONE_NO_DATE task(s)" "completed_at"
     else
-      log_error "Failed to fix completedAt (could not acquire lock or write failed)"
+      log_error "Failed to fix completedAt for $DONE_NO_DATE done task(s)" "completed_at"
     fi
+  else
+    log_error "$DONE_NO_DATE done task(s) missing completedAt" "completed_at"
   fi
 else
   log_info "All done tasks have completedAt" "completed_at"
@@ -621,32 +626,35 @@ fi
 FOCUS_TASK=$(jq -r '.focus.currentTask // ""' "$TODO_FILE")
 ACTIVE_TASK=$(jq -r '[.tasks[] | select(.status == "active")][0].id // ""' "$TODO_FILE")
 if [[ -n "$FOCUS_TASK" ]] && [[ "$FOCUS_TASK" != "$ACTIVE_TASK" ]]; then
-  log_error "focus.currentTask ($FOCUS_TASK) doesn't match active task ($ACTIVE_TASK)"
   if [[ "$FIX" == true ]]; then
     # Atomic write with locking
     if [[ -n "$ACTIVE_TASK" ]]; then
       if safe_json_write "$TODO_FILE" '.focus.currentTask = $task' --arg task "$ACTIVE_TASK"; then
-        echo "  Fixed: Set focus.currentTask to $ACTIVE_TASK"
+        log_info "Fixed: Set focus.currentTask to $ACTIVE_TASK" "focus_task"
       else
-        log_error "Failed to set focus.currentTask (could not acquire lock or write failed)"
+        log_error "Failed to fix focus.currentTask mismatch ($FOCUS_TASK vs $ACTIVE_TASK)" "focus_task"
       fi
     else
       if safe_json_write "$TODO_FILE" '.focus.currentTask = null'; then
-        echo "  Fixed: Cleared focus.currentTask"
+        log_info "Fixed: Cleared focus.currentTask (no active task)" "focus_task"
       else
-        log_error "Failed to clear focus.currentTask (could not acquire lock or write failed)"
+        log_error "Failed to clear focus.currentTask" "focus_task"
       fi
     fi
+  else
+    log_error "focus.currentTask ($FOCUS_TASK) doesn't match active task ($ACTIVE_TASK)" "focus_task"
   fi
 elif [[ -z "$FOCUS_TASK" ]] && [[ -n "$ACTIVE_TASK" ]]; then
-  log_warn "Active task ($ACTIVE_TASK) but focus.currentTask is null"
+  # This is a warning, not an error - focus just needs to be set
   if [[ "$FIX" == true ]]; then
     # Atomic write with locking
     if safe_json_write "$TODO_FILE" '.focus.currentTask = $task' --arg task "$ACTIVE_TASK"; then
-      echo "  Fixed: Set focus.currentTask to $ACTIVE_TASK"
+      log_info "Fixed: Set focus.currentTask to $ACTIVE_TASK" "focus_task"
     else
-      log_error "Failed to set focus.currentTask (could not acquire lock or write failed)"
+      log_warn "Failed to set focus.currentTask to $ACTIVE_TASK" "focus_task"
     fi
+  else
+    log_warn "Active task ($ACTIVE_TASK) but focus.currentTask is null" "focus_task"
   fi
 else
   log_info "Focus matches active task" "focus_match"
@@ -856,13 +864,12 @@ if [[ "$CHECKSUM_ENABLED" == "true" ]]; then
       if [[ "$FIX" == true ]]; then
         # Don't log error yet - try to fix first (atomic write with locking)
         if safe_json_write "$TODO_FILE" '._meta.checksum = $cs' --arg cs "$COMPUTED_CHECKSUM"; then
-          echo "  Fixed: Updated checksum (was: $STORED_CHECKSUM, now: $COMPUTED_CHECKSUM)"
-          log_info "Checksum valid (after fix)"
+          log_info "Fixed: Updated checksum (was: $STORED_CHECKSUM, now: $COMPUTED_CHECKSUM)" "checksum"
         else
-          log_error "Checksum mismatch: stored=$STORED_CHECKSUM, computed=$COMPUTED_CHECKSUM (fix failed)"
+          log_error "Checksum mismatch: stored=$STORED_CHECKSUM, computed=$COMPUTED_CHECKSUM (fix failed)" "checksum"
         fi
       else
-        log_error "Checksum mismatch: stored=$STORED_CHECKSUM, computed=$COMPUTED_CHECKSUM"
+        log_error "Checksum mismatch: stored=$STORED_CHECKSUM, computed=$COMPUTED_CHECKSUM" "checksum"
       fi
     else
       log_info "Checksum valid" "checksum"

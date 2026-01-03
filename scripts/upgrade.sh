@@ -393,7 +393,16 @@ if [[ -n "${UPDATES_NEEDED[CLAUDE.md]:-}" ]]; then
 
     # Use init script's update function if available
     if [[ -x "$UPG_SCRIPT_DIR/init.sh" ]]; then
-        "$UPG_SCRIPT_DIR/init.sh" --update-claude-md >/dev/null 2>&1 && ((UPDATES_APPLIED++)) || ERRORS+=("CLAUDE.md update failed")
+        claude_md_output=""
+        if claude_md_output=$("$UPG_SCRIPT_DIR/init.sh" --update-claude-md 2>&1); then
+            ((UPDATES_APPLIED++))
+        else
+            # Show what went wrong in non-JSON mode
+            if ! is_json_output && [[ -n "$claude_md_output" ]]; then
+                echo "$claude_md_output" | head -5
+            fi
+            ERRORS+=("CLAUDE.md update failed")
+        fi
     fi
 fi
 
@@ -429,7 +438,9 @@ fi
 
 VALID=true
 if [[ -x "$UPG_SCRIPT_DIR/validate.sh" ]]; then
-    if ! "$UPG_SCRIPT_DIR/validate.sh" --quiet 2>/dev/null; then
+    # Run with --fix to auto-correct fixable issues during upgrade
+    # Backup was already created, so safe to auto-fix
+    if ! "$UPG_SCRIPT_DIR/validate.sh" --fix --quiet 2>/dev/null; then
         VALID=false
         ERRORS+=("Validation failed after upgrade")
     fi
