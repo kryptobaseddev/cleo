@@ -5,6 +5,24 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.48.2] - 2026-01-03
+
+### Fixed
+- **Upgrade command backwards version display** (T1233, T1234) - Fixed display showing downgrades (e.g., `2.4.0 → 2.2.0`)
+  - Root cause: `SCHEMA_VERSION_*` constants in `lib/migrate.sh` were out of sync with actual file versions
+  - Updated `SCHEMA_VERSION_CONFIG/ARCHIVE/LOG` to `2.4.0`
+  - Updated `scripts/upgrade.sh` to use variables instead of hardcoded `"2.1.0"` values
+  - Updated `lib/version-check.sh` fallback defaults
+- **CLAUDE.md injection not added automatically** - Fixed `check_claude_md_status()` to detect and add missing injection
+- **Migration output swallowed** (T1253) - Removed `2>/dev/null` that was hiding all migration progress/errors
+- **Archive/log version updates failing** (T1254) - Fixed `update_version_field()` to update all version fields:
+  - `.version` (top-level)
+  - `._meta.version` (used by `detect_file_version`)
+  - `._meta.schemaVersion` (canonical schema version)
+- **Schema file versions outdated** - Updated `archive.schema.json` and `log.schema.json` to `schemaVersion: "2.4.0"`
+- **Legacy detection incorrectly applied to archive/log** - Fixed `detect_file_version()` to only check for string project in `todo.json` files
+  - Archive and log files correctly use string project per their schemas
+
 ## [0.48.1] - 2026-01-03
 
 ### Fixed

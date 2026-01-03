@@ -187,8 +187,10 @@ check_claude_md_status() {
     injection_version=$(grep -oP 'CLEO:START v\K[0-9.]+' "$UPG_CLAUDE_MD" 2>/dev/null || echo "none")
 
     if [[ "$injection_version" == "none" ]]; then
-        # No injection present - might want to add
-        return 0
+        # No injection present - add one
+        UPDATES_NEEDED["CLAUDE.md"]="missing → $INSTALLED_VERSION"
+        ((TOTAL_UPDATES++))
+        return 1
     fi
 
     if [[ "$injection_version" != "$INSTALLED_VERSION" ]]; then
@@ -219,10 +221,10 @@ check_checksum_status() {
 # ============================================================================
 # RUN STATUS CHECKS
 # ============================================================================
-check_schema_status "$UPG_TODO_FILE" "todo" "${SCHEMA_VERSION_TODO:-2.4.0}" || true
-check_schema_status "$UPG_CONFIG_FILE" "config" "${SCHEMA_VERSION_CONFIG:-2.2.0}" || true
-check_schema_status "$UPG_ARCHIVE_FILE" "archive" "2.1.0" || true
-check_schema_status "$UPG_LOG_FILE" "log" "2.1.0" || true
+check_schema_status "$UPG_TODO_FILE" "todo" "${SCHEMA_VERSION_TODO:-2.6.0}" || true
+check_schema_status "$UPG_CONFIG_FILE" "config" "${SCHEMA_VERSION_CONFIG:-2.4.0}" || true
+check_schema_status "$UPG_ARCHIVE_FILE" "archive" "${SCHEMA_VERSION_ARCHIVE:-2.4.0}" || true
+check_schema_status "$UPG_LOG_FILE" "log" "${SCHEMA_VERSION_LOG:-2.4.0}" || true
 check_claude_md_status || true
 check_checksum_status || true
 
@@ -358,7 +360,11 @@ if type ensure_compatible_version &>/dev/null; then
                 echo "Migrating $file_type..."
             fi
             # Use ensure_compatible_version from migrate.sh for all file types
-            ensure_compatible_version "$file_path" "$file_type" 2>/dev/null && ((UPDATES_APPLIED++)) || ERRORS+=("$file_type migration failed")
+            if ensure_compatible_version "$file_path" "$file_type"; then
+                ((UPDATES_APPLIED++))
+            else
+                ERRORS+=("$file_type migration failed")
+            fi
         fi
     done
 fi
