@@ -1,17 +1,25 @@
-# URGENT: Migration System Fix Required - HIGHEST PRIORITY
+# ~~URGENT: Migration System Fix Required - HIGHEST PRIORITY~~ ✅ RESOLVED
 
-**Priority**: CRITICAL - BLOCKING PRODUCTION
+**Priority**: ~~CRITICAL - BLOCKING PRODUCTION~~ → **RESOLVED**
 **Created**: 2026-01-03
+**Resolved**: 2026-01-03
 **Epic**: T1243
-**Primary Task**: T1245
+**Primary Task**: T1245 ✅ DONE
+**Secondary Task**: T1246 ✅ DONE
 
 ---
 
-## IMMEDIATE ACTION REQUIRED
+## ~~IMMEDIATE ACTION REQUIRED~~ ✅ FIXED
 
-The migration system is broken. Users cannot upgrade from schema 2.4.0 to 2.6.0. The position ordering feature (T805) was shipped but the migration functions were never implemented.
+~~The migration system is broken. Users cannot upgrade from schema 2.4.0 to 2.6.0.~~
 
-**YOU MUST FIX THIS BEFORE ANY OTHER WORK.**
+**RESOLUTION:**
+1. Added `migrate_todo_to_2_5_0()` function (position field)
+2. Updated `known_versions` array to include 2.5.0 and 2.6.0
+3. Fixed `scripts/upgrade.sh` to call `ensure_compatible_version()` instead of non-existent `migrate_todo_file()`
+4. Migration path 2.4.0 → 2.5.0 → 2.6.0 now works correctly
+
+**New task created**: T1249 - Implement dynamic migration version discovery for CI/CD
 
 ---
 

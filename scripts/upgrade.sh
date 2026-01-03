@@ -348,7 +348,7 @@ if [[ -n "${UPDATES_NEEDED[todo]:-}" ]] && [[ "${UPDATES_NEEDED[todo]}" == *"leg
 fi
 
 # 2. Run schema migrations
-if type migrate_file &>/dev/null; then
+if type ensure_compatible_version &>/dev/null; then
     for file_spec in "todo:$UPG_TODO_FILE" "config:$UPG_CONFIG_FILE" "archive:$UPG_ARCHIVE_FILE" "log:$UPG_LOG_FILE"; do
         IFS=':' read -r file_type file_path <<< "$file_spec"
         [[ ! -f "$file_path" ]] && continue
@@ -357,10 +357,8 @@ if type migrate_file &>/dev/null; then
             if ! is_json_output; then
                 echo "Migrating $file_type..."
             fi
-            # Use migrate functions if available
-            if type migrate_todo_file &>/dev/null && [[ "$file_type" == "todo" ]]; then
-                migrate_todo_file "$file_path" 2>/dev/null && ((UPDATES_APPLIED++)) || ERRORS+=("$file_type migration failed")
-            fi
+            # Use ensure_compatible_version from migrate.sh for all file types
+            ensure_compatible_version "$file_path" "$file_type" 2>/dev/null && ((UPDATES_APPLIED++)) || ERRORS+=("$file_type migration failed")
         fi
     done
 fi
