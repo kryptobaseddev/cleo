@@ -1,11 +1,16 @@
 #!/usr/bin/env bats
 # Unit tests for position shuffle logic (T805)
 
-load "../test_helper"
-load "../../test_helper/bats-support/load"
-load "../../test_helper/bats-assert/load"
+setup_file() {
+    load '../test_helper/common_setup'
+    common_setup_file
+}
 
 setup() {
+    load '../test_helper/common_setup'
+    load '../test_helper/assertions'
+    load '../test_helper/fixtures'
+    common_setup_per_test
     # Create temp directory for test files
     TEST_DIR="$(mktemp -d)"
     export CLEO_DIR="$TEST_DIR/.cleo"
@@ -29,6 +34,11 @@ EOF
 
 teardown() {
     rm -rf "$TEST_DIR"
+    common_teardown_per_test
+}
+
+teardown_file() {
+    common_teardown_file
 }
 
 # =============================================================================
