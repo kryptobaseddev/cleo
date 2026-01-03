@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.48.1 -->
+<!-- CLEO:START v0.48.2 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`

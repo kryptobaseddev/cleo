@@ -48,8 +48,8 @@ check_project_needs_update() {
         if [[ "$has_top_level_phases" == "true" ]] || [[ "$project_type" == "string" ]]; then
             _VERSION_WARNINGS+=("Schema has legacy structure. Run: cleo upgrade")
             needs_update=1
-        elif [[ "$current_version" != "${SCHEMA_VERSION_TODO:-2.4.0}" ]]; then
-            _VERSION_WARNINGS+=("Schema outdated ($current_version → ${SCHEMA_VERSION_TODO:-2.4.0}). Run: cleo upgrade")
+        elif [[ "$current_version" != "${SCHEMA_VERSION_TODO:-2.6.0}" ]]; then
+            _VERSION_WARNINGS+=("Schema outdated ($current_version → ${SCHEMA_VERSION_TODO:-2.6.0}). Run: cleo upgrade")
             needs_update=1
         fi
     fi

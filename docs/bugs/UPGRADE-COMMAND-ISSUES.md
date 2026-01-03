@@ -3,20 +3,21 @@
 **Epic**: T1243
 **Created**: 2026-01-03
 **Updated**: 2026-01-03
-**Priority**: MEDIUM (was CRITICAL)
-**Status**: Partially resolved - critical blockers fixed
+**Priority**: LOW (was CRITICAL → MEDIUM)
+**Status**: Most critical issues resolved
 
 ## Executive Summary
 
-The `cleo upgrade` command had multiple serious bugs discovered during the 2026-01-03 session. **CRITICAL ISSUES NOW FIXED:**
+The `cleo upgrade` command had multiple serious bugs discovered during the 2026-01-03 session. **ISSUES FIXED:**
 
 1. ~~Fails to complete migrations (stops at 2.4.0, target is 2.6.0)~~ ✅ **FIXED** (T1245)
-2. ~~Has arithmetic syntax errors in version comparison~~ ✅ **FIXED** (T1244 - unable to reproduce, works correctly)
+2. ~~Has arithmetic syntax errors in version comparison~~ ✅ **FIXED** (T1244 - unable to reproduce)
 3. ~~Missing migration functions for position ordering (T805)~~ ✅ **FIXED** (T1245)
 4. ~~Inconsistent behavior between `--status` and actual execution~~ ✅ **FIXED** (T1246)
-5. Documentation confusion between `upgrade` and `migrate` commands - STILL OPEN
+5. ~~Backwards version display (2.4.0 → 2.2.0)~~ ✅ **FIXED** - Was misdiagnosed as display bug, actual root cause was DRY violation with scattered version constants
+6. Documentation confusion between `upgrade` and `migrate` commands - STILL OPEN
 
-**Remaining issues are LOW priority documentation/cosmetic fixes.**
+**Remaining issues are documentation/refactoring. T1249 tracks permanent fix for version constant DRY violation.**
 
 ---
 
@@ -161,26 +162,47 @@ Debug upgrade.sh to understand why:
 
 ---
 
-## Issue 5: Display Bugs (Backwards Versions)
+## Issue 5: Display Bugs (Backwards Versions) - ✅ FIXED 2026-01-03
 
-**Severity**: LOW (cosmetic but confusing)
-**Location**: `scripts/upgrade.sh`
-**Existing Tasks**: T1233, T1234
-**Affects**: User understanding of upgrade direction
+**Severity**: HIGH (was LOW - misdiagnosed as cosmetic)
+**Location**: Multiple files (DRY violation)
+**Existing Tasks**: T1233, T1234, T1249 (permanent fix)
+**Affects**: All upgrade operations, not just display
 
 ### Symptom
 Display shows version downgrade instead of upgrade:
 ```
-Config version: 2.3.0 → 2.2.0  # WRONG - appears to downgrade
+Config version: 2.4.0 → 2.2.0  # Shows DOWNGRADE
+Archive: 2.4.0 → 2.1.0         # Shows DOWNGRADE
+Log: 2.4.0 → 2.1.0             # Shows DOWNGRADE
 ```
 
-Should show:
-```
-Config version: 2.2.0 → 2.3.0  # CORRECT - shows upgrade direction
-```
+### ACTUAL ROOT CAUSE (discovered 2026-01-03)
 
-### Fix Required
-Fix version display logic in upgrade.sh to show `current → target` not `target → current`
+**NOT a display bug** - the upgrade command was genuinely trying to downgrade because SCHEMA_VERSION_* constants were out of sync with actual data file versions.
+
+| File | Constant | Expected | Actual File Version |
+|------|----------|----------|---------------------|
+| lib/migrate.sh:29 | SCHEMA_VERSION_CONFIG | 2.2.0 | 2.4.0 |
+| lib/migrate.sh:30 | SCHEMA_VERSION_ARCHIVE | 2.1.0 | 2.4.0 |
+| lib/migrate.sh:31 | SCHEMA_VERSION_LOG | 2.1.0 | 2.4.0 |
+| scripts/upgrade.sh:224 | (hardcoded) | "2.1.0" | 2.4.0 |
+| scripts/upgrade.sh:225 | (hardcoded) | "2.1.0" | 2.4.0 |
+
+### DRY/SOLID Violation
+- Version constants scattered across 3 files with no single source of truth
+- `scripts/upgrade.sh` had **hardcoded** "2.1.0" values, completely ignoring variables
+- `lib/version-check.sh` had outdated fallback defaults
+- No validation that constants match actual migration functions
+
+### Immediate Fix Applied (2026-01-03)
+Updated in BOTH development AND installed versions:
+1. `lib/migrate.sh` - SCHEMA_VERSION_CONFIG/ARCHIVE/LOG → 2.4.0
+2. `scripts/upgrade.sh` - Use ${SCHEMA_VERSION_*} variables instead of hardcoded "2.1.0"
+3. `lib/version-check.sh` - Update fallback from 2.4.0 to 2.6.0
+
+### Permanent Fix Required
+See T1249 and subtasks T1250-T1252 for implementing single source of truth.
 
 ---
 
