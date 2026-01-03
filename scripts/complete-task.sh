@@ -88,6 +88,12 @@ if [[ -f "$LIB_DIR/verification.sh" ]]; then
   source "$LIB_DIR/verification.sh"
 fi
 
+# Source context alert library for context monitoring (T1323)
+if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
+  # shellcheck source=../lib/context-alert.sh
+  source "$LIB_DIR/context-alert.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -637,6 +643,11 @@ AFTER_STATE=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | {status, c
 # Get full completed task for output
 COMPLETED_TASK=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 TASK_TITLE=$(echo "$COMPLETED_TASK" | jq -r '.title')
+
+# Check context alert before outputting (T1324)
+if declare -f check_context_alert >/dev/null 2>&1; then
+  check_context_alert 2>/dev/null || true
+fi
 
 # Phase context check (permissive - warn only, never block completion)
 if declare -f check_phase_context >/dev/null 2>&1; then

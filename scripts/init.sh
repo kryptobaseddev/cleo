@@ -567,19 +567,65 @@ else
   log_warn "Schemas not found (schema validation may fail)"
 fi
 
+# ============================================================================
+# EXTRACT SCHEMA VERSIONS FROM SOURCE OF TRUTH
+# ============================================================================
+# Schema files are the single source of truth for version numbers
+# Extract versions before template processing
+
+# Set SCHEMA_DIR for migrate.sh to use (must match SCHEMAS_DIR from above)
+export SCHEMA_DIR="$SCHEMAS_DIR"
+
+# Source migrate.sh for get_schema_version_from_file() function
+if [[ -f "$CLEO_HOME/lib/migrate.sh" ]]; then
+  source "$CLEO_HOME/lib/migrate.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/migrate.sh" ]]; then
+  source "$SCRIPT_DIR/../lib/migrate.sh"
+else
+  log_error "migrate.sh not found - cannot extract schema versions"
+  exit 1
+fi
+
+# Extract schema versions (using existing helper function)
+SCHEMA_VERSION_TODO=$(get_schema_version_from_file "todo" 2>/dev/null || echo "2.6.0")
+SCHEMA_VERSION_CONFIG=$(get_schema_version_from_file "config" 2>/dev/null || echo "2.4.0")
+SCHEMA_VERSION_ARCHIVE=$(get_schema_version_from_file "archive" 2>/dev/null || echo "2.4.0")
+SCHEMA_VERSION_LOG=$(get_schema_version_from_file "log" 2>/dev/null || echo "2.4.0")
+
+# sessions.schema.json has schemaVersion field
+SCHEMA_VERSION_SESSIONS=$(jq -r '.schemaVersion // "1.0.0"' "$SCHEMAS_DIR/sessions.schema.json" 2>/dev/null || echo "1.0.0")
+
+# global-config.schema.json does NOT have schemaVersion field (it uses version field in the data)
+# For global-config, we'll use the VERSION constant (cleo version) as fallback
+SCHEMA_VERSION_GLOBAL_CONFIG="$VERSION"
+
+log_info "Schema versions extracted:"
+log_info "  TODO: $SCHEMA_VERSION_TODO"
+log_info "  Config: $SCHEMA_VERSION_CONFIG"
+log_info "  Archive: $SCHEMA_VERSION_ARCHIVE"
+log_info "  Log: $SCHEMA_VERSION_LOG"
+log_info "  Sessions: $SCHEMA_VERSION_SESSIONS"
+log_info "  Global Config: $SCHEMA_VERSION_GLOBAL_CONFIG"
+
 # Create todo.json from template
 log_info "Creating todo.json from template..."
 if [[ -f "$TEMPLATES_DIR/todo.template.json" ]]; then
-  cp "$TEMPLATES_DIR/todo.template.json" "$TODO_DIR/todo.json"
+  # Process template and replace all placeholders
+  sed -e "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" \
+      -e "s/{{TIMESTAMP}}/$TIMESTAMP/g" \
+      -e "s/{{CHECKSUM}}/$CHECKSUM/g" \
+      -e "s/{{VERSION}}/$VERSION/g" \
+      -e "s/{{SCHEMA_VERSION_TODO}}/$SCHEMA_VERSION_TODO/g" \
+      -e "s/{{SCHEMA_VERSION_CONFIG}}/$SCHEMA_VERSION_CONFIG/g" \
+      -e 's|"\$schema": "../schemas/todo.schema.json"|"$schema": "./schemas/todo.schema.json"|' \
+      "$TEMPLATES_DIR/todo.template.json" > "$TODO_DIR/todo.json"
 
-  # Substitute placeholders
-  sed -i "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TODO_DIR/todo.json"
-  sed -i "s/{{TIMESTAMP}}/$TIMESTAMP/g" "$TODO_DIR/todo.json"
-  sed -i "s/{{CHECKSUM}}/$CHECKSUM/g" "$TODO_DIR/todo.json"
-  sed -i "s/{{VERSION}}/$VERSION/g" "$TODO_DIR/todo.json"
-
-  # Fix schema path from relative to local
-  sed -i 's|"\$schema": "../schemas/todo.schema.json"|"$schema": "./schemas/todo.schema.json"|' "$TODO_DIR/todo.json"
+  # Verify no placeholders remain
+  if grep -q '{{' "$TODO_DIR/todo.json"; then
+    log_error "Placeholder replacement failed in todo.json"
+    grep '{{' "$TODO_DIR/todo.json" >&2
+    exit 1
+  fi
 
   log_info "Created $TODO_DIR/todo.json"
 else
@@ -590,14 +636,19 @@ fi
 # Create todo-archive.json from template
 log_info "Creating todo-archive.json from template..."
 if [[ -f "$TEMPLATES_DIR/archive.template.json" ]]; then
-  cp "$TEMPLATES_DIR/archive.template.json" "$TODO_DIR/todo-archive.json"
+  # Process template and replace all placeholders
+  sed -e "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" \
+      -e "s/{{VERSION}}/$VERSION/g" \
+      -e "s/{{SCHEMA_VERSION_ARCHIVE}}/$SCHEMA_VERSION_ARCHIVE/g" \
+      -e 's|"\$schema": "../schemas/archive.schema.json"|"$schema": "./schemas/archive.schema.json"|' \
+      "$TEMPLATES_DIR/archive.template.json" > "$TODO_DIR/todo-archive.json"
 
-  # Substitute placeholders
-  sed -i "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TODO_DIR/todo-archive.json"
-  sed -i "s/{{VERSION}}/$VERSION/g" "$TODO_DIR/todo-archive.json"
-
-  # Fix schema path from relative to local
-  sed -i 's|"\$schema": "../schemas/archive.schema.json"|"$schema": "./schemas/archive.schema.json"|' "$TODO_DIR/todo-archive.json"
+  # Verify no placeholders remain
+  if grep -q '{{' "$TODO_DIR/todo-archive.json"; then
+    log_error "Placeholder replacement failed in todo-archive.json"
+    grep '{{' "$TODO_DIR/todo-archive.json" >&2
+    exit 1
+  fi
 
   log_info "Created $TODO_DIR/todo-archive.json"
 else
@@ -608,13 +659,18 @@ fi
 # Create config.json from template
 log_info "Creating config.json from template..."
 if [[ -f "$TEMPLATES_DIR/config.template.json" ]]; then
-  cp "$TEMPLATES_DIR/config.template.json" "$TODO_DIR/config.json"
+  # Process template and replace all placeholders
+  sed -e "s/{{VERSION}}/$VERSION/g" \
+      -e "s/{{SCHEMA_VERSION_CONFIG}}/$SCHEMA_VERSION_CONFIG/g" \
+      -e 's|"\$schema": "../schemas/config.schema.json"|"$schema": "./schemas/config.schema.json"|' \
+      "$TEMPLATES_DIR/config.template.json" > "$TODO_DIR/config.json"
 
-  # Substitute placeholders
-  sed -i "s/{{VERSION}}/$VERSION/g" "$TODO_DIR/config.json"
-
-  # Fix schema path from relative to local
-  sed -i 's|"\$schema": "../schemas/config.schema.json"|"$schema": "./schemas/config.schema.json"|' "$TODO_DIR/config.json"
+  # Verify no placeholders remain
+  if grep -q '{{' "$TODO_DIR/config.json"; then
+    log_error "Placeholder replacement failed in config.json"
+    grep '{{' "$TODO_DIR/config.json" >&2
+    exit 1
+  fi
 
   log_info "Created $TODO_DIR/config.json"
 else
@@ -625,14 +681,12 @@ fi
 # Create todo-log.json from template
 log_info "Creating todo-log.json from template..."
 if [[ -f "$TEMPLATES_DIR/log.template.json" ]]; then
-  cp "$TEMPLATES_DIR/log.template.json" "$TODO_DIR/todo-log.json"
-
-  # Substitute placeholders
-  sed -i "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TODO_DIR/todo-log.json"
-  sed -i "s/{{VERSION}}/$VERSION/g" "$TODO_DIR/todo-log.json"
-
-  # Fix schema path from relative to local
-  sed -i 's|"\$schema": "../schemas/log.schema.json"|"$schema": "./schemas/log.schema.json"|' "$TODO_DIR/todo-log.json"
+  # Process template and replace all placeholders
+  sed -e "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" \
+      -e "s/{{VERSION}}/$VERSION/g" \
+      -e "s/{{SCHEMA_VERSION_LOG}}/$SCHEMA_VERSION_LOG/g" \
+      -e 's|"\$schema": "../schemas/log.schema.json"|"$schema": "./schemas/log.schema.json"|' \
+      "$TEMPLATES_DIR/log.template.json" > "$TODO_DIR/todo-log.json"
 
   # Add initialization log entry
   # Generate random log ID
@@ -663,6 +717,13 @@ if [[ -f "$TEMPLATES_DIR/log.template.json" ]]; then
     log_warn "jq not installed - log entry not added"
   fi
 
+  # Verify no placeholders remain
+  if grep -q '{{' "$TODO_DIR/todo-log.json"; then
+    log_error "Placeholder replacement failed in todo-log.json"
+    grep '{{' "$TODO_DIR/todo-log.json" >&2
+    exit 1
+  fi
+
   log_info "Created $TODO_DIR/todo-log.json"
 else
   log_error "Template not found: $TEMPLATES_DIR/log.template.json"
@@ -672,18 +733,35 @@ fi
 # Create sessions.json from template (for Epic-Bound Session architecture)
 log_info "Creating sessions.json from template..."
 if [[ -f "$TEMPLATES_DIR/sessions.template.json" ]]; then
-  cp "$TEMPLATES_DIR/sessions.template.json" "$TODO_DIR/sessions.json"
+  # Process template and replace all placeholders
+  sed -e "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" \
+      -e "s/{{TIMESTAMP}}/$TIMESTAMP/g" \
+      -e "s/{{SCHEMA_VERSION_SESSIONS}}/$SCHEMA_VERSION_SESSIONS/g" \
+      -e 's|"\$schema": "../schemas/sessions.schema.json"|"$schema": "./schemas/sessions.schema.json"|' \
+      "$TEMPLATES_DIR/sessions.template.json" > "$TODO_DIR/sessions.json"
 
-  # Substitute placeholders
-  sed -i "s/{{PROJECT_NAME}}/$PROJECT_NAME/g" "$TODO_DIR/sessions.json"
-  sed -i "s/{{TIMESTAMP}}/$TIMESTAMP/g" "$TODO_DIR/sessions.json"
-
-  # Fix schema path from relative to local
-  sed -i 's|"\$schema": "../schemas/sessions.schema.json"|"$schema": "./schemas/sessions.schema.json"|' "$TODO_DIR/sessions.json"
+  # Verify no placeholders remain
+  if grep -q '{{' "$TODO_DIR/sessions.json"; then
+    log_error "Placeholder replacement failed in sessions.json"
+    grep '{{' "$TODO_DIR/sessions.json" >&2
+    exit 1
+  fi
 
   log_info "Created $TODO_DIR/sessions.json"
 else
   log_warn "Template not found: $TEMPLATES_DIR/sessions.template.json (multi-session will initialize on first use)"
+fi
+
+# Create migrations.json from template (for migration audit trail)
+log_info "Creating migrations.json from template..."
+if declare -f init_migrations_journal &>/dev/null; then
+  if init_migrations_journal "$TODO_DIR"; then
+    log_info "Created $TODO_DIR/migrations.json"
+  else
+    log_warn "Failed to create migrations.json (migration tracking will be unavailable)"
+  fi
+else
+  log_warn "init_migrations_journal function not available (ensure lib/migrate.sh is sourced)"
 fi
 
 # Recalculate checksum from actual tasks array to ensure validity
@@ -718,6 +796,15 @@ if command -v jq &> /dev/null; then
       log_info "✓ Valid JSON: sessions.json"
     else
       log_error "✗ Invalid JSON: $TODO_DIR/sessions.json"
+      exit 1
+    fi
+  fi
+  # Validate optional migrations.json if it was created
+  if [[ -f "$TODO_DIR/migrations.json" ]]; then
+    if jq empty "$TODO_DIR/migrations.json" 2>/dev/null; then
+      log_info "✓ Valid JSON: migrations.json"
+    else
+      log_error "✗ Invalid JSON: $TODO_DIR/migrations.json"
       exit 1
     fi
   fi
@@ -800,6 +887,8 @@ CREATED_FILES=(
 )
 # Only include sessions.json if it was actually created
 [[ -f "$TODO_DIR/sessions.json" ]] && CREATED_FILES+=("sessions.json")
+# Only include migrations.json if it was actually created
+[[ -f "$TODO_DIR/migrations.json" ]] && CREATED_FILES+=("migrations.json")
 
 if [[ "$FORMAT" == "json" ]]; then
   # JSON output
@@ -838,6 +927,7 @@ else
   echo "  - .cleo/config.json       (settings)"
   echo "  - .cleo/todo-log.json     (change history)"
   echo "  - .cleo/sessions.json     (multi-session management)"
+  echo "  - .cleo/migrations.json   (migration audit trail)"
   echo "  - .cleo/schemas/          (JSON schemas for validation)"
   echo "  - .cleo/backups/          (automatic backups)"
   echo "    ├── snapshot/             (point-in-time snapshots)"

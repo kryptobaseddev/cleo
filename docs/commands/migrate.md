@@ -12,7 +12,13 @@ cleo migrate <command> [OPTIONS]
 
 The `migrate` command handles schema version upgrades for cleo JSON files. When cleo is updated, your project files may need migration to work with new features.
 
-Migration is safe and creates backups automatically before making changes.
+**Key Features:**
+- **Dynamic version detection** - Schema versions read from `schemas/*.schema.json` files
+- **Automatic migration discovery** - Migration functions discovered via Bash introspection
+- **Safe migrations** - Automatic backups, validation, and rollback support
+- **Smart version comparison** - PATCH/MINOR/MAJOR version difference detection
+
+**Architecture:** See [docs/MIGRATION-SYSTEM.md](../MIGRATION-SYSTEM.md) for complete system architecture.
 
 ## Subcommands
 
@@ -492,9 +498,95 @@ cleo migrate rollback --backup-id migration_v2.1.0_20251215_100000
 
 ---
 
+## Migration System API
+
+For developers and advanced users working with migration code:
+
+### Core Functions
+
+#### get_schema_version_from_file()
+
+Read schema version from schema file (single source of truth).
+
+```bash
+source lib/migrate.sh
+version=$(get_schema_version_from_file "todo")
+# Returns: "2.6.0"
+```
+
+**Args:** `$1` = file type (todo|config|archive|log)
+**Returns:** Version string or error
+
+#### discover_migration_versions()
+
+Dynamically discover available migration functions via Bash introspection.
+
+```bash
+# All migrations for specific type
+versions=$(discover_migration_versions "todo")
+# Returns: "2.2.0 2.3.0 2.4.0 2.5.0 2.6.0"
+
+# All migrations across all types
+versions=$(discover_migration_versions)
+```
+
+**Args:** `$1` = file_type (optional) - filter for specific type
+**Returns:** Sorted unique version strings (space-separated)
+
+#### compare_schema_versions()
+
+Compare data version against schema version and determine difference type.
+
+```bash
+comparison=$(compare_schema_versions "2.4.0" "2.6.0")
+# Returns: "minor_diff"
+```
+
+**Args:**
+- `$1` = data version (from file)
+- `$2` = schema version (expected)
+
+**Returns:**
+- `equal` - No migration needed
+- `patch_only` - Version bump only, no data transformation
+- `minor_diff` - Migration needed (MINOR change)
+- `major_diff` - Major upgrade required
+- `data_newer` - Data newer than schema (cannot migrate)
+
+### Migration Function Naming
+
+**Semver pattern (current):**
+```bash
+migrate_todo_to_2_6_0() {
+    local file="$1"
+    # Migration logic...
+    update_version_field "$file" "2.6.0"
+}
+```
+
+**Timestamp pattern (future):**
+```bash
+migrate_todo_20260103120000_add_verification() {
+    local file="$1"
+    # Migration logic...
+}
+```
+
+### Version Detection
+
+The system automatically detects file versions with fallback handling:
+
+1. `._meta.schemaVersion` (canonical location)
+2. `.version` (legacy fallback)
+3. `$schema` field inference
+4. Legacy structure detection
+
+**Full API documentation:** [docs/MIGRATION-SYSTEM.md](../MIGRATION-SYSTEM.md)
+
 ## See Also
 
 - [validate](validate.md) - Check file integrity
 - [backup](backup.md) - Create manual backups
 - [restore](restore.md) - Restore from backups
 - [reorganize-backups](reorganize-backups.md) - Migrate legacy backup structure
+- [MIGRATION-SYSTEM.md](../MIGRATION-SYSTEM.md) - Complete migration architecture

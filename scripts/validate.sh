@@ -555,31 +555,31 @@ else
 fi
 
 # 7.5. Check schema version compatibility
-# Check _meta.version first, fall back to root .version
-SCHEMA_VERSION=$(jq -r '._meta.version // .version // ""' "$TODO_FILE")
-EXPECTED_MAJOR=2
-DEFAULT_VERSION="2.0.0"
+# Require ._meta.schemaVersion - no fallback to legacy .version field
+SCHEMA_VERSION=$(jq -r '._meta.schemaVersion' "$TODO_FILE")
+# Extract expected major version from schema file (2.6.0 -> 2)
+EXPECTED_MAJOR=$(jq -r '._meta.schemaVersion // .schemaVersion | split(".")[0]' "$SCHEMA_DIR/todo.schema.json")
+DEFAULT_VERSION=$(jq -r '._meta.schemaVersion // .schemaVersion' "$SCHEMA_DIR/todo.schema.json")
 
-if [[ -n "$SCHEMA_VERSION" ]]; then
-  # Extract major version (first number before dot)
-  MAJOR_VERSION=$(echo "$SCHEMA_VERSION" | cut -d. -f1)
-
-  if [[ "$MAJOR_VERSION" != "$EXPECTED_MAJOR" ]]; then
-    log_error "Incompatible schema version: $SCHEMA_VERSION (expected major version $EXPECTED_MAJOR)"
-  else
-    log_info "Schema version compatible ($SCHEMA_VERSION)" "schema_version"
-  fi
-else
+if [[ -z "$SCHEMA_VERSION" || "$SCHEMA_VERSION" == "null" ]]; then
+  log_error "Missing ._meta.schemaVersion field. Run: cleo upgrade" "schema_version"
   if [[ "$FIX" == true ]]; then
     # Atomic write with locking
-    if safe_json_write "$TODO_FILE" '._meta.version = $ver' --arg ver "$DEFAULT_VERSION"; then
-      echo "  Fixed: Added _meta.version = $DEFAULT_VERSION"
+    if safe_json_write "$TODO_FILE" '._meta.schemaVersion = $ver' --arg ver "$DEFAULT_VERSION"; then
+      echo "  Fixed: Added _meta.schemaVersion = $DEFAULT_VERSION"
       log_info "Schema version compatible ($DEFAULT_VERSION) (after fix)" "schema_version"
     else
       log_error "Failed to add schema version (could not acquire lock or write failed)"
     fi
+  fi
+elif [[ -n "$SCHEMA_VERSION" ]]; then
+  # Extract major version (first number before dot)
+  MAJOR_VERSION=$(echo "$SCHEMA_VERSION" | cut -d. -f1)
+
+  if [[ "$MAJOR_VERSION" != "$EXPECTED_MAJOR" ]]; then
+    log_error "Incompatible schema version: $SCHEMA_VERSION (expected major version $EXPECTED_MAJOR)" "schema_version"
   else
-    log_warn "No schema version found. Run with --fix to add _meta.version"
+    log_info "Schema version compatible ($SCHEMA_VERSION)" "schema_version"
   fi
 fi
 
@@ -1017,7 +1017,7 @@ if [[ "$FORMAT" == "json" ]]; then
   # Don't print blank line for JSON output
   # Get app version (not schema version)
   APP_VERSION="${CLEO_VERSION:-unknown}"
-  SCHEMA_VERSION=$(jq -r '._meta.version // "unknown"' "$TODO_FILE" 2>/dev/null || echo "unknown")
+  SCHEMA_VERSION=$(jq -r '._meta.schemaVersion' "$TODO_FILE" 2>/dev/null || echo "unknown")
   TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   VALID=$([[ $ERRORS -eq 0 ]] && echo "true" || echo "false")
 

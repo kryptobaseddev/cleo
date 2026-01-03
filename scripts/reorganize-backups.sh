@@ -359,11 +359,18 @@ migrate_single_backup() {
     fi
 
     # Create metadata with migration flags
+    # Get CLI version (fail loudly if unreadable)
+    local cli_version="${CLEO_VERSION:-${VERSION:-}}"
+    if [[ -z "$cli_version" ]]; then
+        echo "ERROR: CLEO_VERSION not set. Cannot create backup metadata." >&2
+        return 1
+    fi
+
     local metadata
     metadata=$(jq -nc \
         --arg type "$backup_type" \
         --arg ts "$(get_iso_timestamp)" \
-        --arg ver "${CLEO_VERSION:-0.9.8}" \
+        --arg ver "$cli_version" \
         --arg trigger "migration" \
         --arg op "migrate_legacy" \
         --argjson files "$files_json" \

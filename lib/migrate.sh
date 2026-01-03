@@ -6,8 +6,9 @@
 # PROVIDES: check_schema_version, run_migrations, get_default_phases,
 #           parse_version, compare_versions, get_schema_version_from_file,
 #           compare_schema_versions, bump_version_only, check_compatibility,
-#           SCHEMA_VERSION_TODO, SCHEMA_VERSION_CONFIG, SCHEMA_VERSION_ARCHIVE,
-#           SCHEMA_VERSION_LOG, SCHEMA_DIR
+#           init_migrations_journal, get_migration_checksum,
+#           record_migration_application, validate_applied_checksums,
+#           SCHEMA_DIR
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_MIGRATE_SH_LOADED:-}" ]] && return 0
@@ -24,12 +25,6 @@ source "$SCRIPT_DIR/logging.sh"
 # CONSTANTS
 # ============================================================================
 
-# Current schema versions (fallback if schema file doesn't have schemaVersion)
-SCHEMA_VERSION_TODO="2.6.0"
-SCHEMA_VERSION_CONFIG="2.4.0"
-SCHEMA_VERSION_ARCHIVE="2.4.0"
-SCHEMA_VERSION_LOG="2.4.0"
-
 # Migration scripts directory
 MIGRATIONS_DIR="${CLEO_HOME:-$HOME/.cleo}/migrations"
 
@@ -38,6 +33,185 @@ TEMPLATES_DIR="${CLEO_HOME:-$HOME/.cleo}/templates"
 
 # Schema directory
 SCHEMA_DIR="${SCHEMA_DIR:-${CLEO_HOME:-$HOME/.cleo}/schemas}"
+
+# ============================================================================
+# INITIALIZATION FUNCTIONS
+# ============================================================================
+
+# Initialize migrations.json from template
+# Creates .cleo/migrations.json if it doesn't exist
+# Args: $1 = cleo directory (default: .cleo)
+# Returns: 0 on success, 1 on failure
+init_migrations_journal() {
+    local cleo_dir="${1:-.cleo}"
+    local migrations_file="$cleo_dir/migrations.json"
+
+    # Skip if already exists
+    if [[ -f "$migrations_file" ]]; then
+        return 0
+    fi
+
+    # Get schema version from schema file (single source of truth)
+    local schema_version
+    schema_version=$(jq -r '.schemaVersion // "1.0.0"' "$SCHEMA_DIR/migrations.schema.json" 2>/dev/null || echo "1.0.0")
+
+    # Create from template with version replacement
+    if [[ -f "$TEMPLATES_DIR/migrations.template.json" ]]; then
+        sed "s/{{SCHEMA_VERSION_MIGRATIONS}}/$schema_version/g" \
+            "$TEMPLATES_DIR/migrations.template.json" > "$migrations_file"
+
+        # Verify no placeholders remain
+        if grep -q '{{' "$migrations_file"; then
+            echo "ERROR: Placeholder replacement failed in migrations.json" >&2
+            rm -f "$migrations_file"
+            return 1
+        fi
+
+        # Validate JSON
+        if ! jq empty "$migrations_file" 2>/dev/null; then
+            echo "ERROR: Generated migrations.json is invalid JSON" >&2
+            rm -f "$migrations_file"
+            return 1
+        fi
+
+        return 0
+    else
+        echo "ERROR: Template not found: $TEMPLATES_DIR/migrations.template.json" >&2
+        return 1
+    fi
+}
+
+# ============================================================================
+# MIGRATION RECORDING AND CHECKSUM VALIDATION
+# ============================================================================
+
+# Calculate SHA256 checksum of a migration function's source code
+# Args: $1 = function name
+# Returns: 64-character hex checksum
+get_migration_checksum() {
+    local function_name="$1"
+
+    # Get function body using declare -f
+    local function_body
+    function_body=$(declare -f "$function_name" 2>/dev/null)
+
+    if [[ -z "$function_body" ]]; then
+        # Function not found, return zeros
+        echo "0000000000000000000000000000000000000000000000000000000000000000"
+        return 1
+    fi
+
+    # Calculate SHA256
+    echo -n "$function_body" | sha256sum | cut -d' ' -f1
+}
+
+# Record a migration execution to the journal
+# Args:
+#   $1 = file path that was migrated
+#   $2 = file type (todo|config|archive|log)
+#   $3 = target version (e.g., "2.6.0")
+#   $4 = previous version (e.g., "2.5.0")
+#   $5 = function name (e.g., "migrate_todo_to_2_6_0")
+#   $6 = status (success|failed|skipped)
+#   $7 = execution time in ms (optional)
+#   $8 = backup path (optional)
+# Returns: 0 on success, 1 on failure
+record_migration_application() {
+    local file_path="$1"
+    local file_type="$2"
+    local version="$3"
+    local previous_version="$4"
+    local function_name="$5"
+    local status="$6"
+    local exec_time_ms="${7:-null}"
+    local backup_path="${8:-null}"
+
+    local cleo_dir
+    cleo_dir=$(dirname "$file_path")
+    local journal_file="$cleo_dir/migrations.json"
+
+    # Initialize journal if needed
+    init_migrations_journal "$cleo_dir" || return 1
+
+    # Calculate checksum of migration function
+    local checksum
+    checksum=$(get_migration_checksum "$function_name")
+
+    # Create entry
+    local entry
+    entry=$(jq -nc \
+        --arg ver "$version" \
+        --arg prev "$previous_version" \
+        --arg ft "$file_type" \
+        --arg fn "$function_name" \
+        --arg cs "$checksum" \
+        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg st "$status" \
+        --argjson et "$exec_time_ms" \
+        --arg bp "$backup_path" \
+        '{
+            version: $ver,
+            fileType: $ft,
+            functionName: $fn,
+            checksum: $cs,
+            appliedAt: $ts,
+            status: $st,
+            previousVersion: $prev,
+            executionTimeMs: $et,
+            backupPath: (if $bp == "null" then null else $bp end)
+        }')
+
+    # Append to journal
+    local updated_journal
+    updated_journal=$(jq --argjson entry "$entry" \
+        '.appliedMigrations += [$entry] | ._meta.lastChecked = now | ._meta.lastChecked |= todate' \
+        "$journal_file")
+
+    # Save atomically
+    echo "$updated_journal" > "$journal_file.tmp" && mv "$journal_file.tmp" "$journal_file"
+}
+
+# Validate that applied migrations haven't been modified
+# Args: $1 = cleo directory (default: .cleo)
+# Returns: 0 if all valid, 1 if mismatches found
+# Outputs: List of modified migrations to stderr
+validate_applied_checksums() {
+    local cleo_dir="${1:-.cleo}"
+    local journal_file="$cleo_dir/migrations.json"
+
+    if [[ ! -f "$journal_file" ]]; then
+        return 0  # No journal = nothing to validate
+    fi
+
+    local has_errors=false
+
+    # Read all applied migrations with checksums
+    while IFS= read -r entry; do
+        local fn version checksum
+        fn=$(echo "$entry" | jq -r '.functionName // empty')
+        version=$(echo "$entry" | jq -r '.version')
+        checksum=$(echo "$entry" | jq -r '.checksum')
+
+        # Skip entries without function names (version-only bumps)
+        [[ -z "$fn" ]] && continue
+
+        # Calculate current checksum
+        local current_checksum
+        current_checksum=$(get_migration_checksum "$fn")
+
+        if [[ "$current_checksum" != "$checksum" ]]; then
+            echo "WARNING: Migration $fn (v$version) has been modified!" >&2
+            echo "  Expected: $checksum" >&2
+            echo "  Current:  $current_checksum" >&2
+            has_errors=true
+        fi
+    done < <(jq -c '.appliedMigrations[]' "$journal_file" 2>/dev/null)
+
+    if $has_errors; then
+        return 1
+    fi
+    return 0
+}
 
 # ============================================================================
 # LOCAL HELPER FUNCTIONS (LAYER 2)
@@ -66,6 +240,42 @@ save_json() {
     aw_atomic_write "$file" "$content"
 }
 
+# Extract target version from calling function's name
+# migrate_todo_to_2_6_0 -> 2.6.0
+# migrate_config_to_2_4_0 -> 2.4.0
+# Args: None (uses FUNCNAME[1] to get caller's function name)
+# Returns: version string (e.g., "2.6.0") or "unknown" if pattern doesn't match
+get_target_version_from_funcname() {
+    local funcname="${FUNCNAME[1]}"
+    if [[ "$funcname" =~ _to_([0-9]+)_([0-9]+)_([0-9]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    else
+        echo "unknown"
+    fi
+}
+
+# Get source/from version by decrementing patch version from target
+# Args: $1 = target version (e.g., "2.4.0")
+# Returns: from version (e.g., "2.3.0")
+get_from_version() {
+    local target="$1"
+    if [[ "$target" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        local major="${BASH_REMATCH[1]}"
+        local minor="${BASH_REMATCH[2]}"
+        local patch="${BASH_REMATCH[3]}"
+
+        # Decrement minor version
+        if [[ "$minor" -gt 0 ]]; then
+            echo "$major.$((minor - 1)).$patch"
+        else
+            # If minor is 0, we'd need to decrement major (edge case)
+            echo "$((major - 1)).9.$patch"
+        fi
+    else
+        echo "unknown"
+    fi
+}
+
 # ============================================================================
 # SCHEMA VERSION HELPERS
 # ============================================================================
@@ -90,7 +300,7 @@ get_schema_version_from_file() {
             ;;
     esac
 
-    # Try to read schemaVersion from the schema file
+    # Read schemaVersion from the schema file (single source of truth)
     if [[ -f "$schema_file" ]]; then
         local version
         version=$(jq -r '.schemaVersion // empty' "$schema_file" 2>/dev/null)
@@ -100,13 +310,9 @@ get_schema_version_from_file() {
         fi
     fi
 
-    # Fallback to constants if schema doesn't have schemaVersion yet
-    case "$file_type" in
-        todo)    echo "$SCHEMA_VERSION_TODO" ;;
-        config)  echo "$SCHEMA_VERSION_CONFIG" ;;
-        archive) echo "$SCHEMA_VERSION_ARCHIVE" ;;
-        log)     echo "$SCHEMA_VERSION_LOG" ;;
-    esac
+    # If schema file missing or has no version, this is an error
+    echo "ERROR: Schema file missing or has no schemaVersion: $schema_file" >&2
+    return 1
 }
 
 # Compare schema versions and determine the type of difference
@@ -288,20 +494,26 @@ detect_file_version() {
         return 1
     fi
 
-    # Try to extract version field - check both top-level and _meta.version
+    # Extract version from ._meta.schemaVersion (canonical location)
     local version
-    version=$(jq -r '.version // ._meta.version // "unknown"' "$file" 2>/dev/null)
+    version=$(jq -r '._meta.schemaVersion' "$file" 2>/dev/null)
 
-    if [[ "$version" == "unknown" || -z "$version" ]]; then
-        # Try to infer from $schema field
-        local schema_id
-        schema_id=$(jq -r '."$schema" // ""' "$file" 2>/dev/null)
+    # If missing, check for old .version field (pre-migration files only)
+    if [[ -z "$version" || "$version" == "null" ]]; then
+        version=$(jq -r '.version' "$file" 2>/dev/null)
 
-        # Extract version from schema ID (e.g., "claude-todo-schema-v2.1")
-        if [[ "$schema_id" =~ v([0-9]+\.[0-9]+) ]]; then
-            version="${BASH_REMATCH[1]}.0"
-        else
-            version="1.0.0"  # Assume oldest version if no version info
+        # If still missing, try to infer from $schema field
+        if [[ -z "$version" || "$version" == "null" ]]; then
+            local schema_id
+            schema_id=$(jq -r '."$schema" // ""' "$file" 2>/dev/null)
+
+            # Extract version from schema ID (e.g., "claude-todo-schema-v2.1")
+            if [[ "$schema_id" =~ v([0-9]+\.[0-9]+) ]]; then
+                version="${BASH_REMATCH[1]}.0"
+            else
+                # Final fallback: assume oldest version for pre-migration files
+                version="1.0.0"
+            fi
         fi
     fi
 
@@ -344,25 +556,9 @@ detect_file_version() {
 # Returns: expected version string
 get_expected_version() {
     local file_type="$1"
-
-    case "$file_type" in
-        "todo")
-            echo "$SCHEMA_VERSION_TODO"
-            ;;
-        "config")
-            echo "$SCHEMA_VERSION_CONFIG"
-            ;;
-        "archive")
-            echo "$SCHEMA_VERSION_ARCHIVE"
-            ;;
-        "log")
-            echo "$SCHEMA_VERSION_LOG"
-            ;;
-        *)
-            echo "ERROR: Unknown file type: $file_type" >&2
-            return 1
-            ;;
-    esac
+    
+    # Delegate to get_schema_version_from_file (single source of truth)
+    get_schema_version_from_file "$file_type"
 }
 
 # ============================================================================
@@ -388,6 +584,15 @@ migrate_file() {
     }
 
     echo "Backup created: $backup_file"
+
+    # STRUCTURAL MIGRATION: Ensure version field format is correct
+    # This should run before any version-specific migrations
+    # It's idempotent, so safe to run even if already in new format
+    echo "Checking version field format..."
+    if ! migrate_version_field_format "$file" "$file_type"; then
+        echo "WARNING: Version field format migration failed, continuing anyway..." >&2
+        # Don't fail the entire migration for this - it's a best-effort fix
+    fi
 
     # Find migration path (may require multiple steps)
     local migration_chain
@@ -431,6 +636,32 @@ migrate_file() {
     return 0
 }
 
+# Discover migration versions dynamically using Bash introspection
+# Searches for all migration functions and extracts version numbers
+# Args: $1 = file_type (optional) - filter for specific file type (e.g., "todo", "config")
+# Returns: sorted unique version strings (e.g., "2.2.0 2.3.0 2.4.0")
+discover_migration_versions() {
+    local file_type="${1:-}"
+    
+    # Build grep pattern based on file_type filter
+    local pattern="migrate_.+_to_"
+    if [[ -n "$file_type" ]]; then
+        pattern="migrate_${file_type}_to_"
+    fi
+    
+    # Find all migration functions using declare -F
+    # Extract version numbers from function names
+    # Example: "migrate_todo_to_2_5_0" -> "2.5.0"
+    local versions
+    versions=$(declare -F | \
+        grep -oE "${pattern}[0-9]+_[0-9]+_[0-9]+" | \
+        sed -E 's/.*_to_([0-9]+)_([0-9]+)_([0-9]+)/\1.\2.\3/' | \
+        sort -uV)
+    
+    # Return sorted unique versions
+    echo "$versions"
+}
+
 # Find migration path between versions
 # Args: $1 = from version, $2 = to version
 # Returns: newline-separated list of intermediate versions to migrate through
@@ -438,14 +669,19 @@ find_migration_path() {
     local from="$1"
     local to="$2"
 
-    # Define known migration steps (must be in ascending order)
-    # Each version listed here has a corresponding migrate_*_to_X_Y_Z function
-    local -a known_versions=("2.2.0" "2.3.0" "2.4.0" "2.5.0" "2.6.0")
+    # Use dynamic discovery instead of static array
+    local -a known_versions
+    mapfile -t known_versions < <(discover_migration_versions)
 
     # Parse versions
     local from_parts to_parts
     from_parts=$(parse_version "$from" 2>/dev/null) || from_parts="0 0 0"
-    to_parts=$(parse_version "$to" 2>/dev/null) || to_parts="2 4 0"
+    to_parts=$(parse_version "$to" 2>/dev/null) || {
+        # Get highest known version as fallback
+        local latest
+        latest=$(discover_migration_versions | tail -1)
+        to_parts=$(parse_version "$latest")
+    }
 
     read -r from_major from_minor from_patch <<< "$from_parts"
     read -r to_major to_minor to_patch <<< "$to_parts"
@@ -490,16 +726,55 @@ execute_migration_step() {
     local file_type="$2"
     local target_version="$3"
 
+    # Get current version before migration
+    local previous_version
+    previous_version=$(detect_file_version "$file")
+
     # Try to find and execute migration function
     local migration_func="migrate_${file_type}_to_${target_version//./_}"
+    local start_time end_time exec_time_ms
+    local status="success"
+    local backup_path=""
+
+    # Record start time (milliseconds since epoch)
+    start_time=$(date +%s%3N)
 
     if declare -f "$migration_func" >/dev/null 2>&1; then
-        # Custom migration function exists
-        "$migration_func" "$file"
+        # Custom migration function exists - execute with timing
+        if "$migration_func" "$file"; then
+            status="success"
+        else
+            status="failed"
+            end_time=$(date +%s%3N)
+            exec_time_ms=$((end_time - start_time))
+            record_migration_application "$file" "$file_type" "$target_version" "$previous_version" \
+                "$migration_func" "$status" "$exec_time_ms" "$backup_path"
+            return 1
+        fi
     else
         # Use generic version update
-        update_version_field "$file" "$target_version"
+        migration_func="update_version_field"
+        if update_version_field "$file" "$target_version"; then
+            status="success"
+        else
+            status="failed"
+            end_time=$(date +%s%3N)
+            exec_time_ms=$((end_time - start_time))
+            record_migration_application "$file" "$file_type" "$target_version" "$previous_version" \
+                "$migration_func" "$status" "$exec_time_ms" "$backup_path"
+            return 1
+        fi
     fi
+
+    # Record end time and calculate execution time
+    end_time=$(date +%s%3N)
+    exec_time_ms=$((end_time - start_time))
+
+    # Record successful migration
+    record_migration_application "$file" "$file_type" "$target_version" "$previous_version" \
+        "$migration_func" "$status" "$exec_time_ms" "$backup_path"
+
+    return 0
 }
 
 # ============================================================================
@@ -582,6 +857,91 @@ rename_field() {
 }
 
 # ============================================================================
+# STRUCTURAL MIGRATIONS
+# ============================================================================
+
+# Convert .version to ._meta.schemaVersion format
+# This is a structural migration (not a version-bump migration)
+# Handles three cases:
+#   1. Files with only .version field → move to ._meta.schemaVersion
+#   2. Files with both fields → use ._meta.schemaVersion, remove .version
+#   3. Files with neither → set to oldest known version (2.1.0)
+# Args: $1 = file path, $2 = file type (todo|config|archive|log)
+# Returns: 0 on success, 1 on failure
+migrate_version_field_format() {
+    local file="$1"
+    local file_type="$2"
+
+    if [[ ! -f "$file" ]]; then
+        echo "ERROR: File not found: $file" >&2
+        return 1
+    fi
+
+    echo "  Migrating version field format to ._meta.schemaVersion..."
+
+    # Detect which case we're in
+    local has_version has_meta_schema_version
+    has_version=$(jq -r 'has("version")' "$file" 2>/dev/null)
+    has_meta_schema_version=$(jq -r '._meta.schemaVersion != null' "$file" 2>/dev/null)
+
+    # Determine the version to use
+    local version_to_use
+    if [[ "$has_meta_schema_version" == "true" ]]; then
+        # Case 2: Both fields exist - use ._meta.schemaVersion
+        version_to_use=$(jq -r '._meta.schemaVersion' "$file")
+        echo "    Found both .version and ._meta.schemaVersion - using ._meta.schemaVersion: $version_to_use"
+    elif [[ "$has_version" == "true" ]]; then
+        # Case 1: Only .version exists - move to ._meta.schemaVersion
+        version_to_use=$(jq -r '.version' "$file")
+        echo "    Found .version only - migrating to ._meta.schemaVersion: $version_to_use"
+    else
+        # Case 3: Neither field exists - set to oldest known version
+        version_to_use=$(discover_migration_versions | head -1)
+        if [[ -z "$version_to_use" ]]; then
+            log_error "Cannot determine oldest migration version"
+            return 1
+        fi
+        echo "    No version fields found - setting default version: $version_to_use"
+    fi
+
+    # Perform the migration
+    local updated_content
+    updated_content=$(jq --arg ver "$version_to_use" '
+        # Ensure ._meta object exists
+        if ._meta == null then ._meta = {} else . end |
+
+        # Set ._meta.schemaVersion
+        ._meta.schemaVersion = $ver |
+
+        # Keep top-level .version for backward compatibility (some code still reads it)
+        # But ._meta.schemaVersion is now canonical
+        .version = $ver
+    ' "$file") || {
+        echo "ERROR: Failed to migrate version field format" >&2
+        return 1
+    }
+
+    # Validate the result
+    if ! echo "$updated_content" | jq empty 2>/dev/null; then
+        echo "ERROR: Migration produced invalid JSON" >&2
+        return 1
+    fi
+
+    # Atomic save using save_json
+    save_json "$file" "$updated_content" || {
+        echo "ERROR: Failed to save migrated file" >&2
+        return 1
+    }
+
+    # Verify the migration
+    local final_schema_version
+    final_schema_version=$(jq -r '._meta.schemaVersion' "$file")
+    echo "    ✓ Migration complete - ._meta.schemaVersion: $final_schema_version"
+
+    return 0
+}
+
+# ============================================================================
 # SPECIFIC MIGRATIONS
 # ============================================================================
 
@@ -625,6 +985,8 @@ migrate_config_field_naming() {
 # Migration from any 2.x version to 2.1.0 for config.json
 migrate_config_to_2_1_0() {
     local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
 
     # Add new config sections if missing
     add_field_if_missing "$file" ".session" '{"requireSessionNote":true,"warnOnNoFocus":true,"autoStartSession":true,"sessionTimeoutHours":24}' || return 1
@@ -633,7 +995,7 @@ migrate_config_to_2_1_0() {
     migrate_config_field_naming "$file" || return 1
 
     # Update version
-    update_version_field "$file" "2.1.0"
+    update_version_field "$file" "$target_version"
 }
 
 # Migration from 2.1.0 to 2.2.0 for config.json
@@ -641,6 +1003,8 @@ migrate_config_to_2_1_0() {
 # See CONFIG-SYSTEM-SPEC.md Appendix A.5, HIERARCHY-ENHANCEMENT-SPEC.md Part 3.2
 migrate_config_to_2_2_0() {
     local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
 
     # Add hierarchy section with LLM-Agent-First defaults
     # - maxSiblings: 20 (was 7, based on human cognitive limits)
@@ -650,7 +1014,7 @@ migrate_config_to_2_2_0() {
     add_field_if_missing "$file" ".hierarchy" '{"maxSiblings":20,"maxDepth":3,"countDoneInLimit":false,"maxActiveSiblings":8}' || return 1
 
     # Update version
-    update_version_field "$file" "2.2.0"
+    update_version_field "$file" "$target_version"
 }
 
 # Example: Migration from 2.0.0 to 2.1.0 for todo.json
@@ -670,6 +1034,8 @@ migrate_config_to_2_2_0() {
 # IMPORTANT: Preserves existing top-level .phases and moves them into .project.phases
 migrate_todo_to_2_2_0() {
     local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
 
     # Check if project is already an object (idempotent)
     local project_type
@@ -758,11 +1124,11 @@ migrate_todo_to_2_2_0() {
     fi
 
     # Update version fields
-    update_version_field "$file" "2.2.0" || return 1
+    update_version_field "$file" "$target_version" || return 1
 
     # Update _meta.version to match using atomic save_json
     local meta_updated
-    meta_updated=$(jq '._meta.version = "2.2.0"' "$file") || {
+    meta_updated=$(jq --arg ver "$target_version" '._meta.version = $ver' "$file") || {
         echo "ERROR: Failed to update _meta.version" >&2
         return 1
     }
@@ -771,7 +1137,9 @@ migrate_todo_to_2_2_0() {
 
     # Log migration if log_migration is available
     if declare -f log_migration >/dev/null 2>&1; then
-        log_migration "$file" "todo" "2.1.0" "2.2.0"
+        # Extract source version from function name pattern (migrate_X_to_Y -> previous version)
+        local from_version="2.1.0"  # This is safe - it's the literal "from" version in the function name
+        log_migration "$file" "todo" "$from_version" "$target_version"
     fi
 
     return 0
@@ -782,6 +1150,8 @@ migrate_todo_to_2_2_0() {
 # Migrates label conventions to structured fields
 migrate_todo_to_2_3_0() {
     local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
 
     echo "  Adding hierarchy fields (type, parentId, size) to tasks..."
 
@@ -889,9 +1259,9 @@ migrate_todo_to_2_3_0() {
         ] |
 
         # Update version fields
-        .version = "2.3.0" |
-        ._meta.version = "2.3.0"
-    ' "$file") || {
+        .version = $ver |
+        ._meta.version = $ver
+    ' --arg ver "$target_version" "$file") || {
         echo "ERROR: Failed to add hierarchy fields" >&2
         return 1
     }
@@ -924,7 +1294,8 @@ migrate_todo_to_2_3_0() {
 
     # Log migration if log_migration is available
     if declare -f log_migration >/dev/null 2>&1; then
-        log_migration "$file" "todo" "2.2.0" "2.3.0"
+        local from_version="2.2.0"  # Literal "from" version from function name
+        log_migration "$file" "todo" "$from_version" "$target_version"
     fi
 
     return 0
@@ -935,14 +1306,18 @@ migrate_todo_to_2_3_0() {
 # No data transformation needed - just version bump
 migrate_todo_to_2_4_0() {
     local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    local from_version
+    from_version=$(get_from_version "$target_version")
 
     echo "  Updating schema version for notes maxLength increase..."
 
     # Simple version bump - no data transformation needed
     local updated_content
-    updated_content=$(jq '
-        .version = "2.4.0" |
-        ._meta.schemaVersion = "2.4.0"
+    updated_content=$(jq --arg ver "$target_version" '
+        .version = $ver |
+        ._meta.schemaVersion = $ver
     ' "$file") || {
         echo "ERROR: Failed to update version fields" >&2
         return 1
@@ -960,11 +1335,11 @@ migrate_todo_to_2_4_0() {
         return 1
     }
 
-    echo "  Schema version updated to 2.4.0 (notes maxLength: 500 → 5000)"
+    echo "  Schema version updated to $target_version (notes maxLength: 500 → 5000)"
 
     # Log migration if log_migration is available
     if declare -f log_migration >/dev/null 2>&1; then
-        log_migration "$file" "todo" "2.3.0" "2.4.0"
+        log_migration "$file" "todo" "$from_version" "$target_version"
     fi
 
     return 0
@@ -975,12 +1350,16 @@ migrate_todo_to_2_4_0() {
 # Position is auto-assigned by createdAt order within each parent scope
 migrate_todo_to_2_5_0() {
     local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    local from_version
+    from_version=$(get_from_version "$target_version")
 
     echo "  Adding position field to tasks..."
 
     # Auto-assign positions by createdAt order within each parent scope
     local updated_content
-    updated_content=$(jq '
+    updated_content=$(jq --arg ver "$target_version" '
         # Group tasks by parentId and assign positions
         def get_parent_key: if .parentId == null then "__null__" else .parentId end;
 
@@ -1003,8 +1382,8 @@ migrate_todo_to_2_5_0() {
             }
         )) as $updated_tasks |
 
-        .version = "2.5.0" |
-        ._meta.schemaVersion = "2.5.0" |
+        .version = $ver |
+        ._meta.schemaVersion = $ver |
         .tasks = $updated_tasks
     ' "$file") || {
         echo "ERROR: Failed to add position field" >&2
@@ -1025,13 +1404,14 @@ migrate_todo_to_2_5_0() {
 
     # Count tasks that got positions
     local task_count
-    task_count=$(echo "$updated_content" | jq '[.tasks[] | select(.position != null)] | length')
+    task_count=$(echo "$updated_content" | jq --arg ver "$target_version" '[.tasks[] | select(.position != null)] | length')
     echo "  Assigned positions to $task_count tasks (by createdAt order within parent scope)"
-    echo "  Schema version updated to 2.5.0"
+    echo "  Schema version updated to $target_version"
 
     # Log migration if log_migration is available
     if declare -f log_migration >/dev/null 2>&1; then
-        log_migration "$file" "todo" "2.4.0" "2.5.0"
+
+        log_migration "$file" "todo" "$from_version" "$target_version"
     fi
 
     return 0
@@ -1042,12 +1422,16 @@ migrate_todo_to_2_5_0() {
 # Position is auto-assigned by createdAt order within each parent scope
 migrate_todo_to_2_6_0() {
     local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
 
     echo "  Migrating tasks to add position ordering..."
+    local from_version
+    from_version=$(get_from_version "$target_version")
 
     # Auto-assign positions by createdAt order within each parent scope
     local updated_content
-    updated_content=$(jq '
+    updated_content=$(jq --arg ver "$target_version" '
         # Group tasks by parentId and assign positions
         def get_parent_key: if .parentId == null then "__null__" else .parentId end;
 
@@ -1071,8 +1455,8 @@ migrate_todo_to_2_6_0() {
             }
         )) as $updated_tasks |
 
-        .version = "2.6.0" |
-        ._meta.schemaVersion = "2.6.0" |
+        .version = $ver |
+        ._meta.schemaVersion = $ver |
         .tasks = $updated_tasks
     ' "$file") || {
         echo "ERROR: Failed to add position fields" >&2
@@ -1095,11 +1479,12 @@ migrate_todo_to_2_6_0() {
     local task_count
     task_count=$(echo "$updated_content" | jq '[.tasks[] | select(.position != null)] | length')
     echo "  Assigned positions to $task_count tasks (by createdAt order within parent scope)"
-    echo "  Schema version updated to 2.6.0"
+    echo "  Schema version updated to $target_version"
 
     # Log migration if log_migration is available
     if declare -f log_migration >/dev/null 2>&1; then
-        log_migration "$file" "todo" "2.5.0" "2.6.0"
+        local from_version="2.5.0"  # Literal "from" version from function name
+        log_migration "$file" "todo" "$from_version" "$target_version"
     fi
 
     return 0
@@ -1216,6 +1601,19 @@ ensure_compatible_version() {
     case $compat_status in
         0)
             # Already compatible (equal versions)
+            # But still check if ._meta.schemaVersion needs to be added
+            local has_schema_version
+            has_schema_version=$(jq -r '._meta.schemaVersion // "null"' "$file" 2>/dev/null)
+            if [[ "$has_schema_version" == "null" ]]; then
+                echo "Adding missing _meta.schemaVersion: $file"
+                if bump_version_only "$file" "$expected_version"; then
+                    echo "✓ Schema version field added"
+                    return 0
+                else
+                    echo "✗ Failed to add schema version field" >&2
+                    return 1
+                fi
+            fi
             return 0
             ;;
         1)
@@ -1520,6 +1918,10 @@ show_repair_preview() {
 execute_repair() {
     local file="$1"
 
+    # Get current schema version from schema file
+    local schema_version
+    schema_version=$(get_schema_version_from_file "todo")
+
     # Get canonical phases
     local canonical_phases
     canonical_phases=$(get_canonical_phases)
@@ -1527,7 +1929,7 @@ execute_repair() {
     # Build the repair jq filter
     # This is a complex but idempotent transformation
     local updated_content
-    updated_content=$(jq --argjson canonical "$canonical_phases" '
+    updated_content=$(jq --argjson canonical "$canonical_phases" --arg ver "$schema_version" '
         # Start with the original
         . as $original |
 
@@ -1566,12 +1968,12 @@ execute_repair() {
         .project.phases = $repaired_phases |
 
         # Ensure _meta has all fields
-        ._meta.schemaVersion = "2.4.0" |
+        ._meta.schemaVersion = $ver |
         ._meta.configVersion = (._meta.configVersion // "2.1.0") |
         (if ._meta.checksum == null then ._meta.checksum = "pending" else . end) |
 
         # Ensure version field
-        .version = "2.4.0" |
+        .version = $ver |
 
         # Ensure focus has all fields
         .focus.sessionNote = (.focus.sessionNote // null) |

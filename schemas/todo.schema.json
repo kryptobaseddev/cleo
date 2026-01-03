@@ -12,7 +12,7 @@
     "version": {
       "type": "string",
       "pattern": "^\\d+\\.\\d+\\.\\d+$",
-      "description": "Schema version (semver)"
+      "description": "Legacy schema version field (deprecated, use _meta.schemaVersion)"
     },
     "project": {
       "type": "object",
@@ -90,9 +90,14 @@
     "_meta": {
       "type": "object",
       "description": "System metadata for integrity and session tracking. CRITICAL for anti-hallucination.",
-      "required": ["checksum", "configVersion"],
+      "required": ["schemaVersion", "checksum", "configVersion"],
       "additionalProperties": false,
       "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version for this file (semver). Canonical source for schema version (replaces root version field)."
+        },
         "specVersion": {
           "type": "string",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",

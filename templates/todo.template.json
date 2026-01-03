@@ -1,6 +1,6 @@
 {
   "$schema": "../schemas/todo.schema.json",
-  "version": "2.4.0",
+  "version": "{{SCHEMA_VERSION_TODO}}",
   "project": {
     "name": "{{PROJECT_NAME}}",
     "currentPhase": "setup",
@@ -49,9 +49,9 @@
   },
   "lastUpdated": "{{TIMESTAMP}}",
   "_meta": {
-    "version": "2.4.0",
+    "version": "{{SCHEMA_VERSION_TODO}}",
     "checksum": "{{CHECKSUM}}",
-    "configVersion": "2.2.0",
+    "configVersion": "{{SCHEMA_VERSION_CONFIG}}",
     "lastSessionId": null,
     "activeSession": null
   },

@@ -78,6 +78,12 @@ if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
   source "$LIB_DIR/session-enforcement.sh"
 fi
 
+# Source context alert library for context monitoring (T1323)
+if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
+  # shellcheck source=../lib/context-alert.sh
+  source "$LIB_DIR/context-alert.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -1407,6 +1413,11 @@ task_details=$(jq -nc \
   --arg priority "$PRIORITY" \
   '{title: $title, status: $status, priority: $priority}')
 log_operation "task_created" "$TASK_ID" "$task_details"
+
+# Check context alert after successful task creation (T1324)
+if declare -f check_context_alert >/dev/null 2>&1; then
+  check_context_alert 2>/dev/null || true
+fi
 
 # Success output
 if [[ "$FORMAT" == "json" ]]; then

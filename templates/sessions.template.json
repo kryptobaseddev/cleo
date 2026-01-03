@@ -1,6 +1,6 @@
 {
   "$schema": "../schemas/sessions.schema.json",
-  "version": "1.0.0",
+  "version": "{{SCHEMA_VERSION_SESSIONS}}",
   "project": "{{PROJECT_NAME}}",
   "_meta": {
     "checksum": "",

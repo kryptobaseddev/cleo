@@ -1,6 +1,6 @@
 {
   "$schema": "./schemas/global-config.schema.json",
-  "version": "1.0.0",
+  "version": "{{SCHEMA_VERSION_GLOBAL_CONFIG}}",
   "output": {
     "defaultFormat": "text",
     "showColor": true,

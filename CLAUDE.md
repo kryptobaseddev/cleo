@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.48.2 -->
+<!-- CLEO:START v0.49.0 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
@@ -55,6 +55,8 @@ ct analyze                 # Task triage (JSON default)
 ct analyze --auto-focus    # Auto-set focus to top task
 ct delete <id> --reason "..."  # Cancel/soft-delete task
 ct uncancel <id>           # Restore cancelled task
+ct context                 # Check context window usage
+ct context check           # Exit code for scripting (0=OK, 50+=warning)
 ```
 
 ### Command Discovery
@@ -158,6 +160,27 @@ ct validate --fix-orphans delete     # Delete orphaned tasks
 - **CLI only** - Never edit `.cleo/*.json` directly
 - **Verify state** - Use `ct list` before assuming
 - **Session discipline** - Start/end sessions properly
+
+### Context Monitoring
+```bash
+ct context                 # Show context usage (🟢 ok, 🟡 warning, 🔴 critical)
+ct context check           # Silent check, exit codes for scripting
+```
+**Exit codes**: `0`=OK (<70%) | `50`=Warning (70-84%) | `51`=Caution (85-89%) | `52`=Critical (90-94%) | `53`=Emergency (95%+)
+
+### Export/Import (Cross-Project)
+```bash
+# Export tasks to another project
+ct export-tasks T001 --output task.json            # Export single task
+ct export-tasks T001 --subtree --output epic.json  # Export epic with children
+
+# Import tasks from another project
+ct import-tasks task.json                          # Import into current project
+ct import-tasks task.json --dry-run                # Preview import
+ct import-tasks task.json --parent T050            # Import as children of T050
+```
+
+Full docs: `docs/export-import.md`
 <!-- CLEO:END -->
 # Repository Guidelines
 
@@ -385,6 +408,44 @@ Before any task operation, validate:
 - Don't skip validation steps - they're critical for data integrity
 - Don't add time estimates - they're explicitly prohibited
 - Don't forget atomic operations - all writes must be atomic
+
+## Version Management
+
+CLEO uses a **single source of truth** architecture for schema versions:
+
+### Version Sources
+- Schema versions are defined ONLY in `schemas/*.schema.json` files (single source of truth)
+- Use `get_schema_version_from_file()` to read versions - NEVER hardcode
+- Version field location: `._meta.schemaVersion` (canonical), `.version` (legacy fallback)
+- Migration functions discovered dynamically via `discover_migration_versions()`
+- No SCHEMA_VERSION_* constants - deleted in v0.48.x
+
+### Reading Versions
+```bash
+source lib/migrate.sh
+
+# Get current schema version for a file type
+version=$(get_schema_version_from_file "todo")  # Returns "2.6.0"
+
+# Discover available migrations
+versions=$(discover_migration_versions "todo")  # Returns "2.2.0 2.3.0 2.4.0..."
+```
+
+### Template Placeholders
+Templates use dynamic placeholders replaced during initialization:
+- `{{SCHEMA_VERSION_TODO}}` → current todo.json schema version
+- `{{SCHEMA_VERSION_CONFIG}}` → current config.json schema version
+- `{{SCHEMA_VERSION_ARCHIVE}}` → current archive.json schema version
+- `{{SCHEMA_VERSION_LOG}}` → current log.json schema version
+
+### Migration Conventions
+**Function naming:**
+- Semver pattern: `migrate_<type>_to_<major>_<minor>_<patch>`
+  - Example: `migrate_todo_to_2_6_0`
+- Timestamp pattern (future): `migrate_<type>_<YYYYMMDDHHMMSS>_<description>`
+  - Example: `migrate_todo_20260103120000_add_field`
+
+**See:** [docs/MIGRATION-SYSTEM.md](docs/MIGRATION-SYSTEM.md) for complete architecture documentation
 
 # Repository Guidelines
 

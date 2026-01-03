@@ -697,7 +697,13 @@ _create_backup_metadata() {
     local version
 
     timestamp=$(get_iso_timestamp)
-    version="${CLEO_VERSION:-0.9.8}"
+
+    # Get CLI version (fail loudly if unreadable)
+    if [[ -z "${CLEO_VERSION:-}" ]]; then
+        echo "ERROR: CLEO_VERSION not set. Cannot create backup metadata." >&2
+        return 1
+    fi
+    version="$CLEO_VERSION"
 
     jq -nc \
         --arg type "$backup_type" \

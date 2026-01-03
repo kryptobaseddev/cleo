@@ -35,7 +35,14 @@ check_project_needs_update() {
     # Check schema version (fast jq check)
     if command -v jq &>/dev/null; then
         local current_version
-        current_version=$(jq -r '.version // ._meta.schemaVersion // "unknown"' "$todo_file" 2>/dev/null)
+        current_version=$(jq -r '._meta.schemaVersion' "$todo_file" 2>/dev/null)
+
+        # Explicit error if missing ._meta.schemaVersion
+        if [[ -z "$current_version" || "$current_version" == "null" ]]; then
+            _VERSION_WARNINGS+=("Missing ._meta.schemaVersion. Run: cleo upgrade")
+            needs_update=1
+            return 1
+        fi
 
         # Check for legacy structure indicators
         local has_top_level_phases
@@ -48,9 +55,15 @@ check_project_needs_update() {
         if [[ "$has_top_level_phases" == "true" ]] || [[ "$project_type" == "string" ]]; then
             _VERSION_WARNINGS+=("Schema has legacy structure. Run: cleo upgrade")
             needs_update=1
-        elif [[ "$current_version" != "${SCHEMA_VERSION_TODO:-2.6.0}" ]]; then
-            _VERSION_WARNINGS+=("Schema outdated ($current_version → ${SCHEMA_VERSION_TODO:-2.6.0}). Run: cleo upgrade")
-            needs_update=1
+        else
+            # Get expected version from schema file (no fallback)
+            local expected_version
+            if expected_version=$(jq -r '.schemaVersion // empty' "${SCHEMA_DIR:-${CLEO_HOME:-$HOME/.cleo}/schemas}/todo.schema.json" 2>/dev/null) && [[ -n "$expected_version" ]]; then
+                if [[ "$current_version" != "$expected_version" ]]; then
+                    _VERSION_WARNINGS+=("Schema outdated ($current_version → $expected_version). Run: cleo upgrade")
+                    needs_update=1
+                fi
+            fi
         fi
     fi
 

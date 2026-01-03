@@ -209,8 +209,13 @@ archive_cancelled_task() {
     if [[ ! -f "$archive_file" ]]; then
         local project_name
         project_name=$(jq -r '.project.name // .project // "unknown"' "$todo_file")
+
+        # Get schema version from archive schema file (fail loudly if unreadable)
         local version
-        version="${CLEO_VERSION:-2.4.0}"
+        version=$(get_schema_version_from_file "archive") || {
+            echo "ERROR: Failed to read archive schema version" >&2
+            return "${EXIT_FILE_READ_ERROR:-3}"
+        }
 
         cat > "$archive_file" << EOF
 {
@@ -353,8 +358,13 @@ archive_cancelled_tasks() {
     if [[ ! -f "$archive_file" ]]; then
         local project_name
         project_name=$(jq -r '.project.name // .project // "unknown"' "$todo_file")
+
+        # Get schema version from archive schema file (fail loudly if unreadable)
         local version
-        version="${CLEO_VERSION:-2.4.0}"
+        version=$(get_schema_version_from_file "archive") || {
+            echo "ERROR: Failed to read archive schema version" >&2
+            return "${EXIT_FILE_READ_ERROR:-3}"
+        }
 
         cat > "$archive_file" << EOF
 {

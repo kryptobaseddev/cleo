@@ -19,6 +19,7 @@
 | **[Design Philosophy](guides/design-philosophy.md)** | The contract between developer and agent | Understanding flat IDs, JSON output, exit codes |
 | **[Filtering Guide](guides/filtering-guide.md)** | Task filtering and queries | Advanced task filtering |
 | **[Archive Guide](guides/archive-guide.md)** | Task lifecycle and retention | Archive strategies, retrieval, configuration |
+| **[Context Safeguard Guide](guides/context-safeguard.md)** | Automatic context alerts and monitoring | Setup, configuration, agent workflow integration |
 
 ### 🏗️ Architecture & Design
 
@@ -63,17 +64,20 @@
 | **[commands/blockers.md](commands/blockers.md)** | Blockers command documentation | Analyzing blocked tasks and chains |
 | **[commands/complete.md](commands/complete.md)** | Complete task command documentation | Marking tasks as done |
 | **[commands/commands.md](commands/commands.md)** | Commands query and discovery | LLM-first command lookup (JSON default, native filters) |
+| **[commands/context.md](commands/context.md)** | Context monitoring command | Monitor context window usage for agent safeguard system |
 | **[commands/config.md](commands/config.md)** | Configuration command documentation | Viewing and modifying settings (project and global) |
 | **[commands/dash.md](commands/dash.md)** | Dashboard command documentation | Using project overview features |
 | **[commands/delete.md](commands/delete.md)** | Delete/cancel task command documentation | Soft-delete tasks with child handling strategies |
 | **[commands/deps.md](commands/deps.md)** | Dependency visualization documentation | Understanding task dependencies |
 | **[commands/exists.md](commands/exists.md)** | Task existence validation documentation | Validating task IDs in scripts and CI/CD pipelines |
 | **[commands/export.md](commands/export.md)** | Export command documentation | Exporting tasks in CSV, TSV, JSON, markdown formats |
+| **[commands/export-tasks.md](commands/export-tasks.md)** | Export tasks command documentation | Export tasks to portable JSON package for cross-project transfer |
 | **[commands/focus.md](commands/focus.md)** | Focus command documentation | Managing single-task workflow discipline |
 | **[commands/find.md](commands/find.md)** | Find command documentation | Searching tasks by pattern, ID, or fuzzy match |
 | **[commands/hierarchy.md](commands/hierarchy.md)** | Hierarchy system documentation | Epic/Task/Subtask organization (v0.17.0+) |
 | **[commands/history.md](commands/history.md)** | Completion history and timeline analytics | Reviewing productivity trends and completion metrics |
 | **[commands/init.md](commands/init.md)** | Init command documentation | Project initialization and CLAUDE.md updates |
+| **[commands/import-tasks.md](commands/import-tasks.md)** | Import tasks command documentation | Import tasks with ID remapping and dependency resolution |
 | **[commands/labels.md](commands/labels.md)** | Labels command documentation | Managing and analyzing task labels |
 | **[commands/list.md](commands/list.md)** | List tasks command documentation | Viewing and filtering tasks |
 | **[commands/log.md](commands/log.md)** | Log command documentation | Viewing and managing audit logs |

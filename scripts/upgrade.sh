@@ -148,9 +148,15 @@ check_schema_status() {
     [[ ! -f "$file" ]] && return 0
 
     local current
-    current=$(jq -r '.version // ._meta.schemaVersion // "unknown"' "$file" 2>/dev/null)
+    current=$(jq -r '._meta.schemaVersion' "$file" 2>/dev/null)
+    local schema_missing=false
 
-    # Check for legacy structure
+    # Check if schemaVersion is missing
+    if [[ -z "$current" || "$current" == "null" ]]; then
+        schema_missing=true
+    fi
+
+    # Check for legacy structure (must run even if schemaVersion is missing)
     if [[ "$file_type" == "todo" ]]; then
         local has_legacy=false
 
@@ -164,11 +170,23 @@ check_schema_status() {
             has_legacy=true
         fi
 
+        # Check for top-level checksum
+        if jq -e 'has("checksum")' "$file" >/dev/null 2>&1; then
+            has_legacy=true
+        fi
+
         if [[ "$has_legacy" == "true" ]]; then
             UPDATES_NEEDED["$file_type"]="legacy → $expected (structural repair needed)"
             ((TOTAL_UPDATES++))
             return 1
         fi
+    fi
+
+    # If schemaVersion missing but no legacy structure, still needs update
+    if [[ "$schema_missing" == "true" ]]; then
+        UPDATES_NEEDED["$file_type"]="missing → $expected"
+        ((TOTAL_UPDATES++))
+        return 1
     fi
 
     if [[ "$current" != "$expected" ]]; then
@@ -221,10 +239,28 @@ check_checksum_status() {
 # ============================================================================
 # RUN STATUS CHECKS
 # ============================================================================
-check_schema_status "$UPG_TODO_FILE" "todo" "${SCHEMA_VERSION_TODO:-2.6.0}" || true
-check_schema_status "$UPG_CONFIG_FILE" "config" "${SCHEMA_VERSION_CONFIG:-2.4.0}" || true
-check_schema_status "$UPG_ARCHIVE_FILE" "archive" "${SCHEMA_VERSION_ARCHIVE:-2.4.0}" || true
-check_schema_status "$UPG_LOG_FILE" "log" "${SCHEMA_VERSION_LOG:-2.4.0}" || true
+# Get schema versions from schema files (fail loudly if unreadable)
+UPG_SCHEMA_VERSION_TODO=$(get_schema_version_from_file "todo") || {
+    echo "ERROR: Failed to read schema version for todo.schema.json" >&2
+    exit "${EXIT_FILE_READ_ERROR:-3}"
+}
+UPG_SCHEMA_VERSION_CONFIG=$(get_schema_version_from_file "config") || {
+    echo "ERROR: Failed to read schema version for config.schema.json" >&2
+    exit "${EXIT_FILE_READ_ERROR:-3}"
+}
+UPG_SCHEMA_VERSION_ARCHIVE=$(get_schema_version_from_file "archive") || {
+    echo "ERROR: Failed to read schema version for archive.schema.json" >&2
+    exit "${EXIT_FILE_READ_ERROR:-3}"
+}
+UPG_SCHEMA_VERSION_LOG=$(get_schema_version_from_file "log") || {
+    echo "ERROR: Failed to read schema version for log.schema.json" >&2
+    exit "${EXIT_FILE_READ_ERROR:-3}"
+}
+
+check_schema_status "$UPG_TODO_FILE" "todo" "$UPG_SCHEMA_VERSION_TODO" || true
+check_schema_status "$UPG_CONFIG_FILE" "config" "$UPG_SCHEMA_VERSION_CONFIG" || true
+check_schema_status "$UPG_ARCHIVE_FILE" "archive" "$UPG_SCHEMA_VERSION_ARCHIVE" || true
+check_schema_status "$UPG_LOG_FILE" "log" "$UPG_SCHEMA_VERSION_LOG" || true
 check_claude_md_status || true
 check_checksum_status || true
 
@@ -361,7 +397,7 @@ if type ensure_compatible_version &>/dev/null; then
             fi
             # Use ensure_compatible_version from migrate.sh for all file types
             if ensure_compatible_version "$file_path" "$file_type"; then
-                ((UPDATES_APPLIED++))
+                (( ++UPDATES_APPLIED ))
             else
                 ERRORS+=("$file_type migration failed")
             fi
@@ -393,7 +429,7 @@ if [[ -n "${UPDATES_NEEDED[CLAUDE.md]:-}" ]]; then
 
     # Use init script's update function if available
     if [[ -x "$UPG_SCRIPT_DIR/init.sh" ]]; then
-        "$UPG_SCRIPT_DIR/init.sh" --update-claude-md >/dev/null 2>&1 && ((UPDATES_APPLIED++)) || ERRORS+=("CLAUDE.md update failed")
+        "$UPG_SCRIPT_DIR/init.sh" --update-claude-md >/dev/null 2>&1 && (( ++UPDATES_APPLIED )) || ERRORS+=("CLAUDE.md update failed")
     fi
 fi
 
@@ -413,9 +449,9 @@ if [[ -f "$LIB_DIR/statusline-setup.sh" ]]; then
                 echo "  Would setup statusline integration"
             fi
         elif [[ "$FORCE" == "true" ]]; then
-            install_statusline_integration "install" "false" && ((UPDATES_APPLIED++)) || ERRORS+=("Statusline setup failed")
+            install_statusline_integration "install" "false" && (( ++UPDATES_APPLIED )) || ERRORS+=("Statusline setup failed")
         else
-            install_statusline_integration "install" "true" && ((UPDATES_APPLIED++)) || true
+            install_statusline_integration "install" "true" && (( ++UPDATES_APPLIED )) || true
         fi
     fi
 fi

@@ -1,6 +1,6 @@
 {
   "$schema": "../schemas/archive.schema.json",
-  "version": "2.1.0",
+  "version": "{{SCHEMA_VERSION_ARCHIVE}}",
   "project": "{{PROJECT_NAME}}",
   "_meta": {
     "totalArchived": 0,

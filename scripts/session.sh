@@ -92,6 +92,13 @@ elif [[ -f "$LIB_DIR/session-migration.sh" ]]; then
   source "$LIB_DIR/session-migration.sh"
 fi
 
+# Source context alert library for context monitoring (T1323)
+if [[ -f "$CLEO_HOME/lib/context-alert.sh" ]]; then
+  source "$CLEO_HOME/lib/context-alert.sh"
+elif [[ -f "$LIB_DIR/context-alert.sh" ]]; then
+  source "$LIB_DIR/context-alert.sh"
+fi
+
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 # Note: LOG_FILE is set by lib/logging.sh (readonly) - don't reassign here
@@ -607,6 +614,11 @@ cmd_start() {
     fi
   fi
 
+  # Check context alert after session start (T1324)
+  if declare -f check_context_alert >/dev/null 2>&1; then
+    check_context_alert 2>/dev/null || true
+  fi
+
   # Check if CLAUDE.md injection is outdated
   if [[ -f "CLAUDE.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
     local current_version installed_version
@@ -989,6 +1001,11 @@ cmd_end() {
     if [[ -n "$end_phase" && "$end_phase" != "null" ]]; then
       log_info "Project phase: $end_phase"
     fi
+  fi
+
+  # Check context alert after session end (T1324)
+  if declare -f check_context_alert >/dev/null 2>&1; then
+    check_context_alert 2>/dev/null || true
   fi
 
   # Check and rotate log if needed (T214)

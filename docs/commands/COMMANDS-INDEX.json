@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.0.0",
     "lastUpdated": "2025-12-27",
-    "totalCommands": 40,
+    "totalCommands": 43,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -25,6 +25,7 @@
       "analyze",
       "blockers",
       "commands",
+      "context",
       "dash",
       "deps",
       "exists",
@@ -41,7 +42,9 @@
       "stats"
     ],
     "sync": [
+      "export-tasks",
       "extract",
+      "import-tasks",
       "inject",
       "sync"
     ],
@@ -238,6 +241,36 @@
       "note": "Use instead of jq for command discovery"
     },
     {
+      "name": "context",
+      "script": "context.sh",
+      "category": "read",
+      "doc": "context.md",
+      "synopsis": "Monitor context window usage for agent safeguard system",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--session"
+      ],
+      "subcommands": [
+        "status",
+        "check",
+        "list",
+        "watch"
+      ],
+      "exitCodes": [
+        0,
+        50,
+        51,
+        52,
+        53,
+        54
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Context Safeguard System - check context limits before operations"
+    },
+    {
       "name": "config",
       "script": "config.sh",
       "category": "maintenance",
@@ -335,6 +368,30 @@
         0,
         2,
         3
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium"
+    },
+    {
+      "name": "export-tasks",
+      "script": "export-tasks.sh",
+      "category": "sync",
+      "doc": "export-tasks.md",
+      "synopsis": "Export tasks to portable JSON package for cross-project transfer",
+      "flags": [
+        "--format",
+        "--output",
+        "--subtree",
+        "--filter",
+        "--include-deps",
+        "--dry-run",
+        "--interactive"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        4
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
@@ -448,6 +505,31 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "low"
+    },
+    {
+      "name": "import-tasks",
+      "script": "import-tasks.sh",
+      "category": "sync",
+      "doc": "import-tasks.md",
+      "synopsis": "Import tasks from export package with ID remapping and conflict resolution",
+      "flags": [
+        "--format",
+        "--dry-run",
+        "--parent",
+        "--on-duplicate",
+        "--on-missing-dep",
+        "--on-phase-mismatch",
+        "--add-label"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        4,
+        6
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium"
     },
     {
       "name": "inject",
@@ -1035,6 +1117,9 @@
     "dependencies": "deps",
     "blockedTasks": "blockers",
     "webResearch": "research",
-    "restoreArchived": "unarchive"
+    "restoreArchived": "unarchive",
+    "contextUsage": "context",
+    "exportTasks": "export-tasks",
+    "importTasks": "import-tasks"
   }
 }

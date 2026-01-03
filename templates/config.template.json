@@ -1,6 +1,6 @@
 {
   "$schema": "../schemas/config.schema.json",
-  "version": "2.3.0",
+  "version": "{{SCHEMA_VERSION_CONFIG}}",
 
   "archive": {
     "enabled": true,
@@ -110,5 +110,12 @@
     "daysUntilArchive": 3,
     "allowCascade": true,
     "defaultChildStrategy": "block"
+  },
+
+  "contextAlerts": {
+    "enabled": true,
+    "minThreshold": "warning",
+    "triggerCommands": ["complete", "focus", "add", "session"],
+    "suppressDuration": 0
   }
 }

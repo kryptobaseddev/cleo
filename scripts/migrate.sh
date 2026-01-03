@@ -87,6 +87,7 @@ Commands:
   file <path> <type>     Migrate specific file
   rollback               Rollback from most recent migration backup
   repair                 Repair schema to canonical structure (fixes phases, _meta, etc.)
+  create <description>   Create new timestamped migration
 
 Options:
   --dir <path>          Project directory (default: current directory)
@@ -107,6 +108,9 @@ Rollback Options:
 Repair Options:
   --dry-run             Show what would be repaired without making changes
   --auto                Auto-repair without confirmation
+
+Create Migration Options:
+  --type, -t TYPE       File type (todo|config|archive|log) (default: todo)
 
 JSON Output:
   {
@@ -140,20 +144,155 @@ Examples:
   # Auto-repair schema issues
   cleo migrate repair --auto
 
+  # Create new migration
+  cleo migrate create "add user field"
+  cleo migrate create "fix config schema" --type config
+
   # JSON output for scripting
   cleo migrate status --json
 
 Schema Versions:
-  todo:    $SCHEMA_VERSION_TODO
-  config:  $SCHEMA_VERSION_CONFIG
-  archive: $SCHEMA_VERSION_ARCHIVE
-  log:     $SCHEMA_VERSION_LOG
+  todo:    $(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+  config:  $(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
+  archive: $(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
+  log:     $(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
 EOF
 }
 
 # ============================================================================
 # COMMAND HANDLERS
 # ============================================================================
+
+# Create new timestamped migration file
+create_migration() {
+    local description=""
+    local file_type="todo"
+
+    # Parse options and collect description
+    local args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type|-t)
+                file_type="$2"
+                shift 2
+                ;;
+            --json|--human|-f|--format|-q|--quiet)
+                # Skip format/output options (already handled by main)
+                if [[ "$1" == "-f" || "$1" == "--format" ]]; then
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            --)
+                shift
+                description="$*"
+                break
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # Join remaining args as description
+    if [[ -z "$description" && ${#args[@]} -gt 0 ]]; then
+        description="${args[*]}"
+    fi
+
+    if [[ -z "$description" ]]; then
+        if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
+            output_error "$E_INPUT_MISSING" "Description required" "${EXIT_INVALID_INPUT:-1}" true "Usage: cleo migrate create \"description\""
+        else
+            output_error "$E_INPUT_MISSING" "Description required"
+            echo "Usage: cleo migrate create \"description\"" >&2
+        fi
+        exit "${EXIT_INVALID_INPUT:-1}"
+    fi
+
+    # Validate file type
+    if [[ ! "$file_type" =~ ^(todo|config|archive|log)$ ]]; then
+        if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
+            output_error "$E_INPUT_INVALID" "Invalid file type: $file_type" "${EXIT_INVALID_INPUT:-1}" true "Valid types: todo, config, archive, log"
+        else
+            output_error "$E_INPUT_INVALID" "Invalid file type: $file_type"
+            echo "Valid types: todo, config, archive, log" >&2
+        fi
+        exit "${EXIT_INVALID_INPUT:-1}"
+    fi
+
+    # Generate timestamp: YYYYMMDDHHMMSS
+    local timestamp
+    timestamp=$(date -u +%Y%m%d%H%M%S)
+
+    # Sanitize description for filename (lowercase, underscores)
+    local safe_desc
+    safe_desc=$(echo "$description" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr -cd 'a-z0-9_')
+
+    # Create migrations directory if needed
+    local migrations_dir="$SCRIPT_DIR/../lib/migrations"
+    mkdir -p "$migrations_dir"
+
+    local filename="${timestamp}_${safe_desc}.sh"
+    local filepath="$migrations_dir/$filename"
+
+    # Generate migration template
+    cat > "$filepath" << EOF
+#!/usr/bin/env bash
+# Migration: $description
+# Created: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+# File Type: $file_type
+
+# Migration function - called by migrate.sh
+# Naming: migrate_<file_type>_<timestamp>_<description>
+migrate_${file_type}_${timestamp}_${safe_desc}() {
+    local file="\$1"
+    local current_version="\$2"
+
+    # TODO: Implement migration logic
+    # Example: Add new field
+    # jq '.newField = "default"' "\$file" > "\$file.tmp" && mv "\$file.tmp" "\$file"
+
+    # Return 0 on success, non-zero on failure
+    return 0
+}
+
+# Target version for this migration (extracted from function name)
+get_migration_target_version() {
+    echo "$timestamp"
+}
+EOF
+
+    chmod +x "$filepath"
+
+    # Output result
+    if [[ "$FORMAT" == "json" ]]; then
+        jq -nc \
+            --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --arg file "$filepath" \
+            --arg fn "migrate_${file_type}_${timestamp}_${safe_desc}" \
+            --arg desc "$description" \
+            --arg type "$file_type" \
+            '{
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                "_meta": {
+                    "command": "migrate",
+                    "subcommand": "create",
+                    "timestamp": $timestamp,
+                    "format": "json"
+                },
+                "success": true,
+                "file": $file,
+                "functionName": $fn,
+                "description": $desc,
+                "fileType": $type
+            }'
+    else
+        echo "Created migration: $filepath"
+        echo "Function: migrate_${file_type}_${timestamp}_${safe_desc}"
+    fi
+}
 
 # Repair schema to canonical structure
 cmd_repair() {
@@ -303,10 +442,21 @@ cmd_status() {
                 }]')
         done
 
+        # Get schema versions dynamically
+        local todo_version config_version archive_version log_version
+        todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+        config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
+        archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
+        log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
+
         jq -nc \
             --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
             --arg projectDir "$project_dir" \
             --argjson files "$files_json" \
+            --arg todo "$todo_version" \
+            --arg config "$config_version" \
+            --arg archive "$archive_version" \
+            --arg log "$log_version" \
             '{
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
@@ -319,13 +469,12 @@ cmd_status() {
                 "projectDir": $projectDir,
                 "files": $files,
                 "targetVersions": {
-                    "todo": $ENV.SCHEMA_VERSION_TODO,
-                    "config": $ENV.SCHEMA_VERSION_CONFIG,
-                    "archive": $ENV.SCHEMA_VERSION_ARCHIVE,
-                    "log": $ENV.SCHEMA_VERSION_LOG
+                    "todo": $todo,
+                    "config": $config,
+                    "archive": $archive,
+                    "log": $log
                 }
-            }' | jq --arg todo "$SCHEMA_VERSION_TODO" --arg config "$SCHEMA_VERSION_CONFIG" --arg archive "$SCHEMA_VERSION_ARCHIVE" --arg log "$SCHEMA_VERSION_LOG" \
-            '.targetVersions = {"todo": $todo, "config": $config, "archive": $archive, "log": $log}'
+            }'
     else
         show_migration_status "$cleo_dir"
     fi
@@ -455,10 +604,10 @@ cmd_run() {
     echo ""
     echo "Project: $project_dir"
     echo "Target versions:"
-    echo "  todo:    $SCHEMA_VERSION_TODO"
-    echo "  config:  $SCHEMA_VERSION_CONFIG"
-    echo "  archive: $SCHEMA_VERSION_ARCHIVE"
-    echo "  log:     $SCHEMA_VERSION_LOG"
+    echo "  todo:    $(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")"
+    echo "  config:  $(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")"
+    echo "  archive: $(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")"
+    echo "  log:     $(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")"
     echo ""
 
     # Check status first
@@ -551,7 +700,8 @@ cmd_run() {
 
         # Try using unified backup library first
         if declare -f create_migration_backup >/dev/null 2>&1; then
-            local target_version="$SCHEMA_VERSION_TODO"
+            local target_version
+            target_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
             BACKUP_PATH=$(create_migration_backup "$target_version" 2>&1) || {
                 echo "⚠ Backup library failed, using fallback backup method" >&2
                 # Fallback to inline backup if library fails
@@ -1031,6 +1181,12 @@ main() {
 
     # Check jq dependency after format is resolved
     check_jq_dependency
+
+    # Special handling for create command after format is resolved
+    if [[ "$command" == "create" || "$command" == "new" ]]; then
+        create_migration "$@"
+        exit $?
+    fi
 
     case "$command" in
         "status")

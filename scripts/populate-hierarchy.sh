@@ -8,8 +8,14 @@ LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 source "${LIB_DIR}/exit-codes.sh"
 source "${LIB_DIR}/error-json.sh"
 source "${LIB_DIR}/output-format.sh"
+source "${LIB_DIR}/version.sh"
 
-VERSION="${CLEO_VERSION:-0.23.1}"
+# Get CLI version (fail loudly if unreadable)
+if [[ -z "${CLEO_VERSION:-}" ]]; then
+    echo "ERROR: CLEO_VERSION not set. Cannot determine version." >&2
+    exit "${EXIT_FILE_READ_ERROR:-3}"
+fi
+VERSION="$CLEO_VERSION"
 COMMAND_NAME="populate-hierarchy"
 FORMAT=""
 QUIET=false

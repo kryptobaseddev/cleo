@@ -1128,8 +1128,8 @@ if [[ -d "$SCRIPT_DIR/docs" ]]; then
     fi
   done
 
-  # Copy subdirectories (guides, getting-started, reference)
-  for subdir in guides getting-started reference; do
+  # Copy subdirectories (guides, getting-started, reference, commands)
+  for subdir in guides getting-started reference commands; do
     if [[ -d "$SCRIPT_DIR/docs/$subdir" ]]; then
       mkdir -p "$INSTALL_DIR/docs/$subdir"
       cp -r "$SCRIPT_DIR/docs/$subdir/"* "$INSTALL_DIR/docs/$subdir/" 2>/dev/null || true
@@ -1138,7 +1138,7 @@ if [[ -d "$SCRIPT_DIR/docs" ]]; then
 
   # Count total files installed
   total_docs=$(find "$INSTALL_DIR/docs" -name "*.md" 2>/dev/null | wc -l)
-  log_info "Documentation installed ($total_docs files in 4 directories)"
+  log_info "Documentation installed ($total_docs files in 5 directories)"
 else
   log_warn "Documentation directory not found at $SCRIPT_DIR/docs"
 fi

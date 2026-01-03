@@ -85,6 +85,13 @@ elif [[ -f "$LIB_DIR/sessions.sh" ]]; then
   source "$LIB_DIR/sessions.sh"
 fi
 
+# Source context alert library for context monitoring (T1323)
+if [[ -f "$CLEO_HOME/lib/context-alert.sh" ]]; then
+  source "$CLEO_HOME/lib/context-alert.sh"
+elif [[ -f "$LIB_DIR/context-alert.sh" ]]; then
+  source "$LIB_DIR/context-alert.sh"
+fi
+
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
@@ -578,6 +585,11 @@ cmd_set() {
   # Get task details for output
   local task_title
   task_title=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .title // "Unknown"' "$TODO_FILE")
+
+  # Check context alert after successful focus set (T1324)
+  if declare -f check_context_alert >/dev/null 2>&1; then
+    check_context_alert 2>/dev/null || true
+  fi
 
   if [[ "$FORMAT" == "json" ]]; then
     local current_timestamp

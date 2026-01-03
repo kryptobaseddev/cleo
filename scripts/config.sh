@@ -488,10 +488,10 @@ cmd_validate() {
 
     # Check required fields
     local version
-    version=$(jq -r '.version // empty' "$config_file")
-    if [[ -z "$version" ]]; then
+    version=$(jq -r '._meta.schemaVersion' "$config_file")
+    if [[ -z "$version" || "$version" == "null" ]]; then
         valid=false
-        errors+=("Missing required field: version")
+        errors+=("Missing required field: ._meta.schemaVersion")
     fi
 
     # Schema validation if available

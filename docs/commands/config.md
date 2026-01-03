@@ -246,6 +246,17 @@ Default values for new tasks.
 | `phase` | string | `core` | Default phase |
 | `labels` | array | `[]` | Default labels |
 
+### contextAlerts
+
+Context window alert configuration.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable context window alerts |
+| `minThreshold` | string | `warning` | Minimum threshold: `warning` (70%), `caution` (85%), `critical` (90%), `emergency` (95%) |
+| `triggerCommands` | array | `["complete", "focus", "add", "session"]` | Commands that trigger alerts (empty = all) |
+| `suppressDuration` | integer | `0` | Seconds to suppress repeat alerts (0 = show on threshold crossing) |
+
 ## Examples
 
 ### LLM Agent Configuration
@@ -295,6 +306,27 @@ cleo config edit
 
 # Edit global settings
 cleo config edit --global
+```
+
+### Context Alert Configuration
+
+```bash
+# Disable context alerts
+cleo config set contextAlerts.enabled false
+
+# Only alert on critical thresholds (90%+)
+cleo config set contextAlerts.minThreshold critical
+
+# Only trigger alerts on session commands
+cleo config set contextAlerts.triggerCommands '["session"]'
+
+# Suppress repeat alerts for 5 minutes (300 seconds)
+cleo config set contextAlerts.suppressDuration 300
+
+# Enable all context alerts (default)
+cleo config set contextAlerts.enabled true
+cleo config set contextAlerts.minThreshold warning
+cleo config set contextAlerts.triggerCommands '["complete", "focus", "add", "session"]'
 ```
 
 ## Exit Codes

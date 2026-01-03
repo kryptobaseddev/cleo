@@ -252,6 +252,28 @@ cleo log --operation create         # Filter by operation type
 cleo log --task T001                # Filter by task ID
 ```
 
+### Context Monitoring (v0.46.0+)
+```bash
+cleo context                        # Show context window usage
+cleo context status --json          # JSON output
+cleo context check                  # Exit code for scripting (0=OK, 50+=warning)
+cleo context list                   # List all context state files (multi-session)
+cleo context --session <id>         # Check specific session
+```
+
+**Exit Codes** (for `check` subcommand):
+| Code | Status | Usage |
+|------|--------|-------|
+| 0 | OK | <70% |
+| 50 | Warning | 70-84% |
+| 51 | Caution | 85-89% |
+| 52 | Critical | 90-94% |
+| 53 | Emergency | 95%+ |
+| 54 | Stale | No data |
+
+**Automatic Alerts (v0.48.0+)**:
+When a CLEO session is active, context alerts automatically trigger after task operations (`complete`, `add`, `focus set`, session lifecycle). Alerts appear on stderr with visual box format, showing current usage and recommended actions. Only triggers on threshold crossings to avoid noise. Configure behavior with `cleo config set contextAlerts.*`. Full details: [docs/commands/context.md](commands/context.md)
+
 ### Verification (v0.43.0+)
 ```bash
 cleo verify <id>                    # Show verification status

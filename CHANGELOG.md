@@ -5,6 +5,48 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.49.0] - 2026-01-03
+
+### Added
+- **Automatic Context Alerts** (Epic T1320) - Proactive context window monitoring during sessions
+  - New `lib/context-alert.sh` library with threshold crossing detection
+  - Visual FACE UP alert format with Unicode box characters and status emojis
+  - Session-aware alerts: only trigger when CLEO session is active
+  - Automatic integration in `complete`, `add`, `focus set`, and `session` commands
+  - Alerts appear on stderr BEFORE JSON output for maximum visibility
+  - Threshold levels: 🟡 Warning (70-84%), 🟠 Caution (85-89%), 🔴 Critical (90-94%), 🚨 Emergency (95%+)
+  - Configuration options in `config.json`:
+    - `contextAlerts.enabled` - Enable/disable alerts (default: true)
+    - `contextAlerts.minThreshold` - Minimum threshold to alert (default: "warning")
+    - `contextAlerts.suppressDuration` - Seconds to suppress repeat alerts (default: 0)
+    - `contextAlerts.triggerCommands` - Commands that trigger alerts (default: [] = all)
+  - Comprehensive test suite: 38 unit tests + 16 integration tests
+  - Full documentation in `docs/guides/context-safeguard.md`
+  - Updated `docs/commands/context.md` with Automatic Alerts section
+  - Updated `templates/AGENT-INJECTION.md` with alert notes
+
+### Changed
+- **Migration System Architecture** (Epic T1249) - Refactored for maintainability
+  - Phase 1: Schema files as single source of truth (`get_schema_version_from_file()`)
+  - Phase 2: Template placeholders (`{{SCHEMA_VERSION_*}}`)
+  - Phase 3: `._meta.schemaVersion` standardization
+  - Phase 4: Migration journal (in progress)
+  - Phase 5: Timestamp migrations (in progress)
+
+### Removed
+- **SCHEMA_VERSION_* constants** - Deleted hardcoded version constants from `lib/migrate.sh`
+  - Version literals replaced with `get_schema_version_from_file()` calls
+  - Fallback defaults removed in favor of schema file reads
+  - Migration discovery now fully dynamic via `discover_migration_versions()`
+
+### Documentation
+- **Migration System Documentation** (T1311)
+  - Created `docs/MIGRATION-SYSTEM.md` with complete architecture guide
+  - Updated `CLAUDE.md` with version management section
+  - Enhanced `docs/commands/migrate.md` with API documentation
+
 ## [0.48.2] - 2026-01-03
 
 ### Fixed
