@@ -107,6 +107,7 @@ DRY_RUN=false
 TASK_TYPE=""     # epic|task|subtask - inferred if not specified
 PARENT_ID=""     # Parent task ID for hierarchy
 SIZE=""          # small|medium|large - optional scope-based size (NOT time)
+POSITION=""      # Explicit position within sibling group (T805)
 
 usage() {
   cat << 'EOF'
@@ -669,6 +670,10 @@ while [[ $# -gt 0 ]]; do
       SIZE="$2"
       shift 2
       ;;
+    --position)
+      POSITION="$2"
+      shift 2
+      ;;
     -q|--quiet)
       QUIET=true
       shift
@@ -1184,6 +1189,24 @@ if [[ -n "$SIZE" ]]; then
   TASK_JSON=$(echo "$TASK_JSON" | jq --arg sz "$SIZE" '.size = $sz')
 fi
 
+# Auto-assign or validate position (T805: Explicit Positional Ordering)
+# Use parent scope for position calculation (null = root level tasks)
+POSITION_PARENT="${PARENT_ID:-null}"
+if [[ -n "$POSITION" ]]; then
+  # Explicit position specified - validate and potentially shuffle
+  if [[ "$POSITION" -lt 1 ]]; then
+    POSITION=1
+  fi
+  # Will need to shuffle existing siblings if inserting
+  TASK_JSON=$(echo "$TASK_JSON" | jq --argjson pos "$POSITION" '.position = $pos | .positionVersion = 0')
+else
+  # Auto-assign position = max sibling position + 1
+  if declare -f get_next_position >/dev/null 2>&1; then
+    NEXT_POS=$(get_next_position "$POSITION_PARENT" "$TODO_FILE")
+    TASK_JSON=$(echo "$TASK_JSON" | jq --argjson pos "$NEXT_POS" '.position = $pos | .positionVersion = 0')
+  fi
+fi
+
 # Add optional fields
 if [[ -n "$PHASE" ]]; then
   TASK_JSON=$(echo "$TASK_JSON" | jq --arg phase "$PHASE" '.phase = $phase')
@@ -1280,16 +1303,51 @@ if [[ "$DRY_RUN" == true ]]; then
   exit $EXIT_SUCCESS
 fi
 
+# If explicit position was specified, shuffle existing siblings to make room (T805)
+SHUFFLED_TODO=""
+if [[ -n "$POSITION" ]]; then
+  # Shuffle siblings at position >= target position: increment their positions
+  if [[ "$POSITION_PARENT" == "null" ]]; then
+    SHUFFLED_TODO=$(jq --argjson target "$POSITION" '
+      .tasks = [.tasks[] |
+        if (.parentId == null or .parentId == "null") and (.position // 0) >= $target then
+          .position = (.position + 1) |
+          .positionVersion = ((.positionVersion // 0) + 1)
+        else .
+        end
+      ]
+    ' "$TODO_FILE")
+  else
+    SHUFFLED_TODO=$(jq --arg pid "$PARENT_ID" --argjson target "$POSITION" '
+      .tasks = [.tasks[] |
+        if .parentId == $pid and (.position // 0) >= $target then
+          .position = (.position + 1) |
+          .positionVersion = ((.positionVersion // 0) + 1)
+        else .
+        end
+      ]
+    ' "$TODO_FILE")
+  fi
+fi
+
 # Add task to todo.json and calculate checksum
 # Calculate checksum before adding to JSON (while still holding lock)
-CHECKSUM=$(jq -c --argjson task "$TASK_JSON" '.tasks + [$task]' "$TODO_FILE" | sha256sum | cut -c1-16)
-
-# Add task with updated checksum and timestamp
-UPDATED_TODO=$(jq \
-  --argjson task "$TASK_JSON" \
-  --arg cs "$CHECKSUM" \
-  '.tasks += [$task] | ._meta.checksum = $cs | .lastUpdated = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
-  "$TODO_FILE")
+if [[ -n "$SHUFFLED_TODO" ]]; then
+  # Use shuffled version as base
+  CHECKSUM=$(echo "$SHUFFLED_TODO" | jq -c --argjson task "$TASK_JSON" '.tasks + [$task]' | sha256sum | cut -c1-16)
+  UPDATED_TODO=$(echo "$SHUFFLED_TODO" | jq \
+    --argjson task "$TASK_JSON" \
+    --arg cs "$CHECKSUM" \
+    '.tasks += [$task] | ._meta.checksum = $cs | .lastUpdated = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))')
+else
+  CHECKSUM=$(jq -c --argjson task "$TASK_JSON" '.tasks + [$task]' "$TODO_FILE" | sha256sum | cut -c1-16)
+  # Add task with updated checksum and timestamp
+  UPDATED_TODO=$(jq \
+    --argjson task "$TASK_JSON" \
+    --arg cs "$CHECKSUM" \
+    '.tasks += [$task] | ._meta.checksum = $cs | .lastUpdated = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+    "$TODO_FILE")
+fi
 
 # Write atomically (we already hold the lock, so we can't use save_json which would deadlock)
 # Instead, use the same atomic pattern save_json uses but without re-acquiring the lock

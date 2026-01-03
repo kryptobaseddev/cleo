@@ -84,6 +84,7 @@
 | **[commands/phases.md](commands/phases.md)** | Phase management command documentation | Managing project phases and phase-based workflows |
 | **[commands/promote.md](commands/promote.md)** | Promote command documentation | Remove parent from task, making it root-level (T339 Phase 2) |
 | **[commands/reparent.md](commands/reparent.md)** | Reparent command documentation | Move task to different parent in hierarchy (T339 Phase 2) |
+| **[commands/reorder.md](commands/reorder.md)** | Reorder/swap command documentation | Explicit positional ordering within sibling groups (T805) |
 | **[commands/research.md](commands/research.md)** | Research aggregation command documentation | Multi-source web research with MCP servers (Tavily, Context7, Reddit) |
 | **[commands/restore.md](commands/restore.md)** | Restore command documentation | Restoring from backups |
 | **[commands/session.md](commands/session.md)** | Session command documentation | Managing work sessions |
