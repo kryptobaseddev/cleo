@@ -2,18 +2,21 @@
 
 **Epic**: T1243
 **Created**: 2026-01-03
-**Priority**: CRITICAL
-**Status**: Blocking production release
+**Updated**: 2026-01-03
+**Priority**: MEDIUM (was CRITICAL)
+**Status**: Partially resolved - critical blockers fixed
 
 ## Executive Summary
 
-The `cleo upgrade` command has multiple serious bugs discovered during the 2026-01-03 session that prevent production use. The command is intended to be the canonical unified maintenance command but currently:
+The `cleo upgrade` command had multiple serious bugs discovered during the 2026-01-03 session. **CRITICAL ISSUES NOW FIXED:**
 
-1. Fails to complete migrations (stops at 2.4.0, target is 2.6.0)
-2. Has arithmetic syntax errors in version comparison
-3. Missing migration functions for position ordering (T805)
-4. Inconsistent behavior between `--status` and actual execution
-5. Documentation confusion between `upgrade` and `migrate` commands
+1. ~~Fails to complete migrations (stops at 2.4.0, target is 2.6.0)~~ ✅ **FIXED** (T1245)
+2. ~~Has arithmetic syntax errors in version comparison~~ ✅ **FIXED** (T1244 - unable to reproduce, works correctly)
+3. ~~Missing migration functions for position ordering (T805)~~ ✅ **FIXED** (T1245)
+4. ~~Inconsistent behavior between `--status` and actual execution~~ ✅ **FIXED** (T1246)
+5. Documentation confusion between `upgrade` and `migrate` commands - STILL OPEN
+
+**Remaining issues are LOW priority documentation/cosmetic fixes.**
 
 ---
 
@@ -291,3 +294,40 @@ All issues observed during session on 2026-01-03:
 - Multiple failures documented above
 - Manual workaround applied (jq script)
 - Epic T1243 created to track fixes
+
+---
+
+## Resolution Log (2026-01-03)
+
+### Fixed Issues
+
+**Issue 1 & 2: Arithmetic Errors & Missing Migration Functions**
+- **Task**: T1244, T1245
+- **Resolution**:
+  - Added `migrate_todo_to_2_5_0()` function to add position field
+  - Updated `known_versions` array to include "2.5.0" and "2.6.0"
+  - Existing `migrate_todo_to_2_6_0()` handles positionVersion
+  - Arithmetic errors could not be reproduced - version parsing works correctly
+- **Verified**: Migration path 2.4.0 → 2.5.0 → 2.6.0 now works
+
+**Issue 4: Upgrade Command Inconsistent Behavior**
+- **Task**: T1246
+- **Root Cause**: `scripts/upgrade.sh` called non-existent `migrate_todo_file()` function
+- **Resolution**: Changed to call `ensure_compatible_version()` from lib/migrate.sh
+- **Verified**: `cleo upgrade --force` now applies migrations correctly
+
+### New Task Created
+
+**T1249: Implement dynamic migration version discovery for CI/CD**
+- The `known_versions` array requires manual updates when adding migrations
+- This is error-prone and caused the original bug
+- Task to implement automatic discovery of migration functions
+
+### Remaining Open Issues
+
+| Issue | Priority | Task |
+|-------|----------|------|
+| Issue 3: Documentation confusion | LOW | T1238 |
+| Issue 5: Display bugs (backwards versions) | LOW | T1233, T1234 |
+| Issue 6: validate --fix atomicity | MEDIUM | T1247 |
+| Issue 7: Duplicate of Issue 2 | N/A | Duplicate |
