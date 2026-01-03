@@ -26,9 +26,9 @@ source "$SCRIPT_DIR/logging.sh"
 
 # Current schema versions (fallback if schema file doesn't have schemaVersion)
 SCHEMA_VERSION_TODO="2.6.0"
-SCHEMA_VERSION_CONFIG="2.2.0"
-SCHEMA_VERSION_ARCHIVE="2.1.0"
-SCHEMA_VERSION_LOG="2.1.0"
+SCHEMA_VERSION_CONFIG="2.4.0"
+SCHEMA_VERSION_ARCHIVE="2.4.0"
+SCHEMA_VERSION_LOG="2.4.0"
 
 # Migration scripts directory
 MIGRATIONS_DIR="${CLEO_HOME:-$HOME/.cleo}/migrations"
@@ -305,28 +305,34 @@ detect_file_version() {
         fi
     fi
 
-    # Special case: Check if file has string project field (pre-v2.2.0 format)
+    # Special case: Check if file has legacy structure (pre-v2.2.0 format)
     # This overrides the version field if detected - catches incorrectly marked versions
-    # Check ANY 2.x version for structural inconsistency
+    # ONLY applies to todo.json - archive and log files correctly use string project
     if [[ "$version" =~ ^2\. ]]; then
-        local project_type
-        project_type=$(jq -r 'if has("project") then (.project | type) else "null" end' "$file" 2>/dev/null)
+        # Check if this is a todo.json file (has .tasks array, not .entries or .archivedTasks)
+        local is_todo_file
+        is_todo_file=$(jq -r 'if has("tasks") and (has("entries") | not) then "yes" else "no" end' "$file" 2>/dev/null)
 
-        if [[ "$project_type" == "string" ]]; then
-            # Old format with string project -> needs v2.2.0 migration
-            # The version field is lying - data structure is pre-v2.2.0
-            echo "2.1.0"
-            return 0
-        fi
+        if [[ "$is_todo_file" == "yes" ]]; then
+            local project_type
+            project_type=$(jq -r 'if has("project") then (.project | type) else "null" end' "$file" 2>/dev/null)
 
-        # Also check if .phases exists at top level (should be in .project.phases)
-        local has_top_level_phases
-        has_top_level_phases=$(jq -r 'if has("phases") then "yes" else "no" end' "$file" 2>/dev/null)
+            if [[ "$project_type" == "string" ]]; then
+                # Old format with string project -> needs v2.2.0 migration
+                # The version field is lying - data structure is pre-v2.2.0
+                echo "2.1.0"
+                return 0
+            fi
 
-        if [[ "$has_top_level_phases" == "yes" ]]; then
-            # Old format with top-level .phases -> needs v2.2.0 migration
-            echo "2.1.0"
-            return 0
+            # Also check if .phases exists at top level (should be in .project.phases)
+            local has_top_level_phases
+            has_top_level_phases=$(jq -r 'if has("phases") then "yes" else "no" end' "$file" 2>/dev/null)
+
+            if [[ "$has_top_level_phases" == "yes" ]]; then
+                # Old format with top-level .phases -> needs v2.2.0 migration
+                echo "2.1.0"
+                return 0
+            fi
         fi
     fi
 
@@ -507,8 +513,15 @@ update_version_field() {
     local new_version="$2"
 
     # Update version field using atomic save_json
+    # Update all version fields for consistency across file types:
+    # - .version (top-level)
+    # - ._meta.version (legacy, used by detect_file_version)
+    # - ._meta.schemaVersion (canonical schema version)
     local updated_content
-    updated_content=$(jq --arg ver "$new_version" '.version = $ver' "$file") || {
+    updated_content=$(jq --arg ver "$new_version" '
+        .version = $ver |
+        if ._meta then (._meta.version = $ver | ._meta.schemaVersion = $ver) else . end
+    ' "$file") || {
         echo "ERROR: Failed to update version field" >&2
         return 1
     }

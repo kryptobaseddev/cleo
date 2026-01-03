@@ -1,13 +1,17 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/log.schema.json",
-  "schemaVersion": "2.1.0",
+  "schemaVersion": "2.4.0",
   "title": "CLEO Change Log Schema",
   "description": "Immutable audit trail of all task operations. Used for debugging, history, and anti-hallucination verification.",
   "type": "object",
-  "required": ["version", "project", "entries", "_meta"],
+  "required": [
+    "version",
+    "project",
+    "entries",
+    "_meta"
+  ],
   "additionalProperties": false,
-
   "properties": {
     "version": {
       "type": "string",
@@ -20,7 +24,11 @@
     },
     "_meta": {
       "type": "object",
-      "required": ["totalEntries", "firstEntry", "lastEntry"],
+      "required": [
+        "totalEntries",
+        "firstEntry",
+        "lastEntry"
+      ],
       "additionalProperties": false,
       "properties": {
         "formatVersion": {
@@ -34,11 +42,17 @@
           "minimum": 0
         },
         "firstEntry": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "lastEntry": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "entriesPruned": {
@@ -51,14 +65,20 @@
     "entries": {
       "type": "array",
       "description": "Log entries in chronological order. Append-only.",
-      "items": { "$ref": "#/definitions/logEntry" }
+      "items": {
+        "$ref": "#/definitions/logEntry"
+      }
     }
   },
-
   "definitions": {
     "logEntry": {
       "type": "object",
-      "required": ["id", "timestamp", "action", "actor"],
+      "required": [
+        "id",
+        "timestamp",
+        "action",
+        "actor"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -72,7 +92,10 @@
           "description": "When this action occurred."
         },
         "sessionId": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Session that performed this action."
         },
         "action": {
@@ -106,34 +129,61 @@
         },
         "actor": {
           "type": "string",
-          "enum": ["human", "claude", "system"],
+          "enum": [
+            "human",
+            "claude",
+            "system"
+          ],
           "description": "Who/what performed the action."
         },
         "taskId": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^T\\d{3,}$",
           "description": "Task ID if action relates to a specific task."
         },
         "before": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "State before the action (for changes)."
         },
         "after": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "State after the action (for changes)."
         },
         "details": {
-          "type": ["object", "string", "null"],
+          "type": [
+            "object",
+            "string",
+            "null"
+          ],
           "description": "Additional context about the action."
         },
         "scope": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "Session scope context for multi-session log entries. Null for single-session mode.",
           "additionalProperties": false,
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["task", "taskGroup", "subtree", "epicPhase", "epic", "custom"],
+              "enum": [
+                "task",
+                "taskGroup",
+                "subtree",
+                "epicPhase",
+                "epic",
+                "custom"
+              ],
               "description": "Scope type from session definition."
             },
             "rootTaskId": {
@@ -142,7 +192,10 @@
               "description": "Root task defining the scope."
             },
             "phaseFilter": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "description": "Phase filter if scope is phase-limited."
             },
             "taskCount": {
@@ -153,21 +206,36 @@
           }
         },
         "agentId": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Agent identifier in multi-session mode (e.g., 'opus-1', 'haiku-2')."
         },
         "otherActiveSessions": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "description": "Count of other active sessions at log time. Useful for concurrency auditing."
         },
         "error": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "description": "Error details if action failed.",
           "properties": {
-            "code": { "type": "string" },
-            "message": { "type": "string" },
-            "recoverable": { "type": "boolean" }
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "recoverable": {
+              "type": "boolean"
+            }
           }
         }
       }
