@@ -505,6 +505,8 @@ declare -A CMD_MAP=(
   [roadmap]="roadmap.sh"
   [context]="context.sh"
   [safestop]="safestop.sh"
+  [reorder]="reorder.sh"
+  [swap]="reorder.sh"
 )
 
 # Brief descriptions for main help
@@ -555,6 +557,8 @@ declare -A CMD_DESC=(
   [roadmap]="Generate roadmap from epics and CHANGELOG"
   [context]="Monitor context window usage for agent safeguard"
   [safestop]="Graceful shutdown for agents at context limits"
+  [reorder]="Change task position within sibling group"
+  [swap]="Exchange positions of two sibling tasks"
 )
 
 # ============================================

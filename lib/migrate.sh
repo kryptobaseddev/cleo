@@ -25,7 +25,7 @@ source "$SCRIPT_DIR/logging.sh"
 # ============================================================================
 
 # Current schema versions (fallback if schema file doesn't have schemaVersion)
-SCHEMA_VERSION_TODO="2.4.0"
+SCHEMA_VERSION_TODO="2.6.0"
 SCHEMA_VERSION_CONFIG="2.2.0"
 SCHEMA_VERSION_ARCHIVE="2.1.0"
 SCHEMA_VERSION_LOG="2.1.0"
@@ -955,6 +955,106 @@ migrate_todo_to_2_4_0() {
     fi
 
     return 0
+}
+
+# Migration from 2.5.0 to 2.6.0 for todo.json
+# Adds position and positionVersion fields to tasks (T805)
+# Position is auto-assigned by createdAt order within each parent scope
+migrate_todo_to_2_6_0() {
+    local file="$1"
+
+    echo "  Migrating tasks to add position ordering..."
+
+    # Auto-assign positions by createdAt order within each parent scope
+    local updated_content
+    updated_content=$(jq '
+        # Group tasks by parentId and assign positions
+        def get_parent_key: if .parentId == null then "__null__" else .parentId end;
+
+        # First pass: build index of positions by parent
+        (reduce .tasks[] as $t (
+            {};
+            . + {
+                ($t | get_parent_key):
+                    ((.[($t | get_parent_key)] // []) + [$t])
+            }
+        )) as $by_parent |
+
+        # Second pass: sort each group by createdAt and assign positions
+        (.tasks | map(
+            . as $task |
+            ($task | get_parent_key) as $pk |
+            ($by_parent[$pk] | sort_by(.createdAt) | to_entries | map(select(.value.id == $task.id)) | .[0].key + 1) as $pos |
+            $task + {
+                position: (if $task.position == null then $pos else $task.position end),
+                positionVersion: (if $task.positionVersion == null then 0 else $task.positionVersion end)
+            }
+        )) as $updated_tasks |
+
+        .version = "2.6.0" |
+        ._meta.schemaVersion = "2.6.0" |
+        .tasks = $updated_tasks
+    ' "$file") || {
+        echo "ERROR: Failed to add position fields" >&2
+        return 1
+    }
+
+    # Validate the result
+    if ! echo "$updated_content" | jq empty 2>/dev/null; then
+        echo "ERROR: Migration produced invalid JSON" >&2
+        return 1
+    fi
+
+    # Atomic save using save_json
+    save_json "$file" "$updated_content" || {
+        echo "ERROR: Failed to update file" >&2
+        return 1
+    }
+
+    # Count tasks that got positions
+    local task_count
+    task_count=$(echo "$updated_content" | jq '[.tasks[] | select(.position != null)] | length')
+    echo "  Assigned positions to $task_count tasks (by createdAt order within parent scope)"
+    echo "  Schema version updated to 2.6.0"
+
+    # Log migration if log_migration is available
+    if declare -f log_migration >/dev/null 2>&1; then
+        log_migration "$file" "todo" "2.5.0" "2.6.0"
+    fi
+
+    return 0
+}
+
+# Standalone position migration function (can be called directly)
+# Assigns positions to tasks without positions, preserving existing positions
+# Args: $1 = file path
+# Returns: 0 on success, count of migrated tasks
+migrate_positions() {
+    local file="${1:-${TODO_FILE:-$(pwd)/.cleo/todo.json}}"
+
+    if [[ ! -f "$file" ]]; then
+        echo "ERROR: File not found: $file" >&2
+        return 1
+    fi
+
+    # Check how many tasks need positions
+    local needs_position
+    needs_position=$(jq '[.tasks[] | select(.position == null)] | length' "$file")
+
+    if [[ "$needs_position" -eq 0 ]]; then
+        echo "All tasks already have positions assigned"
+        return 0
+    fi
+
+    echo "Migrating $needs_position tasks without positions..."
+
+    # Create backup
+    if declare -f create_safety_backup >/dev/null 2>&1; then
+        create_safety_backup "$file" "position-migration"
+    fi
+
+    # Run the position migration
+    migrate_todo_to_2_6_0 "$file"
 }
 
 # ============================================================================

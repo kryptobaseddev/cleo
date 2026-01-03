@@ -512,6 +512,11 @@ case "$SORT_FIELD" in
   createdAt)
     SORT_EXPR='sort_by(.createdAt)'
     ;;
+  position)
+    # Sort by position within parent scope (T805)
+    # Tasks without position sort last (position 999999)
+    SORT_EXPR='sort_by(.position // 999999)'
+    ;;
   title)
     SORT_EXPR='sort_by(.title | ascii_downcase)'
     ;;
@@ -778,13 +783,14 @@ if [[ "$SHOW_TREE" == true ]]; then
     TREE_ROOT_PARENT="${PARENT_FILTER:-${CHILDREN_OF:-}}"
 
     # Build hierarchical tree from filtered tasks using parentId
+    # Children sorted by position within each parent (T805)
     TREE_JSON=$(echo "$FILTERED_TASKS" | jq --arg root_id "$TREE_ROOT_PARENT" '
         # Store the full task list
         . as $tasks |
 
-        # Get children of a task
+        # Get children of a task, sorted by position
         def get_children($parent_id):
-          [$tasks[] | select(.parentId == $parent_id)];
+          [$tasks[] | select(.parentId == $parent_id)] | sort_by(.position // 999999);
 
         # Recursive tree building
         def build_tree($task):
@@ -794,12 +800,12 @@ if [[ "$SHOW_TREE" == true ]]; then
 
         # Find root tasks based on filter context
         # When $root_id is set (--parent ID), show subtree rooted at that task ID
-        # Otherwise, roots are tasks with null parentId
+        # Otherwise, roots are tasks with null parentId (sorted by position)
         if ($root_id | length) > 0 then
           # Find the task with this ID and build its subtree
           [$tasks[] | select(.id == $root_id) | build_tree(.)]
         else
-          [$tasks[] | select(.parentId == null) | build_tree(.)]
+          [$tasks[] | select(.parentId == null)] | sort_by(.position // 999999) | [.[] | build_tree(.)]
         end
     ')
 
@@ -1068,6 +1074,8 @@ case "$FORMAT" in
           def sicon: if . == "done" then "✓" elif . == "active" then "◉" elif . == "blocked" then "⊗" else "○" end;
           def picon: if . == "critical" then "🔴" elif . == "high" then "🟡" elif . == "medium" then "🔵" else "⚪" end;
           def truncate_title: if (.title | length) > $width then .title[0:($width - 1)] + "…" else .title end;
+          def posinfo: if .position then "[\(.position)]" else "" end;
+          def depinfo: if (.depends | length) > 0 then " ⟵\(.depends | length)" else "" end;
           def render_children(prefix):
             (.children | length) as $n |
             if $n > 0 then
@@ -1075,11 +1083,11 @@ case "$FORMAT" in
               (if $i == ($n - 1) then "└── " else "├── " end) as $conn |
               (if $i == ($n - 1) then "    " else "│   " end) as $cont |
               .children[$i] |
-              "\(prefix)\($conn)\(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)",
+              "\(prefix)\($conn)\(posinfo) \(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)\(depinfo)",
               render_children(prefix + $cont)
             else empty end;
           def render_root:
-            "\(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)",
+            "\(posinfo) \(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)\(depinfo)",
             render_children("");
           .[] | render_root
         ' 2>/dev/null)
@@ -1088,6 +1096,8 @@ case "$FORMAT" in
           def sicon: if . == "done" then "+" elif . == "active" then "*" elif . == "blocked" then "x" else "o" end;
           def picon: if . == "critical" then "!" elif . == "high" then "H" elif . == "medium" then "M" else "L" end;
           def truncate_title: if (.title | length) > $width then .title[0:($width - 3)] + "..." else .title end;
+          def posinfo: if .position then "[\(.position)]" else "" end;
+          def depinfo: if (.depends | length) > 0 then " <-\(.depends | length)" else "" end;
           def render_children(prefix):
             (.children | length) as $n |
             if $n > 0 then
@@ -1095,11 +1105,11 @@ case "$FORMAT" in
               (if $i == ($n - 1) then "`-- " else "+-- " end) as $conn |
               (if $i == ($n - 1) then "    " else "|   " end) as $cont |
               .children[$i] |
-              "\(prefix)\($conn)\(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)",
+              "\(prefix)\($conn)\(posinfo) \(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)\(depinfo)",
               render_children(prefix + $cont)
             else empty end;
           def render_root:
-            "\(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)",
+            "\(posinfo) \(.id) \(.status | sicon) \((.priority // "medium") | picon) \(truncate_title)\(depinfo)",
             render_children("");
           .[] | render_root
         ' 2>/dev/null)

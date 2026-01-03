@@ -700,6 +700,111 @@ validate_task_size() {
 }
 
 # ============================================================================
+# POSITION ORDERING FUNCTIONS (T805)
+# ============================================================================
+
+# get_max_position - Get the maximum position value among siblings
+#
+# Args:
+#   $1 - Parent ID (use "null" for root-level tasks)
+#   $2 - Path to todo.json
+#
+# Returns: Maximum position number, or 0 if no siblings have positions
+get_max_position() {
+    local parent_id="$1"
+    local todo_file="$2"
+
+    if [[ "$parent_id" == "null" ]]; then
+        jq '[.tasks[] | select(.parentId == null or .parentId == "null") | .position // 0] | max // 0' "$todo_file" 2>/dev/null || echo "0"
+    else
+        jq --arg pid "$parent_id" '[.tasks[] | select(.parentId == $pid) | .position // 0] | max // 0' "$todo_file" 2>/dev/null || echo "0"
+    fi
+}
+
+# get_next_position - Get the next available position for a new sibling
+#
+# Args:
+#   $1 - Parent ID (use "null" for root-level tasks)
+#   $2 - Path to todo.json
+#
+# Returns: Next position number (max + 1)
+get_next_position() {
+    local parent_id="$1"
+    local todo_file="$2"
+
+    local max_pos
+    max_pos=$(get_max_position "$parent_id" "$todo_file")
+    echo "$((max_pos + 1))"
+}
+
+# get_task_position - Get the current position of a task
+#
+# Args:
+#   $1 - Task ID
+#   $2 - Path to todo.json
+#
+# Returns: Position number, or "null" if not set
+get_task_position() {
+    local task_id="$1"
+    local todo_file="$2"
+
+    jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .position // "null"' "$todo_file" 2>/dev/null || echo "null"
+}
+
+# get_siblings_with_positions - Get all siblings sorted by position
+#
+# Args:
+#   $1 - Parent ID (use "null" for root-level tasks)
+#   $2 - Path to todo.json
+#
+# Returns: JSON array of {id, position} objects sorted by position
+get_siblings_with_positions() {
+    local parent_id="$1"
+    local todo_file="$2"
+
+    if [[ "$parent_id" == "null" ]]; then
+        jq '[.tasks[] | select(.parentId == null or .parentId == "null") | {id, position: (.position // 0)}] | sort_by(.position)' "$todo_file" 2>/dev/null || echo "[]"
+    else
+        jq --arg pid "$parent_id" '[.tasks[] | select(.parentId == $pid) | {id, position: (.position // 0)}] | sort_by(.position)' "$todo_file" 2>/dev/null || echo "[]"
+    fi
+}
+
+# validate_position_sequence - Check if positions form valid continuous sequence
+#
+# Args:
+#   $1 - Parent ID (use "null" for root-level tasks)
+#   $2 - Path to todo.json
+#
+# Returns: 0 if valid, 1 if gaps or duplicates detected
+# Outputs: Warning message if invalid
+validate_position_sequence() {
+    local parent_id="$1"
+    local todo_file="$2"
+
+    local siblings
+    siblings=$(get_siblings_with_positions "$parent_id" "$todo_file")
+
+    local count
+    count=$(echo "$siblings" | jq 'length')
+
+    if [[ "$count" -eq 0 ]]; then
+        return 0  # No siblings, valid by definition
+    fi
+
+    # Check for expected sequence [1, 2, 3, ..., N]
+    local expected_positions actual_positions
+    expected_positions=$(seq 1 "$count" | tr '\n' ',' | sed 's/,$//')
+    actual_positions=$(echo "$siblings" | jq -r '[.[].position] | sort | @csv' | tr -d '"')
+
+    if [[ "$expected_positions" != "$actual_positions" ]]; then
+        echo "WARN: Position sequence invalid for parent '$parent_id': expected [$expected_positions], got [$actual_positions]" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -734,6 +839,14 @@ export -f validate_max_active_siblings
 export -f validate_parent_type
 export -f validate_no_circular_reference
 export -f validate_hierarchy
+
+# Position ordering functions (T805)
+export -f get_max_position
+export -f get_next_position
+export -f get_task_position
+export -f get_siblings_with_positions
+export -f validate_position_sequence
+
 # ============================================================================
 # ORPHAN DETECTION AND REPAIR (T341)
 # ============================================================================
