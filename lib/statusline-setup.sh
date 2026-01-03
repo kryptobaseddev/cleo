@@ -79,8 +79,9 @@ install_statusline_integration() {
     local mode="${1:-check}"
     local interactive="${2:-true}"
 
-    check_statusline_integration
-    local status=$?
+    # Capture return value without triggering set -e exit
+    local status
+    check_statusline_integration && status=0 || status=$?
 
     case $status in
         0)
