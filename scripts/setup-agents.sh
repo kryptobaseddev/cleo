@@ -100,12 +100,7 @@ if [[ ! -d "$CLEO_HOME/docs" ]]; then
     exit "$EXIT_MISSING_DEPENDENCY"
 fi
 
-# Verify template exists
-TEMPLATE_PATH="$CLEO_HOME/templates/AGENT-INJECTION.md"
-if [[ ! -f "$TEMPLATE_PATH" ]]; then
-    echo "Error: Agent injection template not found: $TEMPLATE_PATH" >&2
-    exit "$EXIT_MISSING_DEPENDENCY"
-fi
+# No template needed - we generate @ reference inline
 
 # ==============================================================================
 # AGENT DISCOVERY AND CONFIGURATION
@@ -180,12 +175,10 @@ for agent_name in "${agent_types[@]}"; do
         echo "📝 $agent_name/$config_file: Initial setup"
     fi
 
-    # Read template content
-    template_content=$(cat "$TEMPLATE_PATH")
-
-    # Add version marker to template
+    # Create @ reference block (NOT full content)
     versioned_content="<!-- CLEO:START v${CLI_VERSION} -->
-${template_content}
+# Task Management
+@~/.cleo/docs/TODO_Task_Management.md
 <!-- CLEO:END -->"
 
     # Create or update file with marker-based injection
@@ -229,14 +222,14 @@ ${template_content}
         action="migrated"
         echo "↻ Converted legacy append-style to marker-based injection"
     else
-        # Append to existing file
+        # Prepend to existing file (user content comes AFTER)
         {
-            cat "$config_path"
-            echo ""
             echo "$versioned_content"
+            echo ""
+            cat "$config_path"
         } > "${config_path}.tmp"
         mv "${config_path}.tmp" "$config_path"
-        action="added"
+        action="prepended"
     fi
 
     # Update registry
