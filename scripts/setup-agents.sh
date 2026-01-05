@@ -146,7 +146,7 @@ for agent_name in "${agent_types[@]}"; do
     # Skip if agent CLI not installed
     if ! is_agent_cli_installed "$agent_name"; then
         echo "⏭️  Skipping $agent_name: CLI not installed"
-        ((skipped_count++))
+        : $((skipped_count++))
         continue
     fi
 
@@ -165,7 +165,7 @@ for agent_name in "${agent_types[@]}"; do
     if [[ -f "$config_path" ]] && [[ -n "$current_version" ]]; then
         if [[ "$current_version" == "$CLI_VERSION" ]] && [[ "$FORCE" != true ]] && [[ "$UPDATE" != true ]]; then
             echo "✓ $agent_name/$config_file: Already current (v$current_version)"
-            ((no_change_count++))
+            : $((no_change_count++))
             continue
         elif [[ "$current_version" != "$CLI_VERSION" ]]; then
             echo "↻ $agent_name/$config_file: Updating v$current_version → v$CLI_VERSION"
@@ -236,14 +236,14 @@ for agent_name in "${agent_types[@]}"; do
     if update_agent_config_registry "$config_path" "$CLI_VERSION"; then
         if [[ "$needs_update" == true ]]; then
             echo "✅ $agent_name/$config_file: Updated to v$CLI_VERSION"
-            ((updated_count++))
+            : $((updated_count++))
         else
             echo "✅ $agent_name/$config_file: Configured (v$CLI_VERSION)"
-            ((configured_count++))
+            : $((configured_count++))
         fi
     else
         echo "⚠️  $agent_name/$config_file: Configured but registry update failed" >&2
-        ((configured_count++))
+        : $((configured_count++))
     fi
 done
 
