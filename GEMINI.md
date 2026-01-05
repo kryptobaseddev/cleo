@@ -41,13 +41,21 @@ ct update T001 --notes "Price: \$395"  # Correct
 ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```
 
-### Best Practices
-- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
-- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
+### Data Integrity (RFC 2119)
+
+**MUST** use `cleo` commands for all state modifications.
+**MUST NOT** edit `.cleo/*.json` files directly.
+**MUST** check exit codes after every command (see Error Handling above).
+
+**Rationale**: Direct file edits bypass validation, create stale data in multi-writer environments.
+
+### Best Practices (Efficiency)
+
 - **Context-efficient**: Use `find` for task discovery (99% less context than `list`)
+- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
 - **Command discovery**: `ct commands -r critical` shows essential commands
-- **State operations**: Use `ct` commands for all task modifications
 - **Session lifecycle**: Start sessions before work, end when complete
+- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
 
 ### Essential Commands
 ```bash
@@ -188,6 +196,16 @@ ct import-tasks task.json --parent T050            # Import as children of T050
 
 Full docs: `docs/export-import.md`
 <!-- CLEO:END -->
+<!-- AGENT:GEMINI -->
+# Mission: Task Execution via CLEO
+You are operating within a CLEO-managed project. Your primary memory is the `.cleo/todo.json` file, accessed ONLY via the `cleo` CLI.
+
+**Gemini-Specific Protocols:**
+1. **Context Window**: Do not read the entire `cleo list` output if it's large. Use `cleo find` or `cleo dash` to save tokens.
+2. **Buffer Sync**: You have a native "scratchpad" or "todo list" capability. Keep it synced with CLEO using `cleo sync`.
+3. **Settings**: Ensure `.gemini/settings.json` includes `AGENTS.md` in `contextFileName` to persist these instructions.
+
+---
 <!-- AGENT:GEMINI -->
 # Mission: Task Execution via CLEO
 You are operating within a CLEO-managed project. Your primary memory is the `.cleo/todo.json` file, accessed ONLY via the `cleo` CLI.
