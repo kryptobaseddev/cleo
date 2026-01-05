@@ -1626,6 +1626,20 @@ migrate_positions() {
     migrate_todo_to_2_6_0 "$file"
 }
 
+# Migrate todo.json to v2.6.1 (sessionNote maxLength 1000 → 2500)
+# Args: $1 = file path
+# Returns: 0 on success, 1 on failure
+migrate_todo_to_2_6_1() {
+    local file="$1"
+    local target_version="2.6.1"
+
+    echo "  Migrating to v2.6.1: Increased sessionNote maxLength (1000 → 2500)"
+    echo "  This is a backward compatible change - no data transformation needed"
+
+    # Version-only migration (relaxed constraint, existing data remains valid)
+    bump_version_only "$file" "$target_version"
+}
+
 # ============================================================================
 # BACKWARD COMPATIBILITY CHECKS
 # ============================================================================
