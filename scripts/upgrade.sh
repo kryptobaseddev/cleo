@@ -444,7 +444,7 @@ fi
 
 # 4. Update agent documentation injections
 # Check if any agent docs need updating by iterating over UPDATES_NEEDED
-local agent_docs_updated=false
+agent_docs_updated=false
 for key in "${!UPDATES_NEEDED[@]}"; do
     case "$key" in
         CLAUDE.md|AGENTS.md|GEMINI.md)
@@ -461,7 +461,6 @@ if [[ "$agent_docs_updated" == true ]]; then
 
     # Use injection library to update all agent docs
     if type injection_update_all &>/dev/null; then
-        local result updated
         result=$(injection_update_all ".")
         updated=$(echo "$result" | jq -r '.updated')
 
