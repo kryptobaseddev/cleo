@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.48.0 -->
+<!-- CLEO:START v0.50.2 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
@@ -31,14 +31,13 @@ ct update T001 --notes "Price: \$395"  # Correct
 ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```
 
-### Data Integrity
-- **JSON auto-detection**: Piped output → JSON (no `--format` needed)
-- **Native filters**: Use `--status`, `--label`, `--phase` instead of jq
-- **Context-efficient**: Prefer `find` over `list` for task discovery
-- **Command discovery**: `ct commands -r critical` (no jq needed)
-- **CLI only** - NEVER edit `.cleo/*.json` directly
-- **Verify state** - Use `cleo list` before assuming
-- **Session discipline** - ALWAYS Start/end sessions properly
+### Best Practices
+- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
+- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
+- **Context-efficient**: Use `find` for task discovery (99% less context than `list`)
+- **Command discovery**: `ct commands -r critical` shows essential commands
+- **State operations**: Use `ct` commands for all task modifications
+- **Session lifecycle**: Start sessions before work, end when complete
 
 ### Essential Commands
 ```bash
@@ -55,6 +54,8 @@ ct analyze                 # Task triage (JSON default)
 ct analyze --auto-focus    # Auto-set focus to top task
 ct delete <id> --reason "..."  # Cancel/soft-delete task
 ct uncancel <id>           # Restore cancelled task
+ct context                 # Check context window usage
+ct context check           # Exit code for scripting (0=OK, 50+=warning)
 ```
 
 ### Command Discovery
@@ -154,10 +155,28 @@ ct validate --fix-orphans unlink     # Remove invalid parent references
 ct validate --fix-orphans delete     # Delete orphaned tasks
 ```
 
-### Data Integrity
-- **CLI only** - Never edit `.cleo/*.json` directly
-- **Verify state** - Use `ct list` before assuming
-- **Session discipline** - Start/end sessions properly
+### Context Monitoring
+```bash
+ct context                 # Show context usage (🟢 ok, 🟡 warning, 🔴 critical)
+ct context check           # Silent check, exit codes for scripting
+```
+**Exit codes**: `0`=OK (<70%) | `50`=Warning (70-84%) | `51`=Caution (85-89%) | `52`=Critical (90-94%) | `53`=Emergency (95%+)
+
+**Automatic alerts**: When a CLEO session is active, context alerts automatically appear on stderr after task operations (`complete`, `add`, `focus set`, session lifecycle). Alerts use visual box format and only trigger on threshold crossings. Configure with `ct config set contextAlerts.*`. See `docs/commands/context.md` for details.
+
+### Export/Import (Cross-Project)
+```bash
+# Export tasks to another project
+ct export-tasks T001 --output task.json            # Export single task
+ct export-tasks T001 --subtree --output epic.json  # Export epic with children
+
+# Import tasks from another project
+ct import-tasks task.json                          # Import into current project
+ct import-tasks task.json --dry-run                # Preview import
+ct import-tasks task.json --parent T050            # Import as children of T050
+```
+
+Full docs: `docs/export-import.md`
 <!-- CLEO:END -->
 # Repository Guidelines
 
