@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Documentation**: Clarified `list --parent` vs `analyze --parent` scope behavior
+  - `list --parent`: Returns direct children only (1 level)
+  - `analyze --parent`: Returns ALL descendants recursively (full epic subtree)
+  - Updated templates/AGENT-INJECTION.md, docs/TODO_Task_Management.md, and propagated to CLAUDE.md, AGENTS.md, GEMINI.md
+  - Added scope comparison guidance to prevent confusion about task counts
+
+- **Documentation SOP**: Upgraded CLEO-DOCUMENTATION-SOP.md from v1.0.0 to v2.0.0
+  - Added API-level structured outputs guidance (Anthropic Nov 2025, OpenAI strict mode)
+  - Quantified token optimization techniques (30-50% reduction targets)
+  - Integrated GOLDEN+ framework evolution with confidence-based branching
+  - Evidence-based anti-pattern refinement using 19+ research sources
+  - Added measurement framework with industry-standard metrics
+
 ## [0.50.2] - 2026-01-04
 
 ### Changed

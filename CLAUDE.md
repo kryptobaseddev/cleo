@@ -45,9 +45,11 @@ ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```bash
 ct find "query"              # ✅ Fuzzy search (99% less context than list)
 ct find "T1234" --exact      # ✅ Exact task lookup
-ct list --parent T1384       # ✅ When you need full metadata for children
-ct analyze --parent T1384    # ✅ Analyze specific epic's tasks
+ct list --parent T001        # ✅ Direct children only
+ct analyze --parent T001     # ✅ ALL descendants (recursive)
 ```
+
+**Scope**: `list --parent` → direct children | `analyze --parent` → full subtree
 
 **Why `find` > `list`**:
 - `list` includes full notes arrays (potentially huge)
