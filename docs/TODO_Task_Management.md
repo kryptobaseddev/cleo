@@ -236,8 +236,8 @@ cleo stats                          # Show statistics
 cleo backup                         # Create backup
 cleo backup --list                  # List available backups
 cleo restore [backup]               # Restore from backup
-cleo migrate status                 # Check schema versions
-cleo migrate run                    # Run schema migrations
+cleo upgrade                        # Unified project maintenance (schemas, docs, validation)
+cleo upgrade --status               # Check what needs updating
 cleo migrate-backups --detect       # List legacy backups
 cleo migrate-backups --run          # Migrate to new taxonomy
 cleo export --format todowrite      # Export to Claude Code format
@@ -705,7 +705,7 @@ fi
 | Multiple active tasks | `cleo focus set <correct-id>` (resets others) |
 | Corrupted JSON | `cleo restore` or `backup --list` then restore |
 | Session already active | `cleo session status` then `session end` |
-| Schema outdated | `cleo migrate run` |
+| Schema outdated | `cleo upgrade` |
 
 ## Command Aliases (v0.6.0+)
 
