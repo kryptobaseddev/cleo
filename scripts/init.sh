@@ -58,8 +58,6 @@ fi
 # Defaults
 FORCE=false
 CONFIRM_WIPE=false
-NO_CLAUDE_MD=false
-UPDATE_CLAUDE_MD=false
 PROJECT_NAME=""
 FORMAT=""
 QUIET=false
@@ -95,9 +93,6 @@ Initialize CLEO in the current directory.
 Options:
   --force             Signal intent to reinitialize (requires --confirm-wipe)
   --confirm-wipe      Confirm data destruction when used with --force
-  --no-claude-md      Skip CLAUDE.md integration
-  --update-claude-md  Update all LLM agent doc injections (auto-detects CLAUDE.md, AGENTS.md, GEMINI.md)
-  --update-docs       Alias for --update-claude-md
   -f, --format FMT    Output format: text, json (default: auto-detect)
   --human             Force human-readable text output
   --json              Force JSON output
@@ -138,7 +133,6 @@ Examples:
   cleo init                    # Initialize in current directory
   cleo init my-project         # Initialize with project name
   cleo init --json             # JSON output for scripting
-  cleo init --update-claude-md # Update CLAUDE.md injection
 EOF
   exit 0
 }
@@ -158,8 +152,6 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --force) FORCE=true; shift ;;
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
-    --no-claude-md) NO_CLAUDE_MD=true; shift ;;
-    --update-claude-md|--update-docs) UPDATE_CLAUDE_MD=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --human) FORMAT="text"; shift ;;
     --json) FORMAT="json"; shift ;;
@@ -189,66 +181,6 @@ log_info()    { [[ "$QUIET" != true && "$FORMAT" != "json" ]] && echo "[INFO] $1
 log_warn()    { [[ "$FORMAT" != "json" ]] && echo "[WARN] $1" >&2 || true; }
 log_success() { [[ "$FORMAT" != "json" ]] && echo "[SUCCESS] $1" || true; }
 log_error()   { [[ "$FORMAT" != "json" ]] && echo "[ERROR] $1" >&2 || true; }
-
-# Handle --update-claude-md as standalone operation
-if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
-  # Source injection library
-  source "$CLEO_HOME/lib/injection.sh"
-
-  # MODERN APPROACH: Registry-based auto-detection
-  # Updates ALL injectable files that exist (CLAUDE.md, AGENTS.md, GEMINI.md)
-  # NO per-file flags - registry defines targets automatically
-
-  result=$(injection_update_all ".")
-
-  # Parse results
-  updated=$(echo "$result" | jq -r '.updated')
-  skipped=$(echo "$result" | jq -r '.skipped')
-  failed=$(echo "$result" | jq -r '.failed')
-
-  # Output result
-  if [[ "$FORMAT" == "json" ]]; then
-    # Merge result with standard metadata
-    echo "$result" | jq --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-      --arg version "$VERSION" \
-      '{
-        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-        "_meta": {
-          "command": "init",
-          "subcommand": "update-docs",
-          "timestamp": $timestamp,
-          "format": "json",
-          "version": $version
-        },
-        "success": true,
-        "injection": {
-          "updated": .updated,
-          "skipped": .skipped,
-          "failed": .failed,
-          "results": .results
-        }
-      }'
-  else
-    # Human-readable output
-    if [[ "$updated" -gt 0 ]]; then
-      log_success "Updated $updated file(s)"
-      echo "$result" | jq -r '.results[] | select(.success == true) | "  ✅ \(.target)"'
-    fi
-    if [[ "$skipped" -gt 0 ]]; then
-      log_info "Skipped $skipped file(s) (already current or missing)"
-    fi
-    if [[ "$failed" -gt 0 ]]; then
-      log_error "Failed to update $failed file(s)"
-      echo "$result" | jq -r '.results[] | select(.success == false) | "  ❌ \(.target): \(.error)"'
-    fi
-    if [[ "$updated" -eq 0 ]] && [[ "$failed" -eq 0 ]]; then
-      log_info "No files needed updating"
-    fi
-  fi
-
-  # Exit with error if any updates failed
-  [[ "$failed" -gt 0 ]] && exit 1 || exit 0
-fi
 
 # Determine project name
 [[ -z "$PROJECT_NAME" ]] && PROJECT_NAME=$(basename "$PWD")
@@ -772,56 +704,16 @@ else
   log_warn "jq not installed - skipping JSON validation"
 fi
 
-# Update CLAUDE.md
-if [[ "$NO_CLAUDE_MD" != true ]]; then
-  if [[ -f "CLAUDE.md" ]]; then
-    if grep -q "CLEO:START" CLAUDE.md 2>/dev/null; then
-      log_warn "CLAUDE.md already has task integration (skipped)"
-    else
-      # Inject CLI-based task management instructions from template
-      # PREPEND to top of file (injection should be first thing in CLAUDE.md)
-      local injection_template="$CLEO_HOME/templates/AGENT-INJECTION.md"
-      if [[ -f "$injection_template" ]]; then
-        local temp_file
-        temp_file=$(mktemp)
-        cat "$injection_template" > "$temp_file"
-        echo "" >> "$temp_file"
-        cat CLAUDE.md >> "$temp_file"
-        mv "$temp_file" CLAUDE.md
-        log_info "Updated CLAUDE.md (from template, prepended)"
-      else
-        # Fallback minimal injection if template missing
-        local temp_file
-        temp_file=$(mktemp)
-        cat > "$temp_file" << 'CLAUDE_EOF'
-<!-- CLEO:START -->
-## Task Management (cleo)
+# Inject CLEO task management instructions to agent documentation files
+# Creates files if missing, updates if outdated (CLAUDE.md, AGENTS.md, GEMINI.md)
+if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
+  source "$CLEO_HOME/lib/injection.sh"
 
-Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
+  result=$(injection_update_all ".")
+  updated=$(echo "$result" | jq -r '.updated')
 
-### Essential Commands
-```bash
-ct list                    # View tasks
-ct add "Task"              # Create task
-ct done <id>               # Complete task
-ct focus set <id>          # Set active task
-ct session start|end       # Session lifecycle
-ct exists <id>             # Verify task exists
-```
-
-### Anti-Hallucination
-- **CLI only** - Never edit `.cleo/*.json` directly
-- **Verify state** - Use `ct list` before assuming
-<!-- CLEO:END -->
-
-CLAUDE_EOF
-        cat CLAUDE.md >> "$temp_file"
-        mv "$temp_file" CLAUDE.md
-        log_info "Updated CLAUDE.md (fallback, prepended)"
-      fi
-    fi
-  else
-    log_warn "No CLAUDE.md found (skipped)"
+  if [[ "$updated" -gt 0 ]]; then
+    log_info "Injected task management docs to $updated agent file(s)"
   fi
 fi
 
