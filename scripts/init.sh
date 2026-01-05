@@ -755,7 +755,7 @@ register_project() {
     # Add project to registry with atomic write
     local temp_file
     temp_file=$(mktemp)
-    trap 'rm -f "$temp_file"' RETURN
+    trap 'rm -f "${temp_file:-}"' RETURN
 
     jq --arg hash "$project_hash" \
        --arg path "$project_path" \
