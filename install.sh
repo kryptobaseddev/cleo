@@ -259,7 +259,14 @@ if [[ -d "$INSTALL_DIR" ]]; then
     fi
   fi
 
-  rm -rf "$INSTALL_DIR"
+  # Targeted cleanup: Remove only managed code directories (T1522)
+  # Preserves: config.json, projects-registry.json, plugins/, and other user data
+  log_info "Cleaning up old managed files..."
+  for dir in scripts lib schemas templates docs completions; do
+    if [[ -d "$INSTALL_DIR/$dir" ]]; then
+      rm -rf "$INSTALL_DIR/$dir"
+    fi
+  done
 fi
 
 # ============================================
