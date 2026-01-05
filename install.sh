@@ -510,6 +510,7 @@ declare -A CMD_MAP=(
   [reorder]="reorder.sh"
   [swap]="reorder.sh"
   [doctor]="doctor.sh"
+  [setup-agents]="setup-agents.sh"
 )
 
 # Brief descriptions for main help
@@ -565,6 +566,7 @@ declare -A CMD_DESC=(
   [reorder]="Change task position within sibling group"
   [swap]="Exchange positions of two sibling tasks"
   [doctor]="Comprehensive health check for CLEO installation and projects"
+  [setup-agents]="Setup global agent configurations (CLAUDE.md, AGENTS.md, GEMINI.md)"
 )
 
 # ============================================
