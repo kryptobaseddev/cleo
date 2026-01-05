@@ -31,6 +31,26 @@ cleo list [--status STATUS]         # View tasks
 cleo show <id>                      # View single task details
 ```
 
+### Task Discovery (Context Efficiency)
+
+**MUST** use `find` for task discovery to minimize context usage:
+
+```bash
+# ✅ EFFICIENT - Minimal fields (id, title, status)
+cleo find "injection"           # Fuzzy search (99% less context)
+cleo find "T1234" --exact       # Exact task lookup
+
+# ✅ WHEN TO USE LIST - Full metadata needed
+cleo list --parent T1384        # Children with full details
+cleo list --status pending      # Filter with metadata
+cleo analyze --parent T1384     # Analyze epic's tasks
+```
+
+**Why `find` > `list`**:
+- `list` includes full notes arrays (potentially huge)
+- `find` returns minimal fields only
+- **Context impact**: `find` uses 99% less tokens than `list`
+
 ### Focus & Session
 ```bash
 cleo focus set <id>                 # Set active task (marks active)
@@ -113,8 +133,8 @@ cleo sync --status                  # Show sync session state
 
 ### Analysis & Planning
 ```bash
-cleo analyze                        # Task triage with leverage scoring
-cleo analyze --json                 # Machine-readable triage output
+cleo analyze                        # Task triage with leverage scoring (JSON default)
+cleo analyze --parent T1384         # Analyze specific epic's tasks
 cleo analyze --auto-focus           # Analyze and auto-set focus to top task
 cleo config set analyze.sizeStrategy quick-wins  # Favor small tasks (3/2/1)
 cleo config set analyze.sizeStrategy big-impact  # Favor large tasks (1/2/3)
@@ -370,7 +390,7 @@ cleo list --status pending          # Filter by status
 cleo list --priority high           # Filter by priority
 cleo list --label bug               # Filter by label
 cleo list --phase core              # Filter by phase
-cleo list --format json             # Output format (text|json|jsonl|markdown|table)
+cleo list --parent T1384            # Filter by parent (epic/task children)
 ```
 
 ### LLM-Agent-First Output

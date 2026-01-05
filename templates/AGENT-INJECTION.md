@@ -41,8 +41,21 @@ ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 
 ### Best Practices (Efficiency)
 
-- **Context-efficient**: Use `find` for task discovery (99% less context than `list`)
-- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
+**Task Discovery** (MUST follow for context efficiency):
+```bash
+ct find "query"              # ✅ Fuzzy search (99% less context than list)
+ct find "T1234" --exact      # ✅ Exact task lookup
+ct list --parent T1384       # ✅ When you need full metadata for children
+ct analyze --parent T1384    # ✅ Analyze specific epic's tasks
+```
+
+**Why `find` > `list`**:
+- `list` includes full notes arrays (potentially huge)
+- `find` returns minimal fields (id, title, status)
+- For task discovery: **MUST** use `find`, not `list`
+
+**Other Patterns**:
+- **Native filters**: Use `--status`, `--label`, `--phase`, `--parent` (faster than jq)
 - **Command discovery**: `ct commands -r critical` shows essential commands
 - **Session lifecycle**: Start sessions before work, end when complete
 - **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)

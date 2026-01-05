@@ -51,8 +51,21 @@ ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 
 ### Best Practices (Efficiency)
 
-- **Context-efficient**: Use `find` for task discovery (99% less context than `list`)
-- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
+**Task Discovery** (MUST follow for context efficiency):
+```bash
+ct find "query"              # ✅ Fuzzy search (99% less context than list)
+ct find "T1234" --exact      # ✅ Exact task lookup
+ct list --parent T1384       # ✅ When you need full metadata for children
+ct analyze --parent T1384    # ✅ Analyze specific epic's tasks
+```
+
+**Why `find` > `list`**:
+- `list` includes full notes arrays (potentially huge)
+- `find` returns minimal fields (id, title, status)
+- For task discovery: **MUST** use `find`, not `list`
+
+**Other Patterns**:
+- **Native filters**: Use `--status`, `--label`, `--phase`, `--parent` (faster than jq)
 - **Command discovery**: `ct commands -r critical` shows essential commands
 - **Session lifecycle**: Start sessions before work, end when complete
 - **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
@@ -196,6 +209,16 @@ ct import-tasks task.json --parent T050            # Import as children of T050
 
 Full docs: `docs/export-import.md`
 <!-- CLEO:END -->
+<!-- AGENT:GEMINI -->
+# Mission: Task Execution via CLEO
+You are operating within a CLEO-managed project. Your primary memory is the `.cleo/todo.json` file, accessed ONLY via the `cleo` CLI.
+
+**Gemini-Specific Protocols:**
+1. **Context Window**: Do not read the entire `cleo list` output if it's large. Use `cleo find` or `cleo dash` to save tokens.
+2. **Buffer Sync**: You have a native "scratchpad" or "todo list" capability. Keep it synced with CLEO using `cleo sync`.
+3. **Settings**: Ensure `.gemini/settings.json` includes `AGENTS.md` in `contextFileName` to persist these instructions.
+
+---
 <!-- AGENT:GEMINI -->
 # Mission: Task Execution via CLEO
 You are operating within a CLEO-managed project. Your primary memory is the `.cleo/todo.json` file, accessed ONLY via the `cleo` CLI.
