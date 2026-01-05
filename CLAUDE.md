@@ -31,14 +31,13 @@ ct update T001 --notes "Price: \$395"  # Correct
 ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```
 
-### Data Integrity
-- **JSON auto-detection**: Piped output → JSON (no `--format` needed)
-- **Native filters**: Use `--status`, `--label`, `--phase` instead of jq
-- **Context-efficient**: Prefer `find` over `list` for task discovery
-- **Command discovery**: `ct commands -r critical` (no jq needed)
-- **CLI only** - NEVER edit `.cleo/*.json` directly
-- **Verify state** - Use `cleo list` before assuming
-- **Session discipline** - ALWAYS Start/end sessions properly
+### Best Practices
+- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
+- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
+- **Context-efficient**: Use `find` for task discovery (99% less context than `list`)
+- **Command discovery**: `ct commands -r critical` shows essential commands
+- **State operations**: Use `ct` commands for all task modifications
+- **Session lifecycle**: Start sessions before work, end when complete
 
 ### Essential Commands
 ```bash
@@ -156,17 +155,14 @@ ct validate --fix-orphans unlink     # Remove invalid parent references
 ct validate --fix-orphans delete     # Delete orphaned tasks
 ```
 
-### Data Integrity
-- **CLI only** - Never edit `.cleo/*.json` directly
-- **Verify state** - Use `ct list` before assuming
-- **Session discipline** - Start/end sessions properly
-
 ### Context Monitoring
 ```bash
 ct context                 # Show context usage (🟢 ok, 🟡 warning, 🔴 critical)
 ct context check           # Silent check, exit codes for scripting
 ```
 **Exit codes**: `0`=OK (<70%) | `50`=Warning (70-84%) | `51`=Caution (85-89%) | `52`=Critical (90-94%) | `53`=Emergency (95%+)
+
+**Automatic alerts**: When a CLEO session is active, context alerts automatically appear on stderr after task operations (`complete`, `add`, `focus set`, session lifecycle). Alerts use visual box format and only trigger on threshold crossings. Configure with `ct config set contextAlerts.*`. See `docs/commands/context.md` for details.
 
 ### Export/Import (Cross-Project)
 ```bash
