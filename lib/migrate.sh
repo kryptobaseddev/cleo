@@ -219,11 +219,14 @@ validate_applied_checksums() {
 
 # save_json - Atomic JSON save using Layer 1 primitives
 # This is a local implementation that doesn't require file-ops.sh
-# Args: $1 = file path, $2 = JSON content
+# Args: $1 = file path, $2 = JSON content (optional, reads from stdin if not provided)
 # Returns: 0 on success, 1 on failure
 save_json() {
     local file="$1"
-    local content="$2"
+    local content="${2:-}"
+
+    # Read from stdin if no content provided (matches file-ops.sh behavior)
+    [[ -z "$content" ]] && content=$(cat)
 
     if [[ -z "$file" || -z "$content" ]]; then
         echo "save_json: Both file path and content required" >&2
