@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.2] - 2026-01-04
+
+### Changed
+- **Session Note Limit**: Increased `focus.sessionNote` max length from 1000 to 2500 characters for expanded LLM agent context (schema v2.6.0 → v2.6.1)
+- Updated validation constant `MAX_SESSION_NOTE_LENGTH` from 1000 to 2500 in `lib/validation.sh`
+- Updated all documentation to reflect new 2500 character limit
+- Updated compliance checks and unit tests for new limit
+
+- **Validate Command Refactor** (T1411/T1384): Refactored `scripts/validate.sh` injection validation to use multi-file injection library
+- Replaced 126 lines of duplicate CLAUDE.md/AGENTS.md validation logic with 67-line registry-based loop (46% reduction)
+- Automatic validation for all injectable files (CLAUDE.md, AGENTS.md, GEMINI.md) via `lib/injection.sh`
+- Unified status detection: current/legacy/none/outdated for all agent documentation files
+- Eliminated hardcoded file list - auto-discovery through injection registry
+
+### Technical Details
+- **Schema version**: 2.6.0 → 2.6.1 (backward compatible - no migration required)
+- **Session note files**: schemas/todo.schema.json, lib/validation.sh, tests/unit/lib/validation.bats, docs/architecture/SCHEMAS.md, docs/specs/LLM-AGENT-FIRST-SPEC.md, dev/compliance/checks/input-validation.sh
+- **Injection validation**: scripts/validate.sh - sources lib/injection-config.sh and lib/injection.sh
+- **Breaking**: No - existing notes ≤1000 chars remain valid, injection validation behavior unchanged
+- **Migration**: Not required - relaxed constraint is backward compatible
+
 ## [0.50.1] - 2026-01-03
 
 ### Added
