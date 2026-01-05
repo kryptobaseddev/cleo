@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# lib/injection.sh - Injection operations (Layer 2)
+
+[[ -n "${_INJECTION_LOADED:-}" ]] && return 0
+readonly _INJECTION_LOADED=1
+
+# Dependencies
+source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/injection-registry.sh"
+source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/injection-config.sh"
+source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/exit-codes.sh"
+
+# ==============================================================================
+# INJECTION OPERATIONS
+# ==============================================================================
+
+# Update or add injection to target file
+# Args: target_file [--dry-run]
+# Returns: 0 on success, exit code on failure
+# Output: JSON with action taken
+injection_update() {
+    local target="$1"
+    local dry_run="${2:-}"
+
+    # Validate target
+    if ! injection_is_valid_target "$target"; then
+        echo "{\"error\":\"Invalid target\",\"target\":\"$target\",\"validTargets\":\"$INJECTION_TARGETS\"}" >&2
+        return "$EXIT_INVALID_INPUT"
+    fi
+
+    local template_path header_path action
+    template_path=$(injection_get_template_path)
+    header_path=$(injection_get_header_path "$target")
+
+    # Build injection content
+    local content=""
+    if [[ -n "$header_path" ]] && [[ -f "$header_path" ]]; then
+        content=$(cat "$header_path")
+        content+=$'\n'
+    fi
+    content+=$(cat "$template_path")
+
+    # Determine action
+    if [[ ! -f "$target" ]]; then
+        action="created"
+    elif injection_has_block "$target"; then
+        action="updated"
+    else
+        action="added"
+    fi
+
+    if [[ "$dry_run" == "--dry-run" ]]; then
+        echo "{\"action\":\"$action\",\"target\":\"$target\",\"dryRun\":true}"
+        return 0
+    fi
+
+    # Perform injection (implementation details in injection_apply)
+    injection_apply "$target" "$content" "$action"
+}
+
+# Check injection status for a target file
+# Args: target_file
+# Returns: JSON with status
+injection_check() {
+    local target="$1"
+    local installed_version current_version status
+
+    installed_version=$(injection_extract_version "$(injection_get_template_path)")
+
+    if [[ ! -f "$target" ]]; then
+        echo "{\"target\":\"$target\",\"status\":\"missing\",\"fileExists\":false}"
+        return 0
+    fi
+
+    if ! injection_has_block "$target"; then
+        echo "{\"target\":\"$target\",\"status\":\"none\",\"fileExists\":true}"
+        return 0
+    fi
+
+    current_version=$(injection_extract_version "$target")
+
+    if [[ -z "$current_version" ]]; then
+        status="legacy"
+    elif [[ "$current_version" == "$installed_version" ]]; then
+        status="current"
+    else
+        status="outdated"
+    fi
+
+    echo "{\"target\":\"$target\",\"status\":\"$status\",\"currentVersion\":\"$current_version\",\"installedVersion\":\"$installed_version\"}"
+}
+
+# Check all targets and return combined status
+# Returns: JSON array of all target statuses
+injection_check_all() {
+    local results=()
+    local target
+
+    injection_get_targets
+    for target in "${REPLY[@]}"; do
+        if [[ -f "$target" ]]; then
+            results+=("$(injection_check "$target")")
+        fi
+    done
+
+    printf '[%s]' "$(IFS=,; echo "${results[*]}")"
+}
+
+# Apply injection content to file (internal)
+# Args: target content action
+injection_apply() {
+    local target="$1"
+    local content="$2"
+    local action="$3"
+    local temp_file
+
+    temp_file=$(mktemp)
+    trap "rm -f '$temp_file'" RETURN
+
+    case "$action" in
+        created)
+            echo "$content" > "$temp_file"
+            ;;
+        added)
+            # Prepend to existing file
+            echo "$content" > "$temp_file"
+            echo "" >> "$temp_file"
+            cat "$target" >> "$temp_file"
+            ;;
+        updated)
+            # Replace existing block, keep at top
+            echo "$content" > "$temp_file"
+            # Strip all existing blocks and add remaining content
+            awk "
+                /${INJECTION_MARKER_START//\//\\/}/ { skip = 1; next }
+                /${INJECTION_MARKER_END//\//\\/}/ { skip = 0; next }
+                !skip { print }
+            " "$target" | sed '/./,$!d' >> "$temp_file"
+            ;;
+    esac
+
+    mv "$temp_file" "$target"
+    echo "{\"action\":\"$action\",\"target\":\"$target\",\"success\":true}"
+}
+
+# ==============================================================================
+# BATCH OPERATIONS
+# ==============================================================================
+
+# Update all injectable files in project directory
+# Args: project_root (optional, defaults to .)
+# Returns: JSON summary of updates
+injection_update_all() {
+    local project_root="${1:-.}"
+    local updated=0
+    local skipped=0
+    local failed=0
+    local results=()
+
+    injection_get_targets
+    for target in "${REPLY[@]}"; do
+        local filepath
+        if [[ "$project_root" == "." ]]; then
+            filepath="$target"
+        else
+            filepath="$project_root/$target"
+        fi
+
+        # Check if update needed (skip only if file exists AND is current)
+        if [[ -f "$filepath" ]]; then
+            local status_json status
+            status_json=$(injection_check "$filepath")
+            status=$(echo "$status_json" | grep -oP '"status":"\K[^"]+' || echo "unknown")
+
+            if [[ "$status" == "current" ]]; then
+                ((skipped++))
+                continue
+            fi
+        fi
+
+        # Perform update (creates file if missing, updates if outdated/legacy)
+        local result
+        if result=$(injection_update "$filepath"); then
+            results+=("{\"target\":\"$target\",\"action\":\"updated\",\"success\":true}")
+            ((updated++))
+        else
+            results+=("{\"target\":\"$target\",\"action\":\"failed\",\"success\":false}")
+            ((failed++))
+        fi
+    done
+
+    # Build JSON response
+    local results_array
+    if [[ ${#results[@]} -gt 0 ]]; then
+        results_array=$(printf '%s,' "${results[@]}")
+        results_array="[${results_array%,}]"
+    else
+        results_array="[]"
+    fi
+
+    echo "{\"updated\":$updated,\"skipped\":$skipped,\"failed\":$failed,\"results\":$results_array}"
+}
+
+# Get compact injection summary for all targets
+# Returns: Compact status string for display
+injection_get_summary() {
+    local current=0
+    local outdated=0
+    local missing=0
+    local none=0
+
+    injection_get_targets
+    for target in "${REPLY[@]}"; do
+        [[ ! -f "$target" ]] && { ((missing++)); continue; }
+
+        local status_json status
+        status_json=$(injection_check "$target")
+        status=$(echo "$status_json" | grep -oP '"status":"\K[^"]+' || echo "unknown")
+
+        case "$status" in
+            current) ((current++)) ;;
+            outdated|legacy) ((outdated++)) ;;
+            none) ((none++)) ;;
+        esac
+    done
+
+    local total=$((current + outdated + none))
+    echo "{\"current\":$current,\"outdated\":$outdated,\"none\":$none,\"missing\":$missing,\"total\":$total}"
+}

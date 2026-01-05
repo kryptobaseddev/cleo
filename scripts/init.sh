@@ -96,9 +96,8 @@ Options:
   --force             Signal intent to reinitialize (requires --confirm-wipe)
   --confirm-wipe      Confirm data destruction when used with --force
   --no-claude-md      Skip CLAUDE.md integration
-  --update-claude-md  Update existing CLAUDE.md injection (idempotent)
+  --update-claude-md  Update all LLM agent doc injections (auto-detects CLAUDE.md, AGENTS.md, GEMINI.md)
   --update-docs       Alias for --update-claude-md
-  --target FILE       Target doc file for injection (CLAUDE.md, AGENTS.md, GEMINI.md)
   -f, --format FMT    Output format: text, json (default: auto-detect)
   --human             Force human-readable text output
   --json              Force JSON output
@@ -161,7 +160,6 @@ while [[ $# -gt 0 ]]; do
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
     --no-claude-md) NO_CLAUDE_MD=true; shift ;;
     --update-claude-md|--update-docs) UPDATE_CLAUDE_MD=true; shift ;;
-    --target) TARGET_FILE="$2"; UPDATE_CLAUDE_MD=true; shift 2 ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --human) FORMAT="text"; shift ;;
     --json) FORMAT="json"; shift ;;
@@ -194,77 +192,25 @@ log_error()   { [[ "$FORMAT" != "json" ]] && echo "[ERROR] $1" >&2 || true; }
 
 # Handle --update-claude-md as standalone operation
 if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
-  # Set default target file if not specified
-  TARGET_FILE="${TARGET_FILE:-CLAUDE.md}"
+  # Source injection library
+  source "$CLEO_HOME/lib/injection.sh"
 
-  # Validate target file is one of the supported doc files
-  case "$TARGET_FILE" in
-    CLAUDE.md|AGENTS.md|GEMINI.md) ;;
-    *)
-      if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_INPUT_INVALID" "Invalid target file: $TARGET_FILE. Must be CLAUDE.md, AGENTS.md, or GEMINI.md" "${EXIT_INVALID_INPUT:-2}" true "Use --target CLAUDE.md, AGENTS.md, or GEMINI.md"
-      else
-        log_error "Invalid target file: $TARGET_FILE. Must be CLAUDE.md, AGENTS.md, or GEMINI.md"
-      fi
-      exit "${EXIT_INVALID_INPUT:-2}"
-      ;;
-  esac
+  # MODERN APPROACH: Registry-based auto-detection
+  # Updates ALL injectable files that exist (CLAUDE.md, AGENTS.md, GEMINI.md)
+  # NO per-file flags - registry defines targets automatically
 
-  if [[ ! -f "$TARGET_FILE" ]]; then
-    if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_FILE_NOT_FOUND" "$TARGET_FILE not found in current directory" "${EXIT_NOT_FOUND:-4}" true "Create $TARGET_FILE first or run from a directory with $TARGET_FILE"
-    else
-      log_error "$TARGET_FILE not found in current directory"
-    fi
-    exit "${EXIT_NOT_FOUND:-1}"
-  fi
+  result=$(injection_update_all ".")
 
-  injection_template="$CLEO_HOME/templates/AGENT-INJECTION.md"
-  if [[ ! -f "$injection_template" ]]; then
-    if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_FILE_NOT_FOUND" "Injection template not found: $injection_template" "${EXIT_NOT_FOUND:-4}" false "Reinstall cleo to restore templates"
-    else
-      log_error "Injection template not found: $injection_template"
-    fi
-    exit "${EXIT_NOT_FOUND:-1}"
-  fi
+  # Parse results
+  updated=$(echo "$result" | jq -r '.updated')
+  skipped=$(echo "$result" | jq -r '.skipped')
+  failed=$(echo "$result" | jq -r '.failed')
 
-  action_taken="updated"
-  if grep -q "CLEO:START" "$TARGET_FILE" 2>/dev/null; then
-    # Remove ALL existing injection blocks (handles multiple/duplicates)
-    # and place new injection at TOP of file
-    temp_file=$(mktemp)
-
-    # First, add the new injection template at the top
-    cat "$injection_template" > "$temp_file"
-
-    # Strip ALL injection blocks using awk (handles multiple START/END pairs)
-    # Also removes any leading blank lines from the cleaned content
-    awk '
-      /<!-- CLEO:START/ { skip = 1; next }
-      /<!-- CLEO:END -->/ { skip = 0; next }
-      !skip { print }
-    ' "$TARGET_FILE" | sed '/./,$!d' >> "$temp_file"
-
-    # Replace original file
-    mv "$temp_file" "$TARGET_FILE"
-    action_taken="updated"
-  else
-    # No existing block, prepend new injection at TOP
-    temp_file=$(mktemp)
-    cat "$injection_template" > "$temp_file"
-    echo "" >> "$temp_file"
-    cat "$TARGET_FILE" >> "$temp_file"
-    mv "$temp_file" "$TARGET_FILE"
-    action_taken="added"
-  fi
-
+  # Output result
   if [[ "$FORMAT" == "json" ]]; then
-    jq -nc \
-      --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-      --arg action "$action_taken" \
+    # Merge result with standard metadata
+    echo "$result" | jq --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
       --arg version "$VERSION" \
-      --arg target "$TARGET_FILE" \
       '{
         "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
@@ -276,18 +222,32 @@ if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
         },
         "success": true,
         "injection": {
-          "action": $action,
-          "file": $target
+          "updated": .updated,
+          "skipped": .skipped,
+          "failed": .failed,
+          "results": .results
         }
       }'
   else
-    if [[ "$action_taken" == "updated" ]]; then
-      log_success "$TARGET_FILE injection updated"
-    else
-      log_success "$TARGET_FILE injection added"
+    # Human-readable output
+    if [[ "$updated" -gt 0 ]]; then
+      log_success "Updated $updated file(s)"
+      echo "$result" | jq -r '.results[] | select(.success == true) | "  ✅ \(.target)"'
+    fi
+    if [[ "$skipped" -gt 0 ]]; then
+      log_info "Skipped $skipped file(s) (already current or missing)"
+    fi
+    if [[ "$failed" -gt 0 ]]; then
+      log_error "Failed to update $failed file(s)"
+      echo "$result" | jq -r '.results[] | select(.success == false) | "  ❌ \(.target): \(.error)"'
+    fi
+    if [[ "$updated" -eq 0 ]] && [[ "$failed" -eq 0 ]]; then
+      log_info "No files needed updating"
     fi
   fi
-  exit 0
+
+  # Exit with error if any updates failed
+  [[ "$failed" -gt 0 ]] && exit 1 || exit 0
 fi
 
 # Determine project name
