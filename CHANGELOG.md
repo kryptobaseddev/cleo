@@ -7,13 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.3] - 2026-01-05
+
+### Fixed
+- **validate**: Fixed infinite hang on projects with >100 tasks with dependencies by adding performance threshold check
+- **validate**: Fixed grep pipeline hang in `injection_extract_version()` when no version match found
+- **doctor**: Fixed `--format text` flag being ignored in non-TTY contexts (piped output)
+- **doctor**: Fixed hardcoded "json" in metadata field to use actual OUTPUT_FORMAT variable
+- **upgrade**: Fixed project registration Catch-22 where existing projects couldn't self-register
+- **upgrade**: Fixed unbound VERSION variable in `update_project_registration()`
+- **injection**: Fixed infinite content duplication by adding `<!-- CLEO:START/END -->` markers to all injection cases
+- **injection**: Fixed trap scope issues by using double quotes for immediate expansion
+
 ### Changed
+- **validate**: Circular dependency check now skips if more than 100 tasks have dependencies (logs warning)
+- **upgrade**: Now registers unregistered projects automatically on first run
+
+## [0.51.0] - 2026-01-05
+
+### Added
+- **doctor command**: Comprehensive health check system (`cleo doctor`)
+  - Global checks: CLI installation, version, docs accessibility, agent configs
+  - Project registry validation: path existence, schema versions, injection status
+  - Graduated exit codes (0/50/51/52/100) for CI/CD integration
+  - `--fix` flag with confirmation for auto-repair (agent configs, orphaned projects)
+  - `--prune` flag for registry cleanup
+  - JSON/text output formats
+- **Project registry**: Global registry tracking all CLEO projects
+  - `lib/project-registry.sh`: 6 utility functions (generate_hash, is_registered, get_data, create_empty, list, prune)
+  - `schemas/projects-registry.schema.json`: Registry schema with health tracking
+  - Auto-registration on `cleo init`
+  - Auto-update on `cleo upgrade`
+- **schemas/doctor-output.schema.json**: Structured diagnostic output schema
+
+### Changed
+- **init.sh**: Now registers projects in global registry (lines 721-804)
+- **upgrade.sh**: Updates project registry metadata after migrations
+- **upgrade --status**: Enhanced with agent config awareness
 - **Documentation**: Clarified `list --parent` vs `analyze --parent` scope behavior
   - `list --parent`: Returns direct children only (1 level)
   - `analyze --parent`: Returns ALL descendants recursively (full epic subtree)
   - Updated templates/AGENT-INJECTION.md, docs/TODO_Task_Management.md, and propagated to CLAUDE.md, AGENTS.md, GEMINI.md
   - Added scope comparison guidance to prevent confusion about task counts
-
 - **Documentation SOP**: Upgraded CLEO-DOCUMENTATION-SOP.md from v1.0.0 to v2.0.0
   - Added API-level structured outputs guidance (Anthropic Nov 2025, OpenAI strict mode)
   - Quantified token optimization techniques (30-50% reduction targets)

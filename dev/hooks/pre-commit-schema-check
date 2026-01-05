@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# Pre-commit hook: Validate schema changes have corresponding migrations
+# Auto-generates migration functions for schema changes
+# Install: ln -s ../../dev/hooks/pre-commit-schema-check .git/hooks/pre-commit
+
+set -euo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Find repo root
+REPO_ROOT=$(git rev-parse --show-toplevel)
+ANALYZER="$REPO_ROOT/dev/schema-diff-analyzer.sh"
+
+# Check if this is a schema change commit
+schema_files_changed() {
+    git diff --cached --name-only | grep -q "^schemas/.*\.json$"
+}
+
+# Extract version from schema file
+get_schema_version() {
+    local file="$1"
+    git show ":$file" 2>/dev/null | jq -r '.schemaVersion // empty'
+}
+
+# Get previous version (HEAD)
+get_previous_version() {
+    local file="$1"
+    git show "HEAD:$file" 2>/dev/null | jq -r '.schemaVersion // empty' || echo ""
+}
+
+# Check if migration function exists in lib/migrate.sh
+migration_exists() {
+    local file_type="$1"
+    local version="$2"
+
+    # Convert version to function name: 2.6.1 → migrate_todo_to_2_6_1
+    local func_name="migrate_${file_type}_to_${version//./_}"
+
+    # Check if function exists in lib/migrate.sh
+    grep -q "^${func_name}()" lib/migrate.sh 2>/dev/null
+}
+
+# Auto-generate migration function
+auto_generate_migration() {
+    local file_type="$1"
+    local version="$2"
+    local schema_file="$3"
+
+    echo -e "${BLUE}  🤖 Auto-generating migration function...${NC}" >&2
+
+    # Get old and new schema
+    local old_schema new_schema
+    old_schema=$(git show "HEAD:$schema_file" 2>/dev/null || echo "{}")
+    new_schema=$(git show ":$schema_file" 2>/dev/null)
+
+    # Check if analyzer exists
+    if [[ ! -x "$ANALYZER" ]]; then
+        echo -e "${RED}  ✗ Schema analyzer not found: $ANALYZER${NC}" >&2
+        return 1
+    fi
+
+    # Generate migration code
+    local migration_code
+    migration_code=$("$ANALYZER" "$old_schema" "$new_schema" "$file_type" "$version" 2>/dev/null) || {
+        echo -e "${RED}  ✗ Migration generation failed${NC}" >&2
+        return 1
+    }
+
+    # Append to lib/migrate.sh (before the closing marker)
+    local migrate_file="lib/migrate.sh"
+
+    # Find insertion point (before "# ============ BACKWARD COMPATIBILITY" or end of file)
+    local insert_line
+    insert_line=$(grep -n "^# ============================================================================$" "$migrate_file" | grep -A1 "MIGRATION FUNCTIONS" | tail -1 | cut -d: -f1)
+
+    if [[ -z "$insert_line" ]]; then
+        # Fallback: insert before last line
+        insert_line=$(($(wc -l < "$migrate_file") - 1))
+    fi
+
+    # Create temp file with inserted migration
+    {
+        head -n "$insert_line" "$migrate_file"
+        echo ""
+        echo "$migration_code"
+        tail -n +"$((insert_line + 1))" "$migrate_file"
+    } > "$migrate_file.tmp"
+
+    mv "$migrate_file.tmp" "$migrate_file"
+
+    echo -e "${GREEN}  ✓ Migration function added to lib/migrate.sh${NC}" >&2
+
+    # Show preview
+    echo -e "${BLUE}  Preview:${NC}" >&2
+    echo "$migration_code" | head -20 | sed 's/^/    /' >&2
+
+    # Ask to stage
+    echo "" >&2
+    read -p "  Stage lib/migrate.sh with generated migration? (Y/n) " -r >&2
+
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        git add "$migrate_file"
+        echo -e "${GREEN}  ✓ lib/migrate.sh staged${NC}" >&2
+    fi
+
+    return 0
+}
+
+# Main validation
+main() {
+    # Only run if schema files changed
+    if ! schema_files_changed; then
+        exit 0
+    fi
+
+    echo -e "${YELLOW}⚙️  Checking schema migrations...${NC}" >&2
+
+    local has_errors=false
+    local schema_types=("todo" "config" "archive" "log" "sessions")
+
+    for type in "${schema_types[@]}"; do
+        local schema_file="schemas/${type}.schema.json"
+
+        # Skip if this schema file wasn't modified
+        if ! git diff --cached --name-only | grep -q "^${schema_file}$"; then
+            continue
+        fi
+
+        local new_version=$(get_schema_version "$schema_file")
+        local old_version=$(get_previous_version "$schema_file")
+
+        # Skip if version didn't change
+        if [[ "$new_version" == "$old_version" ]]; then
+            continue
+        fi
+
+        echo -e "  📝 ${schema_file}: ${old_version} → ${new_version}" >&2
+
+        # Check if migration function exists
+        if ! migration_exists "$type" "$new_version"; then
+            echo -e "${YELLOW}  ⚠ Missing migration function: migrate_${type}_to_${new_version//./_}()${NC}" >&2
+            echo "" >&2
+
+            # Attempt auto-generation
+            if auto_generate_migration "$type" "$new_version" "$schema_file"; then
+                echo -e "${GREEN}  ✓ Migration auto-generated successfully${NC}" >&2
+            else
+                echo -e "${RED}  ✗ Auto-generation failed - manual migration required${NC}" >&2
+                echo -e "${RED}    Add migration function to lib/migrate.sh${NC}" >&2
+                has_errors=true
+            fi
+        else
+            echo -e "${GREEN}  ✓ Migration function found${NC}" >&2
+        fi
+    done
+
+    if [[ "$has_errors" == "true" ]]; then
+        echo "" >&2
+        echo -e "${RED}❌ Schema migration validation FAILED${NC}" >&2
+        echo "" >&2
+        echo "Auto-generation failed. Manual options:" >&2
+        echo "  1. Add migration function to lib/migrate.sh manually" >&2
+        echo "  2. Fix the schema diff and retry commit" >&2
+        echo "  3. Or bypass (NOT RECOMMENDED): git commit --no-verify" >&2
+        echo "" >&2
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Schema migration validation passed${NC}" >&2
+    exit 0
+}
+
+main "$@"

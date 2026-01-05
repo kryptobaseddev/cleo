@@ -508,32 +508,42 @@ else
 fi
 
 # 5. Check for circular dependencies (full DFS) - configurable via validation.detectCircularDeps
+# NOTE: This can be slow on large task lists (O(n*m) where n=tasks with deps, m=graph depth)
+# Automatically skipped if more than 100 tasks with dependencies (performance threshold)
 CIRCULAR_DEPS_ENABLED=true
 if declare -f is_circular_dep_detection_enabled >/dev/null 2>&1; then
   CIRCULAR_DEPS_ENABLED=$(is_circular_dep_detection_enabled)
 fi
 
 if [[ "$CIRCULAR_DEPS_ENABLED" == "true" ]]; then
-  CIRCULAR_DETECTED=false
-  while IFS=':' read -r task_id deps; do
-    if [[ -n "$task_id" && -n "$deps" ]]; then
-      if ! validate_no_circular_deps "$TODO_FILE" "$task_id" "$deps" 2>/dev/null; then
-        # Capture error message for display (disable pipefail to avoid grep exit code issues)
-        set +o pipefail
-        ERROR_MSG=$(validate_no_circular_deps "$TODO_FILE" "$task_id" "$deps" 2>&1 | grep "ERROR:" | sed 's/ERROR: //')
-        set -o pipefail
-        log_error "$ERROR_MSG"
-        CIRCULAR_DETECTED=true
-      fi
-    fi
-  done < <(jq -r '
-    .tasks[] |
-    select(has("depends") and (.depends | length > 0)) |
-    "\(.id):\(.depends | join(","))"
-  ' "$TODO_FILE")
+  # Count tasks with dependencies to determine if check is feasible
+  TASKS_WITH_DEPS=$(jq '[.tasks[] | select(has("depends") and (.depends | length > 0))] | length' "$TODO_FILE")
+  MAX_TASKS_FOR_CIRCULAR_CHECK=100
 
-  if [[ "$CIRCULAR_DETECTED" != "true" ]]; then
-    log_info "No circular dependencies" "circular_deps"
+  if [[ "$TASKS_WITH_DEPS" -gt "$MAX_TASKS_FOR_CIRCULAR_CHECK" ]]; then
+    log_warn "Circular dependency check skipped ($TASKS_WITH_DEPS tasks with deps > threshold $MAX_TASKS_FOR_CIRCULAR_CHECK). Use 'cleo deps' for dependency analysis." "circular_deps"
+  else
+    CIRCULAR_DETECTED=false
+    while IFS=':' read -r task_id deps; do
+      if [[ -n "$task_id" && -n "$deps" ]]; then
+        if ! validate_no_circular_deps "$TODO_FILE" "$task_id" "$deps" 2>/dev/null; then
+          # Capture error message for display (disable pipefail to avoid grep exit code issues)
+          set +o pipefail
+          ERROR_MSG=$(validate_no_circular_deps "$TODO_FILE" "$task_id" "$deps" 2>&1 | grep "ERROR:" | sed 's/ERROR: //')
+          set -o pipefail
+          log_error "$ERROR_MSG" "circular_deps"
+          CIRCULAR_DETECTED=true
+        fi
+      fi
+    done < <(jq -r '
+      .tasks[] |
+      select(has("depends") and (.depends | length > 0)) |
+      "\(.id):\(.depends | join(","))"
+    ' "$TODO_FILE")
+
+    if [[ "$CIRCULAR_DETECTED" != "true" ]]; then
+      log_info "No circular dependencies" "circular_deps"
+    fi
   fi
 else
   log_info "Circular dependency check disabled (config: validation.detectCircularDeps=false)" "circular_deps"

@@ -204,7 +204,7 @@ When ending a session:
 
 Session start may show warnings:
 - **Session already active**: Another session is running in single-session mode
-- **CLAUDE.md injection outdated**: Update recommended via `cleo init --update-claude-md`
+- **CLAUDE.md injection outdated**: Update recommended via `cleo upgrade`
 
 ## Session State Storage
 

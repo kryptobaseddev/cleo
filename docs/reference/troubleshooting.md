@@ -1090,7 +1090,7 @@ Is the project initialized (.cleo/ directory exists)?
 | Phases missing/wrong | `migrate repair --auto` | Fixes structure within current version |
 | Checksum mismatch | `validate --fix` | Recalculates checksums |
 | Corrupted file | `restore` | Restores from backup |
-| Update CLAUDE.md | `init --update-claude-md` | Updates embedded instructions |
+| Update agent docs | `upgrade` | Updates all agent file injections |
 
 ### Quick One-Liner (Fix Everything)
 
@@ -1122,10 +1122,11 @@ cleo migrate run --auto && cleo migrate repair --auto && cleo validate --fix
 - Duplicate ID warnings
 - Missing required field errors
 
-**`cleo init --update-claude-md`**
+**`cleo upgrade`**
 - After upgrading cleo to new version
-- CLAUDE.md has outdated instructions
+- Agent docs have outdated instructions
 - Template changes available
+- Updates CLAUDE.md, AGENTS.md, GEMINI.md automatically
 
 ---
 

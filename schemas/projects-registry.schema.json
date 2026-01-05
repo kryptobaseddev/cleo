@@ -1,0 +1,183 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/projects-registry.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Projects Registry Schema",
+  "description": "Global registry tracking all CLEO-initialized projects across the system for multi-project management, injection tracking, and health monitoring.",
+  "type": "object",
+  "required": ["schemaVersion", "lastUpdated", "projects"],
+  "additionalProperties": false,
+
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for validation."
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version for this file (semver)."
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last registry modification."
+    },
+    "projects": {
+      "type": "object",
+      "description": "Hash-keyed project entries. Hash is 12-char hex SHA-256 prefix of absolute project path.",
+      "patternProperties": {
+        "^[a-f0-9]{12}$": {
+          "$ref": "#/definitions/projectEntry"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "definitions": {
+    "projectEntry": {
+      "type": "object",
+      "description": "Individual project registration record with metadata, schema versions, and health status.",
+      "required": ["hash", "path", "name", "registeredAt", "lastSeen", "cleoVersion", "schemas", "injection", "health"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{12}$",
+          "description": "Unique 12-character hex hash derived from absolute project path (SHA-256 prefix). MUST match parent key."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute file system path to project root. MUST be unique across all projects."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Human-readable project name (typically basename of path)."
+        },
+        "registeredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when project was first registered (cleo init)."
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last CLEO operation in this project."
+        },
+        "cleoVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "CLEO version that last operated on this project (semver)."
+        },
+        "schemas": {
+          "type": "object",
+          "description": "Schema versions for core CLEO data files in this project.",
+          "required": ["todo", "config", "archive", "log"],
+          "additionalProperties": false,
+          "properties": {
+            "todo": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Schema version for todo.json (semver)."
+            },
+            "config": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Schema version for config.json (semver)."
+            },
+            "archive": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Schema version for todo-archive.json (semver)."
+            },
+            "log": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Schema version for todo-log.json (semver)."
+            }
+          }
+        },
+        "injection": {
+          "type": "object",
+          "description": "Injection versions for LLM agent documentation files. Version string or 'none' if not injected.",
+          "additionalProperties": false,
+          "properties": {
+            "CLAUDE.md": {
+              "type": "string",
+              "pattern": "^(\\d+\\.\\d+\\.\\d+|none)$",
+              "description": "Injection version in CLAUDE.md (semver) or 'none' if not injected."
+            },
+            "AGENTS.md": {
+              "type": "string",
+              "pattern": "^(\\d+\\.\\d+\\.\\d+|none)$",
+              "description": "Injection version in AGENTS.md (semver) or 'none' if not injected."
+            },
+            "GEMINI.md": {
+              "type": "string",
+              "pattern": "^(\\d+\\.\\d+\\.\\d+|none)$",
+              "description": "Injection version in GEMINI.md (semver) or 'none' if not injected."
+            }
+          }
+        },
+        "health": {
+          "type": "object",
+          "description": "Project health status and diagnostic information.",
+          "required": ["status", "lastCheck", "issues"],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["healthy", "warning", "error", "unknown"],
+              "description": "Overall project health: healthy=no issues, warning=minor issues, error=critical issues, unknown=not yet checked."
+            },
+            "lastCheck": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "description": "ISO 8601 timestamp of last health check (doctor command). Null if never checked."
+            },
+            "issues": {
+              "type": "array",
+              "description": "Array of health check issues. Empty if status='healthy'.",
+              "items": {
+                "type": "object",
+                "required": ["severity", "code", "message"],
+                "additionalProperties": false,
+                "properties": {
+                  "severity": {
+                    "type": "string",
+                    "enum": ["warning", "error"],
+                    "description": "Issue severity: warning=non-blocking, error=critical/blocking."
+                  },
+                  "code": {
+                    "type": "string",
+                    "pattern": "^[A-Z_]+$",
+                    "description": "Machine-readable issue code (e.g., 'SCHEMA_OUTDATED', 'INJECTION_MISSING')."
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "description": "Human-readable issue description."
+                  },
+                  "file": {
+                    "type": "string",
+                    "description": "File path related to the issue (relative to project root)."
+                  },
+                  "fix": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "Suggested command or action to resolve the issue."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

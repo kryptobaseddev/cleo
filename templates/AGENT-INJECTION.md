@@ -206,5 +206,3 @@ ct import-tasks task.json                          # Import into current project
 ct import-tasks task.json --dry-run                # Preview import
 ct import-tasks task.json --parent T050            # Import as children of T050
 ```
-
-Full docs: `docs/export-import.md`
