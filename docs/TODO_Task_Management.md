@@ -242,7 +242,6 @@ cleo migrate-backups --detect       # List legacy backups
 cleo migrate-backups --run          # Migrate to new taxonomy
 cleo export --format todowrite      # Export to Claude Code format
 cleo export --format csv            # Export to CSV
-cleo init --update-claude-md        # Update CLAUDE.md injection (idempotent)
 cleo config show                    # View current configuration
 cleo config set <key> <value>       # Update configuration
 cleo config get <key>               # Get specific config value
@@ -317,33 +316,35 @@ cleo history --since 2025-12-01     # Since specific date
 cleo history --format json          # JSON output for scripting
 ```
 
-## CLAUDE.md Integration
+## Multi-Agent Integration
 
-### Update CLAUDE.md Instructions
-When cleo is upgraded, update your project's CLAUDE.md injection:
+### Automatic Injection (v0.50.1+)
+CLEO automatically injects task management instructions to all LLM agent documentation files during initialization:
 
 ```bash
-# Update existing CLAUDE.md injection to latest template
-cleo init --update-claude-md
+cleo init                    # Auto-injects to CLAUDE.md, AGENTS.md, GEMINI.md
 ```
 
-This command:
-- Replaces content between `<!-- CLEO:START -->` and `<!-- CLEO:END -->`
-- Adds injection if not present
+Behavior:
+- Creates files if missing (CLAUDE.md, AGENTS.md, GEMINI.md)
+- Updates existing files if outdated
+- Adds injection between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers
+- Agent-agnostic design - no per-agent flags needed
 - Safe to run anytime (idempotent)
-- Does NOT re-initialize the project or touch `.cleo/` files
 
-### When to Update
-Run `init --update-claude-md` after:
-- Upgrading cleo to a new version
-- Template improvements are released
-- You notice outdated instructions in CLAUDE.md
+### Update Instructions (coming in v0.51.0)
+After upgrading cleo, update injections with:
 
-### Check Current Version
 ```bash
-# Compare injection to installed template
-diff <(sed -n '/CLEO:START/,/CLEO:END/p' CLAUDE.md) \
-     ~/.cleo/templates/CLAUDE-INJECTION.md
+cleo upgrade                 # Updates all project injections (PLANNED - T1397)
+```
+
+### Global Agent Configuration (coming in v0.51.0)
+For global agent setup (@ syntax references):
+
+```bash
+cleo install --global        # Setup global agent config (PLANNED - T1428)
+cleo doctor                  # Verify agent integrations (PLANNED - T1429)
 ```
 
 ## Task Options

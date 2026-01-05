@@ -178,14 +178,28 @@ injection_update_all() {
         fi
 
         # Perform update (creates file if missing, updates if outdated/legacy)
-        local result
-        if result=$(injection_update "$filepath"); then
+        # Use temp file to capture stderr separately (avoids bash debug pollution from 2>&1)
+        local result error_file exit_code
+        error_file=$(mktemp)
+        trap "rm -f '$error_file'" RETURN
+
+        result=$(injection_update "$filepath" 2>"$error_file")
+        exit_code=$?
+
+        if [[ $exit_code -eq 0 ]]; then
             results+=("{\"target\":\"$target\",\"action\":\"updated\",\"success\":true}")
             ((updated++))
         else
-            results+=("{\"target\":\"$target\",\"action\":\"failed\",\"success\":false}")
+            # Extract error message from JSON if present, otherwise use raw message
+            local error_text
+            error_text=$(jq -r '.error // empty' "$error_file" 2>/dev/null || cat "$error_file")
+            # Escape for JSON
+            error_text=$(echo "$error_text" | jq -Rs .)
+            results+=("{\"target\":\"$target\",\"action\":\"failed\",\"success\":false,\"error\":$error_text}")
             ((failed++))
         fi
+
+        rm -f "$error_file"
     done
 
     # Build JSON response
