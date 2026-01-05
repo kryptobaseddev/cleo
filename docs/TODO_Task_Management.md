@@ -2,18 +2,21 @@
 
 Use `cleo` CLI for **all** task operations. Single source of truth for persistent task tracking.
 
-## Data Integrity Rules
+## Data Integrity Rules (RFC 2119)
+
+**MUST** use `cleo` commands for all state modifications.
+**MUST NOT** edit `.cleo/*.json` files directly.
 
 | Rule | Reason |
 |------|--------|
-| **CLI only** - Use `cleo` commands for all operations | Prevents staleness in multi-writer environment; ensures validation, checksums |
-| **One active task** - Use `focus set` (enforces single active) | Prevents context confusion (per-scope in multi-session mode) |
-| **Verify state** - Use `list` before assuming task state | No stale data |
-| **Session discipline** - Start/end sessions properly | Audit trail, recovery |
-| **Scope discipline** - Use scoped sessions for parallel agents | Prevents task conflicts (v0.38.0+) |
-| **Validate after errors** - Run `validate` if something fails | Integrity check |
+| **CLI only** | Prevents staleness in multi-writer environment; ensures validation, checksums |
+| **One active task** - Use `focus set` | Prevents context confusion (per-scope in multi-session mode) |
+| **Verify state** - Use `list` before operations | No stale data assumptions |
+| **Session discipline** - Start/end properly | Audit trail, recovery capability |
+| **Scope discipline** - Use scoped sessions | Prevents task conflicts (v0.38.0+) |
+| **Validate after errors** - Run `validate` | Integrity check and repair |
 
-**Note**: Direct file reads can lead to stale data when multiple writers (TodoWrite, cleo) modify the same files. CLI commands always read fresh data from disk.
+**Rationale**: Direct file edits bypass validation and create stale data when multiple writers (TodoWrite, cleo) modify files simultaneously.
 
 **Multi-Session Note** (v0.38.0+): When `multiSession.enabled`, the "one active task" constraint is **per scope**, not global. Each session maintains isolated focus within its defined scope.
 

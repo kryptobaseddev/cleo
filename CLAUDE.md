@@ -31,13 +31,21 @@ ct update T001 --notes "Price: \$395"  # Correct
 ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```
 
-### Best Practices
-- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
-- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
+### Data Integrity (RFC 2119)
+
+**MUST** use `cleo` commands for all state modifications.
+**MUST NOT** edit `.cleo/*.json` files directly.
+**MUST** check exit codes after every command (see Error Handling above).
+
+**Rationale**: Direct file edits bypass validation, create stale data in multi-writer environments.
+
+### Best Practices (Efficiency)
+
 - **Context-efficient**: Use `find` for task discovery (99% less context than `list`)
+- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
 - **Command discovery**: `ct commands -r critical` shows essential commands
-- **State operations**: Use `ct` commands for all task modifications
 - **Session lifecycle**: Start sessions before work, end when complete
+- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
 
 ### Essential Commands
 ```bash
@@ -186,12 +194,15 @@ Full docs: `docs/export-import.md`
 
 ### Core Mission
 - **Anti-hallucination validation**: Every operation is validated before execution
-- **Context persistence**: State is maintained across sessions with immutable audit trails 
+- **Context persistence**: State is maintained across sessions with immutable audit trails
 - **Structured output**: JSON by default, with human-readable formatting opt-in
 - **Atomic operations**: All writes use temp file → validate → backup → rename pattern
 
 ### Critical Philosophy
 **NO TIME ESTIMATES** - This system explicitly prohibits estimating hours, days, or duration for any task. Instead, describe scope, complexity, and dependencies using relative sizing (small/medium/large) when needed.
+
+### Documentation Standards
+@docs/CLEO-DOCUMENTATION-SOP.md
 
 ## Project Structure & Module Organization
 
