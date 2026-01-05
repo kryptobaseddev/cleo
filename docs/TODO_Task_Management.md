@@ -38,7 +38,8 @@ cleo show <id>                      # View single task details
 ```bash
 # ✅ EFFICIENT - Minimal fields (id, title, status)
 cleo find "injection"           # Fuzzy search (99% less context)
-cleo find "T1234" --exact       # Exact task lookup
+cleo find --id 1234             # Find by task ID prefix (returns multiple)
+cleo show T1234                 # Full details for specific task
 
 # ✅ WHEN TO USE LIST - Full metadata needed
 cleo list --parent T001         # Direct children only
@@ -46,15 +47,18 @@ cleo list --status pending      # Filter with metadata
 cleo analyze --parent T001      # ALL descendants (recursive)
 ```
 
-**Scope Comparison** (CRITICAL):
-| Command | Scope | Use Case |
-|---------|-------|----------|
-| `list --parent` | Direct children (1 level) | Quick epic overview |
-| `analyze --parent` | ALL descendants (recursive) | Full epic assessment |
+**Discovery vs Retrieval** (CRITICAL):
+| Command | Returns | Fields | Use Case | Context |
+|---------|---------|--------|----------|---------|
+| `find --id 142` | Multiple (T1420-T1429) | Minimal | Search: "Which tasks?" | ~500 chars |
+| `show T1429` | Single task | Full (desc, notes, hierarchy) | Details: "Everything about T1429" | ~2500+ chars |
+| `list --parent T001` | Direct children | Full metadata | "T001's children" | Variable |
+| `analyze --parent T001` | ALL descendants | Full + analysis | "Full epic tree" | Large |
 
 **Why `find` > `list`**:
 - `list` includes full notes arrays (potentially huge)
 - `find` returns minimal fields only
+- **MUST** use `find` for discovery, `show` for details
 - **Context impact**: `find` uses 99% less tokens than `list`
 
 ### Focus & Session
@@ -177,23 +181,34 @@ cleo research --link-task T001      # Link research to task
 
 ### Task Inspection
 ```bash
-cleo show <id>                      # Full task details view
-cleo show <id> --history            # Include task history from log
-cleo show <id> --related            # Show related tasks (same labels)
-cleo show <id> --include-archive    # Search archive if not found
-cleo show <id> --format json        # JSON output for scripting
+cleo show <id>                      # Full task details (desc, notes, hierarchy)
+cleo show <id> --history            # + task history from log
+cleo show <id> --related            # + related tasks (same labels)
+cleo show <id> --include-archive    # Search archive too
+cleo show <id> --format json        # JSON output
 ```
+
+**When to use `show`** (vs `find`):
+- ✅ Known exact ID → need full context (description, notes, children)
+- ✅ Deep dive into single task
+- ❌ Discovery/search → use `find` instead (99% less context)
 
 ### Task Search (v0.19.2+)
 ```bash
-cleo find <query>                   # Fuzzy search tasks by title/description
-cleo find --id 37                   # Find tasks with ID prefix T37*
-cleo find "exact title" --exact     # Exact match mode
-cleo find "test" --status pending   # Filter by status
-cleo find "api" --field title       # Search specific fields
-cleo find "task" --format json      # JSON output for scripting
-cleo find "old" --include-archive   # Include archived tasks
+cleo find <query>                   # Fuzzy: title/description
+cleo find --id 37                   # ID prefix: T37* (multiple matches)
+cleo find "exact title" --exact     # Exact string in title/description
+cleo find "test" --status pending   # + status filter
+cleo find "api" --field title       # Specific field only
+cleo find "old" --include-archive   # Include archive
 ```
+
+**Search Modes**:
+| Mode | Input | Searches | Returns |
+|------|-------|----------|---------|
+| Default (fuzzy) | `"auth"` | title, description | All partial matches |
+| `--id` | `142` | id field | T1420-T1429 |
+| `--exact` | `"Fix bug"` | title, description | Exact string matches only |
 
 **Aliases**: `search` → `find`
 

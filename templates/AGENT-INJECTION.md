@@ -1,7 +1,8 @@
-<!-- CLEO:START v0.50.2 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
+
+**Multi-Agent Support (v0.50.0+)**: This content is automatically injected into CLAUDE.md, AGENTS.md, and GEMINI.md via registry-based auto-discovery. Update all files: `ct init --update-docs` or `ct upgrade`.
 
 ### CRITICAL: Error Handling
 **NEVER ignore exit codes. Failed commands mean tasks were NOT created/updated.**
@@ -44,17 +45,22 @@ ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 **Task Discovery** (MUST follow for context efficiency):
 ```bash
 ct find "query"              # ✅ Fuzzy search (99% less context than list)
-ct find "T1234" --exact      # ✅ Exact task lookup
+ct find --id 1234            # ✅ Find by task ID prefix (returns multiple)
+ct show T1234                # ✅ Full details for specific task
 ct list --parent T001        # ✅ Direct children only
 ct analyze --parent T001     # ✅ ALL descendants (recursive)
 ```
 
-**Scope**: `list --parent` → direct children | `analyze --parent` → full subtree
+**Discovery vs Retrieval** (CRITICAL):
+| Command | Returns | Fields | Use Case |
+|---------|---------|--------|----------|
+| `find --id 142` | Multiple matches (T1420-T1429) | Minimal (id, title, status) | Search: "Which tasks?" |
+| `show T1429` | Single task | Full (description, notes, hierarchy) | Details: "Tell me everything" |
 
 **Why `find` > `list`**:
 - `list` includes full notes arrays (potentially huge)
-- `find` returns minimal fields (id, title, status)
-- For task discovery: **MUST** use `find`, not `list`
+- `find` returns minimal fields only
+- **MUST** use `find` for discovery, `show` for details
 
 **Other Patterns**:
 - **Native filters**: Use `--status`, `--label`, `--phase`, `--parent` (faster than jq)
@@ -65,7 +71,9 @@ ct analyze --parent T001     # ✅ ALL descendants (recursive)
 ### Essential Commands
 ```bash
 ct list                    # View tasks (JSON when piped)
-ct find "query"            # Fuzzy search (99% less context than list)
+ct find "query"            # Fuzzy search (99% less context)
+ct find --id 142           # ID search (multiple matches)
+ct show T1234              # Full task details
 ct add "Task"              # Create task
 ct done <id>               # Complete task
 ct focus set <id>          # Set active task
@@ -200,4 +208,3 @@ ct import-tasks task.json --parent T050            # Import as children of T050
 ```
 
 Full docs: `docs/export-import.md`
-<!-- CLEO:END -->
