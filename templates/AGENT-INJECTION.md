@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.41.8 -->
+<!-- CLEO:START v0.50.2 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
@@ -31,14 +31,13 @@ ct update T001 --notes "Price: \$395"  # Correct
 ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```
 
-### Data Integrity
-- **JSON auto-detection**: Piped output → JSON (no `--format` needed)
-- **Native filters**: Use `--status`, `--label`, `--phase` instead of jq
-- **Context-efficient**: Prefer `find` over `list` for task discovery
-- **Command discovery**: `ct commands -r critical` (no jq needed)
-- **CLI only** - NEVER edit `.cleo/*.json` directly
-- **Verify state** - Use `cleo list` before assuming
-- **Session discipline** - ALWAYS Start/end sessions properly
+### Best Practices
+- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
+- **Native filters**: Use `--status`, `--label`, `--phase` (faster than jq)
+- **Context-efficient**: Use `find` for task discovery (99% less context than `list`)
+- **Command discovery**: `ct commands -r critical` shows essential commands
+- **State operations**: Use `ct` commands for all task modifications
+- **Session lifecycle**: Start sessions before work, end when complete
 
 ### Essential Commands
 ```bash
@@ -155,11 +154,6 @@ ct validate --check-orphans          # Check for orphans
 ct validate --fix-orphans unlink     # Remove invalid parent references
 ct validate --fix-orphans delete     # Delete orphaned tasks
 ```
-
-### Data Integrity
-- **CLI only** - Never edit `.cleo/*.json` directly
-- **Verify state** - Use `ct list` before assuming
-- **Session discipline** - Start/end sessions properly
 
 ### Context Monitoring
 ```bash

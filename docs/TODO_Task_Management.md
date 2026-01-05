@@ -6,7 +6,7 @@ Use `cleo` CLI for **all** task operations. Single source of truth for persisten
 
 | Rule | Reason |
 |------|--------|
-| **CLI only** - Never read/edit `.cleo/*.json` directly | Prevents staleness in multi-writer environment; ensures validation, checksums |
+| **CLI only** - Use `cleo` commands for all operations | Prevents staleness in multi-writer environment; ensures validation, checksums |
 | **One active task** - Use `focus set` (enforces single active) | Prevents context confusion (per-scope in multi-session mode) |
 | **Verify state** - Use `list` before assuming task state | No stale data |
 | **Session discipline** - Start/end sessions properly | Audit trail, recovery |
