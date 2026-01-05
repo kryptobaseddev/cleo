@@ -641,7 +641,7 @@ export -f validate_title
 readonly MAX_DESCRIPTION_LENGTH=2000
 readonly MAX_NOTE_LENGTH=5000
 readonly MAX_BLOCKED_BY_LENGTH=300
-readonly MAX_SESSION_NOTE_LENGTH=1000
+readonly MAX_SESSION_NOTE_LENGTH=2500
 
 # Validate description length (max 2000 chars)
 # Args: $1 = description string
@@ -703,7 +703,7 @@ validate_blocked_by() {
 
 export -f validate_blocked_by
 
-# Validate session note length (max 1000 chars)
+# Validate session note length (max 2500 chars)
 # Args: $1 = session note string
 # Returns: 0 if valid, 1 if too long
 validate_session_note() {

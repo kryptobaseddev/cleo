@@ -236,20 +236,20 @@ setup() {
     assert_success
 }
 
-@test "validate_session_note accepts note at max length (1000 chars)" {
+@test "validate_session_note accepts note at max length (2500 chars)" {
     local note
-    note=$(printf 'S%.0s' {1..1000})
+    note=$(printf 'S%.0s' {1..2500})
     run validate_session_note "$note"
     assert_success
 }
 
-@test "validate_session_note rejects note exceeding 1000 characters" {
+@test "validate_session_note rejects note exceeding 2500 characters" {
     local note
-    note=$(printf 'S%.0s' {1..1001})
+    note=$(printf 'S%.0s' {1..2501})
     run validate_session_note "$note"
     assert_failure
-    assert_output --partial "exceeds 1000 characters"
-    assert_output --partial "1001 provided"
+    assert_output --partial "exceeds 2500 characters"
+    assert_output --partial "2501 provided"
 }
 
 # =============================================================================
@@ -609,8 +609,8 @@ setup() {
     [[ "$MAX_BLOCKED_BY_LENGTH" -eq 300 ]]
 }
 
-@test "MAX_SESSION_NOTE_LENGTH constant is 1000" {
-    [[ "$MAX_SESSION_NOTE_LENGTH" -eq 1000 ]]
+@test "MAX_SESSION_NOTE_LENGTH constant is 2500" {
+    [[ "$MAX_SESSION_NOTE_LENGTH" -eq 2500 ]]
 }
 
 @test "MIN_CANCEL_REASON_LENGTH constant is 5" {
