@@ -21,6 +21,9 @@ injection_is_valid_target() {
 # Get list of injection targets as array
 # Usage: injection_get_targets; for t in "${REPLY[@]}"; do ...; done
 injection_get_targets() {
+    # Use local IFS to ensure proper space-splitting
+    # (backup.sh sets global IFS=$'\n\t' which breaks array splitting)
+    local IFS=' '
     REPLY=($INJECTION_TARGETS)
 }
 
