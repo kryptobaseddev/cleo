@@ -41,10 +41,16 @@ cleo find "injection"           # Fuzzy search (99% less context)
 cleo find "T1234" --exact       # Exact task lookup
 
 # ✅ WHEN TO USE LIST - Full metadata needed
-cleo list --parent T1384        # Children with full details
+cleo list --parent T001         # Direct children only
 cleo list --status pending      # Filter with metadata
-cleo analyze --parent T1384     # Analyze epic's tasks
+cleo analyze --parent T001      # ALL descendants (recursive)
 ```
+
+**Scope Comparison** (CRITICAL):
+| Command | Scope | Use Case |
+|---------|-------|----------|
+| `list --parent` | Direct children (1 level) | Quick epic overview |
+| `analyze --parent` | ALL descendants (recursive) | Full epic assessment |
 
 **Why `find` > `list`**:
 - `list` includes full notes arrays (potentially huge)
