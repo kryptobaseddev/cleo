@@ -56,6 +56,17 @@ elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
   source "$LIB_DIR/exit-codes.sh"
 fi
 
+# Source injection libraries for agent documentation validation
+if [[ -f "$LIB_DIR/injection-config.sh" ]]; then
+  # shellcheck source=../lib/injection-config.sh
+  source "$LIB_DIR/injection-config.sh"
+fi
+
+if [[ -f "$LIB_DIR/injection.sh" ]]; then
+  # shellcheck source=../lib/injection.sh
+  source "$LIB_DIR/injection.sh"
+fi
+
 # Source config library for validation settings
 if [[ -f "$LIB_DIR/config.sh" ]]; then
   # shellcheck source=../lib/config.sh
@@ -886,131 +897,72 @@ if [[ "$STALE_COUNT" -gt 0 ]]; then
   log_warn "$STALE_COUNT task(s) pending for >$STALE_DAYS days"
 fi
 
-# 11. Check CLAUDE.md injection version
-if [[ -f "CLAUDE.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
-  # Check for versioned tag first, then unversioned (legacy)
-  CURRENT_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
-  HAS_LEGACY_INJECTION=$(grep -q 'CLEO:START' CLAUDE.md 2>/dev/null && echo "true" || echo "false")
-  INSTALLED_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' "$CLEO_HOME/templates/AGENT-INJECTION.md" 2>/dev/null || echo "")
+# 11-12. Check injection versions for all agent documentation files
+# Uses injection library for registry-based validation (CLAUDE.md, AGENTS.md, GEMINI.md)
+if command -v injection_get_targets &>/dev/null && command -v injection_check &>/dev/null; then
+  injection_get_targets
+  for target in "${REPLY[@]}"; do
+    # Skip files that don't exist
+    if [[ ! -f "$target" ]]; then
+      continue
+    fi
 
-  if [[ -z "$CURRENT_INJECTION_VERSION" ]] && [[ "$HAS_LEGACY_INJECTION" == "true" ]]; then
-    # Has unversioned legacy injection - needs update
-    if [[ "$FIX" == true ]]; then
-      "$CLEO_HOME/scripts/init.sh" --update-claude-md 2>/dev/null
-      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
-      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
-        echo "  Fixed: Updated legacy CLAUDE.md injection (unversioned → v${INSTALLED_INJECTION_VERSION})"
-        log_info "CLAUDE.md injection current (v${INSTALLED_INJECTION_VERSION})" "claude_md"
-      else
-        log_warn "CLAUDE.md has legacy (unversioned) injection. Run: cleo init --update-claude-md"
-      fi
-    else
-      log_warn "CLAUDE.md has legacy (unversioned) injection. Run with --fix or: cleo init --update-claude-md"
-    fi
-  elif [[ -z "$CURRENT_INJECTION_VERSION" ]]; then
-    # No injection at all
-    if [[ "$FIX" == true ]]; then
-      "$CLEO_HOME/scripts/init.sh" --update-claude-md 2>/dev/null
-      if grep -qP 'CLEO:START v[0-9.]+' CLAUDE.md 2>/dev/null; then
-        echo "  Fixed: Added CLAUDE.md injection (v${INSTALLED_INJECTION_VERSION})"
-        log_info "CLAUDE.md injection current (v${INSTALLED_INJECTION_VERSION})" "claude_md"
-      else
-        log_warn "No cleo injection found in CLAUDE.md. Run: cleo init --update-claude-md"
-      fi
-    else
-      log_warn "No cleo injection found in CLAUDE.md. Run with --fix or: cleo init --update-claude-md"
-    fi
-  elif [[ -n "$INSTALLED_INJECTION_VERSION" ]] && [[ "$CURRENT_INJECTION_VERSION" != "$INSTALLED_INJECTION_VERSION" ]]; then
-    # Has versioned injection but outdated
-    if [[ "$FIX" == true ]]; then
-      "$CLEO_HOME/scripts/init.sh" --update-claude-md 2>/dev/null
-      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
-      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
-        echo "  Fixed: Updated CLAUDE.md injection (${CURRENT_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION})"
-        log_info "CLAUDE.md injection current (v${INSTALLED_INJECTION_VERSION})" "claude_md"
-      else
-        log_warn "CLAUDE.md injection outdated (${CURRENT_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION}). Run: cleo init --update-claude-md"
-      fi
-    else
-      log_warn "CLAUDE.md injection outdated (${CURRENT_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION}). Run with --fix or: cleo init --update-claude-md"
-    fi
-  else
-    log_info "CLAUDE.md injection current (v${CURRENT_INJECTION_VERSION})" "claude_md"
-  fi
-elif [[ -f "CLAUDE.md" ]]; then
-  # CLAUDE.md exists but no injection template to compare against
-  HAS_LEGACY_INJECTION=$(grep -q 'CLEO:START' CLAUDE.md 2>/dev/null && echo "true" || echo "false")
-  CURRENT_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
-  if [[ -n "$CURRENT_INJECTION_VERSION" ]]; then
-    log_info "CLAUDE.md injection present (v${CURRENT_INJECTION_VERSION})" "claude_md"
-  elif [[ "$HAS_LEGACY_INJECTION" == "true" ]]; then
-    log_warn "CLAUDE.md has legacy (unversioned) injection. Run with --fix or: cleo init --update-claude-md"
-  else
-    log_warn "CLAUDE.md exists but has no cleo injection. Run with --fix or: cleo init --update-claude-md"
-  fi
-fi
+    # Get status from injection library
+    status_json=$(injection_check "$target")
+    status=$(echo "$status_json" | jq -r '.status')
+    current_ver=$(echo "$status_json" | jq -r '.currentVersion // ""')
+    installed_ver=$(echo "$status_json" | jq -r '.installedVersion // ""')
 
-# 12. Check AGENTS.md injection version (same logic as CLAUDE.md)
-if [[ -f "AGENTS.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
-  AGENTS_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
-  HAS_CLEO_TAG=$(grep -q 'CLEO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
-  INSTALLED_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' "$CLEO_HOME/templates/AGENT-INJECTION.md" 2>/dev/null || echo "")
+    # Convert target to log key (CLAUDE.md → claude_md)
+    log_key="${target//./_}"
+    log_key="${log_key,,}"  # lowercase
 
-  if [[ -z "$AGENTS_INJECTION_VERSION" ]] && [[ "$HAS_CLEO_TAG" == "true" ]]; then
-    # Has unversioned CLEO:START - needs version update
-    if [[ "$FIX" == true ]]; then
-      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
-      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
-      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
-        echo "  Fixed: Updated legacy AGENTS.md injection (unversioned → v${INSTALLED_INJECTION_VERSION})"
-        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
-      else
-        log_warn "AGENTS.md has legacy (unversioned) injection. Run: cleo init --update-claude-md --target AGENTS.md"
-      fi
-    else
-      log_warn "AGENTS.md has legacy (unversioned) injection. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
-    fi
-  elif [[ -z "$AGENTS_INJECTION_VERSION" ]]; then
-    # No injection at all
-    if [[ "$FIX" == true ]]; then
-      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
-      if grep -qP 'CLEO:START v[0-9.]+' AGENTS.md 2>/dev/null; then
-        echo "  Fixed: Added AGENTS.md injection (v${INSTALLED_INJECTION_VERSION})"
-        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
-      else
-        log_warn "No cleo injection found in AGENTS.md. Run: cleo init --update-claude-md --target AGENTS.md"
-      fi
-    else
-      log_warn "No cleo injection found in AGENTS.md. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
-    fi
-  elif [[ -n "$INSTALLED_INJECTION_VERSION" ]] && [[ "$AGENTS_INJECTION_VERSION" != "$INSTALLED_INJECTION_VERSION" ]]; then
-    # Has versioned injection but outdated
-    if [[ "$FIX" == true ]]; then
-      "$CLEO_HOME/scripts/init.sh" --update-claude-md --target AGENTS.md 2>/dev/null
-      NEW_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
-      if [[ "$NEW_VERSION" == "$INSTALLED_INJECTION_VERSION" ]]; then
-        echo "  Fixed: Updated AGENTS.md injection (${AGENTS_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION})"
-        log_info "AGENTS.md injection current (v${INSTALLED_INJECTION_VERSION})" "agents_md"
-      else
-        log_warn "AGENTS.md injection outdated (${AGENTS_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION}). Run: cleo init --update-claude-md --target AGENTS.md"
-      fi
-    else
-      log_warn "AGENTS.md injection outdated (${AGENTS_INJECTION_VERSION} → ${INSTALLED_INJECTION_VERSION}). Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
-    fi
-  else
-    log_info "AGENTS.md injection current (v${AGENTS_INJECTION_VERSION})" "agents_md"
-  fi
-elif [[ -f "AGENTS.md" ]]; then
-  # AGENTS.md exists but no injection template to compare against
-  HAS_CLEO_TAG=$(grep -q 'CLEO:START' AGENTS.md 2>/dev/null && echo "true" || echo "false")
-  AGENTS_INJECTION_VERSION=$(grep -oP 'CLEO:START v\K[0-9.]+' AGENTS.md 2>/dev/null || echo "")
-  if [[ -n "$AGENTS_INJECTION_VERSION" ]]; then
-    log_info "AGENTS.md injection present (v${AGENTS_INJECTION_VERSION})" "agents_md"
-  elif [[ "$HAS_CLEO_TAG" == "true" ]]; then
-    log_warn "AGENTS.md has legacy (unversioned) injection. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
-  else
-    log_warn "AGENTS.md exists but has no cleo injection. Run with --fix or: cleo init --update-claude-md --target AGENTS.md"
-  fi
+    case "$status" in
+      current)
+        log_info "${target} injection current (v${current_ver})" "$log_key"
+        ;;
+      legacy)
+        if [[ "$FIX" == true ]]; then
+          injection_update "$target" 2>/dev/null
+          if injection_has_block "$target" && [[ "$(injection_extract_version "$target")" == "$installed_ver" ]]; then
+            echo "  Fixed: Updated legacy ${target} injection (unversioned → v${installed_ver})"
+            log_info "${target} injection current (v${installed_ver})" "$log_key"
+          else
+            log_warn "${target} has legacy (unversioned) injection. Run: cleo init"
+          fi
+        else
+          log_warn "${target} has legacy (unversioned) injection. Run with --fix or: cleo init"
+        fi
+        ;;
+      none)
+        if [[ "$FIX" == true ]]; then
+          injection_update "$target" 2>/dev/null
+          if injection_has_block "$target"; then
+            echo "  Fixed: Added ${target} injection (v${installed_ver})"
+            log_info "${target} injection current (v${installed_ver})" "$log_key"
+          else
+            log_warn "No cleo injection found in ${target}. Run: cleo init"
+          fi
+        else
+          log_warn "No cleo injection found in ${target}. Run with --fix or: cleo init"
+        fi
+        ;;
+      outdated)
+        if [[ "$FIX" == true ]]; then
+          injection_update "$target" 2>/dev/null
+          new_ver=$(injection_extract_version "$target")
+          if [[ "$new_ver" == "$installed_ver" ]]; then
+            echo "  Fixed: Updated ${target} injection (${current_ver} → ${installed_ver})"
+            log_info "${target} injection current (v${installed_ver})" "$log_key"
+          else
+            log_warn "${target} injection outdated (${current_ver} → ${installed_ver}). Run: cleo init"
+          fi
+        else
+          log_warn "${target} injection outdated (${current_ver} → ${installed_ver}). Run with --fix or: cleo init"
+        fi
+        ;;
+    esac
+  done
 fi
 
 # Summary
