@@ -40,7 +40,7 @@ teardown_file() {
     rm -rf "$TEST_TEMP_DIR/.claude"
 
     # Run init
-    run bash "$INIT_SCRIPT" --no-claude-md test-project
+    run bash "$INIT_SCRIPT" test-project
     assert_success
 
     # Verify todo.json was created
@@ -56,7 +56,7 @@ teardown_file() {
 @test "T137: checksum matches actual tasks array after init" {
     rm -rf "$TEST_TEMP_DIR/.claude"
     cd "$TEST_TEMP_DIR"
-    bash "$INIT_SCRIPT" --no-claude-md test-project
+    bash "$INIT_SCRIPT" test-project
 
     local stored_checksum
     stored_checksum=$(jq -r '._meta.checksum' .cleo/todo.json)
@@ -71,7 +71,7 @@ teardown_file() {
 @test "T137: init creates valid checksum format (16 hex chars)" {
     rm -rf "$TEST_TEMP_DIR/.claude"
     cd "$TEST_TEMP_DIR"
-    bash "$INIT_SCRIPT" --no-claude-md test-project
+    bash "$INIT_SCRIPT" test-project
 
     local checksum
     checksum=$(jq -r '._meta.checksum' .cleo/todo.json)
@@ -81,7 +81,7 @@ teardown_file() {
 @test "T137: init creates empty tasks array with correct checksum" {
     rm -rf "$TEST_TEMP_DIR/.claude"
     cd "$TEST_TEMP_DIR"
-    bash "$INIT_SCRIPT" --no-claude-md test-project
+    bash "$INIT_SCRIPT" test-project
 
     local tasks_count
     tasks_count=$(jq '.tasks | length' .cleo/todo.json)
@@ -96,7 +96,7 @@ teardown_file() {
 @test "T137: fresh init followed by validation never fails" {
     rm -rf "$TEST_TEMP_DIR/.claude"
     cd "$TEST_TEMP_DIR"
-    bash "$INIT_SCRIPT" --no-claude-md fresh-test
+    bash "$INIT_SCRIPT" fresh-test
 
     run bash "$VALIDATE_SCRIPT"
     assert_success
@@ -108,9 +108,9 @@ teardown_file() {
 @test "T137: init with --force recalculates checksum correctly" {
     rm -rf "$TEST_TEMP_DIR/.claude"
     cd "$TEST_TEMP_DIR"
-    bash "$INIT_SCRIPT" --no-claude-md test-project
+    bash "$INIT_SCRIPT" test-project
 
-    run bash "$INIT_SCRIPT" --force --confirm-wipe --no-claude-md test-project-2
+    run bash "$INIT_SCRIPT" --force --confirm-wipe test-project-2
     assert_success
 
     run bash "$VALIDATE_SCRIPT"
@@ -120,7 +120,7 @@ teardown_file() {
 @test "T137: all created files are valid JSON after init" {
     rm -rf "$TEST_TEMP_DIR/.claude"
     cd "$TEST_TEMP_DIR"
-    bash "$INIT_SCRIPT" --no-claude-md test-project
+    bash "$INIT_SCRIPT" test-project
 
     run jq empty .cleo/todo.json
     assert_success

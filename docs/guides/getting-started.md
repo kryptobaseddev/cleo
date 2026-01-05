@@ -54,15 +54,14 @@ Creates `.cleo/` directory with:
 ### 3. Inject Agent Instructions
 
 ```bash
-# For Claude Code (default)
-cleo init --update-claude-md
+# Initialize automatically injects into all agent files
+cleo init
 
-# For other agents
-cleo init --target AGENTS.md
-cleo init --target GEMINI.md
+# Or update existing agent docs to latest version
+cleo upgrade
 ```
 
-This injects CLEO instructions into your agent's documentation file.
+This injects CLEO instructions into CLAUDE.md, AGENTS.md, and GEMINI.md automatically.
 
 ### 4. Verify Installation
 
@@ -146,20 +145,20 @@ cleo session end
 CLEO is designed primarily for Claude Code. After installation:
 
 ```bash
-cleo init --update-claude-md
+cleo init  # Automatically injects into CLAUDE.md
 ```
 
 This injects CLEO instructions between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
 
 ### Other AI Agents
 
-For agents using AGENTS.md or other documentation files:
+CLEO automatically injects into multiple agent documentation files:
 
 ```bash
-cleo init --target AGENTS.md
+cleo init  # Injects into CLAUDE.md, AGENTS.md, and GEMINI.md
 ```
 
-The same CLEO template is injected into the specified file.
+All files receive the same CLEO template with registry-based auto-discovery.
 
 ## Configuration
 

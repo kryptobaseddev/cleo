@@ -46,7 +46,7 @@ EXIT_RESEARCH_FAILED=30, EXIT_INSUFFICIENT_SOURCES=31, EXIT_CONSENSUS_FAILED=32,
 
 **Phase**: core | **Progress**: 100% (4/4 tasks)
 
-Single command to detect and fix all project-level issues when global cleo version updates. Consolidates validate --fix, migrate run, migrate repair, init --update-claude-md into one idempotent cleo update command.
+Single command to detect and fix all project-level issues when global cleo version updates. Consolidates validate --fix, migrate run, migrate repair, and agent docs updates into one idempotent cleo upgrade command.
 
 ### High Priority
 

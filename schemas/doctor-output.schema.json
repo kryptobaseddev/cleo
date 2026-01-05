@@ -1,0 +1,283 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/doctor-output.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Doctor Output Schema",
+  "description": "JSON output structure for `cleo doctor` diagnostic command. Defines health check results, severity levels, and actionable fixes for global CLEO installation, agent configurations, and registered projects. Exit code mapping: 0 (ok), 50 (warning), 52 (failed/critical), 100 (special/no_config).",
+  "type": "object",
+  "required": ["_meta", "success", "severity", "checks", "summary", "projects"],
+  "additionalProperties": false,
+
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "description": "Standard envelope metadata for command output.",
+      "required": ["format", "command", "timestamp", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "const": "cleo-doctor-output",
+          "description": "Output format identifier for parsing."
+        },
+        "command": {
+          "type": "string",
+          "const": "doctor",
+          "description": "Command that generated this output."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when diagnostic was run."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "CLEO CLI version that ran the diagnostic."
+        },
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "default": "1.0.0",
+          "description": "Schema version for this output format."
+        }
+      }
+    },
+
+    "success": {
+      "type": "boolean",
+      "description": "Overall success status. True only if ALL checks passed without warnings or failures."
+    },
+
+    "severity": {
+      "type": "string",
+      "enum": ["ok", "warning", "failed"],
+      "description": "Overall severity level. ok=all passed (exit 0), warning=minor issues (exit 50), failed=critical problems requiring action (exit 52)."
+    },
+
+    "checks": {
+      "type": "array",
+      "description": "Array of individual health check results.",
+      "items": {
+        "$ref": "#/definitions/check"
+      }
+    },
+
+    "summary": {
+      "type": "object",
+      "description": "Summary statistics across all checks.",
+      "required": ["totalChecks", "passed", "warnings", "failed", "severity"],
+      "additionalProperties": false,
+      "properties": {
+        "totalChecks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of checks performed."
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of checks that passed without issues."
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of checks with warnings (non-critical)."
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of checks that failed."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ok", "warning", "failed"],
+          "description": "Overall severity across all checks. ok=all passed, warning=minor issues, failed=critical problems."
+        }
+      }
+    },
+
+    "projects": {
+      "type": "object",
+      "description": "Project registry validation results. Summary of all registered CLEO projects and their health status.",
+      "required": ["total", "healthy", "warnings", "failed", "orphaned", "projects"],
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of registered projects."
+        },
+        "healthy": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of projects with no issues."
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of projects with warnings (non-critical issues)."
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of projects with critical issues."
+        },
+        "orphaned": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of projects in registry with missing paths."
+        },
+        "projects": {
+          "type": "array",
+          "description": "Array of individual project health results.",
+          "items": {
+            "$ref": "#/definitions/projectHealth"
+          }
+        }
+      }
+    }
+  },
+
+  "definitions": {
+    "check": {
+      "type": "object",
+      "description": "Individual health check result with diagnostic data and actionable fixes.",
+      "required": ["id", "category", "status", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$",
+          "description": "Unique check identifier (snake_case, e.g., 'cli_installation', 'agent_config_exists')."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["installation", "configuration", "registry", "projects"],
+          "description": "Check category for grouping related diagnostics. installation=CLI setup, configuration=agent configs, registry=project registry, projects=per-project checks."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "warning", "failed"],
+          "description": "Check result status. passed=no issues, warning=non-critical, failed=requires action."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Human-readable description of check result."
+        },
+        "details": {
+          "type": "object",
+          "description": "Structured diagnostic data specific to this check. Schema varies by check ID.",
+          "additionalProperties": true
+        },
+        "fix": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "Copy-paste command to resolve issue. Null if check passed or no automated fix available."
+        }
+      }
+    },
+
+    "projectHealth": {
+      "type": "object",
+      "description": "Individual project health check result. Tracks project path, status, schema versions, injection status, and issues.",
+      "required": ["hash", "path", "name", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}$",
+          "description": "Project hash identifier (first 8 chars of path hash)."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to project directory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project name from todo.json or directory name."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["healthy", "warning", "failed", "orphaned"],
+          "description": "Project health status. healthy=no issues, warning=minor issues, failed=critical problems, orphaned=path missing."
+        },
+        "schemas": {
+          "type": ["object", "null"],
+          "description": "Schema version information for project files.",
+          "additionalProperties": false,
+          "properties": {
+            "todo": {
+              "type": ["string", "null"],
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "todo.json schema version."
+            },
+            "config": {
+              "type": ["string", "null"],
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "config.json schema version."
+            },
+            "archive": {
+              "type": ["string", "null"],
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "archive.json schema version."
+            },
+            "log": {
+              "type": ["string", "null"],
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "log.json schema version."
+            }
+          }
+        },
+        "injection": {
+          "type": ["object", "null"],
+          "description": "Agent file injection status for this project.",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["current", "outdated", "missing"],
+              "description": "Injection status. current=up-to-date, outdated=old version, missing=not injected."
+            },
+            "version": {
+              "type": ["string", "null"],
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "description": "Version of injected content in agent files."
+            }
+          }
+        },
+        "issues": {
+          "type": "array",
+          "description": "Array of issues found in this project.",
+          "items": {
+            "type": "object",
+            "required": ["severity", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "severity": {
+                "type": "string",
+                "enum": ["warning", "error"],
+                "description": "Issue severity level."
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Human-readable issue description."
+              },
+              "fix": {
+                "type": ["string", "null"],
+                "maxLength": 200,
+                "description": "Suggested fix command. Null if no automated fix available."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

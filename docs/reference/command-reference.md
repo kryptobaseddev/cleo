@@ -85,7 +85,7 @@ cleo init --template ~/my-todo-template.json
 
 **Side Effects:**
 - Adds `.cleo/*.json` to `.gitignore`
-- Integrates with `CLAUDE.md` if present (unless `--no-claude-md`)
+- Injects into CLAUDE.md, AGENTS.md, GEMINI.md automatically
 - Validates all created files
 
 ---

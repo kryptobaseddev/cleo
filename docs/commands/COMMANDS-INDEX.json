@@ -2,8 +2,8 @@
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "1.0.0",
-    "lastUpdated": "2025-12-27",
-    "totalCommands": 43,
+    "lastUpdated": "2026-01-05",
+    "totalCommands": 44,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -52,6 +52,7 @@
       "backup",
       "claude-migrate",
       "config",
+      "doctor",
       "init",
       "migrate",
       "reorganize-backups",
@@ -194,26 +195,6 @@
       "note": "Run with --check first to detect legacy installations"
     },
     {
-      "name": "complete",
-      "script": "complete-task.sh",
-      "category": "write",
-      "doc": "complete.md",
-      "synopsis": "Mark task as done with completion timestamp and cycle time",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--dry-run"
-      ],
-      "exitCodes": [
-        0,
-        2,
-        4,
-        102
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "critical"
-    },
-    {
       "name": "commands",
       "script": "commands.sh",
       "category": "read",
@@ -239,6 +220,52 @@
       "jsonDefault": true,
       "agentRelevance": "high",
       "note": "Use instead of jq for command discovery"
+    },
+    {
+      "name": "complete",
+      "script": "complete-task.sh",
+      "category": "write",
+      "doc": "complete.md",
+      "synopsis": "Mark task as done with completion timestamp and cycle time",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        4,
+        102
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "critical"
+    },
+    {
+      "name": "config",
+      "script": "config.sh",
+      "category": "maintenance",
+      "doc": "config.md",
+      "synopsis": "View and modify configuration (project and global)",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--global"
+      ],
+      "subcommands": [
+        "show",
+        "set",
+        "get",
+        "list",
+        "reset"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        8
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium"
     },
     {
       "name": "context",
@@ -271,32 +298,6 @@
       "note": "Part of Context Safeguard System - check context limits before operations"
     },
     {
-      "name": "config",
-      "script": "config.sh",
-      "category": "maintenance",
-      "doc": "config.md",
-      "synopsis": "View and modify configuration (project and global)",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--global"
-      ],
-      "subcommands": [
-        "show",
-        "set",
-        "get",
-        "list",
-        "reset"
-      ],
-      "exitCodes": [
-        0,
-        2,
-        8
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "medium"
-    },
-    {
       "name": "dash",
       "script": "dash.sh",
       "category": "read",
@@ -327,6 +328,29 @@
       "exitCodes": [
         0,
         4,
+        100
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high"
+    },
+    {
+      "name": "doctor",
+      "script": "doctor.sh",
+      "category": "maintenance",
+      "doc": "doctor.md",
+      "synopsis": "System health diagnostics (global checks, project registry, agent configs)",
+      "flags": [
+        "--global",
+        "--fix",
+        "--prune",
+        "--format",
+        "--verbose"
+      ],
+      "exitCodes": [
+        0,
+        50,
+        51,
+        52,
         100
       ],
       "jsonOutput": true,
@@ -488,25 +512,6 @@
       "agentRelevance": "medium"
     },
     {
-      "name": "init",
-      "script": "init.sh",
-      "category": "maintenance",
-      "doc": "init.md",
-      "synopsis": "Initialize project (.claude/ directory) or update CLAUDE.md injection",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--update-claude-md"
-      ],
-      "exitCodes": [
-        0,
-        3,
-        101
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "low"
-    },
-    {
       "name": "import-tasks",
       "script": "import-tasks.sh",
       "category": "sync",
@@ -530,6 +535,26 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
+    },
+    {
+      "name": "init",
+      "script": "init.sh",
+      "category": "maintenance",
+      "doc": "init.md",
+      "synopsis": "Initialize project (.cleo/ directory) with automatic agent docs injection",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--force",
+        "--confirm-wipe"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        101
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "low"
     },
     {
       "name": "inject",
@@ -603,30 +628,6 @@
       ]
     },
     {
-      "name": "tree",
-      "aliasFor": "list --tree",
-      "category": "read",
-      "doc": "hierarchy.md",
-      "synopsis": "Display task hierarchy as tree (alias for list --tree)",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--status",
-        "--priority",
-        "--label",
-        "--phase",
-        "--type",
-        "--parent"
-      ],
-      "exitCodes": [
-        0,
-        2,
-        100
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "high"
-    },
-    {
       "name": "log",
       "script": "log.sh",
       "category": "read",
@@ -665,27 +666,6 @@
         0,
         3,
         6
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "low"
-    },
-    {
-      "name": "reorganize-backups",
-      "script": "reorganize-backups.sh",
-      "category": "maintenance",
-      "doc": "reorganize-backups.md",
-      "synopsis": "Migrate legacy backup structure to new taxonomy",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--dry-run",
-        "--detect",
-        "--run"
-      ],
-      "exitCodes": [
-        0,
-        3,
-        100
       ],
       "jsonOutput": true,
       "agentRelevance": "low"
@@ -797,6 +777,27 @@
       "agentRelevance": "medium"
     },
     {
+      "name": "reorganize-backups",
+      "script": "reorganize-backups.sh",
+      "category": "maintenance",
+      "doc": "reorganize-backups.md",
+      "synopsis": "Migrate legacy backup structure to new taxonomy",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run",
+        "--detect",
+        "--run"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        100
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "low"
+    },
+    {
       "name": "reparent",
       "script": "reparent.sh",
       "category": "write",
@@ -821,25 +822,6 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
-    },
-    {
-      "name": "restore",
-      "script": "restore.sh",
-      "category": "maintenance",
-      "doc": "restore.md",
-      "synopsis": "Restore todo files from backup",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--dry-run"
-      ],
-      "exitCodes": [
-        0,
-        3,
-        4
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "low"
     },
     {
       "name": "research",
@@ -871,6 +853,45 @@
       "aliases": [
         "dig"
       ]
+    },
+    {
+      "name": "restore",
+      "script": "restore.sh",
+      "category": "maintenance",
+      "doc": "restore.md",
+      "synopsis": "Restore todo files from backup",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--dry-run"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        4
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "low"
+    },
+    {
+      "name": "roadmap",
+      "script": "roadmap.sh",
+      "category": "read",
+      "doc": null,
+      "synopsis": "Generate roadmap from pending epics and CHANGELOG history",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--include-history",
+        "--upcoming-only"
+      ],
+      "exitCodes": [
+        0,
+        3
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium"
     },
     {
       "name": "session",
@@ -956,6 +977,30 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "critical"
+    },
+    {
+      "name": "tree",
+      "aliasFor": "list --tree",
+      "category": "read",
+      "doc": "hierarchy.md",
+      "synopsis": "Display task hierarchy as tree (alias for list --tree)",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--status",
+        "--priority",
+        "--label",
+        "--phase",
+        "--type",
+        "--parent"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        100
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high"
     },
     {
       "name": "unarchive",
@@ -1061,26 +1106,6 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "high"
-    },
-    {
-      "name": "roadmap",
-      "script": "roadmap.sh",
-      "category": "read",
-      "doc": null,
-      "synopsis": "Generate roadmap from pending epics and CHANGELOG history",
-      "flags": [
-        "--format",
-        "--json",
-        "--human",
-        "--include-history",
-        "--upcoming-only"
-      ],
-      "exitCodes": [
-        0,
-        3
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "medium"
     }
   ],
   "agentWorkflows": {

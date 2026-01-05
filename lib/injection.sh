@@ -64,7 +64,12 @@ injection_check() {
     local target="$1"
     local installed_version current_version status
 
-    installed_version=$(injection_extract_version "$(injection_get_template_path)")
+    # Use CLI_VERSION if set, otherwise fall back to extracting from template (for backward compat)
+    if [[ -n "${CLI_VERSION:-}" ]]; then
+        installed_version="$CLI_VERSION"
+    else
+        installed_version=$(injection_extract_version "$(injection_get_template_path)")
+    fi
 
     if [[ ! -f "$target" ]]; then
         echo "{\"target\":\"$target\",\"status\":\"missing\",\"fileExists\":false}"
@@ -112,23 +117,40 @@ injection_apply() {
     local content="$2"
     local action="$3"
     local temp_file
+    local version
+
+    # Get version: CLI_VERSION env var > VERSION file > extract from template
+    if [[ -n "${CLI_VERSION:-}" ]]; then
+        version="$CLI_VERSION"
+    elif [[ -f "${CLEO_HOME:-$HOME/.cleo}/VERSION" ]]; then
+        version=$(cat "${CLEO_HOME:-$HOME/.cleo}/VERSION" 2>/dev/null | tr -d '[:space:]')
+    else
+        version=$(injection_extract_version "$(injection_get_template_path)" 2>/dev/null || echo "unknown")
+    fi
 
     temp_file=$(mktemp)
     trap "rm -f '$temp_file'" RETURN
 
     case "$action" in
         created)
-            echo "$content" > "$temp_file"
+            # Wrap in markers
+            echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
+            echo "$content" >> "$temp_file"
+            echo "$INJECTION_MARKER_END" >> "$temp_file"
             ;;
         added)
-            # Prepend to existing file
-            echo "$content" > "$temp_file"
+            # Wrap in markers before prepending to existing file
+            echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
+            echo "$content" >> "$temp_file"
+            echo "$INJECTION_MARKER_END" >> "$temp_file"
             echo "" >> "$temp_file"
             cat "$target" >> "$temp_file"
             ;;
         updated)
-            # Replace existing block, keep at top
-            echo "$content" > "$temp_file"
+            # Wrap in markers and replace existing block
+            echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
+            echo "$content" >> "$temp_file"
+            echo "$INJECTION_MARKER_END" >> "$temp_file"
             # Strip all existing blocks and add remaining content
             awk "
                 /${INJECTION_MARKER_START//\//\\/}/ { skip = 1; next }

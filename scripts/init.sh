@@ -718,6 +718,91 @@ if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
   fi
 fi
 
+# Register project in global registry
+register_project() {
+    # Source required libraries
+    [[ -f "$CLEO_HOME/lib/project-registry.sh" ]] && source "$CLEO_HOME/lib/project-registry.sh"
+    [[ -f "$CLEO_HOME/lib/migrate.sh" ]] && source "$CLEO_HOME/lib/migrate.sh"
+
+    local project_hash project_path project_name registry timestamp
+    local todo_version config_version archive_version log_version
+
+    project_path="$PWD"
+    project_name="$(basename "$project_path")"
+    project_hash=$(generate_project_hash "$project_path")
+    registry="$(get_cleo_home)/projects-registry.json"
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Initialize registry if missing
+    if [[ ! -f "$registry" ]]; then
+        create_empty_registry "$registry" || return 1
+    fi
+
+    # Get schema versions from schema files (single source of truth)
+    todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+    config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
+    archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
+    log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
+
+    # Get injection status for all agent files
+    local injection_status
+    injection_status=$(injection_check_all 2>/dev/null || echo "[]")
+
+    # Build injection object from status array
+    local injection_obj
+    injection_obj=$(echo "$injection_status" | jq 'reduce .[] as $item ({}; .[$item.target] = {version: $item.currentVersion, status: $item.status})')
+
+    # Add project to registry with atomic write
+    local temp_file
+    temp_file=$(mktemp)
+    trap 'rm -f "$temp_file"' RETURN
+
+    jq --arg hash "$project_hash" \
+       --arg path "$project_path" \
+       --arg name "$project_name" \
+       --arg version "$VERSION" \
+       --arg timestamp "$timestamp" \
+       --arg todo_v "$todo_version" \
+       --arg config_v "$config_version" \
+       --arg archive_v "$archive_version" \
+       --arg log_v "$log_version" \
+       --argjson injection "$injection_obj" \
+       '.projects[$hash] = {
+           hash: $hash,
+           path: $path,
+           name: $name,
+           registeredAt: $timestamp,
+           lastSeen: $timestamp,
+           cleoVersion: $version,
+           schemas: {
+               todo: $todo_v,
+               config: $config_v,
+               archive: $archive_v,
+               log: $log_v
+           },
+           injection: $injection,
+           health: {
+               status: "healthy",
+               lastCheck: $timestamp,
+               issues: []
+           }
+       } | .lastUpdated = $timestamp' "$registry" > "$temp_file"
+
+    if ! save_json "$registry" < "$temp_file"; then
+        log_error "Failed to register project in global registry"
+        return 1
+    fi
+
+    return 0
+}
+
+# Call registration after successful initialization
+if register_project; then
+    [[ "$QUIET" == "false" ]] && log_info "Registered project in global registry"
+else
+    log_warn "Project registration failed (non-fatal)"
+fi
+
 # Check/setup Claude Code statusline integration for context monitoring
 if [[ -f "$LIB_DIR/statusline-setup.sh" ]] || [[ -f "$CLEO_HOME/lib/statusline-setup.sh" ]]; then
     if [[ -f "$LIB_DIR/statusline-setup.sh" ]]; then
