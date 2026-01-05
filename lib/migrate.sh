@@ -1110,6 +1110,52 @@ migrate_config_to_2_2_0() {
     update_version_field "$file" "$target_version"
 }
 
+
+# ============================================================================
+# ARCHIVE MIGRATIONS
+# ============================================================================
+
+# Migration baseline for archive.schema.json v2.4.0
+# Establishes migration foundation - schema already at v2.4.0
+migrate_archive_to_2_4_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    
+    # Baseline migration - just bump version
+    bump_version_only "$file" "$target_version"
+}
+
+# ============================================================================
+# LOG MIGRATIONS  
+# ============================================================================
+
+# Migration baseline for log.schema.json v2.4.0
+# Establishes migration foundation - schema already at v2.4.0
+# Note: log schema data file is todo-log.json
+migrate_log_to_2_4_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    
+    # Baseline migration - just bump version
+    bump_version_only "$file" "$target_version"
+}
+
+# ============================================================================
+# SESSIONS MIGRATIONS
+# ============================================================================
+
+# Migration baseline for sessions.schema.json v1.0.0
+# Establishes migration foundation - schema already at v1.0.0
+migrate_sessions_to_1_0_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    
+    # Baseline migration - just bump version
+    bump_version_only "$file" "$target_version"
+}
 # Example: Migration from 2.0.0 to 2.1.0 for todo.json
 # DEPRECATED: Semver pattern - use timestamp pattern for new migrations
 # migrate_todo_to_2_1_0() {
