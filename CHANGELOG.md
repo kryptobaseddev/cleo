@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.51.0] - 2026-01-05
 
 ### Added
+- **setup-agents command**: Global agent configuration system (`cleo setup-agents`)
+  - Auto-discovers installed agent CLIs (claude, gemini, codex, kimi)
+  - Version-aware injection with `<!-- CLEO:START vX.Y.Z -->` markers
+  - Registry tracking at `~/.cleo/agent-configs.json`
+  - Uses @ reference syntax for global configs: `@~/.cleo/docs/TODO_Task_Management.md`
+  - Migration support for legacy append-style configs with `--migrate-from-legacy`
+  - `lib/agent-config.sh`: Registry management with 29 unit tests
+  - `schemas/agent-configs.schema.json`: Registry validation schema
+  - Deprecation warning added to `install.sh` (auto-setup removed in v0.52.0)
 - **doctor command**: Comprehensive health check system (`cleo doctor`)
   - Global checks: CLI installation, version, docs accessibility, agent configs
   - Project registry validation: path existence, schema versions, injection status
@@ -39,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Auto-registration on `cleo init`
   - Auto-update on `cleo upgrade`
 - **schemas/doctor-output.schema.json**: Structured diagnostic output schema
+
+### Fixed
+- **setup-agents**: Fixed `set -e` incompatibility with arithmetic increment causing premature script exit after first agent
+- **setup-agents**: Command registration in CLI dispatcher (was inaccessible via `ct setup-agents`)
+- **init**: Fixed `save_json` function collision between `file-ops.sh` (stdin-compatible) and `migrate.sh` (not stdin-compatible)
+- **init**: Fixed `set -u` unbound variable errors in `save_json` parameter expansion and trap cleanup
+- **lib/injection.sh**: Fixed infinite content duplication by wrapping injected content in version markers for all action types (created/added/updated)
+- **docs**: Fixed misleading `find "T1234" --exact` → corrected to `find --id 1234` for task ID searches
 
 ### Changed
 - **init.sh**: Now registers projects in global registry (lines 721-804)
