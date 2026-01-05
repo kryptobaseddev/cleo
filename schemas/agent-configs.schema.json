@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/agent-configs.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Agent Configurations Registry Schema",
+  "description": "Global registry tracking agent configuration files (CLAUDE.md, AGENTS.md, GEMINI.md) at ~/.cleo/agent-configs.json. Monitors CLEO instruction injection versions and setup status across all supported LLM agent CLIs.",
+  "type": "object",
+  "required": ["schemaVersion", "lastUpdated", "configs"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Schema version for this registry file (semver). Initial version: 1.0.0."
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last registry modification. Updated when any config entry changes."
+    },
+    "configs": {
+      "type": "object",
+      "description": "Agent configuration files keyed by absolute file path. Each entry tracks injection version and setup status for one agent config file.",
+      "additionalProperties": {
+        "$ref": "#/definitions/agentConfigEntry"
+      }
+    }
+  },
+
+  "definitions": {
+    "agentConfigEntry": {
+      "type": "object",
+      "description": "Single agent configuration file tracking entry. Monitors CLEO instruction injection version and setup state.",
+      "required": ["version", "method", "setupDate", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "CLEO version of injected instructions. Extracted from <!-- CLEO:START vX.X.X --> marker."
+        },
+        "method": {
+          "type": "string",
+          "enum": ["@", "inline", "embed"],
+          "description": "Injection method used: @=@ reference to ~/.cleo/docs/, inline=marker-based injection, embed=full content embedded."
+        },
+        "setupDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when this config file was first created/configured by CLEO."
+        },
+        "lastChecked": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of most recent validation check. Null if never validated since setup."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["current", "outdated", "missing", "invalid"],
+          "description": "Config file health status: current=version matches CLI, outdated=old version detected, missing=file not found, invalid=corrupt or unparseable."
+        },
+        "cliVersion": {
+          "type": ["string", "null"],
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "CLEO CLI version when last checked. Used to detect version drift between agent config and installed CLI."
+        },
+        "agentType": {
+          "type": ["string", "null"],
+          "enum": ["claude", "gemini", "codex", "kimi", null],
+          "description": "Agent type inferred from config file name/path. Null if cannot determine."
+        },
+        "notes": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "Optional notes about this config (e.g., manual edits detected, custom setup, migration status)."
+        }
+      }
+    }
+  },
+
+  "examples": [
+    {
+      "schemaVersion": "1.0.0",
+      "lastUpdated": "2026-01-05T14:23:45Z",
+      "configs": {
+        "/home/user/.claude/CLAUDE.md": {
+          "version": "0.50.2",
+          "method": "@",
+          "setupDate": "2026-01-01T10:00:00Z",
+          "lastChecked": "2026-01-05T14:23:45Z",
+          "status": "current",
+          "cliVersion": "0.50.2",
+          "agentType": "claude",
+          "notes": null
+        },
+        "/home/user/.claude/AGENTS.md": {
+          "version": "0.50.2",
+          "method": "@",
+          "setupDate": "2026-01-01T10:00:00Z",
+          "lastChecked": "2026-01-05T14:23:45Z",
+          "status": "current",
+          "cliVersion": "0.50.2",
+          "agentType": null,
+          "notes": null
+        },
+        "/home/user/.gemini/GEMINI.md": {
+          "version": "0.50.1",
+          "method": "@",
+          "setupDate": "2026-01-01T10:00:00Z",
+          "lastChecked": "2026-01-05T14:23:45Z",
+          "status": "outdated",
+          "cliVersion": "0.50.2",
+          "agentType": "gemini",
+          "notes": "Needs update to v0.50.2"
+        }
+      }
+    }
+  ]
+}
