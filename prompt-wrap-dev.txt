@@ -1,2 +1,0 @@
-<WRAP DEVELOPMENT>
-Your context is low you need to find a stopping spot to update your tasks for this session, follow the @dev/DEV-WORKFLOW.md make the patch bumps and documentation updates and commit any outstanding documentation, make sure you can fully install and test the new version from our global install and all is working, then end the session.

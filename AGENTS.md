@@ -2,6 +2,7 @@
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
+**Agent Workflows**: `docs/guides/llm-agent-workflows.md`
 
 **Multi-Agent Support (v0.50.0+)**: This content is automatically injected into CLAUDE.md, AGENTS.md, and GEMINI.md via registry-based auto-discovery. Update all files: `ct init --update-docs` or `ct upgrade`.
 

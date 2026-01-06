@@ -1,0 +1,115 @@
+# LLM Agent Workflow Guide
+
+**Target Audience**: AI Agents (Claude, Gemini, etc.)
+**Purpose**: Standard operating procedures for interacting with the CLEO task system.
+
+**Goal**: Execute tasks with traceable state, low token usage, and correct deps/order.
+**Output**: CLI commands + brief notes; JSON when scripting.
+**Limits**: **MUST** use CLI (no direct JSON edits). **MUST** check exit codes. **MUST NOT** invent task IDs.
+**Data**: Use `cleo` (or `ct` alias); use `cleo find` for discovery; use `cleo analyze --parent <epic-id>` for waves.
+**Evaluation**: Task status accurate, deps valid, session closed, focus set or cleared.
+**Next**: If confidence < 80%, ask for clarification on scope, deps, or phase.
+
+---
+
+## 1) Core Protocols
+
+### Session Management
+Agents **MUST** manage session state to preserve context and ensure accurate tracking.
+
+**Start of Interaction:**
+```bash
+# 1. Check current status
+cleo session status
+
+# 2. Start new session (if none active)
+cleo session start --name "Task Description" --scope epic:<ID>
+# OR Resume existing
+cleo session resume <session-id>
+```
+
+**During Work:**
+```bash
+# 1. Focus on ONE task
+cleo focus set <task-id>
+
+# 2. Update progress
+cleo update <task-id> --notes "Completed X, working on Y"
+
+# 3. Handle dependencies
+cleo add "Subtask Title" --depends <parent-id>
+```
+
+**End of Interaction:**
+```bash
+# 1. Complete task
+cleo complete <task-id>
+
+# 2. Archive (cleanup)
+cleo archive
+
+# 3. End session
+cleo session end
+```
+
+### Task Discovery
+Agents **MUST** use efficient search to save context tokens.
+
+- **Preferred:** `cleo find "keywords"` (returns minimal JSON).
+- **Preferred:** `cleo list --status pending --priority high` (filtered list).
+- **Avoid:** `cleo list` (returns ALL tasks, high token cost).
+
+---
+
+## 2) Common Recipes
+
+Patterns for complex operations. Agents can execute these sequences.
+
+### Sprint Planning
+**Goal**: Create multiple tasks for a sprint.
+```bash
+# Create tasks with label
+cleo add "Task 1" --labels "sprint-12" --priority high
+cleo add "Task 2" --labels "sprint-12" --priority medium
+# Verify
+cleo list --label "sprint-12"
+```
+
+### Bug Triage
+**Goal**: Log and categorize a bug.
+```bash
+# 1. Search for duplicates
+cleo find "error message"
+
+# 2. Create bug task
+cleo add "Bug: Error message" --labels "bug" --priority high --description "Steps to reproduce..."
+
+# 3. Focus if working immediately
+cleo focus set <new-task-id>
+```
+
+### Standup / Status Check
+**Goal**: Get a summary of recent work.
+```bash
+echo "## Completed"
+cleo list --status done --since $(date -d "yesterday" +%Y-%m-%d)
+echo "## In Progress"
+cleo list --status active
+echo "## Blocked"
+cleo list --status blocked
+```
+
+---
+
+## 3) Data Integrity
+
+- **MUST** use `cleo exists <id>` before referencing a task ID in scripts.
+- **MUST** check exit code + JSON `success` after every command.
+- **MUST NOT** edit `.cleo/*.json` directly.
+
+---
+
+## 4) Output Format
+
+- **MUST** use JSON output for automation (`--json` or default JSON when piped).
+- **MUST** use JSON Schema with `strict: true` when a tool supports it.
