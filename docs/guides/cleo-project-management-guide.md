@@ -1,0 +1,394 @@
+# CLEO Project Management Guide (Epic -> Task -> Subtask)
+
+A structured, LLM-agent-first guide to planning and organizing projects in CLEO using epics, phases, dependencies, and computed waves.
+
+---
+
+## 1) Core Concepts (Do Not Skip)
+
+### 1.1 Stable Task IDs
+- IDs are flat and immutable: `T001`, `T002`, `T1000`.
+- Hierarchy is stored in `parentId`, not the ID itself.
+- Reparenting never changes IDs, so references remain valid.
+
+### 1.2 Hierarchy (Epic -> Task -> Subtask)
+- **Epic**: Strategic initiative, root-level, decomposed into tasks.
+- **Task**: Primary work unit under an epic.
+- **Subtask**: Atomic operation under a task.
+- **Max depth**: 3 levels. Subtasks cannot have children.
+
+### 1.3 Phases (Task vs Project)
+**Task phase** = lifecycle categorization (`setup|core|testing|polish|maintenance`).
+**Project phase** = current stage of the project (managed by `ct phase`).
+
+These are separate:
+- Task phase is a field on each task (`phase`).
+- Project phase is a tracked lifecycle state (`project.currentPhase`).
+
+### 1.4 Dependencies (Order of Work)
+Dependencies define execution order:
+- A task can only start when its dependencies are `done`.
+- Dependencies can cross phases (e.g., `setup` -> `core`), but should be intentional.
+
+### 1.5 Waves (Computed Execution Groups)
+Waves are **computed**, not stored:
+- **Wave 0**: tasks with no active dependencies (ready to start).
+- **Wave N**: tasks whose deepest dependency is in Wave N-1.
+- Waves are computed within scope (project, epic, phase).
+
+Use `ct analyze --parent <epic>` to view waves in `executionPlan.waves`.
+
+### 1.6 Positional Ordering (Sibling Sequence)
+Positions are explicit display order within a parent scope:
+- Each parent has its own 1..N sequence (root is its own scope).
+- Positions are for **ordering**, not execution. Dependencies still control work order.
+- Positions are **continuous** and **unique** within a parent.
+- Use `ct reorder` / `ct swap` to adjust ordering.
+
+---
+
+## 2) The CLEO Project Management Way (End-to-End Flow)
+
+### Step 1: Initialize and inspect phases
+```bash
+ct init
+ct phases              # List task phases and progress
+ct phase show          # Show current project phase
+```
+
+If you need a new task phase:
+```bash
+ct add "Bootstrap phase scaffolding" --phase discovery --add-phase
+```
+
+### Step 2: Create the epic (root of work)
+```bash
+ct add "EPIC: User Authentication System" --type epic --size large \
+  --description "Implement end-to-end authentication flow"
+```
+
+**Rule**: Large epics must be decomposed into medium/small tasks.
+
+### Step 3: Decompose into tasks by phase
+Create tasks under the epic with explicit phases and sizes:
+```bash
+# Setup phase
+ct add "Define auth requirements" --parent T001 --phase setup --size small
+ct add "Design auth data model" --parent T001 --phase setup --size medium
+
+# Core phase
+ct add "Implement login endpoint" --parent T001 --phase core --size medium
+ct add "Implement session management" --parent T001 --phase core --size medium
+
+# Testing phase
+ct add "Write auth integration tests" --parent T001 --phase testing --size medium
+
+# Polish phase
+ct add "Document auth workflow" --parent T001 --phase polish --size small
+```
+
+### Step 4: Add subtasks for atomic operations
+```bash
+ct add "Validate email format" --parent T004 --size small
+ct add "Hash password securely" --parent T004 --size small
+```
+
+**Rule**: Subtasks are atomic; no further decomposition.
+
+### Step 5: Define dependencies (work order)
+Use dependencies to express order and unlocks:
+```bash
+# Core task depends on setup tasks
+ct update T004 --depends T002,T003
+
+# Tests depend on core implementation
+ct update T006 --depends T004,T005
+
+# Docs depend on tests
+ct update T007 --depends T006
+```
+
+### Step 6: Verify hierarchy + dependencies
+```bash
+ct tree
+ct deps tree
+ct analyze --parent T001
+```
+
+Review:
+- Wave 0 tasks (ready now).
+- Blocked tasks (waiting on dependencies).
+- Cross-phase dependencies.
+
+---
+
+## 3) Creating Tasks Correctly
+
+### 3.1 Use `ct add` for new tasks
+```bash
+ct add "Task Title" --description "Clear outcome" --phase core --size medium
+```
+
+**Required fields**:
+- Title (action-oriented)
+- Description (distinct from title)
+
+### 3.2 Task type inference
+If `--type` is omitted, CLEO infers it from `--parent`:
+- No parent -> `task`
+- Parent is `epic` -> `task`
+- Parent is `task` -> `subtask`
+
+### 3.3 Use size for scope, not time
+`small|medium|large` is **scope-based**. Time estimates are prohibited.
+
+### 3.4 Use acceptance criteria when clarity matters
+```bash
+ct add "Implement login endpoint" --parent T001 --phase core --size medium \
+  --acceptance "Returns JWT on success,Handles invalid credentials"
+```
+
+### 3.5 Decomposition and atomicity (TASK-DECOMPOSITION-SPEC)
+Large tasks must be decomposed into atomic work units. Use the six-point atomicity test:
+1) Single file scope (<=3 tightly coupled files)
+2) Single cognitive concern
+3) Clear acceptance criteria (testable)
+4) No context switching mid-task
+5) No hidden sub-decisions
+6) Programmatic validation possible
+
+Size guidance (scope, not time):
+- `small`: MUST be atomic
+- `medium`: SHOULD be atomic, review if unclear
+- `large`: MUST be decomposed
+
+Dependencies MUST be evidence-based, not assumed. If you cannot prove an ordering, do not add a dependency.
+
+---
+
+## 4) Organizing by Phases
+
+### 4.1 Task phase assignment
+Assign a phase during creation:
+```bash
+ct add "Add telemetry" --phase core
+```
+
+Or update later:
+```bash
+ct update T042 --phase testing
+```
+
+### 4.2 Project phase lifecycle
+Use project phases to track overall stage:
+```bash
+ct phase list
+ct phase start core
+ct phase complete setup
+ct phase advance
+```
+
+**Important**:
+- Only one project phase can be `active`.
+- Phase completion is blocked if tasks in that phase are not `done` (unless forced).
+- Phase order controls `advance`; moving backward requires `--rollback`.
+
+### 4.3 Project lifecycle mapping (PROJECT-LIFECYCLE-SPEC)
+Project lifecycle is a loop, not a straight line:
+```
+Discovery -> Planning -> Design -> Build -> Test -> Release
+                 \______________________________/
+                         Operate <-> Improve
+```
+
+Mapping to CLEO phases:
+- Discovery/Planning/Design -> `setup` (some design may extend into `core`)
+- Build -> `core`
+- Test -> `testing`
+- Release -> `polish`
+- Operate/Improve -> `maintenance`
+
+Two-dimensional model:
+- **Epics** are vertical (capabilities).
+- **Phases** are horizontal (time).
+- **Tasks** live at the intersection.
+
+Greenfield tends to be linear across phases. Brownfield is non-linear (core/testing/maintenance can run in parallel).
+
+---
+
+## 5) Dependencies: Correct Usage and Patterns
+
+### 5.1 Add dependencies at creation
+```bash
+ct add "Deploy to staging" --depends T010,T011 --phase testing
+```
+
+### 5.2 Update dependencies safely
+```bash
+ct update T050 --depends T020
+ct update T050 --set-depends T020,T021
+ct update T050 --clear-depends
+```
+
+### 5.3 Blocked tasks with explicit reason
+```bash
+ct add "Waiting for API spec" --status blocked \
+  --description "Blocked by external API team"
+```
+
+### 5.4 Validate dependency health
+```bash
+ct deps tree
+ct validate
+```
+
+**Rules**:
+- No self-dependencies.
+- No circular dependencies.
+- Keep chains shallow where possible.
+
+---
+
+## 6) Waves: Turning Dependencies into Parallel Work
+
+### 6.1 Wave rules
+- Wave 0 = no active dependencies (ready to start).
+- Wave N = deepest dependency in Wave N-1.
+- Waves are computed; do not store wave numbers.
+
+### 6.2 How to view waves
+```bash
+ct analyze --parent T001
+```
+
+Look for:
+- `executionPlan.waves[]`: parallel task groups
+- `inventory.ready[]`: tasks ready now
+- `inventory.blocked[]`: blocked tasks with reasons
+
+### 6.3 Cross-phase effects
+- Dependencies in earlier phases unlock later phases.
+- Dependencies outside scope but not done = task is blocked.
+- Dependencies in same phase affect wave depth.
+
+---
+
+## 7) Positional Ordering: Curated Sibling Sequence
+
+### 7.1 How positions work
+- Positions are per-parent (siblings only).
+- Root-level tasks have their own 1..N order.
+- Positions are continuous and unique within scope.
+- Moving a parent does not alter children positions.
+
+### 7.2 Set or change positions
+```bash
+ct add "New Task" --parent T001 --position 2
+ct reorder T005 --position 1
+ct reorder T005 --before T002
+ct reorder T005 --after T003
+ct reorder T005 --top
+ct reorder T005 --bottom
+ct swap T001 T003
+```
+
+### 7.3 View ordered lists
+```bash
+ct list --sort position
+ct list --tree --parent T001
+```
+
+### 7.4 Position vs dependencies
+- Position is display and planning order.
+- Dependencies still determine execution and waves.
+- Use position to express preferred reading or build sequence among siblings.
+- Reparenting updates positions in both old and new parent scopes.
+
+---
+
+## 8) Restructuring and Maintenance
+
+### 8.1 Reparenting tasks
+```bash
+ct reparent T120 --to T001
+ct promote T120     # Remove parent (make root)
+```
+
+### 8.2 Validate hierarchy
+```bash
+ct tree
+ct list --parent T001
+ct validate --check-orphans
+```
+
+---
+
+## 9) LLM Agent Checklist (Operational)
+
+Before starting work:
+- Confirm current project phase: `ct phase show`
+- Identify the epic scope: `ct analyze --parent <epic-id>`
+- Pick Wave 0 tasks first (ready, unblocked)
+- Start or resume a session: `ct session status` then `ct session start` or `ct session resume`
+- Set focus to ONE task: `ct focus set <task-id>`
+
+Discovery discipline:
+- Use `ct find "keywords"` for discovery (minimal JSON, low tokens)
+- Use filtered lists: `ct list --status pending --priority high`
+- Avoid `ct list` without filters unless required
+- Use `ct exists <id>` before referencing task IDs in scripts
+
+While working:
+- Use dependencies to express order (never assume implicit ordering)
+- Keep tasks atomic (subtasks should be small)
+- Add notes for decisions and blockers
+- Check exit codes after every command (0 = success, 100+ = special)
+- Never edit `.cleo/*.json` directly; use CLI commands only
+
+After changes:
+- Update task status
+- Re-run `ct analyze --parent <epic-id>` to confirm wave shifts
+- Complete task -> archive -> end session:
+  `ct complete <task-id>` -> `ct archive` -> `ct session end`
+
+---
+
+## 10) Command Quick Reference
+
+```bash
+# Hierarchy
+ct add "Epic" --type epic --size large
+ct add "Task" --parent T001 --size medium
+ct add "Subtask" --parent T002 --size small
+ct tree
+
+# Phases
+ct phases
+ct phase show
+ct phase start core
+ct phase advance
+
+# Dependencies
+ct add "Task" --depends T010,T011
+ct update T050 --depends T010
+ct deps tree
+
+# Waves (computed)
+ct analyze --parent T001
+
+# Positions
+ct reorder T005 --position 1
+ct swap T001 T003
+```
+
+---
+
+## 11) Reference Specs and Docs
+
+Primary sources for this guide:
+- `docs/specs/TASK-DECOMPOSITION-SPEC.md` (atomicity, evidence-based deps)
+- `docs/specs/PHASE-SYSTEM-SPEC.md` (project phase lifecycle)
+- `docs/specs/PROJECT-LIFECYCLE-SPEC.md` (lifecycle model and mapping)
+- `docs/commands/reorder.md` (positional ordering commands)
+- `schemas/todo.schema.json` (position field, invariants)

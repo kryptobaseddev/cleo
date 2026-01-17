@@ -647,9 +647,9 @@ Write commands **MUST** validate all inputs before modifying state:
 |-------|------------|------------|
 | title | 120 chars | `E_INPUT_INVALID` |
 | description | 2000 chars | `E_INPUT_INVALID` |
-| notes (each) | 500 chars | `E_INPUT_INVALID` |
+| notes (each) | 5000 chars | `E_INPUT_INVALID` |
 | blockedBy reason | 300 chars | `E_INPUT_INVALID` |
-| sessionNote | 1000 chars | `E_INPUT_INVALID` |
+| sessionNote | 2500 chars | `E_INPUT_INVALID` |
 | label name | 50 chars | `E_INPUT_INVALID` |
 | phase slug | 30 chars | `E_INPUT_INVALID` |
 

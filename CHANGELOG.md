@@ -7,6 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-01-17
+
+### Fixed
+- **sequence**: Fixed task ID reuse after archive by implementing dedicated sequence file system
+  - IDs now stored in `.cleo/.sequence` with atomic counter increment
+  - O(1) ID generation instead of O(n) JSON scanning
+  - Auto-recovery from corruption via task file scanning
+  - Fixed octal number interpretation bug in `_scan_max_task_id()` (T050 was interpreted as 40)
+  - Fixed ID format to use `T%03d` (T001) matching validation regex `^T[0-9]{3,}$`
+- **init**: Fixed sequence.sh sourcing with fallback to `$SCRIPT_DIR/../lib/` when not in `$CLEO_HOME`
+
+## [0.50.3] - 2026-01-05
+
+### Fixed
+- **validate**: Fixed infinite hang on projects with >100 tasks with dependencies by adding performance threshold check
+- **validate**: Fixed grep pipeline hang in `injection_extract_version()` when no version match found
+- **doctor**: Fixed `--format text` flag being ignored in non-TTY contexts (piped output)
+- **doctor**: Fixed hardcoded "json" in metadata field to use actual OUTPUT_FORMAT variable
+- **upgrade**: Fixed project registration Catch-22 where existing projects couldn't self-register
+- **upgrade**: Fixed unbound VERSION variable in `update_project_registration()`
+- **injection**: Fixed infinite content duplication by adding `<!-- CLEO:START/END -->` markers to all injection cases
+- **injection**: Fixed trap scope issues by using double quotes for immediate expansion
+
+### Changed
+- **validate**: Circular dependency check now skips if more than 100 tasks have dependencies (logs warning)
+- **upgrade**: Now registers unregistered projects automatically on first run
+
+## [0.51.0] - 2026-01-05
+
+### Added
+- **setup-agents command**: Global agent configuration system (`cleo setup-agents`)
+  - Auto-discovers installed agent CLIs (claude, gemini, codex, kimi)
+  - Version-aware injection with `<!-- CLEO:START vX.Y.Z -->` markers
+  - Registry tracking at `~/.cleo/agent-configs.json`
+  - Uses @ reference syntax for global configs: `@~/.cleo/docs/TODO_Task_Management.md`
+  - Migration support for legacy append-style configs with `--migrate-from-legacy`
+  - `lib/agent-config.sh`: Registry management with 29 unit tests
+  - `schemas/agent-configs.schema.json`: Registry validation schema
+  - Deprecation warning added to `install.sh` (auto-setup removed in v0.52.0)
+- **doctor command**: Comprehensive health check system (`cleo doctor`)
+  - Global checks: CLI installation, version, docs accessibility, agent configs
+  - Project registry validation: path existence, schema versions, injection status
+  - Graduated exit codes (0/50/51/52/100) for CI/CD integration
+  - `--fix` flag with confirmation for auto-repair (agent configs, orphaned projects)
+  - `--prune` flag for registry cleanup
+  - JSON/text output formats
+- **Project registry**: Global registry tracking all CLEO projects
+  - `lib/project-registry.sh`: 6 utility functions (generate_hash, is_registered, get_data, create_empty, list, prune)
+  - `schemas/projects-registry.schema.json`: Registry schema with health tracking
+  - Auto-registration on `cleo init`
+  - Auto-update on `cleo upgrade`
+- **schemas/doctor-output.schema.json**: Structured diagnostic output schema
+
+### Fixed
+- **setup-agents**: Fixed `set -e` incompatibility with arithmetic increment causing premature script exit after first agent
+- **setup-agents**: Command registration in CLI dispatcher (was inaccessible via `ct setup-agents`)
+- **init**: Fixed `save_json` function collision between `file-ops.sh` (stdin-compatible) and `migrate.sh` (not stdin-compatible)
+- **init**: Fixed `set -u` unbound variable errors in `save_json` parameter expansion and trap cleanup
+- **lib/injection.sh**: Fixed infinite content duplication by wrapping injected content in version markers for all action types (created/added/updated)
+- **docs**: Fixed misleading `find "T1234" --exact` → corrected to `find --id 1234` for task ID searches
+
+### Changed
+- **init.sh**: Now registers projects in global registry (lines 721-804)
+- **upgrade.sh**: Updates project registry metadata after migrations
+- **upgrade --status**: Enhanced with agent config awareness
+- **Documentation**: Clarified `list --parent` vs `analyze --parent` scope behavior
+  - `list --parent`: Returns direct children only (1 level)
+  - `analyze --parent`: Returns ALL descendants recursively (full epic subtree)
+  - Updated templates/AGENT-INJECTION.md, docs/TODO_Task_Management.md, and propagated to CLAUDE.md, AGENTS.md, GEMINI.md
+  - Added scope comparison guidance to prevent confusion about task counts
+- **Documentation SOP**: Upgraded CLEO-DOCUMENTATION-SOP.md from v1.0.0 to v2.0.0
+  - Added API-level structured outputs guidance (Anthropic Nov 2025, OpenAI strict mode)
+  - Quantified token optimization techniques (30-50% reduction targets)
+  - Integrated GOLDEN+ framework evolution with confidence-based branching
+  - Evidence-based anti-pattern refinement using 19+ research sources
+  - Added measurement framework with industry-standard metrics
+
+## [0.50.2] - 2026-01-04
+
+### Changed
+- **Session Note Limit**: Increased `focus.sessionNote` max length from 1000 to 2500 characters for expanded LLM agent context (schema v2.6.0 → v2.6.1)
+- Updated validation constant `MAX_SESSION_NOTE_LENGTH` from 1000 to 2500 in `lib/validation.sh`
+- Updated all documentation to reflect new 2500 character limit
+- Updated compliance checks and unit tests for new limit
+
+- **Validate Command Refactor** (T1411/T1384): Refactored `scripts/validate.sh` injection validation to use multi-file injection library
+- Replaced 126 lines of duplicate CLAUDE.md/AGENTS.md validation logic with 67-line registry-based loop (46% reduction)
+- Automatic validation for all injectable files (CLAUDE.md, AGENTS.md, GEMINI.md) via `lib/injection.sh`
+- Unified status detection: current/legacy/none/outdated for all agent documentation files
+- Eliminated hardcoded file list - auto-discovery through injection registry
+
+### Technical Details
+- **Schema version**: 2.6.0 → 2.6.1 (backward compatible - no migration required)
+- **Session note files**: schemas/todo.schema.json, lib/validation.sh, tests/unit/lib/validation.bats, docs/architecture/SCHEMAS.md, docs/specs/LLM-AGENT-FIRST-SPEC.md, dev/compliance/checks/input-validation.sh
+- **Injection validation**: scripts/validate.sh - sources lib/injection-config.sh and lib/injection.sh
+- **Breaking**: No - existing notes ≤1000 chars remain valid, injection validation behavior unchanged
+- **Migration**: Not required - relaxed constraint is backward compatible
+
 ## [0.50.1] - 2026-01-03
 
 ### Added

@@ -16,6 +16,7 @@
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
+| **[CLEO Project Management Guide](guides/cleo-project-management-guide.md)** | Epic -> Task -> Subtask organization, phases, dependencies, waves | Planning project structure and task decomposition |
 | **[Design Philosophy](guides/design-philosophy.md)** | The contract between developer and agent | Understanding flat IDs, JSON output, exit codes |
 | **[Filtering Guide](guides/filtering-guide.md)** | Task filtering and queries | Advanced task filtering |
 | **[Archive Guide](guides/archive-guide.md)** | Task lifecycle and retention | Archive strategies, retrieval, configuration |

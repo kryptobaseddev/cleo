@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.50.1-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.51.1-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -603,11 +603,14 @@ CLEO integrates seamlessly with Claude Code:
 ### CLAUDE.md Integration
 
 ```bash
-# Update your project's CLAUDE.md with task instructions
-cleo init --update-claude-md
+# Initialize project with automatic agent doc injection
+cleo init
+
+# Update existing agent docs to latest version
+cleo upgrade
 ```
 
-This injects the essential commands and protocols between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
+This injects essential commands and protocols into CLAUDE.md, AGENTS.md, and GEMINI.md between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
 
 ### TodoWrite Sync
 

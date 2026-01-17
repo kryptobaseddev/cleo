@@ -10,7 +10,9 @@ cleo init [PROJECT_NAME] [OPTIONS]
 
 ## Description
 
-The `init` command sets up a new project for cleo by creating the `.cleo/` directory structure and required JSON files. It can also update an existing project's CLAUDE.md injection to the latest version.
+The `init` command sets up a new project for cleo by creating the `.cleo/` directory structure and required JSON files. It also automatically injects CLEO task management instructions into all agent documentation files (CLAUDE.md, AGENTS.md, GEMINI.md) using registry-based auto-discovery.
+
+**Multi-File Injection**: Starting in v0.50.0, `init` automatically detects and updates all agent doc files in your project. No per-file flags needed - the injection registry determines which files to update.
 
 **Safeguard**: Running `init` on an already-initialized project will NOT overwrite data. Reinitializing requires explicit double confirmation with `--force --confirm-wipe`.
 
@@ -26,15 +28,17 @@ The `init` command sets up a new project for cleo by creating the `.cleo/` direc
 |--------|-------------|---------|
 | `--force` | Signal intent to reinitialize (requires `--confirm-wipe`) | `false` |
 | `--confirm-wipe` | Confirm destructive data wipe (used with `--force`) | `false` |
-| `--no-claude-md` | Skip CLAUDE.md integration | `false` |
-| `--update-claude-md` | Only update doc file injection (no other changes) | `false` |
-| `--update-docs` | Alias for `--update-claude-md` | `false` |
-| `--target FILE` | Target doc file for injection (CLAUDE.md, AGENTS.md, GEMINI.md) | `CLAUDE.md` |
 | `-f, --format FMT` | Output format: `text`, `json` | auto-detect |
 | `--json` | Force JSON output | |
 | `--human` | Force human-readable text output | |
 | `-q, --quiet` | Suppress non-essential output | `false` |
 | `-h, --help` | Show help message | |
+
+**Deprecated Options** (removed in v0.50.0):
+- `--target FILE` - Registry-based auto-discovery replaces per-file flags
+- `--no-claude-md` - Injection now automatic, no skip option
+- `--update-claude-md` - Use `cleo upgrade` instead
+- `--update-docs` - Use `cleo upgrade` instead
 
 ## Exit Codes
 
@@ -66,32 +70,55 @@ Output:
 [INFO] Created .cleo/config.json
 [INFO] Created .cleo/todo-archive.json
 [INFO] Created .cleo/todo-log.json
-[INFO] Updated CLAUDE.md with task management injection
+[INFO] Injected CLEO instructions into 3 agent doc files
+[INFO]   ✓ CLAUDE.md (created)
+[INFO]   ✓ AGENTS.md (created)
+[INFO]   ✓ GEMINI.md (created)
 
 cleo initialized successfully!
 ```
 
-### Update CLAUDE.md Injection
+### Update Agent Doc Injections
 
 ```bash
-# Update CLAUDE.md injection to latest version
-cleo init --update-claude-md
-
-# Or use the alias
-cleo init --update-docs
+# Update all agent doc file injections to latest version
+cleo upgrade
 ```
 
-### Multi-Doc Injection (--target)
+Output:
+```
+[INFO] Updating agent documentation injections...
+[INFO]   ✓ CLAUDE.md (v0.49.0 → v0.50.2)
+[INFO]   ✓ AGENTS.md (v0.49.0 → v0.50.2)
+[INFO]   ⊘ GEMINI.md (current v0.50.2)
+[INFO] Updated 2 of 3 files
+```
+
+**Note:** `cleo init` automatically injects into all agent files on first run. Use `cleo upgrade` to update existing injections.
+
+### Multi-Agent Project Support
+
+**Registry-Based Auto-Discovery** (v0.50.0+):
 
 ```bash
-# Inject into different agent doc files
-cleo init --target CLAUDE.md    # Default for Claude Code
-cleo init --target AGENTS.md    # For multi-agent projects
-cleo init --target GEMINI.md    # For Gemini CLI
+# Creates/updates ALL agent doc files automatically
+cleo init
 
-# Same CLEO template content is used for all targets
-# Markers: <!-- CLEO:START vX.X.X --> and <!-- CLEO:END -->
+# No per-file flags needed - registry determines targets:
+# - CLAUDE.md (Claude Code)
+# - AGENTS.md (multi-agent standard, Google/OpenAI backed)
+# - GEMINI.md (Gemini CLI)
 ```
+
+**Behavior:**
+- Creates missing files with injection
+- Updates outdated injections (version mismatch)
+- Skips files with current version
+- Same CLEO template content for all targets
+- Markers: `<!-- CLEO:START vX.X.X -->` and `<!-- CLEO:END -->`
+
+**Why Multiple Files?**
+Different LLM agents prefer different instruction files. CLEO injects identical content into all standard formats for maximum compatibility.
 
 ### Attempt to Reinitialize (Blocked)
 
@@ -195,7 +222,9 @@ cleo init --force --confirm-wipe
 | `.cleo/todo-log.json` | Audit log of all operations |
 | `.cleo/schemas/` | JSON Schema files for validation |
 | `.cleo/backups/` | Backup directories (safety, snapshot, etc.) |
-| `CLAUDE.md` (updated) | Task management injection added |
+| `CLAUDE.md` | Agent doc file with CLEO injection (created/updated) |
+| `AGENTS.md` | Agent doc file with CLEO injection (created/updated) |
+| `GEMINI.md` | Agent doc file with CLEO injection (created/updated) |
 
 ## Directory Structure
 
@@ -203,7 +232,7 @@ cleo init --force --confirm-wipe
 project/
 ├── .cleo/
 │   ├── todo.json          # Active tasks
-│   ├── config.json   # Configuration
+│   ├── config.json        # Configuration
 │   ├── todo-archive.json  # Archived tasks
 │   ├── todo-log.json      # Audit log
 │   ├── schemas/           # JSON Schema files
@@ -213,7 +242,9 @@ project/
 │       ├── incremental/   # Version history
 │       ├── archive/       # Long-term archives
 │       └── migration/     # Schema migration backups
-└── CLAUDE.md              # Updated with injection
+├── CLAUDE.md              # Claude Code instructions
+├── AGENTS.md              # Multi-agent instructions
+└── GEMINI.md              # Gemini CLI instructions
 ```
 
 ## Safety Backup on Reinitialize
@@ -230,12 +261,18 @@ When reinitializing with `--force --confirm-wipe`, a safety backup is automatica
 
 **Metadata**: Includes `metadata.json` with backup timestamp, file count, and total size.
 
-## CLAUDE.md Injection
+## Agent Doc File Injection
 
-The init command adds a task management section to CLAUDE.md:
+The init command adds task management instructions to all agent doc files using registry-based auto-discovery:
 
+**Files Injected:**
+- `CLAUDE.md` - Claude Code CLI instructions
+- `AGENTS.md` - Universal multi-agent standard (Google/OpenAI backed)
+- `GEMINI.md` - Gemini CLI instructions
+
+**Injection Format:**
 ```markdown
-<!-- CLEO:START v0.32.1 -->
+<!-- CLEO:START v0.50.2 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations.
@@ -243,24 +280,73 @@ Use `ct` (alias for `cleo`) for all task operations.
 <!-- CLEO:END -->
 ```
 
-This section:
-- Provides essential command reference for AI assistants
-- Auto-updates when `--update-claude-md` is run
-- Preserves content outside the markers
+**Features:**
+- **Versioned markers** - Track instruction version
+- **Auto-updates** - Run `cleo init --update-docs` to upgrade all files
+- **Content preservation** - Only replaces injection block, keeps other content
+- **Registry-based** - Add new targets by modifying `lib/injection-registry.sh`
+
+**Adding Custom Targets:**
+Edit `lib/injection-registry.sh`:
+```bash
+readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md COPILOT.md"
+```
+
+Then run `cleo init --update-docs` to inject into all targets.
 
 ## Behavior Summary
 
 | Scenario | Behavior | Exit Code |
 |----------|----------|-----------|
-| Fresh directory | Creates all files | 0 |
+| Fresh directory | Creates all files + injects all agent docs | 0 |
 | Already initialized (no flags) | Warns, exits | 101 |
 | `--force` only | Warns about missing `--confirm-wipe`, exits | 2 |
 | `--force --confirm-wipe` | Creates backup, wipes, reinitializes | 0 |
-| `--update-claude-md` | Only updates CLAUDE.md injection | 0 |
+
+## Technical Details
+
+### Injection Library
+
+Init uses `lib/injection.sh` for agent doc file management:
+
+```bash
+# Internal workflow:
+1. Source lib/injection.sh
+2. Call injection_update_all(".")
+3. For each target in INJECTION_TARGETS:
+   - Check status (missing/outdated/current)
+   - Skip if current
+   - Create or update if needed
+4. Return JSON summary
+```
+
+See [lib/injection.md](../lib/injection.md) for API reference.
+
+### Version Detection
+
+```bash
+# Extract version from marker:
+<!-- CLEO:START v0.50.2 -->
+
+# Regex pattern:
+CLEO:START v([0-9]+\.[0-9]+\.[0-9]+)
+```
+
+### File Actions
+
+| Status | Action | Description |
+|--------|--------|-------------|
+| `missing` | Create | File doesn't exist, create with injection |
+| `none` | Add | File exists, prepend injection |
+| `outdated` | Update | Replace old injection with current |
+| `legacy` | Update | No version marker, replace with versioned |
+| `current` | Skip | Injection matches installed version |
 
 ## See Also
 
+- [lib/injection.md](../lib/injection.md) - Injection library API reference
 - [validate](validate.md) - Check project integrity
+- [upgrade](upgrade.md) - Upgrade project and injections
 - [backup](backup.md) - Backup management
 - [restore](restore.md) - Restore from backup
 - [migrate](migrate.md) - Schema version migration

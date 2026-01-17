@@ -627,7 +627,7 @@ cmd_start() {
 
     if [[ -n "$installed_version" ]] && [[ "$current_version" != "$installed_version" ]]; then
       log_warn "CLAUDE.md injection outdated (${current_version:-unknown} → $installed_version)"
-      log_warn "Run: cleo init --update-claude-md"
+      log_warn "Run: cleo upgrade"
     fi
   fi
 }

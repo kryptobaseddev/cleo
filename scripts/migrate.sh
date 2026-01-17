@@ -48,6 +48,58 @@ DRY_RUN=false
 COMMAND_NAME="migrate"
 
 # ============================================================================
+# DEVELOPER MODE CHECK
+# ============================================================================
+# Prevent agents from using low-level migrate command
+# Redirect to unified upgrade command unless explicitly opted-in
+check_developer_mode() {
+    # Skip check if:
+    # - CLEO_DEVELOPER_MODE is set
+    # - Running status/check (read-only operations)
+    # - Non-interactive (piped/scripted)
+    if [[ -n "${CLEO_DEVELOPER_MODE:-}" ]] || [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        return 0
+    fi
+
+    # Check first argument for read-only subcommands
+    local subcmd="${1:-}"
+    case "$subcmd" in
+        status|check|history)
+            return 0
+            ;;
+    esac
+
+    # Interactive warning for write operations
+    echo "⚠️  WARNING: 'cleo migrate' is a low-level developer tool" >&2
+    echo "" >&2
+    echo "   Most users and LLM agents should use:" >&2
+    echo "   → cleo upgrade" >&2
+    echo "" >&2
+    echo "   The 'upgrade' command handles:" >&2
+    echo "   • Schema migrations (same as 'migrate run')" >&2
+    echo "   • Structural repairs" >&2
+    echo "   • Documentation updates" >&2
+    echo "   • Validation" >&2
+    echo "" >&2
+    echo "   Only use 'migrate' if you need low-level control for:" >&2
+    echo "   • Creating migration templates (migrate create)" >&2
+    echo "   • Debugging migrations (migrate file)" >&2
+    echo "   • Emergency rollback (migrate rollback)" >&2
+    echo "" >&2
+
+    read -p "Continue with low-level migrate? (y/N) " -r >&2
+    echo "" >&2
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Redirecting to: cleo upgrade" >&2
+        exec "$SCRIPT_DIR/upgrade.sh" "$@"
+    fi
+
+    # User confirmed - set developer mode for this session
+    export CLEO_DEVELOPER_MODE=1
+}
+
+# ============================================================================
 # DEPENDENCY CHECK (T167)
 # ============================================================================
 # jq is required for all migration operations
@@ -1261,6 +1313,9 @@ main() {
         show_usage
         exit "$EXIT_SUCCESS"
     fi
+
+    # Developer mode check (prevents agents from using low-level tool)
+    check_developer_mode "$@"
 
     local command="${1:-}"
     shift || true

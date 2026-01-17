@@ -58,8 +58,6 @@ fi
 # Defaults
 FORCE=false
 CONFIRM_WIPE=false
-NO_CLAUDE_MD=false
-UPDATE_CLAUDE_MD=false
 PROJECT_NAME=""
 FORMAT=""
 QUIET=false
@@ -95,10 +93,6 @@ Initialize CLEO in the current directory.
 Options:
   --force             Signal intent to reinitialize (requires --confirm-wipe)
   --confirm-wipe      Confirm data destruction when used with --force
-  --no-claude-md      Skip CLAUDE.md integration
-  --update-claude-md  Update existing CLAUDE.md injection (idempotent)
-  --update-docs       Alias for --update-claude-md
-  --target FILE       Target doc file for injection (CLAUDE.md, AGENTS.md, GEMINI.md)
   -f, --format FMT    Output format: text, json (default: auto-detect)
   --human             Force human-readable text output
   --json              Force JSON output
@@ -139,7 +133,6 @@ Examples:
   cleo init                    # Initialize in current directory
   cleo init my-project         # Initialize with project name
   cleo init --json             # JSON output for scripting
-  cleo init --update-claude-md # Update CLAUDE.md injection
 EOF
   exit 0
 }
@@ -159,9 +152,6 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --force) FORCE=true; shift ;;
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
-    --no-claude-md) NO_CLAUDE_MD=true; shift ;;
-    --update-claude-md|--update-docs) UPDATE_CLAUDE_MD=true; shift ;;
-    --target) TARGET_FILE="$2"; UPDATE_CLAUDE_MD=true; shift 2 ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --human) FORMAT="text"; shift ;;
     --json) FORMAT="json"; shift ;;
@@ -191,104 +181,6 @@ log_info()    { [[ "$QUIET" != true && "$FORMAT" != "json" ]] && echo "[INFO] $1
 log_warn()    { [[ "$FORMAT" != "json" ]] && echo "[WARN] $1" >&2 || true; }
 log_success() { [[ "$FORMAT" != "json" ]] && echo "[SUCCESS] $1" || true; }
 log_error()   { [[ "$FORMAT" != "json" ]] && echo "[ERROR] $1" >&2 || true; }
-
-# Handle --update-claude-md as standalone operation
-if [[ "$UPDATE_CLAUDE_MD" == true ]]; then
-  # Set default target file if not specified
-  TARGET_FILE="${TARGET_FILE:-CLAUDE.md}"
-
-  # Validate target file is one of the supported doc files
-  case "$TARGET_FILE" in
-    CLAUDE.md|AGENTS.md|GEMINI.md) ;;
-    *)
-      if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-        output_error "$E_INPUT_INVALID" "Invalid target file: $TARGET_FILE. Must be CLAUDE.md, AGENTS.md, or GEMINI.md" "${EXIT_INVALID_INPUT:-2}" true "Use --target CLAUDE.md, AGENTS.md, or GEMINI.md"
-      else
-        log_error "Invalid target file: $TARGET_FILE. Must be CLAUDE.md, AGENTS.md, or GEMINI.md"
-      fi
-      exit "${EXIT_INVALID_INPUT:-2}"
-      ;;
-  esac
-
-  if [[ ! -f "$TARGET_FILE" ]]; then
-    if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_FILE_NOT_FOUND" "$TARGET_FILE not found in current directory" "${EXIT_NOT_FOUND:-4}" true "Create $TARGET_FILE first or run from a directory with $TARGET_FILE"
-    else
-      log_error "$TARGET_FILE not found in current directory"
-    fi
-    exit "${EXIT_NOT_FOUND:-1}"
-  fi
-
-  injection_template="$CLEO_HOME/templates/AGENT-INJECTION.md"
-  if [[ ! -f "$injection_template" ]]; then
-    if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
-      output_error "$E_FILE_NOT_FOUND" "Injection template not found: $injection_template" "${EXIT_NOT_FOUND:-4}" false "Reinstall cleo to restore templates"
-    else
-      log_error "Injection template not found: $injection_template"
-    fi
-    exit "${EXIT_NOT_FOUND:-1}"
-  fi
-
-  action_taken="updated"
-  if grep -q "CLEO:START" "$TARGET_FILE" 2>/dev/null; then
-    # Remove ALL existing injection blocks (handles multiple/duplicates)
-    # and place new injection at TOP of file
-    temp_file=$(mktemp)
-
-    # First, add the new injection template at the top
-    cat "$injection_template" > "$temp_file"
-
-    # Strip ALL injection blocks using awk (handles multiple START/END pairs)
-    # Also removes any leading blank lines from the cleaned content
-    awk '
-      /<!-- CLEO:START/ { skip = 1; next }
-      /<!-- CLEO:END -->/ { skip = 0; next }
-      !skip { print }
-    ' "$TARGET_FILE" | sed '/./,$!d' >> "$temp_file"
-
-    # Replace original file
-    mv "$temp_file" "$TARGET_FILE"
-    action_taken="updated"
-  else
-    # No existing block, prepend new injection at TOP
-    temp_file=$(mktemp)
-    cat "$injection_template" > "$temp_file"
-    echo "" >> "$temp_file"
-    cat "$TARGET_FILE" >> "$temp_file"
-    mv "$temp_file" "$TARGET_FILE"
-    action_taken="added"
-  fi
-
-  if [[ "$FORMAT" == "json" ]]; then
-    jq -nc \
-      --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-      --arg action "$action_taken" \
-      --arg version "$VERSION" \
-      --arg target "$TARGET_FILE" \
-      '{
-        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-        "_meta": {
-          "command": "init",
-          "subcommand": "update-docs",
-          "timestamp": $timestamp,
-          "format": "json",
-          "version": $version
-        },
-        "success": true,
-        "injection": {
-          "action": $action,
-          "file": $target
-        }
-      }'
-  else
-    if [[ "$action_taken" == "updated" ]]; then
-      log_success "$TARGET_FILE injection updated"
-    else
-      log_success "$TARGET_FILE injection added"
-    fi
-  fi
-  exit 0
-fi
 
 # Determine project name
 [[ -z "$PROJECT_NAME" ]] && PROJECT_NAME=$(basename "$PWD")
@@ -662,6 +554,7 @@ if [[ -f "$TEMPLATES_DIR/config.template.json" ]]; then
   # Process template and replace all placeholders
   sed -e "s/{{VERSION}}/$VERSION/g" \
       -e "s/{{SCHEMA_VERSION_CONFIG}}/$SCHEMA_VERSION_CONFIG/g" \
+      -e "s/{{TIMESTAMP}}/$TIMESTAMP/g" \
       -e 's|"\$schema": "../schemas/config.schema.json"|"$schema": "./schemas/config.schema.json"|' \
       "$TEMPLATES_DIR/config.template.json" > "$TODO_DIR/config.json"
 
@@ -812,57 +705,123 @@ else
   log_warn "jq not installed - skipping JSON validation"
 fi
 
-# Update CLAUDE.md
-if [[ "$NO_CLAUDE_MD" != true ]]; then
-  if [[ -f "CLAUDE.md" ]]; then
-    if grep -q "CLEO:START" CLAUDE.md 2>/dev/null; then
-      log_warn "CLAUDE.md already has task integration (skipped)"
-    else
-      # Inject CLI-based task management instructions from template
-      # PREPEND to top of file (injection should be first thing in CLAUDE.md)
-      local injection_template="$CLEO_HOME/templates/AGENT-INJECTION.md"
-      if [[ -f "$injection_template" ]]; then
-        local temp_file
-        temp_file=$(mktemp)
-        cat "$injection_template" > "$temp_file"
-        echo "" >> "$temp_file"
-        cat CLAUDE.md >> "$temp_file"
-        mv "$temp_file" CLAUDE.md
-        log_info "Updated CLAUDE.md (from template, prepended)"
-      else
-        # Fallback minimal injection if template missing
-        local temp_file
-        temp_file=$(mktemp)
-        cat > "$temp_file" << 'CLAUDE_EOF'
-<!-- CLEO:START -->
-## Task Management (cleo)
-
-Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
-
-### Essential Commands
-```bash
-ct list                    # View tasks
-ct add "Task"              # Create task
-ct done <id>               # Complete task
-ct focus set <id>          # Set active task
-ct session start|end       # Session lifecycle
-ct exists <id>             # Verify task exists
-```
-
-### Anti-Hallucination
-- **CLI only** - Never edit `.cleo/*.json` directly
-- **Verify state** - Use `ct list` before assuming
-<!-- CLEO:END -->
-
-CLAUDE_EOF
-        cat CLAUDE.md >> "$temp_file"
-        mv "$temp_file" CLAUDE.md
-        log_info "Updated CLAUDE.md (fallback, prepended)"
-      fi
-    fi
+# Initialize task ID sequence file (v0.52.0)
+# Provides O(1) ID generation and prevents ID reuse after archive
+log_info "Initializing task ID sequence..."
+if [[ -f "$CLEO_HOME/lib/sequence.sh" ]]; then
+  source "$CLEO_HOME/lib/sequence.sh"
+  if init_sequence; then
+    log_info "✓ Sequence file initialized"
   else
-    log_warn "No CLAUDE.md found (skipped)"
+    log_warn "Failed to initialize sequence file (ID generation will use legacy scanning)"
   fi
+elif [[ -f "$SCRIPT_DIR/../lib/sequence.sh" ]]; then
+  source "$SCRIPT_DIR/../lib/sequence.sh"
+  if init_sequence; then
+    log_info "✓ Sequence file initialized"
+  else
+    log_warn "Failed to initialize sequence file (ID generation will use legacy scanning)"
+  fi
+else
+  log_warn "sequence.sh not found (ID generation will use legacy scanning)"
+fi
+
+# Inject CLEO task management instructions to agent documentation files
+# Creates files if missing, updates if outdated (CLAUDE.md, AGENTS.md, GEMINI.md)
+if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
+  source "$CLEO_HOME/lib/injection.sh"
+
+  result=$(injection_update_all ".")
+  updated=$(echo "$result" | jq -r '.updated')
+
+  if [[ "$updated" -gt 0 ]]; then
+    log_info "Injected task management docs to $updated agent file(s)"
+  fi
+fi
+
+# Register project in global registry
+register_project() {
+    # Source required libraries
+    [[ -f "$CLEO_HOME/lib/project-registry.sh" ]] && source "$CLEO_HOME/lib/project-registry.sh"
+    [[ -f "$CLEO_HOME/lib/migrate.sh" ]] && source "$CLEO_HOME/lib/migrate.sh"
+
+    local project_hash project_path project_name registry timestamp
+    local todo_version config_version archive_version log_version
+
+    project_path="$PWD"
+    project_name="$(basename "$project_path")"
+    project_hash=$(generate_project_hash "$project_path")
+    registry="$(get_cleo_home)/projects-registry.json"
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Initialize registry if missing
+    if [[ ! -f "$registry" ]]; then
+        create_empty_registry "$registry" || return 1
+    fi
+
+    # Get schema versions from schema files (single source of truth)
+    todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+    config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
+    archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
+    log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
+
+    # Get injection status for all agent files
+    local injection_status
+    injection_status=$(injection_check_all 2>/dev/null || echo "[]")
+
+    # Build injection object from status array
+    local injection_obj
+    injection_obj=$(echo "$injection_status" | jq 'reduce .[] as $item ({}; .[$item.target] = {version: $item.currentVersion, status: $item.status})')
+
+    # Add project to registry with atomic write
+    local temp_file
+    temp_file=$(mktemp)
+    trap 'rm -f "${temp_file:-}"' RETURN
+
+    jq --arg hash "$project_hash" \
+       --arg path "$project_path" \
+       --arg name "$project_name" \
+       --arg version "$VERSION" \
+       --arg timestamp "$timestamp" \
+       --arg todo_v "$todo_version" \
+       --arg config_v "$config_version" \
+       --arg archive_v "$archive_version" \
+       --arg log_v "$log_version" \
+       --argjson injection "$injection_obj" \
+       '.projects[$hash] = {
+           hash: $hash,
+           path: $path,
+           name: $name,
+           registeredAt: $timestamp,
+           lastSeen: $timestamp,
+           cleoVersion: $version,
+           schemas: {
+               todo: $todo_v,
+               config: $config_v,
+               archive: $archive_v,
+               log: $log_v
+           },
+           injection: $injection,
+           health: {
+               status: "healthy",
+               lastCheck: $timestamp,
+               issues: []
+           }
+       } | .lastUpdated = $timestamp' "$registry" > "$temp_file"
+
+    if ! save_json "$registry" < "$temp_file"; then
+        log_error "Failed to register project in global registry"
+        return 1
+    fi
+
+    return 0
+}
+
+# Call registration after successful initialization
+if register_project; then
+    [[ "$QUIET" == "false" ]] && log_info "Registered project in global registry"
+else
+    log_warn "Project registration failed (non-fatal)"
 fi
 
 # Check/setup Claude Code statusline integration for context monitoring

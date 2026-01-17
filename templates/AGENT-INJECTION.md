@@ -1,7 +1,8 @@
-<!-- CLEO:START v0.41.8 -->
 ## Task Management (cleo)
 
 Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
+
+**Multi-Agent Support (v0.50.0+)**: This content is automatically injected into CLAUDE.md, AGENTS.md, and GEMINI.md via registry-based auto-discovery. Update all files: `ct init --update-docs` or `ct upgrade`.
 
 ### CRITICAL: Error Handling
 **NEVER ignore exit codes. Failed commands mean tasks were NOT created/updated.**
@@ -31,19 +32,48 @@ ct update T001 --notes "Price: \$395"  # Correct
 ct update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 ```
 
-### Data Integrity
-- **JSON auto-detection**: Piped output → JSON (no `--format` needed)
-- **Native filters**: Use `--status`, `--label`, `--phase` instead of jq
-- **Context-efficient**: Prefer `find` over `list` for task discovery
-- **Command discovery**: `ct commands -r critical` (no jq needed)
-- **CLI only** - NEVER edit `.cleo/*.json` directly
-- **Verify state** - Use `cleo list` before assuming
-- **Session discipline** - ALWAYS Start/end sessions properly
+### Data Integrity (RFC 2119)
+
+**MUST** use `cleo` commands for all state modifications.
+**MUST NOT** edit `.cleo/*.json` files directly.
+**MUST** check exit codes after every command (see Error Handling above).
+
+**Rationale**: Direct file edits bypass validation, create stale data in multi-writer environments.
+
+### Best Practices (Efficiency)
+
+**Task Discovery** (MUST follow for context efficiency):
+```bash
+ct find "query"              # ✅ Fuzzy search (99% less context than list)
+ct find --id 1234            # ✅ Find by task ID prefix (returns multiple)
+ct show T1234                # ✅ Full details for specific task
+ct list --parent T001        # ✅ Direct children only
+ct analyze --parent T001     # ✅ ALL descendants (recursive)
+```
+
+**Discovery vs Retrieval** (CRITICAL):
+| Command | Returns | Fields | Use Case |
+|---------|---------|--------|----------|
+| `find --id 142` | Multiple matches (T1420-T1429) | Minimal (id, title, status) | Search: "Which tasks?" |
+| `show T1429` | Single task | Full (description, notes, hierarchy) | Details: "Tell me everything" |
+
+**Why `find` > `list`**:
+- `list` includes full notes arrays (potentially huge)
+- `find` returns minimal fields only
+- **MUST** use `find` for discovery, `show` for details
+
+**Other Patterns**:
+- **Native filters**: Use `--status`, `--label`, `--phase`, `--parent` (faster than jq)
+- **Command discovery**: `ct commands -r critical` shows essential commands
+- **Session lifecycle**: Start sessions before work, end when complete
+- **JSON auto-detection**: Piped output is JSON (no `--format` flag needed)
 
 ### Essential Commands
 ```bash
 ct list                    # View tasks (JSON when piped)
-ct find "query"            # Fuzzy search (99% less context than list)
+ct find "query"            # Fuzzy search (99% less context)
+ct find --id 142           # ID search (multiple matches)
+ct show T1234              # Full task details
 ct add "Task"              # Create task
 ct done <id>               # Complete task
 ct focus set <id>          # Set active task
@@ -156,11 +186,6 @@ ct validate --fix-orphans unlink     # Remove invalid parent references
 ct validate --fix-orphans delete     # Delete orphaned tasks
 ```
 
-### Data Integrity
-- **CLI only** - Never edit `.cleo/*.json` directly
-- **Verify state** - Use `ct list` before assuming
-- **Session discipline** - Start/end sessions properly
-
 ### Context Monitoring
 ```bash
 ct context                 # Show context usage (🟢 ok, 🟡 warning, 🔴 critical)
@@ -181,6 +206,3 @@ ct import-tasks task.json                          # Import into current project
 ct import-tasks task.json --dry-run                # Preview import
 ct import-tasks task.json --parent T050            # Import as children of T050
 ```
-
-Full docs: `docs/export-import.md`
-<!-- CLEO:END -->
