@@ -259,7 +259,14 @@ if [[ -d "$INSTALL_DIR" ]]; then
     fi
   fi
 
-  rm -rf "$INSTALL_DIR"
+  # Targeted cleanup: Remove only managed code directories (T1522)
+  # Preserves: config.json, projects-registry.json, plugins/, and other user data
+  log_info "Cleaning up old managed files..."
+  for dir in scripts lib schemas templates docs completions; do
+    if [[ -d "$INSTALL_DIR/$dir" ]]; then
+      rm -rf "$INSTALL_DIR/$dir"
+    fi
+  done
 fi
 
 # ============================================
@@ -509,6 +516,8 @@ declare -A CMD_MAP=(
   [safestop]="safestop.sh"
   [reorder]="reorder.sh"
   [swap]="reorder.sh"
+  [doctor]="doctor.sh"
+  [setup-agents]="setup-agents.sh"
 )
 
 # Brief descriptions for main help
@@ -563,6 +572,8 @@ declare -A CMD_DESC=(
   [safestop]="Graceful shutdown for agents at context limits"
   [reorder]="Change task position within sibling group"
   [swap]="Exchange positions of two sibling tasks"
+  [doctor]="Comprehensive health check for CLEO installation and projects"
+  [setup-agents]="Setup global agent configurations (CLAUDE.md, AGENTS.md, GEMINI.md)"
 )
 
 # ============================================
@@ -1287,6 +1298,21 @@ if [[ -d "$HOME/.claude" ]]; then
   else
     log_warn "TODO_Task_Management.md not found in installation"
   fi
+  # DEPRECATION WARNING (v0.50.x → v0.51.0)
+  echo ""
+  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${YELLOW}DEPRECATION NOTICE:${NC}"
+  echo "  Automatic agent setup will be removed in v0.52.0"
+  echo ""
+  echo "  Please run: ${GREEN}cleo setup-agents${NC}"
+  echo "  This command provides better control and supports multiple agent CLIs"
+  echo ""
+  echo "  What's changing:"
+  echo "    • v0.50.x: Automatic setup (current) + deprecation warning"
+  echo "    • v0.51.0: Manual setup required via 'cleo setup-agents'"
+  echo "    • v0.52.0: Automatic agent setup code removed"
+  echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
 else
   log_warn "~/.claude directory not found - skipping Task Management docs install"
 fi

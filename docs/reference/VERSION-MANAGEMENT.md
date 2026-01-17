@@ -459,7 +459,7 @@ git push origin vX.Y.Z  # If tagged
 
 ### 7. Post-Release
 
-- [ ] Update project installations: `cleo init --update-claude-md`
+- [ ] Update project installations: `cleo upgrade`
 - [ ] Monitor for issues
 - [ ] Update documentation site (if applicable)
 

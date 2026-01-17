@@ -204,7 +204,7 @@ Ordered from highest to lowest:
 |-------|------|-------------|
 | `currentTask` | string or null | Task ID with status=active (pattern: `^T\d{3,}$`) |
 | `blockedUntil` | string or null | Global blocker if entire project stuck |
-| `sessionNote` | string or null | Context from last session (max 1000 chars) |
+| `sessionNote` | string or null | Context from last session (max 2500 chars) |
 | `nextAction` | string or null | Specific next step when resuming (max 500 chars) |
 
 ### Focus Object - Phase Tracking
@@ -216,7 +216,7 @@ The focus object includes phase-aware tracking (v2.2.0+):
 | `currentTask` | string or null | Task ID with status=active (pattern: `^T\d{3,}$`) |
 | `currentPhase` | string or null | Synced with `project.currentPhase` |
 | `blockedUntil` | string or null | Global blocker if entire project stuck |
-| `sessionNote` | string or null | Context from last session (max 1000 chars) |
+| `sessionNote` | string or null | Context from last session (max 2500 chars) |
 | `nextAction` | string or null | Specific next step when resuming (max 500 chars) |
 
 **Phase Synchronization**: When `project.currentPhase` changes, `focus.currentPhase` is automatically updated to match.
@@ -629,9 +629,9 @@ Required fields:
 - `title`: 1-120 chars
 - `description`: 0-2000 chars
 - `blockedBy`: 0-300 chars
-- `notes[i]`: 0-500 chars
+- `notes[i]`: 0-5000 chars
 - `acceptance[i]`: 0-200 chars
-- `sessionNote`: 0-1000 chars
+- `sessionNote`: 0-2500 chars
 - `nextAction`: 0-500 chars
 
 **Enum Validation**:

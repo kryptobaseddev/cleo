@@ -475,7 +475,7 @@ External system integrations
 | Feature | Command | Status | Version |
 |---------|---------|--------|---------|
 | TodoWrite Sync | `cleo sync` | complete | 0.20.0 |
-| CLAUDE.md Injection | `cleo init --update-claude-md` | complete | 0.20.0 |
+| Agent Docs Injection | `cleo init` / `cleo upgrade` | complete | 0.50.0 |
 | Research Command | `cleo research` | complete | 0.23.0 |
 
 <details>
@@ -484,8 +484,8 @@ External system integrations
 ### TodoWrite Sync
 Bidirectional sync with Claude Code's ephemeral todos
 
-### CLAUDE.md Injection
-Inject task management instructions into CLAUDE.md
+### Agent Docs Injection
+Automatically injects task management instructions into CLAUDE.md, AGENTS.md, and GEMINI.md
 
 ### Research Command
 Multi-source web research with Context7 and Tavily

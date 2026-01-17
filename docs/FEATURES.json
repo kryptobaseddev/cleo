@@ -623,12 +623,12 @@
           "docs": "docs/commands/sync.md"
         },
         {
-          "id": "claude-md",
-          "name": "CLAUDE.md Injection",
-          "command": "cleo init --update-claude-md",
-          "description": "Inject task management instructions into CLAUDE.md",
+          "id": "agent-docs",
+          "name": "Agent Docs Injection",
+          "command": "cleo init / cleo upgrade",
+          "description": "Automatically inject task management instructions into CLAUDE.md, AGENTS.md, and GEMINI.md",
           "status": "complete",
-          "version": "0.20.0"
+          "version": "0.50.0"
         },
         {
           "id": "research",

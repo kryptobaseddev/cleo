@@ -219,11 +219,14 @@ validate_applied_checksums() {
 
 # save_json - Atomic JSON save using Layer 1 primitives
 # This is a local implementation that doesn't require file-ops.sh
-# Args: $1 = file path, $2 = JSON content
+# Args: $1 = file path, $2 = JSON content (optional, reads from stdin if not provided)
 # Returns: 0 on success, 1 on failure
 save_json() {
     local file="$1"
-    local content="$2"
+    local content="${2:-}"
+
+    # Read from stdin if no content provided (matches file-ops.sh behavior)
+    [[ -z "$content" ]] && content=$(cat)
 
     if [[ -z "$file" || -z "$content" ]]; then
         echo "save_json: Both file path and content required" >&2
@@ -1110,6 +1113,52 @@ migrate_config_to_2_2_0() {
     update_version_field "$file" "$target_version"
 }
 
+
+# ============================================================================
+# ARCHIVE MIGRATIONS
+# ============================================================================
+
+# Migration baseline for archive.schema.json v2.4.0
+# Establishes migration foundation - schema already at v2.4.0
+migrate_archive_to_2_4_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    
+    # Baseline migration - just bump version
+    bump_version_only "$file" "$target_version"
+}
+
+# ============================================================================
+# LOG MIGRATIONS  
+# ============================================================================
+
+# Migration baseline for log.schema.json v2.4.0
+# Establishes migration foundation - schema already at v2.4.0
+# Note: log schema data file is todo-log.json
+migrate_log_to_2_4_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    
+    # Baseline migration - just bump version
+    bump_version_only "$file" "$target_version"
+}
+
+# ============================================================================
+# SESSIONS MIGRATIONS
+# ============================================================================
+
+# Migration baseline for sessions.schema.json v1.0.0
+# Establishes migration foundation - schema already at v1.0.0
+migrate_sessions_to_1_0_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+    
+    # Baseline migration - just bump version
+    bump_version_only "$file" "$target_version"
+}
 # Example: Migration from 2.0.0 to 2.1.0 for todo.json
 # DEPRECATED: Semver pattern - use timestamp pattern for new migrations
 # migrate_todo_to_2_1_0() {
@@ -1624,6 +1673,20 @@ migrate_positions() {
 
     # Run the position migration
     migrate_todo_to_2_6_0 "$file"
+}
+
+# Migrate todo.json to v2.6.1 (sessionNote maxLength 1000 → 2500)
+# Args: $1 = file path
+# Returns: 0 on success, 1 on failure
+migrate_todo_to_2_6_1() {
+    local file="$1"
+    local target_version="2.6.1"
+
+    echo "  Migrating to v2.6.1: Increased sessionNote maxLength (1000 → 2500)"
+    echo "  This is a backward compatible change - no data transformation needed"
+
+    # Version-only migration (relaxed constraint, existing data remains valid)
+    bump_version_only "$file" "$target_version"
 }
 
 # ============================================================================

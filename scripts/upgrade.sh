@@ -5,7 +5,7 @@
 # Single command to detect and fix all project-level issues:
 # - Schema migrations
 # - Structural repairs (phases, checksums)
-# - CLAUDE.md injection updates
+# - Agent docs injection updates (CLAUDE.md, AGENTS.md, GEMINI.md)
 # - Validation
 #
 # Usage:
@@ -29,6 +29,8 @@ source "$LIB_DIR/config.sh"
 source "$LIB_DIR/output-format.sh" 2>/dev/null || true
 source "$LIB_DIR/migrate.sh" 2>/dev/null || true
 source "$LIB_DIR/validation.sh" 2>/dev/null || true
+source "$LIB_DIR/injection.sh" 2>/dev/null || true
+source "$LIB_DIR/project-registry.sh" 2>/dev/null || true
 
 # Fallback for is_json_output if not available
 if ! type is_json_output &>/dev/null; then
@@ -40,6 +42,7 @@ fi
 # ============================================================================
 # DEFAULTS
 # ============================================================================
+VERSION=$(cat "$CLEO_HOME/VERSION" 2>/dev/null || echo "0.50.2")
 DRY_RUN=false
 FORCE=false
 STATUS_ONLY=false
@@ -69,7 +72,7 @@ OPTIONS:
 WHAT IT DOES:
     1. Migrates schemas (todo.json, config.json, log, archive)
     2. Repairs structural issues (phases, checksums)
-    3. Updates CLAUDE.md injection to current version
+    3. Updates agent docs injections (CLAUDE.md, AGENTS.md, GEMINI.md)
     4. Sets up Claude Code statusline for context monitoring
     5. Validates the result
 
@@ -123,7 +126,8 @@ UPG_TODO_FILE="./.cleo/todo.json"
 UPG_CONFIG_FILE="./.cleo/config.json"
 UPG_ARCHIVE_FILE="./.cleo/todo-archive.json"
 UPG_LOG_FILE="./.cleo/todo-log.json"
-UPG_CLAUDE_MD="./CLAUDE.md"
+# Multi-agent documentation files (managed by injection system)
+# Deprecated: UPG_CLAUDE_MD - now handled by lib/injection.sh registry
 
 if [[ ! -f "$UPG_TODO_FILE" ]]; then
     output_error "E_NOT_PROJECT" "Not a cleo project" 3 \
@@ -198,26 +202,45 @@ check_schema_status() {
     return 0
 }
 
-check_claude_md_status() {
-    [[ ! -f "$UPG_CLAUDE_MD" ]] && return 0
-
-    local injection_version
-    injection_version=$(grep -oP 'CLEO:START v\K[0-9.]+' "$UPG_CLAUDE_MD" 2>/dev/null || echo "none")
-
-    if [[ "$injection_version" == "none" ]]; then
-        # No injection present - add one
-        UPDATES_NEEDED["CLAUDE.md"]="missing → $INSTALLED_VERSION"
-        ((TOTAL_UPDATES++))
-        return 1
+check_agent_docs_status() {
+    # Use injection library to check all agent documentation files
+    if ! type injection_check_all &>/dev/null; then
+        # Injection library not available - skip check
+        return 0
     fi
 
-    if [[ "$injection_version" != "$INSTALLED_VERSION" ]]; then
-        UPDATES_NEEDED["CLAUDE.md"]="$injection_version → $INSTALLED_VERSION"
-        ((TOTAL_UPDATES++))
-        return 1
-    fi
+    local check_result
+    check_result=$(injection_check_all)
 
-    return 0
+    # Parse results and add to UPDATES_NEEDED
+    local target status current_version installed_version
+    while IFS= read -r line; do
+        target=$(echo "$line" | jq -r '.target')
+        status=$(echo "$line" | jq -r '.status')
+        current_version=$(echo "$line" | jq -r '.currentVersion // "none"')
+        installed_version=$(echo "$line" | jq -r '.installedVersion')
+
+        case "$status" in
+            missing)
+                UPDATES_NEEDED["$target"]="missing → $installed_version"
+                ((TOTAL_UPDATES++))
+                ;;
+            outdated|legacy)
+                UPDATES_NEEDED["$target"]="$current_version → $installed_version"
+                ((TOTAL_UPDATES++))
+                ;;
+            none)
+                UPDATES_NEEDED["$target"]="none → $installed_version"
+                ((TOTAL_UPDATES++))
+                ;;
+            current)
+                # Already up to date - no action needed
+                ;;
+        esac
+    done < <(echo "$check_result" | jq -c '.[]')
+
+    # Return 1 if any updates needed, 0 otherwise
+    [[ ${TOTAL_UPDATES} -gt 0 ]] && return 1 || return 0
 }
 
 check_checksum_status() {
@@ -234,6 +257,154 @@ check_checksum_status() {
     fi
 
     return 0
+}
+
+# ============================================================================
+# PROJECT REGISTRY UPDATE
+# ============================================================================
+# Update project registration after successful migrations
+# Refreshes metadata: lastSeen, schema versions, injection status, health
+update_project_registration() {
+    # Skip if registry functions not available
+    if ! type generate_project_hash &>/dev/null; then
+        return 0
+    fi
+
+    local project_hash registry
+
+    project_hash=$(generate_project_hash "$PWD") || return 0
+    registry="$(get_cleo_home)/projects-registry.json"
+
+    # Create registry if missing
+    if [[ ! -f "$registry" ]]; then
+        create_empty_registry "$registry" || return 0
+    fi
+
+    # If project not registered, perform initial registration (fixes existing projects)
+    if ! is_project_registered "$project_hash"; then
+        local project_path project_name timestamp
+        local todo_version config_version archive_version log_version
+
+        project_path="$PWD"
+        project_name="$(basename "$project_path")"
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+        # Get schema versions
+        todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+        config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
+        archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
+        log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
+
+        # Get injection status
+        local injection_status injection_obj
+        injection_status=$(injection_check_all 2>/dev/null || echo "[]")
+        injection_obj=$(echo "$injection_status" | jq 'reduce .[] as $item ({}; .[$item.target] = {version: $item.currentVersion, status: $item.status})')
+
+        # Register project with atomic write
+        local reg_temp
+        reg_temp=$(mktemp)
+        trap "rm -f $reg_temp" RETURN
+
+        jq --arg hash "$project_hash" \
+           --arg path "$project_path" \
+           --arg name "$project_name" \
+           --arg version "$VERSION" \
+           --arg timestamp "$timestamp" \
+           --arg todo_v "$todo_version" \
+           --arg config_v "$config_version" \
+           --arg archive_v "$archive_version" \
+           --arg log_v "$log_version" \
+           --argjson injection "$injection_obj" \
+           '.projects[$hash] = {
+               hash: $hash,
+               path: $path,
+               name: $name,
+               registeredAt: $timestamp,
+               lastSeen: $timestamp,
+               cleoVersion: $version,
+               schemas: {
+                   todo: $todo_v,
+                   config: $config_v,
+                   archive: $archive_v,
+                   log: $log_v
+               },
+               injection: $injection,
+               health: {
+                   status: "healthy",
+                   lastCheck: $timestamp,
+                   issues: []
+               }
+           } | .lastUpdated = $timestamp' "$registry" > "$reg_temp"
+
+        if ! save_json "$registry" < "$reg_temp"; then
+            # Non-fatal - continue to update attempt
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Warning: Failed to register project in registry" >&2
+            fi
+        else
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Registered project in global registry"
+            fi
+        fi
+
+        # Continue to update section below
+    fi
+
+    # Extract current schema versions
+    local todo_version config_version archive_version log_version
+    todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+    config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
+    archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
+    log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
+
+    # Extract injection versions for all three agent files
+    local claude_version agents_version gemini_version
+    claude_version=$(injection_extract_version "CLAUDE.md" 2>/dev/null || echo "none")
+    agents_version=$(injection_extract_version "AGENTS.md" 2>/dev/null || echo "none")
+    gemini_version=$(injection_extract_version "GEMINI.md" 2>/dev/null || echo "none")
+
+    # Update registry with fresh metadata
+    local upd_temp
+    upd_temp=$(mktemp)
+    trap "rm -f $upd_temp" RETURN
+
+    jq --arg hash "$project_hash" \
+       --arg todo_ver "$todo_version" \
+       --arg config_ver "$config_version" \
+       --arg archive_ver "$archive_version" \
+       --arg log_ver "$log_version" \
+       --arg claude_ver "$claude_version" \
+       --arg agents_ver "$agents_version" \
+       --arg gemini_ver "$gemini_version" \
+       '.projects[$hash].lastSeen = (now | todate) |
+        .projects[$hash].schemas = {
+            todo: $todo_ver,
+            config: $config_ver,
+            archive: $archive_ver,
+            log: $log_ver
+        } |
+        .projects[$hash].injection = {
+            "CLAUDE.md": $claude_ver,
+            "AGENTS.md": $agents_ver,
+            "GEMINI.md": $gemini_ver
+        } |
+        .projects[$hash].health.status = "healthy" |
+        .projects[$hash].health.lastCheck = (now | todate)' \
+        "$registry" > "$upd_temp"
+
+    # Save atomically
+    if save_json "$registry" < "$upd_temp"; then
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            echo "  Updated project registry metadata"
+        fi
+        return 0
+    else
+        # Non-fatal error - registry update is optional
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            echo "  Warning: Failed to update project registry" >&2
+        fi
+        return 1
+    fi
 }
 
 # ============================================================================
@@ -261,7 +432,7 @@ check_schema_status "$UPG_TODO_FILE" "todo" "$UPG_SCHEMA_VERSION_TODO" || true
 check_schema_status "$UPG_CONFIG_FILE" "config" "$UPG_SCHEMA_VERSION_CONFIG" || true
 check_schema_status "$UPG_ARCHIVE_FILE" "archive" "$UPG_SCHEMA_VERSION_ARCHIVE" || true
 check_schema_status "$UPG_LOG_FILE" "log" "$UPG_SCHEMA_VERSION_LOG" || true
-check_claude_md_status || true
+check_agent_docs_status || true
 check_checksum_status || true
 
 # ============================================================================
@@ -283,6 +454,27 @@ if [[ "$STATUS_ONLY" == "true" ]] || [[ "$DRY_RUN" == "true" ]]; then
         fi
         exit 0
     else
+        # Check if any agent config updates are needed
+        has_agent_updates=false
+        has_schema_updates=false
+        for key in "${!UPDATES_NEEDED[@]}"; do
+            if [[ "$key" == *"CLAUDE.md"* ]] || [[ "$key" == *"AGENTS.md"* ]] || [[ "$key" == *"GEMINI.md"* ]]; then
+                has_agent_updates=true
+            else
+                has_schema_updates=true
+            fi
+        done
+
+        # Build suggestion based on what needs updating
+        suggestion="Run: cleo upgrade"
+        if [[ "$has_agent_updates" == "true" ]] && [[ "$has_schema_updates" == "false" ]]; then
+            # Only agent configs need updating
+            suggestion="Run: cleo setup-agents --update"
+        elif [[ "$has_agent_updates" == "true" ]] && [[ "$has_schema_updates" == "true" ]]; then
+            # Both need updating - suggest upgrade first, then setup-agents
+            suggestion="Run: cleo upgrade && cleo setup-agents --update"
+        fi
+
         if is_json_output; then
             updates_json=$(for key in "${!UPDATES_NEEDED[@]}"; do
                 echo "{\"component\": \"$key\", \"update\": \"${UPDATES_NEEDED[$key]}\"}"
@@ -295,8 +487,8 @@ if [[ "$STATUS_ONLY" == "true" ]] || [[ "$DRY_RUN" == "true" ]]; then
                 upToDate: false,
                 updatesNeeded: $count,
                 updates: $updates,
-                suggestion: "Run: cleo upgrade"
-            }' --argjson count "$TOTAL_UPDATES" --argjson updates "$updates_json"
+                suggestion: $suggestion
+            }' --argjson count "$TOTAL_UPDATES" --argjson updates "$updates_json" --arg suggestion "$suggestion"
         else
             echo "Project needs updates ($TOTAL_UPDATES):"
             echo ""
@@ -305,7 +497,7 @@ if [[ "$STATUS_ONLY" == "true" ]] || [[ "$DRY_RUN" == "true" ]]; then
             done
             echo ""
             if [[ "$DRY_RUN" == "true" ]]; then
-                echo "Run 'cleo upgrade' to apply these updates."
+                echo "$suggestion"
             fi
         fi
 
@@ -421,16 +613,39 @@ if [[ -n "${UPDATES_NEEDED[checksum]:-}" ]] || [[ $UPDATES_APPLIED -gt 0 ]]; the
     (( ++UPDATES_APPLIED ))
 fi
 
-# 4. Update CLAUDE.md injection
-if [[ -n "${UPDATES_NEEDED[CLAUDE.md]:-}" ]]; then
+# 4. Update agent documentation injections
+# Check if any agent docs need updating by iterating over UPDATES_NEEDED
+agent_docs_updated=false
+for key in "${!UPDATES_NEEDED[@]}"; do
+    case "$key" in
+        CLAUDE.md|AGENTS.md|GEMINI.md)
+            agent_docs_updated=true
+            break
+            ;;
+    esac
+done
+
+if [[ "$agent_docs_updated" == true ]]; then
     if ! is_json_output; then
-        echo "Updating CLAUDE.md..."
+        echo "Updating agent documentation files..."
     fi
 
-    # Use init script's update function if available
-    if [[ -x "$UPG_SCRIPT_DIR/init.sh" ]]; then
-        "$UPG_SCRIPT_DIR/init.sh" --update-claude-md >/dev/null 2>&1 && (( ++UPDATES_APPLIED )) || ERRORS+=("CLAUDE.md update failed")
+    # Use injection library to update all agent docs
+    if type injection_update_all &>/dev/null; then
+        result=$(injection_update_all ".")
+        updated=$(echo "$result" | jq -r '.updated')
+
+        if [[ "$updated" -gt 0 ]]; then
+            (( UPDATES_APPLIED += updated ))
+        else
+            ERRORS+=("Agent docs update completed with 0 updates")
+        fi
+    else
+        ERRORS+=("Injection library not available")
     fi
+
+    # Update project registry with fresh metadata
+    update_project_registration || true
 fi
 
 # ============================================================================

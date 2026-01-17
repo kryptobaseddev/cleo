@@ -175,8 +175,8 @@ cleo init my-project-name
 ```
 
 **Options:**
-- `--force`: Overwrite existing files without prompting
-- `--no-claude-md`: Skip CLAUDE.md integration
+- `--force`: Overwrite existing files without prompting (requires `--confirm-wipe`)
+- `--confirm-wipe`: Confirm destructive reinitialize (used with `--force`)
 - `-h, --help`: Display help message
 
 ### Step 3: What Gets Created
@@ -275,10 +275,7 @@ Tasks in `.cleo/todo.json`. **Read at session start, verify checksum.**
 <!-- CLEO:END -->
 ```
 
-To skip this integration, use:
-```bash
-cleo init --no-claude-md
-```
+**Note**: Agent docs injection is automatic. Use `cleo upgrade` to update existing injections.
 
 ---
 
@@ -553,10 +550,11 @@ Existing `<!-- CLEO:START -->` marker detected.
    - Copy content from `~/.cleo/docs/QUICK-REFERENCE.md`
    - Paste into CLAUDE.md
 
-3. **Re-initialize without CLAUDE.md:**
+3. **Re-initialize project:**
    ```bash
-   cleo init --no-claude-md
+   cleo init --force --confirm-wipe
    ```
+   **Warning**: This wipes all existing task data (creates safety backup first)
 
 ---
 

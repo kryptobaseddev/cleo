@@ -2,18 +2,21 @@
 
 Use `cleo` CLI for **all** task operations. Single source of truth for persistent task tracking.
 
-## Data Integrity Rules
+## Data Integrity Rules (RFC 2119)
+
+**MUST** use `cleo` commands for all state modifications.
+**MUST NOT** edit `.cleo/*.json` files directly.
 
 | Rule | Reason |
 |------|--------|
-| **CLI only** - Never read/edit `.cleo/*.json` directly | Prevents staleness in multi-writer environment; ensures validation, checksums |
-| **One active task** - Use `focus set` (enforces single active) | Prevents context confusion (per-scope in multi-session mode) |
-| **Verify state** - Use `list` before assuming task state | No stale data |
-| **Session discipline** - Start/end sessions properly | Audit trail, recovery |
-| **Scope discipline** - Use scoped sessions for parallel agents | Prevents task conflicts (v0.38.0+) |
-| **Validate after errors** - Run `validate` if something fails | Integrity check |
+| **CLI only** | Prevents staleness in multi-writer environment; ensures validation, checksums |
+| **One active task** - Use `focus set` | Prevents context confusion (per-scope in multi-session mode) |
+| **Verify state** - Use `list` before operations | No stale data assumptions |
+| **Session discipline** - Start/end properly | Audit trail, recovery capability |
+| **Scope discipline** - Use scoped sessions | Prevents task conflicts (v0.38.0+) |
+| **Validate after errors** - Run `validate` | Integrity check and repair |
 
-**Note**: Direct file reads can lead to stale data when multiple writers (TodoWrite, cleo) modify the same files. CLI commands always read fresh data from disk.
+**Rationale**: Direct file edits bypass validation and create stale data when multiple writers (TodoWrite, cleo) modify files simultaneously.
 
 **Multi-Session Note** (v0.38.0+): When `multiSession.enabled`, the "one active task" constraint is **per scope**, not global. Each session maintains isolated focus within its defined scope.
 
@@ -27,6 +30,36 @@ cleo complete <id>                  # Mark done
 cleo list [--status STATUS]         # View tasks
 cleo show <id>                      # View single task details
 ```
+
+### Task Discovery (Context Efficiency)
+
+**MUST** use `find` for task discovery to minimize context usage:
+
+```bash
+# ✅ EFFICIENT - Minimal fields (id, title, status)
+cleo find "injection"           # Fuzzy search (99% less context)
+cleo find --id 1234             # Find by task ID prefix (returns multiple)
+cleo show T1234                 # Full details for specific task
+
+# ✅ WHEN TO USE LIST - Full metadata needed
+cleo list --parent T001         # Direct children only
+cleo list --status pending      # Filter with metadata
+cleo analyze --parent T001      # ALL descendants (recursive)
+```
+
+**Discovery vs Retrieval** (CRITICAL):
+| Command | Returns | Fields | Use Case | Context |
+|---------|---------|--------|----------|---------|
+| `find --id 142` | Multiple (T1420-T1429) | Minimal | Search: "Which tasks?" | ~500 chars |
+| `show T1429` | Single task | Full (desc, notes, hierarchy) | Details: "Everything about T1429" | ~2500+ chars |
+| `list --parent T001` | Direct children | Full metadata | "T001's children" | Variable |
+| `analyze --parent T001` | ALL descendants | Full + analysis | "Full epic tree" | Large |
+
+**Why `find` > `list`**:
+- `list` includes full notes arrays (potentially huge)
+- `find` returns minimal fields only
+- **MUST** use `find` for discovery, `show` for details
+- **Context impact**: `find` uses 99% less tokens than `list`
 
 ### Focus & Session
 ```bash
@@ -110,8 +143,8 @@ cleo sync --status                  # Show sync session state
 
 ### Analysis & Planning
 ```bash
-cleo analyze                        # Task triage with leverage scoring
-cleo analyze --json                 # Machine-readable triage output
+cleo analyze                        # Task triage with leverage scoring (JSON default)
+cleo analyze --parent T1384         # Analyze specific epic's tasks
 cleo analyze --auto-focus           # Analyze and auto-set focus to top task
 cleo config set analyze.sizeStrategy quick-wins  # Favor small tasks (3/2/1)
 cleo config set analyze.sizeStrategy big-impact  # Favor large tasks (1/2/3)
@@ -148,23 +181,34 @@ cleo research --link-task T001      # Link research to task
 
 ### Task Inspection
 ```bash
-cleo show <id>                      # Full task details view
-cleo show <id> --history            # Include task history from log
-cleo show <id> --related            # Show related tasks (same labels)
-cleo show <id> --include-archive    # Search archive if not found
-cleo show <id> --format json        # JSON output for scripting
+cleo show <id>                      # Full task details (desc, notes, hierarchy)
+cleo show <id> --history            # + task history from log
+cleo show <id> --related            # + related tasks (same labels)
+cleo show <id> --include-archive    # Search archive too
+cleo show <id> --format json        # JSON output
 ```
+
+**When to use `show`** (vs `find`):
+- ✅ Known exact ID → need full context (description, notes, children)
+- ✅ Deep dive into single task
+- ❌ Discovery/search → use `find` instead (99% less context)
 
 ### Task Search (v0.19.2+)
 ```bash
-cleo find <query>                   # Fuzzy search tasks by title/description
-cleo find --id 37                   # Find tasks with ID prefix T37*
-cleo find "exact title" --exact     # Exact match mode
-cleo find "test" --status pending   # Filter by status
-cleo find "api" --field title       # Search specific fields
-cleo find "task" --format json      # JSON output for scripting
-cleo find "old" --include-archive   # Include archived tasks
+cleo find <query>                   # Fuzzy: title/description
+cleo find --id 37                   # ID prefix: T37* (multiple matches)
+cleo find "exact title" --exact     # Exact string in title/description
+cleo find "test" --status pending   # + status filter
+cleo find "api" --field title       # Specific field only
+cleo find "old" --include-archive   # Include archive
 ```
+
+**Search Modes**:
+| Mode | Input | Searches | Returns |
+|------|-------|----------|---------|
+| Default (fuzzy) | `"auth"` | title, description | All partial matches |
+| `--id` | `142` | id field | T1420-T1429 |
+| `--exact` | `"Fix bug"` | title, description | Exact string matches only |
 
 **Aliases**: `search` → `find`
 
@@ -236,13 +280,12 @@ cleo stats                          # Show statistics
 cleo backup                         # Create backup
 cleo backup --list                  # List available backups
 cleo restore [backup]               # Restore from backup
-cleo migrate status                 # Check schema versions
-cleo migrate run                    # Run schema migrations
+cleo upgrade                        # Unified project maintenance (schemas, docs, validation)
+cleo upgrade --status               # Check what needs updating
 cleo migrate-backups --detect       # List legacy backups
 cleo migrate-backups --run          # Migrate to new taxonomy
 cleo export --format todowrite      # Export to Claude Code format
 cleo export --format csv            # Export to CSV
-cleo init --update-claude-md        # Update CLAUDE.md injection (idempotent)
 cleo config show                    # View current configuration
 cleo config set <key> <value>       # Update configuration
 cleo config get <key>               # Get specific config value
@@ -317,33 +360,35 @@ cleo history --since 2025-12-01     # Since specific date
 cleo history --format json          # JSON output for scripting
 ```
 
-## CLAUDE.md Integration
+## Multi-Agent Integration
 
-### Update CLAUDE.md Instructions
-When cleo is upgraded, update your project's CLAUDE.md injection:
+### Automatic Injection (v0.50.1+)
+CLEO automatically injects task management instructions to all LLM agent documentation files during initialization:
 
 ```bash
-# Update existing CLAUDE.md injection to latest template
-cleo init --update-claude-md
+cleo init                    # Auto-injects to CLAUDE.md, AGENTS.md, GEMINI.md
 ```
 
-This command:
-- Replaces content between `<!-- CLEO:START -->` and `<!-- CLEO:END -->`
-- Adds injection if not present
+Behavior:
+- Creates files if missing (CLAUDE.md, AGENTS.md, GEMINI.md)
+- Updates existing files if outdated
+- Adds injection between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers
+- Agent-agnostic design - no per-agent flags needed
 - Safe to run anytime (idempotent)
-- Does NOT re-initialize the project or touch `.cleo/` files
 
-### When to Update
-Run `init --update-claude-md` after:
-- Upgrading cleo to a new version
-- Template improvements are released
-- You notice outdated instructions in CLAUDE.md
+### Update Instructions (coming in v0.51.0)
+After upgrading cleo, update injections with:
 
-### Check Current Version
 ```bash
-# Compare injection to installed template
-diff <(sed -n '/CLEO:START/,/CLEO:END/p' CLAUDE.md) \
-     ~/.cleo/templates/CLAUDE-INJECTION.md
+cleo upgrade                 # Updates all project injections (PLANNED - T1397)
+```
+
+### Global Agent Configuration (coming in v0.51.0)
+For global agent setup (@ syntax references):
+
+```bash
+cleo install --global        # Setup global agent config (PLANNED - T1428)
+cleo doctor                  # Verify agent integrations (PLANNED - T1429)
 ```
 
 ## Task Options
@@ -366,7 +411,7 @@ cleo list --status pending          # Filter by status
 cleo list --priority high           # Filter by priority
 cleo list --label bug               # Filter by label
 cleo list --phase core              # Filter by phase
-cleo list --format json             # Output format (text|json|jsonl|markdown|table)
+cleo list --parent T1384            # Filter by parent (epic/task children)
 ```
 
 ### LLM-Agent-First Output
@@ -704,7 +749,7 @@ fi
 | Multiple active tasks | `cleo focus set <correct-id>` (resets others) |
 | Corrupted JSON | `cleo restore` or `backup --list` then restore |
 | Session already active | `cleo session status` then `session end` |
-| Schema outdated | `cleo migrate run` |
+| Schema outdated | `cleo upgrade` |
 
 ## Command Aliases (v0.6.0+)
 
