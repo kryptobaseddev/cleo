@@ -64,9 +64,11 @@ injection_check() {
     local target="$1"
     local installed_version current_version status
 
-    # Use CLI_VERSION if set, otherwise fall back to extracting from template (for backward compat)
+    # Get installed version: CLI_VERSION env var > VERSION file > template extraction
     if [[ -n "${CLI_VERSION:-}" ]]; then
         installed_version="$CLI_VERSION"
+    elif [[ -f "${CLEO_HOME:-$HOME/.cleo}/VERSION" ]]; then
+        installed_version=$(cat "${CLEO_HOME:-$HOME/.cleo}/VERSION" 2>/dev/null | tr -d '[:space:]')
     else
         installed_version=$(injection_extract_version "$(injection_get_template_path)")
     fi
