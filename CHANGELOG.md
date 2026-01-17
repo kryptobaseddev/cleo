@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.1] - 2026-01-17
+
+### Fixed
+- **sequence**: Fixed task ID reuse after archive by implementing dedicated sequence file system
+  - IDs now stored in `.cleo/.sequence` with atomic counter increment
+  - O(1) ID generation instead of O(n) JSON scanning
+  - Auto-recovery from corruption via task file scanning
+  - Fixed octal number interpretation bug in `_scan_max_task_id()` (T050 was interpreted as 40)
+  - Fixed ID format to use `T%03d` (T001) matching validation regex `^T[0-9]{3,}$`
+- **init**: Fixed sequence.sh sourcing with fallback to `$SCRIPT_DIR/../lib/` when not in `$CLEO_HOME`
+
 ## [0.50.3] - 2026-01-05
 
 ### Fixed

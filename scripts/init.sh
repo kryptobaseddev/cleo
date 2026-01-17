@@ -705,6 +705,27 @@ else
   log_warn "jq not installed - skipping JSON validation"
 fi
 
+# Initialize task ID sequence file (v0.52.0)
+# Provides O(1) ID generation and prevents ID reuse after archive
+log_info "Initializing task ID sequence..."
+if [[ -f "$CLEO_HOME/lib/sequence.sh" ]]; then
+  source "$CLEO_HOME/lib/sequence.sh"
+  if init_sequence; then
+    log_info "✓ Sequence file initialized"
+  else
+    log_warn "Failed to initialize sequence file (ID generation will use legacy scanning)"
+  fi
+elif [[ -f "$SCRIPT_DIR/../lib/sequence.sh" ]]; then
+  source "$SCRIPT_DIR/../lib/sequence.sh"
+  if init_sequence; then
+    log_info "✓ Sequence file initialized"
+  else
+    log_warn "Failed to initialize sequence file (ID generation will use legacy scanning)"
+  fi
+else
+  log_warn "sequence.sh not found (ID generation will use legacy scanning)"
+fi
+
 # Inject CLEO task management instructions to agent documentation files
 # Creates files if missing, updates if outdated (CLAUDE.md, AGENTS.md, GEMINI.md)
 if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
