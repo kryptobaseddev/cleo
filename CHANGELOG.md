@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.2] - 2026-01-17
+
+### Fixed
+- **injection**: Fixed empty version display in `upgrade --status` and `validate` commands
+  - `injection_check()` now reads VERSION file instead of extracting from template (which has no version)
+
 ## [0.51.1] - 2026-01-17
 
 ### Fixed
