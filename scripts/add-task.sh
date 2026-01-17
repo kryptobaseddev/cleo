@@ -78,6 +78,12 @@ if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
   source "$LIB_DIR/session-enforcement.sh"
 fi
 
+# Source sequence library for robust task ID generation (v0.52.0)
+if [[ -f "$LIB_DIR/sequence.sh" ]]; then
+  # shellcheck source=../lib/sequence.sh
+  source "$LIB_DIR/sequence.sh"
+fi
+
 # Source context alert library for context monitoring (T1323)
 if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   # shellcheck source=../lib/context-alert.sh
@@ -336,18 +342,27 @@ output_duplicate_json() {
 #   CRITICAL: Caller MUST hold lock on TODO_FILE before calling
 #   This prevents concurrent ID generation race conditions
 generate_task_id() {
-  local existing_ids
-  existing_ids=$(jq -r '[.tasks[].id] | @json' "$TODO_FILE" 2>/dev/null || echo '[]')
+  # Use the sequence-based ID generator for O(1) performance
+  # and to ensure IDs are never reused (even after archive)
+  #
+  # Falls back to legacy scan-based approach if sequence.sh not loaded
+  if type -t get_next_task_id &>/dev/null; then
+    get_next_task_id
+  else
+    # Legacy fallback: scan todo.json only (may reuse archived IDs)
+    local existing_ids
+    existing_ids=$(jq -r '[.tasks[].id] | @json' "$TODO_FILE" 2>/dev/null || echo '[]')
 
-  local max_id
-  max_id=$(echo "$existing_ids" | jq -r '.[] | ltrimstr("T") | tonumber' | sort -n | tail -1)
+    local max_id
+    max_id=$(echo "$existing_ids" | jq -r '.[] | ltrimstr("T") | tonumber' | sort -n | tail -1)
 
-  if [[ -z "$max_id" ]] || [[ "$max_id" == "null" ]]; then
-    max_id=0
+    if [[ -z "$max_id" ]] || [[ "$max_id" == "null" ]]; then
+      max_id=0
+    fi
+
+    local next_id=$((max_id + 1))
+    printf "T%03d" "$next_id"
   fi
-
-  local next_id=$((max_id + 1))
-  printf "T%03d" "$next_id"
 }
 
 # Validate task title (local wrapper - calls lib/validation.sh function)
