@@ -84,6 +84,14 @@ elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
     source "$CLEO_HOME/lib/logging.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+    # shellcheck source=../lib/flags.sh
+    source "$LIB_DIR/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+    source "$CLEO_HOME/lib/flags.sh"
+fi
+
 # ============================================================================
 # DEFAULTS
 # ============================================================================
@@ -269,7 +277,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --human)
-            FORMAT="text"
+            FORMAT="human"
             shift
             ;;
         -q|--quiet)
@@ -318,7 +326,7 @@ else
     # Fallback if output-format.sh not loaded
     if [[ -z "$FORMAT" ]]; then
         if [[ -t 1 ]]; then
-            FORMAT="text"
+            FORMAT="human"
         else
             FORMAT="json"
         fi

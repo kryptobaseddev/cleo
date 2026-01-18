@@ -14,6 +14,7 @@ LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 source "${LIB_DIR}/exit-codes.sh"
 source "${LIB_DIR}/error-json.sh"
 source "${LIB_DIR}/output-format.sh"
+source "${LIB_DIR}/flags.sh"
 
 # Source version library for proper version management
 if [[ -f "$LIB_DIR/version.sh" ]]; then
@@ -40,8 +41,6 @@ fi
 # FLAG DEFAULTS
 # ============================================================================
 
-FORMAT=""        # Resolved after parsing
-QUIET=false
 FILTER_CATEGORY=""
 FILTER_RELEVANCE=""
 SHOW_WORKFLOWS=false
@@ -95,24 +94,20 @@ EOF
 # ARGUMENT PARSING
 # ============================================================================
 
+# Parse common flags first (--format, --json, --human, --quiet, --help, etc.)
+init_flag_defaults
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Handle help flag
+if [[ "$FLAG_HELP" == true ]]; then
+    show_help
+    exit 0
+fi
+
+# Parse command-specific flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -f|--format)
-            FORMAT="$2"
-            shift 2
-            ;;
-        --json)
-            FORMAT="json"
-            shift
-            ;;
-        --human)
-            FORMAT="text"
-            shift
-            ;;
-        -q|--quiet)
-            QUIET=true
-            shift
-            ;;
         -c|--category)
             FILTER_CATEGORY="$2"
             shift 2
@@ -129,10 +124,6 @@ while [[ $# -gt 0 ]]; do
             SHOW_LOOKUP=true
             shift
             ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
         -*)
             output_error "E_INPUT_INVALID" "Unknown option: $1" $EXIT_INVALID_INPUT true \
                 "Run 'cleo commands --help' for usage"
@@ -146,7 +137,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Resolve format (TTY-aware auto-detection)
+# Apply common flags to globals
+apply_flags_to_globals
 FORMAT=$(resolve_format "$FORMAT")
 
 # ============================================================================

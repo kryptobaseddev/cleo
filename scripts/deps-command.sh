@@ -54,13 +54,14 @@ fi
 if [[ -f "$LIB_DIR/error-json.sh" ]]; then
   source "$LIB_DIR/error-json.sh"
 fi
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  source "$LIB_DIR/flags.sh"
+fi
 
 # Default configuration
-FORMAT=""
 TASK_ID=""
 SHOW_TREE=false
 COMMAND_NAME="deps"
-QUIET=false
 
 # File paths
 CLEO_DIR=".cleo"
@@ -698,28 +699,20 @@ output_json_format() {
 #####################################################################
 
 parse_arguments() {
+    # Parse common flags first (--format, --json, --human, --quiet, --help, etc.)
+    init_flag_defaults
+    parse_common_flags "$@"
+    set -- "${REMAINING_ARGS[@]}"
+
+    # Handle help flag
+    if [[ "$FLAG_HELP" == true ]]; then
+        usage
+        exit 0
+    fi
+
+    # Parse command-specific flags
     while [[ $# -gt 0 ]]; do
         case $1 in
-            -f|--format)
-                FORMAT="$2"
-                shift 2
-                ;;
-            --human)
-                FORMAT="text"
-                shift
-                ;;
-            --json)
-                FORMAT="json"
-                shift
-                ;;
-            -q|--quiet)
-                QUIET=true
-                shift
-                ;;
-            -h|--help)
-                usage
-                exit 0
-                ;;
             tree)
                 SHOW_TREE=true
                 shift
@@ -739,6 +732,9 @@ parse_arguments() {
                 ;;
         esac
     done
+
+    # Apply common flags to globals
+    apply_flags_to_globals
 }
 
 #####################################################################

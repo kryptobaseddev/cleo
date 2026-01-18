@@ -27,10 +27,14 @@ VERSION="$(cat "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0
 source "$LIB_DIR/logging.sh" 2>/dev/null || true
 source "$LIB_DIR/output-format.sh" 2>/dev/null || true
 source "$LIB_DIR/exit-codes.sh" 2>/dev/null || true
+source "$LIB_DIR/flags.sh" 2>/dev/null || true
 
 # Command metadata
 COMMAND_NAME="research"
 COMMAND_VERSION="1.0.0"
+
+# Initialize flag defaults
+init_flag_defaults 2>/dev/null || true
 
 # Defaults
 MODE=""
@@ -42,7 +46,6 @@ LIBRARY=""
 TOPIC=""
 DEPTH="standard"
 OUTPUT_DIR=""
-FORMAT=""
 INCLUDE_REDDIT="false"
 EXECUTE="false"
 LINK_TASK=""
@@ -147,6 +150,22 @@ timestamp_iso() {
 # Parse Arguments
 # ============================================================================
 
+# Parse common flags first (if flags.sh was sourced successfully)
+if declare -f parse_common_flags &>/dev/null; then
+  parse_common_flags "$@"
+  set -- "${REMAINING_ARGS[@]}"
+
+  # Bridge to legacy variables
+  apply_flags_to_globals
+  FORMAT="${FORMAT:-}"
+
+  # Handle help flag
+  if [[ "$FLAG_HELP" == true ]]; then
+    usage
+  fi
+fi
+
+# Parse command-specific arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     --url)
@@ -201,14 +220,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --execute)
       EXECUTE="true"
-      shift
-      ;;
-    -f|--format)
-      FORMAT="$2"
-      shift 2
-      ;;
-    --json)
-      FORMAT="json"
       shift
       ;;
     -h|--help)
@@ -503,7 +514,7 @@ main() {
   # Determine output format
   if [[ -z "$FORMAT" ]]; then
     if [[ -t 1 ]]; then
-      FORMAT="text"
+      FORMAT="human"
     else
       FORMAT="json"
     fi

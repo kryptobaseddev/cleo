@@ -81,6 +81,12 @@ if [[ -f "$LIB_DIR/jq-helpers.sh" ]]; then
   source "$LIB_DIR/jq-helpers.sh"
 fi
 
+# Source centralized flag parsing library
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -242,11 +248,19 @@ check_deps() {
   fi
 }
 
-# Parse arguments
+# Parse arguments using centralized flag parsing
+init_flag_defaults
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Handle help flag
+if [[ "$FLAG_HELP" == true ]]; then
+  usage
+fi
+
+# Parse command-specific flags
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --dry-run) DRY_RUN=true; shift ;;
-    --force) FORCE=true; shift ;;
     --all) ARCHIVE_ALL=true; shift ;;
     --count) MAX_OVERRIDE="$2"; shift 2 ;;
     --only-labels) ONLY_LABELS="$2"; shift 2 ;;
@@ -262,15 +276,15 @@ while [[ $# -gt 0 ]]; do
     --phase-complete) PHASE_TRIGGER="$2"; shift 2 ;;
     --phase-complete=*) PHASE_TRIGGER="${1#*=}"; shift ;;
     -i|--interactive) INTERACTIVE=true; shift ;;
-    -f|--format) FORMAT="$2"; shift 2 ;;
-    --human) FORMAT="text"; shift ;;
-    --json) FORMAT="json"; shift ;;
-    -q|--quiet) QUIET=true; shift ;;
-    -h|--help) usage ;;
     -*) log_error "Unknown option: $1"; exit "${EXIT_INVALID_INPUT:-1}" ;;
     *) shift ;;
   esac
 done
+
+# Apply parsed flags to legacy global variables
+apply_flags_to_globals
+# Also apply FORCE from FLAG_FORCE
+FORCE="$FLAG_FORCE"
 
 # Resolve output format (CLI > env > config > TTY-aware default)
 if declare -f resolve_format >/dev/null 2>&1; then

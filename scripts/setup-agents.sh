@@ -25,6 +25,9 @@ source "$LIB_DIR/exit-codes.sh"
 source "$LIB_DIR/injection.sh"
 source "$LIB_DIR/agent-config.sh"
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================

@@ -127,6 +127,14 @@ elif [[ -f "$CLEO_HOME/lib/hitl-warnings.sh" ]]; then
   source "$CLEO_HOME/lib/hitl-warnings.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "${LIB_DIR}/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "${LIB_DIR}/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/flags.sh"
+fi
+
 # Default configuration - JSON output for LLM agents
 OUTPUT_MODE="json"
 AUTO_FOCUS=false

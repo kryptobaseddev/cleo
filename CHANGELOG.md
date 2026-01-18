@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-01-18
+
+### Added
+- **lib/flags.sh**: Centralized flag parsing library for LLM-Agent-First CLI
+  - Handles common flags: `--format`, `--json`, `--human`, `--quiet`, `--dry-run`, `--verbose`, `--help`
+  - TTY-aware format resolution (JSON default for piped output)
+  - `parse_common_flags()` with `REMAINING_ARGS` for command-specific parsing
+
+### Fixed
+- **validate --fix-duplicates**: Fixed reference update logic
+  - Previously incorrectly updated `parentId` and `depends` references to point to duplicate's new ID
+  - Now correctly preserves references (first occurrence keeps ID, references remain valid)
+  - Added `--dry-run` flag to preview reassignments without making changes
+- **flags.sh/validate.sh**: Fixed `set -e` compatibility issue
+  - Changed postfix increments `((x++))` to prefix `((++x))` throughout
+  - Postfix increment returns 0 when starting from 0, causing script exit with `set -e`
+
+### Changed
+- **validate --fix-duplicates**: Updated behavior documentation
+  - First occurrence keeps its ID (assumed to be original)
+  - Duplicates get new unique IDs
+  - References are NOT updated (user must fix manually if needed)
+
 ## [0.52.0] - 2026-01-17
 
 ### Added

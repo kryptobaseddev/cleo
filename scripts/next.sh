@@ -88,6 +88,14 @@ elif [[ -f "$CLEO_HOME/lib/hierarchy.sh" ]]; then
   source "$CLEO_HOME/lib/hierarchy.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/flags.sh"
+fi
+
 # Default configuration
 SHOW_EXPLAIN=false
 SUGGESTION_COUNT=1
@@ -723,7 +731,7 @@ parse_arguments() {
         shift
         ;;
       --human)
-        FORMAT="text"
+        FORMAT="human"
         shift
         ;;
       -q|--quiet)

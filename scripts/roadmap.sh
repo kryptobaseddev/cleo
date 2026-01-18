@@ -60,13 +60,16 @@ source_lib "logging.sh"
 source_lib "output-format.sh"
 source_lib "error-json.sh"
 source_lib "jq-helpers.sh"
+source_lib "flags.sh"
 
 # Default configuration
-FORMAT=""
 COMMAND_NAME="roadmap"
 INCLUDE_HISTORY=false
 UPCOMING_ONLY=false
 OUTPUT_FILE=""
+
+# Initialize flag defaults
+init_flag_defaults 2>/dev/null || true
 
 # File paths
 CLEO_DIR=".cleo"
@@ -157,21 +160,24 @@ fi
 #####################################################################
 
 parse_args() {
+    # Parse common flags first (if flags.sh was sourced successfully)
+    if declare -f parse_common_flags &>/dev/null; then
+        parse_common_flags "$@"
+        set -- "${REMAINING_ARGS[@]}"
+
+        # Bridge to legacy variables
+        apply_flags_to_globals
+        FORMAT="${FORMAT:-}"
+
+        # Handle help flag
+        if [[ "$FLAG_HELP" == true ]]; then
+            usage
+        fi
+    fi
+
+    # Parse command-specific arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -h|--help)
-                usage
-                ;;
-            -f|--format)
-                shift
-                FORMAT="$1"
-                ;;
-            --json)
-                FORMAT="json"
-                ;;
-            --human)
-                FORMAT="text"
-                ;;
             -o|--output)
                 shift
                 OUTPUT_FILE="$1"
@@ -182,9 +188,13 @@ parse_args() {
             --upcoming-only)
                 UPCOMING_ONLY=true
                 ;;
-            *)
+            -*)
                 echo "Unknown option: $1" >&2
                 usage
+                ;;
+            *)
+                shift
+                continue
                 ;;
         esac
         shift
@@ -196,7 +206,7 @@ parse_args() {
             # Default to markdown when writing to file
             FORMAT="markdown"
         elif [[ -t 1 ]]; then
-            FORMAT="text"
+            FORMAT="human"
         else
             FORMAT="json"
         fi

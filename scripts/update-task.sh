@@ -88,6 +88,9 @@ if [[ -f "$LIB_DIR/jq-helpers.sh" ]]; then
   source "$LIB_DIR/jq-helpers.sh"
 fi
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # Fallback exit codes if libraries not loaded (for robustness)
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_INVALID_INPUT:=2}"
@@ -552,7 +555,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --human)
-      FORMAT="text"
+      FORMAT="human"
       shift
       ;;
     --json)

@@ -84,6 +84,9 @@ elif [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
   source "$CLEO_HOME/lib/validation.sh"
 fi
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # Default configuration
 FORMAT=""
 SUBCOMMAND="list"
@@ -630,7 +633,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --human)
-      FORMAT="text"
+      FORMAT="human"
       shift
       ;;
     -q|--quiet)

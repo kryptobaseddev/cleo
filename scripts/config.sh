@@ -61,6 +61,9 @@ fi
 if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
   source "$LIB_DIR/file-ops.sh"
 fi
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  source "$LIB_DIR/flags.sh"
+fi
 
 # Command identification
 COMMAND_NAME="config"
@@ -69,9 +72,6 @@ COMMAND_NAME="config"
 # DEFAULTS
 # ============================================================================
 
-FORMAT=""
-QUIET=false
-DRY_RUN=false
 SCOPE="project"  # project or global
 
 # ============================================================================
@@ -959,7 +959,18 @@ edit_section() {
 # ============================================================================
 
 main() {
-    # Collect all arguments, separating flags from subcommand and its args
+    # Parse common flags first (--format, --json, --human, --quiet, --dry-run, --help, etc.)
+    init_flag_defaults
+    parse_common_flags "$@"
+    set -- "${REMAINING_ARGS[@]}"
+
+    # Handle help flag
+    if [[ "$FLAG_HELP" == true ]]; then
+        usage
+        exit 0
+    fi
+
+    # Collect command-specific args, separating flags from subcommand and its args
     local subcommand=""
     local subcommand_args=()
 
@@ -968,30 +979,6 @@ main() {
             --global)
                 SCOPE="global"
                 shift
-                ;;
-            -f|--format)
-                FORMAT="$2"
-                shift 2
-                ;;
-            --json)
-                FORMAT="json"
-                shift
-                ;;
-            --human)
-                FORMAT="text"
-                shift
-                ;;
-            -q|--quiet)
-                QUIET=true
-                shift
-                ;;
-            --dry-run)
-                DRY_RUN=true
-                shift
-                ;;
-            -h|--help|help)
-                usage
-                exit 0
                 ;;
             -*)
                 # Unknown flag - pass to subcommand
@@ -1010,7 +997,8 @@ main() {
         esac
     done
 
-    # Resolve format (TTY-aware)
+    # Apply common flags to globals
+    apply_flags_to_globals
     FORMAT=$(resolve_format "$FORMAT")
 
     # Check for subcommand

@@ -40,6 +40,11 @@ if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
   source "$LIB_DIR/file-ops.sh"
 fi
 
+# shellcheck source=../lib/flags.sh
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  source "$LIB_DIR/flags.sh"
+fi
+
 # Set TODO_FILE after sourcing logging.sh (LOG_FILE is set by logging.sh)
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 
@@ -54,6 +59,9 @@ fi
 
 # Command name for output formatting
 COMMAND_NAME="log"
+
+# Initialize flag defaults
+init_flag_defaults
 
 # Defaults
 ACTION=""
@@ -179,11 +187,23 @@ case "$SUBCOMMAND" in
     FILTER_TASK_ID=""
     FILTER_ACTOR=""
     FILTER_SINCE=""
-    FORMAT=""
     COMMAND_NAME="log"
 
-    # Parse list options
-    QUIET=false
+    # Parse common flags first
+    parse_common_flags "$@"
+    set -- "${REMAINING_ARGS[@]}"
+
+    # Bridge to legacy variables
+    apply_flags_to_globals
+    FORMAT="${FORMAT:-}"
+    QUIET="${QUIET:-false}"
+
+    # Handle help flag
+    if [[ "$FLAG_HELP" == true ]]; then
+      usage
+    fi
+
+    # Parse list-specific options
     while [[ $# -gt 0 ]]; do
       case $1 in
         --limit) LIMIT="$2"; shift 2 ;;
@@ -191,11 +211,6 @@ case "$SUBCOMMAND" in
         --task-id) FILTER_TASK_ID="$2"; shift 2 ;;
         --actor) FILTER_ACTOR="$2"; shift 2 ;;
         --since) FILTER_SINCE="$2"; shift 2 ;;
-        -f|--format) FORMAT="$2"; shift 2 ;;
-        --human) FORMAT="text"; shift ;;
-        --json) FORMAT="json"; shift ;;
-        -q|--quiet) QUIET=true; shift ;;
-        -h|--help) usage ;;
         -*)
           if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
             output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_USAGE_ERROR:-64}" false "Run 'cleo log --help' for usage"

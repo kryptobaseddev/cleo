@@ -39,6 +39,9 @@ if [[ -f "$LIB_DIR/analysis.sh" ]]; then
   source "$LIB_DIR/analysis.sh"
 fi
 
+# shellcheck source=../lib/flags.sh
+source "$LIB_DIR/flags.sh"
+
 # Source error JSON library (includes exit-codes.sh)
 if [[ -f "$LIB_DIR/error-json.sh" ]]; then
   # shellcheck source=../lib/error-json.sh
@@ -75,9 +78,10 @@ fi
 
 # Defaults
 SUBCOMMAND=""
-FORMAT=""
 COMMAND_NAME="blockers"
-QUIET=false
+
+# Initialize flag defaults
+init_flag_defaults
 
 usage() {
   cat << EOF
@@ -119,18 +123,27 @@ check_deps() {
   fi
 }
 
-# Parse arguments
+# Parse common flags first
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Bridge to legacy variables
+apply_flags_to_globals
+FORMAT="${FORMAT:-}"
+QUIET="${QUIET:-false}"
+
+# Handle help flag
+if [[ "$FLAG_HELP" == true ]]; then
+  usage
+fi
+
+# Parse command-specific arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
     list|analyze)
       SUBCOMMAND="$1"
       shift
       ;;
-    -f|--format) FORMAT="$2"; shift 2 ;;
-    --json) FORMAT="json"; shift ;;
-    --human) FORMAT="text"; shift ;;
-    -q|--quiet) QUIET=true; shift ;;
-    -h|--help) usage ;;
     -*)
       if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
         output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'cleo blockers --help' for usage"

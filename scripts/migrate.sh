@@ -41,6 +41,12 @@ if [[ -f "$LIB_DIR/error-json.sh" ]]; then
   source "$LIB_DIR/error-json.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
 # Global variables
 FORMAT=""
 QUIET=false
@@ -1365,7 +1371,7 @@ main() {
                 shift 2
                 ;;
             --human)
-                FORMAT="text"
+                FORMAT="human"
                 shift
                 ;;
             --json)

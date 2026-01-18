@@ -33,6 +33,9 @@ if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
   source "$LIB_DIR/hierarchy.sh"
 fi
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -728,7 +731,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --human)
-      FORMAT="text"
+      FORMAT="human"
       shift
       ;;
     --include-archive)
