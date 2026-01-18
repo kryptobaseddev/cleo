@@ -20,7 +20,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
-LIB_DIR="$CLEO_HOME/lib"
+# Check for lib in source directory (dev mode) or installed location
+if [[ -d "${SCRIPT_DIR}/../lib" ]]; then
+  LIB_DIR="${SCRIPT_DIR}/../lib"
+else
+  LIB_DIR="$CLEO_HOME/lib"
+fi
 VERSION="$(cat "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0")"
 
 # Source libraries
@@ -28,6 +33,8 @@ source "$LIB_DIR/logging.sh" 2>/dev/null || true
 source "$LIB_DIR/output-format.sh" 2>/dev/null || true
 source "$LIB_DIR/exit-codes.sh" 2>/dev/null || true
 source "$LIB_DIR/flags.sh" 2>/dev/null || true
+source "$LIB_DIR/config.sh" 2>/dev/null || true
+source "$LIB_DIR/research-manifest.sh" 2>/dev/null || true
 
 # Command metadata
 COMMAND_NAME="research"
@@ -51,6 +58,18 @@ EXECUTE="false"
 LINK_TASK=""
 PLAN_ONLY="false"
 
+# Show subcommand options
+SHOW_ID=""
+SHOW_FULL="false"
+SHOW_FINDINGS_ONLY="true"
+
+# List subcommand options
+LIST_STATUS=""
+LIST_TOPIC=""
+LIST_SINCE=""
+LIST_ACTIONABLE="false"
+LIST_LIMIT="20"
+
 # Research storage
 RESEARCH_DIR=".cleo/research"
 
@@ -67,6 +86,11 @@ USAGE
   cleo research --url URL [URL...]
   cleo research --reddit "TOPIC" --subreddit SUB
   cleo research --library NAME [--topic TOPIC]
+  cleo research init
+
+SUBCOMMANDS
+  init             Initialize research outputs directory with protocol files
+  show <id>        Show details of a research entry from the manifest
 
 MODES
   (default)        Free-text query - comprehensive web research
@@ -86,6 +110,10 @@ OPTIONS
   -f, --format FMT       Output format: json, text (default: auto)
   --json                 Force JSON output
   -h, --help             Show this help
+
+SHOW OPTIONS
+  --full                 Include full file content (WARNING: large context)
+  --findings-only        Only key_findings array (default)
 
 EXAMPLES
   # Query mode - comprehensive research
@@ -108,6 +136,13 @@ EXAMPLES
 
   # Plan only (outputs what Claude should do)
   cleo research "microservices" --plan-only
+
+  # Initialize research outputs directory
+  cleo research init
+
+  # Show a research entry
+  cleo research show topic-2026-01-17
+  cleo research show topic-2026-01-17 --full
 
 OUTPUT
   Creates research files in .cleo/research/:
@@ -157,7 +192,7 @@ if declare -f parse_common_flags &>/dev/null; then
 
   # Bridge to legacy variables
   apply_flags_to_globals
-  FORMAT="${FORMAT:-}"
+  FORMAT=$(resolve_format "$FORMAT")
 
   # Handle help flag
   if [[ "$FLAG_HELP" == true ]]; then
@@ -168,6 +203,37 @@ fi
 # Parse command-specific arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
+    init)
+      MODE="init"
+      shift
+      ;;
+    show)
+      MODE="show"
+      shift
+      # Get research ID (required positional argument)
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        SHOW_ID="$1"
+        shift
+      fi
+      # Parse show-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --full)
+            SHOW_FULL="true"
+            SHOW_FINDINGS_ONLY="false"
+            shift
+            ;;
+          --findings-only)
+            SHOW_FINDINGS_ONLY="true"
+            SHOW_FULL="false"
+            shift
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
     --url)
       MODE="url"
       shift
@@ -246,6 +312,17 @@ done
 
 validate_inputs() {
   case $MODE in
+    init)
+      # No validation needed for init
+      return 0
+      ;;
+    show)
+      if [[ -z "$SHOW_ID" ]]; then
+        echo '{"error": "Research ID required", "usage": "cleo research show <id>"}' >&2
+        exit 2
+      fi
+      return 0
+      ;;
     query)
       if [[ -z "$QUERY" ]]; then
         echo '{"error": "Query required", "usage": "cleo research \"your query\""}' >&2
@@ -282,6 +359,141 @@ validate_inputs() {
       exit 2
       ;;
   esac
+}
+
+# ============================================================================
+# Init Subcommand
+# ============================================================================
+
+run_init() {
+  local output_dir manifest_file manifest_path archive_dir
+  local created=()
+
+  # Get output directory from config or default
+  output_dir=$(_rm_get_output_dir)
+  manifest_file=$(_rm_get_manifest_file)
+  manifest_path="${output_dir}/${manifest_file}"
+  archive_dir="${output_dir}/archive"
+
+  # Find templates directory
+  local templates_dir=""
+  if [[ -d "$CLEO_HOME/templates" ]]; then
+    templates_dir="$CLEO_HOME/templates"
+  elif [[ -d "$SCRIPT_DIR/../templates" ]]; then
+    templates_dir="$SCRIPT_DIR/../templates"
+  else
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "init",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_FILE_NOT_FOUND",
+          "message": "Templates directory not found"
+        }
+      }'
+    exit "${EXIT_FILE_ERROR:-4}"
+  fi
+
+  local subagent_templates="${templates_dir}/subagent-protocol"
+
+  # Create output directory if not exists
+  if [[ ! -d "$output_dir" ]]; then
+    mkdir -p "$output_dir"
+    created+=("$output_dir/")
+  fi
+
+  # Create archive directory if not exists
+  if [[ ! -d "$archive_dir" ]]; then
+    mkdir -p "$archive_dir"
+    created+=("archive/")
+  fi
+
+  # Create MANIFEST.jsonl if not exists
+  if [[ ! -f "$manifest_path" ]]; then
+    touch "$manifest_path"
+    created+=("$manifest_file")
+  fi
+
+  # Copy SUBAGENT_PROTOCOL.md if not exists
+  local protocol_dest="${output_dir}/SUBAGENT_PROTOCOL.md"
+  if [[ ! -f "$protocol_dest" ]] && [[ -f "${subagent_templates}/SUBAGENT_PROTOCOL.md" ]]; then
+    cp "${subagent_templates}/SUBAGENT_PROTOCOL.md" "$protocol_dest"
+    created+=("SUBAGENT_PROTOCOL.md")
+  fi
+
+  # Copy INJECT.md if not exists
+  local inject_dest="${output_dir}/INJECT.md"
+  if [[ ! -f "$inject_dest" ]] && [[ -f "${subagent_templates}/INJECT.md" ]]; then
+    cp "${subagent_templates}/INJECT.md" "$inject_dest"
+    created+=("INJECT.md")
+  fi
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Output based on format
+  if [[ "$format" == "json" ]]; then
+    # Build created array for JSON
+    local created_json
+    if [[ ${#created[@]} -eq 0 ]]; then
+      created_json="[]"
+    else
+      created_json=$(printf '%s\n' "${created[@]}" | jq -R . | jq -s .)
+    fi
+
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg output_dir "$output_dir" \
+      --argjson created "$created_json" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "init",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": {
+          "outputDir": $output_dir,
+          "created": $created
+        }
+      }'
+  else
+    echo ""
+    echo "Research outputs initialized"
+    echo "  Directory: $output_dir"
+    echo "  Manifest:  $manifest_file"
+    echo "  Archive:   archive/"
+    if [[ ${#created[@]} -gt 0 ]]; then
+      echo ""
+      echo "Created:"
+      for item in "${created[@]}"; do
+        echo "  - $item"
+      done
+    else
+      echo ""
+      echo "All files already exist."
+    fi
+  fi
+
+  exit 0
 }
 
 # ============================================================================
@@ -581,4 +793,15 @@ main() {
   fi
 }
 
-main
+# ============================================================================
+# Dispatch
+# ============================================================================
+
+case "$MODE" in
+  init)
+    run_init
+    ;;
+  *)
+    main
+    ;;
+esac

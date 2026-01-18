@@ -617,14 +617,8 @@ main() {
     esac
   done
 
-  # Auto-detect format if not set by flags
-  if [[ -z "$FORMAT" ]]; then
-    if declare -f detect_output_format >/dev/null 2>&1; then
-      FORMAT=$(detect_output_format)
-    else
-      FORMAT="human"
-    fi
-  fi
+  # Resolve format with TTY-aware defaults
+  FORMAT=$(resolve_format "$FORMAT")
 
   # Validate task ID
   if [[ -z "$TASK_ID" ]]; then

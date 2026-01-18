@@ -1993,6 +1993,10 @@ parse_arguments() {
         PARENT_ID="$2"
         shift 2
         ;;
+      -f|--format)
+        OUTPUT_MODE="$2"
+        shift 2
+        ;;
       --human)
         OUTPUT_MODE="human"
         shift

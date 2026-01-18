@@ -534,6 +534,7 @@ migrate_all_backups() {
             version="0.16.0"
         fi
 
+        # Output includes "dryRun": true when in dry-run mode
         jq -nc \
             --arg version "$version" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

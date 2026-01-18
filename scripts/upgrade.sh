@@ -46,6 +46,7 @@ is_json_output() {
 # ============================================================================
 VERSION=$(cat "$CLEO_HOME/VERSION" 2>/dev/null || echo "0.50.2")
 DRY_RUN=false
+QUIET=false
 FORCE=false
 STATUS_ONLY=false
 VERBOSE=false
@@ -113,6 +114,10 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
+        -q|--quiet)
+            QUIET=true
+            shift
+            ;;
         --human)
             FORMAT="human"
             shift
@@ -137,14 +142,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Resolve format (CLI > env > TTY detection)
-if [[ -z "$FORMAT" ]]; then
-    if [[ -t 1 ]]; then
-        FORMAT="human"
-    else
-        FORMAT="json"
-    fi
-fi
+# Resolve format with TTY-aware defaults
+FORMAT=$(resolve_format "$FORMAT")
 
 # ============================================================================
 # PROJECT DETECTION

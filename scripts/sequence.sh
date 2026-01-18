@@ -594,6 +594,9 @@ if [[ -z "$SUBCOMMAND" ]]; then
     exit "$EXIT_INVALID_INPUT"
 fi
 
+# Resolve format with TTY-aware defaults
+FORMAT=$(resolve_format "$FORMAT")
+
 # Execute subcommand
 case "$SUBCOMMAND" in
     show)

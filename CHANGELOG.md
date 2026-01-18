@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.2] - 2026-01-17
+
+### Changed
+- **Compliance checker**: Updated to recognize centralized flags.sh pattern
+  - Scripts using `parse_common_flags` now auto-pass flag compliance checks
+  - Added `uses_centralized_flags()` detection function
+  - 47/55 scripts (85%) now at 100% compliance
+
+### Fixed
+- **analyze.sh**: Added missing `-f|--format` flag support
+- **context.sh**: Added `-q|--quiet` flag, switched to `resolve_format()`
+- **sequence.sh**: Added `resolve_format()` call for TTY-aware defaults
+- **upgrade.sh**: Added `-q|--quiet` flag and `resolve_format()` call
+- **reorganize-backups.sh**: Fixed dryRun JSON field pattern detection
+- **research.sh, roadmap.sh, safestop.sh, verify.sh**: Added `resolve_format()` calls
+
 ## [0.52.1] - 2026-01-18
 
 ### Added

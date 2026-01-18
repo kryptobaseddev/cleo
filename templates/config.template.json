@@ -122,5 +122,12 @@
     "minThreshold": "warning",
     "triggerCommands": ["complete", "focus", "add", "session"],
     "suppressDuration": 0
+  },
+
+  "research": {
+    "outputDir": "docs/claudedocs/research-outputs",
+    "manifestFile": "MANIFEST.jsonl",
+    "archiveDir": "archive",
+    "archiveDays": 30
   }
 }

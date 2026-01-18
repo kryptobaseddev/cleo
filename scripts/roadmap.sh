@@ -167,7 +167,7 @@ parse_args() {
 
         # Bridge to legacy variables
         apply_flags_to_globals
-        FORMAT="${FORMAT:-}"
+        FORMAT=$(resolve_format "$FORMAT")
 
         # Handle help flag
         if [[ "$FLAG_HELP" == true ]]; then
