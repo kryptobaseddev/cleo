@@ -175,9 +175,23 @@ cleo research -d deep               # Deep research (15-25 sources)
 cleo research --link-task T001      # Link research to task
 ```
 
+**Research Subcommands** (v0.53.0+):
+```bash
+cleo research init                  # Initialize research outputs directory
+cleo research list                  # List research entries from manifest
+cleo research list --status complete --limit 10  # Filter entries
+cleo research show <id>             # Show research entry details
+cleo research show <id> --full      # Include full file content
+cleo research inject                # Output subagent injection template
+cleo research inject --clipboard    # Copy injection template to clipboard
+cleo research link T001 <research-id>  # Link research to task
+```
+
 **Aliases**: `dig` → `research`
 
-**Output**: Creates `.cleo/research/research_[id].json` + `.md` files with citations.
+**Output**: Creates `docs/claudedocs/research-outputs/` with MANIFEST.jsonl + `.md` files.
+
+**Subagent Workflow**: Use `research inject` to get the injection block for subagent prompts, then query `research list` and `research show` instead of reading full research files.
 
 ### Task Inspection
 ```bash
