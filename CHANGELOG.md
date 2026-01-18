@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-01-17
+
+### Added
+- **sequence command**: New `cleo sequence` command for Task ID integrity management (T1540)
+  - `cleo sequence show` - Display current sequence state (counter, lastId, checksum)
+  - `cleo sequence check` - Verify sequence integrity with specific exit codes (0/4/6/20/22)
+  - `cleo sequence repair` - Fix counter drift, missing file, or checksum issues
+- **validate --fix-duplicates**: Interactive duplicate ID resolution (T1542)
+  - Same-file duplicates: keep-first, keep-newest, or rename options
+  - Cross-file duplicates: keep-active (default), keep-archived, or rename-archived
+  - `--non-interactive` flag for automated resolution
+  - Creates safety backups before any changes
+  - Auto-repairs sequence counter after fixes
+- **archive collision detection**: Prevents archiving tasks with duplicate IDs (T1541)
+  - Exit code 22 (E_ID_COLLISION) when archive already contains same ID
+  - Error message directs users to `validate --fix-duplicates`
+- **add-task ID uniqueness**: Belt-and-suspenders ID collision prevention (T1543)
+  - Checks both todo.json and archive for existing IDs before creation
+  - Auto-recovers sequence if counter is behind max ID
+- **upgrade sequence bootstrap**: Legacy project migration support (T1544)
+  - Scans both todo.json and archive for max ID
+  - Creates `.sequence` file with correct counter
+  - `upgrade --status` shows sequence health
+- **ID integrity documentation**: Comprehensive troubleshooting guide (T1546)
+  - `docs/commands/sequence.md` - Full command reference
+  - `docs/troubleshooting.md` - ID integrity troubleshooting section
+- **Integration tests**: 18 tests for ID integrity system (T1545)
+  - Tests sequence, archive, validate, add-task, and upgrade functionality
+
 ## [0.51.2] - 2026-01-17
 
 ### Fixed

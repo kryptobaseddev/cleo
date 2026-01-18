@@ -894,6 +894,35 @@
       "agentRelevance": "medium"
     },
     {
+      "name": "sequence",
+      "script": "sequence.sh",
+      "category": "maintenance",
+      "doc": null,
+      "synopsis": "Inspect and manage task ID sequence (show/check/repair)",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--quiet",
+        "--verbose"
+      ],
+      "subcommands": [
+        "show",
+        "check",
+        "repair"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        6,
+        20,
+        22
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of ID Integrity System - verify sequence before adding tasks"
+    },
+    {
       "name": "session",
       "script": "session.sh",
       "category": "write",

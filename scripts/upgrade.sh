@@ -435,6 +435,13 @@ check_schema_status "$UPG_LOG_FILE" "log" "$UPG_SCHEMA_VERSION_LOG" || true
 check_agent_docs_status || true
 check_checksum_status || true
 
+# Check sequence file status (T1544)
+_SEQ_FILE="$(dirname "$UPG_TODO_FILE")/.sequence"
+if [[ ! -f "$_SEQ_FILE" ]]; then
+    UPDATES_NEEDED["sequence"]="missing"
+    (( ++TOTAL_UPDATES ))
+fi
+
 # ============================================================================
 # STATUS OUTPUT
 # ============================================================================
@@ -595,6 +602,53 @@ if type ensure_compatible_version &>/dev/null; then
             fi
         fi
     done
+fi
+
+# 2.5. Bootstrap sequence file (T1544 - ID Integrity System)
+# For projects created before v0.51.1 (no .sequence file), create it from existing tasks
+CLEO_DIR="$(dirname "$UPG_TODO_FILE")"
+SEQUENCE_FILE="$CLEO_DIR/.sequence"
+if [[ ! -f "$SEQUENCE_FILE" ]]; then
+    if ! is_json_output; then
+        echo "Bootstrapping sequence file..."
+    fi
+
+    # Source sequence library if available
+    if [[ -f "$LIB_DIR/sequence.sh" ]]; then
+        source "$LIB_DIR/sequence.sh"
+
+        # recover_sequence scans todo + archive and creates .sequence
+        if recover_sequence 2>/dev/null; then
+            (( ++UPDATES_APPLIED ))
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                _SEQ_COUNTER=$(jq -r '.counter' "$SEQUENCE_FILE" 2>/dev/null || echo "0")
+                echo "  Created .sequence with counter $_SEQ_COUNTER"
+            fi
+        else
+            ERRORS+=("Sequence bootstrap failed")
+        fi
+    else
+        # Fallback: create basic sequence file manually
+        _MAX_TODO=$(jq -r '[.tasks[].id // empty | ltrimstr("T") | tonumber] | max // 0' "$UPG_TODO_FILE" 2>/dev/null || echo "0")
+        _MAX_ARCHIVE=$(jq -r '[.archivedTasks[].id // empty | ltrimstr("T") | tonumber] | max // 0' "$UPG_ARCHIVE_FILE" 2>/dev/null || echo "0")
+        _MAX_ID=$(( _MAX_TODO > _MAX_ARCHIVE ? _MAX_TODO : _MAX_ARCHIVE ))
+        _CHECKSUM=$(echo -n "$_MAX_ID" | sha256sum | cut -c1-8)
+        _TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+        cat > "$SEQUENCE_FILE" << EOF
+{
+  "counter": $_MAX_ID,
+  "lastId": $([ $_MAX_ID -gt 0 ] && printf '"T%03d"' $_MAX_ID || echo 'null'),
+  "checksum": "$_CHECKSUM",
+  "updatedAt": "$_TIMESTAMP",
+  "recoveredAt": "$_TIMESTAMP"
+}
+EOF
+        (( ++UPDATES_APPLIED ))
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            echo "  Created .sequence with counter $_MAX_ID (fallback)"
+        fi
+    fi
 fi
 
 # 3. Recalculate checksum
