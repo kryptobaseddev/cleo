@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-01-18
+
+### Added
+- **Research subagent integration**: Complete research workflow for Claude Code subagents
+  - `cleo research init` - Initialize research outputs directory with protocol files
+  - `cleo research list` - Query manifest entries with filtering (--status, --topic, --since, --limit, --actionable)
+  - `cleo research show <id>` - Display research entry details from manifest
+  - `cleo research inject` - Output injection template for subagent prompts
+  - `cleo research link <task> <research>` - Link research entries to CLEO tasks
+- **lib/research-manifest.sh**: New library for JSONL manifest operations
+  - `manifest_init()` - Initialize manifest with header
+  - `manifest_append()` - Add validated entries
+  - `manifest_query()` - Filter entries by status, topic, date, actionable
+  - `manifest_get_entry()` - Retrieve single entry by ID
+  - `manifest_validate_entry()` - Validate entry JSON structure
+- **Unit tests**: 44 tests for research-manifest.sh library functions
+- **Integration tests**: 37 tests for research subcommand workflows
+- **docs/commands/research.md**: Complete documentation for all research subcommands
+
+### Changed
+- **docs/TODO_Task_Management.md**: Added Research Subcommands section with v0.53.0 features
+
 ## [0.52.2] - 2026-01-17
 
 ### Changed
