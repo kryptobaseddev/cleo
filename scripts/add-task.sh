@@ -1179,6 +1179,38 @@ fi
 TASK_ID=$(generate_task_id)
 log_info "Generated task ID: $TASK_ID"
 
+# ============================================================================
+# ID UNIQUENESS CHECK (T1543 - Belt-and-suspenders protection)
+# Verify generated ID doesn't exist in todo.json OR archive
+# This should never happen with sequence system, but catches edge cases
+# ============================================================================
+_ID_IN_TODO=$(jq --arg id "$TASK_ID" '[.tasks[] | select(.id == $id)] | length' "$TODO_FILE" 2>/dev/null || echo "0")
+_ID_IN_ARCHIVE=0
+_ARCHIVE_FILE="${ARCHIVE_FILE:-$(dirname "$TODO_FILE")/todo-archive.json}"
+if [[ -f "$_ARCHIVE_FILE" ]]; then
+  _ID_IN_ARCHIVE=$(jq --arg id "$TASK_ID" '[.archivedTasks[] | select(.id == $id)] | length' "$_ARCHIVE_FILE" 2>/dev/null || echo "0")
+fi
+
+if [[ "$_ID_IN_TODO" -gt 0 || "$_ID_IN_ARCHIVE" -gt 0 ]]; then
+  _COLLISION_LOCATION="todo.json"
+  [[ "$_ID_IN_ARCHIVE" -gt 0 ]] && _COLLISION_LOCATION="archive"
+  [[ "$_ID_IN_TODO" -gt 0 && "$_ID_IN_ARCHIVE" -gt 0 ]] && _COLLISION_LOCATION="both files"
+
+  if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
+    output_error "E_ID_COLLISION" \
+      "Generated ID $TASK_ID already exists in $_COLLISION_LOCATION" \
+      "${EXIT_ID_COLLISION:-22}" \
+      true \
+      "Run 'cleo sequence repair' to reset the ID counter"
+  else
+    log_error "ID COLLISION: Generated ID $TASK_ID already exists in $_COLLISION_LOCATION"
+    echo "This indicates the sequence counter is out of sync."
+    echo "Run: cleo sequence repair"
+  fi
+  exit "${EXIT_ID_COLLISION:-22}"
+fi
+unset _ID_IN_TODO _ID_IN_ARCHIVE _COLLISION_LOCATION
+
 # Create timestamp
 CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
