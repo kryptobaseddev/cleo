@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Sync local variables (`FORMAT`, `QUIET`, etc.) to `FLAG_*` variables for `get_passthrough_flags()`
   - Scripts with custom argument parsing now properly pass format flags to subcommands
 
+## [0.53.2] - 2026-01-18
+
+### Added
+- **lib/flags.sh**: Add `get_passthrough_flags()` helper for subcommand calls
+  - `get_passthrough_flags()` - Returns space-separated flag args for nested commands
+  - `get_passthrough_flags_array()` - Returns one arg per line for mapfile capture
+- **docs**: Add Research Subagent Integration section to injection templates
+
+### Fixed
+- **upgrade.sh**: Show validation output in human mode
+  - JSON mode: suppress nested validate output (avoid mixing JSON)
+  - Human mode: show validate summary with warnings and pass/fail status
+
+## [0.53.1] - 2026-01-18
+
+### Fixed
+- **upgrade.sh**: Suppress nested validate JSON output
+  - Pass format flag to nested validate call to prevent JSON leaking into upgrade output
+
 ## [0.53.0] - 2026-01-18
 
 ### Added
