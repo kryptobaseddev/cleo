@@ -760,16 +760,9 @@ fi
 
 VALID=true
 if [[ -x "$UPG_SCRIPT_DIR/validate.sh" ]]; then
-    # Pass format flag to nested validate call
-    validate_format_flag=""
-    if is_json_output; then
-        validate_format_flag="--json"
-    else
-        validate_format_flag="--human"
-    fi
-
-    # Run validate and capture output (don't let it leak to our output)
-    if ! "$UPG_SCRIPT_DIR/validate.sh" $validate_format_flag --quiet >/dev/null 2>&1; then
+    # Use get_passthrough_flags to inherit format from parent command
+    # Suppress output since we just need the exit code
+    if ! "$UPG_SCRIPT_DIR/validate.sh" $(get_passthrough_flags --quiet) >/dev/null 2>&1; then
         VALID=false
         ERRORS+=("Validation failed after upgrade")
     fi

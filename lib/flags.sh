@@ -527,6 +527,69 @@ EOF
 }
 
 # ============================================================================
+# SUBCOMMAND HELPERS
+# ============================================================================
+
+# get_passthrough_flags - Get flag args to pass to subcommands
+#
+# Reconstructs command-line arguments from current flag state.
+# Use when calling nested CLEO commands that should inherit flags.
+#
+# Args:
+#   $@ - Additional flags to include (e.g., "--quiet")
+#
+# Returns:
+#   Space-separated flag arguments via stdout
+#
+# Usage:
+#   # Pass current format to nested command
+#   "$SCRIPT_DIR/validate.sh" $(get_passthrough_flags --quiet)
+#
+#   # Or capture as array
+#   read -ra flags <<< "$(get_passthrough_flags)"
+#   "$SCRIPT_DIR/other.sh" "${flags[@]}"
+get_passthrough_flags() {
+    local args=()
+
+    # Format flag (most important for consistent output)
+    if [[ -n "$FLAG_FORMAT" ]]; then
+        args+=("--format" "$FLAG_FORMAT")
+    fi
+
+    # Boolean flags
+    [[ "$FLAG_QUIET" == true ]] && args+=("--quiet")
+    [[ "$FLAG_DRY_RUN" == true ]] && args+=("--dry-run")
+    [[ "$FLAG_VERBOSE" == true ]] && args+=("--verbose")
+    [[ "$FLAG_FORCE" == true ]] && args+=("--force")
+
+    # Add any additional flags passed as arguments
+    args+=("$@")
+
+    # Output space-separated (safe for simple cases)
+    echo "${args[*]}"
+}
+
+# get_passthrough_flags_array - Get flag args as proper array
+#
+# Like get_passthrough_flags but outputs one arg per line for array capture.
+#
+# Usage:
+#   mapfile -t flags < <(get_passthrough_flags_array --quiet)
+#   "$SCRIPT_DIR/validate.sh" "${flags[@]}"
+get_passthrough_flags_array() {
+    [[ -n "$FLAG_FORMAT" ]] && printf '%s\n' "--format" "$FLAG_FORMAT"
+    [[ "$FLAG_QUIET" == true ]] && printf '%s\n' "--quiet"
+    [[ "$FLAG_DRY_RUN" == true ]] && printf '%s\n' "--dry-run"
+    [[ "$FLAG_VERBOSE" == true ]] && printf '%s\n' "--verbose"
+    [[ "$FLAG_FORCE" == true ]] && printf '%s\n' "--force"
+
+    # Additional flags
+    for arg in "$@"; do
+        printf '%s\n' "$arg"
+    done
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -549,3 +612,5 @@ export -f validate_format_value
 export -f require_format
 export -f apply_flags_to_globals
 export -f flags_to_json
+export -f get_passthrough_flags
+export -f get_passthrough_flags_array
