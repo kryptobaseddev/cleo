@@ -760,11 +760,21 @@ fi
 
 VALID=true
 if [[ -x "$UPG_SCRIPT_DIR/validate.sh" ]]; then
-    # Use get_passthrough_flags to inherit format from parent command
-    # Suppress output since we just need the exit code
-    if ! "$UPG_SCRIPT_DIR/validate.sh" $(get_passthrough_flags --quiet) >/dev/null 2>&1; then
-        VALID=false
-        ERRORS+=("Validation failed after upgrade")
+    # Run validation with inherited format flags
+    # In human mode: show summary output
+    # In JSON mode: suppress (we include valid status in our own output)
+    if is_json_output; then
+        # JSON mode: suppress nested output, just check exit code
+        if ! "$UPG_SCRIPT_DIR/validate.sh" $(get_passthrough_flags --quiet) >/dev/null 2>&1; then
+            VALID=false
+            ERRORS+=("Validation failed after upgrade")
+        fi
+    else
+        # Human mode: show validation output (but use --quiet to reduce verbosity)
+        if ! "$UPG_SCRIPT_DIR/validate.sh" $(get_passthrough_flags --quiet) 2>&1; then
+            VALID=false
+            ERRORS+=("Validation failed after upgrade")
+        fi
     fi
 fi
 
