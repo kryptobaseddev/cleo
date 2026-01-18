@@ -145,6 +145,14 @@ done
 # Resolve format with TTY-aware defaults
 FORMAT=$(resolve_format "$FORMAT")
 
+# Sync local variables to FLAG_* for get_passthrough_flags()
+# Required because this script uses custom argument parsing
+FLAG_FORMAT="$FORMAT"
+FLAG_QUIET="$QUIET"
+FLAG_DRY_RUN="$DRY_RUN"
+FLAG_VERBOSE="$VERBOSE"
+FLAG_FORCE="$FORCE"
+
 # ============================================================================
 # PROJECT DETECTION
 # ============================================================================
