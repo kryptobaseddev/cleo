@@ -195,6 +195,24 @@ ct context check           # Silent check, exit codes for scripting
 
 **Automatic alerts**: When a CLEO session is active, context alerts automatically appear on stderr after task operations (`complete`, `add`, `focus set`, session lifecycle). Alerts use visual box format and only trigger on threshold crossings. Configure with `ct config set contextAlerts.*`. See `docs/commands/context.md` for details.
 
+### Research Subagent Integration (v0.53.0+)
+```bash
+ct research init                  # Initialize research outputs directory
+ct research list                  # List research entries from manifest
+ct research list --status complete --limit 10  # Filter entries
+ct research show <id>             # Show research entry details
+ct research show <id> --full      # Include full file content
+ct research inject                # Output subagent injection template
+ct research inject --clipboard    # Copy to clipboard
+ct research link T001 <research-id>  # Link research to task
+```
+
+**Subagent Workflow**:
+1. Use `ct research inject` to get the protocol injection block
+2. Inject into subagent prompts via Task tool
+3. Subagents write to `docs/claudedocs/research-outputs/` + append to `MANIFEST.jsonl`
+4. Query via `ct research list/show` instead of reading full files (context-efficient)
+
 ### Export/Import (Cross-Project)
 ```bash
 # Export tasks to another project
