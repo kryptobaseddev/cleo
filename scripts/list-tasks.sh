@@ -51,6 +51,12 @@ if [[ -f "$LIB_DIR/config.sh" ]]; then
   source "$LIB_DIR/config.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
 # Detect Unicode support (respects NO_COLOR, LANG=C, config)
 if declare -f detect_unicode_support >/dev/null 2>&1 && detect_unicode_support; then
   UNICODE_ENABLED=true
@@ -115,7 +121,7 @@ TREE_TITLE_WIDTH=$((TERM_WIDTH - TREE_OVERHEAD))
 [[ "$TREE_TITLE_WIDTH" -lt 20 ]] && TREE_TITLE_WIDTH=20  # Minimum 20 chars
 
 # Valid format values
-VALID_FORMATS="text json jsonl markdown table"
+VALID_FORMATS="human text json jsonl markdown table"
 
 # Get session context if active
 # Returns JSON object with session info or null if no session
@@ -255,7 +261,7 @@ while [[ $# -gt 0 ]]; do
     --reverse) SORT_REVERSE=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --json) FORMAT="json"; shift ;;
-    --human) FORMAT="text"; shift ;;
+    --human) FORMAT="human"; shift ;;
     --all|--include-archive) INCLUDE_ARCHIVE=true; shift ;;
     --archived|--archive-only) SHOW_ARCHIVED=true; shift ;;
     --cancelled) SHOW_CANCELLED=true; shift ;;
@@ -299,7 +305,7 @@ else
   # Fallback if output-format.sh not loaded: basic TTY detection
   if [[ -z "$FORMAT" ]]; then
     if [[ -t 1 ]]; then
-      FORMAT="text"
+      FORMAT="human"
     else
       FORMAT="json"
     fi

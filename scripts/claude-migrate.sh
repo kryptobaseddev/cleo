@@ -45,6 +45,9 @@ if [[ -f "$LIB_DIR/logging.sh" ]]; then
     source "$LIB_DIR/logging.sh"
 fi
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # Suppress migration warnings in this script (we're handling migration explicitly)
 suppress_migration_warnings
 
@@ -1148,7 +1151,7 @@ is_json_output() {
     if [[ "$format" == "json" ]]; then
         return 0
     fi
-    if [[ "$format" == "text" ]]; then
+    if [[ "$format" == "human" ]]; then
         return 1
     fi
 

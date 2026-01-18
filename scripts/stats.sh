@@ -49,6 +49,9 @@ elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
   source "$LIB_DIR/exit-codes.sh"
 fi
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # Default configuration
 PERIOD_DAYS=30
 FORMAT=""
@@ -577,7 +580,7 @@ parse_arguments() {
                 shift
                 ;;
             --human)
-                FORMAT="text"
+                FORMAT="human"
                 shift
                 ;;
             -v|--verbose)

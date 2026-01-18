@@ -74,6 +74,13 @@ elif [[ -f "$LIB_DIR/version.sh" ]]; then
     source "$LIB_DIR/version.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+    source "$CLEO_HOME/lib/flags.sh"
+elif [[ -f "$LIB_DIR/flags.sh" ]]; then
+    source "$LIB_DIR/flags.sh"
+fi
+
 # Globals
 TODO_FILE="${CLEO_DIR:-.cleo}/todo.json"
 FORMAT=""
@@ -1737,7 +1744,7 @@ main() {
                 shift
                 ;;
             --human)
-                FORMAT="text"
+                FORMAT="human"
                 shift
                 ;;
             -q|--quiet)
@@ -1765,7 +1772,7 @@ main() {
         # Fallback if output-format.sh not available: TTY-aware detection
         if [[ -z "$FORMAT" ]]; then
             if [[ -t 1 ]]; then
-                FORMAT="text"
+                FORMAT="human"
             else
                 FORMAT="json"
             fi

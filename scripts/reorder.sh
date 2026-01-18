@@ -23,6 +23,7 @@ source "${LIB_DIR}/validation.sh"
 source "${LIB_DIR}/hierarchy.sh"
 source "${LIB_DIR}/file-ops.sh"
 source "${LIB_DIR}/logging.sh"
+source "${LIB_DIR}/flags.sh"
 
 # Source version library
 if [[ -f "$LIB_DIR/version.sh" ]]; then
@@ -46,8 +47,9 @@ AFTER_ID=""
 SWAP_ID=""
 MOVE_TOP=false
 MOVE_BOTTOM=false
-FORMAT=$(resolve_format "")
-QUIET=false
+
+# Initialize flag defaults
+init_flag_defaults
 
 usage() {
     cat << 'EOF'
@@ -83,7 +85,21 @@ EOF
     exit 0
 }
 
-# Parse arguments
+# Parse common flags first
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Bridge to legacy variables
+apply_flags_to_globals
+FORMAT="${FORMAT:-}"
+QUIET="${QUIET:-false}"
+
+# Handle help flag
+if [[ "$FLAG_HELP" == true ]]; then
+    usage
+fi
+
+# Parse command-specific arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --position) TARGET_POSITION="$2"; shift 2 ;;
@@ -91,9 +107,6 @@ while [[ $# -gt 0 ]]; do
         --after) AFTER_ID="$2"; shift 2 ;;
         --top) MOVE_TOP=true; shift ;;
         --bottom) MOVE_BOTTOM=true; shift ;;
-        --format) FORMAT="$2"; shift 2 ;;
-        -q|--quiet) QUIET=true; shift ;;
-        -h|--help) usage ;;
         T[0-9]*)
             if [[ -z "$TASK_ID" ]]; then
                 TASK_ID="$1"
@@ -102,9 +115,16 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
-        *) echo "Unknown option: $1" >&2; exit "$EXIT_INVALID_INPUT" ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit "$EXIT_INVALID_INPUT"
+            ;;
+        *) shift ;;
     esac
 done
+
+# Resolve format
+FORMAT=$(resolve_format "$FORMAT")
 
 # Validate task ID provided
 if [[ -z "$TASK_ID" ]]; then

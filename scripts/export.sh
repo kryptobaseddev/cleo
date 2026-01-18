@@ -37,6 +37,12 @@ elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
   source "$LIB_DIR/exit-codes.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
 # ============================================================================
 # DEPENDENCY CHECK (T167)
 # ============================================================================

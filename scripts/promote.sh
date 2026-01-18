@@ -17,6 +17,7 @@ source "${LIB_DIR}/exit-codes.sh"
 source "${LIB_DIR}/output-format.sh"
 source "${LIB_DIR}/file-ops.sh"
 source "${LIB_DIR}/logging.sh"
+source "${LIB_DIR}/flags.sh"
 
 # Source version library for proper version management
 if [[ -f "$LIB_DIR/version.sh" ]]; then
@@ -31,9 +32,10 @@ LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
 COMMAND_NAME="promote"
 
 TASK_ID=""
-FORMAT=$(resolve_format "")
-QUIET=false
 UPDATE_TYPE=true  # Auto-update type if subtask
+
+# Initialize flag defaults
+init_flag_defaults
 
 usage() {
     cat << 'EOF'
@@ -62,16 +64,35 @@ EOF
     exit 0
 }
 
+# Parse common flags first
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Bridge to legacy variables
+apply_flags_to_globals
+FORMAT="${FORMAT:-}"
+QUIET="${QUIET:-false}"
+
+# Handle help flag
+if [[ "$FLAG_HELP" == true ]]; then
+    usage
+fi
+
+# Parse command-specific arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-type-update) UPDATE_TYPE=false; shift ;;
-        --format) FORMAT="$2"; shift 2 ;;
-        -q|--quiet) QUIET=true; shift ;;
-        -h|--help) usage ;;
         T[0-9]*) TASK_ID="$1"; shift ;;
-        *) echo "Unknown option: $1" >&2; exit 1 ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *) shift ;;
     esac
 done
+
+# Resolve format
+FORMAT=$(resolve_format "$FORMAT")
 
 if [[ -z "$TASK_ID" ]]; then
     echo "ERROR: Task ID required" >&2

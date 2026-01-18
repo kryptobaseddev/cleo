@@ -26,6 +26,9 @@ source "$LIB_DIR/error-json.sh"
 source "$LIB_DIR/sequence.sh"
 source "$LIB_DIR/paths.sh"
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # Get version
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 if [[ -f "$CLEO_HOME/VERSION" ]]; then
@@ -557,7 +560,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --human)
-            FORMAT="text"
+            FORMAT="human"
             shift
             ;;
         --json)

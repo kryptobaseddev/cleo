@@ -33,6 +33,7 @@ CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 source "$LIB_DIR/exit-codes.sh"
 source "$LIB_DIR/paths.sh"
 source "$LIB_DIR/output-format.sh" 2>/dev/null || true
+source "$LIB_DIR/flags.sh"
 source "$LIB_DIR/agent-config.sh"
 source "$LIB_DIR/validation.sh"
 source "$LIB_DIR/doctor-checks.sh"  # Global health check functions
@@ -49,9 +50,6 @@ COMMAND_NAME="doctor"
 GLOBAL_ONLY=false
 PRUNE_REGISTRY=false
 AUTO_FIX=false
-VERBOSE=false
-OUTPUT_FORMAT="text"
-FORMAT_EXPLICIT=false  # Track whether user explicitly set --format
 
 # Exit code levels (graduated severity)
 readonly EXIT_DOCTOR_OK=0
@@ -64,6 +62,18 @@ readonly EXIT_DOCTOR_NO_CONFIG=100
 # ARGUMENT PARSING
 # ============================================================================
 parse_args() {
+    # Parse common flags first (--format, --json, --human, --quiet, --verbose, --help, etc.)
+    init_flag_defaults
+    parse_common_flags "$@"
+    set -- "${REMAINING_ARGS[@]}"
+
+    # Handle help flag
+    if [[ "$FLAG_HELP" == true ]]; then
+        show_help
+        exit 0
+    fi
+
+    # Parse command-specific flags
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --global)
@@ -78,19 +88,6 @@ parse_args() {
                 AUTO_FIX=true
                 shift
                 ;;
-            --format)
-                OUTPUT_FORMAT="$2"
-                FORMAT_EXPLICIT=true
-                shift 2
-                ;;
-            --verbose|-v)
-                VERBOSE=true
-                shift
-                ;;
-            --help|-h)
-                show_help
-                exit 0
-                ;;
             *)
                 echo "Error: Unknown option: $1" >&2
                 show_help
@@ -99,10 +96,10 @@ parse_args() {
         esac
     done
 
-    # Auto-detect JSON output if piped (only when format not explicitly set)
-    if [[ "$FORMAT_EXPLICIT" == "false" ]] && [[ ! -t 1 ]] && [[ "$OUTPUT_FORMAT" == "text" ]]; then
-        OUTPUT_FORMAT="json"
-    fi
+    # Apply common flags to globals
+    apply_flags_to_globals
+    FORMAT=$(resolve_format "$FORMAT")
+    VERBOSE="${FLAG_VERBOSE:-false}"
 }
 
 show_help() {
@@ -116,9 +113,12 @@ OPTIONS:
     --global            Skip project-specific checks
     --prune             Clean registry of missing projects
     --fix               Auto-repair issues (with confirmation)
-    --format json|text  Output format (default: text for TTY, json for pipe)
-    --verbose, -v       Show detailed diagnostic information
-    --help, -h          Show this help message
+    -f, --format FMT    Output format: text (default in TTY) or json
+    --json              Shorthand for --format json
+    --human             Shorthand for --format text
+    -q, --quiet         Suppress non-essential output
+    -v, --verbose       Show detailed diagnostic information
+    -h, --help          Show this help message
 
 EXIT CODES:
     0   - All checks passed
@@ -430,7 +430,7 @@ aggregate_results() {
         --argjson projects "$project_status" \
         --arg severity "$severity" \
         --arg timestamp "$timestamp" \
-        --arg format "$OUTPUT_FORMAT" \
+        --arg format "$FORMAT" \
         --argjson total "$total_checks" \
         --argjson passed "$passed" \
         --argjson warnings "$warnings" \
@@ -825,7 +825,7 @@ main() {
     fi
 
     # Phase 6: Output results
-    if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+    if [[ "$FORMAT" == "json" ]]; then
         echo "$final_output"
     else
         format_text_output "$final_output"

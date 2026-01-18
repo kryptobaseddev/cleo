@@ -32,12 +32,14 @@ source "$LIB_DIR/validation.sh" 2>/dev/null || true
 source "$LIB_DIR/injection.sh" 2>/dev/null || true
 source "$LIB_DIR/project-registry.sh" 2>/dev/null || true
 
-# Fallback for is_json_output if not available
-if ! type is_json_output &>/dev/null; then
-    is_json_output() {
-        [[ ! -t 1 ]] || [[ "${CLEO_OUTPUT_FORMAT:-}" == "json" ]]
-    }
-fi
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
+# is_json_output - Check if output should be JSON
+# Uses FORMAT variable set by argument parsing
+is_json_output() {
+    [[ "$FORMAT" == "json" ]]
+}
 
 # ============================================================================
 # DEFAULTS
@@ -47,6 +49,7 @@ DRY_RUN=false
 FORCE=false
 STATUS_ONLY=false
 VERBOSE=false
+FORMAT=""  # Will be resolved after parsing
 
 # ============================================================================
 # ARGUMENT PARSING
@@ -67,6 +70,9 @@ OPTIONS:
     --force         Skip confirmation prompts
     --status        Show what needs updating (no changes)
     --verbose       Show detailed progress
+    --human         Human-readable output (default for TTY)
+    --json          JSON output (default for non-TTY)
+    -f, --format F  Set output format (human, json)
     -h, --help      Show this help
 
 WHAT IT DOES:
@@ -107,6 +113,18 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
+        --human)
+            FORMAT="human"
+            shift
+            ;;
+        --json)
+            FORMAT="json"
+            shift
+            ;;
+        -f|--format)
+            FORMAT="$2"
+            shift 2
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -118,6 +136,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Resolve format (CLI > env > TTY detection)
+if [[ -z "$FORMAT" ]]; then
+    if [[ -t 1 ]]; then
+        FORMAT="human"
+    else
+        FORMAT="json"
+    fi
+fi
 
 # ============================================================================
 # PROJECT DETECTION

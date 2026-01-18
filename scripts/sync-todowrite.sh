@@ -59,6 +59,12 @@ if [[ -f "$LIB_DIR/validation.sh" ]]; then
     source "$LIB_DIR/validation.sh"
 fi
 
+# Source flags library for standardized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+    # shellcheck source=../lib/flags.sh
+    source "$LIB_DIR/flags.sh"
+fi
+
 # Fallback exit codes if library not loaded
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_GENERAL_ERROR:=1}"
@@ -383,39 +389,18 @@ main() {
         show_help
     fi
 
-    # Parse global options first, then subcommand
-    local args=()
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -f|--format)
-                FORMAT="$2"
-                shift 2
-                ;;
-            --json)
-                FORMAT="json"
-                shift
-                ;;
-            --human)
-                FORMAT="text"
-                shift
-                ;;
-            -q|--quiet)
-                QUIET=true
-                shift
-                ;;
-            --dry-run)
-                DRY_RUN=true
-                shift
-                ;;
-            *)
-                args+=("$1")
-                shift
-                ;;
-        esac
-    done
+    # Parse global options first using lib/flags.sh
+    init_flag_defaults
+    parse_common_flags "$@"
+    set -- "${REMAINING_ARGS[@]}"
 
-    # Restore positional arguments
-    set -- "${args[@]+"${args[@]}"}"
+    # Bridge to legacy variables for compatibility
+    apply_flags_to_globals
+
+    # Handle help early if requested
+    if [[ "$FLAG_HELP" == "true" ]]; then
+        show_help
+    fi
 
     # Resolve format (TTY-aware auto-detection)
     if declare -f resolve_format >/dev/null 2>&1; then

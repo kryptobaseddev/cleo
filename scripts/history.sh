@@ -75,14 +75,22 @@ elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
   source "$CLEO_HOME/lib/output-format.sh"
 fi
 
+# shellcheck source=../lib/flags.sh
+if [[ -f "${LIB_DIR}/flags.sh" ]]; then
+  source "${LIB_DIR}/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/flags.sh"
+fi
+
 # Default configuration
 DAYS=30
 SINCE_DATE=""
 UNTIL_DATE=""
-FORMAT=""
 COMMAND_NAME="history"
 SHOW_CHARTS=true
-QUIET=false
+
+# Initialize flag defaults
+init_flag_defaults
 
 # File paths
 CLEO_DIR=".cleo"
@@ -607,6 +615,21 @@ output_json_format() {
 #####################################################################
 
 parse_arguments() {
+  # Parse common flags first
+  parse_common_flags "$@"
+  set -- "${REMAINING_ARGS[@]}"
+
+  # Bridge to legacy variables
+  apply_flags_to_globals
+  local FORMAT="${FORMAT:-}"
+  local QUIET="${QUIET:-false}"
+
+  # Handle help flag
+  if [[ "$FLAG_HELP" == true ]]; then
+    usage
+  fi
+
+  # Parse command-specific arguments
   while [[ $# -gt 0 ]]; do
     case $1 in
       --days)
@@ -646,33 +669,11 @@ parse_arguments() {
         fi
         shift 2
         ;;
-      --format|-f)
-        FORMAT="$2"
-        if ! validate_format "$FORMAT" "text,json"; then
-          exit "$EXIT_INVALID_INPUT"
-        fi
-        shift 2
-        ;;
       --no-chart|--no-charts)
         SHOW_CHARTS=false
         shift
         ;;
-      --json)
-        FORMAT="json"
-        shift
-        ;;
-      --human)
-        FORMAT="text"
-        shift
-        ;;
-      -q|--quiet)
-        QUIET=true
-        shift
-        ;;
-      --help|-h)
-        usage
-        ;;
-      *)
+      -*)
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
           output_error "$E_INPUT_INVALID" "Unknown option: $1" 1 true "Run 'cleo history --help' for usage"
         else
@@ -680,6 +681,9 @@ parse_arguments() {
           echo "Run 'cleo history --help' for usage"
         fi
         exit $EXIT_INVALID_INPUT
+        ;;
+      *)
+        shift
         ;;
     esac
   done
@@ -691,6 +695,11 @@ parse_arguments() {
 
 main() {
   parse_arguments "$@"
+
+  # Bridge to legacy variables after parsing
+  apply_flags_to_globals
+  local FORMAT="${FORMAT:-}"
+  local QUIET="${QUIET:-false}"
 
   # Resolve format (TTY-aware auto-detection)
   FORMAT=$(resolve_format "${FORMAT:-}")

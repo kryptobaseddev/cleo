@@ -103,6 +103,14 @@ elif [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
   source "$CLEO_HOME/lib/config.sh"
 fi
 
+# Source flags library
+if [[ -f "${LIB_DIR}/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "${LIB_DIR}/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/flags.sh"
+fi
+
 # Local log_error wrapper for simple error messages
 # (Overrides logging.sh's structured version for user-facing output)
 log_error() {
@@ -112,12 +120,9 @@ log_error() {
 
 # Default configuration
 PERIOD_DAYS=7
-FORMAT=""
 COMPACT_MODE=false
 SHOW_CHARTS=true
 SECTIONS="all"
-VERBOSE=false
-QUIET=false
 COMMAND_NAME="dash"
 
 # File paths
@@ -1241,14 +1246,21 @@ output_json_format() {
 #####################################################################
 
 parse_arguments() {
+  # Parse common flags first (--format, --json, --human, --quiet, --verbose, --help, etc.)
+  init_flag_defaults
+  parse_common_flags "$@"
+  set -- "${REMAINING_ARGS[@]}"
+
+  # Handle help flag
+  if [[ "$FLAG_HELP" == true ]]; then
+    usage
+  fi
+
+  # Parse command-specific flags
   while [[ $# -gt 0 ]]; do
     case $1 in
       --compact|-c)
         COMPACT_MODE=true
-        shift
-        ;;
-      -v|--verbose)
-        VERBOSE=true
         shift
         ;;
       --period)
@@ -1271,28 +1283,6 @@ parse_arguments() {
         SECTIONS="$2"
         shift 2
         ;;
-      --format|-f)
-        FORMAT="$2"
-        if ! validate_format "$FORMAT" "text,json"; then
-          exit "$EXIT_INVALID_INPUT"
-        fi
-        shift 2
-        ;;
-      --json)
-        FORMAT="json"
-        shift
-        ;;
-      --human)
-        FORMAT="text"
-        shift
-        ;;
-      -q|--quiet)
-        QUIET=true
-        shift
-        ;;
-      --help|-h)
-        usage
-        ;;
       *)
         if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
           output_error "E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" true "Run 'cleo dash --help' for usage"
@@ -1304,6 +1294,10 @@ parse_arguments() {
         ;;
     esac
   done
+
+  # Apply common flags to globals
+  apply_flags_to_globals
+  VERBOSE="${FLAG_VERBOSE:-false}"
 }
 
 #####################################################################

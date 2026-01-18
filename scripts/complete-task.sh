@@ -94,6 +94,12 @@ if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   source "$LIB_DIR/context-alert.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -209,7 +215,7 @@ while [[ $# -gt 0 ]]; do
       fi
       shift 2
       ;;
-    --human) FORMAT="text"; shift ;;
+    --human) FORMAT="human"; shift ;;
     --json) FORMAT="json"; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     --skip-notes) SKIP_NOTES=true; shift ;;

@@ -11,6 +11,9 @@ source "$LIB_DIR/exit-codes.sh"
 [[ -f "$LIB_DIR/output-format.sh" ]] && source "$LIB_DIR/output-format.sh"
 [[ -f "$LIB_DIR/error-json.sh" ]] && source "$LIB_DIR/error-json.sh"
 
+# Source centralized flag parsing
+[[ -f "$LIB_DIR/flags.sh" ]] && source "$LIB_DIR/flags.sh"
+
 TODO_DIR="${TODO_DIR:-.cleo}"
 COMMAND_NAME="context"
 

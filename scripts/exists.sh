@@ -21,6 +21,9 @@ if [[ -f "$LIB_DIR/output-format.sh" ]]; then
   source "$LIB_DIR/output-format.sh"
 fi
 
+# shellcheck source=../lib/flags.sh
+source "$LIB_DIR/flags.sh"
+
 # Source error JSON library (includes exit-codes.sh)
 if [[ -f "$LIB_DIR/error-json.sh" ]]; then
   # shellcheck source=../lib/error-json.sh
@@ -48,11 +51,12 @@ EXIT_INVALID_ID="${EXIT_INVALID_INPUT:-2}"
 # EXIT_FILE_ERROR is already defined by exit-codes.sh, use it directly
 
 # Options
-QUIET=false
 VERBOSE=false
 INCLUDE_ARCHIVE=false
-FORMAT=""
 COMMAND_NAME="exists"
+
+# Initialize flag defaults
+init_flag_defaults
 
 usage() {
   cat << EOF
@@ -121,39 +125,30 @@ task_exists_in_file() {
 main() {
   local task_id=""
 
-  # Parse arguments
+  # Parse common flags first
+  parse_common_flags "$@"
+  set -- "${REMAINING_ARGS[@]}"
+
+  # Bridge to legacy variables
+  apply_flags_to_globals
+  local FORMAT="${FORMAT:-}"
+  local QUIET="${QUIET:-false}"
+  VERBOSE="${FLAG_VERBOSE:-false}"
+
+  # Handle help flag
+  if [[ "$FLAG_HELP" == true ]]; then
+    usage
+    exit "$EXIT_SUCCESS"
+  fi
+
+  # Parse command-specific arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --quiet)
-        QUIET=true
-        ;;
       --verbose)
         VERBOSE=true
         ;;
       --include-archive)
         INCLUDE_ARCHIVE=true
-        ;;
-      --json)
-        FORMAT="json"
-        ;;
-      --human)
-        FORMAT="text"
-        ;;
-      --format)
-        if [[ $# -lt 2 ]]; then
-          if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "E_INPUT_MISSING" "--format requires a value" "${EXIT_INVALID_INPUT:-2}" true "Example: --format json"
-          else
-            log_error "--format requires a value"
-          fi
-          exit "${EXIT_INVALID_INPUT:-2}"
-        fi
-        FORMAT="$2"
-        shift
-        ;;
-      --help|-h)
-        usage
-        exit "$EXIT_SUCCESS"
         ;;
       -*)
         if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error >/dev/null 2>&1; then

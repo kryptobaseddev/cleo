@@ -9,6 +9,7 @@ source "${LIB_DIR}/exit-codes.sh"
 source "${LIB_DIR}/error-json.sh"
 source "${LIB_DIR}/output-format.sh"
 source "${LIB_DIR}/version.sh"
+source "${LIB_DIR}/flags.sh"
 
 # Get CLI version (fail loudly if unreadable)
 if [[ -z "${CLEO_VERSION:-}" ]]; then
@@ -17,10 +18,10 @@ if [[ -z "${CLEO_VERSION:-}" ]]; then
 fi
 VERSION="$CLEO_VERSION"
 COMMAND_NAME="populate-hierarchy"
-FORMAT=""
-QUIET=false
-DRY_RUN=false
 TODO_FILE="${CLEO_DIR:-.cleo}/todo.json"
+
+# Initialize flag defaults
+init_flag_defaults
 
 show_help() {
     cat << 'EOF'
@@ -40,15 +41,26 @@ Options:
 EOF
 }
 
+# Parse common flags first
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Bridge to legacy variables
+apply_flags_to_globals
+FORMAT="${FORMAT:-}"
+QUIET="${QUIET:-false}"
+DRY_RUN="${DRY_RUN:-false}"
+
+# Handle help flag
+if [[ "$FLAG_HELP" == true ]]; then
+  show_help
+  exit 0
+fi
+
+# Parse command-specific arguments (none currently)
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -f|--format)  FORMAT="$2"; shift 2 ;;
-    --json)       FORMAT="json"; shift ;;
-    --human)      FORMAT="text"; shift ;;
-    -q|--quiet)   QUIET=true; shift ;;
-    --dry-run)    DRY_RUN=true; shift ;;
-    -h|--help)    show_help; exit 0 ;;
-    *)            shift ;;
+    *)  shift ;;
   esac
 done
 

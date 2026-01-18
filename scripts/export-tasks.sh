@@ -79,6 +79,12 @@ if [[ -f "$LIB_DIR/export.sh" ]]; then
     source "$LIB_DIR/export.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+    # shellcheck source=../lib/flags.sh
+    source "$LIB_DIR/flags.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
     RED='\033[0;31m'

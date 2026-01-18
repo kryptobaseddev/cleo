@@ -35,6 +35,11 @@ if [[ -f "$LIB_DIR/verification.sh" ]]; then
   source "$LIB_DIR/verification.sh"
 fi
 
+# Source flags library for standardized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  source "$LIB_DIR/flags.sh"
+fi
+
 # Command name for output
 COMMAND_NAME="verify"
 
@@ -542,7 +547,21 @@ reset_verification() {
 
 # Main
 main() {
-  # Parse arguments
+  # Parse common flags first using lib/flags.sh
+  init_flag_defaults
+  parse_common_flags "$@"
+  set -- "${REMAINING_ARGS[@]}"
+
+  # Bridge to legacy variables for compatibility
+  apply_flags_to_globals
+
+  # Handle help early if requested
+  if [[ "$FLAG_HELP" == "true" ]]; then
+    usage
+    exit 0
+  fi
+
+  # Parse command-specific arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --help|-h)
@@ -581,22 +600,6 @@ main() {
         RESET=true
         shift
         ;;
-      --json)
-        FORMAT="json"
-        shift
-        ;;
-      --human)
-        FORMAT="text"
-        shift
-        ;;
-      --format|-f)
-        if [[ $# -lt 2 ]]; then
-          log_error "--format requires a value"
-          exit "${EXIT_INVALID_INPUT:-2}"
-        fi
-        FORMAT="$2"
-        shift 2
-        ;;
       -*)
         log_error "Unknown option: $1"
         usage
@@ -614,12 +617,12 @@ main() {
     esac
   done
 
-  # Auto-detect format
+  # Auto-detect format if not set by flags
   if [[ -z "$FORMAT" ]]; then
     if declare -f detect_output_format >/dev/null 2>&1; then
       FORMAT=$(detect_output_format)
     else
-      FORMAT="text"
+      FORMAT="human"
     fi
   fi
 

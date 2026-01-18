@@ -22,6 +22,18 @@ if [[ -f "$LIB_DIR/logging.sh" ]]; then
   source "$LIB_DIR/logging.sh"
 fi
 
+# Source flags library for standardized flag parsing (LLM-Agent-First)
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
+# Source sequence library for ID generation
+if [[ -f "$LIB_DIR/sequence.sh" ]]; then
+  # shellcheck source=../lib/sequence.sh
+  source "$LIB_DIR/sequence.sh"
+fi
+
 # Source validation library for circular dependency check
 if [[ -f "$LIB_DIR/validation.sh" ]]; then
   # shellcheck source=../lib/validation.sh
@@ -109,10 +121,11 @@ FIX=false
 JSON_OUTPUT=false
 QUIET=false
 FORMAT=""
+DRY_RUN=false
 NON_INTERACTIVE=false
 CHECK_ORPHANS=""  # Empty means use config, explicit true/false overrides
 FIX_ORPHANS=""    # Empty means no fix, "unlink" or "delete" for repair mode
-FIX_DUPLICATES=false  # T1542: Interactive duplicate resolution
+FIX_DUPLICATES=false  # T1542: Safe duplicate resolution (ID reassignment)
 
 # Track validation results
 ERRORS=0
@@ -136,16 +149,23 @@ usage() {
 Usage: cleo validate [OPTIONS]
 
 Validate todo.json against schema and business rules.
+Default output is JSON (LLM-Agent-First). Use --human for text output.
 
 Options:
   --strict            Treat warnings as errors
   --fix               Auto-fix simple issues (interactive for conflicts)
-  --fix-duplicates    Interactive resolution for duplicate task IDs
-                      Creates backup before changes, repairs sequence after
-                      Use with --non-interactive for auto-selection
+  --fix-duplicates    Safely resolve duplicate task IDs by reassigning new IDs
+                      - First occurrence keeps its ID (assumed to be original)
+                      - Duplicates get new unique IDs
+                      - References (parentId, depends) are NOT updated
+                      - Preserves full task hierarchy (NO DELETION)
+                      - Creates backup before changes
+                      Use with --dry-run to preview changes
+  --dry-run           Preview changes without applying (for --fix-duplicates)
   --non-interactive   Use auto-selection for conflict resolution (with --fix)
-  --json              Output as JSON (same as --format json)
-  --format, -f        Output format: text (default) or json
+  --format, -f        Output format: json (default) or human
+  --json              Force JSON output (redundant, JSON is default)
+  --human             Human-readable text output
   --quiet, -q         Suppress info messages (show only errors/warnings)
   -h, --help          Show this help
 
@@ -270,234 +290,305 @@ safe_json_write() {
 }
 
 #######################################
-# T1542: Fix-duplicates helper functions
+# T1542: Fix-duplicates helper functions (ID REASSIGNMENT - NO DELETION)
 #######################################
 
 # Track duplicate resolution results for JSON output
-declare -a DUPLICATES_FIXED_TODO=()
-declare -a DUPLICATES_FIXED_ARCHIVE=()
-declare -a DUPLICATES_FIXED_CROSS=()
+declare -a ID_REASSIGNMENTS=()
 DUPLICATE_BACKUPS=""
 SEQUENCE_REPAIRED=false
+DRY_RUN_REASSIGNMENTS="[]"
 
 #######################################
-# Display duplicate task info
-# Arguments:
-#   $1 - Task JSON object
-#   $2 - Index number
+# Preview duplicate ID reassignments (dry-run mode)
+# Lists what would be reassigned without making any changes.
+#
+# Arguments: None (uses global TODO_FILE and ARCHIVE_FILE)
+# Returns: 0 on success
+# Sets: DRY_RUN_REASSIGNMENTS JSON array with preview data
 #######################################
-display_duplicate_task() {
-  local task_json="$1"
-  local index="$2"
-  local id title created status notes_count
+preview_duplicate_reassignments() {
+  local todo_file="$TODO_FILE"
+  local archive_file="$ARCHIVE_FILE"
+  local preview_log="[]"
+  local next_id_counter=0
 
-  id=$(echo "$task_json" | jq -r '.id // "?"')
-  title=$(echo "$task_json" | jq -r '.title // "(no title)"' | cut -c1-50)
-  created=$(echo "$task_json" | jq -r '.createdAt // .completedAt // "?"' | cut -c1-19)
-  status=$(echo "$task_json" | jq -r '.status // "?"')
-  notes_count=$(echo "$task_json" | jq -r '(.notes // []) | length')
+  # Get the current max ID to simulate new ID generation
+  if [[ -f "$todo_file" ]]; then
+    local todo_max
+    todo_max=$(jq -r '[.tasks[].id // "T0"] | map(ltrimstr("T") | tonumber) | max // 0' "$todo_file" 2>/dev/null || echo 0)
+    next_id_counter=$todo_max
+  fi
+  if [[ -f "$archive_file" ]]; then
+    local archive_max
+    archive_max=$(jq -r '[.archivedTasks[].id // "T0"] | map(ltrimstr("T") | tonumber) | max // 0' "$archive_file" 2>/dev/null || echo 0)
+    [[ "$archive_max" -gt "$next_id_counter" ]] && next_id_counter=$archive_max
+  fi
 
-  echo "  [$index] $id - \"$title\""
-  echo "      Created: $created | Status: $status | Notes: $notes_count"
+  # 1. Preview todo.json duplicates
+  if [[ -f "$todo_file" ]]; then
+    local todo_ids todo_dup_ids
+    todo_ids=$(jq -r '.tasks[].id' "$todo_file" 2>/dev/null | sort)
+    todo_dup_ids=$(echo "$todo_ids" | uniq -d)
+
+    for dup_id in $todo_dup_ids; do
+      [[ -z "$dup_id" ]] && continue
+
+      # Get count of tasks with this ID (all but first need reassignment)
+      local dup_count
+      dup_count=$(jq -r --arg id "$dup_id" '[.tasks[] | select(.id == $id)] | length' "$todo_file")
+
+      # Skip first occurrence, simulate reassignment for rest
+      local reassign_count=$((dup_count - 1))
+      for ((i=0; i<reassign_count; i++)); do
+        ((++next_id_counter))
+        local simulated_new_id
+        simulated_new_id=$(printf "T%04d" "$next_id_counter")
+
+        # Get task info (use index i+1 since we skip first)
+        local task_title
+        task_title=$(jq -r --arg id "$dup_id" '[.tasks[] | select(.id == $id)][$i + 1].title // "(untitled)"' "$todo_file" --argjson i "$i" 2>/dev/null | head -c 50)
+
+        preview_log=$(echo "$preview_log" | jq --arg old "$dup_id" --arg new "$simulated_new_id" --arg file "todo.json" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title, action: "reassign"}]')
+      done
+    done
+  fi
+
+  # 2. Preview archive duplicates
+  if [[ -f "$archive_file" ]]; then
+    local archive_ids archive_dup_ids
+    archive_ids=$(jq -r '.archivedTasks[].id' "$archive_file" 2>/dev/null | sort)
+    archive_dup_ids=$(echo "$archive_ids" | uniq -d)
+
+    for dup_id in $archive_dup_ids; do
+      [[ -z "$dup_id" ]] && continue
+
+      local dup_count
+      dup_count=$(jq -r --arg id "$dup_id" '[.archivedTasks[] | select(.id == $id)] | length' "$archive_file")
+
+      local reassign_count=$((dup_count - 1))
+      for ((i=0; i<reassign_count; i++)); do
+        ((++next_id_counter))
+        local simulated_new_id
+        simulated_new_id=$(printf "T%04d" "$next_id_counter")
+
+        local task_title
+        task_title=$(jq -r --arg id "$dup_id" '[.archivedTasks[] | select(.id == $id)][$i + 1].title // "(untitled)"' "$archive_file" --argjson i "$i" 2>/dev/null | head -c 50)
+
+        preview_log=$(echo "$preview_log" | jq --arg old "$dup_id" --arg new "$simulated_new_id" --arg file "archive" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title, action: "reassign"}]')
+      done
+    done
+  fi
+
+  # 3. Preview cross-file duplicates
+  if [[ -f "$todo_file" ]] && [[ -f "$archive_file" ]]; then
+    local todo_unique_ids archive_unique_ids cross_dups
+    todo_unique_ids=$(jq -r '.tasks[].id' "$todo_file" 2>/dev/null | sort -u)
+    archive_unique_ids=$(jq -r '.archivedTasks[].id' "$archive_file" 2>/dev/null | sort -u)
+    cross_dups=$(comm -12 <(echo "$todo_unique_ids") <(echo "$archive_unique_ids"))
+
+    for cross_id in $cross_dups; do
+      [[ -z "$cross_id" ]] && continue
+
+      ((++next_id_counter))
+      local simulated_new_id
+      simulated_new_id=$(printf "T%04d" "$next_id_counter")
+
+      local task_title
+      task_title=$(jq -r --arg id "$cross_id" '.archivedTasks[] | select(.id == $id) | .title // "(untitled)"' "$archive_file" | head -n1 | head -c 50)
+
+      preview_log=$(echo "$preview_log" | jq --arg old "$cross_id" --arg new "$simulated_new_id" --arg file "archive (cross-file)" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title, action: "reassign"}]')
+    done
+  fi
+
+  DRY_RUN_REASSIGNMENTS="$preview_log"
+  return 0
 }
 
 #######################################
-# Prompt user for duplicate resolution
-# Arguments:
-#   $1 - Duplicate type: "todo", "archive", "cross"
-#   $2 - Duplicate ID
-#   $3 - JSON array of duplicate tasks
-# Sets:
-#   REPLY - Selected action
+# Reassign duplicate IDs to new unique IDs
+# This function PRESERVES all tasks - it assigns new IDs to duplicates.
+#
+# Algorithm:
+# 1. Find all duplicate IDs across todo.json and archive
+# 2. For each duplicate group: keep first occurrence ID, generate new IDs for rest
+# 3. Update the task IDs themselves (duplicates only)
+#
+# NOTE: References (parentId, depends) are NOT updated because:
+# - The first occurrence keeps its original ID (assumed to be the "original" task)
+# - Existing references to that ID likely intended to point to the original
+# - Updating references would incorrectly redirect them to the duplicate
+#
+# Arguments: None (uses global TODO_FILE and ARCHIVE_FILE)
+# Returns: 0 on success, 1 on error
+# Sets: ID_REASSIGNMENTS array with {oldId, newId, file, title} objects
 #######################################
-resolve_duplicate_interactive() {
-  local dup_type="$1"
-  local dup_id="$2"
-  local dup_tasks="$3"
-  local count
+reassign_duplicate_ids() {
+  local todo_file="$TODO_FILE"
+  local archive_file="$ARCHIVE_FILE"
 
-  count=$(echo "$dup_tasks" | jq 'length')
+  # Build complete ID mapping
+  local id_mapping="{}"
+  local reassignment_log="[]"
 
-  echo ""
-  echo "════════════════════════════════════════════════════════════════"
-  echo " Duplicate ID Found: $dup_id"
-  echo "════════════════════════════════════════════════════════════════"
+  # 1. Process todo.json duplicates
+  if [[ -f "$todo_file" ]]; then
+    local todo_ids todo_dup_ids
+    todo_ids=$(jq -r '.tasks[].id' "$todo_file" 2>/dev/null | sort)
+    todo_dup_ids=$(echo "$todo_ids" | uniq -d)
 
-  case "$dup_type" in
-    todo)   echo " Location: todo.json" ;;
-    archive) echo " Location: todo-archive.json" ;;
-    cross)  echo " Location: BOTH todo.json AND archive" ;;
-  esac
-  echo " Occurrences: $count"
-  echo ""
+    for dup_id in $todo_dup_ids; do
+      [[ -z "$dup_id" ]] && continue
 
-  # Display each duplicate
-  local i
-  for ((i=0; i<count; i++)); do
-    local task
-    task=$(echo "$dup_tasks" | jq ".[$i]")
-    display_duplicate_task "$task" "$((i+1))"
-    echo ""
-  done
+      # Get all tasks with this ID (as array indices)
+      local indices count
+      indices=$(jq -r --arg id "$dup_id" '.tasks | to_entries | map(select(.value.id == $id)) | .[1:] | .[].key' "$todo_file")
+      count=$(echo "$indices" | grep -c . || echo 0)
 
-  echo "────────────────────────────────────────────────────────────────"
-  echo " Resolution Options:"
+      # Reassign all but the first occurrence
+      for idx in $indices; do
+        [[ -z "$idx" ]] && continue
 
-  case "$dup_type" in
-    todo|archive)
-      echo "   1) Keep first occurrence (delete others)"
-      echo "   2) Keep newest (by createdAt, delete older)"
-      echo "   3) Rename duplicates (append -dup-N suffix)"
-      echo "   4) Skip (do not fix this duplicate)"
-      echo ""
-      read -r -p "Select [1-4]: " choice
-      case "$choice" in
-        1) REPLY="keep-first" ;;
-        2) REPLY="keep-newest" ;;
-        3) REPLY="rename" ;;
-        *) REPLY="skip" ;;
-      esac
-      ;;
-    cross)
-      echo "   1) Keep active version (remove from archive)"
-      echo "   2) Keep archived version (remove from todo.json)"
-      echo "   3) Rename archived version (append -archived suffix)"
-      echo "   4) Skip (do not fix this duplicate)"
-      echo ""
-      read -r -p "Select [1-4]: " choice
-      case "$choice" in
-        1) REPLY="keep-active" ;;
-        2) REPLY="keep-archived" ;;
-        3) REPLY="rename-archived" ;;
-        *) REPLY="skip" ;;
-      esac
-      ;;
-  esac
-}
+        # Generate new unique ID
+        local new_id
+        if declare -f get_next_task_id >/dev/null 2>&1; then
+          new_id=$(get_next_task_id 2>/dev/null)
+        else
+          # Fallback: find max ID and increment
+          local max_id
+          max_id=$(jq -r '[.tasks[].id] | map(ltrimstr("T") | tonumber) | max // 0' "$todo_file")
+          max_id=$((max_id + 1))
+          new_id=$(printf "T%03d" "$max_id")
+        fi
 
-#######################################
-# Auto-select resolution for non-interactive mode
-# Arguments:
-#   $1 - Duplicate type: "todo", "archive", "cross"
-# Sets:
-#   REPLY - Default action
-#######################################
-resolve_duplicate_auto() {
-  local dup_type="$1"
-  case "$dup_type" in
-    todo)    REPLY="keep-first" ;;
-    archive) REPLY="keep-first" ;;
-    cross)   REPLY="keep-active" ;;
-  esac
-}
+        # Get task title for logging
+        local task_title
+        task_title=$(jq -r --argjson idx "$idx" '.tasks[$idx].title // "(untitled)"' "$todo_file" | head -c 50)
 
-#######################################
-# Apply duplicate resolution for same-file duplicates
-# Arguments:
-#   $1 - File path (todo.json or archive)
-#   $2 - Array key ("tasks" or "archivedTasks")
-#   $3 - Duplicate ID
-#   $4 - Action: keep-first, keep-newest, rename
-# Returns:
-#   0 on success, 1 on error
-#######################################
-apply_same_file_resolution() {
-  local file="$1"
-  local array_key="$2"
-  local dup_id="$3"
-  local action="$4"
+        # Add to mapping
+        id_mapping=$(echo "$id_mapping" | jq --arg old "$dup_id" --arg new "$new_id" '. + {($old): $new}')
 
-  case "$action" in
-    keep-first)
-      # Keep only first occurrence
-      if safe_json_write "$file" "
-        .$array_key |= (
-          reduce .[] as \$task ([];
-            if (map(.id) | index(\$task.id) | not) then . + [\$task] else . end
-          )
+        # Log this reassignment (we'll dedupe later)
+        reassignment_log=$(echo "$reassignment_log" | jq --arg old "$dup_id" --arg new "$new_id" --arg file "todo.json" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title}]')
+
+        # Update the task ID directly
+        if ! jq --argjson idx "$idx" --arg new_id "$new_id" '.tasks[$idx].id = $new_id' "$todo_file" > "${todo_file}.tmp"; then
+          rm -f "${todo_file}.tmp"
+          return 1
+        fi
+        mv "${todo_file}.tmp" "$todo_file"
+      done
+    done
+  fi
+
+  # 2. Process archive duplicates
+  if [[ -f "$archive_file" ]]; then
+    local archive_ids archive_dup_ids
+    archive_ids=$(jq -r '.archivedTasks[].id' "$archive_file" 2>/dev/null | sort)
+    archive_dup_ids=$(echo "$archive_ids" | uniq -d)
+
+    for dup_id in $archive_dup_ids; do
+      [[ -z "$dup_id" ]] && continue
+
+      local indices
+      indices=$(jq -r --arg id "$dup_id" '.archivedTasks | to_entries | map(select(.value.id == $id)) | .[1:] | .[].key' "$archive_file")
+
+      for idx in $indices; do
+        [[ -z "$idx" ]] && continue
+
+        local new_id
+        if declare -f get_next_task_id >/dev/null 2>&1; then
+          new_id=$(get_next_task_id 2>/dev/null)
+        else
+          local max_id
+          max_id=$(jq -r '[.archivedTasks[].id] | map(ltrimstr("T") | tonumber) | max // 0' "$archive_file")
+          max_id=$((max_id + 1))
+          new_id=$(printf "T%03d" "$max_id")
+        fi
+
+        local task_title
+        task_title=$(jq -r --argjson idx "$idx" '.archivedTasks[$idx].title // "(untitled)"' "$archive_file" | head -c 50)
+
+        reassignment_log=$(echo "$reassignment_log" | jq --arg old "$dup_id" --arg new "$new_id" --arg file "archive" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title}]')
+
+        if ! jq --argjson idx "$idx" --arg new_id "$new_id" '.archivedTasks[$idx].id = $new_id' "$archive_file" > "${archive_file}.tmp"; then
+          rm -f "${archive_file}.tmp"
+          return 1
+        fi
+        mv "${archive_file}.tmp" "$archive_file"
+      done
+    done
+  fi
+
+  # 3. Handle cross-file duplicates (same ID in both todo and archive)
+  if [[ -f "$todo_file" ]] && [[ -f "$archive_file" ]]; then
+    local todo_ids archive_ids cross_dups
+    todo_ids=$(jq -r '.tasks[].id' "$todo_file" 2>/dev/null | sort -u)
+    archive_ids=$(jq -r '.archivedTasks[].id' "$archive_file" 2>/dev/null | sort -u)
+    cross_dups=$(comm -12 <(echo "$todo_ids") <(echo "$archive_ids"))
+
+    for cross_id in $cross_dups; do
+      [[ -z "$cross_id" ]] && continue
+
+      # Reassign the ARCHIVE version (keep active version)
+      local new_id
+      if declare -f get_next_task_id >/dev/null 2>&1; then
+        new_id=$(get_next_task_id 2>/dev/null)
+      else
+        local max_id
+        max_id=$(jq -r '([.tasks[].id] + [.archivedTasks[].id]) | map(ltrimstr("T") | tonumber) | max // 0' <(jq -s '.[0] * .[1]' "$todo_file" "$archive_file"))
+        max_id=$((max_id + 1))
+        new_id=$(printf "T%03d" "$max_id")
+      fi
+
+      local task_title
+      task_title=$(jq -r --arg id "$cross_id" '.archivedTasks[] | select(.id == $id) | .title // "(untitled)"' "$archive_file" | head -c 50)
+
+      reassignment_log=$(echo "$reassignment_log" | jq --arg old "$cross_id" --arg new "$new_id" --arg file "archive (cross-file)" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title}]')
+
+      # Update archive task ID
+      if ! jq --arg old_id "$cross_id" --arg new_id "$new_id" '.archivedTasks |= map(if .id == $old_id then .id = $new_id else . end)' "$archive_file" > "${archive_file}.tmp"; then
+        rm -f "${archive_file}.tmp"
+        return 1
+      fi
+      mv "${archive_file}.tmp" "$archive_file"
+
+      # Update any references in archive that point to the old ID
+      if ! jq --arg old_id "$cross_id" --arg new_id "$new_id" '
+        .archivedTasks |= map(
+          if .parentId == $old_id then .parentId = $new_id else . end |
+          if .depends then .depends |= map(if . == $old_id then $new_id else . end) else . end
         )
-      "; then
-        return 0
+      ' "$archive_file" > "${archive_file}.tmp"; then
+        rm -f "${archive_file}.tmp"
+        return 1
       fi
-      ;;
-    keep-newest)
-      # Sort by createdAt desc, keep first
-      if safe_json_write "$file" "
-        .$array_key |= (
-          group_by(.id) | map(sort_by(.createdAt // .completedAt) | reverse | .[0])
-        )
-      "; then
-        return 0
-      fi
-      ;;
-    rename)
-      # Rename duplicates with -dup-N suffix
-      if safe_json_write "$file" "
-        .$array_key |= (
-          reduce .[] as \$task (
-            {seen: {}, result: []};
-            if .seen[\$task.id] then
-              .seen[\$task.id] += 1 |
-              .result += [\$task | .id = (.id + \"-dup-\" + (.seen[\$task.id] | tostring))]
-            else
-              .seen[\$task.id] = 0 |
-              .result += [\$task]
-            end
-          ) | .result
-        )
-      "; then
-        return 0
-      fi
-      ;;
-    skip)
-      return 0
-      ;;
-  esac
-  return 1
-}
+      mv "${archive_file}.tmp" "$archive_file"
+    done
+  fi
 
-#######################################
-# Apply cross-file duplicate resolution
-# Arguments:
-#   $1 - Todo file path
-#   $2 - Archive file path
-#   $3 - Duplicate ID
-#   $4 - Action: keep-active, keep-archived, rename-archived
-# Returns:
-#   0 on success, 1 on error
-#######################################
-apply_cross_file_resolution() {
-  local todo_file="$1"
-  local archive_file="$2"
-  local dup_id="$3"
-  local action="$4"
+  # 4. Collect reassignments for tracking (do NOT update references)
+  #
+  # NOTE: We intentionally do NOT update parentId/depends references.
+  # Since the FIRST occurrence keeps its original ID, any references to
+  # that ID likely intended to point to the original (first) task.
+  # If we updated references, we would incorrectly point them to the
+  # duplicate's new ID, which is wrong.
+  #
+  # After reassignment:
+  # - References to the original ID still work (point to first occurrence)
+  # - If any references were meant for a duplicate, user must fix manually
+  #
+  local reassignments
+  reassignments=$(echo "$reassignment_log" | jq -c '.[]')
 
-  case "$action" in
-    keep-active)
-      # Remove from archive
-      if safe_json_write "$archive_file" '.archivedTasks |= map(select(.id != $id))' --arg id "$dup_id"; then
-        return 0
-      fi
-      ;;
-    keep-archived)
-      # Remove from todo.json
-      if safe_json_write "$todo_file" '.tasks |= map(select(.id != $id))' --arg id "$dup_id"; then
-        return 0
-      fi
-      ;;
-    rename-archived)
-      # Rename in archive with -archived suffix
-      if safe_json_write "$archive_file" '
-        .archivedTasks |= map(if .id == $id then .id = ($id + "-archived") else . end)
-      ' --arg id "$dup_id"; then
-        return 0
-      fi
-      ;;
-    skip)
-      return 0
-      ;;
-  esac
-  return 1
+  while IFS= read -r reassign; do
+    [[ -z "$reassign" ]] && continue
+    # Add to global tracking
+    ID_REASSIGNMENTS+=("$reassign")
+  done <<< "$reassignments"
+
+  return 0
 }
 
 #######################################
@@ -557,16 +648,26 @@ check_deps() {
   fi
 }
 
-# Parse arguments
+# Parse arguments using lib/flags.sh (LLM-Agent-First: JSON default)
+# This handles common flags: --format, --json, --human, --quiet, --dry-run, --verbose, --help
+if declare -f init_flag_defaults >/dev/null 2>&1; then
+  init_flag_defaults
+  parse_common_flags "$@"
+  apply_flags_to_globals
+  # Use REMAINING_ARGS for command-specific parsing
+  set -- "${REMAINING_ARGS[@]}"
+fi
+
+# Parse command-specific flags from REMAINING_ARGS
 while [[ $# -gt 0 ]]; do
   case $1 in
     --strict) STRICT="true"; shift ;;
     --no-strict) STRICT="false"; shift ;;
     --fix) FIX=true; shift ;;
-    --non-interactive) NON_INTERACTIVE=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;  # Fallback if flags.sh not loaded
     --check-orphans) CHECK_ORPHANS=true; shift ;;
     --no-check-orphans) CHECK_ORPHANS=false; shift ;;
-    --fix-orphans) 
+    --fix-orphans)
       FIX_ORPHANS="${2:-unlink}"
       if [[ "$FIX_ORPHANS" != "unlink" && "$FIX_ORPHANS" != "delete" ]]; then
         output_fatal "$E_INPUT_INVALID" "--fix-orphans must be 'unlink' or 'delete', got: $FIX_ORPHANS" "${EXIT_INVALID_INPUT:-2}"
@@ -574,15 +675,10 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --fix-duplicates) FIX_DUPLICATES=true; shift ;;
-    --json) JSON_OUTPUT=true; FORMAT="json"; shift ;;
-    --human) JSON_OUTPUT=false; FORMAT="text"; shift ;;
-    -f|--format)
-      FORMAT="$2"
-      if [[ "$FORMAT" == "json" ]]; then
-        JSON_OUTPUT=true
-      fi
-      shift 2
-      ;;
+    # Legacy flag support (handled by flags.sh but kept for explicit override)
+    --json) FORMAT="json"; shift ;;
+    --human) FORMAT="human"; shift ;;
+    -f|--format) FORMAT="$2"; shift 2 ;;
     -q|--quiet) QUIET=true; shift ;;
     -h|--help) usage ;;
     -*) output_fatal "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-2}" ;;
@@ -590,10 +686,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Resolve format (TTY-aware auto-detection)
+# Resolve format: LLM-Agent-First means JSON is default
+# resolve_format() returns "json" for non-TTY (piped), user can override with --human
 FORMAT=$(resolve_format "${FORMAT:-}")
 if [[ "$FORMAT" == "json" ]]; then
   JSON_OUTPUT=true
+else
+  JSON_OUTPUT=false
 fi
 
 # Resolve strict mode (CLI > config > default)
@@ -624,185 +723,103 @@ ARCHIVE_FILE="${TODO_FILE%.json}-archive.json"
 TASK_IDS=$(jq -r '.tasks[].id' "$TODO_FILE" 2>/dev/null || echo "")
 DUPLICATE_IDS=$(echo "$TASK_IDS" | sort | uniq -d)
 
-# Track if any duplicates were fixed (for sequence repair)
-DUPLICATES_FIXED_COUNT=0
-
-# T1542: Create backup BEFORE any fix-duplicates operations
-if [[ "$FIX_DUPLICATES" == true ]]; then
-  # Check if there are any duplicates to fix
-  ARCHIVE_IDS_CHECK=""
-  ARCHIVE_DUPLICATES_CHECK=""
-  CROSS_DUPLICATES_CHECK=""
-  if [[ -f "$ARCHIVE_FILE" ]]; then
-    ARCHIVE_IDS_CHECK=$(jq -r '.archivedTasks[].id' "$ARCHIVE_FILE" 2>/dev/null || echo "")
-    ARCHIVE_DUPLICATES_CHECK=$(echo "$ARCHIVE_IDS_CHECK" | sort | uniq -d)
-    if [[ -n "$TASK_IDS" ]] && [[ -n "$ARCHIVE_IDS_CHECK" ]]; then
-      CROSS_DUPLICATES_CHECK=$(comm -12 <(echo "$TASK_IDS" | sort) <(echo "$ARCHIVE_IDS_CHECK" | sort))
-    fi
-  fi
-
-  # Create backups if there are duplicates to fix
-  if [[ -n "$DUPLICATE_IDS" ]] || [[ -n "$ARCHIVE_DUPLICATES_CHECK" ]] || [[ -n "$CROSS_DUPLICATES_CHECK" ]]; then
-    create_duplicate_fix_backups "$TODO_FILE" "$ARCHIVE_FILE"
-    if [[ "$JSON_OUTPUT" != true ]] && [[ -n "$DUPLICATE_BACKUPS" ]]; then
-      log_info "Created safety backups before duplicate repair" "backup"
-    fi
-  fi
-fi
-
-if [[ -n "$DUPLICATE_IDS" ]]; then
-  log_error "Duplicate task IDs found in todo.json: $(echo "$DUPLICATE_IDS" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids"
-
-  if [[ "$FIX_DUPLICATES" == true ]]; then
-    # T1542: Interactive/auto duplicate resolution
-    for dup_id in $DUPLICATE_IDS; do
-      # Get duplicate tasks for display
-      dup_tasks=$(jq --arg id "$dup_id" '[.tasks[] | select(.id == $id)]' "$TODO_FILE")
-
-      if [[ "$NON_INTERACTIVE" == true ]]; then
-        resolve_duplicate_auto "todo"
-      else
-        resolve_duplicate_interactive "todo" "$dup_id" "$dup_tasks"
-      fi
-
-      if [[ "$REPLY" != "skip" ]]; then
-        if apply_same_file_resolution "$TODO_FILE" "tasks" "$dup_id" "$REPLY"; then
-          (( ++DUPLICATES_FIXED_COUNT )) || true
-          DUPLICATES_FIXED_TODO+=("$(jq -nc --arg id "$dup_id" --arg action "$REPLY" '{id:$id,action:$action}')")
-          if [[ "$JSON_OUTPUT" != true ]]; then
-            echo "  Fixed: $dup_id ($REPLY)"
-          fi
-        else
-          log_error "Failed to fix duplicate $dup_id"
-        fi
-      fi
-    done
-  elif [[ "$FIX" == true ]]; then
-    # Original simple fix: keep only first occurrence
-    if safe_json_write "$TODO_FILE" '
-      .tasks |= (
-        reduce .[] as $task ([];
-          if (map(.id) | index($task.id) | not) then . + [$task] else . end
-        )
-      )
-    '; then
-      echo "  Fixed: Removed duplicate tasks (kept first occurrence)"
-    else
-      log_error "Failed to fix duplicate tasks (could not acquire lock or write failed)"
-    fi
-  fi
-else
-  log_info "No duplicate task IDs in todo.json" "duplicate_ids"
-fi
-
-# Check archive for duplicates too
+# Check archive for duplicates
+ARCHIVE_IDS=""
+ARCHIVE_DUPLICATES=""
+CROSS_DUPLICATES=""
 if [[ -f "$ARCHIVE_FILE" ]]; then
   ARCHIVE_IDS=$(jq -r '.archivedTasks[].id' "$ARCHIVE_FILE" 2>/dev/null || echo "")
   ARCHIVE_DUPLICATES=$(echo "$ARCHIVE_IDS" | sort | uniq -d)
-
-  if [[ -n "$ARCHIVE_DUPLICATES" ]]; then
-    log_error "Duplicate IDs in archive: $(echo "$ARCHIVE_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')"
-
-    if [[ "$FIX_DUPLICATES" == true ]]; then
-      # T1542: Interactive/auto duplicate resolution for archive
-      for dup_id in $ARCHIVE_DUPLICATES; do
-        dup_tasks=$(jq --arg id "$dup_id" '[.archivedTasks[] | select(.id == $id)]' "$ARCHIVE_FILE")
-
-        if [[ "$NON_INTERACTIVE" == true ]]; then
-          resolve_duplicate_auto "archive"
-        else
-          resolve_duplicate_interactive "archive" "$dup_id" "$dup_tasks"
-        fi
-
-        if [[ "$REPLY" != "skip" ]]; then
-          if apply_same_file_resolution "$ARCHIVE_FILE" "archivedTasks" "$dup_id" "$REPLY"; then
-            (( ++DUPLICATES_FIXED_COUNT )) || true
-            DUPLICATES_FIXED_ARCHIVE+=("$(jq -nc --arg id "$dup_id" --arg action "$REPLY" '{id:$id,action:$action}')")
-            if [[ "$JSON_OUTPUT" != true ]]; then
-              echo "  Fixed: $dup_id in archive ($REPLY)"
-            fi
-          else
-            log_error "Failed to fix archive duplicate $dup_id"
-          fi
-        fi
-      done
-    elif [[ "$FIX" == true ]]; then
-      # Original simple fix: keep only first occurrence in archive
-      if safe_json_write "$ARCHIVE_FILE" '
-        .archivedTasks |= (
-          reduce .[] as $task ([];
-            if (map(.id) | index($task.id) | not) then . + [$task] else . end
-          )
-        )
-      '; then
-        echo "  Fixed: Removed duplicate tasks from archive (kept first occurrence)"
-      else
-        log_error "Failed to fix archive duplicates (could not acquire lock or write failed)"
-      fi
-    fi
-  else
-    log_info "No duplicate IDs in archive" "archive_duplicates"
-  fi
-
-  # Check for IDs that exist in both active and archive
   if [[ -n "$TASK_IDS" ]] && [[ -n "$ARCHIVE_IDS" ]]; then
-    CROSS_DUPLICATES=$(comm -12 <(echo "$TASK_IDS" | sort) <(echo "$ARCHIVE_IDS" | sort))
-    if [[ -n "$CROSS_DUPLICATES" ]]; then
-      log_error "IDs exist in both todo.json and archive: $(echo "$CROSS_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')"
-
-      if [[ "$FIX_DUPLICATES" == true ]]; then
-        # T1542: Interactive/auto cross-file duplicate resolution
-        for cross_id in $CROSS_DUPLICATES; do
-          # Get tasks from both files for display
-          todo_task=$(jq --arg id "$cross_id" '[.tasks[] | select(.id == $id)]' "$TODO_FILE")
-          archive_task=$(jq --arg id "$cross_id" '[.archivedTasks[] | select(.id == $id)]' "$ARCHIVE_FILE")
-          combined_tasks=$(echo "$todo_task $archive_task" | jq -s 'add')
-
-          if [[ "$NON_INTERACTIVE" == true ]]; then
-            resolve_duplicate_auto "cross"
-          else
-            resolve_duplicate_interactive "cross" "$cross_id" "$combined_tasks"
-          fi
-
-          if [[ "$REPLY" != "skip" ]]; then
-            if apply_cross_file_resolution "$TODO_FILE" "$ARCHIVE_FILE" "$cross_id" "$REPLY"; then
-              (( ++DUPLICATES_FIXED_COUNT )) || true
-              DUPLICATES_FIXED_CROSS+=("$(jq -nc --arg id "$cross_id" --arg action "$REPLY" '{id:$id,action:$action}')")
-              if [[ "$JSON_OUTPUT" != true ]]; then
-                echo "  Fixed: $cross_id cross-file ($REPLY)"
-              fi
-            else
-              log_error "Failed to fix cross-file duplicate $cross_id"
-            fi
-          fi
-        done
-      elif [[ "$FIX" == true ]]; then
-        # Original simple fix: remove from archive (keep in active todo.json)
-        cross_fix_failed=false
-        for cross_id in $CROSS_DUPLICATES; do
-          if ! safe_json_write "$ARCHIVE_FILE" '.archivedTasks |= map(select(.id != $id))' --arg id "$cross_id"; then
-            cross_fix_failed=true
-            break
-          fi
-        done
-        if [[ "$cross_fix_failed" == true ]]; then
-          log_error "Failed to fix cross-duplicates (could not acquire lock or write failed)"
-        else
-          echo "  Fixed: Removed cross-duplicates from archive (kept in todo.json)"
-        fi
-      fi
-    else
-      log_info "No cross-file duplicate IDs" "cross_duplicates"
-    fi
+    CROSS_DUPLICATES=$(comm -12 <(echo "$TASK_IDS" | sort -u) <(echo "$ARCHIVE_IDS" | sort -u))
   fi
 fi
 
-# T1542: Repair sequence counter after duplicate fixes
-if [[ "$FIX_DUPLICATES" == true ]] && [[ "$DUPLICATES_FIXED_COUNT" -gt 0 ]]; then
-  if repair_sequence_after_fix; then
-    log_info "Sequence counter repaired after duplicate fixes" "sequence_repair"
+# Collect all duplicate info for reporting
+HAS_DUPLICATES=false
+if [[ -n "$DUPLICATE_IDS" ]] || [[ -n "$ARCHIVE_DUPLICATES" ]] || [[ -n "$CROSS_DUPLICATES" ]]; then
+  HAS_DUPLICATES=true
+fi
+
+# Report duplicates found
+if [[ -n "$DUPLICATE_IDS" ]]; then
+  log_error "Duplicate task IDs found in todo.json: $(echo "$DUPLICATE_IDS" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids_todo"
+else
+  log_info "No duplicate task IDs in todo.json" "duplicate_ids_todo"
+fi
+
+if [[ -n "$ARCHIVE_DUPLICATES" ]]; then
+  log_error "Duplicate IDs in archive: $(echo "$ARCHIVE_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids_archive"
+else
+  log_info "No duplicate IDs in archive" "duplicate_ids_archive"
+fi
+
+if [[ -n "$CROSS_DUPLICATES" ]]; then
+  log_error "IDs exist in both todo.json and archive: $(echo "$CROSS_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids_cross"
+else
+  log_info "No cross-file duplicate IDs" "duplicate_ids_cross"
+fi
+
+# T1542: Fix duplicates by REASSIGNING IDs (not deleting tasks!)
+# This preserves all tasks and updates all references (parentId, depends)
+if [[ "$FIX_DUPLICATES" == true ]] && [[ "$HAS_DUPLICATES" == true ]]; then
+  if [[ "$DRY_RUN" == true ]]; then
+    # DRY-RUN MODE: Preview what would be reassigned without making changes
+    preview_duplicate_reassignments
+    preview_count=$(echo "$DRY_RUN_REASSIGNMENTS" | jq 'length')
+
+    if [[ "$preview_count" -gt 0 ]]; then
+      log_info "[DRY-RUN] Would reassign $preview_count duplicate IDs" "fix_duplicates_preview"
+      add_detail "fix_duplicates" "preview" "Would reassign $preview_count duplicate IDs (dry-run)"
+
+      # Show details in human-readable mode
+      if [[ "$JSON_OUTPUT" != true ]]; then
+        echo ""
+        echo "  Proposed ID Reassignments (no changes made):"
+        echo "  ============================================="
+        echo "$DRY_RUN_REASSIGNMENTS" | jq -r '.[] | "  \(.oldId) → \(.newId) (\(.file)): \(.title)"'
+        echo ""
+        echo "  Run without --dry-run to apply these changes."
+      fi
+    else
+      log_info "[DRY-RUN] No duplicates to reassign" "fix_duplicates_preview"
+    fi
   else
-    log_warn "Failed to repair sequence counter" "sequence_repair"
+    # ACTUAL FIX MODE: Create backups and reassign IDs
+    create_duplicate_fix_backups "$TODO_FILE" "$ARCHIVE_FILE"
+    if [[ "$JSON_OUTPUT" != true ]] && [[ -n "$DUPLICATE_BACKUPS" ]]; then
+      log_info "Created safety backups before ID reassignment" "backup"
+    fi
+
+    # Reassign duplicate IDs (preserves all tasks, updates all references)
+    if reassign_duplicate_ids; then
+      reassign_count=${#ID_REASSIGNMENTS[@]}
+      if [[ $reassign_count -gt 0 ]]; then
+        log_info "Reassigned $reassign_count duplicate IDs to new unique IDs" "fix_duplicates"
+
+        # Show details in human-readable mode
+        if [[ "$JSON_OUTPUT" != true ]]; then
+          echo ""
+          echo "  ID Reassignments Applied:"
+          echo "  ========================="
+          for reassign in "${ID_REASSIGNMENTS[@]}"; do
+            old_id=$(echo "$reassign" | jq -r '.oldId')
+            new_id=$(echo "$reassign" | jq -r '.newId')
+            file=$(echo "$reassign" | jq -r '.file')
+            title=$(echo "$reassign" | jq -r '.title')
+            echo "  $old_id → $new_id ($file): $title"
+          done
+          echo ""
+        fi
+
+        # Repair sequence counter after reassignments
+        if repair_sequence_after_fix; then
+          log_info "Sequence counter updated after ID reassignments" "sequence_repair"
+        fi
+      fi
+    else
+      log_error "Failed to reassign duplicate IDs" "fix_duplicates"
+    fi
   fi
 fi
 
@@ -1028,7 +1045,7 @@ while IFS= read -r task_index; do
 
   if [[ ${#MISSING_FIELDS[@]} -gt 0 ]]; then
     log_error "Task $TASK_ID missing required fields: ${MISSING_FIELDS[*]}"
-    ((MISSING_FIELD_COUNT++))
+    ((++MISSING_FIELD_COUNT))
   fi
 done < <(jq -r 'range(0; .tasks | length)' "$TODO_FILE")
 
@@ -1108,7 +1125,7 @@ if jq -e 'if (.project | type) == "object" then .project.phases else null end' "
 
           PHASE_CHOICES+=("$PHASE_KEY")
           echo "  $INDEX) $PHASE_KEY - \"$PHASE_NAME\" (order: $PHASE_ORDER, $TASK_COUNT tasks)"
-          ((INDEX++))
+          ((++INDEX))
         done < <(echo "$ACTIVE_PHASES_JSON" | jq -c '.[]')
 
         echo ""
@@ -1380,6 +1397,7 @@ if [[ "$FORMAT" == "json" ]]; then
   SCHEMA_VERSION=$(jq -r '._meta.schemaVersion' "$TODO_FILE" 2>/dev/null || echo "unknown")
   TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   VALID=$([[ $ERRORS -eq 0 ]] && echo "true" || echo "false")
+  IS_DRY_RUN=$([[ "$DRY_RUN" == true ]] && echo "true" || echo "false")
 
   # Build details array from collected details
   DETAILS_ARRAY="[]"
@@ -1387,14 +1405,40 @@ if [[ "$FORMAT" == "json" ]]; then
     DETAILS_ARRAY=$(printf '%s\n' "${DETAILS_JSON[@]}" | jq -s '.')
   fi
 
+  # Build ID reassignments array (from actual or dry-run)
+  REASSIGNMENTS_ARRAY="[]"
+  if [[ "$DRY_RUN" == true ]] && [[ -n "$DRY_RUN_REASSIGNMENTS" ]]; then
+    REASSIGNMENTS_ARRAY="$DRY_RUN_REASSIGNMENTS"
+  elif [[ ${#ID_REASSIGNMENTS[@]} -gt 0 ]]; then
+    REASSIGNMENTS_ARRAY=$(printf '%s\n' "${ID_REASSIGNMENTS[@]}" | jq -s '.')
+  fi
+
+  # Build fix-duplicates result object
+  FIX_DUPLICATES_JSON="null"
+  if [[ "$FIX_DUPLICATES" == true ]] && [[ "$HAS_DUPLICATES" == true ]]; then
+    FIX_DUPLICATES_JSON=$(jq -nc \
+      --argjson dryRun "$IS_DRY_RUN" \
+      --argjson reassignments "$REASSIGNMENTS_ARRAY" \
+      --argjson backups "${DUPLICATE_BACKUPS:-null}" \
+      --argjson sequenceRepaired "${SEQUENCE_REPAIRED:-false}" \
+      '{
+        dryRun: $dryRun,
+        reassignments: $reassignments,
+        backups: $backups,
+        sequenceRepaired: $sequenceRepaired
+      }')
+  fi
+
   jq -nc \
     --argjson errors "$ERRORS" \
     --argjson warnings "$WARNINGS" \
     --argjson valid "$VALID" \
+    --argjson dryRun "$IS_DRY_RUN" \
     --arg version "$APP_VERSION" \
     --arg schemaVersion "$SCHEMA_VERSION" \
     --arg timestamp "$TIMESTAMP" \
     --argjson details "$DETAILS_ARRAY" \
+    --argjson fixDuplicates "$FIX_DUPLICATES_JSON" \
     '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
@@ -1404,12 +1448,14 @@ if [[ "$FORMAT" == "json" ]]; then
         "timestamp": $timestamp
       },
       "success": true,
+      "dryRun": $dryRun,
       "valid": $valid,
       "schemaVersion": $schemaVersion,
       "errors": $errors,
       "warnings": $warnings,
-      "details": $details
-    }'
+      "details": $details,
+      "fixDuplicates": $fixDuplicates
+    } | if .fixDuplicates == null then del(.fixDuplicates) else . end'
 
   # Exit with appropriate code
   if [[ "$ERRORS" -eq 0 ]]; then

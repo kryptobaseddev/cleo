@@ -78,12 +78,21 @@ elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
   source "$CLEO_HOME/lib/output-format.sh"
 fi
 
+# shellcheck source=../lib/flags.sh
+if [[ -f "${LIB_DIR}/flags.sh" ]]; then
+  source "${LIB_DIR}/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/flags.sh"
+fi
+
 # Default configuration
-FORMAT=""
 COMMAND_NAME="labels"
 SUBCOMMAND="list"
 LABEL_ARG=""
 QUIET_MODE=false
+
+# Initialize flag defaults
+init_flag_defaults
 
 # File paths
 CLEO_DIR=".cleo"
@@ -510,6 +519,20 @@ output_stats_json() {
 #####################################################################
 
 parse_arguments() {
+  # Parse common flags first
+  parse_common_flags "$@"
+  set -- "${REMAINING_ARGS[@]}"
+
+  # Bridge to legacy variables
+  apply_flags_to_globals
+  local FORMAT="${FORMAT:-}"
+  QUIET_MODE="${FLAG_QUIET:-false}"
+
+  # Handle help flag
+  if [[ "$FLAG_HELP" == true ]]; then
+    usage
+  fi
+
   # Valid subcommands
   local VALID_SUBCOMMANDS="list show stats"
 
@@ -569,49 +592,10 @@ parse_arguments() {
     esac
   fi
 
-  # Parse remaining options
+  # Parse remaining command-specific options
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --format|-f)
-        FORMAT="$2"
-        # Validate format
-        local VALID_FORMATS="text json"
-        if [[ -z "$FORMAT" ]]; then
-          if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "$E_INPUT_MISSING" "--format requires a value" "${EXIT_INVALID_INPUT:-1}" true "Valid formats: $VALID_FORMATS"
-          else
-            output_error "$E_INPUT_MISSING" "--format requires a value"
-            echo "Valid formats: $VALID_FORMATS" >&2
-          fi
-          exit "${EXIT_INVALID_INPUT:-1}"
-        fi
-        if [[ ! " $VALID_FORMATS " =~ " $FORMAT " ]]; then
-          if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
-            output_error "$E_INPUT_INVALID" "Invalid format: $FORMAT" "${EXIT_INVALID_INPUT:-1}" true "Valid formats: $VALID_FORMATS"
-          else
-            output_error "$E_INPUT_INVALID" "Invalid format: $FORMAT"
-            echo "Valid formats: $VALID_FORMATS" >&2
-          fi
-          exit "${EXIT_INVALID_INPUT:-1}"
-        fi
-        shift 2
-        ;;
-      --json)
-        FORMAT="json"
-        shift
-        ;;
-      --human)
-        FORMAT="text"
-        shift
-        ;;
-      --help|-h)
-        usage
-        ;;
-      -q|--quiet)
-        QUIET_MODE=true
-        shift
-        ;;
-      *)
+      -*)
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
           output_error "$E_INPUT_INVALID" "Unknown option: $1" "${EXIT_INVALID_INPUT:-1}" true "Run 'cleo labels --help' for usage"
         else
@@ -619,6 +603,9 @@ parse_arguments() {
           echo "Run 'cleo labels --help' for usage" >&2
         fi
         exit "${EXIT_INVALID_INPUT:-1}"
+        ;;
+      *)
+        shift
         ;;
     esac
   done
@@ -630,6 +617,10 @@ parse_arguments() {
 
 main() {
   parse_arguments "$@"
+
+  # Bridge to legacy variables after parsing
+  apply_flags_to_globals
+  local FORMAT="${FORMAT:-}"
 
   # Resolve format (TTY-aware auto-detection)
   FORMAT=$(resolve_format "${FORMAT:-}")

@@ -202,7 +202,7 @@ get_terminal_width() {
 # Outputs: Error message to stderr if invalid
 validate_format() {
   local format="$1"
-  local valid_formats="${2:-text,json}"
+  local valid_formats="${2:-human,json,text}"
 
   # Check if format is in the valid list
   if [[ ",$valid_formats," == *",$format,"* ]]; then
@@ -232,7 +232,7 @@ validate_format() {
 resolve_format() {
   local cli_format="${1:-}"
   local do_validate="${2:-false}"
-  local valid_formats="${3:-text,json}"
+  local valid_formats="${3:-human,json,text}"
 
   local resolved_format=""
 

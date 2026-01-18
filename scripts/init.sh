@@ -84,6 +84,11 @@ if [[ -f "$LIB_DIR/error-json.sh" ]]; then
   source "$LIB_DIR/error-json.sh"
 fi
 
+# Source centralized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  source "$LIB_DIR/flags.sh"
+fi
+
 usage() {
   cat << EOF
 Usage: cleo init [PROJECT_NAME] [OPTIONS]
@@ -153,7 +158,7 @@ while [[ $# -gt 0 ]]; do
     --force) FORCE=true; shift ;;
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
-    --human) FORMAT="text"; shift ;;
+    --human) FORMAT="human"; shift ;;
     --json) FORMAT="json"; shift ;;
     -q|--quiet) QUIET=true; shift ;;
     -h|--help) usage ;;

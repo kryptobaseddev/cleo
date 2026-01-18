@@ -99,6 +99,13 @@ elif [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   source "$LIB_DIR/context-alert.sh"
 fi
 
+# Source flags library for standardized flag parsing
+if [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/flags.sh"
+elif [[ -f "$LIB_DIR/flags.sh" ]]; then
+  source "$LIB_DIR/flags.sh"
+fi
+
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 # Note: LOG_FILE is set by lib/logging.sh (readonly) - don't reassign here
@@ -361,7 +368,7 @@ cmd_start() {
       --dry-run) DRY_RUN=true; shift ;;
       -f|--format) FORMAT="$2"; shift 2 ;;
       --json) FORMAT="json"; shift ;;
-      --human) FORMAT="text"; shift ;;
+      --human) FORMAT="human"; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
@@ -1022,7 +1029,7 @@ cmd_status() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -f|--format) format_arg="$2"; shift 2 ;;
-      --human) format_arg="text"; shift ;;
+      --human) format_arg="human"; shift ;;
       --json) format_arg="json"; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
@@ -1157,7 +1164,7 @@ cmd_info() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -f|--format) format_arg="$2"; shift 2 ;;
-      --human) format_arg="text"; shift ;;
+      --human) format_arg="human"; shift ;;
       --json) format_arg="json"; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
@@ -1223,18 +1230,19 @@ cmd_info() {
   fi
 }
 
-# Parse global options before command
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --dry-run) DRY_RUN=true; shift ;;
-    -f|--format) FORMAT="$2"; shift 2 ;;
-    --json) FORMAT="json"; shift ;;
-    --human) FORMAT="text"; shift ;;
-    -q|--quiet) QUIET=true; shift ;;
-    -*) break ;;  # Unknown option, let subcommand handle
-    *) break ;;   # First non-option is command
-  esac
-done
+# Parse global options before command using lib/flags.sh
+# Initialize and parse common flags (--format, --json, --human, --quiet, --dry-run, --help)
+init_flag_defaults
+parse_flags_strict "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Bridge to legacy variables for compatibility
+apply_flags_to_globals
+
+# Handle help at top level (before command)
+if [[ "$FLAG_HELP" == "true" && $# -eq 0 ]]; then
+  usage
+fi
 
 # Resolve format with TTY-aware detection
 FORMAT=$(resolve_format "$FORMAT")
@@ -1254,7 +1262,7 @@ cmd_suspend() {
       --dry-run) DRY_RUN=true; shift ;;
       -f|--format) FORMAT="$2"; shift 2 ;;
       --json) FORMAT="json"; shift ;;
-      --human) FORMAT="text"; shift ;;
+      --human) FORMAT="human"; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
@@ -1425,7 +1433,7 @@ cmd_list() {
     case $1 in
       --status) status_filter="$2"; shift 2 ;;
       -f|--format) format_arg="$2"; shift 2 ;;
-      --human) format_arg="text"; shift ;;
+      --human) format_arg="human"; shift ;;
       --json) format_arg="json"; shift ;;
       *) shift ;;
     esac
@@ -1498,7 +1506,7 @@ cmd_show_session() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -f|--format) format_arg="$2"; shift 2 ;;
-      --human) format_arg="text"; shift ;;
+      --human) format_arg="human"; shift ;;
       --json) format_arg="json"; shift ;;
       -*) shift ;;
       *) session_id="$1"; shift ;;
@@ -1633,7 +1641,7 @@ cmd_cleanup() {
     case $1 in
       -f|--format) format_arg="$2"; shift 2 ;;
       --json) format_arg="json"; shift ;;
-      --human) format_arg="text"; shift ;;
+      --human) format_arg="human"; shift ;;
       --dry-run) dry_run=true; shift ;;
       --empty-scope) empty_scope=true; shift ;;
       --ended-before) ended_before="$2"; shift 2 ;;

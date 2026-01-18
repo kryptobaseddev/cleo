@@ -29,6 +29,9 @@ source "$LIB_DIR/logging.sh"
 # shellcheck source=../lib/output-format.sh
 source "$LIB_DIR/output-format.sh"
 
+# shellcheck source=../lib/flags.sh
+source "$LIB_DIR/flags.sh"
+
 # Source error JSON library (includes exit-codes.sh)
 if [[ -f "$LIB_DIR/error-json.sh" ]]; then
     # shellcheck source=../lib/error-json.sh
@@ -46,8 +49,9 @@ COMMAND_NAME="archive-stats"
 REPORT_TYPE="summary"
 SINCE_DATE=""
 UNTIL_DATE=""
-FORMAT=""
-QUIET=false
+
+# Initialize flag defaults
+init_flag_defaults
 
 usage() {
     cat << EOF
@@ -102,7 +106,16 @@ EOF
     exit 0
 }
 
-# Parse arguments
+# Parse common flags first
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Bridge to legacy variables
+apply_flags_to_globals
+FORMAT="${FORMAT:-}"
+QUIET="${QUIET:-false}"
+
+# Parse command-specific arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --summary)     REPORT_TYPE="summary"; shift ;;
@@ -113,11 +126,6 @@ while [[ $# -gt 0 ]]; do
         --trends)      REPORT_TYPE="trends"; shift ;;
         --since)       SINCE_DATE="$2"; shift 2 ;;
         --until)       UNTIL_DATE="$2"; shift 2 ;;
-        -f|--format)   FORMAT="$2"; shift 2 ;;
-        --human)       FORMAT="text"; shift ;;
-        --json)        FORMAT="json"; shift ;;
-        -q|--quiet)    QUIET=true; shift ;;
-        -h|--help)     usage ;;
         -*)
             echo "[ERROR] Unknown option: $1" >&2
             exit "${EXIT_INVALID_INPUT:-1}"
@@ -125,6 +133,11 @@ while [[ $# -gt 0 ]]; do
         *) shift ;;
     esac
 done
+
+# Handle help flag
+if [[ "$FLAG_HELP" == true ]]; then
+    usage
+fi
 
 # Resolve output format (CLI > env > config > JSON default)
 if declare -f resolve_format >/dev/null 2>&1; then

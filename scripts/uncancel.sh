@@ -86,6 +86,9 @@ if [[ -f "$LIB_DIR/archive-cancel.sh" ]]; then
     source "$LIB_DIR/archive-cancel.sh"
 fi
 
+# Source centralized flag parsing
+source "$LIB_DIR/flags.sh"
+
 # Fallback exit codes if libraries not loaded
 : "${EXIT_SUCCESS:=0}"
 : "${EXIT_INVALID_INPUT:=2}"
@@ -243,7 +246,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --human)
-            FORMAT="text"
+            FORMAT="human"
             shift
             ;;
         --json)

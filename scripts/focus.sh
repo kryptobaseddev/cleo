@@ -92,6 +92,13 @@ elif [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   source "$LIB_DIR/context-alert.sh"
 fi
 
+# Source flags library for standardized flag parsing
+if [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/flags.sh"
+elif [[ -f "$LIB_DIR/flags.sh" ]]; then
+  source "$LIB_DIR/flags.sh"
+fi
+
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
@@ -1012,18 +1019,26 @@ cmd_next() {
   fi
 }
 
-# Parse global flags before command dispatch
-FORMAT=""
+# Parse global flags before command dispatch using lib/flags.sh
 SUBCOMMAND_ARGS=()
 COMMAND=""
 
+# Initialize and parse common flags (--format, --json, --human, --quiet, --dry-run, --help)
+init_flag_defaults
+parse_common_flags "$@"
+set -- "${REMAINING_ARGS[@]}"
+
+# Bridge to legacy variables for compatibility
+apply_flags_to_globals
+
+# Handle help early if requested
+if [[ "$FLAG_HELP" == "true" ]]; then
+  usage
+fi
+
+# Parse remaining command-specific flags
 while [[ $# -gt 0 ]]; do
   case $1 in
-    -f|--format) FORMAT="$2"; shift 2 ;;
-    --human) FORMAT="text"; shift ;;
-    --json) FORMAT="json"; shift ;;
-    -q|--quiet) QUIET=true; shift ;;
-    --dry-run) DRY_RUN=true; shift ;;
     --session) SESSION_ID="$2"; shift 2 ;;
     -h|--help|help)
       if [[ -z "$COMMAND" ]]; then

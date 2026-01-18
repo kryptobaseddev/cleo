@@ -38,6 +38,12 @@ if [[ -f "$LIB_DIR/config.sh" ]]; then
   source "$LIB_DIR/config.sh"
 fi
 
+# Source centralized flag parsing library
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -1315,7 +1321,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --human)
-      FORMAT="text"
+      FORMAT="human"
       shift
       ;;
     --json)
@@ -1389,7 +1395,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
           --human)
-            FORMAT="text"
+            FORMAT="human"
             shift
             ;;
           --json)

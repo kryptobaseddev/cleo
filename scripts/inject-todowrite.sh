@@ -71,6 +71,12 @@ elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
   source "$LIB_DIR/exit-codes.sh"
 fi
 
+# Source flags library for standardized flag parsing
+if [[ -f "$LIB_DIR/flags.sh" ]]; then
+  # shellcheck source=../lib/flags.sh
+  source "$LIB_DIR/flags.sh"
+fi
+
 # =============================================================================
 # Colors and Logging
 # =============================================================================
@@ -172,6 +178,20 @@ EOF
 # Argument Parsing
 # =============================================================================
 parse_args() {
+    # Parse common flags first using lib/flags.sh
+    init_flag_defaults
+    parse_common_flags "$@"
+    set -- "${REMAINING_ARGS[@]}"
+
+    # Bridge to legacy variables for compatibility
+    apply_flags_to_globals
+
+    # Handle help early if requested
+    if [[ "$FLAG_HELP" == "true" ]]; then
+        show_help
+    fi
+
+    # Parse command-specific flags
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --max-tasks)
@@ -192,26 +212,6 @@ parse_args() {
                 ;;
             --no-save-state)
                 SAVE_STATE=false
-                shift
-                ;;
-            --dry-run)
-                DRY_RUN=true
-                shift
-                ;;
-            --quiet|-q)
-                QUIET=true
-                shift
-                ;;
-            -f|--format)
-                FORMAT="$2"
-                shift 2
-                ;;
-            --json)
-                FORMAT="json"
-                shift
-                ;;
-            --human)
-                FORMAT="text"
                 shift
                 ;;
             --help|-h)

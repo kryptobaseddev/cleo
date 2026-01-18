@@ -10,6 +10,7 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 source "$LIB_DIR/exit-codes.sh"
 [[ -f "$LIB_DIR/output-format.sh" ]] && source "$LIB_DIR/output-format.sh"
 [[ -f "$LIB_DIR/error-json.sh" ]] && source "$LIB_DIR/error-json.sh"
+[[ -f "$LIB_DIR/flags.sh" ]] && source "$LIB_DIR/flags.sh"
 
 TODO_DIR="${TODO_DIR:-.cleo}"
 TODO_FILE="$TODO_DIR/todo.json"
@@ -17,13 +18,14 @@ STATE_FILE="$TODO_DIR/.context-state.json"
 SESSION_FILE="$TODO_DIR/.current-session"
 COMMAND_NAME="safestop"
 
+# Initialize flag defaults
+init_flag_defaults 2>/dev/null || true
+
 # Options
 REASON=""
 DO_COMMIT=false
 HANDOFF_FILE=""
 END_SESSION=true
-DRY_RUN=false
-FORMAT=""
 
 usage() {
     cat << EOF
@@ -155,7 +157,24 @@ generate_handoff() {
 
 # Main execution
 main() {
-    # Parse arguments
+    # Parse common flags first (if flags.sh was sourced successfully)
+    if declare -f parse_common_flags &>/dev/null; then
+        parse_common_flags "$@"
+        set -- "${REMAINING_ARGS[@]}"
+
+        # Bridge to legacy variables
+        apply_flags_to_globals
+        FORMAT="${FORMAT:-}"
+        DRY_RUN="${DRY_RUN:-false}"
+
+        # Handle help flag
+        if [[ "$FLAG_HELP" == true ]]; then
+            usage
+            exit 0
+        fi
+    fi
+
+    # Parse command-specific arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --reason)
@@ -172,24 +191,14 @@ main() {
             --no-session-end)
                 END_SESSION=false
                 ;;
-            --dry-run)
-                DRY_RUN=true
-                ;;
-            --json)
-                FORMAT="json"
-                ;;
-            --format)
-                FORMAT="$2"
-                shift
-                ;;
-            --help|-h)
-                usage
-                exit 0
-                ;;
-            *)
+            -*)
                 echo "Error: Unknown option: $1" >&2
                 usage >&2
                 exit 2
+                ;;
+            *)
+                shift
+                continue
                 ;;
         esac
         shift
