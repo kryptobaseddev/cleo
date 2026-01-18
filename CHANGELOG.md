@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.3] - 2026-01-18
+
+### Fixed
+- **upgrade.sh**: Fix `--human` flag not passing to nested `validate` command
+  - Sync local variables (`FORMAT`, `QUIET`, etc.) to `FLAG_*` variables for `get_passthrough_flags()`
+  - Scripts with custom argument parsing now properly pass format flags to subcommands
+
 ## [0.53.0] - 2026-01-18
 
 ### Added
