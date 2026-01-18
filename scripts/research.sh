@@ -63,12 +63,22 @@ SHOW_ID=""
 SHOW_FULL="false"
 SHOW_FINDINGS_ONLY="true"
 
+# Link subcommand options
+LINK_TASK_ID=""
+LINK_RESEARCH_ID=""
+LINK_UNLINK="false"
+LINK_NOTES=""
+
 # List subcommand options
 LIST_STATUS=""
 LIST_TOPIC=""
 LIST_SINCE=""
 LIST_ACTIONABLE="false"
 LIST_LIMIT="20"
+
+# Inject subcommand options
+INJECT_RAW="false"
+INJECT_CLIPBOARD="false"
 
 # Research storage
 RESEARCH_DIR=".cleo/research"
@@ -90,7 +100,17 @@ USAGE
 
 SUBCOMMANDS
   init             Initialize research outputs directory with protocol files
+  list             List research entries from manifest with filtering
   show <id>        Show details of a research entry from the manifest
+  inject           Output the subagent injection template for prompts
+  link <task> <research>  Link a research entry to a task
+
+LIST OPTIONS
+  --status STATUS  Filter by status (complete|partial|blocked|archived)
+  --topic TOPIC    Filter by topic tag
+  --since DATE     Filter entries since date (ISO 8601: YYYY-MM-DD)
+  --limit N        Max entries to return (default: 20)
+  --actionable     Only show actionable entries
 
 MODES
   (default)        Free-text query - comprehensive web research
@@ -114,6 +134,14 @@ OPTIONS
 SHOW OPTIONS
   --full                 Include full file content (WARNING: large context)
   --findings-only        Only key_findings array (default)
+
+LINK OPTIONS
+  --unlink               Remove link (not yet implemented)
+  --notes TEXT           Custom note text instead of default
+
+INJECT OPTIONS
+  --raw                  Output template without variable substitution
+  --clipboard            Copy to clipboard (pbcopy/xclip)
 
 EXAMPLES
   # Query mode - comprehensive research
@@ -143,6 +171,15 @@ EXAMPLES
   # Show a research entry
   cleo research show topic-2026-01-17
   cleo research show topic-2026-01-17 --full
+
+  # Get injection template for prompts
+  cleo research inject
+  cleo research inject --raw
+  cleo research inject --clipboard
+
+  # Link research to a task
+  cleo research link T042 topic-2026-01-17
+  cleo research link T042 topic-2026-01-17 --notes "Related to feature design"
 
 OUTPUT
   Creates research files in .cleo/research/:
@@ -234,6 +271,88 @@ while [[ $# -gt 0 ]]; do
         esac
       done
       ;;
+    list)
+      MODE="list"
+      shift
+      # Parse list-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --status)
+            LIST_STATUS="$2"
+            shift 2
+            ;;
+          --topic)
+            LIST_TOPIC="$2"
+            shift 2
+            ;;
+          --since)
+            LIST_SINCE="$2"
+            shift 2
+            ;;
+          --limit)
+            LIST_LIMIT="$2"
+            shift 2
+            ;;
+          --actionable)
+            LIST_ACTIONABLE="true"
+            shift
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
+    inject)
+      MODE="inject"
+      shift
+      # Parse inject-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --raw)
+            INJECT_RAW="true"
+            shift
+            ;;
+          --clipboard)
+            INJECT_CLIPBOARD="true"
+            shift
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
+    link)
+      MODE="link"
+      shift
+      # Get task-id (required positional argument)
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        LINK_TASK_ID="$1"
+        shift
+      fi
+      # Get research-id (required positional argument)
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        LINK_RESEARCH_ID="$1"
+        shift
+      fi
+      # Parse link-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --unlink)
+            LINK_UNLINK="true"
+            shift
+            ;;
+          --notes)
+            LINK_NOTES="$2"
+            shift 2
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
     --url)
       MODE="url"
       shift
@@ -316,10 +435,52 @@ validate_inputs() {
       # No validation needed for init
       return 0
       ;;
+    inject)
+      # No validation needed for inject
+      return 0
+      ;;
+    link)
+      if [[ -z "$LINK_TASK_ID" ]]; then
+        echo '{"error": "Task ID required", "usage": "cleo research link <task-id> <research-id>"}' >&2
+        exit 2
+      fi
+      if [[ -z "$LINK_RESEARCH_ID" ]]; then
+        echo '{"error": "Research ID required", "usage": "cleo research link <task-id> <research-id>"}' >&2
+        exit 2
+      fi
+      return 0
+      ;;
     show)
       if [[ -z "$SHOW_ID" ]]; then
         echo '{"error": "Research ID required", "usage": "cleo research show <id>"}' >&2
         exit 2
+      fi
+      return 0
+      ;;
+    list)
+      # Validate status if provided
+      if [[ -n "$LIST_STATUS" ]]; then
+        case "$LIST_STATUS" in
+          complete|partial|blocked|archived) ;;
+          *)
+            echo '{"error": "Invalid status. Use: complete, partial, blocked, or archived"}' >&2
+            exit 2
+            ;;
+        esac
+      fi
+      # Validate since date format if provided
+      if [[ -n "$LIST_SINCE" ]]; then
+        if ! [[ "$LIST_SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+          echo '{"error": "Invalid date format. Use ISO 8601: YYYY-MM-DD"}' >&2
+          exit 2
+        fi
+      fi
+      # Validate limit is a positive integer if provided
+      if [[ -n "$LIST_LIMIT" ]]; then
+        if ! [[ "$LIST_LIMIT" =~ ^[0-9]+$ ]] || [[ "$LIST_LIMIT" -eq 0 ]]; then
+          echo '{"error": "Limit must be a positive integer"}' >&2
+          exit 2
+        fi
       fi
       return 0
       ;;
@@ -491,6 +652,639 @@ run_init() {
       echo ""
       echo "All files already exist."
     fi
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# List Subcommand
+# ============================================================================
+
+run_list() {
+  # Build filter_entries arguments
+  local filter_args=()
+
+  if [[ -n "$LIST_STATUS" ]]; then
+    filter_args+=(--status "$LIST_STATUS")
+  fi
+
+  if [[ -n "$LIST_TOPIC" ]]; then
+    filter_args+=(--topic "$LIST_TOPIC")
+  fi
+
+  if [[ -n "$LIST_SINCE" ]]; then
+    filter_args+=(--since "$LIST_SINCE")
+  fi
+
+  if [[ "$LIST_ACTIONABLE" == "true" ]]; then
+    filter_args+=(--actionable)
+  fi
+
+  if [[ -n "$LIST_LIMIT" ]]; then
+    filter_args+=(--limit "$LIST_LIMIT")
+  fi
+
+  # Call filter_entries from research-manifest.sh
+  local result
+  result=$(filter_entries "${filter_args[@]}")
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Output based on format
+  if [[ "$format" == "json" ]]; then
+    # Transform to CLEO envelope format
+    local entries total filtered
+    entries=$(echo "$result" | jq '.result.entries')
+    total=$(echo "$result" | jq '.result.total')
+    filtered=$(echo "$result" | jq '.result.filtered')
+
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson entries "$entries" \
+      --argjson total "$total" \
+      --argjson filtered "$filtered" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "list",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "summary": {
+          "total": $total,
+          "returned": $filtered
+        },
+        "entries": $entries
+      }'
+  else
+    # Human-readable table format
+    local entries total filtered
+    entries=$(echo "$result" | jq '.result.entries')
+    total=$(echo "$result" | jq -r '.result.total')
+    filtered=$(echo "$result" | jq -r '.result.filtered')
+
+    echo ""
+    echo "Research Entries"
+    echo "================"
+    echo ""
+
+    if [[ "$filtered" -eq 0 ]]; then
+      echo "No entries found."
+      echo ""
+      echo "Run 'cleo research init' to initialize research outputs."
+    else
+      # Print table header
+      printf "%-25s %-12s %s\n" "ID" "STATUS" "TITLE"
+      printf "%-25s %-12s %s\n" "-------------------------" "------------" "$(printf '%0.s-' {1..40})"
+
+      # Print entries
+      echo "$entries" | jq -r '.[] | [.id, .status, .title] | @tsv' | while IFS=$'\t' read -r id status title; do
+        # Truncate title if too long
+        if [[ ${#title} -gt 40 ]]; then
+          title="${title:0:37}..."
+        fi
+        printf "%-25s %-12s %s\n" "$id" "$status" "$title"
+      done
+
+      echo ""
+      echo "Showing $filtered of $total entries"
+
+      # Show active filters
+      local filters=()
+      [[ -n "$LIST_STATUS" ]] && filters+=("status=$LIST_STATUS")
+      [[ -n "$LIST_TOPIC" ]] && filters+=("topic=$LIST_TOPIC")
+      [[ -n "$LIST_SINCE" ]] && filters+=("since=$LIST_SINCE")
+      [[ "$LIST_ACTIONABLE" == "true" ]] && filters+=("actionable=true")
+      [[ -n "$LIST_LIMIT" ]] && filters+=("limit=$LIST_LIMIT")
+
+      if [[ ${#filters[@]} -gt 0 ]]; then
+        echo "Filters: ${filters[*]}"
+      fi
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Show Subcommand
+# ============================================================================
+
+run_show() {
+  # Use find_entry from research-manifest.sh
+  local result
+  result=$(find_entry "$SHOW_ID") || true
+
+  # Check if entry was found
+  local success
+  success=$(echo "$result" | jq -r '.success')
+
+  if [[ "$success" != "true" ]]; then
+    # Entry not found - pass through the error
+    local format="${FORMAT:-}"
+    if [[ -z "$format" ]]; then
+      if [[ -t 1 ]]; then
+        format="human"
+      else
+        format="json"
+      fi
+    fi
+
+    if [[ "$format" == "json" ]]; then
+      # Re-wrap with research command metadata
+      local error_code error_msg
+      error_code=$(echo "$result" | jq -r '.error.code')
+      error_msg=$(echo "$result" | jq -r '.error.message')
+
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg id "$SHOW_ID" \
+        --arg error_code "$error_code" \
+        --arg error_msg "$error_msg" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "show",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": $error_code,
+            "message": $error_msg,
+            "id": $id
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Research entry '$SHOW_ID' not found."
+      echo ""
+      echo "Use 'cleo research list' to see available entries."
+      echo ""
+    fi
+    exit "${EXIT_NOT_FOUND:-4}"
+  fi
+
+  # Extract the entry
+  local entry
+  entry=$(echo "$result" | jq '.result.entry')
+
+  # If --full, also read the file content
+  local file_content=""
+  if [[ "$SHOW_FULL" == "true" ]]; then
+    local output_dir file_name file_path
+    output_dir=$(_rm_get_output_dir)
+    file_name=$(echo "$entry" | jq -r '.file')
+    file_path="${output_dir}/${file_name}"
+
+    if [[ -f "$file_path" ]]; then
+      file_content=$(cat "$file_path")
+    fi
+  fi
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Output based on format
+  if [[ "$format" == "json" ]]; then
+    # Build JSON output
+    if [[ "$SHOW_FULL" == "true" && -n "$file_content" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --argjson entry "$entry" \
+        --arg content "$file_content" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "show",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": true,
+          "entry": $entry,
+          "content": $content
+        }'
+    else
+      # Default: just entry (context-efficient)
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --argjson entry "$entry" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "show",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": true,
+          "entry": $entry
+        }'
+    fi
+  else
+    # Human-readable format
+    local id title status file_name date actionable
+    id=$(echo "$entry" | jq -r '.id')
+    title=$(echo "$entry" | jq -r '.title')
+    status=$(echo "$entry" | jq -r '.status')
+    file_name=$(echo "$entry" | jq -r '.file')
+    date=$(echo "$entry" | jq -r '.date')
+    actionable=$(echo "$entry" | jq -r '.actionable')
+
+    echo ""
+    echo "Research: $id"
+    printf '%.0s=' {1..50}
+    echo ""
+    echo "  Title:      $title"
+    echo "  Status:     $status"
+    echo "  Date:       $date"
+    echo "  File:       $file_name"
+    echo "  Actionable: $actionable"
+
+    # Show topics if present
+    local topics_count
+    topics_count=$(echo "$entry" | jq '.topics | length')
+    if [[ "$topics_count" -gt 0 ]]; then
+      echo ""
+      echo "Topics:"
+      echo "$entry" | jq -r '.topics[]' | while read -r topic; do
+        echo "  - $topic"
+      done
+    fi
+
+    # Show key findings
+    local findings_count
+    findings_count=$(echo "$entry" | jq '.key_findings | length')
+    if [[ "$findings_count" -gt 0 ]]; then
+      echo ""
+      echo "Key Findings:"
+      # Use jq to format with index numbers to avoid subshell counter issue
+      echo "$entry" | jq -r '.key_findings | to_entries[] | "  \(.key + 1). \(.value)"'
+    fi
+
+    # Show needs_followup if present and non-empty
+    local followup_count
+    followup_count=$(echo "$entry" | jq '.needs_followup // [] | length')
+    if [[ "$followup_count" -gt 0 ]]; then
+      echo ""
+      echo "Needs Follow-up:"
+      echo "$entry" | jq -r '.needs_followup[]' | while read -r followup; do
+        echo "  - $followup"
+      done
+    fi
+
+    # Show file content if --full
+    if [[ "$SHOW_FULL" == "true" && -n "$file_content" ]]; then
+      echo ""
+      echo "File Content:"
+      printf '%.0s-' {1..50}
+      echo ""
+      echo "$file_content"
+    elif [[ "$SHOW_FULL" == "true" ]]; then
+      echo ""
+      echo "Warning: File not found at expected path."
+    fi
+
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Inject Subcommand
+# ============================================================================
+
+run_inject() {
+  # Find templates directory
+  local templates_dir=""
+  if [[ -d "$CLEO_HOME/templates" ]]; then
+    templates_dir="$CLEO_HOME/templates"
+  elif [[ -d "$SCRIPT_DIR/../templates" ]]; then
+    templates_dir="$SCRIPT_DIR/../templates"
+  else
+    echo "Error: Templates directory not found" >&2
+    exit "${EXIT_FILE_ERROR:-4}"
+  fi
+
+  local inject_template="${templates_dir}/subagent-protocol/INJECT.md"
+
+  # Check template exists
+  if [[ ! -f "$inject_template" ]]; then
+    echo "Error: INJECT.md template not found at $inject_template" >&2
+    exit "${EXIT_FILE_ERROR:-4}"
+  fi
+
+  # Read the template
+  local template_content
+  template_content=$(cat "$inject_template")
+
+  # Get output directory from config
+  local output_dir
+  output_dir=$(_rm_get_output_dir)
+
+  # Prepare the output
+  local output
+
+  if [[ "$INJECT_RAW" == "true" ]]; then
+    # Raw mode: no substitution
+    output="$template_content"
+  else
+    # Substitute {output_dir} with actual value
+    output="${template_content//\{output_dir\}/$output_dir}"
+  fi
+
+  # Extract just the code block content (between the ``` markers)
+  # The template has markdown wrapping, we want the injection block itself
+  local injection_block
+  injection_block=$(echo "$output" | sed -n '/^```$/,/^```$/p' | sed '1d;$d')
+
+  # If extraction failed, use the whole content (fallback)
+  if [[ -z "$injection_block" ]]; then
+    injection_block="$output"
+  fi
+
+  # Output or copy to clipboard
+  if [[ "$INJECT_CLIPBOARD" == "true" ]]; then
+    # Detect clipboard command
+    local clip_cmd=""
+    if command -v pbcopy &>/dev/null; then
+      clip_cmd="pbcopy"
+    elif command -v xclip &>/dev/null; then
+      clip_cmd="xclip -selection clipboard"
+    elif command -v xsel &>/dev/null; then
+      clip_cmd="xsel --clipboard --input"
+    elif command -v wl-copy &>/dev/null; then
+      clip_cmd="wl-copy"
+    fi
+
+    if [[ -z "$clip_cmd" ]]; then
+      echo "Error: No clipboard utility found (pbcopy, xclip, xsel, wl-copy)" >&2
+      exit "${EXIT_DEPENDENCY_ERROR:-5}"
+    fi
+
+    echo "$injection_block" | $clip_cmd
+    echo "Injection template copied to clipboard."
+  else
+    # Plain text output (not JSON wrapped for copy-paste ergonomics)
+    echo "$injection_block"
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Link Subcommand
+# ============================================================================
+
+run_link() {
+  local task_id="$LINK_TASK_ID"
+  local research_id="$LINK_RESEARCH_ID"
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Validate required arguments
+  if [[ -z "$task_id" ]]; then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "link",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_MISSING_ARGUMENT",
+            "message": "Task ID required",
+            "usage": "cleo research link <task-id> <research-id>"
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Task ID required."
+      echo "Usage: cleo research link <task-id> <research-id>"
+      echo ""
+    fi
+    exit 2
+  fi
+
+  if [[ -z "$research_id" ]]; then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "link",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_MISSING_ARGUMENT",
+            "message": "Research ID required",
+            "usage": "cleo research link <task-id> <research-id>"
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Research ID required."
+      echo "Usage: cleo research link <task-id> <research-id>"
+      echo ""
+    fi
+    exit 2
+  fi
+
+  # Step 1: Validate task exists
+  if ! cleo exists "$task_id" --quiet 2>/dev/null; then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg task_id "$task_id" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "link",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_TASK_NOT_FOUND",
+            "message": ("Task " + $task_id + " not found"),
+            "taskId": $task_id
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Task '$task_id' not found."
+      echo ""
+      echo "Use 'cleo find' or 'cleo list' to verify the task ID."
+      echo ""
+    fi
+    exit "${EXIT_NOT_FOUND:-4}"
+  fi
+
+  # Step 2: Validate research entry exists in manifest
+  local find_result
+  find_result=$(find_entry "$research_id") || true
+
+  local find_success
+  find_success=$(echo "$find_result" | jq -r '.success')
+
+  if [[ "$find_success" != "true" ]]; then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg research_id "$research_id" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "link",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_RESEARCH_NOT_FOUND",
+            "message": ("Research entry " + $research_id + " not found"),
+            "researchId": $research_id
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Research entry '$research_id' not found."
+      echo ""
+      echo "Use 'cleo research list' to see available entries."
+      echo ""
+    fi
+    exit "${EXIT_NOT_FOUND:-4}"
+  fi
+
+  # Extract research title for the note
+  local research_title
+  research_title=$(echo "$find_result" | jq -r '.result.entry.title')
+
+  # Step 3: Build note text
+  local note_text
+  if [[ -n "$LINK_NOTES" ]]; then
+    note_text="Linked research: $research_id ($research_title). $LINK_NOTES"
+  else
+    note_text="Linked research: $research_id ($research_title)"
+  fi
+
+  # Step 4: Add note to task using cleo update
+  local update_result
+  if ! update_result=$(cleo update "$task_id" --notes "$note_text" 2>&1); then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg task_id "$task_id" \
+        --arg research_id "$research_id" \
+        --arg update_error "$update_result" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "link",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_UPDATE_FAILED",
+            "message": "Failed to add note to task",
+            "taskId": $task_id,
+            "researchId": $research_id,
+            "details": $update_error
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Failed to add note to task '$task_id'."
+      echo "Details: $update_result"
+      echo ""
+    fi
+    exit "${EXIT_FILE_ERROR:-4}"
+  fi
+
+  # Success output
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg task_id "$task_id" \
+      --arg research_id "$research_id" \
+      --arg research_title "$research_title" \
+      --arg note_text "$note_text" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "link",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": {
+          "taskId": $task_id,
+          "researchId": $research_id,
+          "researchTitle": $research_title,
+          "action": "linked",
+          "taskNote": $note_text
+        }
+      }'
+  else
+    echo ""
+    echo "Linked research to task"
+    echo "  Task:     $task_id"
+    echo "  Research: $research_id ($research_title)"
+    echo ""
   fi
 
   exit 0
@@ -800,6 +1594,18 @@ main() {
 case "$MODE" in
   init)
     run_init
+    ;;
+  list)
+    run_list
+    ;;
+  show)
+    run_show
+    ;;
+  inject)
+    run_inject
+    ;;
+  link)
+    run_link
     ;;
   *)
     main
