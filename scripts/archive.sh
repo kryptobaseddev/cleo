@@ -326,6 +326,48 @@ EOF
   [[ "$QUIET" != true && "$FORMAT" != "json" ]] && log_info "Created $ARCHIVE_FILE"
 fi
 
+# ============================================================================
+# ID COLLISION CHECK (T1541 - ID Integrity System)
+# Detect if any task IDs exist in BOTH todo.json AND archive (data corruption)
+# This should never happen but can occur with corrupted data or ID collisions
+# ============================================================================
+_TODO_IDS=$(jq -r '[.tasks[].id] | sort | unique' "$TODO_FILE" 2>/dev/null || echo '[]')
+_ARCHIVE_IDS=$(jq -r '[.archivedTasks[].id // empty] | sort | unique' "$ARCHIVE_FILE" 2>/dev/null || echo '[]')
+_COLLISION_IDS=$(echo "$_TODO_IDS" "$_ARCHIVE_IDS" | jq -s '
+  .[0] as $todo | .[1] as $archive |
+  [$todo[] | select(. as $id | $archive | index($id))]
+')
+_COLLISION_COUNT=$(echo "$_COLLISION_IDS" | jq 'length')
+
+if [[ "$_COLLISION_COUNT" -gt 0 ]]; then
+  if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
+    # Build collision details for JSON output
+    _COLLISION_DETAILS=$(echo "$_COLLISION_IDS" | jq -c '.')
+    output_error "E_ID_COLLISION" \
+      "Data corruption: $_COLLISION_COUNT task ID(s) exist in both todo.json and archive" \
+      "${EXIT_ID_COLLISION:-22}" \
+      true \
+      "Run 'cleo validate --fix-duplicates' or 'cleo sequence repair' to resolve"
+    # Add collision IDs to error output
+    echo "{\"collisionIds\": $_COLLISION_DETAILS}" >&2
+  else
+    log_error "ID COLLISION DETECTED - Data corruption found!"
+    log_error "The following $_COLLISION_COUNT task ID(s) exist in BOTH todo.json AND archive:"
+    echo "$_COLLISION_IDS" | jq -r '.[] | "  - \(.)"'
+    echo ""
+    echo "This indicates data corruption. Possible causes:"
+    echo "  - Manual editing of JSON files"
+    echo "  - Interrupted archive operation"
+    echo "  - ID sequence out of sync"
+    echo ""
+    echo "To repair, run one of:"
+    echo "  cleo validate --fix-duplicates   # Interactive repair"
+    echo "  cleo sequence repair             # Reset ID counter"
+  fi
+  exit "${EXIT_ID_COLLISION:-22}"
+fi
+unset _TODO_IDS _ARCHIVE_IDS _COLLISION_IDS _COLLISION_COUNT
+
 # Validate --cascade-from task exists and is completed
 if [[ -n "$CASCADE_FROM" ]]; then
   # Verify task exists (use jq-helper if available)

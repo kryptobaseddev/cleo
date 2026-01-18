@@ -112,6 +112,7 @@ FORMAT=""
 NON_INTERACTIVE=false
 CHECK_ORPHANS=""  # Empty means use config, explicit true/false overrides
 FIX_ORPHANS=""    # Empty means no fix, "unlink" or "delete" for repair mode
+FIX_DUPLICATES=false  # T1542: Interactive duplicate resolution
 
 # Track validation results
 ERRORS=0
@@ -139,6 +140,9 @@ Validate todo.json against schema and business rules.
 Options:
   --strict            Treat warnings as errors
   --fix               Auto-fix simple issues (interactive for conflicts)
+  --fix-duplicates    Interactive resolution for duplicate task IDs
+                      Creates backup before changes, repairs sequence after
+                      Use with --non-interactive for auto-selection
   --non-interactive   Use auto-selection for conflict resolution (with --fix)
   --json              Output as JSON (same as --format json)
   --format, -f        Output format: text (default) or json
@@ -265,6 +269,287 @@ safe_json_write() {
   return 0
 }
 
+#######################################
+# T1542: Fix-duplicates helper functions
+#######################################
+
+# Track duplicate resolution results for JSON output
+declare -a DUPLICATES_FIXED_TODO=()
+declare -a DUPLICATES_FIXED_ARCHIVE=()
+declare -a DUPLICATES_FIXED_CROSS=()
+DUPLICATE_BACKUPS=""
+SEQUENCE_REPAIRED=false
+
+#######################################
+# Display duplicate task info
+# Arguments:
+#   $1 - Task JSON object
+#   $2 - Index number
+#######################################
+display_duplicate_task() {
+  local task_json="$1"
+  local index="$2"
+  local id title created status notes_count
+
+  id=$(echo "$task_json" | jq -r '.id // "?"')
+  title=$(echo "$task_json" | jq -r '.title // "(no title)"' | cut -c1-50)
+  created=$(echo "$task_json" | jq -r '.createdAt // .completedAt // "?"' | cut -c1-19)
+  status=$(echo "$task_json" | jq -r '.status // "?"')
+  notes_count=$(echo "$task_json" | jq -r '(.notes // []) | length')
+
+  echo "  [$index] $id - \"$title\""
+  echo "      Created: $created | Status: $status | Notes: $notes_count"
+}
+
+#######################################
+# Prompt user for duplicate resolution
+# Arguments:
+#   $1 - Duplicate type: "todo", "archive", "cross"
+#   $2 - Duplicate ID
+#   $3 - JSON array of duplicate tasks
+# Sets:
+#   REPLY - Selected action
+#######################################
+resolve_duplicate_interactive() {
+  local dup_type="$1"
+  local dup_id="$2"
+  local dup_tasks="$3"
+  local count
+
+  count=$(echo "$dup_tasks" | jq 'length')
+
+  echo ""
+  echo "════════════════════════════════════════════════════════════════"
+  echo " Duplicate ID Found: $dup_id"
+  echo "════════════════════════════════════════════════════════════════"
+
+  case "$dup_type" in
+    todo)   echo " Location: todo.json" ;;
+    archive) echo " Location: todo-archive.json" ;;
+    cross)  echo " Location: BOTH todo.json AND archive" ;;
+  esac
+  echo " Occurrences: $count"
+  echo ""
+
+  # Display each duplicate
+  local i
+  for ((i=0; i<count; i++)); do
+    local task
+    task=$(echo "$dup_tasks" | jq ".[$i]")
+    display_duplicate_task "$task" "$((i+1))"
+    echo ""
+  done
+
+  echo "────────────────────────────────────────────────────────────────"
+  echo " Resolution Options:"
+
+  case "$dup_type" in
+    todo|archive)
+      echo "   1) Keep first occurrence (delete others)"
+      echo "   2) Keep newest (by createdAt, delete older)"
+      echo "   3) Rename duplicates (append -dup-N suffix)"
+      echo "   4) Skip (do not fix this duplicate)"
+      echo ""
+      read -r -p "Select [1-4]: " choice
+      case "$choice" in
+        1) REPLY="keep-first" ;;
+        2) REPLY="keep-newest" ;;
+        3) REPLY="rename" ;;
+        *) REPLY="skip" ;;
+      esac
+      ;;
+    cross)
+      echo "   1) Keep active version (remove from archive)"
+      echo "   2) Keep archived version (remove from todo.json)"
+      echo "   3) Rename archived version (append -archived suffix)"
+      echo "   4) Skip (do not fix this duplicate)"
+      echo ""
+      read -r -p "Select [1-4]: " choice
+      case "$choice" in
+        1) REPLY="keep-active" ;;
+        2) REPLY="keep-archived" ;;
+        3) REPLY="rename-archived" ;;
+        *) REPLY="skip" ;;
+      esac
+      ;;
+  esac
+}
+
+#######################################
+# Auto-select resolution for non-interactive mode
+# Arguments:
+#   $1 - Duplicate type: "todo", "archive", "cross"
+# Sets:
+#   REPLY - Default action
+#######################################
+resolve_duplicate_auto() {
+  local dup_type="$1"
+  case "$dup_type" in
+    todo)    REPLY="keep-first" ;;
+    archive) REPLY="keep-first" ;;
+    cross)   REPLY="keep-active" ;;
+  esac
+}
+
+#######################################
+# Apply duplicate resolution for same-file duplicates
+# Arguments:
+#   $1 - File path (todo.json or archive)
+#   $2 - Array key ("tasks" or "archivedTasks")
+#   $3 - Duplicate ID
+#   $4 - Action: keep-first, keep-newest, rename
+# Returns:
+#   0 on success, 1 on error
+#######################################
+apply_same_file_resolution() {
+  local file="$1"
+  local array_key="$2"
+  local dup_id="$3"
+  local action="$4"
+
+  case "$action" in
+    keep-first)
+      # Keep only first occurrence
+      if safe_json_write "$file" "
+        .$array_key |= (
+          reduce .[] as \$task ([];
+            if (map(.id) | index(\$task.id) | not) then . + [\$task] else . end
+          )
+        )
+      "; then
+        return 0
+      fi
+      ;;
+    keep-newest)
+      # Sort by createdAt desc, keep first
+      if safe_json_write "$file" "
+        .$array_key |= (
+          group_by(.id) | map(sort_by(.createdAt // .completedAt) | reverse | .[0])
+        )
+      "; then
+        return 0
+      fi
+      ;;
+    rename)
+      # Rename duplicates with -dup-N suffix
+      if safe_json_write "$file" "
+        .$array_key |= (
+          reduce .[] as \$task (
+            {seen: {}, result: []};
+            if .seen[\$task.id] then
+              .seen[\$task.id] += 1 |
+              .result += [\$task | .id = (.id + \"-dup-\" + (.seen[\$task.id] | tostring))]
+            else
+              .seen[\$task.id] = 0 |
+              .result += [\$task]
+            end
+          ) | .result
+        )
+      "; then
+        return 0
+      fi
+      ;;
+    skip)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+#######################################
+# Apply cross-file duplicate resolution
+# Arguments:
+#   $1 - Todo file path
+#   $2 - Archive file path
+#   $3 - Duplicate ID
+#   $4 - Action: keep-active, keep-archived, rename-archived
+# Returns:
+#   0 on success, 1 on error
+#######################################
+apply_cross_file_resolution() {
+  local todo_file="$1"
+  local archive_file="$2"
+  local dup_id="$3"
+  local action="$4"
+
+  case "$action" in
+    keep-active)
+      # Remove from archive
+      if safe_json_write "$archive_file" '.archivedTasks |= map(select(.id != $id))' --arg id "$dup_id"; then
+        return 0
+      fi
+      ;;
+    keep-archived)
+      # Remove from todo.json
+      if safe_json_write "$todo_file" '.tasks |= map(select(.id != $id))' --arg id "$dup_id"; then
+        return 0
+      fi
+      ;;
+    rename-archived)
+      # Rename in archive with -archived suffix
+      if safe_json_write "$archive_file" '
+        .archivedTasks |= map(if .id == $id then .id = ($id + "-archived") else . end)
+      ' --arg id "$dup_id"; then
+        return 0
+      fi
+      ;;
+    skip)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+#######################################
+# Create safety backups before fix-duplicates
+# Arguments:
+#   $1 - Todo file path
+#   $2 - Archive file path (optional)
+# Sets:
+#   DUPLICATE_BACKUPS - JSON object with backup paths
+#######################################
+create_duplicate_fix_backups() {
+  local todo_file="$1"
+  local archive_file="${2:-}"
+  local todo_backup="" archive_backup=""
+
+  if declare -f create_safety_backup >/dev/null 2>&1; then
+    # Backup todo.json
+    todo_backup=$(create_safety_backup "$todo_file" "fix-duplicates" 2>/dev/null || echo "")
+
+    # Backup archive if exists
+    if [[ -f "$archive_file" ]]; then
+      archive_backup=$(create_safety_backup "$archive_file" "fix-duplicates" 2>/dev/null || echo "")
+    fi
+  fi
+
+  DUPLICATE_BACKUPS=$(jq -nc \
+    --arg todo "$todo_backup" \
+    --arg archive "$archive_backup" \
+    '{todoJson: (if $todo != "" then $todo else null end), archive: (if $archive != "" then $archive else null end)}')
+}
+
+#######################################
+# Repair sequence counter after duplicate fixes
+# Returns:
+#   0 on success, 1 on error
+#######################################
+repair_sequence_after_fix() {
+  # Source sequence library if not already loaded
+  if [[ -f "$LIB_DIR/sequence.sh" ]]; then
+    # shellcheck source=../lib/sequence.sh
+    source "$LIB_DIR/sequence.sh"
+  fi
+
+  if declare -f recover_sequence >/dev/null 2>&1; then
+    if recover_sequence >/dev/null 2>&1; then
+      SEQUENCE_REPAIRED=true
+      return 0
+    fi
+  fi
+  return 1
+}
+
 # Check dependencies
 check_deps() {
   if ! command -v jq &> /dev/null; then
@@ -288,6 +573,7 @@ while [[ $# -gt 0 ]]; do
       fi
       shift 2
       ;;
+    --fix-duplicates) FIX_DUPLICATES=true; shift ;;
     --json) JSON_OUTPUT=true; FORMAT="json"; shift ;;
     --human) JSON_OUTPUT=false; FORMAT="text"; shift ;;
     -f|--format)
@@ -338,10 +624,61 @@ ARCHIVE_FILE="${TODO_FILE%.json}-archive.json"
 TASK_IDS=$(jq -r '.tasks[].id' "$TODO_FILE" 2>/dev/null || echo "")
 DUPLICATE_IDS=$(echo "$TASK_IDS" | sort | uniq -d)
 
+# Track if any duplicates were fixed (for sequence repair)
+DUPLICATES_FIXED_COUNT=0
+
+# T1542: Create backup BEFORE any fix-duplicates operations
+if [[ "$FIX_DUPLICATES" == true ]]; then
+  # Check if there are any duplicates to fix
+  ARCHIVE_IDS_CHECK=""
+  ARCHIVE_DUPLICATES_CHECK=""
+  CROSS_DUPLICATES_CHECK=""
+  if [[ -f "$ARCHIVE_FILE" ]]; then
+    ARCHIVE_IDS_CHECK=$(jq -r '.archivedTasks[].id' "$ARCHIVE_FILE" 2>/dev/null || echo "")
+    ARCHIVE_DUPLICATES_CHECK=$(echo "$ARCHIVE_IDS_CHECK" | sort | uniq -d)
+    if [[ -n "$TASK_IDS" ]] && [[ -n "$ARCHIVE_IDS_CHECK" ]]; then
+      CROSS_DUPLICATES_CHECK=$(comm -12 <(echo "$TASK_IDS" | sort) <(echo "$ARCHIVE_IDS_CHECK" | sort))
+    fi
+  fi
+
+  # Create backups if there are duplicates to fix
+  if [[ -n "$DUPLICATE_IDS" ]] || [[ -n "$ARCHIVE_DUPLICATES_CHECK" ]] || [[ -n "$CROSS_DUPLICATES_CHECK" ]]; then
+    create_duplicate_fix_backups "$TODO_FILE" "$ARCHIVE_FILE"
+    if [[ "$JSON_OUTPUT" != true ]] && [[ -n "$DUPLICATE_BACKUPS" ]]; then
+      log_info "Created safety backups before duplicate repair" "backup"
+    fi
+  fi
+fi
+
 if [[ -n "$DUPLICATE_IDS" ]]; then
   log_error "Duplicate task IDs found in todo.json: $(echo "$DUPLICATE_IDS" | tr '\n' ', ' | sed 's/,$//')" "duplicate_ids"
-  if [[ "$FIX" == true ]]; then
-    # Keep only first occurrence of each ID (atomic write with locking)
+
+  if [[ "$FIX_DUPLICATES" == true ]]; then
+    # T1542: Interactive/auto duplicate resolution
+    for dup_id in $DUPLICATE_IDS; do
+      # Get duplicate tasks for display
+      dup_tasks=$(jq --arg id "$dup_id" '[.tasks[] | select(.id == $id)]' "$TODO_FILE")
+
+      if [[ "$NON_INTERACTIVE" == true ]]; then
+        resolve_duplicate_auto "todo"
+      else
+        resolve_duplicate_interactive "todo" "$dup_id" "$dup_tasks"
+      fi
+
+      if [[ "$REPLY" != "skip" ]]; then
+        if apply_same_file_resolution "$TODO_FILE" "tasks" "$dup_id" "$REPLY"; then
+          (( ++DUPLICATES_FIXED_COUNT )) || true
+          DUPLICATES_FIXED_TODO+=("$(jq -nc --arg id "$dup_id" --arg action "$REPLY" '{id:$id,action:$action}')")
+          if [[ "$JSON_OUTPUT" != true ]]; then
+            echo "  Fixed: $dup_id ($REPLY)"
+          fi
+        else
+          log_error "Failed to fix duplicate $dup_id"
+        fi
+      fi
+    done
+  elif [[ "$FIX" == true ]]; then
+    # Original simple fix: keep only first occurrence
     if safe_json_write "$TODO_FILE" '
       .tasks |= (
         reduce .[] as $task ([];
@@ -365,8 +702,32 @@ if [[ -f "$ARCHIVE_FILE" ]]; then
 
   if [[ -n "$ARCHIVE_DUPLICATES" ]]; then
     log_error "Duplicate IDs in archive: $(echo "$ARCHIVE_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')"
-    if [[ "$FIX" == true ]]; then
-      # Keep only first occurrence in archive (atomic write with locking)
+
+    if [[ "$FIX_DUPLICATES" == true ]]; then
+      # T1542: Interactive/auto duplicate resolution for archive
+      for dup_id in $ARCHIVE_DUPLICATES; do
+        dup_tasks=$(jq --arg id "$dup_id" '[.archivedTasks[] | select(.id == $id)]' "$ARCHIVE_FILE")
+
+        if [[ "$NON_INTERACTIVE" == true ]]; then
+          resolve_duplicate_auto "archive"
+        else
+          resolve_duplicate_interactive "archive" "$dup_id" "$dup_tasks"
+        fi
+
+        if [[ "$REPLY" != "skip" ]]; then
+          if apply_same_file_resolution "$ARCHIVE_FILE" "archivedTasks" "$dup_id" "$REPLY"; then
+            (( ++DUPLICATES_FIXED_COUNT )) || true
+            DUPLICATES_FIXED_ARCHIVE+=("$(jq -nc --arg id "$dup_id" --arg action "$REPLY" '{id:$id,action:$action}')")
+            if [[ "$JSON_OUTPUT" != true ]]; then
+              echo "  Fixed: $dup_id in archive ($REPLY)"
+            fi
+          else
+            log_error "Failed to fix archive duplicate $dup_id"
+          fi
+        fi
+      done
+    elif [[ "$FIX" == true ]]; then
+      # Original simple fix: keep only first occurrence in archive
       if safe_json_write "$ARCHIVE_FILE" '
         .archivedTasks |= (
           reduce .[] as $task ([];
@@ -388,8 +749,35 @@ if [[ -f "$ARCHIVE_FILE" ]]; then
     CROSS_DUPLICATES=$(comm -12 <(echo "$TASK_IDS" | sort) <(echo "$ARCHIVE_IDS" | sort))
     if [[ -n "$CROSS_DUPLICATES" ]]; then
       log_error "IDs exist in both todo.json and archive: $(echo "$CROSS_DUPLICATES" | tr '\n' ', ' | sed 's/,$//')"
-      if [[ "$FIX" == true ]]; then
-        # Remove from archive (keep in active todo.json) - atomic write with locking
+
+      if [[ "$FIX_DUPLICATES" == true ]]; then
+        # T1542: Interactive/auto cross-file duplicate resolution
+        for cross_id in $CROSS_DUPLICATES; do
+          # Get tasks from both files for display
+          todo_task=$(jq --arg id "$cross_id" '[.tasks[] | select(.id == $id)]' "$TODO_FILE")
+          archive_task=$(jq --arg id "$cross_id" '[.archivedTasks[] | select(.id == $id)]' "$ARCHIVE_FILE")
+          combined_tasks=$(echo "$todo_task $archive_task" | jq -s 'add')
+
+          if [[ "$NON_INTERACTIVE" == true ]]; then
+            resolve_duplicate_auto "cross"
+          else
+            resolve_duplicate_interactive "cross" "$cross_id" "$combined_tasks"
+          fi
+
+          if [[ "$REPLY" != "skip" ]]; then
+            if apply_cross_file_resolution "$TODO_FILE" "$ARCHIVE_FILE" "$cross_id" "$REPLY"; then
+              (( ++DUPLICATES_FIXED_COUNT )) || true
+              DUPLICATES_FIXED_CROSS+=("$(jq -nc --arg id "$cross_id" --arg action "$REPLY" '{id:$id,action:$action}')")
+              if [[ "$JSON_OUTPUT" != true ]]; then
+                echo "  Fixed: $cross_id cross-file ($REPLY)"
+              fi
+            else
+              log_error "Failed to fix cross-file duplicate $cross_id"
+            fi
+          fi
+        done
+      elif [[ "$FIX" == true ]]; then
+        # Original simple fix: remove from archive (keep in active todo.json)
         cross_fix_failed=false
         for cross_id in $CROSS_DUPLICATES; do
           if ! safe_json_write "$ARCHIVE_FILE" '.archivedTasks |= map(select(.id != $id))' --arg id "$cross_id"; then
@@ -406,6 +794,15 @@ if [[ -f "$ARCHIVE_FILE" ]]; then
     else
       log_info "No cross-file duplicate IDs" "cross_duplicates"
     fi
+  fi
+fi
+
+# T1542: Repair sequence counter after duplicate fixes
+if [[ "$FIX_DUPLICATES" == true ]] && [[ "$DUPLICATES_FIXED_COUNT" -gt 0 ]]; then
+  if repair_sequence_after_fix; then
+    log_info "Sequence counter repaired after duplicate fixes" "sequence_repair"
+  else
+    log_warn "Failed to repair sequence counter" "sequence_repair"
   fi
 fi
 
