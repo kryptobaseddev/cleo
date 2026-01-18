@@ -962,6 +962,35 @@
           "description": "Seconds to suppress repeat alerts at same threshold level. 0 = show on every threshold crossing."
         }
       }
+    },
+
+    "research": {
+      "type": "object",
+      "description": "Subagent research output configuration. Controls where research outputs are stored and how they are managed.",
+      "additionalProperties": false,
+      "properties": {
+        "outputDir": {
+          "type": "string",
+          "default": "docs/claudedocs/research-outputs",
+          "description": "Directory for subagent research outputs relative to project root."
+        },
+        "manifestFile": {
+          "type": "string",
+          "default": "MANIFEST.jsonl",
+          "description": "Manifest filename (JSONL format) within outputDir."
+        },
+        "archiveDir": {
+          "type": "string",
+          "default": "archive",
+          "description": "Subdirectory within outputDir for archived research."
+        },
+        "archiveDays": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 1,
+          "description": "Days until non-actionable research is archived."
+        }
+      }
     }
   }
 }

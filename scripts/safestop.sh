@@ -164,7 +164,7 @@ main() {
 
         # Bridge to legacy variables
         apply_flags_to_globals
-        FORMAT="${FORMAT:-}"
+        FORMAT=$(resolve_format "$FORMAT")
         DRY_RUN="${DRY_RUN:-false}"
 
         # Handle help flag

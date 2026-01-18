@@ -7,6 +7,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/test-helpers.sh"
 
+# Check if script uses centralized flags.sh library
+# Usage: uses_centralized_flags <script_path>
+# Returns: 0 if using centralized pattern, 1 otherwise
+uses_centralized_flags() {
+    local script="$1"
+
+    # Check for: source flags.sh AND parse_common_flags call
+    if pattern_exists "$script" 'source.*flags\.sh' && \
+       pattern_exists "$script" 'parse_common_flags'; then
+        return 0
+    fi
+    return 1
+}
+
 # Check flag compliance for a script file
 # Usage: check_flags <script_path> <schema_json> <command_name> [verbose]
 check_flags() {
@@ -30,13 +44,22 @@ check_flags() {
     local failed=0
     local skipped=0
 
+    # Check if script uses centralized flags.sh library
+    local uses_central_flags=false
+    if uses_centralized_flags "$script"; then
+        uses_central_flags=true
+        [[ "$verbose" == "true" ]] && print_check info "Using centralized flags.sh library"
+    fi
+
     # Check 1: --format flag
     # Use pre-extracted pattern from check-compliance.sh if available, fallback to jq
     local format_pattern
     format_pattern="${PATTERN_FORMAT_FLAG:-$(echo "$schema" | jq -r '.requirements.flags.universal.patterns.format_flag')}"
 
-    if pattern_exists "$script" "$format_pattern"; then
-        results+=('{"check": "format_flag", "passed": true, "details": "--format flag supported"}')
+    if [[ "$uses_central_flags" == "true" ]] || pattern_exists "$script" "$format_pattern"; then
+        local details="--format flag supported"
+        [[ "$uses_central_flags" == "true" ]] && details="--format flag (via flags.sh)"
+        results+=("{\"check\": \"format_flag\", \"passed\": true, \"details\": \"$details\"}")
         ((passed++)) || true
         [[ "$verbose" == "true" ]] && print_check pass "--format flag"
     else
@@ -50,8 +73,10 @@ check_flags() {
     local quiet_pattern
     quiet_pattern="${PATTERN_QUIET_FLAG:-$(echo "$schema" | jq -r '.requirements.flags.universal.patterns.quiet_flag')}"
 
-    if pattern_exists "$script" "$quiet_pattern"; then
-        results+=('{"check": "quiet_flag", "passed": true, "details": "--quiet flag supported"}')
+    if [[ "$uses_central_flags" == "true" ]] || pattern_exists "$script" "$quiet_pattern"; then
+        local details="--quiet flag supported"
+        [[ "$uses_central_flags" == "true" ]] && details="--quiet flag (via flags.sh)"
+        results+=("{\"check\": \"quiet_flag\", \"passed\": true, \"details\": \"$details\"}")
         ((passed++)) || true
         [[ "$verbose" == "true" ]] && print_check pass "--quiet flag"
     else
@@ -65,8 +90,10 @@ check_flags() {
     local json_pattern
     json_pattern="${PATTERN_JSON_SHORTCUT:-$(echo "$schema" | jq -r '.requirements.flags.universal.patterns.json_shortcut')}"
 
-    if pattern_exists "$script" "$json_pattern"; then
-        results+=('{"check": "json_shortcut", "passed": true, "details": "--json shortcut supported"}')
+    if [[ "$uses_central_flags" == "true" ]] || pattern_exists "$script" "$json_pattern"; then
+        local details="--json shortcut supported"
+        [[ "$uses_central_flags" == "true" ]] && details="--json shortcut (via flags.sh)"
+        results+=("{\"check\": \"json_shortcut\", \"passed\": true, \"details\": \"$details\"}")
         ((passed++)) || true
         [[ "$verbose" == "true" ]] && print_check pass "--json shortcut"
     else
@@ -80,8 +107,10 @@ check_flags() {
     local human_pattern
     human_pattern="${PATTERN_HUMAN_SHORTCUT:-$(echo "$schema" | jq -r '.requirements.flags.universal.patterns.human_shortcut')}"
 
-    if pattern_exists "$script" "$human_pattern"; then
-        results+=('{"check": "human_shortcut", "passed": true, "details": "--human shortcut supported"}')
+    if [[ "$uses_central_flags" == "true" ]] || pattern_exists "$script" "$human_pattern"; then
+        local details="--human shortcut supported"
+        [[ "$uses_central_flags" == "true" ]] && details="--human shortcut (via flags.sh)"
+        results+=("{\"check\": \"human_shortcut\", \"passed\": true, \"details\": \"$details\"}")
         ((passed++)) || true
         [[ "$verbose" == "true" ]] && print_check pass "--human shortcut"
     else

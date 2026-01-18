@@ -236,6 +236,7 @@ main() {
     local subcommand="status"
     local format=""
     local session_id=""
+    local QUIET=false
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -247,11 +248,14 @@ main() {
                 session_id="$2"
                 shift
                 ;;
+            -q|--quiet)
+                QUIET=true
+                ;;
             --json)
                 format="json"
                 ;;
             --human)
-                format="text"
+                format="human"
                 ;;
             --format)
                 format="$2"
@@ -273,14 +277,8 @@ main() {
     # Set state file based on session
     STATE_FILE=$(get_state_file "$session_id")
 
-    # Resolve format
-    if [[ -z "$format" ]]; then
-        if [[ -t 1 ]]; then
-            format="text"
-        else
-            format="json"
-        fi
-    fi
+    # Resolve format with TTY-aware defaults
+    format=$(resolve_format "$format")
 
     case "$subcommand" in
         status)
