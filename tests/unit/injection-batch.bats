@@ -21,9 +21,13 @@ setup() {
     # Load injection libraries
     export CLEO_HOME="$PROJECT_ROOT"
     export CLEO_LIB_DIR="$PROJECT_ROOT/lib"
+
+    # Set CLI_VERSION for deterministic version checking (must be before sourcing)
+    export CLI_VERSION="0.50.2"
+
     source "$PROJECT_ROOT/lib/injection.sh"
 
-    # Template version for testing
+    # Template version for testing (should match CLI_VERSION for "current" status)
     export TEMPLATE_VERSION="0.50.2"
 }
 

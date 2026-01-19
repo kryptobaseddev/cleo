@@ -80,8 +80,9 @@ WHAT IT DOES:
     1. Migrates schemas (todo.json, config.json, log, archive)
     2. Repairs structural issues (phases, checksums)
     3. Updates agent docs injections (CLAUDE.md, AGENTS.md, GEMINI.md)
-    4. Sets up Claude Code statusline for context monitoring
-    5. Validates the result
+    4. Syncs templates (AGENT-INJECTION.md) from global to project
+    5. Sets up Claude Code statusline for context monitoring
+    6. Validates the result
 
 EXAMPLES:
     cleo upgrade                # Interactive upgrade
@@ -476,6 +477,32 @@ if [[ ! -f "$_SEQ_FILE" ]]; then
     (( ++TOTAL_UPDATES ))
 fi
 
+# Check template sync status (T1595)
+# Templates are copied to project .cleo/templates/ and need to stay in sync with global
+TEMPLATE_SYNC_NEEDED=false
+TODO_DIR="$(dirname "$UPG_TODO_FILE")"
+if [[ -d "$TODO_DIR/templates" ]]; then
+    # Check if global template is newer or different
+    if [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]] && \
+       [[ -f "$TODO_DIR/templates/AGENT-INJECTION.md" ]]; then
+        if ! diff -q "$CLEO_HOME/templates/AGENT-INJECTION.md" "$TODO_DIR/templates/AGENT-INJECTION.md" &>/dev/null; then
+            TEMPLATE_SYNC_NEEDED=true
+            UPDATES_NEEDED["templates"]="sync needed"
+            (( ++TOTAL_UPDATES ))
+        fi
+    elif [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
+        # Global template exists but project template missing
+        TEMPLATE_SYNC_NEEDED=true
+        UPDATES_NEEDED["templates"]="missing"
+        (( ++TOTAL_UPDATES ))
+    fi
+elif [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
+    # Templates directory doesn't exist but global template does
+    TEMPLATE_SYNC_NEEDED=true
+    UPDATES_NEEDED["templates"]="directory missing"
+    (( ++TOTAL_UPDATES ))
+fi
+
 # ============================================================================
 # STATUS OUTPUT
 # ============================================================================
@@ -734,6 +761,33 @@ if [[ "$agent_docs_updated" == true ]]; then
 
     # Update project registry with fresh metadata
     update_project_registration || true
+fi
+
+# 5. Sync templates if needed (T1595)
+if [[ "$TEMPLATE_SYNC_NEEDED" == "true" ]]; then
+    if ! is_json_output; then
+        echo "Syncing templates..."
+    fi
+
+    # Create templates directory if missing
+    if [[ ! -d "$TODO_DIR/templates" ]]; then
+        mkdir -p "$TODO_DIR/templates"
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            echo "  Created $TODO_DIR/templates/"
+        fi
+    fi
+
+    # Copy AGENT-INJECTION.md template
+    if [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
+        if cp "$CLEO_HOME/templates/AGENT-INJECTION.md" "$TODO_DIR/templates/"; then
+            (( ++UPDATES_APPLIED ))
+            if ! is_json_output; then
+                echo "  Synced AGENT-INJECTION.md template"
+            fi
+        else
+            ERRORS+=("Failed to sync AGENT-INJECTION.md template")
+        fi
+    fi
 fi
 
 # ============================================================================

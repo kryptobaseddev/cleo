@@ -114,12 +114,16 @@ injection_check_all() {
 
 # Apply injection content to file (internal)
 # Args: target content action
+# Note: content param is unused - we inject @-reference instead of full content
 injection_apply() {
     local target="$1"
-    local content="$2"
+    local content="$2"  # Unused - kept for backward compatibility
     local action="$3"
     local temp_file
     local version
+
+    # Reference to template (relative to project root)
+    local reference="@.cleo/templates/AGENT-INJECTION.md"
 
     # Get version: CLI_VERSION env var > VERSION file > extract from template
     if [[ -n "${CLI_VERSION:-}" ]]; then
@@ -135,23 +139,23 @@ injection_apply() {
 
     case "$action" in
         created)
-            # Wrap in markers
+            # Wrap reference in markers
             echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
-            echo "$content" >> "$temp_file"
+            echo "$reference" >> "$temp_file"
             echo "$INJECTION_MARKER_END" >> "$temp_file"
             ;;
         added)
-            # Wrap in markers before prepending to existing file
+            # Wrap reference in markers before prepending to existing file
             echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
-            echo "$content" >> "$temp_file"
+            echo "$reference" >> "$temp_file"
             echo "$INJECTION_MARKER_END" >> "$temp_file"
             echo "" >> "$temp_file"
             cat "$target" >> "$temp_file"
             ;;
         updated)
-            # Wrap in markers and replace existing block
+            # Wrap reference in markers and replace existing block
             echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
-            echo "$content" >> "$temp_file"
+            echo "$reference" >> "$temp_file"
             echo "$INJECTION_MARKER_END" >> "$temp_file"
             # Strip all existing blocks and add remaining content
             awk "

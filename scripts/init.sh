@@ -125,6 +125,7 @@ Creates:
   .cleo/todo-log.json     Change history
   .cleo/sessions.json     Multi-session management
   .cleo/schemas/          JSON Schema files
+  .cleo/templates/        Injection templates for @-references
   .cleo/.backups/         Backup directory
 
 JSON Output:
@@ -462,6 +463,15 @@ if [[ -n "$SCHEMAS_DIR" ]]; then
   log_info "Copied schemas to $TODO_DIR/schemas/"
 else
   log_warn "Schemas not found (schema validation may fail)"
+fi
+
+# Create templates directory and copy injection template
+mkdir -p "$TODO_DIR/templates"
+if [[ -f "$TEMPLATES_DIR/AGENT-INJECTION.md" ]]; then
+    cp "$TEMPLATES_DIR/AGENT-INJECTION.md" "$TODO_DIR/templates/" && \
+        log_info "Copied AGENT-INJECTION.md template to $TODO_DIR/templates/"
+else
+    log_warn "AGENT-INJECTION.md template not found at $TEMPLATES_DIR/AGENT-INJECTION.md"
 fi
 
 # ============================================================================
@@ -854,6 +864,10 @@ CREATED_FILES=(
 # Only include migrations.json if it was actually created
 [[ -f "$TODO_DIR/migrations.json" ]] && CREATED_FILES+=("migrations.json")
 
+# Check if templates were created
+TEMPLATES_CREATED=false
+[[ -f "$TODO_DIR/templates/AGENT-INJECTION.md" ]] && TEMPLATES_CREATED=true
+
 if [[ "$FORMAT" == "json" ]]; then
   # JSON output
   jq -nc \
@@ -862,6 +876,7 @@ if [[ "$FORMAT" == "json" ]]; then
     --arg directory "$TODO_DIR" \
     --arg version "$VERSION" \
     --argjson files "$(printf '%s\n' "${CREATED_FILES[@]}" | jq -R . | jq -s .)" \
+    --argjson templates "$TEMPLATES_CREATED" \
     '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
@@ -877,6 +892,7 @@ if [[ "$FORMAT" == "json" ]]; then
         "version": $version,
         "files": $files,
         "schemas": true,
+        "templates": $templates,
         "backups": true
       }
     }'
@@ -893,6 +909,7 @@ else
   echo "  - .cleo/sessions.json     (multi-session management)"
   echo "  - .cleo/migrations.json   (migration audit trail)"
   echo "  - .cleo/schemas/          (JSON schemas for validation)"
+  echo "  - .cleo/templates/        (injection templates for @-references)"
   echo "  - .cleo/backups/          (automatic backups)"
   echo "    ├── snapshot/             (point-in-time snapshots)"
   echo "    ├── safety/               (pre-operation backups)"

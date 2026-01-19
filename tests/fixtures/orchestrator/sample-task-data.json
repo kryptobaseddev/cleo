@@ -1,0 +1,108 @@
+{
+  "version": "2.6.0",
+  "project": "test-orchestrator",
+  "_meta": {
+    "schemaVersion": "2.6.0",
+    "lastModified": "2026-01-18T12:00:00Z"
+  },
+  "focus": {
+    "focusedTaskId": null,
+    "sessionNote": null
+  },
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Test Epic",
+      "description": "Test epic for orchestrator integration tests",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "phase": "testing",
+      "createdAt": "2026-01-18T10:00:00Z",
+      "updatedAt": "2026-01-18T10:00:00Z",
+      "position": 0,
+      "positionVersion": 0,
+      "size": "large",
+      "labels": ["orchestrator-test"]
+    },
+    {
+      "id": "T002",
+      "title": "First Task - No Dependencies",
+      "description": "First task in the epic with no dependencies",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T001",
+      "phase": "testing",
+      "createdAt": "2026-01-18T10:01:00Z",
+      "updatedAt": "2026-01-18T10:01:00Z",
+      "position": 1,
+      "positionVersion": 0,
+      "size": "small"
+    },
+    {
+      "id": "T003",
+      "title": "Second Task - Depends on T002",
+      "description": "Second task that depends on T002",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T001",
+      "depends": ["T002"],
+      "phase": "testing",
+      "createdAt": "2026-01-18T10:02:00Z",
+      "updatedAt": "2026-01-18T10:02:00Z",
+      "position": 2,
+      "positionVersion": 0,
+      "size": "medium"
+    },
+    {
+      "id": "T004",
+      "title": "Third Task - Also Depends on T002",
+      "description": "Third task that also depends on T002 (parallel with T003)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T001",
+      "depends": ["T002"],
+      "phase": "testing",
+      "createdAt": "2026-01-18T10:03:00Z",
+      "updatedAt": "2026-01-18T10:03:00Z",
+      "position": 3,
+      "positionVersion": 0,
+      "size": "small"
+    },
+    {
+      "id": "T005",
+      "title": "Fourth Task - Depends on T003 and T004",
+      "description": "Final task that depends on T003 and T004",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T001",
+      "depends": ["T003", "T004"],
+      "phase": "testing",
+      "createdAt": "2026-01-18T10:04:00Z",
+      "updatedAt": "2026-01-18T10:04:00Z",
+      "position": 4,
+      "positionVersion": 0,
+      "size": "medium"
+    },
+    {
+      "id": "T006",
+      "title": "Completed Task",
+      "description": "A task that is already done",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T001",
+      "phase": "testing",
+      "createdAt": "2026-01-18T09:00:00Z",
+      "updatedAt": "2026-01-18T11:00:00Z",
+      "position": 5,
+      "positionVersion": 0,
+      "size": "small"
+    }
+  ]
+}

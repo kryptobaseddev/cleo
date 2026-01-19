@@ -525,6 +525,768 @@ archive_entry() {
 }
 
 # ============================================================================
+# ORCHESTRATOR QUERY FUNCTIONS
+# ============================================================================
+
+# get_pending_followup - Get all entries with non-empty needs_followup arrays
+# Args: none
+# Output: JSON array of entries wrapped in CLEO envelope
+# Returns: 0 on success
+get_pending_followup() {
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "get_pending_followup"
+            },
+            "success": true,
+            "result": {
+                "entries": [],
+                "count": 0
+            }
+        }'
+        return 0
+    fi
+
+    # Filter entries where needs_followup array has items
+    local entries count
+    entries=$(jq -s '[.[] | select(.needs_followup != null and (.needs_followup | length) > 0)]' "$manifest_path" 2>/dev/null || echo '[]')
+    count=$(echo "$entries" | jq 'length')
+
+    jq -n \
+        --argjson entries "$entries" \
+        --argjson count "$count" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "get_pending_followup"
+            },
+            "success": true,
+            "result": {
+                "entries": $entries,
+                "count": $count
+            }
+        }'
+
+    return 0
+}
+
+# get_entry_by_id - Get single entry by ID (alias for find_entry with simpler output)
+# Args: $1 = entry ID
+# Output: Single JSON object (not wrapped) or null
+# Returns: 0 if found, 4 if not found
+get_entry_by_id() {
+    local entry_id="$1"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        echo "null"
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Direct lookup returning just the entry object
+    local entry
+    entry=$(jq -s --arg id "$entry_id" '[.[] | select(.id == $id)] | .[0] // null' "$manifest_path" 2>/dev/null)
+
+    if [[ "$entry" == "null" ]]; then
+        echo "null"
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    echo "$entry"
+    return 0
+}
+
+# get_latest_by_topic - Get the most recent entry for a topic
+# Args: $1 = topic string (substring match)
+# Output: JSON entry wrapped in CLEO envelope
+# Returns: 0 on success (even if no match)
+get_latest_by_topic() {
+    local topic="$1"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --arg topic "$topic" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "get_latest_by_topic"
+                },
+                "success": true,
+                "result": {
+                    "entry": null,
+                    "topic": $topic
+                }
+            }'
+        return 0
+    fi
+
+    # Filter by topic and sort by date descending, take first
+    local entry
+    entry=$(jq -s --arg topic "$topic" '
+        [.[] | select(.topics // [] | any(. | test($topic; "i")))]
+        | sort_by(.date)
+        | reverse
+        | .[0] // null
+    ' "$manifest_path" 2>/dev/null)
+
+    jq -n \
+        --argjson entry "$entry" \
+        --arg topic "$topic" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "get_latest_by_topic"
+            },
+            "success": true,
+            "result": {
+                "entry": $entry,
+                "topic": $topic
+            }
+        }'
+
+    return 0
+}
+
+# task_has_research - Check if a task has linked research
+# Args: $1 = task ID
+# Output: JSON result with boolean and linked entries
+# Returns: 0 always (check result.hasResearch for answer)
+task_has_research() {
+    local task_id="$1"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --arg task_id "$task_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "task_has_research"
+                },
+                "success": true,
+                "result": {
+                    "taskId": $task_id,
+                    "hasResearch": false,
+                    "entries": [],
+                    "count": 0
+                }
+            }'
+        return 0
+    fi
+
+    # Find entries that reference this task in linked_tasks or needs_followup
+    local entries count has_research
+    entries=$(jq -s --arg task_id "$task_id" '
+        [.[] | select(
+            (.linked_tasks // [] | any(. == $task_id)) or
+            (.needs_followup // [] | any(. == $task_id))
+        )]
+    ' "$manifest_path" 2>/dev/null || echo '[]')
+    count=$(echo "$entries" | jq 'length')
+    has_research=$([ "$count" -gt 0 ] && echo "true" || echo "false")
+
+    jq -n \
+        --arg task_id "$task_id" \
+        --argjson has_research "$has_research" \
+        --argjson entries "$entries" \
+        --argjson count "$count" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "task_has_research"
+            },
+            "success": true,
+            "result": {
+                "taskId": $task_id,
+                "hasResearch": $has_research,
+                "entries": $entries,
+                "count": $count
+            }
+        }'
+
+    return 0
+}
+
+# get_followup_tasks - Get all task IDs from needs_followup arrays
+# Args: none
+# Output: JSON array of unique task IDs
+# Returns: 0 on success
+get_followup_tasks() {
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "get_followup_tasks"
+            },
+            "success": true,
+            "result": {
+                "taskIds": [],
+                "count": 0
+            }
+        }'
+        return 0
+    fi
+
+    # Collect all unique task IDs from needs_followup arrays
+    local task_ids count
+    task_ids=$(jq -s '
+        [.[] | .needs_followup // []] | flatten | unique
+        | [.[] | select(startswith("T") or startswith("t"))]
+    ' "$manifest_path" 2>/dev/null || echo '[]')
+    count=$(echo "$task_ids" | jq 'length')
+
+    jq -n \
+        --argjson task_ids "$task_ids" \
+        --argjson count "$count" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "get_followup_tasks"
+            },
+            "success": true,
+            "result": {
+                "taskIds": $task_ids,
+                "count": $count
+            }
+        }'
+
+    return 0
+}
+
+# update_entry - Update a manifest entry by ID
+# Args: $1 = entry ID, $2 = jq filter to apply (e.g., '.status = "archived"')
+# Output: JSON result wrapped in CLEO envelope
+# Returns: 0 on success, 4 if not found
+update_entry() {
+    local entry_id="$1"
+    local jq_update="$2"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --arg id "$entry_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "update"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": "Manifest file not found. Run: cleo research init",
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Check if entry exists
+    if ! grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
+        jq -n \
+            --arg id "$entry_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "update"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": ("Research entry \"" + $id + "\" not found"),
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Create temp file, process, atomic rename
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Apply update to matching entry
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        local line_id
+        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+        if [[ "$line_id" == "$entry_id" ]]; then
+            echo "$line" | jq -c "$jq_update" >> "$temp_file"
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$manifest_path"
+
+    # Atomic move
+    mv "$temp_file" "$manifest_path"
+
+    jq -n \
+        --arg id "$entry_id" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "update"
+            },
+            "success": true,
+            "result": {
+                "id": $id,
+                "action": "updated"
+            }
+        }'
+
+    return 0
+}
+
+# ============================================================================
+# BIDIRECTIONAL LINKING FUNCTIONS
+# ============================================================================
+
+# link_research_to_task - Create bidirectional link between research and task
+# Args: $1 = task ID, $2 = research ID, $3 = optional note text
+# Output: JSON result wrapped in CLEO envelope
+# Returns: 0 on success, 4 if research not found
+link_research_to_task() {
+    local task_id="$1"
+    local research_id="$2"
+    local note_text="${3:-}"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --arg task_id "$task_id" \
+            --arg research_id "$research_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "link_research_to_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": "Manifest file not found. Run: cleo research init",
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Verify research entry exists
+    if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
+        jq -n \
+            --arg task_id "$task_id" \
+            --arg research_id "$research_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "link_research_to_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": ("Research entry \"" + $research_id + "\" not found"),
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Update manifest entry: add task_id to linked_tasks array if not already present
+    local temp_file
+    temp_file=$(mktemp)
+    local link_added=false
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        local line_id
+        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+        if [[ "$line_id" == "$research_id" ]]; then
+            # Check if already linked
+            local already_linked
+            already_linked=$(echo "$line" | jq --arg tid "$task_id" '.linked_tasks // [] | any(. == $tid)')
+            if [[ "$already_linked" == "true" ]]; then
+                echo "$line" >> "$temp_file"
+            else
+                # Add task_id to linked_tasks array
+                echo "$line" | jq -c --arg tid "$task_id" '.linked_tasks = ((.linked_tasks // []) + [$tid] | unique)' >> "$temp_file"
+                link_added=true
+            fi
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$manifest_path"
+
+    # Atomic move
+    mv "$temp_file" "$manifest_path"
+
+    # Convert bash boolean to jq boolean and determine action
+    local action_str manifest_updated_json
+    if [[ "$link_added" == "true" ]]; then
+        action_str="linked"
+        manifest_updated_json="true"
+    else
+        action_str="already_linked"
+        manifest_updated_json="false"
+    fi
+
+    jq -n \
+        --arg task_id "$task_id" \
+        --arg research_id "$research_id" \
+        --arg action "$action_str" \
+        --argjson manifest_updated "$manifest_updated_json" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "link_research_to_task"
+            },
+            "success": true,
+            "result": {
+                "taskId": $task_id,
+                "researchId": $research_id,
+                "action": $action,
+                "manifestUpdated": $manifest_updated
+            }
+        }'
+
+    return 0
+}
+
+# unlink_research_from_task - Remove link between research and task
+# Args: $1 = task ID, $2 = research ID
+# Output: JSON result wrapped in CLEO envelope
+# Returns: 0 on success, 4 if not found
+unlink_research_from_task() {
+    local task_id="$1"
+    local research_id="$2"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --arg task_id "$task_id" \
+            --arg research_id "$research_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "unlink_research_from_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": "Manifest file not found",
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Verify research entry exists
+    if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
+        jq -n \
+            --arg task_id "$task_id" \
+            --arg research_id "$research_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "unlink_research_from_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": ("Research entry \"" + $research_id + "\" not found"),
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Update manifest entry: remove task_id from linked_tasks array
+    local temp_file
+    temp_file=$(mktemp)
+    local link_removed=false
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        local line_id
+        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+        if [[ "$line_id" == "$research_id" ]]; then
+            # Check if linked
+            local is_linked
+            is_linked=$(echo "$line" | jq --arg tid "$task_id" '.linked_tasks // [] | any(. == $tid)')
+            if [[ "$is_linked" == "true" ]]; then
+                # Remove task_id from linked_tasks array
+                echo "$line" | jq -c --arg tid "$task_id" '.linked_tasks = [.linked_tasks[] | select(. != $tid)]' >> "$temp_file"
+                link_removed=true
+            else
+                echo "$line" >> "$temp_file"
+            fi
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$manifest_path"
+
+    # Atomic move
+    mv "$temp_file" "$manifest_path"
+
+    # Convert bash boolean to jq boolean and determine action
+    local action_str manifest_updated_json
+    if [[ "$link_removed" == "true" ]]; then
+        action_str="unlinked"
+        manifest_updated_json="true"
+    else
+        action_str="not_linked"
+        manifest_updated_json="false"
+    fi
+
+    jq -n \
+        --arg task_id "$task_id" \
+        --arg research_id "$research_id" \
+        --arg action "$action_str" \
+        --argjson manifest_updated "$manifest_updated_json" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "unlink_research_from_task"
+            },
+            "success": true,
+            "result": {
+                "taskId": $task_id,
+                "researchId": $research_id,
+                "action": $action,
+                "manifestUpdated": $manifest_updated
+            }
+        }'
+
+    return 0
+}
+
+# get_task_research - Get all research entries linked to a task
+# Args: $1 = task ID
+# Output: JSON array of entries wrapped in CLEO envelope
+# Returns: 0 on success
+get_task_research() {
+    local task_id="$1"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --arg task_id "$task_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "get_task_research"
+                },
+                "success": true,
+                "result": {
+                    "taskId": $task_id,
+                    "entries": [],
+                    "count": 0
+                }
+            }'
+        return 0
+    fi
+
+    # Find entries where linked_tasks contains task_id
+    local entries count
+    entries=$(jq -s --arg task_id "$task_id" '
+        [.[] | select(.linked_tasks // [] | any(. == $task_id))]
+    ' "$manifest_path" 2>/dev/null || echo '[]')
+    count=$(echo "$entries" | jq 'length')
+
+    jq -n \
+        --arg task_id "$task_id" \
+        --argjson entries "$entries" \
+        --argjson count "$count" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "get_task_research"
+            },
+            "success": true,
+            "result": {
+                "taskId": $task_id,
+                "entries": $entries,
+                "count": $count
+            }
+        }'
+
+    return 0
+}
+
+# get_research_tasks - Get all tasks linked to a research entry
+# Args: $1 = research ID
+# Output: JSON array of task IDs wrapped in CLEO envelope
+# Returns: 0 on success, 4 if not found
+get_research_tasks() {
+    local research_id="$1"
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --arg research_id "$research_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "get_research_tasks"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": "Manifest file not found",
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Get the entry and return its linked_tasks
+    local entry
+    entry=$(jq -s --arg id "$research_id" '[.[] | select(.id == $id)] | .[0] // null' "$manifest_path" 2>/dev/null)
+
+    if [[ "$entry" == "null" || -z "$entry" ]]; then
+        jq -n \
+            --arg research_id "$research_id" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "get_research_tasks"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_NOT_FOUND",
+                    "message": ("Research entry \"" + $research_id + "\" not found"),
+                    "exitCode": 4
+                }
+            }'
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    local linked_tasks count
+    linked_tasks=$(echo "$entry" | jq '.linked_tasks // []')
+    count=$(echo "$linked_tasks" | jq 'length')
+
+    jq -n \
+        --arg research_id "$research_id" \
+        --argjson linked_tasks "$linked_tasks" \
+        --argjson count "$count" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "get_research_tasks"
+            },
+            "success": true,
+            "result": {
+                "researchId": $research_id,
+                "taskIds": $linked_tasks,
+                "count": $count
+            }
+        }'
+
+    return 0
+}
+
+# validate_research_links - Validate all links exist (tasks and research entries)
+# Args: none
+# Output: JSON report of validation results
+# Returns: 0 on success
+validate_research_links() {
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "validate_research_links"
+            },
+            "success": true,
+            "result": {
+                "totalEntries": 0,
+                "entriesWithLinks": 0,
+                "totalLinks": 0,
+                "invalidLinks": [],
+                "orphanedLinks": [],
+                "isValid": true
+            }
+        }'
+        return 0
+    fi
+
+    local total_entries entries_with_links total_links invalid_links orphaned_links
+    local all_linked_tasks
+
+    # Count entries and gather all linked task IDs
+    total_entries=$(wc -l < "$manifest_path" | tr -d ' ')
+
+    # Get entries with linked_tasks and collect all task IDs
+    all_linked_tasks=$(jq -s '
+        [.[] | select(.linked_tasks != null and (.linked_tasks | length) > 0)] as $entries_with_links |
+        {
+            "entries_with_links": ($entries_with_links | length),
+            "total_links": ([$entries_with_links[].linked_tasks[]] | length),
+            "all_task_ids": ([$entries_with_links[] | {research_id: .id, task_ids: .linked_tasks}])
+        }
+    ' "$manifest_path" 2>/dev/null)
+
+    entries_with_links=$(echo "$all_linked_tasks" | jq '.entries_with_links')
+    total_links=$(echo "$all_linked_tasks" | jq '.total_links')
+
+    # Validate each linked task exists (using cleo exists)
+    invalid_links="[]"
+    local task_entries
+    task_entries=$(echo "$all_linked_tasks" | jq -c '.all_task_ids[]')
+
+    while IFS= read -r entry; do
+        [[ -z "$entry" ]] && continue
+        local research_id task_ids
+        research_id=$(echo "$entry" | jq -r '.research_id')
+        task_ids=$(echo "$entry" | jq -r '.task_ids[]')
+
+        for task_id in $task_ids; do
+            if ! cleo exists "$task_id" --quiet 2>/dev/null; then
+                invalid_links=$(echo "$invalid_links" | jq --arg rid "$research_id" --arg tid "$task_id" '. + [{researchId: $rid, taskId: $tid, reason: "task_not_found"}]')
+            fi
+        done
+    done <<< "$task_entries"
+
+    local invalid_count is_valid
+    invalid_count=$(echo "$invalid_links" | jq 'length')
+    is_valid=$([ "$invalid_count" -eq 0 ] && echo "true" || echo "false")
+
+    jq -n \
+        --argjson total_entries "$total_entries" \
+        --argjson entries_with_links "$entries_with_links" \
+        --argjson total_links "$total_links" \
+        --argjson invalid_links "$invalid_links" \
+        --argjson is_valid "$is_valid" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "validate_research_links"
+            },
+            "success": true,
+            "result": {
+                "totalEntries": $total_entries,
+                "entriesWithLinks": $entries_with_links,
+                "totalLinks": $total_links,
+                "invalidLinks": $invalid_links,
+                "isValid": $is_valid
+            }
+        }'
+
+    return 0
+}
+
+# ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
 
@@ -533,3 +1295,14 @@ export -f append_manifest
 export -f find_entry
 export -f filter_entries
 export -f archive_entry
+export -f get_pending_followup
+export -f get_entry_by_id
+export -f get_latest_by_topic
+export -f task_has_research
+export -f get_followup_tasks
+export -f update_entry
+export -f link_research_to_task
+export -f unlink_research_from_task
+export -f get_task_research
+export -f get_research_tasks
+export -f validate_research_links
