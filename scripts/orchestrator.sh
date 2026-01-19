@@ -15,6 +15,9 @@
 #   cleo orchestrator validate --subagent <id> # Validate specific subagent output
 #   cleo orchestrator validate --manifest      # Validate manifest only
 #   cleo orchestrator validate --orchestrator  # Validate orchestrator compliance
+#   cleo orchestrator skill                    # Show skill installation instructions
+#   cleo orchestrator skill --install          # Copy skill to project's .cleo/skills/
+#   cleo orchestrator skill --verify           # Check skill is properly installed
 #
 # The orchestrator command provides tools for LLM agents operating as
 # orchestrators (delegating to subagents rather than implementing directly).
@@ -22,6 +25,7 @@
 # EXIT CODES:
 #   0   - Success
 #   2   - Invalid input
+#   3   - File error
 #   4   - Not found
 #   52  - Context critical
 
@@ -362,6 +366,214 @@ cmd_validate() {
     validate_protocol "$epic_id"
 }
 
+cmd_skill() {
+    local action="${1:-}"
+    local cleo_home
+    cleo_home=$(get_cleo_home)
+
+    local source_dir="$cleo_home/skills/orchestrator"
+    local target_dir="./.cleo/skills/orchestrator"
+
+    case "$action" in
+        --install)
+            # Check source exists
+            if [[ ! -d "$source_dir" ]]; then
+                jq -nc \
+                    --arg src "$source_dir" \
+                    '{
+                        "_meta": {
+                            "command": "orchestrator",
+                            "operation": "skill --install"
+                        },
+                        "success": false,
+                        "error": {
+                            "code": "E_NOT_FOUND",
+                            "message": "Orchestrator skill not found in CLEO installation",
+                            "exitCode": 4,
+                            "context": {
+                                "expectedPath": $src
+                            }
+                        }
+                    }'
+                return "$EXIT_NOT_FOUND"
+            fi
+
+            # Create target directory
+            mkdir -p "./.cleo/skills"
+
+            # Copy skill directory
+            if cp -r "$source_dir" "./.cleo/skills/"; then
+                local files_copied
+                files_copied=$(find "$target_dir" -type f | wc -l)
+
+                jq -nc \
+                    --arg target "$target_dir" \
+                    --argjson files "$files_copied" \
+                    '{
+                        "_meta": {
+                            "command": "orchestrator",
+                            "operation": "skill --install"
+                        },
+                        "success": true,
+                        "installed": {
+                            "location": $target,
+                            "filesCopied": $files
+                        },
+                        "nextSteps": [
+                            "Skill auto-discovered by Claude Code plugin system",
+                            "Invoke via /orchestrator command or Skill tool",
+                            "Test: ask Claude to explain ORC-001 through ORC-005"
+                        ]
+                    }'
+                return 0
+            else
+                jq -nc '{
+                    "_meta": {
+                        "command": "orchestrator",
+                        "operation": "skill --install"
+                    },
+                    "success": false,
+                    "error": {
+                        "code": "E_FILE_WRITE_ERROR",
+                        "message": "Failed to copy orchestrator skill",
+                        "exitCode": 3
+                    }
+                }'
+                return "$EXIT_FILE_ERROR"
+            fi
+            ;;
+
+        --verify)
+            local skill_md="$target_dir/SKILL.md"
+            local install_md="$target_dir/INSTALL.md"
+            local issues=()
+            local status="valid"
+
+            # Check directory exists
+            if [[ ! -d "$target_dir" ]]; then
+                jq -nc \
+                    --arg path "$target_dir" \
+                    '{
+                        "_meta": {
+                            "command": "orchestrator",
+                            "operation": "skill --verify"
+                        },
+                        "success": true,
+                        "verification": {
+                            "installed": false,
+                            "status": "not_installed",
+                            "path": $path,
+                            "suggestion": "Run: cleo orchestrator skill --install"
+                        }
+                    }'
+                return 0
+            fi
+
+            # Check required files
+            if [[ ! -f "$skill_md" ]]; then
+                issues+=("SKILL.md missing")
+                status="invalid"
+            fi
+            if [[ ! -f "$install_md" ]]; then
+                issues+=("INSTALL.md missing")
+                status="invalid"
+            fi
+
+            # Check SKILL.md has frontmatter
+            if [[ -f "$skill_md" ]]; then
+                if ! grep -q '^---' "$skill_md"; then
+                    issues+=("SKILL.md missing YAML frontmatter")
+                    status="invalid"
+                fi
+                if ! grep -q 'ORC-001' "$skill_md"; then
+                    issues+=("SKILL.md missing ORC constraints")
+                    status="invalid"
+                fi
+            fi
+
+            # Build JSON output
+            local issues_json
+            if [[ ${#issues[@]} -eq 0 ]]; then
+                issues_json='[]'
+            else
+                issues_json=$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)
+            fi
+
+            jq -nc \
+                --arg path "$target_dir" \
+                --arg status "$status" \
+                --argjson issues "$issues_json" \
+                '{
+                    "_meta": {
+                        "command": "orchestrator",
+                        "operation": "skill --verify"
+                    },
+                    "success": true,
+                    "verification": {
+                        "installed": true,
+                        "status": $status,
+                        "path": $path,
+                        "issues": $issues
+                    }
+                }'
+            return 0
+            ;;
+
+        *)
+            # Show installation instructions
+            local install_doc="$cleo_home/skills/orchestrator/INSTALL.md"
+
+            if [[ -f "$install_doc" ]]; then
+                # For TTY, show the markdown content
+                if [[ -t 1 ]]; then
+                    cat "$install_doc"
+                else
+                    # For piped output, return JSON with content
+                    local content
+                    content=$(cat "$install_doc")
+                    jq -nc \
+                        --arg content "$content" \
+                        --arg source "$install_doc" \
+                        '{
+                            "_meta": {
+                                "command": "orchestrator",
+                                "operation": "skill"
+                            },
+                            "success": true,
+                            "installInstructions": {
+                                "source": $source,
+                                "content": $content
+                            },
+                            "commands": {
+                                "install": "cleo orchestrator skill --install",
+                                "verify": "cleo orchestrator skill --verify"
+                            }
+                        }'
+                fi
+            else
+                jq -nc \
+                    --arg path "$install_doc" \
+                    '{
+                        "_meta": {
+                            "command": "orchestrator",
+                            "operation": "skill"
+                        },
+                        "success": false,
+                        "error": {
+                            "code": "E_NOT_FOUND",
+                            "message": "INSTALL.md not found for orchestrator skill",
+                            "exitCode": 4,
+                            "context": {
+                                "expectedPath": $path
+                            }
+                        }
+                    }'
+                return "$EXIT_NOT_FOUND"
+            fi
+            ;;
+    esac
+}
+
 cmd_help() {
     cat << 'EOF'
 Orchestrator Protocol CLI
@@ -380,6 +592,7 @@ COMMANDS:
     parallel  Show parallel execution waves for an epic
     check     Check if multiple tasks can be spawned in parallel
     validate  Validate protocol compliance (manifest, orchestrator, subagents)
+    skill     Manage orchestrator skill installation
 
 OPTIONS:
     --epic, -e <id>       Epic ID to scope operations
@@ -388,6 +601,11 @@ OPTIONS:
     --subagent, -s <id>   Research ID for subagent validation
     --manifest, -m        Validate manifest only
     --orchestrator, -o    Validate orchestrator compliance only
+
+SKILL SUBCOMMAND:
+    cleo orchestrator skill           Show skill installation instructions
+    cleo orchestrator skill --install Copy skill to project's .cleo/skills/
+    cleo orchestrator skill --verify  Check skill is properly installed
 
 TEMPLATES:
     TASK-EXECUTOR   General task execution (default)
@@ -423,6 +641,10 @@ EXAMPLES:
 
     # Check context budget
     cleo orchestrator context --tokens 5000
+
+    # Install orchestrator skill
+    cleo orchestrator skill --install
+    cleo orchestrator skill --verify
 
     # Validate protocol compliance
     cleo orchestrator validate
@@ -479,6 +701,9 @@ main() {
             ;;
         validate)
             cmd_validate "$@"
+            ;;
+        skill)
+            cmd_skill "$@"
             ;;
         help|--help|-h)
             cmd_help

@@ -1,5 +1,34 @@
-<!-- ORCHESTRATOR:START v1.0.0 -->
-## Orchestrator Protocol
+# DEPRECATED: CLAUDE.md Injection Approach
+
+> **STATUS**: DEPRECATED - Do NOT use this approach
+>
+> **REASON**: CLAUDE.md injection affects ALL agents including subagents,
+> which breaks the orchestrator pattern where only the HITL session
+> should operate as orchestrator. When injected into CLAUDE.md, subagents
+> ALSO try to be orchestrators, causing:
+> - Context duplication (orchestrator constraints loaded in every agent)
+> - Role confusion (subagents try to delegate instead of execute)
+> - Protocol violations (nested orchestration breaks dependency tracking)
+>
+> **USE INSTEAD**: Skill-based approach
+> - Skill location: `skills/orchestrator/SKILL.md`
+> - Install: `cleo orchestrator skill --install`
+> - Invoke: "activate orchestrator mode" or Skill tool
+>
+> **MIGRATION STEPS**:
+> 1. Remove any ORCHESTRATOR:START/END blocks from your CLAUDE.md
+> 2. Run: `cleo orchestrator skill --install`
+> 3. Invoke the skill when orchestrator mode is needed
+>
+> **WHY SKILLS WORK**:
+> - Skills load ON-DEMAND, not always
+> - Subagents do NOT inherit parent session skills
+> - Only the HITL session operates as orchestrator
+
+---
+
+<!-- ORCHESTRATOR:START v1.0.0 (DEPRECATED - REFERENCE ONLY) -->
+## Orchestrator Protocol (Legacy Reference)
 
 ### Immutable Constraints
 
