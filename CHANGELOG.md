@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.4] - 2026-01-19
+
+### Changed
+- **Injection system refactor**: Switch from full content injection to @-reference format
+  - Agent docs (CLAUDE.md, AGENTS.md, GEMINI.md) now contain `@.cleo/templates/AGENT-INJECTION.md` reference
+  - Reduces injection footprint from ~200 lines to 3 lines per file
+  - AI agents resolve the @ reference at runtime
+
+### Added
+- **init.sh**: Copy `AGENT-INJECTION.md` to project `.cleo/templates/` directory
+  - Templates are now project-local for versioning and offline capability
+  - Added `templates` field to JSON output
+- **upgrade.sh**: Template sync detection and update
+  - Detects when project templates differ from global templates
+  - `--status` shows "templates: sync needed" when update required
+  - Automatically syncs templates during upgrade
+
 ## [0.53.3] - 2026-01-18
 
 ### Fixed

@@ -1,0 +1,7 @@
+{"id":"duplicate-id","file":"dup1.md","title":"First with this ID","date":"2026-01-18","status":"complete","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[]}
+{"id":"duplicate-id","file":"dup2.md","title":"Second with same ID","date":"2026-01-18","status":"complete","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[]}
+{"id":"missing-file-ref","file":"nonexistent-file.md","title":"Entry with missing file","date":"2026-01-18","status":"complete","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[]}
+this is not valid json at all
+{"id":"missing-required-fields","file":"partial.md","date":"2026-01-18"}
+{"id":"invalid-status","file":"invalid-status.md","title":"Invalid status value","date":"2026-01-18","status":"unknown_status","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[]}
+{"id":"too-few-findings","file":"few-findings.md","title":"Too few key findings","date":"2026-01-18","status":"complete","topics":["test"],"key_findings":["Only one"],"actionable":true,"needs_followup":[]}

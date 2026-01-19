@@ -69,6 +69,9 @@ LINK_RESEARCH_ID=""
 LINK_UNLINK="false"
 LINK_NOTES=""
 
+# Links subcommand options (show research for a task)
+LINKS_TASK_ID=""
+
 # List subcommand options
 LIST_STATUS=""
 LIST_TOPIC=""
@@ -79,6 +82,12 @@ LIST_LIMIT="20"
 # Inject subcommand options
 INJECT_RAW="false"
 INJECT_CLIPBOARD="false"
+
+# Get subcommand options
+GET_ID=""
+
+# Pending subcommand options
+PENDING_BRIEF="false"
 
 # Research storage
 RESEARCH_DIR=".cleo/research"
@@ -103,7 +112,11 @@ SUBCOMMANDS
   list             List research entries from manifest with filtering
   show <id>        Show details of a research entry from the manifest
   inject           Output the subagent injection template for prompts
-  link <task> <research>  Link a research entry to a task
+  link <task> <research>  Link a research entry to a task (bidirectional)
+  links <task>     Show all research linked to a task
+  unlink <task> <research>  Remove link between research and task
+  pending          Show entries with needs_followup (orchestrator handoffs)
+  get <id>         Get single entry by ID (raw JSON object)
 
 LIST OPTIONS
   --status STATUS  Filter by status (complete|partial|blocked|archived)
@@ -136,7 +149,6 @@ SHOW OPTIONS
   --findings-only        Only key_findings array (default)
 
 LINK OPTIONS
-  --unlink               Remove link (not yet implemented)
   --notes TEXT           Custom note text instead of default
 
 INJECT OPTIONS
@@ -323,6 +335,31 @@ while [[ $# -gt 0 ]]; do
         esac
       done
       ;;
+    pending)
+      MODE="pending"
+      shift
+      # Parse pending-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --brief)
+            PENDING_BRIEF="true"
+            shift
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
+    get)
+      MODE="get"
+      shift
+      # Get research ID (required positional argument)
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        GET_ID="$1"
+        shift
+      fi
+      ;;
     link)
       MODE="link"
       shift
@@ -352,6 +389,29 @@ while [[ $# -gt 0 ]]; do
             ;;
         esac
       done
+      ;;
+    links)
+      MODE="links"
+      shift
+      # Get task-id (required positional argument)
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        LINKS_TASK_ID="$1"
+        shift
+      fi
+      ;;
+    unlink)
+      MODE="unlink"
+      shift
+      # Get task-id (required positional argument)
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        LINK_TASK_ID="$1"
+        shift
+      fi
+      # Get research-id (required positional argument)
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        LINK_RESEARCH_ID="$1"
+        shift
+      fi
       ;;
     --url)
       MODE="url"
@@ -439,6 +499,17 @@ validate_inputs() {
       # No validation needed for inject
       return 0
       ;;
+    pending)
+      # No validation needed for pending
+      return 0
+      ;;
+    get)
+      if [[ -z "$GET_ID" ]]; then
+        echo '{"error": "Research ID required", "usage": "cleo research get <id>"}' >&2
+        exit 2
+      fi
+      return 0
+      ;;
     link)
       if [[ -z "$LINK_TASK_ID" ]]; then
         echo '{"error": "Task ID required", "usage": "cleo research link <task-id> <research-id>"}' >&2
@@ -446,6 +517,24 @@ validate_inputs() {
       fi
       if [[ -z "$LINK_RESEARCH_ID" ]]; then
         echo '{"error": "Research ID required", "usage": "cleo research link <task-id> <research-id>"}' >&2
+        exit 2
+      fi
+      return 0
+      ;;
+    links)
+      if [[ -z "$LINKS_TASK_ID" ]]; then
+        echo '{"error": "Task ID required", "usage": "cleo research links <task-id>"}' >&2
+        exit 2
+      fi
+      return 0
+      ;;
+    unlink)
+      if [[ -z "$LINK_TASK_ID" ]]; then
+        echo '{"error": "Task ID required", "usage": "cleo research unlink <task-id> <research-id>"}' >&2
+        exit 2
+      fi
+      if [[ -z "$LINK_RESEARCH_ID" ]]; then
+        echo '{"error": "Research ID required", "usage": "cleo research unlink <task-id> <research-id>"}' >&2
         exit 2
       fi
       return 0
@@ -1059,6 +1148,208 @@ run_inject() {
 }
 
 # ============================================================================
+# Pending Subcommand
+# ============================================================================
+
+run_pending() {
+  # Use get_pending_followup from research-manifest.sh
+  local result
+  result=$(get_pending_followup)
+
+  # Extract data
+  local entries count
+  entries=$(echo "$result" | jq '.result.entries')
+  count=$(echo "$result" | jq -r '.result.count')
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Output based on format
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson entries "$entries" \
+      --argjson count "$count" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "pending",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "summary": {
+          "count": $count,
+          "description": "Entries with pending follow-up tasks"
+        },
+        "entries": $entries
+      }'
+  else
+    # Human-readable format
+    echo ""
+    echo "Pending Follow-ups"
+    echo "=================="
+    echo ""
+
+    if [[ "$count" -eq 0 ]]; then
+      echo "No entries with pending follow-up."
+      echo ""
+      echo "All orchestrator handoffs have been processed."
+    else
+      # Print entries with their followup tasks
+      echo "$entries" | jq -r '.[] | "Entry: \(.id)\n  Title: \(.title)\n  Status: \(.status)\n  Follow-up tasks: \(.needs_followup | join(\", \"))\n"'
+
+      echo ""
+      echo "Found $count entries with pending follow-ups."
+      echo ""
+      echo "To process a follow-up task:"
+      echo "  1. Read the task: cleo show <task-id>"
+      echo "  2. Spawn a subagent for the task"
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Get Subcommand
+# ============================================================================
+
+run_get() {
+  # Use get_entry_by_id from research-manifest.sh for direct JSON output
+  local entry
+  entry=$(get_entry_by_id "$GET_ID") || true
+
+  if [[ "$entry" == "null" || -z "$entry" ]]; then
+    # Determine output format for error
+    local format="${FORMAT:-}"
+    if [[ -z "$format" ]]; then
+      if [[ -t 1 ]]; then
+        format="human"
+      else
+        format="json"
+      fi
+    fi
+
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg id "$GET_ID" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "get",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_NOT_FOUND",
+            "message": ("Research entry \"" + $id + "\" not found"),
+            "id": $id
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Research entry '$GET_ID' not found."
+      echo ""
+      echo "Use 'cleo research list' to see available entries."
+      echo ""
+    fi
+    exit "${EXIT_NOT_FOUND:-4}"
+  fi
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Output based on format
+  if [[ "$format" == "json" ]]; then
+    # Wrap in CLEO envelope
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson entry "$entry" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "get",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "entry": $entry
+      }'
+  else
+    # Human-readable format (same as show but simpler)
+    local id title status date
+    id=$(echo "$entry" | jq -r '.id')
+    title=$(echo "$entry" | jq -r '.title')
+    status=$(echo "$entry" | jq -r '.status')
+    date=$(echo "$entry" | jq -r '.date')
+
+    echo ""
+    echo "Research: $id"
+    printf '%.0s=' {1..50}
+    echo ""
+    echo "  Title:  $title"
+    echo "  Status: $status"
+    echo "  Date:   $date"
+
+    # Show needs_followup if present
+    local followup_count
+    followup_count=$(echo "$entry" | jq '.needs_followup // [] | length')
+    if [[ "$followup_count" -gt 0 ]]; then
+      echo ""
+      echo "Needs Follow-up:"
+      echo "$entry" | jq -r '.needs_followup[]' | while read -r followup; do
+        echo "  - $followup"
+      done
+    fi
+
+    # Show key findings summary
+    local findings_count
+    findings_count=$(echo "$entry" | jq '.key_findings | length')
+    if [[ "$findings_count" -gt 0 ]]; then
+      echo ""
+      echo "Key Findings ($findings_count items):"
+      echo "$entry" | jq -r '.key_findings[:3][]' | while read -r finding; do
+        if [[ ${#finding} -gt 60 ]]; then
+          echo "  - ${finding:0:57}..."
+        else
+          echo "  - $finding"
+        fi
+      done
+      if [[ "$findings_count" -gt 3 ]]; then
+        echo "  ... and $((findings_count - 3)) more"
+      fi
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
 # Link Subcommand
 # ============================================================================
 
@@ -1217,7 +1508,14 @@ run_link() {
     note_text="Linked research: $research_id ($research_title)"
   fi
 
-  # Step 4: Add note to task using cleo update
+  # Step 4: Update manifest with bidirectional link (adds task to linked_tasks array)
+  local manifest_result
+  manifest_result=$(link_research_to_task "$task_id" "$research_id" "$note_text")
+  local manifest_success manifest_updated
+  manifest_success=$(echo "$manifest_result" | jq -r '.success')
+  manifest_updated=$(echo "$manifest_result" | jq -r '.result.manifestUpdated // false')
+
+  # Step 5: Add note to task using cleo update
   local update_result
   if ! update_result=$(cleo update "$task_id" --notes "$note_text" 2>&1); then
     if [[ "$format" == "json" ]]; then
@@ -1262,6 +1560,7 @@ run_link() {
       --arg research_id "$research_id" \
       --arg research_title "$research_title" \
       --arg note_text "$note_text" \
+      --argjson manifest_updated "$manifest_updated" \
       '{
         "_meta": {
           "format": "json",
@@ -1276,7 +1575,8 @@ run_link() {
           "researchId": $research_id,
           "researchTitle": $research_title,
           "action": "linked",
-          "taskNote": $note_text
+          "taskNote": $note_text,
+          "manifestUpdated": $manifest_updated
         }
       }'
   else
@@ -1284,6 +1584,269 @@ run_link() {
     echo "Linked research to task"
     echo "  Task:     $task_id"
     echo "  Research: $research_id ($research_title)"
+    if [[ "$manifest_updated" == "true" ]]; then
+      echo "  Manifest: Updated (added task to linked_tasks)"
+    else
+      echo "  Manifest: Already linked"
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Links Subcommand (show all research for a task)
+# ============================================================================
+
+run_links() {
+  local task_id="$LINKS_TASK_ID"
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Validate required argument
+  if [[ -z "$task_id" ]]; then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "links",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_MISSING_ARGUMENT",
+            "message": "Task ID required",
+            "usage": "cleo research links <task-id>"
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Task ID required."
+      echo "Usage: cleo research links <task-id>"
+      echo ""
+    fi
+    exit 2
+  fi
+
+  # Get all research linked to this task using get_task_research
+  local result
+  result=$(get_task_research "$task_id")
+
+  local entries count
+  entries=$(echo "$result" | jq '.result.entries')
+  count=$(echo "$result" | jq -r '.result.count')
+
+  # Output based on format
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg task_id "$task_id" \
+      --argjson entries "$entries" \
+      --argjson count "$count" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "links",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": {
+          "taskId": $task_id,
+          "count": $count,
+          "entries": $entries
+        }
+      }'
+  else
+    echo ""
+    echo "Research linked to task $task_id"
+    echo "================================"
+    echo ""
+
+    if [[ "$count" -eq 0 ]]; then
+      echo "No research entries linked to this task."
+      echo ""
+      echo "Use 'cleo research link $task_id <research-id>' to link research."
+    else
+      # Print table header
+      printf "%-30s %-12s %s\n" "ID" "STATUS" "TITLE"
+      printf "%-30s %-12s %s\n" "------------------------------" "------------" "$(printf '%0.s-' {1..35})"
+
+      # Print entries
+      echo "$entries" | jq -r '.[] | [.id, .status, .title] | @tsv' | while IFS=$'\t' read -r id status title; do
+        # Truncate title if too long
+        if [[ ${#title} -gt 35 ]]; then
+          title="${title:0:32}..."
+        fi
+        printf "%-30s %-12s %s\n" "$id" "$status" "$title"
+      done
+
+      echo ""
+      echo "Found $count linked research entries."
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Unlink Subcommand (remove link between research and task)
+# ============================================================================
+
+run_unlink() {
+  local task_id="$LINK_TASK_ID"
+  local research_id="$LINK_RESEARCH_ID"
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Validate required arguments
+  if [[ -z "$task_id" ]]; then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "unlink",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_MISSING_ARGUMENT",
+            "message": "Task ID required",
+            "usage": "cleo research unlink <task-id> <research-id>"
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Task ID required."
+      echo "Usage: cleo research unlink <task-id> <research-id>"
+      echo ""
+    fi
+    exit 2
+  fi
+
+  if [[ -z "$research_id" ]]; then
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "unlink",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_MISSING_ARGUMENT",
+            "message": "Research ID required",
+            "usage": "cleo research unlink <task-id> <research-id>"
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Research ID required."
+      echo "Usage: cleo research unlink <task-id> <research-id>"
+      echo ""
+    fi
+    exit 2
+  fi
+
+  # Use unlink_research_from_task to remove from manifest
+  local result
+  result=$(unlink_research_from_task "$task_id" "$research_id")
+
+  local success manifest_updated action
+  success=$(echo "$result" | jq -r '.success')
+  manifest_updated=$(echo "$result" | jq -r '.result.manifestUpdated // false')
+  action=$(echo "$result" | jq -r '.result.action // "error"')
+
+  if [[ "$success" != "true" ]]; then
+    if [[ "$format" == "json" ]]; then
+      echo "$result" | jq --arg cmd_version "$COMMAND_VERSION" --arg timestamp "$(timestamp_iso)" '
+        ._meta.command = "research" |
+        ._meta.subcommand = "unlink" |
+        ._meta.command_version = $cmd_version |
+        ._meta.timestamp = $timestamp
+      '
+    else
+      local error_msg
+      error_msg=$(echo "$result" | jq -r '.error.message // "Unknown error"')
+      echo ""
+      echo "Error: $error_msg"
+      echo ""
+    fi
+    exit "${EXIT_NOT_FOUND:-4}"
+  fi
+
+  # Success output
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg task_id "$task_id" \
+      --arg research_id "$research_id" \
+      --arg action "$action" \
+      --argjson manifest_updated "$manifest_updated" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "unlink",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": {
+          "taskId": $task_id,
+          "researchId": $research_id,
+          "action": $action,
+          "manifestUpdated": $manifest_updated
+        }
+      }'
+  else
+    echo ""
+    if [[ "$action" == "unlinked" ]]; then
+      echo "Unlinked research from task"
+      echo "  Task:     $task_id"
+      echo "  Research: $research_id"
+      echo "  Note: Task notes are not modified. Remove manually if needed."
+    else
+      echo "Research was not linked to task"
+      echo "  Task:     $task_id"
+      echo "  Research: $research_id"
+    fi
     echo ""
   fi
 
@@ -1604,8 +2167,20 @@ case "$MODE" in
   inject)
     run_inject
     ;;
+  pending)
+    run_pending
+    ;;
+  get)
+    run_get
+    ;;
   link)
     run_link
+    ;;
+  links)
+    run_links
+    ;;
+  unlink)
+    run_unlink
     ;;
   *)
     main

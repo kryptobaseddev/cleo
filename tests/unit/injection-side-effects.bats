@@ -19,6 +19,10 @@ setup() {
     # Source injection libraries (after common_setup sets paths)
     export CLEO_HOME="${PROJECT_ROOT}"
     export CLEO_LIB_DIR="${LIB_DIR}"
+
+    # Set CLI_VERSION for deterministic test output
+    export CLI_VERSION="0.50.2"
+
     source "$LIB_DIR/injection-registry.sh"
     source "$LIB_DIR/injection-config.sh"
     source "$LIB_DIR/injection.sh"
@@ -27,14 +31,12 @@ setup() {
     mkdir -p "$TEST_TEMP_DIR"
     cd "$TEST_TEMP_DIR"
 
-    # Create test template
+    # Create test template (note: template doesn't have markers - they're added by injection)
     TEMPLATE_FILE="$TEST_TEMP_DIR/test-template.md"
     cat > "$TEMPLATE_FILE" <<'EOF'
-<!-- CLEO:START v0.50.2 -->
 ## Task Management (cleo)
 
 Test injection content.
-<!-- CLEO:END -->
 EOF
 
     # Create test header
@@ -96,11 +98,11 @@ teardown_file() {
     grep -q "<!-- CLEO:START v0.50.2 -->" "$target"
     grep -q "<!-- CLEO:END -->" "$target"
 
-    # File should contain template content
-    grep -q "Task Management (cleo)" "$target"
+    # File should contain @-reference to template (not full content)
+    grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
 }
 
-@test "injection_update creates file with header when specified" {
+@test "injection_update creates file with reference (header merged at injection time)" {
     local target="GEMINI.md"  # GEMINI uses header
 
     # Update mock to return header for GEMINI
@@ -114,10 +116,8 @@ teardown_file() {
 
     injection_update "$target"
 
-    # File should contain header content before injection
-    grep -q "Test Header" "$target"
-    grep -q "Agent-specific instructions" "$target"
-    grep -q "Task Management (cleo)" "$target"
+    # File should contain @-reference (header logic now handled by reference resolution)
+    grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
 }
 
 # =============================================================================
@@ -213,9 +213,9 @@ EOF
     # Old injection content should be gone
     ! grep -q "Old Content" "$target"
 
-    # New injection should be present
+    # New injection should be present (version and @-reference)
     grep -q "v0.50.2" "$target"
-    grep -q "Task Management (cleo)" "$target"
+    grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
 
     # Existing content should be preserved
     grep -q "Repository Guidelines" "$target"
@@ -338,7 +338,7 @@ EOF
 
 @test "injection_apply creates new file (action=created)" {
     local target="NEW.md"
-    local content="Test content"
+    local content="Test content (unused)"  # content param is unused - we inject reference
 
     run injection_apply "$target" "$content" "created"
     assert_success
@@ -346,13 +346,15 @@ EOF
     # File should exist
     [ -f "$target" ]
 
-    # File should contain content
-    [[ "$(cat "$target")" == "$content" ]]
+    # File should contain @-reference (not the content param)
+    grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
+    grep -q "CLEO:START" "$target"
+    grep -q "CLEO:END" "$target"
 }
 
 @test "injection_apply prepends to existing file (action=added)" {
     local target="EXISTING.md"
-    local content="New injection"
+    local content="New injection (unused)"  # content param is unused - we inject reference
 
     # Create existing file
     echo "Old content" > "$target"
@@ -360,8 +362,8 @@ EOF
     run injection_apply "$target" "$content" "added"
     assert_success
 
-    # New content should be first
-    head -n 1 "$target" | grep -q "New injection"
+    # @-reference should be first (within markers)
+    head -n 3 "$target" | grep -q "@.cleo/templates/AGENT-INJECTION.md"
 
     # Old content should be preserved
     grep -q "Old content" "$target"
@@ -369,7 +371,7 @@ EOF
 
 @test "injection_apply replaces injection block (action=updated)" {
     local target="UPDATE.md"
-    local new_content="<!-- CLEO:START v0.50.2 -->"$'\n'"New content"$'\n'"<!-- CLEO:END -->"
+    local new_content="ignored (unused)"  # content param is unused - we inject reference
 
     # Create file with old injection
     cat > "$target" <<'EOF'
@@ -383,11 +385,11 @@ EOF
     run injection_apply "$target" "$new_content" "updated"
     assert_success
 
-    # Should have new version
+    # Should have new version and @-reference
     grep -q "v0.50.2" "$target"
-    grep -q "New content" "$target"
+    grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
 
-    # Should not have old version
+    # Should not have old version or old content
     ! grep -q "v0.40.0" "$target"
     ! grep -q "Old injection" "$target"
 
@@ -529,10 +531,10 @@ EOF
     # Create initial file
     echo "original" > "$target"
 
-    injection_apply "$target" "new content" "created"
+    injection_apply "$target" "unused" "created"
 
-    # File should be replaced atomically
-    [[ "$(cat "$target")" == "new content" ]]
+    # File should be replaced atomically with @-reference
+    grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
 }
 
 # =============================================================================
