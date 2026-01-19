@@ -1,12 +1,14 @@
 # Orchestrator Protocol Guide
 
-**Version**: 1.0.0
+**Version**: 2.0.0
 **Status**: Active
-**Last Updated**: 2026-01-18
+**Last Updated**: 2026-01-19
 
 ## Overview
 
-The Orchestrator Protocol enables LLM agents to coordinate multi-agent workflows in CLEO projects. An **orchestrator** stays high-level and delegates all implementation work to **subagents**, using a manifest-based handoff system for context efficiency.
+The Orchestrator Protocol enables complex multi-agent workflows where a single
+HITL-facing agent (the "orchestrator") delegates all detailed work to subagents
+while protecting its own context window.
 
 ### When to Use
 
@@ -17,6 +19,45 @@ The Orchestrator Protocol enables LLM agents to coordinate multi-agent workflows
 | Long-running session (>100K tokens) | Yes | Context protection via delegation |
 | Single quick task | No | Direct execution is faster |
 | Simple bug fix | No | Overhead not justified |
+
+## Activation
+
+### Via Skill (Recommended)
+
+The skill-based approach is **strongly recommended** over CLAUDE.md injection:
+
+```bash
+# Natural language triggers:
+# - "activate orchestrator mode"
+# - "run as orchestrator"
+# - "orchestrate this workflow"
+
+# Or via Skill tool directly:
+Skill: orchestrator
+```
+
+**Why skill-based?**
+
+| Problem with CLAUDE.md | Skill-based solution |
+|------------------------|---------------------|
+| ALL agents read CLAUDE.md | Skills load ON-DEMAND |
+| Subagents ALSO try to orchestrate | Subagents do NOT inherit skills |
+| Breaks delegation pattern | Only HITL session operates as orchestrator |
+| Always loaded (context overhead) | Loaded when needed |
+
+### Via CLI (Project Installation)
+
+Install the orchestrator skill to your project:
+
+```bash
+cleo orchestrator skill --install    # Copy skill to .cleo/skills/
+cleo orchestrator skill --verify     # Verify installation
+```
+
+### Legacy: CLAUDE.md Injection (DEPRECATED)
+
+> **WARNING**: The CLAUDE.md injection approach is deprecated.
+> See `templates/orchestrator-protocol/ORCHESTRATOR-INJECT.md` for migration guidance.
 
 ## Core Concepts
 
@@ -63,16 +104,16 @@ Key fields:
 
 ## Quick Start
 
-### 1. Enable Orchestrator Protocol
+### 1. Activate Orchestrator Mode
 
-Inject into your project's CLAUDE.md:
-
+**Option A: Skill-based (Recommended)**
 ```bash
-# Option A: Manual injection
-cat templates/orchestrator-protocol/ORCHESTRATOR-INJECT.md >> CLAUDE.md
+# Say "activate orchestrator mode" or use Skill tool
+```
 
-# Option B: Copy template
-cp templates/orchestrator-protocol/ORCHESTRATOR-INJECT.md CLAUDE.md
+**Option B: Install to project**
+```bash
+cleo orchestrator skill --install
 ```
 
 ### 2. Start an Orchestrator Session

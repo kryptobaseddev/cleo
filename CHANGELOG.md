@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-01-19
+
+### Added
+- **Orchestrator Protocol Implementation** (T1575): Context-protected multi-agent workflow system
+  - Protocol specification with 5 immutable ORC constraints (ORC-001 through ORC-005)
+  - Session startup protocol for context-protected workflows
+  - Dependency-aware agent spawner with wave-based execution
+  - Manifest-based research handoff between subagents
+  - Compliance validator with 4 validation functions
+  - 42 integration tests for protocol enforcement
+- **Orchestrator Skill Integration** (T1596): Skill-based protocol delivery
+  - New `skills/orchestrator/` directory with SKILL.md, README.md, INSTALL.md
+  - Skill-based activation replaces CLAUDE.md injection for orchestrator
+  - Context isolation: subagents do NOT inherit orchestrator constraints
+  - Subagent protocol block at `skills/orchestrator/references/SUBAGENT-PROTOCOL-BLOCK.md`
+  - 32 skill integration tests
+- **Orchestrator CLI Commands**: Full orchestrator command suite
+  - `cleo orchestrator start` - Initialize orchestrator session
+  - `cleo orchestrator status` - Show orchestrator state
+  - `cleo orchestrator next` - Get next recommended action
+  - `cleo orchestrator spawn` - Create subagent with dependency tracking
+  - `cleo orchestrator validate` - Check protocol compliance
+  - `cleo orchestrator skill --install/--verify` - Manage skill activation
+- **Documentation**: Comprehensive orchestrator documentation
+  - `docs/guides/ORCHESTRATOR-PROTOCOL.md` - Protocol specification
+  - `docs/commands/orchestrator.md` - Command reference
+  - `templates/orchestrator-protocol/` - Protocol templates
+
+### Changed
+- **AGENTS.md, GEMINI.md**: Simplified to @-reference format (orchestrator content removed)
+- **install.sh**: Added skills directory installation support
+
 ## [0.53.4] - 2026-01-19
 
 ### Changed

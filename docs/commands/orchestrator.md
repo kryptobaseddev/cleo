@@ -10,6 +10,41 @@ cleo orchestrator <command> [options]
 
 ## Commands
 
+### skill
+
+Manage orchestrator skill installation.
+
+```bash
+cleo orchestrator skill [options]
+```
+
+**Options:**
+- (none): Display installation instructions
+- `--install`: Copy skill to project's `.cleo/skills/`
+- `--verify`: Check skill is properly installed
+
+**Examples:**
+```bash
+cleo orchestrator skill           # Show instructions
+cleo orchestrator skill --install # Install to project
+cleo orchestrator skill --verify  # Verify installation
+```
+
+**Installation Details:**
+
+When `--install` is used:
+1. Creates `.cleo/skills/orchestrator/` directory if not exists
+2. Copies `SKILL.md` and supporting files from CLEO's skill templates
+3. Skill becomes available via natural language or Skill tool
+
+**Why Skill-Based?**
+
+The skill approach is preferred over CLAUDE.md injection because:
+- **Selective Activation**: Only the HITL orchestrator agent receives the protocol
+- **Subagent Isolation**: Subagents spawn without orchestrator constraints
+- **On-Demand Loading**: Reduces context overhead when not in orchestrator mode
+- **Clean Separation**: Orchestrator vs worker roles are architecturally distinct
+
 ### start
 
 Initialize orchestrator session and get complete startup state.

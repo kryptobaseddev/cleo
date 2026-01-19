@@ -4,12 +4,14 @@ Reusable templates for the CLEO Orchestrator Protocol.
 
 ## Quick Start
 
-### 1. Enable Protocol
-
-Inject into your project CLAUDE.md:
+### 1. Enable Protocol (Skill-Based - Recommended)
 
 ```bash
-cat templates/orchestrator-protocol/ORCHESTRATOR-INJECT.md >> CLAUDE.md
+# Option A: On-demand activation
+# Say "activate orchestrator mode" or use Skill tool
+
+# Option B: Install to project for persistent availability
+cleo orchestrator skill --install
 ```
 
 ### 2. Initialize Research Directory
@@ -25,11 +27,21 @@ cleo orchestrator start --epic T001
 cleo orchestrator spawn T002
 ```
 
+## Activation Methods
+
+| Method | When to Use | How |
+|--------|-------------|-----|
+| Skill (recommended) | Most workflows | `Skill: orchestrator` or natural language |
+| CLI install | Persistent project setup | `cleo orchestrator skill --install` |
+| CLAUDE.md injection | **DEPRECATED** | Do not use |
+
+**Why skill-based?** See [migration notes](#legacy-claudemd-injection-deprecated) below.
+
 ## Directory Structure
 
 ```
 orchestrator-protocol/
-  ORCHESTRATOR-INJECT.md    # CLAUDE.md injection block
+  ORCHESTRATOR-INJECT.md    # DEPRECATED - Reference only
   README.md                  # This file
   subagent-prompts/          # Spawn templates
     BASE-SUBAGENT-PROMPT.md  # Core protocol block
@@ -41,9 +53,12 @@ orchestrator-protocol/
 
 ## Templates
 
-### ORCHESTRATOR-INJECT.md
+### ORCHESTRATOR-INJECT.md (DEPRECATED)
 
-Injection block for CLAUDE.md. Contains:
+> **WARNING**: This file is deprecated. Use skill-based activation instead.
+> Kept for reference only.
+
+Historical injection block for CLAUDE.md. Contains:
 - 5 immutable ORC constraints
 - Session startup protocol
 - Subagent spawning rules
@@ -117,8 +132,30 @@ cat templates/orchestrator-protocol/subagent-prompts/TASK-EXECUTOR.md
 
 Edit templates in `subagent-prompts/`. Changes take effect on next spawn.
 
+## Legacy: CLAUDE.md Injection (DEPRECATED)
+
+> **Do NOT use CLAUDE.md injection for the orchestrator protocol.**
+
+**Why deprecated?**
+
+CLAUDE.md injection affects ALL agents including subagents, breaking the orchestrator pattern:
+
+| Problem | Impact |
+|---------|--------|
+| Subagents read CLAUDE.md | They also try to orchestrate |
+| Context overhead | Orchestrator rules loaded in every agent |
+| Role confusion | Workers try to delegate instead of execute |
+| Protocol violations | Nested orchestration breaks dependency tracking |
+
+**Migration steps:**
+
+1. Remove any `<!-- ORCHESTRATOR:START -->` blocks from your CLAUDE.md
+2. Run: `cleo orchestrator skill --install`
+3. Activate skill when orchestrator mode is needed
+
 ## Documentation
 
 - [Orchestrator Protocol Guide](../../docs/guides/ORCHESTRATOR-PROTOCOL.md)
 - [CLI Reference](../../docs/commands/orchestrator.md)
 - [Example Session](../../docs/examples/orchestrator-example-session.md)
+- [Skill Directory](../../skills/orchestrator/README.md)

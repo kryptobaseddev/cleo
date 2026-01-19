@@ -413,6 +413,20 @@ else
 fi
 
 # ============================================
+# SKILLS
+# ============================================
+log_step "Installing skills..."
+
+# Copy skills directory for orchestrator and other skills
+if [[ -d "$SCRIPT_DIR/skills" ]]; then
+  mkdir -p "$INSTALL_DIR/skills"
+  cp -r "$SCRIPT_DIR/skills/"* "$INSTALL_DIR/skills/"
+  log_info "Skills installed ($(find "$INSTALL_DIR/skills" -type f | wc -l) files)"
+else
+  log_warn "Skills directory not found at $SCRIPT_DIR/skills (optional)"
+fi
+
+# ============================================
 # SCRIPTS
 # ============================================
 log_step "Installing scripts..."
@@ -519,6 +533,7 @@ declare -A CMD_MAP=(
   [swap]="reorder.sh"
   [doctor]="doctor.sh"
   [setup-agents]="setup-agents.sh"
+  [orchestrator]="orchestrator.sh"
 )
 
 # Brief descriptions for main help
@@ -576,6 +591,7 @@ declare -A CMD_DESC=(
   [swap]="Exchange positions of two sibling tasks"
   [doctor]="Comprehensive health check for CLEO installation and projects"
   [setup-agents]="Setup global agent configurations (CLAUDE.md, AGENTS.md, GEMINI.md)"
+  [orchestrator]="Orchestrator Protocol CLI for multi-agent delegation workflows"
 )
 
 # ============================================
@@ -1272,33 +1288,42 @@ else
 fi
 
 # ============================================
-# INSTALL TASK MANAGEMENT DOCS TO ~/.claude/ (for Claude Code integration)
+# INJECT CLEO REFERENCE TO GLOBAL ~/.claude/CLAUDE.md
 # ============================================
+# Note: We inject a reference to ~/.cleo/docs/TODO_Task_Management.md
+# NOT a copy. Single source of truth is in ~/.cleo/docs/
 if [[ -d "$HOME/.claude" ]]; then
-  log_step "Installing Task Management documentation to ~/.claude/..."
-  DOCS_TARGET="$HOME/.claude/TODO_Task_Management.md"
+  log_step "Configuring global Claude Code integration..."
   CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+  CLEO_DOCS_REF="@~/.cleo/docs/TODO_Task_Management.md"
 
-  # Copy the file (not symlink)
-  if [[ -f "$INSTALL_DIR/docs/TODO_Task_Management.md" ]]; then
-    cp -f "$INSTALL_DIR/docs/TODO_Task_Management.md" "$DOCS_TARGET"
-    log_info "Installed: $DOCS_TARGET"
+  # Remove legacy duplicate file if it exists (cleanup from older versions)
+  if [[ -f "$HOME/.claude/TODO_Task_Management.md" ]]; then
+    rm -f "$HOME/.claude/TODO_Task_Management.md"
+    log_info "Removed legacy duplicate: ~/.claude/TODO_Task_Management.md"
+  fi
 
-    # Append reference to CLAUDE.md if not already present
-    if [[ -f "$CLAUDE_MD" ]]; then
-      if ! grep -q "@TODO_Task_Management.md" "$CLAUDE_MD" 2>/dev/null; then
-        echo "" >> "$CLAUDE_MD"
-        echo "# Task Management" >> "$CLAUDE_MD"
-        echo "@TODO_Task_Management.md" >> "$CLAUDE_MD"
-        log_info "Added @TODO_Task_Management.md reference to $CLAUDE_MD"
+  # Inject reference to CLAUDE.md if not already present
+  if [[ -f "$CLAUDE_MD" ]]; then
+    # Check for both old relative and new absolute references
+    if grep -q "@.*TODO_Task_Management.md" "$CLAUDE_MD" 2>/dev/null; then
+      # Update old relative reference to new absolute reference
+      if grep -q "@TODO_Task_Management.md" "$CLAUDE_MD" 2>/dev/null && \
+         ! grep -q "@~/.cleo/docs/TODO_Task_Management.md" "$CLAUDE_MD" 2>/dev/null; then
+        sed -i "s|@TODO_Task_Management.md|$CLEO_DOCS_REF|g" "$CLAUDE_MD"
+        log_info "Updated reference to $CLEO_DOCS_REF in $CLAUDE_MD"
       else
-        log_info "@TODO_Task_Management.md reference already in $CLAUDE_MD"
+        log_info "CLEO reference already in $CLAUDE_MD"
       fi
     else
-      log_warn "No CLAUDE.md found at $CLAUDE_MD - skipping reference injection"
+      # Add new reference
+      echo "" >> "$CLAUDE_MD"
+      echo "# Task Management" >> "$CLAUDE_MD"
+      echo "$CLEO_DOCS_REF" >> "$CLAUDE_MD"
+      log_info "Added $CLEO_DOCS_REF reference to $CLAUDE_MD"
     fi
   else
-    log_warn "TODO_Task_Management.md not found in installation"
+    log_warn "No CLAUDE.md found at $CLAUDE_MD - skipping reference injection"
   fi
   # DEPRECATION WARNING (v0.50.x → v0.51.0)
   echo ""
