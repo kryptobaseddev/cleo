@@ -1,3 +1,9 @@
+---
+title: "context"
+description: "Monitor context window usage for agent safeguard system"
+icon: "eye"
+---
+
 # context Command
 
 > Monitor context window usage for agent safeguard system

@@ -174,6 +174,8 @@ Commands:
   list          List all sessions (multi-session)
   show          Show session details (multi-session)
   switch        Switch to different session (multi-session)
+  archive       Archive an ended/suspended session (multi-session)
+  cleanup       Remove stale sessions (empty scope, old ended)
 
 Single-Session Options:
   --note TEXT       Add a note when ending session
@@ -227,6 +229,8 @@ Examples (Multi-Session):
   cleo session resume session_20251227_...
   cleo session switch session_20251227_...
   cleo session close session_20251227_... # Close when all tasks done
+  cleo session archive session_20251227_... # Archive ended session
+  cleo session archive --reason "Project complete"
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -623,7 +627,7 @@ cmd_start() {
 
   # Check context alert after session start (T1324)
   if declare -f check_context_alert >/dev/null 2>&1; then
-    check_context_alert 2>/dev/null || true
+    check_context_alert || true
   fi
 
   # Check if CLAUDE.md injection is outdated
@@ -1012,7 +1016,7 @@ cmd_end() {
 
   # Check context alert after session end (T1324)
   if declare -f check_context_alert >/dev/null 2>&1; then
-    check_context_alert 2>/dev/null || true
+    check_context_alert || true
   fi
 
   # Check and rotate log if needed (T214)
@@ -1425,6 +1429,258 @@ cmd_close() {
   fi
 }
 
+
+# Archive a session (move to archived state)
+# Usage: cleo session archive <session-id> [--reason REASON] [--dry-run]
+cmd_archive() {
+  local session_id=""
+  local reason=""
+  local dry_run=false
+  local format_arg=""
+  local all_ended=false
+  local older_than=""
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --session) session_id="$2"; shift 2 ;;
+      --reason) reason="$2"; shift 2 ;;
+      --dry-run) dry_run=true; shift ;;
+      -f|--format) format_arg="$2"; shift 2 ;;
+      --json) format_arg="json"; shift ;;
+      --human) format_arg="human"; shift ;;
+      -q|--quiet) QUIET=true; shift ;;
+      --all-ended) all_ended=true; shift ;;
+      --older-than) older_than="$2"; shift 2 ;;
+      -*) shift ;;
+      *) session_id="$1"; shift ;;
+    esac
+  done
+
+  local output_format
+  output_format=$(resolve_format "$format_arg")
+
+  # Check multi-session enabled
+  if ! is_multi_session_enabled "$CONFIG_FILE" 2>/dev/null; then
+    log_error "Multi-session mode not enabled" "E_CONFIG_ERROR" "$EXIT_INVALID_INPUT" "Enable with: cleo config set multiSession.enabled true"
+    exit "$EXIT_INVALID_INPUT"
+  fi
+
+  local sessions_file
+  sessions_file=$(get_sessions_file)
+
+  # Bulk archive mode
+  if [[ "$all_ended" == "true" ]]; then
+    local to_archive=()
+    local cutoff=""
+
+    # Calculate cutoff date if --older-than specified
+    if [[ -n "$older_than" ]]; then
+      cutoff=$(date -d "$older_than days ago" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -v-"${older_than}"d -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+    fi
+
+    # Find all ended sessions (and optionally suspended)
+    while IFS= read -r sid; do
+      if [[ -n "$sid" ]]; then
+        to_archive+=("$sid")
+      fi
+    done < <(
+      if [[ -n "$cutoff" ]]; then
+        jq -r --arg cutoff "$cutoff" '.sessions[] | select((.status == "ended" or .status == "suspended") and .lastActivity < $cutoff) | .id' "$sessions_file" 2>/dev/null
+      else
+        jq -r '.sessions[] | select(.status == "ended" or .status == "suspended") | .id' "$sessions_file" 2>/dev/null
+      fi
+    )
+
+    local archive_count=${#to_archive[@]}
+
+    if [[ "$archive_count" -eq 0 ]]; then
+      if [[ "$output_format" == "json" ]]; then
+        local timestamp
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        jq -nc \
+          --arg ts "$timestamp" \
+          --arg version "${CLEO_VERSION:-$(get_version)}" \
+          '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {"format": "json", "command": "session archive", "timestamp": $ts, "version": $version},
+            "success": true,
+            "archived": 0,
+            "sessions": []
+          }'
+      else
+        log_info "No ended or suspended sessions to archive"
+      fi
+      exit "$EXIT_SUCCESS"
+    fi
+
+    if [[ "$dry_run" == "true" ]]; then
+      if [[ "$output_format" == "json" ]]; then
+        local timestamp
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        jq -nc \
+          --arg ts "$timestamp" \
+          --arg version "${CLEO_VERSION:-$(get_version)}" \
+          --argjson count "$archive_count" \
+          --argjson sessions "$(printf '%s\n' "${to_archive[@]}" | jq -R . | jq -s .)" \
+          '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {"format": "json", "command": "session archive", "timestamp": $ts, "version": $version},
+            "success": true,
+            "dryRun": true,
+            "wouldArchive": $count,
+            "sessions": $sessions
+          }'
+      else
+        log_info "[DRY-RUN] Would archive $archive_count session(s):"
+        for sid in "${to_archive[@]}"; do
+          echo "  - $sid"
+        done
+        log_info "(use without --dry-run to actually archive)"
+      fi
+      exit "$EXIT_SUCCESS"
+    fi
+
+    # Actually archive all
+    local archived=0
+    local skipped=0
+    local archived_ids=()
+    local skipped_ids=()
+
+    for sid in "${to_archive[@]}"; do
+      if archive_session "$sid" "$reason" 2>/dev/null; then
+        ((archived++))
+        archived_ids+=("$sid")
+      else
+        ((skipped++))
+        skipped_ids+=("$sid")
+      fi
+    done
+
+    if [[ "$output_format" == "json" ]]; then
+      local timestamp
+      timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      jq -nc \
+        --arg ts "$timestamp" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
+        --argjson archived "$archived" \
+        --argjson skipped "$skipped" \
+        --argjson archived_sessions "$(printf '%s\n' "${archived_ids[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]')" \
+        --argjson skipped_sessions "$(printf '%s\n' "${skipped_ids[@]}" | jq -R . | jq -s . 2>/dev/null || echo '[]')" \
+        --arg reason "$reason" \
+        '{
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+          "_meta": {"format": "json", "command": "session archive", "timestamp": $ts, "version": $version},
+          "success": true,
+          "archived": $archived,
+          "skipped": $skipped,
+          "sessions": $archived_sessions,
+          "skippedSessions": $skipped_sessions,
+          "reason": (if $reason != "" then $reason else null end)
+        }'
+    else
+      log_step "Archived $archived session(s), skipped $skipped"
+      if [[ "$archived" -gt 0 ]]; then
+        for sid in "${archived_ids[@]}"; do
+          echo "  - $sid"
+        done
+      fi
+    fi
+    exit "$EXIT_SUCCESS"
+  fi
+
+  # Single session archive mode
+  # Get session ID if not provided
+  if [[ -z "$session_id" ]]; then
+    session_id=$(get_current_session_id 2>/dev/null || true)
+    if [[ -z "$session_id" ]]; then
+      log_error "Session ID required. Use: cleo session archive <session-id> or --all-ended" "E_INVALID_INPUT" "$EXIT_INVALID_INPUT"
+      exit "$EXIT_INVALID_INPUT"
+    fi
+  fi
+
+  # Get session info for preview/output
+  local session_info
+  session_info=$(jq -c --arg id "$session_id" '.sessions[] | select(.id == $id)' "$sessions_file" 2>/dev/null || echo "")
+
+  if [[ -z "$session_info" ]]; then
+    log_error "Session not found: $session_id" "E_SESSION_NOT_FOUND" "${EXIT_SESSION_NOT_FOUND:-31}"
+    exit "${EXIT_SESSION_NOT_FOUND:-31}"
+  fi
+
+  local current_status
+  current_status=$(echo "$session_info" | jq -r '.status')
+
+  if [[ "$dry_run" == "true" ]]; then
+    if [[ "$output_format" == "json" ]]; then
+      local timestamp
+      timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      jq -nc \
+        --arg ts "$timestamp" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
+        --arg sid "$session_id" \
+        --arg status "$current_status" \
+        --arg reason "$reason" \
+        '{
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+          "_meta": {"format": "json", "command": "session archive", "timestamp": $ts, "version": $version},
+          "success": true,
+          "dryRun": true,
+          "session": $sid,
+          "currentStatus": $status,
+          "wouldArchive": ($status == "ended" or $status == "suspended"),
+          "reason": (if $reason != "" then $reason else null end)
+        }'
+    else
+      if [[ "$current_status" == "ended" || "$current_status" == "suspended" ]]; then
+        log_info "[DRY-RUN] Would archive session: $session_id (status: $current_status)"
+        if [[ -n "$reason" ]]; then
+          log_info "[DRY-RUN] Reason: $reason"
+        fi
+      else
+        log_warn "[DRY-RUN] Cannot archive session with status '$current_status'. Only 'ended' or 'suspended' sessions can be archived."
+      fi
+    fi
+    exit "$EXIT_SUCCESS"
+  fi
+
+  # Actually archive
+  if archive_session "$session_id" "$reason"; then
+    if [[ "$output_format" == "json" ]]; then
+      local timestamp
+      timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      jq -nc \
+        --arg ts "$timestamp" \
+        --arg version "${CLEO_VERSION:-$(get_version)}" \
+        --arg sid "$session_id" \
+        --arg reason "$reason" \
+        '{
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+          "_meta": {"format": "json", "command": "session archive", "timestamp": $ts, "version": $version},
+          "success": true,
+          "session": $sid,
+          "archived": true,
+          "reason": (if $reason != "" then $reason else null end)
+        }'
+    else
+      log_step "Session archived: $session_id"
+      if [[ -n "$reason" ]]; then
+        log_info "Reason: $reason"
+      fi
+    fi
+  else
+    local exit_code=$?
+    if [[ $exit_code -eq 38 ]]; then
+      log_error "Cannot archive session with status '$current_status'. Only 'ended' or 'suspended' sessions can be archived." "E_SESSION_ARCHIVE_BLOCKED" "$exit_code"
+    elif [[ $exit_code -eq 102 ]]; then
+      log_warn "Session is already archived: $session_id"
+      exit "$EXIT_SUCCESS"
+    else
+      log_error "Failed to archive session" "E_SESSION_ARCHIVE_FAILED" "$exit_code"
+    fi
+    exit $exit_code
+  fi
+}
+
 # List all sessions
 cmd_list() {
   local status_filter="all" format_arg=""
@@ -1768,6 +2024,7 @@ case "$COMMAND" in
   show)    cmd_show_session "$@" ;;
   switch)  cmd_switch "$@" ;;
   cleanup) cmd_cleanup "$@" ;;
+  archive) cmd_archive "$@" ;;
   -h|--help|help) usage ;;
   *)
     log_error "Unknown command: $COMMAND" "E_INPUT_INVALID" "$EXIT_INVALID_INPUT" "Run 'cleo session --help' for usage"

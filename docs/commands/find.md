@@ -1,3 +1,9 @@
+---
+title: "find"
+description: "Fuzzy search tasks with minimal output for efficient LLM context"
+icon: "magnifying-glass"
+---
+
 # find Command
 
 > Fuzzy search tasks by title, description, or ID pattern with minimal output for efficient LLM context usage.

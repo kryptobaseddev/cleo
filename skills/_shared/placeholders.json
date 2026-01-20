@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.0.0",
     "description": "Canonical registry of all template placeholders used in orchestrator protocol and skill templates",
-    "lastUpdated": "2026-01-19",
+    "lastUpdated": "2026-01-20",
     "tokenFormat": "{{TOKEN_NAME}}"
   },
   "required": [
@@ -170,6 +170,82 @@
       }
     ]
   },
+  "taskContext": {
+    "_comment": "Task-specific tokens populated by orchestrator from CLEO task data",
+    "tokens": [
+      {
+        "token": "TASK_TITLE",
+        "type": "string",
+        "example": "Implement login endpoint",
+        "description": "Task title from CLEO (task.title)",
+        "source": "task.title"
+      },
+      {
+        "token": "TASK_NAME",
+        "type": "string",
+        "example": "Implement login endpoint",
+        "description": "Alias for TASK_TITLE (for backward compatibility)",
+        "source": "task.title"
+      },
+      {
+        "token": "TASK_DESCRIPTION",
+        "type": "string",
+        "example": "Create POST /api/login endpoint with JWT authentication...",
+        "description": "Task description from CLEO (task.description)",
+        "source": "task.description"
+      },
+      {
+        "token": "TASK_INSTRUCTIONS",
+        "type": "string",
+        "example": "Create POST /api/login endpoint with JWT authentication...",
+        "description": "Task instructions (defaults to task.description, can be custom)",
+        "source": "task.description"
+      },
+      {
+        "token": "TOPICS_JSON",
+        "type": "array",
+        "example": "[\"auth\", \"api\", \"security\"]",
+        "description": "Task labels as JSON array",
+        "source": "task.labels"
+      },
+      {
+        "token": "DEPENDS_LIST",
+        "type": "string",
+        "example": "T1001, T1002",
+        "description": "Comma-separated dependency IDs",
+        "source": "task.depends",
+        "default": ""
+      },
+      {
+        "token": "ACCEPTANCE_CRITERIA",
+        "type": "string",
+        "example": "Tests pass, API responds with valid JWT",
+        "description": "Acceptance criteria (extracted from description or default)",
+        "default": "Task completed successfully per description"
+      },
+      {
+        "token": "DELIVERABLES_LIST",
+        "type": "string",
+        "example": "1. API endpoint\\n2. Unit tests\\n3. Documentation",
+        "description": "List of deliverables (extracted from description or default)",
+        "default": "Implementation per task description"
+      },
+      {
+        "token": "MANIFEST_SUMMARIES",
+        "type": "string",
+        "example": "Previous research found: auth tokens should rotate every 24h",
+        "description": "Context from previous subagent manifest entries",
+        "default": ""
+      },
+      {
+        "token": "NEXT_TASK_IDS",
+        "type": "string",
+        "example": "T1003, T1004",
+        "description": "Follow-up task IDs to add to needs_followup",
+        "default": ""
+      }
+    ]
+  },
   "skillSpecific": {
     "epicArchitect": [
       {
@@ -191,26 +267,6 @@
         "description": "Full description from epic"
       }
     ],
-    "taskExecutor": [
-      {
-        "token": "TASK_TITLE",
-        "type": "string",
-        "example": "Implement login endpoint",
-        "description": "Task title from CLEO"
-      },
-      {
-        "token": "TASK_DESCRIPTION",
-        "type": "string",
-        "example": "Create POST /api/login...",
-        "description": "Task description from CLEO"
-      },
-      {
-        "token": "DEPENDS_LIST",
-        "type": "string",
-        "example": "T1001, T1002",
-        "description": "Comma-separated dependency IDs"
-      }
-    ],
     "validator": [
       {
         "token": "TEST_SCOPE",
@@ -223,6 +279,78 @@
         "type": "path",
         "example": "src/auth/",
         "description": "Path to validate"
+      }
+    ],
+    "taskExecutor": [
+      {
+        "token": "TASK_TITLE",
+        "type": "string",
+        "example": "Implement login endpoint",
+        "description": "Task title (from taskContext.TASK_TITLE)",
+        "inherits": "taskContext.TASK_TITLE"
+      },
+      {
+        "token": "TASK_NAME",
+        "type": "string",
+        "example": "Implement login endpoint",
+        "description": "Alias for TASK_TITLE (from taskContext.TASK_NAME)",
+        "inherits": "taskContext.TASK_NAME"
+      },
+      {
+        "token": "TASK_DESCRIPTION",
+        "type": "string",
+        "example": "Create POST /api/login with JWT auth...",
+        "description": "Task description (from taskContext.TASK_DESCRIPTION)",
+        "inherits": "taskContext.TASK_DESCRIPTION"
+      },
+      {
+        "token": "TASK_INSTRUCTIONS",
+        "type": "string",
+        "example": "1. Create endpoint\\n2. Add JWT validation\\n3. Return token",
+        "description": "Execution instructions (from taskContext.TASK_INSTRUCTIONS)",
+        "inherits": "taskContext.TASK_INSTRUCTIONS"
+      },
+      {
+        "token": "DELIVERABLES_LIST",
+        "type": "string",
+        "example": "1. API endpoint\\n2. Unit tests\\n3. Documentation",
+        "description": "Expected outputs (from taskContext.DELIVERABLES_LIST)",
+        "inherits": "taskContext.DELIVERABLES_LIST"
+      },
+      {
+        "token": "ACCEPTANCE_CRITERIA",
+        "type": "string",
+        "example": "Tests pass, API responds with valid JWT",
+        "description": "Completion criteria (from taskContext.ACCEPTANCE_CRITERIA)",
+        "inherits": "taskContext.ACCEPTANCE_CRITERIA"
+      },
+      {
+        "token": "DEPENDS_LIST",
+        "type": "string",
+        "example": "T1001, T1002",
+        "description": "Completed dependencies (from taskContext.DEPENDS_LIST)",
+        "inherits": "taskContext.DEPENDS_LIST"
+      },
+      {
+        "token": "TOPICS_JSON",
+        "type": "array",
+        "example": "[\"auth\", \"api\"]",
+        "description": "Task labels as JSON (from taskContext.TOPICS_JSON)",
+        "inherits": "taskContext.TOPICS_JSON"
+      },
+      {
+        "token": "MANIFEST_SUMMARIES",
+        "type": "string",
+        "example": "Previous: auth tokens rotate every 24h",
+        "description": "Context from previous agents (from taskContext.MANIFEST_SUMMARIES)",
+        "inherits": "taskContext.MANIFEST_SUMMARIES"
+      },
+      {
+        "token": "NEXT_TASK_IDS",
+        "type": "string",
+        "example": "T1003, T1004",
+        "description": "Follow-up task IDs (from taskContext.NEXT_TASK_IDS)",
+        "inherits": "taskContext.NEXT_TASK_IDS"
       }
     ]
   },

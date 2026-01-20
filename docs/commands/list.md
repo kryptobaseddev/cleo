@@ -1,3 +1,9 @@
+---
+title: "list"
+description: "Display tasks with filtering and multiple output formats"
+icon: "list"
+---
+
 # list Command
 
 **Alias**: `ls`

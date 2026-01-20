@@ -1,3 +1,9 @@
+---
+title: "backup"
+description: "Create and manage timestamped backups of todo system files"
+icon: "floppy-disk"
+---
+
 # backup Command
 
 Create timestamped backups of all todo system files with optional compression and retention management.

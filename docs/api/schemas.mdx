@@ -1,0 +1,232 @@
+---
+title: "Schema Reference"
+description: "JSON Schema definitions for CLEO data structures"
+icon: "database"
+---
+
+# Schema Reference
+
+CLEO uses JSON Schema for data validation. This reference documents the core data structures.
+
+## Task Object
+
+The fundamental unit of work in CLEO.
+
+```json
+{
+  "id": "T001",
+  "title": "Implement authentication",
+  "description": "Add JWT-based auth with refresh tokens",
+  "status": "pending",
+  "priority": "high",
+  "type": "task",
+  "parentId": null,
+  "size": "medium",
+  "labels": ["backend", "security"],
+  "phase": "core",
+  "depends": ["T000"],
+  "files": ["src/auth/jwt.ts"],
+  "acceptanceCriteria": ["Tests pass", "Code reviewed"],
+  "notes": [
+    {
+      "timestamp": "2025-01-19T12:00:00Z",
+      "text": "Started implementation"
+    }
+  ],
+  "createdAt": "2025-01-19T10:00:00Z",
+  "updatedAt": "2025-01-19T12:00:00Z",
+  "completedAt": null
+}
+```
+
+### Field Reference
+
+<ResponseField name="id" type="string" required>
+  Unique task identifier. Format: `T` followed by digits (e.g., `T001`, `T1234`)
+</ResponseField>
+
+<ResponseField name="title" type="string" required>
+  Action-oriented task title. Must differ from description.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Detailed task description
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Task status. One of: `pending`, `active`, `blocked`, `done`
+</ResponseField>
+
+<ResponseField name="priority" type="string">
+  Priority level. One of: `critical`, `high`, `medium`, `low`. Default: `medium`
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Task type. One of: `epic`, `task`, `subtask`. Inferred from hierarchy.
+</ResponseField>
+
+<ResponseField name="parentId" type="string | null">
+  Parent task ID for hierarchy. `null` for root tasks.
+</ResponseField>
+
+<ResponseField name="size" type="string">
+  Scope-based size (NOT time). One of: `small`, `medium`, `large`
+</ResponseField>
+
+<ResponseField name="labels" type="string[]">
+  Array of labels for categorization
+</ResponseField>
+
+<ResponseField name="phase" type="string">
+  Project phase assignment (e.g., `setup`, `core`, `testing`)
+</ResponseField>
+
+<ResponseField name="depends" type="string[]">
+  Array of task IDs this task depends on
+</ResponseField>
+
+<ResponseField name="notes" type="object[]">
+  Array of timestamped notes
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO 8601 creation timestamp
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  ISO 8601 last modification timestamp
+</ResponseField>
+
+<ResponseField name="completedAt" type="string | null">
+  ISO 8601 completion timestamp. `null` if not complete.
+</ResponseField>
+
+## todo.json Structure
+
+<CodeGroup>
+```json Full Structure
+{
+  "_meta": {
+    "schemaVersion": "2.6.0",
+    "lastModified": "2025-01-19T12:00:00Z",
+    "checksum": "sha256:abc123..."
+  },
+  "project": {
+    "currentPhase": "core",
+    "phases": [
+      {
+        "slug": "setup",
+        "name": "Setup",
+        "status": "completed"
+      },
+      {
+        "slug": "core",
+        "name": "Core Development",
+        "status": "active"
+      }
+    ]
+  },
+  "focus": {
+    "taskId": "T001",
+    "setAt": "2025-01-19T12:00:00Z",
+    "sessionNote": "Working on JWT implementation"
+  },
+  "tasks": [
+    { /* task object */ }
+  ]
+}
+```
+
+```json Minimal
+{
+  "_meta": {
+    "schemaVersion": "2.6.0"
+  },
+  "tasks": []
+}
+```
+</CodeGroup>
+
+## Status Transitions
+
+Valid status transitions:
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: create
+    pending --> active: focus set
+    pending --> blocked: blocked-by
+    active --> pending: focus clear
+    active --> blocked: blocked-by
+    active --> done: complete
+    blocked --> pending: unblock
+    blocked --> active: unblock + focus
+    done --> pending: reopen
+    done --> [*]: archive
+```
+
+<Note>
+Use `cleo complete` for the `active/pending → done` transition. Use `cleo reopen` for `done → pending`.
+</Note>
+
+## Priority Values
+
+| Priority | Use Case |
+|----------|----------|
+| `critical` | Blocking deployment or other work |
+| `high` | Important, needs attention soon |
+| `medium` | Normal priority (default) |
+| `low` | Nice to have, do when time permits |
+
+## Hierarchy Constraints
+
+| Constraint | Value |
+|------------|-------|
+| Maximum depth | 3 levels (epic → task → subtask) |
+| Maximum siblings | Unlimited (configurable via `hierarchy.maxSiblings`) |
+| Valid parent types | epic can have tasks, task can have subtasks |
+
+## config.json Structure
+
+```json
+{
+  "_meta": {
+    "schemaVersion": "1.2.0"
+  },
+  "archive": {
+    "daysUntilArchive": 7,
+    "preserveRecentCount": 3
+  },
+  "validation": {
+    "maxActiveTasks": 1,
+    "requireDescription": false,
+    "maxTitleLength": 200
+  },
+  "hierarchy": {
+    "maxDepth": 3,
+    "maxSiblings": 7,
+    "autoCompleteParent": true,
+    "autoCompleteMode": "auto"
+  },
+  "defaults": {
+    "priority": "medium",
+    "phase": "core"
+  },
+  "contextAlerts": {
+    "enabled": true,
+    "warningThreshold": 70,
+    "criticalThreshold": 90
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Exit Codes" icon="hashtag" href="/api/exit-codes">
+    CLI exit code reference
+  </Card>
+  <Card title="Output Formats" icon="file-export" href="/api/output-formats">
+    JSON, CSV, and other output formats
+  </Card>
+</CardGroup>

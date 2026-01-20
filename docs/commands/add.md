@@ -1,3 +1,9 @@
+---
+title: "add"
+description: "Create a new task with validation, hierarchy support, and audit logging"
+icon: "plus"
+---
+
 # add Command
 
 **Alias**: `new`

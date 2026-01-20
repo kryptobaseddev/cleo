@@ -1,3 +1,9 @@
+---
+title: "validate"
+description: "Validate todo.json against schema and business rules"
+icon: "shield-check"
+---
+
 # validate Command
 
 **Alias**: `check`

@@ -89,6 +89,11 @@ GET_ID=""
 # Pending subcommand options
 PENDING_BRIEF="false"
 
+# Archive subcommand options
+ARCHIVE_THRESHOLD=""
+ARCHIVE_PERCENT=""
+# Note: --dry-run is handled by common flags (FLAG_DRY_RUN)
+
 # Research storage
 RESEARCH_DIR=".cleo/research"
 
@@ -117,6 +122,13 @@ SUBCOMMANDS
   unlink <task> <research>  Remove link between research and task
   pending          Show entries with needs_followup (orchestrator handoffs)
   get <id>         Get single entry by ID (raw JSON object)
+  archive          Archive old manifest entries to maintain context efficiency
+  status           Show manifest size and archival status
+
+ARCHIVE OPTIONS
+  --threshold N    Archive threshold in bytes (default: 200000 = ~50K tokens)
+  --percent N      Percentage of oldest entries to archive (default: 50)
+  --dry-run        Show what would be archived without making changes
 
 LIST OPTIONS
   --status STATUS  Filter by status (complete|partial|blocked|archived)
@@ -413,6 +425,42 @@ while [[ $# -gt 0 ]]; do
         shift
       fi
       ;;
+    archive)
+      MODE="archive"
+      shift
+      # Parse archive-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --threshold)
+            ARCHIVE_THRESHOLD="$2"
+            shift 2
+            ;;
+          --percent)
+            ARCHIVE_PERCENT="$2"
+            shift 2
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
+    status)
+      MODE="status"
+      shift
+      # Parse status-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --threshold)
+            ARCHIVE_THRESHOLD="$2"
+            shift 2
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
     --url)
       MODE="url"
       shift
@@ -537,6 +585,14 @@ validate_inputs() {
         echo '{"error": "Research ID required", "usage": "cleo research unlink <task-id> <research-id>"}' >&2
         exit 2
       fi
+      return 0
+      ;;
+    archive)
+      # No validation needed - all options have defaults
+      return 0
+      ;;
+    status)
+      # No validation needed
       return 0
       ;;
     show)
@@ -1854,6 +1910,266 @@ run_unlink() {
 }
 
 # ============================================================================
+# Archive Subcommand
+# ============================================================================
+
+run_archive() {
+  local threshold_bytes="${ARCHIVE_THRESHOLD:-200000}"
+  local archive_pct="${ARCHIVE_PERCENT:-50}"
+  local dry_run="${FLAG_DRY_RUN:-false}"
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # First check current size
+  local size_result
+  size_result=$(manifest_check_size "$threshold_bytes")
+  local current_bytes percent_used needs_archival entry_count
+  current_bytes=$(echo "$size_result" | jq -r '.result.currentBytes // 0')
+  percent_used=$(echo "$size_result" | jq -r '.result.percentUsed // 0')
+  needs_archival=$(echo "$size_result" | jq -r '.result.needsArchival // false')
+  entry_count=$(echo "$size_result" | jq -r '.result.entryCount // 0')
+
+  # Dry-run mode: just report what would happen
+  if [[ "$dry_run" == "true" ]]; then
+    local entries_to_archive=0
+    if [[ "$entry_count" -gt 1 ]]; then
+      entries_to_archive=$(( (entry_count * archive_pct) / 100 ))
+      [[ $entries_to_archive -lt 1 ]] && entries_to_archive=1
+    fi
+
+    if [[ "$format" == "json" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --argjson current "$current_bytes" \
+        --argjson threshold "$threshold_bytes" \
+        --argjson percent "$percent_used" \
+        --argjson needs_archival "$needs_archival" \
+        --argjson entries "$entry_count" \
+        --argjson would_archive "$entries_to_archive" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "archive",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": true,
+          "result": {
+            "dryRun": true,
+            "currentBytes": $current,
+            "thresholdBytes": $threshold,
+            "percentUsed": $percent,
+            "needsArchival": $needs_archival,
+            "entryCount": $entries,
+            "wouldArchive": $would_archive
+          }
+        }'
+    else
+      echo ""
+      echo "Manifest Archive Preview (dry-run)"
+      echo "==================================="
+      echo ""
+      echo "  Current Size: $current_bytes bytes ($percent_used% of threshold)"
+      echo "  Threshold:    $threshold_bytes bytes (~50K tokens)"
+      echo "  Entry Count:  $entry_count"
+      echo ""
+      if [[ "$needs_archival" == "true" ]]; then
+        echo "  Status: ARCHIVAL NEEDED"
+        echo "  Would archive $entries_to_archive of $entry_count entries ($archive_pct%)"
+      else
+        echo "  Status: Below threshold, no archival needed"
+      fi
+      echo ""
+    fi
+    exit 0
+  fi
+
+  # Execute archival
+  local archive_result rotate_exit
+  archive_result=$(manifest_rotate "$threshold_bytes" "$archive_pct") || rotate_exit=$?
+  local action archived kept bytes_before bytes_after
+
+  action=$(echo "$archive_result" | jq -r '.result.action // "none"')
+  archived=$(echo "$archive_result" | jq -r '.result.entriesArchived // 0')
+  kept=$(echo "$archive_result" | jq -r '.result.entriesKept // 0')
+  bytes_before=$(echo "$archive_result" | jq -r '.result.bytesBefore // 0')
+  bytes_after=$(echo "$archive_result" | jq -r '.result.bytesAfter // 0')
+
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg action "$action" \
+      --argjson archived "$archived" \
+      --argjson kept "$kept" \
+      --argjson bytes_before "$bytes_before" \
+      --argjson bytes_after "$bytes_after" \
+      --argjson threshold "$threshold_bytes" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "archive",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": {
+          "action": $action,
+          "entriesArchived": $archived,
+          "entriesKept": $kept,
+          "bytesBefore": $bytes_before,
+          "bytesAfter": $bytes_after,
+          "thresholdBytes": $threshold
+        }
+      }'
+  else
+    echo ""
+    echo "Manifest Archival"
+    echo "================="
+    echo ""
+    if [[ "$action" == "archived" ]]; then
+      echo "  Action: ARCHIVED"
+      echo "  Entries archived: $archived"
+      echo "  Entries kept:     $kept"
+      echo "  Size before:      $bytes_before bytes"
+      echo "  Size after:       $bytes_after bytes"
+      echo ""
+      echo "  Archived entries moved to MANIFEST-ARCHIVE.jsonl"
+    else
+      echo "  Action: NONE"
+      echo "  Current size: $current_bytes bytes ($percent_used% of threshold)"
+      echo "  Below threshold - no archival needed"
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Status Subcommand
+# ============================================================================
+
+run_status() {
+  local threshold_bytes="${ARCHIVE_THRESHOLD:-200000}"
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Check current size
+  local size_result
+  size_result=$(manifest_check_size "$threshold_bytes")
+  local file_exists current_bytes percent_used needs_archival entry_count
+  file_exists=$(echo "$size_result" | jq -r '.result.fileExists // false')
+  current_bytes=$(echo "$size_result" | jq -r '.result.currentBytes // 0')
+  percent_used=$(echo "$size_result" | jq -r '.result.percentUsed // 0')
+  needs_archival=$(echo "$size_result" | jq -r '.result.needsArchival // false')
+  entry_count=$(echo "$size_result" | jq -r '.result.entryCount // 0')
+
+  # Check archive file
+  local archive_path archive_size archive_entries
+  archive_path="$(_rm_get_output_dir)/MANIFEST-ARCHIVE.jsonl"
+  if [[ -f "$archive_path" ]]; then
+    archive_size=$(stat -c %s "$archive_path" 2>/dev/null || stat -f %z "$archive_path" 2>/dev/null || echo 0)
+    archive_entries=$(wc -l < "$archive_path" | tr -d ' ')
+  else
+    archive_size=0
+    archive_entries=0
+  fi
+
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson file_exists "$file_exists" \
+      --argjson current_bytes "$current_bytes" \
+      --argjson threshold "$threshold_bytes" \
+      --argjson percent "$percent_used" \
+      --argjson needs_archival "$needs_archival" \
+      --argjson entry_count "$entry_count" \
+      --argjson archive_size "$archive_size" \
+      --argjson archive_entries "$archive_entries" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "status",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": {
+          "manifest": {
+            "exists": $file_exists,
+            "bytes": $current_bytes,
+            "entries": $entry_count,
+            "percentUsed": $percent
+          },
+          "archive": {
+            "bytes": $archive_size,
+            "entries": $archive_entries
+          },
+          "threshold": {
+            "bytes": $threshold,
+            "needsArchival": $needs_archival
+          }
+        }
+      }'
+  else
+    echo ""
+    echo "Manifest Status"
+    echo "==============="
+    echo ""
+    if [[ "$file_exists" == "true" ]]; then
+      echo "  MANIFEST.jsonl:"
+      echo "    Size:    $current_bytes bytes"
+      echo "    Entries: $entry_count"
+      echo "    Usage:   $percent_used% of threshold"
+      echo ""
+      if [[ "$needs_archival" == "true" ]]; then
+        echo "    Status:  ARCHIVAL RECOMMENDED"
+      else
+        echo "    Status:  OK"
+      fi
+    else
+      echo "  MANIFEST.jsonl: Not found"
+      echo "    Run 'cleo research init' to create"
+    fi
+    echo ""
+    echo "  MANIFEST-ARCHIVE.jsonl:"
+    if [[ $archive_size -gt 0 ]]; then
+      echo "    Size:    $archive_size bytes"
+      echo "    Entries: $archive_entries"
+    else
+      echo "    Status:  Empty or not created yet"
+    fi
+    echo ""
+    echo "  Threshold: $threshold_bytes bytes (~50K tokens)"
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
 # Research Plan Generation
 # ============================================================================
 
@@ -2181,6 +2497,12 @@ case "$MODE" in
     ;;
   unlink)
     run_unlink
+    ;;
+  archive)
+    run_archive
+    ;;
+  status)
+    run_status
     ;;
   *)
     main

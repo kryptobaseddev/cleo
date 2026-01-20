@@ -1469,7 +1469,7 @@ log_operation "task_created" "$TASK_ID" "$task_details"
 
 # Check context alert after successful task creation (T1324)
 if declare -f check_context_alert >/dev/null 2>&1; then
-  check_context_alert 2>/dev/null || true
+  check_context_alert || true
 fi
 
 # Success output

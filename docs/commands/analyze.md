@@ -1,3 +1,9 @@
+---
+title: "analyze"
+description: "Smart task triage and prioritization with leverage scoring"
+icon: "chart-line"
+---
+
 # analyze Command
 
 Smart task triage and prioritization using leverage scoring, bottleneck detection, and domain grouping.

@@ -1,3 +1,9 @@
+---
+title: "focus"
+description: "Manage task focus for single-task workflow discipline"
+icon: "bullseye"
+---
+
 # focus Command
 
 Manage task focus for single-task workflow discipline.

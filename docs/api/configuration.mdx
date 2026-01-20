@@ -1,0 +1,236 @@
+---
+title: "Configuration"
+description: "Configure CLEO behavior with config.json and environment variables"
+icon: "gear"
+---
+
+# Configuration
+
+CLEO supports project-level and global configuration through `config.json` and environment variables.
+
+## Configuration Hierarchy
+
+Settings are resolved in order (highest priority first):
+
+1. Command-line flags
+2. Environment variables
+3. Project config (`.cleo/config.json`)
+4. Global config (`~/.cleo/config.json`)
+5. Built-in defaults
+
+## Managing Configuration
+
+```bash
+# View all settings
+cleo config show
+
+# Get specific value
+cleo config get archive.daysUntilArchive
+
+# Set value
+cleo config set archive.daysUntilArchive 14
+
+# Set nested value
+cleo config set hierarchy.maxSiblings 10
+
+# Reset to default
+cleo config unset archive.daysUntilArchive
+```
+
+## Configuration Options
+
+### Archive Settings
+
+<ResponseField name="archive.daysUntilArchive" type="number" default="7">
+  Days after completion before auto-archiving tasks
+</ResponseField>
+
+<ResponseField name="archive.preserveRecentCount" type="number" default="3">
+  Number of recent completed tasks to preserve from archiving
+</ResponseField>
+
+<ResponseField name="archive.autoArchive" type="boolean" default="true">
+  Enable automatic archiving of old completed tasks
+</ResponseField>
+
+### Validation Settings
+
+<ResponseField name="validation.maxActiveTasks" type="number" default="1">
+  Maximum number of tasks with `active` status (single-task discipline)
+</ResponseField>
+
+<ResponseField name="validation.requireDescription" type="boolean" default="false">
+  Require description field when creating tasks
+</ResponseField>
+
+<ResponseField name="validation.maxTitleLength" type="number" default="200">
+  Maximum length for task titles
+</ResponseField>
+
+<ResponseField name="validation.strict" type="boolean" default="true">
+  Enable strict validation mode (more checks)
+</ResponseField>
+
+### Hierarchy Settings
+
+<ResponseField name="hierarchy.maxDepth" type="number" default="3">
+  Maximum hierarchy depth (epic → task → subtask)
+</ResponseField>
+
+<ResponseField name="hierarchy.maxSiblings" type="number" default="7">
+  Maximum children per parent task (0 = unlimited)
+</ResponseField>
+
+<ResponseField name="hierarchy.autoCompleteParent" type="boolean" default="true">
+  Automatically complete parent when all children are done
+</ResponseField>
+
+<ResponseField name="hierarchy.autoCompleteMode" type="string" default="auto">
+  Mode for auto-complete: `auto`, `suggest`, or `off`
+</ResponseField>
+
+### Default Values
+
+<ResponseField name="defaults.priority" type="string" default="medium">
+  Default priority for new tasks
+</ResponseField>
+
+<ResponseField name="defaults.phase" type="string" default="core">
+  Default phase for new tasks
+</ResponseField>
+
+<ResponseField name="defaults.status" type="string" default="pending">
+  Default status for new tasks
+</ResponseField>
+
+### Context Alerts
+
+<ResponseField name="contextAlerts.enabled" type="boolean" default="true">
+  Enable automatic context usage alerts
+</ResponseField>
+
+<ResponseField name="contextAlerts.warningThreshold" type="number" default="70">
+  Percentage threshold for warning alerts
+</ResponseField>
+
+<ResponseField name="contextAlerts.cautionThreshold" type="number" default="85">
+  Percentage threshold for caution alerts
+</ResponseField>
+
+<ResponseField name="contextAlerts.criticalThreshold" type="number" default="90">
+  Percentage threshold for critical alerts
+</ResponseField>
+
+<ResponseField name="contextAlerts.emergencyThreshold" type="number" default="95">
+  Percentage threshold for emergency alerts
+</ResponseField>
+
+### Analyze Settings
+
+<ResponseField name="analyze.sizeStrategy" type="string" default="balanced">
+  Task size weighting: `quick-wins` (favor small), `big-impact` (favor large), or `balanced`
+</ResponseField>
+
+## Environment Variables
+
+Environment variables override config file settings:
+
+| Variable | Config Equivalent |
+|----------|------------------|
+| `CLEO_HOME` | Installation directory |
+| `CLEO_PROJECT` | Project data directory |
+| `CLEO_NO_COLOR` | Disable colored output |
+| `CLEO_DEBUG` | Enable debug logging |
+| `CLEO_MAX_ACTIVE` | `validation.maxActiveTasks` |
+| `NO_COLOR` | Standard color disable |
+
+```bash
+# Example usage
+CLEO_DEBUG=1 cleo add "Task with debug"
+CLEO_MAX_ACTIVE=3 cleo focus set T001
+```
+
+## Example Configuration
+
+<CodeGroup>
+```json Project Config (.cleo/config.json)
+{
+  "_meta": {
+    "schemaVersion": "1.2.0"
+  },
+  "archive": {
+    "daysUntilArchive": 14,
+    "preserveRecentCount": 5
+  },
+  "validation": {
+    "maxActiveTasks": 1,
+    "requireDescription": true
+  },
+  "hierarchy": {
+    "maxDepth": 3,
+    "maxSiblings": 10,
+    "autoCompleteParent": true
+  },
+  "defaults": {
+    "priority": "medium",
+    "phase": "core"
+  },
+  "contextAlerts": {
+    "enabled": true,
+    "warningThreshold": 70
+  }
+}
+```
+
+```json Global Config (~/.cleo/config.json)
+{
+  "_meta": {
+    "schemaVersion": "1.2.0"
+  },
+  "defaults": {
+    "priority": "high"
+  },
+  "validation": {
+    "strict": true
+  }
+}
+```
+</CodeGroup>
+
+## Configuration Validation
+
+```bash
+# Validate configuration
+cleo config validate
+
+# Show effective config (merged from all sources)
+cleo config show --effective
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Project Config" icon="folder">
+    Keep project-specific settings in `.cleo/config.json` for team consistency
+  </Card>
+  <Card title="Commit Config" icon="code-commit">
+    Add `.cleo/config.json` to version control for reproducibility
+  </Card>
+  <Card title="Use Env Vars for Overrides" icon="terminal">
+    Use environment variables for temporary or CI/CD overrides
+  </Card>
+  <Card title="Validate After Changes" icon="shield-check">
+    Run `cleo config validate` after modifying config
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Schema Reference" icon="database" href="/api/schemas">
+    Data structure documentation
+  </Card>
+  <Card title="Exit Codes" icon="hashtag" href="/api/exit-codes">
+    CLI exit code reference
+  </Card>
+</CardGroup>

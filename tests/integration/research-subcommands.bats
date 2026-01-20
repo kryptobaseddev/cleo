@@ -542,3 +542,115 @@ create_multiple_manifest_entries() {
 
     assert_output --partial "Unknown option"
 }
+
+# =============================================================================
+# ARCHIVE SUBCOMMAND TESTS
+# =============================================================================
+
+@test "research archive: reports status when below threshold" {
+    # Create manifest with small amount of data
+    create_multiple_manifest_entries
+
+    run "$SCRIPTS_DIR/research.sh" archive --json
+    assert_success
+
+    # Should report action: none since below threshold
+    echo "$output" | jq -e '.success == true' >/dev/null
+    echo "$output" | jq -e '.result.action == "none"' >/dev/null
+}
+
+@test "research archive: dry-run shows what would be archived" {
+    # Create manifest with entries
+    create_multiple_manifest_entries
+
+    run "$SCRIPTS_DIR/research.sh" archive --dry-run --threshold 100 --json
+    assert_success
+
+    # Should indicate dry run mode
+    echo "$output" | jq -e '.result.dryRun == true' >/dev/null
+    echo "$output" | jq -e '.result.needsArchival == true' >/dev/null
+    echo "$output" | jq -e '.result.wouldArchive > 0' >/dev/null
+}
+
+@test "research archive: archives entries when over threshold" {
+    # Create manifest with entries
+    create_multiple_manifest_entries
+
+    # Force archival with very low threshold
+    run "$SCRIPTS_DIR/research.sh" archive --threshold 100 --json
+    assert_success
+
+    # Should have archived some entries
+    echo "$output" | jq -e '.result.action == "archived"' >/dev/null
+    echo "$output" | jq -e '.result.entriesArchived > 0' >/dev/null
+
+    # Archive file should exist
+    [[ -f "$RESEARCH_OUTPUT_DIR/MANIFEST-ARCHIVE.jsonl" ]]
+}
+
+@test "research archive: respects percent option" {
+    # Create manifest with entries
+    create_multiple_manifest_entries
+
+    # Archive with 25% setting
+    run "$SCRIPTS_DIR/research.sh" archive --threshold 100 --percent 25 --json
+    assert_success
+
+    # Should have archived 25% of entries (1 of 4 = 1)
+    echo "$output" | jq -e '.result.entriesArchived == 1' >/dev/null
+}
+
+# =============================================================================
+# STATUS SUBCOMMAND TESTS
+# =============================================================================
+
+@test "research status: shows manifest info" {
+    # Create manifest with entries
+    create_multiple_manifest_entries
+
+    run "$SCRIPTS_DIR/research.sh" status --json
+    assert_success
+
+    # Should include manifest info
+    echo "$output" | jq -e '.result.manifest.exists == true' >/dev/null
+    echo "$output" | jq -e '.result.manifest.entries == 4' >/dev/null
+    echo "$output" | jq -e '.result.manifest.bytes > 0' >/dev/null
+}
+
+@test "research status: shows archive info when archive exists" {
+    # Create manifest and archive
+    create_multiple_manifest_entries
+    echo '{"id":"archived-entry"}' >> "$RESEARCH_OUTPUT_DIR/MANIFEST-ARCHIVE.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" status --json
+    assert_success
+
+    # Should include archive info
+    echo "$output" | jq -e '.result.archive.entries == 1' >/dev/null
+    echo "$output" | jq -e '.result.archive.bytes > 0' >/dev/null
+}
+
+@test "research status: respects custom threshold" {
+    # Create manifest with entries
+    create_multiple_manifest_entries
+
+    run "$SCRIPTS_DIR/research.sh" status --threshold 100 --json
+    assert_success
+
+    # Should show needs archival with low threshold
+    echo "$output" | jq -e '.result.threshold.bytes == 100' >/dev/null
+    echo "$output" | jq -e '.result.threshold.needsArchival == true' >/dev/null
+}
+
+@test "research status: handles empty manifest" {
+    # Initialize empty directory
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    touch "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" status --json
+    assert_success
+
+    # Should show exists but 0 entries
+    echo "$output" | jq -e '.result.manifest.exists == true' >/dev/null
+    echo "$output" | jq -e '.result.manifest.entries == 0' >/dev/null
+}

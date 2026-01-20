@@ -1,3 +1,9 @@
+---
+title: "next"
+description: "Intelligently suggest the next task to work on"
+icon: "forward"
+---
+
 # next Command
 
 Intelligently suggest the next task to work on based on priority, dependencies, and current focus.
