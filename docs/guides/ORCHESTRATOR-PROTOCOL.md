@@ -6,9 +6,13 @@
 
 ## Overview
 
+> **Vision Document**: See [ORCHESTRATOR-VISION.md](../ORCHESTRATOR-VISION.md) for the core philosophy and rationale behind this protocol.
+
 The Orchestrator Protocol enables complex multi-agent workflows where a single
 HITL-facing agent (the "orchestrator") delegates all detailed work to subagents
 while protecting its own context window.
+
+**The Mantra**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
 
 ### When to Use
 

@@ -19,8 +19,8 @@ setup() {
 
 # Paths (relative to project root)
 # OLD_TEMPLATE removed - subagent-prompts directory deprecated and deleted
-NEW_SKILL="skills/epic-architect/SKILL.md"
-NEW_REFERENCES="skills/epic-architect/references"
+NEW_SKILL="skills/ct-epic-architect/SKILL.md"
+NEW_REFERENCES="skills/ct-epic-architect/references"
 SHARED_DIR="skills/_shared"
 
 # ============================================================================
@@ -63,7 +63,7 @@ SHARED_DIR="skills/_shared"
 }
 
 @test "epic-architect skill: frontmatter has name field" {
-    grep -q "^name: epic-architect$" "$NEW_SKILL"
+    grep -q "^name: ct-epic-architect$" "$NEW_SKILL"
 }
 
 @test "epic-architect skill: frontmatter has description field" {
@@ -88,19 +88,21 @@ SHARED_DIR="skills/_shared"
 # LINE COUNT / SIZE TESTS
 # ============================================================================
 
-@test "epic-architect skill: SKILL.md under 500 lines" {
+@test "epic-architect skill: SKILL.md under 550 lines (progressive disclosure)" {
+    # SKILL.md should be concise with most content in reference files
+    # 550 lines allows room for critical content like error handling and shell escaping
+    # while maintaining ~20% main / ~80% reference ratio
     lines=$(wc -l < "$NEW_SKILL")
-    [[ $lines -lt 500 ]]
+    [[ $lines -lt 550 ]]
 }
 
-@test "epic-architect skill: combined content exceeds original (progressive disclosure)" {
-    old_lines=$(wc -l < "$OLD_TEMPLATE")
+@test "epic-architect skill: combined content is substantial (progressive disclosure)" {
     new_skill_lines=$(wc -l < "$NEW_SKILL")
     new_refs_lines=$(cat "$NEW_REFERENCES"/*.md | wc -l)
     new_total=$((new_skill_lines + new_refs_lines))
 
-    # New format should have similar or more content when references are included
-    [[ $new_total -ge $((old_lines - 100)) ]]
+    # Combined content should be substantial (at least 500 lines with references)
+    [[ $new_total -ge 500 ]]
 }
 
 # ============================================================================
@@ -283,50 +285,79 @@ SHARED_DIR="skills/_shared"
 }
 
 # ============================================================================
-# EXAMPLES TESTS
+# EXAMPLE FILES TESTS (examples moved to references/)
 # ============================================================================
 
-@test "epic-architect skill: examples directory exists" {
-    [[ -d "skills/epic-architect/examples" ]]
+@test "epic-architect skill: has feature-epic-example.md in references" {
+    [[ -f "$NEW_REFERENCES/feature-epic-example.md" ]]
 }
 
-@test "epic-architect skill: has feature-epic-example.md" {
-    [[ -f "skills/epic-architect/examples/feature-epic-example.md" ]]
+@test "epic-architect skill: has bug-epic-example.md in references" {
+    [[ -f "$NEW_REFERENCES/bug-epic-example.md" ]]
 }
 
-@test "epic-architect skill: has bug-epic-example.md" {
-    [[ -f "skills/epic-architect/examples/bug-epic-example.md" ]]
+@test "epic-architect skill: has research-epic-example.md in references" {
+    [[ -f "$NEW_REFERENCES/research-epic-example.md" ]]
 }
 
-@test "epic-architect skill: has research-epic-example.md" {
-    [[ -f "skills/epic-architect/examples/research-epic-example.md" ]]
-}
-
-@test "epic-architect skill: has migration-epic-example.md" {
-    [[ -f "skills/epic-architect/examples/migration-epic-example.md" ]]
+@test "epic-architect skill: has migration-epic-example.md in references" {
+    [[ -f "$NEW_REFERENCES/migration-epic-example.md" ]]
 }
 
 @test "epic-architect skill: feature example has dependency graph" {
-    grep -q "Dependency Graph" "skills/epic-architect/examples/feature-epic-example.md"
+    grep -q "Dependency Graph" "$NEW_REFERENCES/feature-epic-example.md"
 }
 
 @test "epic-architect skill: feature example has wave analysis" {
-    grep -q "Wave Analysis" "skills/epic-architect/examples/feature-epic-example.md"
+    grep -q "Wave Analysis" "$NEW_REFERENCES/feature-epic-example.md"
 }
 
 @test "epic-architect skill: bug example has severity mapping" {
-    grep -q "Severity" "skills/epic-architect/examples/bug-epic-example.md"
+    grep -q "Severity" "$NEW_REFERENCES/bug-epic-example.md"
 }
 
 @test "epic-architect skill: research example has 3 patterns" {
     # Should have exploratory, decision, and codebase analysis
-    grep -qi "exploratory" "skills/epic-architect/examples/research-epic-example.md"
-    grep -qi "decision" "skills/epic-architect/examples/research-epic-example.md"
-    grep -qi "codebase" "skills/epic-architect/examples/research-epic-example.md"
+    grep -qi "exploratory" "$NEW_REFERENCES/research-epic-example.md"
+    grep -qi "decision" "$NEW_REFERENCES/research-epic-example.md"
+    grep -qi "codebase" "$NEW_REFERENCES/research-epic-example.md"
 }
 
 @test "epic-architect skill: migration example has rollback" {
-    grep -qi "rollback" "skills/epic-architect/examples/migration-epic-example.md"
+    grep -qi "rollback" "$NEW_REFERENCES/migration-epic-example.md"
+}
+
+@test "epic-architect skill: has refactor-epic-example.md in references" {
+    [[ -f "$NEW_REFERENCES/refactor-epic-example.md" ]]
+}
+
+@test "epic-architect skill: refactor example has strangler fig pattern" {
+    grep -qi "strangler fig" "$NEW_REFERENCES/refactor-epic-example.md"
+}
+
+@test "epic-architect skill: refactor example has brownfield content" {
+    grep -qi "brownfield" "$NEW_REFERENCES/refactor-epic-example.md"
+}
+
+@test "epic-architect skill: refactor example has regression baseline" {
+    grep -qi "regression.*baseline" "$NEW_REFERENCES/refactor-epic-example.md"
+}
+
+@test "epic-architect skill: patterns.md has brownfield pattern" {
+    grep -qi "brownfield epic pattern" "$NEW_REFERENCES/patterns.md"
+}
+
+@test "epic-architect skill: commands.md has cleanupDone gate" {
+    grep -q "cleanupDone" "$NEW_REFERENCES/commands.md"
+}
+
+@test "epic-architect skill: commands.md has epicLifecycle as available" {
+    # epicLifecycle is available in schema 2.6.1+, not planned
+    grep -q "available in schema 2.6.1" "$NEW_REFERENCES/commands.md"
+}
+
+@test "epic-architect skill: SKILL.md has shell escaping section" {
+    grep -q "Shell Escaping for Notes" "$NEW_SKILL"
 }
 
 # ============================================================================
@@ -354,17 +385,14 @@ SHARED_DIR="skills/_shared"
 }
 
 # ============================================================================
-# INSTALLATION TESTS
+# MANIFEST INTEGRATION TESTS
 # ============================================================================
 
-@test "epic-architect skill: installation script exists" {
-    [[ -f "scripts/epic-architect-install.sh" ]]
+@test "epic-architect skill: is registered in manifest.json" {
+    jq -e '.skills[] | select(.name == "ct-epic-architect")' "skills/manifest.json" >/dev/null
 }
 
-@test "epic-architect skill: installation script is executable" {
-    [[ -x "scripts/epic-architect-install.sh" ]]
-}
-
-@test "epic-architect skill: installation script has help" {
-    scripts/epic-architect-install.sh --help | grep -q "USAGE"
+@test "epic-architect skill: manifest path matches actual location" {
+    manifest_path=$(jq -r '.skills[] | select(.name == "ct-epic-architect") | .path' "skills/manifest.json")
+    [[ "$manifest_path" == "skills/ct-epic-architect" ]]
 }

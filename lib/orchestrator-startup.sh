@@ -10,7 +10,7 @@
 # Implements the session startup sequence for the Orchestrator Protocol.
 # Ensures consistent bootstrapping across conversations.
 #
-# Version: 1.0.0 (cleo v0.54.0)
+# Version: 1.0.0 (cleo v0.55.0)
 # Spec: docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md
 
 #=== SOURCE GUARD ================================================

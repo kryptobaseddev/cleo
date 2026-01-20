@@ -31,6 +31,7 @@ source "$LIB_DIR/migrate.sh" 2>/dev/null || true
 source "$LIB_DIR/validation.sh" 2>/dev/null || true
 source "$LIB_DIR/injection.sh" 2>/dev/null || true
 source "$LIB_DIR/project-registry.sh" 2>/dev/null || true
+source "$LIB_DIR/skills-version.sh" 2>/dev/null || true
 
 # Source centralized flag parsing
 source "$LIB_DIR/flags.sh"
@@ -82,7 +83,8 @@ WHAT IT DOES:
     3. Updates agent docs injections (CLAUDE.md, AGENTS.md, GEMINI.md)
     4. Syncs templates (AGENT-INJECTION.md) from global to project
     5. Sets up Claude Code statusline for context monitoring
-    6. Validates the result
+    6. Updates skill versions when manifest changes
+    7. Validates the result
 
 EXAMPLES:
     cleo upgrade                # Interactive upgrade
@@ -294,6 +296,29 @@ check_checksum_status() {
     return 0
 }
 
+check_skills_version_status() {
+    # Skip if skills-version library not available
+    if ! type check_skill_updates &>/dev/null; then
+        return 0
+    fi
+
+    local updates_json update_count
+    updates_json=$(check_skill_updates)
+    update_count=$(echo "$updates_json" | jq 'length' 2>/dev/null || echo "0")
+
+    if [[ "$update_count" -gt 0 ]]; then
+        UPDATES_NEEDED["skills"]="$update_count skill(s) need updating"
+        SKILL_UPDATES_JSON="$updates_json"
+        ((TOTAL_UPDATES++))
+        return 1
+    fi
+
+    return 0
+}
+
+# Global variable to store skill updates for later use
+SKILL_UPDATES_JSON="[]"
+
 # ============================================================================
 # PROJECT REGISTRY UPDATE
 # ============================================================================
@@ -469,6 +494,7 @@ check_schema_status "$UPG_ARCHIVE_FILE" "archive" "$UPG_SCHEMA_VERSION_ARCHIVE" 
 check_schema_status "$UPG_LOG_FILE" "log" "$UPG_SCHEMA_VERSION_LOG" || true
 check_agent_docs_status || true
 check_checksum_status || true
+check_skills_version_status || true
 
 # Check sequence file status (T1544)
 _SEQ_FILE="$(dirname "$UPG_TODO_FILE")/.sequence"
@@ -786,6 +812,37 @@ if [[ "$TEMPLATE_SYNC_NEEDED" == "true" ]]; then
             fi
         else
             ERRORS+=("Failed to sync AGENT-INJECTION.md template")
+        fi
+    fi
+fi
+
+# 6. Update skill versions (T1729)
+if [[ -n "${UPDATES_NEEDED[skills]:-}" ]] && type apply_skill_updates &>/dev/null; then
+    if ! is_json_output; then
+        echo "Checking skill versions..."
+    fi
+
+    _skill_update_count=$(echo "$SKILL_UPDATES_JSON" | jq 'length' 2>/dev/null || echo "0")
+
+    if [[ "$_skill_update_count" -gt 0 ]]; then
+        if ! is_json_output; then
+            echo "Found $_skill_update_count skill update(s)"
+            format_skill_updates "$SKILL_UPDATES_JSON"
+        fi
+
+        _applied_count=$(apply_skill_updates "$SKILL_UPDATES_JSON")
+
+        if [[ "$_applied_count" -gt 0 ]]; then
+            (( UPDATES_APPLIED += _applied_count ))
+            if ! is_json_output; then
+                echo "Updated $_applied_count skill(s)"
+            fi
+        else
+            ERRORS+=("Failed to apply skill updates")
+        fi
+    else
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            echo "All skills up to date"
         fi
     fi
 fi
