@@ -1,33 +1,40 @@
 # CLEO Skills Ecosystem Inventory
 
 **Generated**: 2026-01-19
-**Status**: Validation Complete - Action Required
+**Status**: Active - Validated
 
 ---
 
 ## Executive Summary
 
-The CLEO skills system has **6 skills** and **2 shared resources**, but requires structural fixes before deployment as a proper Claude Code plugin. Most skills have good content but some need frontmatter fixes and broken file references repaired.
+The CLEO skills system has **14 skills** and **3 shared resources**. All skills use the `ct-*` prefix naming convention and are tracked via `manifest.json`.
 
-### Critical Issues (Must Fix)
+### Architecture Overview
 
-| Issue | Location | Impact |
-|-------|----------|--------|
-| Missing plugin.json | Project root | Cannot deploy as Claude Code plugin |
-| Broken file references | docs-write, docs-review | Skills fail to load shared style guide |
-| Wrong product name | docs-write, docs-review | References "Metabase" instead of "CLEO" |
-| Non-standard frontmatter | orchestrator | `triggers:` field is deprecated |
+| Component | Count | Status |
+|-----------|-------|--------|
+| Skills (ct-*) | 14 | Active |
+| Shared Resources | 3 | Active |
+| Manifest Tracking | Yes | `skills/manifest.json` |
 
-### Validation Status
+### Skill Status
 
-| Skill | Frontmatter | Content | References | Overall |
-|-------|-------------|---------|------------|---------|
-| **epic-architect** | Good | Good | Good | **Good** |
-| orchestrator | Needs fix | Good | Good | Needs Improvement |
-| docs-lookup | Good | Good | N/A | Good |
-| docs-write | Needs fix | Good | BROKEN | Critical Fix Needed |
-| docs-review | Needs fix | Good | BROKEN | Critical Fix Needed |
-| skill-lookup | Good | Good | N/A | Good |
+| Skill | Version | Tags | Status |
+|-------|---------|------|--------|
+| **ct-epic-architect** | 2.1.0 | planning, architecture, task-management | Active |
+| **ct-orchestrator** | 1.0.0 | workflow, multi-agent, coordination | Active |
+| **ct-docs-lookup** | 1.0.0 | documentation, libraries, context7 | Active |
+| **ct-docs-write** | 1.0.0 | documentation, writing, style-guide | Active |
+| **ct-docs-review** | 1.0.0 | documentation, review, style-guide | Active |
+| **ct-documentor** | 2.3.0 | documentation, orchestration, workflow | Active |
+| **ct-skill-lookup** | 1.0.0 | skills, discovery, prompts-chat | Active |
+| **ct-library-implementer-bash** | 1.0.0 | implementation, bash, library | Active |
+| **ct-research-agent** | 1.0.0 | research, investigation, discovery | Active |
+| **ct-skill-creator** | 1.0.0 | skills, creation, meta | Active |
+| **ct-spec-writer** | 1.0.0 | specification, documentation, rfc | Active |
+| **ct-task-executor** | 1.0.0 | execution, implementation, task-management | Active |
+| **ct-test-writer-bats** | 1.0.0 | testing, bats, integration | Active |
+| **ct-validator** | 1.0.0 | validation, compliance, audit | Active |
 
 ---
 
@@ -35,176 +42,265 @@ The CLEO skills system has **6 skills** and **2 shared resources**, but requires
 
 ```
 skills/
-├── epic-architect/
-│   ├── SKILL.md              # Epic creation and task decomposition (v2.1.0)
-│   ├── references/
-│   │   ├── commands.md       # CLEO commands reference with tokens
-│   │   ├── patterns.md       # Research, Bug, Task naming patterns
-│   │   ├── output-format.md  # Epic output file templates
-│   │   └── skill-aware-execution.md  # Orchestrator integration
-│   └── examples/
+├── manifest.json                  # Skills registry (tracks all ct-* skills)
+├── ct-epic-architect/
+│   ├── SKILL.md                   # Epic creation and task decomposition (v2.1.0)
+│   └── references/
+│       ├── commands.md            # CLEO commands reference with tokens
+│       ├── patterns.md            # Research, Bug, Task naming patterns
+│       ├── output-format.md       # Epic output file templates
+│       ├── skill-aware-execution.md  # Orchestrator integration
 │       ├── feature-epic-example.md   # Greenfield feature epic
 │       ├── bug-epic-example.md       # Bug fix epic with severity
 │       ├── research-epic-example.md  # 3 research patterns
 │       └── migration-epic-example.md # Multi-phase migration
-├── orchestrator/
-│   ├── SKILL.md              # Multi-agent workflow orchestration
-│   ├── INSTALL.md            # Installation instructions
-│   ├── README.md             # Overview
+├── ct-orchestrator/
+│   ├── SKILL.md                   # Multi-agent workflow orchestration
+│   ├── INSTALL.md                 # Installation instructions
+│   ├── README.md                  # Overview
 │   └── references/
 │       └── SUBAGENT-PROTOCOL-BLOCK.md
-├── docs-lookup/
-│   └── SKILL.md              # Context7 documentation lookup
-├── docs-write/
-│   └── SKILL.md              # Documentation writing (BROKEN ref)
-├── docs-review/
-│   └── SKILL.md              # Documentation review (BROKEN ref)
-├── skill-lookup/
-│   └── SKILL.md              # prompts.chat skill discovery
+├── ct-docs-lookup/
+│   └── SKILL.md                   # Context7 documentation lookup
+├── ct-docs-write/
+│   └── SKILL.md                   # Documentation writing
+├── ct-docs-review/
+│   └── SKILL.md                   # Documentation review
+├── ct-documentor/
+│   └── SKILL.md                   # Documentation orchestrator (uses lookup/write/review)
+├── ct-skill-lookup/
+│   └── SKILL.md                   # prompts.chat skill discovery
+├── ct-skill-creator/
+│   ├── SKILL.md                   # Skill creation guide
+│   ├── references/
+│   │   ├── output-patterns.md
+│   │   └── workflows.md
+│   └── scripts/                   # Python tooling for skill creation
+├── ct-library-implementer-bash/
+│   └── SKILL.md                   # Bash library implementation
+├── ct-research-agent/
+│   └── SKILL.md                   # Research and investigation
+├── ct-spec-writer/
+│   └── SKILL.md                   # RFC 2119 specification writing
+├── ct-task-executor/
+│   └── SKILL.md                   # Generic task execution
+├── ct-test-writer-bats/
+│   └── SKILL.md                   # BATS integration tests
+├── ct-validator/
+│   └── SKILL.md                   # Compliance validation
 └── _shared/
-    ├── cleo-style-guide.md          # Shared writing style guide
-    ├── task-system-integration.md   # Portable task commands (tokens)
-    └── subagent-protocol-base.md    # RFC 2119 subagent output rules
+    ├── cleo-style-guide.md        # Shared writing style guide
+    ├── task-system-integration.md # Portable task commands (tokens)
+    └── subagent-protocol-base.md  # RFC 2119 subagent output rules
 ```
+
+---
+
+## Manifest Tracking
+
+All skills are tracked in `skills/manifest.json`:
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
+  "_meta": {
+    "schemaVersion": "1.0.0",
+    "lastUpdated": "2026-01-19",
+    "totalSkills": 13
+  },
+  "skills": [
+    {
+      "name": "ct-epic-architect",
+      "version": "2.1.0",
+      "description": "Epic architecture agent for creating comprehensive epics...",
+      "path": "skills/ct-epic-architect",
+      "model": "sonnet",
+      "tags": ["planning", "architecture", "task-management"],
+      "status": "active"
+    }
+    // ... additional skills
+  ]
+}
+```
+
+The manifest enables:
+- **Skill discovery**: Query available skills programmatically
+- **Version tracking**: Track versions across all skills
+- **Installation**: Install skills from manifest via `./install.sh`
+- **Validation**: Verify skill integrity and paths
 
 ---
 
 ## Skill Details
 
-### 1. epic-architect (NEW)
+### 1. ct-epic-architect
 
-**Purpose**: Create comprehensive CLEO epics with full task decomposition, dependency analysis, and wave planning. Converted from subagent template to skill format with progressive disclosure.
+**Purpose**: Create comprehensive CLEO epics with full task decomposition, dependency analysis, and wave planning.
 
 **Version**: 2.1.0
 
 **Triggers**: "create epic", "plan epic", "decompose into tasks", "architect the work", "break down this project", "epic planning", "task breakdown", "dependency analysis", "wave planning", "sprint planning"
 
-**Status**: **Good** - Properly structured with valid frontmatter, progressive disclosure, and 69 passing tests.
+**Status**: Active - Properly structured with valid frontmatter and progressive disclosure.
 
 **Structure**:
-- SKILL.md (490 lines) - Core workflow
-- references/ (4 files) - Commands, patterns, output format, orchestrator integration
-- examples/ (4 files) - Feature, bug, research, migration epic examples
+- SKILL.md - Core workflow
+- references/ (8 files) - Commands, patterns, output format, orchestrator integration, examples
 
 **Token-Based Commands**: Uses `{{TASK_ADD_CMD}}`, `{{TASK_COMPLETE_CMD}}`, etc. for portable task system integration.
 
-**Frontmatter**:
-```yaml
----
-name: epic-architect
-description: |
-  Epic architecture agent for creating comprehensive epics with full task decomposition.
-  Use when user says "create epic", "plan epic", "decompose into tasks",
-  "architect the work", "break down this project", "epic planning",
-  "task breakdown", "dependency analysis", "wave planning", "sprint planning".
-version: 2.1.0
-model: sonnet
----
-```
-
-**Installation**: `./scripts/epic-architect-install.sh [--global]`
+**Invocation**: `/ct-epic-architect` or natural language triggers
 
 ---
 
-### 2. orchestrator
+### 2. ct-orchestrator
 
 **Purpose**: Activate orchestrator mode for managing complex multi-agent workflows with ORC-001 through ORC-005 constraints.
 
-**Triggers**: "orchestrate", "orchestrator mode", "run as orchestrator", "delegate to subagents", "multi-agent workflow"
+**Version**: 1.0.0
 
-**Issues**:
-1. `triggers:` field in frontmatter is non-standard - remove it
-2. Description uses second person - rewrite in third person
-3. Duplicate content between SKILL.md and references/ - use progressive disclosure
+**Triggers**: "orchestrate", "orchestrator mode", "run as orchestrator", "delegate to subagents", "coordinate agents", "spawn subagents", "multi-agent workflow", "context-protected workflow", "agent farm", "HITL orchestration"
 
-**Recommended Frontmatter**:
-```yaml
+**Invocation**: `/ct-orchestrator`
+
 ---
-name: orchestrator
-description: |
-  This skill should be used when the user asks to "orchestrate", "orchestrator mode",
-  "run as orchestrator", "delegate to subagents", "coordinate agents", "spawn subagents",
-  "multi-agent workflow", "context-protected workflow", "agent farm", "HITL orchestration",
-  or needs to manage complex workflows by delegating work to subagents while protecting
-  the main context window. Enforces ORC-001 through ORC-005 constraints: stay high-level,
-  delegate ALL work via Task tool, read only manifest summaries, enforce dependency order,
-  and maintain context budget under 10K tokens.
-version: 1.0.0
----
-```
 
-### 2. docs-lookup
+### 3. ct-docs-lookup
 
 **Purpose**: Context7 documentation lookup for library/framework questions.
 
-**Triggers**: "how do I configure [library]", "write code using [framework]", "what are the methods"
+**Version**: 1.0.0
 
-**Issues**:
-1. Missing specific trigger phrases in description
-2. Missing MCP tool call limit warning (3 calls max)
+**Triggers**: "how do I configure [library]", "write code using [framework]", "what are the [library] methods", "show me [framework] examples"
 
-**Recommended Frontmatter**:
-```yaml
+**Invocation**: `/ct-docs-lookup`
+
 ---
-name: docs-lookup
-description: This skill should be used when the user asks "how do I configure [library]", "write code using [framework]", "what are the [library] methods", "show me [framework] examples", or mentions libraries like React, Vue, Next.js, Prisma, Supabase, Express, Tailwind, Drizzle, Svelte. Triggers for library setup, configuration, API references, framework code examples, or version-specific docs ("React 19", "Next.js 15").
-version: 1.0.0
----
-```
 
-### 3. docs-write
+### 4. ct-docs-write
 
 **Purpose**: Documentation writing following CLEO style guidelines.
 
-**Triggers**: "write docs", "create documentation", "edit the README", "improve doc clarity"
+**Version**: 1.0.0
 
-**Critical Issues**:
-1. **BROKEN REFERENCE**: Line 9 references `@~/.cleo/skills/_shared/metabase-style-guide.md` which does not exist
-2. Wrong product name: "Metabase's" should be "CLEO's"
-3. `allowed-tools` field may not be standard
+**Triggers**: "write docs", "create documentation", "edit the README", "improve doc clarity", "follow the style guide"
 
-**Recommended Fix**:
-```yaml
+**Invocation**: `/ct-docs-write`
+
 ---
-name: docs-write
-description: This skill should be used when creating, editing, or reviewing documentation files (markdown, MDX, README, guides). Use when the user asks to "write docs", "create documentation", "edit the README", "improve doc clarity", "make docs more readable", "follow the style guide", or "write user-facing content". Applies CLEO's conversational, clear, and user-focused writing style.
-version: 1.0.0
----
-```
 
-**Line 9 Fix**: Change to `@skills/_shared/cleo-style-guide.md` or `@${CLAUDE_PLUGIN_ROOT}/skills/_shared/cleo-style-guide.md`
-
-### 4. docs-review
+### 5. ct-docs-review
 
 **Purpose**: Documentation review for style guide compliance.
 
+**Version**: 1.0.0
+
 **Triggers**: "review documentation", "check docs style", "review this markdown", "check style guide compliance"
 
-**Critical Issues**:
-1. **BROKEN REFERENCE**: Line 9 references `@~/.cleo/skills/_shared/metabase-style-guide.md` which does not exist
-2. Wrong product name: "Metabase writing style guide" should be "CLEO writing style guide"
-3. Line 78 quick scan table references Metabase
+**Invocation**: `/ct-docs-review`
 
-**Recommended Fix**:
-```yaml
 ---
-name: docs-review
-version: 1.0.0
-description: This skill should be used when the user asks to "review documentation", "check docs style", "review this markdown file", "check style guide compliance", "review PR documentation", or needs documentation reviewed against the CLEO writing style guide. Supports both local file review and GitHub PR review modes with inline comments.
+
+### 6. ct-documentor
+
+**Purpose**: Documentation specialist orchestrating ct-docs-lookup, ct-docs-write, and ct-docs-review for end-to-end documentation workflows. Enforces "MAINTAIN, DON'T DUPLICATE" principle.
+
+**Version**: 2.3.0
+
+**Triggers**: "write documentation", "create docs", "update documentation", "document this feature", "full docs workflow", "end-to-end documentation"
+
+**Invocation**: `/ct-documentor`
+
+**Orchestrates**:
+- `/ct-docs-lookup` - Discovery phase
+- `/ct-docs-write` - Creation phase
+- `/ct-docs-review` - Review phase
+
 ---
-```
 
-**Line 9 Fix**: Change to `@skills/_shared/cleo-style-guide.md`
-
-### 5. skill-lookup
+### 7. ct-skill-lookup
 
 **Purpose**: Search and install Agent Skills from prompts.chat.
 
+**Version**: 1.0.0
+
 **Triggers**: "find me a skill", "search for skills", "get skill XYZ", "install a skill"
 
-**Issues**: Minor - could add more trigger phrases
+**Invocation**: `/ct-skill-lookup`
 
-**Status**: Good - no critical issues
+---
+
+### 8. ct-library-implementer-bash
+
+**Purpose**: Bash library implementation skill for creating shared shell functions in `lib/*.sh`.
+
+**Version**: 1.0.0
+
+**Invocation**: `/ct-library-implementer-bash`
+
+---
+
+### 9. ct-research-agent
+
+**Purpose**: Research and investigation agent for gathering information from multiple sources.
+
+**Version**: 1.0.0
+
+**Triggers**: "research", "investigate", "find out about", "explore options", "due diligence"
+
+**Invocation**: `/ct-research-agent`
+
+---
+
+### 10. ct-skill-creator
+
+**Purpose**: Guide for creating effective skills that extend Claude's capabilities.
+
+**Version**: 1.0.0
+
+**Triggers**: "create a skill", "new skill", "write a skill", "skill development"
+
+**Invocation**: `/ct-skill-creator`
+
+---
+
+### 11. ct-spec-writer
+
+**Purpose**: Specification writing agent for creating technical specifications using RFC 2119 language.
+
+**Version**: 1.0.0
+
+**Invocation**: `/ct-spec-writer`
+
+---
+
+### 12. ct-task-executor
+
+**Purpose**: Generic task execution agent for completing implementation work.
+
+**Version**: 1.0.0
+
+**Invocation**: `/ct-task-executor`
+
+---
+
+### 13. ct-test-writer-bats
+
+**Purpose**: Integration test writing agent using BATS framework.
+
+**Version**: 1.0.0
+
+**Invocation**: `/ct-test-writer-bats`
+
+---
+
+### 14. ct-validator
+
+**Purpose**: Compliance validation agent for verifying system, document, and code compliance.
+
+**Version**: 1.0.0
+
+**Invocation**: `/ct-validator`
 
 ---
 
@@ -216,137 +312,82 @@ description: This skill should be used when the user asks to "review documentati
 
 **Content**: Core principles, tone/voice, structure/clarity, formatting guidelines.
 
-**Issues**:
-1. Directory uses `_shared` (underscore prefix) - consider renaming to `shared/`
-2. Other skills reference wrong file path (`metabase-style-guide.md`)
+### _shared/task-system-integration.md
+
+**Purpose**: Portable task commands with token placeholders for cross-system compatibility.
+
+### _shared/subagent-protocol-base.md
+
+**Purpose**: RFC 2119 subagent output rules and protocol definitions.
 
 ---
 
-## Installation Architecture Decision
+## Installation
 
-### Option A: Single CLEO Plugin (Recommended)
+All skills are installed via the project's main installer:
 
-All skills bundled together in one plugin:
-
-```
-.claude-plugin/
-├── plugin.json
-├── skills/
-│   ├── ct-orchestrator/SKILL.md
-│   ├── ct-docs-lookup/SKILL.md
-│   ├── ct-docs-write/SKILL.md
-│   ├── ct-docs-review/SKILL.md
-│   ├── ct-skill-lookup/SKILL.md
-│   └── _shared/cleo-style-guide.md
-├── commands/
-│   └── cleo.md
-└── README.md
+```bash
+./install.sh
 ```
 
-**Pros**: Single install, cohesive ecosystem, easier versioning
-**Cons**: Larger footprint, all-or-nothing installation
-
-### Option B: Global Skills Installation
-
-Skills installed to `~/.claude/skills/` with `ct-` prefix:
-
-```
-~/.claude/skills/
-├── ct-orchestrator/SKILL.md
-├── ct-docs-lookup/SKILL.md
-├── ct-docs-write/SKILL.md
-├── ct-docs-review/SKILL.md
-└── ct-skill-lookup/SKILL.md
-```
-
-**Pros**: Available across all projects, modular installation
-**Cons**: Requires manual installation, version drift risk
-
-### Recommendation
-
-**Hybrid Approach**:
-1. Create `.claude-plugin/` structure for plugin marketplace distribution
-2. Provide `cleo skills install --global` command for `~/.claude/skills/` installation
-3. Keep `skills/` in project for development/dogfooding
+This:
+1. Reads `skills/manifest.json` for skill definitions
+2. Installs skills with proper `ct-*` prefix naming
+3. Sets up shared resources
+4. Validates skill structure
 
 ---
 
 ## Naming Convention
 
-All CLEO skills installed to `~/.claude/skills/` MUST use `ct-` prefix:
+All CLEO skills use the `ct-` prefix:
 
-| Current Name | Installed Name | Invocation |
-|--------------|----------------|------------|
-| orchestrator | ct-orchestrator | /ct-orchestrator |
-| docs-lookup | ct-docs-lookup | /ct-docs-lookup |
-| docs-write | ct-docs-write | /ct-docs-write |
-| docs-review | ct-docs-review | /ct-docs-review |
-| skill-lookup | ct-skill-lookup | /ct-skill-lookup |
-
----
-
-## Distribution Roadmap
-
-### Phase 1: Fix Critical Issues (Now)
-- [ ] Fix broken file references in docs-write and docs-review
-- [ ] Update frontmatter for all skills
-- [ ] Remove Metabase references
-
-### Phase 2: Create Plugin Structure (This Week)
-- [ ] Create `.claude-plugin/plugin.json`
-- [ ] Move/copy skills to `.claude-plugin/skills/` with `ct-` prefix
-- [ ] Create slash command wrapper
-
-### Phase 3: Marketplace Distribution (This Month)
-- [ ] Create `.claude-plugin/marketplace.json`
-- [ ] Host on GitHub as public marketplace
-- [ ] Submit to official plugin directory (if eligible)
-
-### Phase 4: Agent Skills Standard (Future)
-- [ ] Publish to agentskills.io
-- [ ] Submit to SkillsMP marketplace
-- [ ] Cross-platform compatibility
+| Directory Name | Invocation |
+|----------------|------------|
+| ct-epic-architect | /ct-epic-architect |
+| ct-orchestrator | /ct-orchestrator |
+| ct-docs-lookup | /ct-docs-lookup |
+| ct-docs-write | /ct-docs-write |
+| ct-docs-review | /ct-docs-review |
+| ct-documentor | /ct-documentor |
+| ct-skill-lookup | /ct-skill-lookup |
+| ct-library-implementer-bash | /ct-library-implementer-bash |
+| ct-research-agent | /ct-research-agent |
+| ct-skill-creator | /ct-skill-creator |
+| ct-spec-writer | /ct-spec-writer |
+| ct-task-executor | /ct-task-executor |
+| ct-test-writer-bats | /ct-test-writer-bats |
+| ct-validator | /ct-validator |
 
 ---
 
-## Subagent Prompts Inventory (MIGRATED)
+## Subagent Prompts Migration Reference
 
-**MIGRATED**: Subagent prompts have been migrated to `skills/` as proper skills.
+Subagent prompts have been migrated to `skills/` as proper skills with `ct-*` prefix:
 
 | Old Template | New Skill | Status |
 |--------------|-----------|--------|
-| SPEC-WRITER.md | `skills/spec-writer/SKILL.md` | Migrated |
-| EPIC-ARCHITECT.md | `skills/epic-architect/SKILL.md` | Migrated |
-| TEST-WRITER-BATS.md | `skills/test-writer-bats/SKILL.md` | Migrated |
-| LIBRARY-IMPLEMENTER.md | `skills/library-implementer-bash/SKILL.md` | Migrated |
-| RESEARCH-AGENT.md | `skills/research-agent/SKILL.md` | Migrated |
-| TASK-EXECUTOR.md | `skills/task-executor/SKILL.md` | Migrated |
-| VALIDATOR.md | `skills/validator/SKILL.md` | Migrated |
-
-Shared references in `skills/_shared/`:
-- `subagent-protocol-base.md` - Base protocol block
-- `task-system-integration.md` - CLEO task system integration
-
----
-
-## Implementation Priority
-
-1. **CRITICAL**: Fix docs-write and docs-review broken references
-2. **HIGH**: Update all skill frontmatter with proper descriptions
-3. **MEDIUM**: Create `.claude-plugin/` structure
-4. **MEDIUM**: Add `cleo skills install` command
-5. **LOW**: Submit to official marketplace
+| SPEC-WRITER.md | `skills/ct-spec-writer/SKILL.md` | Migrated |
+| EPIC-ARCHITECT.md | `skills/ct-epic-architect/SKILL.md` | Migrated |
+| TEST-WRITER-BATS.md | `skills/ct-test-writer-bats/SKILL.md` | Migrated |
+| LIBRARY-IMPLEMENTER.md | `skills/ct-library-implementer-bash/SKILL.md` | Migrated |
+| RESEARCH-AGENT.md | `skills/ct-research-agent/SKILL.md` | Migrated |
+| TASK-EXECUTOR.md | `skills/ct-task-executor/SKILL.md` | Migrated |
+| VALIDATOR.md | `skills/ct-validator/SKILL.md` | Migrated |
 
 ---
 
 ## Validation Commands
 
 ```bash
-# Validate plugin structure
-claude plugin validate .
+# Validate skill structure
+ls skills/ct-*/SKILL.md
+
+# Check manifest integrity
+cat skills/manifest.json | jq '.skills | length'
 
 # Test skill loading
-/skill orchestrator
+/ct-orchestrator
 
 # Verify skill triggers
 # Ask Claude: "What skills are available for documentation?"

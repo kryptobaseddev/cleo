@@ -3,10 +3,11 @@
 #
 # LAYER: 1 (Foundation Services)
 # DEPENDENCIES: exit-codes.sh
-# PROVIDES: ti_inject_tokens, ti_validate_required, ti_set_defaults, ti_load_template
+# PROVIDES: ti_inject_tokens, ti_validate_required, ti_set_defaults, ti_load_template, ti_reload_tokens
 #
 # Implements strict token replacement with validation to prevent hallucination.
 # All tokens use {{TOKEN_NAME}} format. Required tokens MUST be set before injection.
+# Token definitions are loaded from skills/_shared/placeholders.json (single source of truth).
 #
 # USAGE:
 #   source lib/token-inject.sh
@@ -34,62 +35,159 @@ set -euo pipefail
 _TI_LIB_DIR="${BASH_SOURCE[0]%/*}"
 [[ "$_TI_LIB_DIR" == "${BASH_SOURCE[0]}" ]] && _TI_LIB_DIR="."
 
+# Determine project root (two levels up from lib/)
+_TI_PROJECT_ROOT="${_TI_LIB_DIR}/.."
+[[ -d "${_TI_PROJECT_ROOT}/skills" ]] || _TI_PROJECT_ROOT="."
+
+# Path to placeholders.json (single source of truth)
+_TI_PLACEHOLDERS_JSON="${_TI_PROJECT_ROOT}/skills/_shared/placeholders.json"
+
 # Source dependencies
 # shellcheck source=lib/exit-codes.sh
 source "${_TI_LIB_DIR}/exit-codes.sh"
 
 # ============================================================================
-# TOKEN DEFINITIONS
+# TOKEN DEFINITIONS (loaded from placeholders.json)
 # ============================================================================
 
-# Required tokens (MUST be set before injection)
-readonly _TI_REQUIRED_TOKENS=(
-    "TASK_ID"
-    "DATE"
-    "TOPIC_SLUG"
-)
+# Arrays populated from placeholders.json
+declare -a _TI_REQUIRED_TOKENS=()
+declare -a _TI_ALL_TOKENS=()
+declare -A _TI_CLEO_DEFAULTS=()
+declare -A _TI_TOKEN_PATTERNS=()
 
-# All supported tokens with their environment variable names
-readonly _TI_ALL_TOKENS=(
-    # Required context tokens
-    "TASK_ID"
-    "DATE"
-    "TOPIC_SLUG"
-    # Optional context tokens
-    "EPIC_ID"
-    "SESSION_ID"
-    "RESEARCH_ID"
-    "TITLE"
-    # Task system command tokens (CLEO defaults)
-    "TASK_SHOW_CMD"
-    "TASK_FOCUS_CMD"
-    "TASK_COMPLETE_CMD"
-    "TASK_LINK_CMD"
-    "TASK_LIST_CMD"
-    "TASK_FIND_CMD"
-    "TASK_ADD_CMD"
-    # Output tokens
-    "OUTPUT_DIR"
-    "MANIFEST_PATH"
-)
+# _ti_load_tokens_from_json - Load token definitions from placeholders.json
+# Args: none
+# Returns: 0 on success, EXIT_FILE_ERROR (3) if file not found
+# Side effects: Populates _TI_REQUIRED_TOKENS, _TI_ALL_TOKENS, _TI_CLEO_DEFAULTS, _TI_TOKEN_PATTERNS
+_ti_load_tokens_from_json() {
+    local json_path="$_TI_PLACEHOLDERS_JSON"
 
-# CLEO default values for task system tokens
-declare -A _TI_CLEO_DEFAULTS=(
-    ["TASK_SHOW_CMD"]="cleo show"
-    ["TASK_FOCUS_CMD"]="cleo focus set"
-    ["TASK_COMPLETE_CMD"]="cleo complete"
-    ["TASK_LINK_CMD"]="cleo research link"
-    ["TASK_LIST_CMD"]="cleo list"
-    ["TASK_FIND_CMD"]="cleo find"
-    ["TASK_ADD_CMD"]="cleo add"
-    ["OUTPUT_DIR"]="claudedocs/research-outputs"
-    ["MANIFEST_PATH"]="claudedocs/research-outputs/MANIFEST.jsonl"
-    # Optional context defaults (empty strings)
-    ["EPIC_ID"]=""
-    ["SESSION_ID"]=""
-    ["RESEARCH_ID"]=""
-    ["TITLE"]=""
-)
+    # Check file exists
+    if [[ ! -f "$json_path" ]]; then
+        echo "[token-inject] WARNING: placeholders.json not found at $json_path, using fallback defaults" >&2
+        _ti_set_fallback_defaults
+        return 0
+    fi
+
+    # Check jq is available
+    if ! command -v jq &>/dev/null; then
+        echo "[token-inject] WARNING: jq not found, using fallback defaults" >&2
+        _ti_set_fallback_defaults
+        return 0
+    fi
+
+    # Clear existing arrays
+    _TI_REQUIRED_TOKENS=()
+    _TI_ALL_TOKENS=()
+    _TI_CLEO_DEFAULTS=()
+    _TI_TOKEN_PATTERNS=()
+
+    # Load required tokens
+    local required_tokens
+    required_tokens=$(jq -r '.required[].token' "$json_path" 2>/dev/null || echo "")
+    if [[ -n "$required_tokens" ]]; then
+        while IFS= read -r token; do
+            [[ -n "$token" ]] && _TI_REQUIRED_TOKENS+=("$token")
+        done <<< "$required_tokens"
+    fi
+
+    # Load required token patterns
+    local patterns
+    patterns=$(jq -r '.required[] | "\(.token)=\(.pattern // "")"' "$json_path" 2>/dev/null || echo "")
+    if [[ -n "$patterns" ]]; then
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && _TI_TOKEN_PATTERNS["${line%%=*}"]="${line#*=}"
+        done <<< "$patterns"
+    fi
+
+    # Load context tokens and their defaults
+    local context_tokens
+    context_tokens=$(jq -r '.context[] | "\(.token)=\(.default // "")"' "$json_path" 2>/dev/null || echo "")
+    if [[ -n "$context_tokens" ]]; then
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local token="${line%%=*}"
+                local default="${line#*=}"
+                _TI_ALL_TOKENS+=("$token")
+                [[ -n "$default" ]] && _TI_CLEO_DEFAULTS["$token"]="$default"
+            fi
+        done <<< "$context_tokens"
+    fi
+
+    # Load task command tokens
+    local task_cmd_tokens
+    task_cmd_tokens=$(jq -r '.taskCommands.tokens[] | "\(.token)=\(.default // "")"' "$json_path" 2>/dev/null || echo "")
+    if [[ -n "$task_cmd_tokens" ]]; then
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local token="${line%%=*}"
+                local default="${line#*=}"
+                _TI_ALL_TOKENS+=("$token")
+                [[ -n "$default" ]] && _TI_CLEO_DEFAULTS["$token"]="$default"
+            fi
+        done <<< "$task_cmd_tokens"
+    fi
+
+    # Add required tokens to all tokens
+    for token in "${_TI_REQUIRED_TOKENS[@]}"; do
+        _TI_ALL_TOKENS+=("$token")
+    done
+
+    # Remove duplicates from _TI_ALL_TOKENS while preserving order
+    local seen_tokens=()
+    local unique_tokens=()
+    for token in "${_TI_ALL_TOKENS[@]}"; do
+        local is_seen=0
+        for seen in "${seen_tokens[@]+"${seen_tokens[@]}"}"; do
+            [[ "$seen" == "$token" ]] && is_seen=1 && break
+        done
+        if [[ $is_seen -eq 0 ]]; then
+            unique_tokens+=("$token")
+            seen_tokens+=("$token")
+        fi
+    done
+    _TI_ALL_TOKENS=("${unique_tokens[@]}")
+
+    return 0
+}
+
+# _ti_set_fallback_defaults - Set hardcoded defaults when JSON unavailable
+# Args: none
+# Returns: 0 always
+_ti_set_fallback_defaults() {
+    _TI_REQUIRED_TOKENS=("TASK_ID" "DATE" "TOPIC_SLUG")
+    _TI_ALL_TOKENS=(
+        "TASK_ID" "DATE" "TOPIC_SLUG"
+        "EPIC_ID" "SESSION_ID" "RESEARCH_ID" "TITLE"
+        "TASK_SHOW_CMD" "TASK_FOCUS_CMD" "TASK_COMPLETE_CMD"
+        "TASK_LINK_CMD" "TASK_LIST_CMD" "TASK_FIND_CMD" "TASK_ADD_CMD"
+        "OUTPUT_DIR" "MANIFEST_PATH"
+    )
+    _TI_CLEO_DEFAULTS=(
+        ["TASK_SHOW_CMD"]="cleo show"
+        ["TASK_FOCUS_CMD"]="cleo focus set"
+        ["TASK_COMPLETE_CMD"]="cleo complete"
+        ["TASK_LINK_CMD"]="cleo research link"
+        ["TASK_LIST_CMD"]="cleo list"
+        ["TASK_FIND_CMD"]="cleo find"
+        ["TASK_ADD_CMD"]="cleo add"
+        ["OUTPUT_DIR"]="claudedocs/research-outputs"
+        ["MANIFEST_PATH"]="claudedocs/research-outputs/MANIFEST.jsonl"
+        ["EPIC_ID"]=""
+        ["SESSION_ID"]=""
+        ["RESEARCH_ID"]=""
+        ["TITLE"]=""
+    )
+    _TI_TOKEN_PATTERNS=(
+        ["TASK_ID"]="^T[0-9]+$"
+        ["DATE"]="^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        ["TOPIC_SLUG"]="^[a-zA-Z0-9_-]+$"
+    )
+}
+
+# Load tokens on source
+_ti_load_tokens_from_json
 
 # ============================================================================
 # INTERNAL HELPERS
@@ -195,26 +293,35 @@ ti_validate_required() {
         return "$EXIT_VALIDATION_ERROR"
     fi
 
-    # Validate TASK_ID format (should match T followed by digits)
-    local task_id="${TI_TASK_ID:-}"
-    if [[ -n "$task_id" && ! "$task_id" =~ ^T[0-9]+$ ]]; then
-        _ti_warn "TASK_ID '$task_id' does not match expected format T[0-9]+"
-    fi
+    # Validate tokens against patterns from placeholders.json
+    for token in "${_TI_REQUIRED_TOKENS[@]}"; do
+        value=$(_ti_get_token_value "$token")
+        local pattern="${_TI_TOKEN_PATTERNS[$token]:-}"
 
-    # Validate DATE format (YYYY-MM-DD)
-    local date="${TI_DATE:-}"
-    if [[ -n "$date" && ! "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
-        _ti_error "DATE '$date' must be in YYYY-MM-DD format"
-        return "$EXIT_VALIDATION_ERROR"
-    fi
-
-    # Validate TOPIC_SLUG (URL-safe: alphanumeric, hyphens, underscores)
-    local topic_slug="${TI_TOPIC_SLUG:-}"
-    if [[ -n "$topic_slug" && ! "$topic_slug" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        _ti_warn "TOPIC_SLUG '$topic_slug' contains non-URL-safe characters"
-    fi
+        if [[ -n "$value" && -n "$pattern" ]]; then
+            if [[ ! "$value" =~ $pattern ]]; then
+                # DATE is critical - fail on invalid format
+                if [[ "$token" == "DATE" ]]; then
+                    _ti_error "${token} '${value}' does not match expected pattern: ${pattern}"
+                    return "$EXIT_VALIDATION_ERROR"
+                else
+                    # Other tokens - warn only
+                    _ti_warn "${token} '${value}' does not match expected pattern: ${pattern}"
+                fi
+            fi
+        fi
+    done
 
     return 0
+}
+
+# ti_reload_tokens - Reload token definitions from placeholders.json
+# Args: none
+# Returns: 0 on success
+# Side effects: Repopulates _TI_REQUIRED_TOKENS, _TI_ALL_TOKENS, _TI_CLEO_DEFAULTS
+# Use this after modifying placeholders.json to pick up changes without reloading the library
+ti_reload_tokens() {
+    _ti_load_tokens_from_json
 }
 
 # ti_inject_tokens - Replace all {{TOKEN}} patterns with values
@@ -378,3 +485,4 @@ export -f ti_list_tokens
 export -f ti_get_default
 export -f ti_clear_all
 export -f ti_set_context
+export -f ti_reload_tokens

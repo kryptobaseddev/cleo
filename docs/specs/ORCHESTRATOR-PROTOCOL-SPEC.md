@@ -24,6 +24,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ### 1.1 Purpose
 
+> **Vision Document**: See [ORCHESTRATOR-VISION.md](../ORCHESTRATOR-VISION.md) for the foundational philosophy: *"Stay high-level. Delegate everything. Read only manifests. Spawn in order."*
+
 This specification defines the behavioral protocol for orchestrating multi-agent research workflows in CLEO. It establishes immutable rules for orchestrator behavior, subagent delegation, manifest-based coordination, and session startup procedures.
 
 ### 1.2 Authority

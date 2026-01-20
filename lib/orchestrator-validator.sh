@@ -10,7 +10,7 @@
 # Validates compliance with the Orchestrator Protocol Specification.
 # See: docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md
 #
-# Version: 1.0.0 (cleo v0.54.0)
+# Version: 1.0.0 (cleo v0.55.0)
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_ORCHESTRATOR_VALIDATOR_LOADED:-}" ]] && return 0

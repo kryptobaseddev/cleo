@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
+  "title": "CLEO Skills Manifest",
+  "description": "Schema for the skills manifest tracking all CLEO skills. LLM-agent-first design with ct-* naming enforcement.",
+  "type": "object",
+  "required": ["$schema", "_meta", "skills"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json"
+    },
+    "_meta": {
+      "type": "object",
+      "description": "Manifest metadata",
+      "required": ["schemaVersion", "lastUpdated", "totalSkills"],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version (semver)"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date",
+          "description": "Last modification date (ISO 8601)"
+        },
+        "totalSkills": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of skills in manifest"
+        }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "description": "All registered CLEO skills",
+      "items": {
+        "$ref": "#/definitions/skillEntry"
+      }
+    }
+  },
+  "definitions": {
+    "skillEntry": {
+      "type": "object",
+      "required": ["name", "version", "path"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^ct-[a-z][a-z0-9-]*$",
+          "description": "Skill name (must start with ct- prefix, lowercase with hyphens)"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Skill version (semver)"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Brief description of skill purpose and trigger phrases"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^skills/[a-z][a-z0-9-]*$",
+          "description": "Relative path to skill directory from repo root"
+        },
+        "model": {
+          "type": "string",
+          "enum": ["sonnet", "opus", "haiku"],
+          "description": "Recommended model for this skill (optional)"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "description": "Categorization tags for skill discovery"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "deprecated", "experimental"],
+          "default": "active",
+          "description": "Skill lifecycle status"
+        }
+      }
+    }
+  }
+}

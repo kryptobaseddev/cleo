@@ -315,7 +315,12 @@ The orchestrator commands use these configuration values:
 - [`cleo research`](research.md) - Research manifest operations
 - [`cleo analyze`](analyze.md) - Task analysis
 
+## Related Skills
+
+- **ct-epic-architect** - Epic creation and task decomposition. Use when planning work that requires structured task breakdown, dependency analysis, and wave planning. Invoked via `/ct-epic-architect` or natural language ("create epic", "plan epic").
+
 ## See Also
 
 - [Orchestrator Protocol Guide](../guides/ORCHESTRATOR-PROTOCOL.md)
 - [Example Session](../examples/orchestrator-example-session.md)
+- [Epic Architect Skill Guide](../guides/EPIC-ARCHITECT-SKILL-GUIDE.md)

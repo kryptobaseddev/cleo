@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.54.0 -->
+<!-- CLEO:START v0.55.0 -->
 @.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
 # Repository Guidelines

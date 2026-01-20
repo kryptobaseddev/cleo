@@ -13,6 +13,7 @@ LEGACY_INSTALL_DIR="$HOME/.claude-todo"
 FORCE=false
 CHECK_DEPS_ONLY=false
 INSTALL_DEPS=false
+SKIP_SKILLS=false
 for arg in "$@"; do
   case "$arg" in
     -f|--force|-y|--yes)
@@ -24,6 +25,9 @@ for arg in "$@"; do
     --install-deps)
       INSTALL_DEPS=true
       ;;
+    --skip-skills)
+      SKIP_SKILLS=true
+      ;;
     -h|--help)
       echo "Usage: ./install.sh [OPTIONS]"
       echo ""
@@ -33,11 +37,13 @@ for arg in "$@"; do
       echo "  -f, --force, -y, --yes   Skip confirmation prompts"
       echo "  --check-deps             Check dependencies only, don't install"
       echo "  --install-deps           Attempt to install missing dependencies"
+      echo "  --skip-skills            Skip Claude Code skills installation"
       echo "  -h, --help               Show this help"
       echo ""
       echo "Installation:"
       echo "  Default location: ~/.cleo"
       echo "  Commands: 'cleo' (primary), 'ct' (shortcut)"
+      echo "  Skills: Symlinked to ~/.claude/skills/ct-*"
       echo ""
       echo "Migration from claude-todo:"
       echo "  If you have an existing ~/.claude-todo installation,"
@@ -413,17 +419,46 @@ else
 fi
 
 # ============================================
-# SKILLS
+# SKILLS (Internal Copy for CLEO)
 # ============================================
-log_step "Installing skills..."
+log_step "Installing skills to CLEO..."
 
 # Copy skills directory for orchestrator and other skills
 if [[ -d "$SCRIPT_DIR/skills" ]]; then
   mkdir -p "$INSTALL_DIR/skills"
   cp -r "$SCRIPT_DIR/skills/"* "$INSTALL_DIR/skills/"
-  log_info "Skills installed ($(find "$INSTALL_DIR/skills" -type f | wc -l) files)"
+  log_info "Skills installed to CLEO ($(find "$INSTALL_DIR/skills" -type f | wc -l) files)"
 else
   log_warn "Skills directory not found at $SCRIPT_DIR/skills (optional)"
+fi
+
+# ============================================
+# SKILLS (Claude Code Integration via Symlinks)
+# ============================================
+if [[ "$SKIP_SKILLS" == "true" ]]; then
+  log_info "Skipping Claude Code skills installation (--skip-skills)"
+else
+  log_step "Installing skills to Claude Code..."
+
+  # Source skills installation library
+  if [[ -f "$SCRIPT_DIR/lib/skills-install.sh" ]]; then
+    CLEO_REPO_ROOT="$SCRIPT_DIR"
+    source "$SCRIPT_DIR/lib/skills-install.sh"
+
+    # Install skills as symlinks to ~/.claude/skills/
+    if install_skills "false" "log_info"; then
+      # Count installed symlinks
+      CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
+      if [[ -d "$CLAUDE_SKILLS_DIR" ]]; then
+        skill_count=$(find "$CLAUDE_SKILLS_DIR" -maxdepth 1 -type l -name "ct-*" 2>/dev/null | wc -l)
+        log_info "Claude Code skills: $skill_count symlinks in $CLAUDE_SKILLS_DIR"
+      fi
+    else
+      log_warn "Some skills failed to install"
+    fi
+  else
+    log_warn "Skills install library not found, skipping Claude Code integration"
+  fi
 fi
 
 # ============================================
@@ -1406,6 +1441,9 @@ echo ""
 echo "Installed to: $INSTALL_DIR"
 echo "Symlinks:     $LOCAL_BIN/cleo (primary)"
 echo "              $LOCAL_BIN/ct (shortcut)"
+if [[ "$SKIP_SKILLS" != "true" ]]; then
+  echo "Skills:       ~/.claude/skills/ct-* (symlinks to repo)"
+fi
 echo "Shell config: $SHELL_CONFIG"
 echo ""
 

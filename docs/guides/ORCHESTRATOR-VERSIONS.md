@@ -1,71 +1,56 @@
 # Orchestrator Protocol Versions
 
-**Version**: 1.0.0
-**Status**: Active
-**Last Updated**: 2026-01-19
+**Last Updated**: 2026-01-20
 
 ---
 
-## Version Matrix
+## Simplified Version Architecture
 
-| Document | Version | Purpose | Status |
-|----------|---------|---------|--------|
-| ORCHESTRATOR-PROTOCOL-SPEC.md | 1.0.0 | Formal RFC 2119 specification | AUTHORITATIVE |
-| ORCHESTRATOR-PROTOCOL.md | 2.0.0 | User guide explaining v1.0 spec | CURRENT |
-| ORCHESTRATOR-SPEC.md | 2.2.0 | tmux-based infrastructure (separate concern) | CURRENT |
-| skills/orchestrator/SKILL.md | 1.0.0 | Skill activation for protocol | CURRENT |
+There are **two independent systems** with separate versions:
 
----
-
-## Relationship
-
-```
-ORCHESTRATOR-PROTOCOL-SPEC.md (v1.0.0)
-    |
-    +-- Implemented by: skills/orchestrator/SKILL.md
-    +-- Documented by: ORCHESTRATOR-PROTOCOL.md (v2.0.0)
-    +-- Infrastructure: ORCHESTRATOR-SPEC.md (v2.2.0)
-```
+| System | Version Source | Scope |
+|--------|----------------|-------|
+| **Orchestrator Protocol** | `skills/manifest.json` → ct-orchestrator | ORC constraints, subagent spawning |
+| **tmux Infrastructure** | ORCHESTRATOR-SPEC.md header | Multi-agent automation (optional) |
 
 ---
 
-## What Each Version Means
+## Orchestrator Protocol (Current: 1.0.0)
 
-### ORCHESTRATOR-PROTOCOL-SPEC.md (v1.0.0) - THE SPECIFICATION
+**Single Source of Truth**: `skills/manifest.json` → `ct-orchestrator.version`
 
-- Defines ORC-001 through ORC-005 constraints
-- Defines manifest schema
-- Defines subagent protocol
-- RFC 2119 compliant (MUST/SHOULD/MAY)
-- **This is the SOURCE OF TRUTH**
+All protocol docs share this version:
 
-**Location**: `docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md`
+| Document | Purpose | Updates When |
+|----------|---------|--------------|
+| skills/ct-orchestrator/SKILL.md | Skill activation | Protocol changes |
+| ORCHESTRATOR-PROTOCOL-SPEC.md | RFC 2119 spec (ORC-001-005) | Constraint changes |
+| ORCHESTRATOR-PROTOCOL.md | User guide | Guide content changes |
 
-### ORCHESTRATOR-PROTOCOL.md (v2.0.0) - THE USER GUIDE
+**Version Ownership**: Bump `ct-orchestrator.version` in manifest.json when any protocol document changes.
 
-- Explains HOW to use the protocol
-- Practical examples and quick start
-- References spec for details
-- v2.0.0 because it includes CLI commands not in spec
+---
 
-**Location**: `docs/guides/ORCHESTRATOR-PROTOCOL.md`
+## tmux Infrastructure (Separate: 2.2.0)
 
-### ORCHESTRATOR-SPEC.md (v2.2.0) - INFRASTRUCTURE
+**Independent System**: ORCHESTRATOR-SPEC.md has its own version.
 
-- Separate concern: tmux-based multi-agent orchestration
-- Event-driven automation
-- NOT required for basic orchestrator usage
-- v2.2.0 reflects infrastructure maturity
+This is optional infrastructure for tmux-based multi-agent automation. NOT required for basic orchestrator usage.
 
 **Location**: `docs/specs/ORCHESTRATOR-SPEC.md`
 
-### skills/orchestrator/SKILL.md (v1.0.0) - SKILL ACTIVATION
+---
 
-- Implements ORC-001 through ORC-005 constraints
-- Loads on-demand (not via CLAUDE.md)
-- Subagents do NOT inherit this skill
+## Quick Reference
 
-**Location**: `skills/orchestrator/SKILL.md`
+| Goal | Read |
+|------|------|
+| Activate orchestrator mode | skills/ct-orchestrator/SKILL.md |
+| Understand ORC constraints | ORCHESTRATOR-PROTOCOL-SPEC.md |
+| Learn practical usage | ORCHESTRATOR-PROTOCOL.md |
+| Set up tmux automation | ORCHESTRATOR-SPEC.md |
+
+**Authoritative**: ORCHESTRATOR-PROTOCOL-SPEC.md defines ORC-001 through ORC-005
 
 ---
 
@@ -73,48 +58,12 @@ ORCHESTRATOR-PROTOCOL-SPEC.md (v1.0.0)
 
 ### From CLAUDE.md Injection (DEPRECATED)
 
-The previous approach injected orchestrator rules directly into CLAUDE.md. This caused problems because ALL agents (including subagents) would read CLAUDE.md and attempt to orchestrate.
-
-**Migration Steps**:
-
-1. Remove `<!-- ORCHESTRATOR:START -->` blocks from CLAUDE.md
-2. Use skill activation: `Skill: orchestrator`
-3. Subagents no longer inherit orchestrator rules
-
-### Why Skill-Based is Better
+Use skill activation instead of CLAUDE.md injection:
 
 | CLAUDE.md Injection | Skill Activation |
 |---------------------|------------------|
 | ALL agents read it | Loads ON-DEMAND |
 | Subagents also try to orchestrate | Subagents do NOT inherit skills |
-| Always loaded (context overhead) | Loaded when needed |
-| Breaks delegation pattern | Only HITL session operates as orchestrator |
+| Always loaded | Loaded when needed |
 
----
-
-## Version History
-
-| Date | Document | Version | Change |
-|------|----------|---------|--------|
-| 2026-01-18 | ORCHESTRATOR-PROTOCOL-SPEC.md | 1.0.0 | Spec created |
-| 2026-01-19 | ORCHESTRATOR-PROTOCOL.md | 2.0.0 | Guide updated with CLI commands |
-| 2025-12-31 | ORCHESTRATOR-SPEC.md | 2.2.0 | Infrastructure spec updated |
-| 2026-01-18 | skills/orchestrator/SKILL.md | 1.0.0 | Skill activation created |
-| 2026-01-19 | ORCHESTRATOR-VERSIONS.md | 1.0.0 | Version guide created |
-
----
-
-## Quick Reference
-
-**Question**: Which document should I read?
-
-| Goal | Read |
-|------|------|
-| Understand ORC constraints | ORCHESTRATOR-PROTOCOL-SPEC.md |
-| Learn how to use orchestrator | ORCHESTRATOR-PROTOCOL.md |
-| Set up tmux infrastructure | ORCHESTRATOR-SPEC.md |
-| Activate orchestrator mode | skills/orchestrator/SKILL.md |
-
-**Question**: Which is authoritative?
-
-**Answer**: ORCHESTRATOR-PROTOCOL-SPEC.md (v1.0.0) is the source of truth for protocol behavior.
+**Migration**: Remove `<!-- ORCHESTRATOR:START -->` blocks from CLAUDE.md. Use `/ct-orchestrator` or load skill via Task tool.

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
+  "_meta": {
+    "schemaVersion": "1.0.0",
+    "lastUpdated": "2026-01-19",
+    "totalSkills": 14
+  },
+  "skills": [
+    {
+      "name": "ct-epic-architect",
+      "version": "2.1.0",
+      "description": "Epic architecture agent for creating comprehensive epics with full task decomposition. Use for epic planning, task breakdown, dependency analysis, wave planning.",
+      "path": "skills/ct-epic-architect",
+      "model": "sonnet",
+      "tags": ["planning", "architecture", "task-management"],
+      "status": "active"
+    },
+    {
+      "name": "ct-orchestrator",
+      "version": "1.0.0",
+      "description": "Orchestrator protocol for coordinating complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-005 constraints.",
+      "path": "skills/ct-orchestrator",
+      "tags": ["workflow", "multi-agent", "coordination"],
+      "status": "active"
+    },
+    {
+      "name": "ct-docs-lookup",
+      "version": "1.0.0",
+      "description": "Library documentation lookup via Context7. Use for framework setup, API references, version-specific docs for React, Vue, Next.js, Prisma, Supabase, etc.",
+      "path": "skills/ct-docs-lookup",
+      "tags": ["documentation", "libraries", "context7"],
+      "status": "active"
+    },
+    {
+      "name": "ct-docs-write",
+      "version": "1.0.0",
+      "description": "Documentation writing skill applying CLEO's conversational, clear, and user-focused writing style. Use for creating or editing markdown, MDX, README, guides.",
+      "path": "skills/ct-docs-write",
+      "tags": ["documentation", "writing", "style-guide"],
+      "status": "active"
+    },
+    {
+      "name": "ct-docs-review",
+      "version": "1.0.0",
+      "description": "Documentation review skill for checking docs against CLEO writing style guide. Supports local file review and GitHub PR review modes.",
+      "path": "skills/ct-docs-review",
+      "tags": ["documentation", "review", "style-guide"],
+      "status": "active"
+    },
+    {
+      "name": "ct-documentor",
+      "version": "2.3.0",
+      "description": "Documentation specialist orchestrating ct-docs-lookup, ct-docs-write, and ct-docs-review skills. Use for end-to-end documentation workflows with anti-duplication enforcement.",
+      "path": "skills/ct-documentor",
+      "tags": ["documentation", "orchestration", "workflow"],
+      "status": "active"
+    },
+    {
+      "name": "ct-skill-lookup",
+      "version": "1.0.0",
+      "description": "Find and retrieve Agent Skills from prompts.chat. Use for searching skills, extending Claude capabilities, or installing reusable AI agent components.",
+      "path": "skills/ct-skill-lookup",
+      "tags": ["skills", "discovery", "prompts-chat"],
+      "status": "active"
+    },
+    {
+      "name": "ct-library-implementer-bash",
+      "version": "1.0.0",
+      "description": "Bash library implementation skill for creating shared shell functions. Use for creating utilities in lib/*.sh with shell best practices.",
+      "path": "skills/ct-library-implementer-bash",
+      "tags": ["implementation", "bash", "library"],
+      "status": "active"
+    },
+    {
+      "name": "ct-research-agent",
+      "version": "1.0.0",
+      "description": "Research and investigation agent for gathering information from multiple sources. Use for background research, fact-finding, exploring options, due diligence.",
+      "path": "skills/ct-research-agent",
+      "tags": ["research", "investigation", "discovery"],
+      "status": "active"
+    },
+    {
+      "name": "ct-skill-creator",
+      "version": "1.0.0",
+      "description": "Guide for creating effective skills that extend Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
+      "path": "skills/ct-skill-creator",
+      "tags": ["skills", "creation", "meta"],
+      "status": "active"
+    },
+    {
+      "name": "ct-spec-writer",
+      "version": "1.0.0",
+      "description": "Specification writing agent for creating technical specifications and protocol documents using RFC 2119 language.",
+      "path": "skills/ct-spec-writer",
+      "tags": ["specification", "documentation", "rfc"],
+      "status": "active"
+    },
+    {
+      "name": "ct-task-executor",
+      "version": "1.0.0",
+      "description": "Generic task execution agent for completing implementation work. Use for executing assigned CLEO tasks and producing concrete outputs.",
+      "path": "skills/ct-task-executor",
+      "tags": ["execution", "implementation", "task-management"],
+      "status": "active"
+    },
+    {
+      "name": "ct-test-writer-bats",
+      "version": "1.0.0",
+      "description": "Integration test writing agent using BATS framework. Use for creating bash script tests, shell function tests, integration tests.",
+      "path": "skills/ct-test-writer-bats",
+      "tags": ["testing", "bats", "integration"],
+      "status": "active"
+    },
+    {
+      "name": "ct-validator",
+      "version": "1.0.0",
+      "description": "Compliance validation agent for verifying system, document, and code compliance against requirements, schemas, or standards.",
+      "path": "skills/ct-validator",
+      "tags": ["validation", "compliance", "audit"],
+      "status": "active"
+    }
+  ]
+}

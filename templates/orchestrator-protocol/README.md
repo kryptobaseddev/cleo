@@ -1,5 +1,9 @@
 # Orchestrator Protocol Templates
 
+> **Vision**: See [ORCHESTRATOR-VISION.md](../../docs/ORCHESTRATOR-VISION.md) for the core philosophy.
+>
+> **The Mantra**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
+
 Reusable templates for the CLEO Orchestrator Protocol.
 
 ## Quick Start

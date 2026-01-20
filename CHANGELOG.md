@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-01-20
+
+### Added
+- **Skills Architecture**: Complete ct-* skill ecosystem with 13 skills
+  - `skills/manifest.json` - Central skill registry with versions and metadata
+  - `lib/skills-install.sh` - Symlink-based installation to `~/.claude/skills/`
+  - `lib/skills-version.sh` - Version tracking for `cleo upgrade`
+  - `install.sh` integration with `--skip-skills` flag
+- **ct-epic-architect v2.1.0**: Enhanced epic creation skill
+  - Full CLEO schema coverage (100% field examples)
+  - Brownfield and Refactor epic patterns
+  - Verification gates workflow with cleanupDone gate
+  - Shell escaping guidance for notes
+  - 74 integration tests
+- **AgentSkills Spec Compliance**: Migrated to standard directory structure
+  - `examples/` → `references/` migration
+  - Standard directories: scripts/, references/, assets/
+- **Skills Manifest Schema**: `schemas/skills-manifest.schema.json` with validation
+- **Integration Tests**: `tests/integration/skills-manifest.bats` (22 tests)
+
+### Changed
+- All skills renamed to `ct-*` prefix convention
+- Skills installed as symlinks for automatic updates from repo
+- Documentation updated for new skills architecture
+
+### Removed
+- `scripts/epic-architect-install.sh` - Replaced by manifest-based installation
+- Non-standard `examples/` directories - Moved to `references/`
+
 ## [0.54.0] - 2026-01-19
 
 ### Added

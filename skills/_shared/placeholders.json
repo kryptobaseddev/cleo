@@ -1,0 +1,240 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/placeholders.schema.json",
+  "_meta": {
+    "version": "1.0.0",
+    "description": "Canonical registry of all template placeholders used in orchestrator protocol and skill templates",
+    "lastUpdated": "2026-01-19",
+    "tokenFormat": "{{TOKEN_NAME}}"
+  },
+  "required": [
+    {
+      "token": "TASK_ID",
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "example": "T1234",
+      "description": "CLEO task ID"
+    },
+    {
+      "token": "DATE",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "example": "2026-01-19",
+      "description": "ISO date (YYYY-MM-DD)",
+      "default": "$(date +%Y-%m-%d)"
+    },
+    {
+      "token": "TOPIC_SLUG",
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "example": "auth-token-rotation",
+      "description": "Slugified topic name (lowercase, hyphenated, URL-safe)"
+    }
+  ],
+  "context": [
+    {
+      "token": "EPIC_ID",
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "example": "T1000",
+      "description": "Parent epic ID",
+      "default": ""
+    },
+    {
+      "token": "SESSION_ID",
+      "type": "string",
+      "pattern": "^session_[0-9]{8}_[0-9]{6}_[a-f0-9]+$",
+      "example": "session_20260119_143500_abc123",
+      "description": "Current CLEO session ID",
+      "default": ""
+    },
+    {
+      "token": "RESEARCH_ID",
+      "type": "string",
+      "example": "auth-token-2026-01-19",
+      "description": "Research entry ID for manifest",
+      "default": ""
+    },
+    {
+      "token": "TITLE",
+      "type": "string",
+      "example": "Authentication Token Rotation",
+      "description": "Human-readable title",
+      "default": ""
+    },
+    {
+      "token": "OUTPUT_DIR",
+      "type": "path",
+      "example": "claudedocs/research-outputs",
+      "description": "Output directory path",
+      "default": "claudedocs/research-outputs"
+    },
+    {
+      "token": "MANIFEST_PATH",
+      "type": "path",
+      "example": "claudedocs/research-outputs/MANIFEST.jsonl",
+      "description": "Path to MANIFEST.jsonl file",
+      "default": "claudedocs/research-outputs/MANIFEST.jsonl"
+    }
+  ],
+  "taskCommands": {
+    "_comment": "CLEO task system command tokens - enables portability",
+    "tokens": [
+      {
+        "token": "TASK_SHOW_CMD",
+        "default": "cleo show",
+        "description": "Command to show task details"
+      },
+      {
+        "token": "TASK_FOCUS_CMD",
+        "default": "cleo focus set",
+        "description": "Command to set focus on task"
+      },
+      {
+        "token": "TASK_COMPLETE_CMD",
+        "default": "cleo complete",
+        "description": "Command to complete task"
+      },
+      {
+        "token": "TASK_LINK_CMD",
+        "default": "cleo research link",
+        "description": "Command to link research to task"
+      },
+      {
+        "token": "TASK_LIST_CMD",
+        "default": "cleo list",
+        "description": "Command to list tasks"
+      },
+      {
+        "token": "TASK_FIND_CMD",
+        "default": "cleo find",
+        "description": "Command to find tasks"
+      },
+      {
+        "token": "TASK_ADD_CMD",
+        "default": "cleo add",
+        "description": "Command to add task"
+      }
+    ]
+  },
+  "manifest": {
+    "_comment": "Tokens used when constructing MANIFEST.jsonl entries",
+    "tokens": [
+      {
+        "token": "MANIFEST_ID",
+        "type": "string",
+        "example": "topic-2026-01-19",
+        "description": "Unique manifest entry ID"
+      },
+      {
+        "token": "MANIFEST_FILE",
+        "type": "string",
+        "example": "2026-01-19_topic-slug.md",
+        "description": "Output filename"
+      },
+      {
+        "token": "MANIFEST_TITLE",
+        "type": "string",
+        "example": "Research on Topic",
+        "description": "Entry title"
+      },
+      {
+        "token": "MANIFEST_STATUS",
+        "type": "enum",
+        "enum": ["complete", "partial", "blocked"],
+        "default": "complete",
+        "description": "Entry status"
+      },
+      {
+        "token": "MANIFEST_TOPICS",
+        "type": "array",
+        "example": ["auth", "security"],
+        "description": "Topic tags"
+      },
+      {
+        "token": "MANIFEST_FINDINGS",
+        "type": "array",
+        "example": ["Finding 1", "Finding 2"],
+        "description": "Key findings (3-7 items)"
+      },
+      {
+        "token": "LINKED_TASKS",
+        "type": "array",
+        "example": ["T1234", "T1235"],
+        "description": "Related CLEO task IDs"
+      },
+      {
+        "token": "NEEDS_FOLLOWUP",
+        "type": "array",
+        "default": [],
+        "description": "Tasks requiring follow-up"
+      }
+    ]
+  },
+  "skillSpecific": {
+    "epicArchitect": [
+      {
+        "token": "FEATURE_SLUG",
+        "type": "string",
+        "example": "user-authentication",
+        "description": "Slugified feature name"
+      },
+      {
+        "token": "FEATURE_NAME",
+        "type": "string",
+        "example": "User Authentication",
+        "description": "Human-readable feature name"
+      },
+      {
+        "token": "FEATURE_DESCRIPTION",
+        "type": "string",
+        "example": "Implement JWT-based authentication...",
+        "description": "Full description from epic"
+      }
+    ],
+    "taskExecutor": [
+      {
+        "token": "TASK_TITLE",
+        "type": "string",
+        "example": "Implement login endpoint",
+        "description": "Task title from CLEO"
+      },
+      {
+        "token": "TASK_DESCRIPTION",
+        "type": "string",
+        "example": "Create POST /api/login...",
+        "description": "Task description from CLEO"
+      },
+      {
+        "token": "DEPENDS_LIST",
+        "type": "string",
+        "example": "T1001, T1002",
+        "description": "Comma-separated dependency IDs"
+      }
+    ],
+    "validator": [
+      {
+        "token": "TEST_SCOPE",
+        "type": "enum",
+        "enum": ["unit", "integration", "e2e"],
+        "description": "Test scope to execute"
+      },
+      {
+        "token": "TARGET_PATH",
+        "type": "path",
+        "example": "src/auth/",
+        "description": "Path to validate"
+      }
+    ]
+  },
+  "conventions": {
+    "naming": "ALL_CAPS with underscores for multi-word names",
+    "format": "Enclosed in double curly braces: {{TOKEN_NAME}}",
+    "validation": {
+      "string": "Non-empty UTF-8 text",
+      "date": "ISO 8601 (YYYY-MM-DD)",
+      "path": "Unix path with valid characters",
+      "enum": "Exact match required",
+      "array": "Valid JSON array"
+    }
+  }
+}
