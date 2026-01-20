@@ -57,5 +57,5 @@ skills/
 ## Dependencies
 
 - CLEO task management (`cleo` CLI)
-- Research manifest system (`docs/claudedocs/research-outputs/MANIFEST.jsonl`)
+- Research manifest system (`claudedocs/research-outputs/MANIFEST.jsonl`)
 - Task tool for subagent spawning
