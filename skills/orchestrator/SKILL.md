@@ -102,3 +102,161 @@ OUTPUT REQUIREMENTS (RFC 2119):
 3. **MUST NOT** implement code directly - delegate to subagents
 4. **MUST NOT** exceed 10K context tokens
 5. **MUST NOT** skip subagent protocol block injection
+
+---
+
+## Skill Dispatch Rules
+
+Use the appropriate skill for each task type. Load skills via token injection.
+
+### Skill Selection Matrix
+
+| Task Type | Skill | Trigger Keywords |
+|-----------|-------|------------------|
+| Epic planning | `epic-architect` | "create epic", "plan tasks", "decompose", "break down", "wave planning" |
+| Specification writing | `spec-writer` | "write spec", "define protocol", "RFC", "requirements", "specification" |
+| Research | `research-agent` | "research", "investigate", "gather info", "look up", "explore options" |
+| Test writing | `test-writer-bats` | "write tests", "BATS", "bash tests", "test coverage", "integration tests" |
+| Bash library creation | `library-implementer-bash` | "create library", "bash functions", "lib/*.sh", "utility functions" |
+| Generic implementation | `task-executor` | "implement", "execute task", "do the work", "build component" |
+| Compliance validation | `validator` | "validate", "verify", "check compliance", "audit", "schema validation" |
+
+### Skill Paths
+
+```
+skills/epic-architect/SKILL.md
+skills/spec-writer/SKILL.md
+skills/research-agent/SKILL.md
+skills/test-writer-bats/SKILL.md
+skills/library-implementer-bash/SKILL.md
+skills/task-executor/SKILL.md
+skills/validator/SKILL.md
+```
+
+---
+
+## Token Injection System
+
+Before spawning subagents, inject tokens using `lib/token-inject.sh`.
+
+### Quick Start
+
+```bash
+source lib/token-inject.sh
+
+# 1. Set required tokens
+export TI_TASK_ID="T1234"
+export TI_DATE="2026-01-19"
+export TI_TOPIC_SLUG="my-research-topic"
+
+# 2. Set CLEO defaults (task commands, output paths)
+ti_set_defaults
+
+# 3. Load and inject skill template
+template=$(ti_load_template "skills/research-agent/SKILL.md")
+```
+
+### Required Tokens
+
+| Token | Description | Example |
+|-------|-------------|---------|
+| `{{TASK_ID}}` | Current task identifier | `T1234` |
+| `{{DATE}}` | Current date (YYYY-MM-DD) | `2026-01-19` |
+| `{{TOPIC_SLUG}}` | URL-safe topic name | `auth-research` |
+
+### Task Command Tokens (CLEO defaults)
+
+| Token | Default Value |
+|-------|---------------|
+| `{{TASK_SHOW_CMD}}` | `cleo show` |
+| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
+| `{{TASK_LINK_CMD}}` | `cleo research link` |
+| `{{TASK_LIST_CMD}}` | `cleo list` |
+| `{{TASK_FIND_CMD}}` | `cleo find` |
+| `{{TASK_ADD_CMD}}` | `cleo add` |
+
+### Output Tokens (CLEO defaults)
+
+| Token | Default Value |
+|-------|---------------|
+| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` |
+| `{{MANIFEST_PATH}}` | `claudedocs/research-outputs/MANIFEST.jsonl` |
+
+### Helper Functions
+
+| Function | Purpose |
+|----------|---------|
+| `ti_set_defaults()` | Set CLEO defaults for unset tokens |
+| `ti_validate_required()` | Verify required tokens are set |
+| `ti_inject_tokens()` | Replace {{TOKEN}} patterns |
+| `ti_load_template()` | Load file and inject tokens |
+| `ti_set_context()` | Set TASK_ID, DATE, TOPIC_SLUG in one call |
+| `ti_list_tokens()` | Show all tokens with current values |
+
+---
+
+## Shared References
+
+Skills use shared protocol files for consistency:
+
+### Task System Integration
+@skills/_shared/task-system-integration.md
+
+Defines portable task management commands using dynamic tokens.
+Skills reference this instead of hardcoding CLEO commands.
+
+### Subagent Protocol Base
+@skills/_shared/subagent-protocol-base.md
+
+Defines RFC 2119 output requirements for all subagents:
+- OUT-001: MUST write findings to output file
+- OUT-002: MUST append to MANIFEST.jsonl
+- OUT-003: MUST return only summary message
+- OUT-004: MUST NOT return research content
+
+---
+
+## Spawning Workflow
+
+### Step 1: Identify Task Type
+
+```bash
+# Check task details
+cleo show T1234 | jq '{title, description, labels}'
+```
+
+### Step 2: Select Skill
+
+Match task keywords to skill selection matrix above.
+
+### Step 3: Prepare Context
+
+```bash
+source lib/token-inject.sh
+export TI_TASK_ID="T1234"
+export TI_DATE="$(date +%Y-%m-%d)"
+export TI_TOPIC_SLUG="auth-implementation"
+ti_set_defaults
+```
+
+### Step 4: Load Skill Template
+
+```bash
+template=$(ti_load_template "skills/task-executor/SKILL.md")
+```
+
+### Step 5: Spawn Subagent
+
+Use Task tool with:
+1. Injected skill template
+2. Subagent protocol block
+3. Context from previous agents (manifest key_findings ONLY)
+4. Clear task definition and completion criteria
+
+### Step 6: Monitor Completion
+
+```bash
+# Check manifest for completion
+tail -1 claudedocs/research-outputs/MANIFEST.jsonl | jq '{id, status, key_findings}'
+```
