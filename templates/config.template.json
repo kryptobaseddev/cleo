@@ -125,7 +125,7 @@
   },
 
   "research": {
-    "outputDir": "docs/claudedocs/research-outputs",
+    "outputDir": "claudedocs/research-outputs",
     "manifestFile": "MANIFEST.jsonl",
     "archiveDir": "archive",
     "archiveDays": 30

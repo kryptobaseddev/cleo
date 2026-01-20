@@ -26,7 +26,7 @@ setup() {
     create_empty_todo
 
     # Set up research directories
-    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/docs/claudedocs/research-outputs"
+    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/research-outputs"
     mkdir -p "$RESEARCH_OUTPUT_DIR"
 
     # Set up fixtures path

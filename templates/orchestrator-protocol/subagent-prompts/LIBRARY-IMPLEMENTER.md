@@ -246,7 +246,7 @@ Layer 3: Your module (deps: layers 0-2)
 
 1. MUST create library file in lib/
 2. MUST verify syntax: `bash -n lib/{module}.sh`
-3. MUST append ONE line to: `docs/claudedocs/research-outputs/MANIFEST.jsonl`
+3. MUST append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
 4. MUST return ONLY: "Library implemented. See MANIFEST.jsonl for summary."
 5. MUST NOT return full library content in response
 

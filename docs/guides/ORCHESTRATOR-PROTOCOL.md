@@ -63,15 +63,16 @@ cleo orchestrator skill --verify     # Verify installation
 
 ### Immutable Constraints
 
-Every orchestrator MUST follow these rules:
+See [ORCHESTRATOR-PROTOCOL-SPEC.md Part 2.1](../specs/ORCHESTRATOR-PROTOCOL-SPEC.md#21-core-constraints) for authoritative ORC constraint definitions.
 
-| Rule | Constraint | Rationale |
-|------|------------|-----------|
-| ORC-001 | MUST stay high-level; MUST NOT implement code | Context preservation |
-| ORC-002 | MUST delegate ALL work to subagents | Separation of concerns |
-| ORC-003 | MUST NOT read full research files (>100 lines) | Token efficiency |
-| ORC-004 | MUST spawn agents in dependency order | Avoid wasted work |
-| ORC-005 | MUST use manifest for research summaries | O(1) lookup |
+**Quick Reference:**
+| ID | Rule |
+|----|------|
+| ORC-001 | Stay high-level (no implementation) |
+| ORC-002 | Delegate ALL work via Task tool |
+| ORC-003 | No full file reads (>100 lines) |
+| ORC-004 | Dependency order enforcement |
+| ORC-005 | Context budget (10K max) |
 
 **Mantra**: Stay high-level. Delegate everything. Read only manifests. Spawn in order.
 
@@ -148,7 +149,7 @@ Execute this sequence at conversation start:
 cleo session list --status active
 
 # 2. Check manifest for pending work
-cat docs/claudedocs/research-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
+cat claudedocs/research-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 
 # 3. Check focused task
 cleo focus show
@@ -172,8 +173,8 @@ Every subagent MUST follow this protocol:
 
 ### Output Requirements
 
-1. **MUST** write findings to: `docs/claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md`
-2. **MUST** append ONE line to: `docs/claudedocs/research-outputs/MANIFEST.jsonl`
+1. **MUST** write findings to: `claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md`
+2. **MUST** append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
 3. **MUST** return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. **MUST NOT** return research content in response
 
@@ -192,8 +193,8 @@ Include this in every spawn prompt:
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: docs/claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: docs/claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 
@@ -323,6 +324,145 @@ Tasks are grouped into waves based on dependencies:
 - **Wave 0**: Tasks with no dependencies (can run in parallel)
 - **Wave 1**: Tasks depending only on Wave 0 (can run in parallel)
 - **Wave N**: Tasks depending on Wave N-1 or earlier
+
+## Phase-Aware Orchestration
+
+Orchestrator can scope work to specific project phases for focused execution.
+
+### Phase Filtering
+
+```bash
+# Get next task from specific phase
+cleo orchestrator next --epic T1575 --phase testing
+
+# Get all ready tasks in a phase
+cleo orchestrator ready --epic T1575 --phase core
+
+# Check current project phase
+cleo phase show
+```
+
+### Phase Workflow
+
+| Phase | Focus | Typical Subagents |
+|-------|-------|-------------------|
+| setup | Foundation work | RESEARCH-AGENT, SPEC-WRITER |
+| core | Main implementation | TASK-EXECUTOR, LIBRARY-IMPLEMENTER |
+| testing | Validation | VALIDATOR, TEST-WRITER-BATS |
+| polish | Refinement | DOCUMENTOR, VALIDATOR |
+| maintenance | Ongoing fixes | TASK-EXECUTOR |
+
+### Phase Progression
+
+```bash
+# Check phase progress before spawning
+cleo phases stats
+
+# Spawn within current phase context
+CURRENT_PHASE=$(cleo phase show -q)
+cleo orchestrator ready --epic T1575 --phase "$CURRENT_PHASE"
+```
+
+### Cross-Phase Dependencies
+
+When tasks span phases, the orchestrator SHOULD:
+1. Complete current phase tasks first (when possible)
+2. Document cross-phase dependencies in task notes
+3. Use phase filtering to focus subagent work
+
+## Verification Gates Integration
+
+CLEO verification gates enable quality assurance before parent task auto-completion.
+
+### Verification Workflow
+
+```
+SUBAGENT COMPLETES TASK
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ cleo complete T1234                   │
+│ → Sets verification.gates.implemented │
+└───────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ Run tests: cleo verify T1234 --gate   │
+│            testsPassed                │
+└───────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ QA review: cleo verify T1234 --gate   │
+│            qaPassed                   │
+└───────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ Full verify: cleo verify T1234 --all  │
+│ → When all gates pass, epic may       │
+│   auto-complete                       │
+└───────────────────────────────────────┘
+```
+
+### Orchestrator Verification Commands
+
+```bash
+# Check verification status
+cleo verify T1234
+
+# Set individual gates
+cleo verify T1234 --gate testsPassed
+cleo verify T1234 --gate qaPassed
+cleo verify T1234 --gate securityPassed
+cleo verify T1234 --gate documented
+
+# Set all gates at once
+cleo verify T1234 --all
+
+# Reset verification (if re-work needed)
+cleo verify T1234 --reset
+
+# Filter tasks by verification status
+cleo list --verification-status pending
+cleo list --verification-status passed
+```
+
+### Gate Definitions
+
+| Gate | Set By | When |
+|------|--------|------|
+| `implemented` | Auto | `cleo complete` |
+| `testsPassed` | VALIDATOR subagent | Tests pass |
+| `qaPassed` | Human/orchestrator | QA review done |
+| `securityPassed` | Security scan | No vulnerabilities |
+| `documented` | DOCUMENTOR subagent | Docs updated |
+
+### Epic Auto-Completion with Verification
+
+When `verification.requireForParentAutoComplete` is enabled (default):
+- Parent epic auto-completes only when ALL children have `verification.passed = true`
+- This prevents premature epic closure
+
+```bash
+# Check configuration
+cleo config get verification.requireForParentAutoComplete
+
+# Disable if needed (not recommended)
+cleo config set verification.requireForParentAutoComplete false
+```
+
+### Subagent Verification Protocol
+
+VALIDATOR subagents SHOULD include:
+```markdown
+## VALIDATION PROTOCOL
+
+After completing validation:
+1. Run: `cleo verify {TASK_ID} --gate testsPassed`
+2. If security checks: `cleo verify {TASK_ID} --gate securityPassed`
+3. Document findings in manifest entry
+```
 
 ## Best Practices
 

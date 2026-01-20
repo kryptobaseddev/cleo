@@ -41,31 +41,19 @@ cleo orchestrator spawn T002
 
 ```
 orchestrator-protocol/
-  ORCHESTRATOR-INJECT.md    # DEPRECATED - Reference only
   README.md                  # This file
+  PLACEHOLDER-REGISTRY.md    # Template placeholder definitions
   subagent-prompts/          # Spawn templates
     BASE-SUBAGENT-PROMPT.md  # Core protocol block
     TASK-EXECUTOR.md         # General task execution
     RESEARCH-AGENT.md        # Research and investigation
-    EPIC-CREATOR.md          # Epic planning
+    EPIC-ARCHITECT.md        # Epic planning and decomposition
     VALIDATOR.md             # Testing and validation
 ```
 
+**Archived**: `docs/archive/ORCHESTRATOR-INJECT.md` (deprecated CLAUDE.md injection)
+
 ## Templates
-
-### ORCHESTRATOR-INJECT.md (DEPRECATED)
-
-> **WARNING**: This file is deprecated. Use skill-based activation instead.
-> Kept for reference only.
-
-Historical injection block for CLAUDE.md. Contains:
-- 5 immutable ORC constraints
-- Session startup protocol
-- Subagent spawning rules
-- Manifest query patterns
-- Context protection rules
-
-**Size**: ~1.8K tokens
 
 ### Subagent Prompts
 

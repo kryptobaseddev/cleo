@@ -207,7 +207,7 @@ Before completing, verify:
 ### Output Requirements
 
 1. MUST write documentation to specified output path OR update existing file
-2. MUST append ONE line to: `docs/claudedocs/research-outputs/MANIFEST.jsonl`
+2. MUST append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
 3. MUST return ONLY: "Documentation complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return full documentation content in response
 

@@ -4,7 +4,8 @@
 # LAYER: 3 (Domain Logic)
 # DEPENDENCIES: exit-codes.sh, config.sh, research-manifest.sh, paths.sh
 # PROVIDES: validate_subagent_output, validate_orchestrator_compliance,
-#           validate_manifest_integrity, validate_protocol
+#           validate_manifest_integrity, validate_protocol,
+#           validate_return_message
 #
 # Validates compliance with the Orchestrator Protocol Specification.
 # See: docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md
@@ -50,6 +51,56 @@ readonly _OV_MANIFEST_REQUIRED_FIELDS='["id", "file", "title", "date", "status",
 # Valid status values
 readonly _OV_MANIFEST_VALID_STATUS='["complete", "partial", "blocked"]'
 
+# Valid subagent return message patterns (ORC-005 compliance)
+readonly _OV_VALID_RETURN_MESSAGES=(
+    "Research complete. See MANIFEST.jsonl for summary."
+    "Epic created. See MANIFEST.jsonl for summary."
+    "Tests complete. See MANIFEST.jsonl for summary."
+    "Documentation complete. See MANIFEST.jsonl for summary."
+    "Task complete. See MANIFEST.jsonl for summary."
+)
+
+# ============================================================================
+# RETURN MESSAGE VALIDATION
+# ============================================================================
+
+# Validate subagent return message format
+# Args: $1 = actual return message
+# Returns: 0 if valid, 1 if invalid (warning only - non-blocking)
+#
+# Protocol Reference: Subagents MUST return standardized completion messages
+# per ORC-005 to ensure orchestrator can verify task completion.
+validate_return_message() {
+    local message="$1"
+
+    # Handle empty message
+    if [[ -z "$message" ]]; then
+        echo "WARNING: Subagent return message is empty" >&2
+        echo "  Expected: One of the standard completion messages" >&2
+        return 1
+    fi
+
+    # Normalize message (trim leading/trailing whitespace)
+    message=$(echo "$message" | xargs)
+
+    # Check against valid patterns
+    for pattern in "${_OV_VALID_RETURN_MESSAGES[@]}"; do
+        if [[ "$message" == "$pattern" ]]; then
+            return 0
+        fi
+    done
+
+    # Warning: message doesn't match expected format
+    echo "WARNING: Subagent return message does not match protocol" >&2
+    echo "  Expected: One of the standard completion messages" >&2
+    if [[ ${#message} -gt 100 ]]; then
+        echo "  Got: ${message:0:100}..." >&2
+    else
+        echo "  Got: $message" >&2
+    fi
+    return 1
+}
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -57,7 +108,7 @@ readonly _OV_MANIFEST_VALID_STATUS='["complete", "partial", "blocked"]'
 # Get research output directory
 _ov_get_output_dir() {
     local dir
-    dir=$(get_config_value "research.outputDir" "docs/claudedocs/research-outputs" 2>/dev/null || echo "docs/claudedocs/research-outputs")
+    dir=$(get_config_value "research.outputDir" "claudedocs/research-outputs" 2>/dev/null || echo "claudedocs/research-outputs")
     echo "$dir"
 }
 

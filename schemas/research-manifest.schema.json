@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo-dev.com/schemas/v1/research-manifest.schema.json",
+  "title": "Research Manifest Entry",
+  "description": "Schema for MANIFEST.jsonl entries in the Orchestrator Protocol",
+  "type": "object",
+  "required": [
+    "id",
+    "file",
+    "title",
+    "date",
+    "status",
+    "topics",
+    "key_findings",
+    "actionable"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier slug with date suffix",
+      "pattern": "^[a-z0-9-]+-[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "file": {
+      "type": "string",
+      "description": "Output filename in research-outputs directory",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}_[a-z0-9-]+\\.md$"
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable title for the research entry",
+      "minLength": 5,
+      "maxLength": 200
+    },
+    "date": {
+      "type": "string",
+      "description": "ISO 8601 date (YYYY-MM-DD)",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "ISO 8601 datetime for precise ordering",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "description": "Progress status of the research",
+      "enum": ["complete", "partial", "blocked", "archived"]
+    },
+    "topics": {
+      "type": "array",
+      "description": "Categorization tags",
+      "items": {"type": "string"},
+      "minItems": 1,
+      "maxItems": 10
+    },
+    "key_findings": {
+      "type": "array",
+      "description": "Executive summary (3-7 single-sentence findings)",
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "minItems": 3,
+      "maxItems": 7
+    },
+    "actionable": {
+      "type": "boolean",
+      "description": "Whether this research requires action"
+    },
+    "needs_followup": {
+      "type": "array",
+      "description": "Task IDs or BLOCKED:reason entries for handoff",
+      "items": {
+        "type": "string",
+        "pattern": "^(T[0-9]+|BLOCKED:.+)$"
+      },
+      "default": []
+    },
+    "linked_tasks": {
+      "type": "array",
+      "description": "CLEO task IDs this research relates to",
+      "items": {
+        "type": "string",
+        "pattern": "^T[0-9]+$"
+      }
+    },
+    "agent_type": {
+      "type": "string",
+      "description": "Subagent role that created this entry"
+    },
+    "source": {
+      "type": "string",
+      "description": "Origin of the entry (e.g., epic-architect)"
+    },
+    "output_file": {
+      "type": "string",
+      "description": "Path to output file (alternative to file field)"
+    }
+  },
+  "additionalProperties": true
+}
