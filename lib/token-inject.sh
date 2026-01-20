@@ -129,6 +129,20 @@ _ti_load_tokens_from_json() {
         done <<< "$task_cmd_tokens"
     fi
 
+    # Load taskContext tokens (skill-specific tokens populated from CLEO task data)
+    local task_context_tokens
+    task_context_tokens=$(jq -r '.taskContext.tokens[] | "\(.token)=\(.default // "")"' "$json_path" 2>/dev/null || echo "")
+    if [[ -n "$task_context_tokens" ]]; then
+        while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+                local token="${line%%=*}"
+                local default="${line#*=}"
+                _TI_ALL_TOKENS+=("$token")
+                [[ -n "$default" ]] && _TI_CLEO_DEFAULTS["$token"]="$default"
+            fi
+        done <<< "$task_context_tokens"
+    fi
+
     # Add required tokens to all tokens
     for token in "${_TI_REQUIRED_TOKENS[@]}"; do
         _TI_ALL_TOKENS+=("$token")
@@ -163,6 +177,10 @@ _ti_set_fallback_defaults() {
         "TASK_SHOW_CMD" "TASK_FOCUS_CMD" "TASK_COMPLETE_CMD"
         "TASK_LINK_CMD" "TASK_LIST_CMD" "TASK_FIND_CMD" "TASK_ADD_CMD"
         "OUTPUT_DIR" "MANIFEST_PATH"
+        # taskContext tokens (populated from CLEO task data)
+        "TASK_TITLE" "TASK_NAME" "TASK_DESCRIPTION" "TASK_INSTRUCTIONS"
+        "TOPICS_JSON" "DEPENDS_LIST" "ACCEPTANCE_CRITERIA" "DELIVERABLES_LIST"
+        "MANIFEST_SUMMARIES" "NEXT_TASK_IDS"
     )
     _TI_CLEO_DEFAULTS=(
         ["TASK_SHOW_CMD"]="cleo show"
@@ -178,6 +196,17 @@ _ti_set_fallback_defaults() {
         ["SESSION_ID"]=""
         ["RESEARCH_ID"]=""
         ["TITLE"]=""
+        # taskContext defaults
+        ["TASK_TITLE"]=""
+        ["TASK_NAME"]=""
+        ["TASK_DESCRIPTION"]=""
+        ["TASK_INSTRUCTIONS"]=""
+        ["TOPICS_JSON"]="[]"
+        ["DEPENDS_LIST"]=""
+        ["ACCEPTANCE_CRITERIA"]="Task completed successfully per description"
+        ["DELIVERABLES_LIST"]="Implementation per task description"
+        ["MANIFEST_SUMMARIES"]=""
+        ["NEXT_TASK_IDS"]=""
     )
     _TI_TOKEN_PATTERNS=(
         ["TASK_ID"]="^T[0-9]+$"
@@ -473,6 +502,72 @@ ti_set_context() {
     return 0
 }
 
+
+# ti_set_task_context - Populate taskContext tokens from CLEO task JSON
+# Args:
+#   $1 = task JSON from `cleo show TASK_ID --format json`
+# Returns: 0 on success, EXIT_VALIDATION_ERROR (6) if JSON invalid
+# Side effects: Exports TI_TASK_TITLE, TI_TASK_NAME, TI_TASK_DESCRIPTION, etc.
+#
+# This function extracts task data from CLEO and sets the corresponding
+# TI_* environment variables for token injection:
+#   - TI_TASK_TITLE (from task.title)
+#   - TI_TASK_NAME (alias for TASK_TITLE)
+#   - TI_TASK_DESCRIPTION (from task.description)
+#   - TI_TASK_INSTRUCTIONS (defaults to task.description)
+#   - TI_TOPICS_JSON (from task.labels as JSON array string)
+#   - TI_DEPENDS_LIST (from task.depends as comma-separated string)
+#
+# The following tokens are NOT populated here (orchestrator provides them):
+#   - TI_ACCEPTANCE_CRITERIA
+#   - TI_DELIVERABLES_LIST
+#   - TI_MANIFEST_SUMMARIES
+#   - TI_NEXT_TASK_IDS
+ti_set_task_context() {
+    local task_json="${1:-}"
+
+    if [[ -z "$task_json" ]]; then
+        _ti_error "task_json is required for ti_set_task_context"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Verify jq is available
+    if ! command -v jq &>/dev/null; then
+        _ti_error "jq is required for ti_set_task_context"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Validate JSON
+    if ! echo "$task_json" | jq empty 2>/dev/null; then
+        _ti_error "Invalid JSON provided to ti_set_task_context"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Extract task title
+    local title
+    title=$(echo "$task_json" | jq -r '.task.title // ""')
+    export TI_TASK_TITLE="$title"
+    export TI_TASK_NAME="$title"  # alias
+
+    # Extract task description
+    local description
+    description=$(echo "$task_json" | jq -r '.task.description // ""')
+    export TI_TASK_DESCRIPTION="$description"
+    export TI_TASK_INSTRUCTIONS="$description"  # defaults to description
+
+    # Extract labels as JSON array string
+    local labels_json
+    labels_json=$(echo "$task_json" | jq -c '.task.labels // []')
+    export TI_TOPICS_JSON="$labels_json"
+
+    # Extract depends as comma-separated string
+    local depends_list
+    depends_list=$(echo "$task_json" | jq -r '(.task.depends // []) | join(", ")')
+    export TI_DEPENDS_LIST="$depends_list"
+
+    return 0
+}
+
 # ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
@@ -485,4 +580,5 @@ export -f ti_list_tokens
 export -f ti_get_default
 export -f ti_clear_all
 export -f ti_set_context
+export -f ti_set_task_context
 export -f ti_reload_tokens

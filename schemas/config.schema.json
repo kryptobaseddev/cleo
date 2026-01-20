@@ -991,6 +991,92 @@
           "description": "Days until non-actionable research is archived."
         }
       }
+    },
+
+    "retention": {
+      "type": "object",
+      "description": "Retention policies for session archival and cleanup. Controls automatic session lifecycle management.",
+      "additionalProperties": false,
+      "properties": {
+        "maxArchivedSessions": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum number of archived sessions to retain. Oldest archived sessions are permanently deleted when limit is exceeded."
+        },
+        "autoArchiveEndedAfterDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 30,
+          "description": "Days after which ended sessions are automatically archived. Set to high value to disable auto-archiving."
+        },
+        "autoDeleteArchivedAfterDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 730,
+          "default": 90,
+          "description": "Days after archival before sessions are permanently deleted. 0 disables automatic deletion."
+        },
+        "contextStateRetentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90,
+          "default": 7,
+          "description": "Days to retain orphaned context state files. Files for non-existent or archived sessions are cleaned up."
+        },
+        "cleanupOnSessionEnd": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run retention cleanup automatically when sessions end. Set false for manual cleanup only."
+        },
+        "dryRunByDefault": {
+          "type": "boolean",
+          "default": true,
+          "description": "Default to dry-run mode for cleanup operations. Prevents accidental data loss."
+        }
+      }
+    },
+
+    "contextStates": {
+      "type": "object",
+      "description": "Context state file management configuration. Context state files track per-session context window usage.",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "default": ".cleo/context-states",
+          "description": "Directory for per-session context state files. Relative to project root."
+        },
+        "filenamePattern": {
+          "type": "string",
+          "default": "context-state-{sessionId}.json",
+          "description": "Filename pattern for context state files. {sessionId} is replaced with session ID."
+        },
+        "cleanupOnSessionEnd": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove context state file when session ends. Set false to retain for debugging."
+        },
+        "cleanupOnSessionClose": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove context state file when session is permanently closed."
+        },
+        "cleanupOnSessionArchive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove context state file when session is archived."
+        },
+        "maxOrphanedFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum orphaned context state files to retain. Oldest are deleted first. 0 = delete immediately."
+        }
+      }
     }
   }
 }

@@ -1,3 +1,9 @@
+---
+title: "blockers"
+description: "Analyze blocked tasks and their dependency chains"
+icon: "ban"
+---
+
 # blockers Command
 
 **Alias**: `block`

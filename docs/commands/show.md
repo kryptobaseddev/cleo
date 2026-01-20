@@ -1,3 +1,9 @@
+---
+title: "show"
+description: "Display detailed view of a single task with all fields"
+icon: "eye"
+---
+
 # show Command
 
 Display detailed view of a single task with all fields, dependencies, and related information.

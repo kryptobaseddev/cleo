@@ -1,3 +1,9 @@
+---
+title: "hierarchy"
+description: "Task hierarchy support for Epic, Task, and Subtask levels"
+icon: "sitemap"
+---
+
 # Hierarchy System
 
 Task hierarchy support for organizing work into Epic, Task, and Subtask levels.

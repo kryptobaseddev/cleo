@@ -1,3 +1,9 @@
+---
+title: "complete"
+description: "Mark a task as done with completion notes and automatic logging"
+icon: "check"
+---
+
 # complete Command
 
 **Alias**: `done`

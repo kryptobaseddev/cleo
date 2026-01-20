@@ -69,8 +69,10 @@ readonly SESSION_STATUS_ACTIVE="active"
 readonly SESSION_STATUS_SUSPENDED="suspended"
 readonly SESSION_STATUS_ENDED="ended"
 readonly SESSION_STATUS_CLOSED="closed"
+readonly SESSION_STATUS_ARCHIVED="archived"
 
 # Additional error code for close operation
+: "${E_SESSION_ARCHIVE_BLOCKED:=E_SESSION_ARCHIVE_BLOCKED}"
 : "${E_SESSION_CLOSE_BLOCKED:=E_SESSION_CLOSE_BLOCKED}"
 
 # Scope types
@@ -1137,6 +1139,98 @@ close_session() {
     trap - EXIT ERR
 
     echo "Session closed and archived"
+    return 0
+}
+
+# Archive a session (move to read-only archived status)
+# Archives ended/suspended sessions without requiring task completion.
+# Args: $1 - session_id, $2 - reason (optional)
+# Returns: 0 on success, error code on failure
+archive_session() {
+    local session_id="$1"
+    local reason="${2:-}"
+
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    # Lock file
+    local sessions_fd
+    if ! lock_file "$sessions_file" sessions_fd 30; then
+        echo "Error: Failed to acquire lock on sessions.json" >&2
+        return $FO_LOCK_FAILED
+    fi
+
+    trap "unlock_file $sessions_fd" EXIT ERR
+
+    local sessions_content
+    sessions_content=$(cat "$sessions_file")
+
+    # Get session info
+    local session_info
+    session_info=$(echo "$sessions_content" | jq -c --arg id "$session_id" '
+        .sessions[] | select(.id == $id)
+    ')
+
+    if [[ -z "$session_info" ]]; then
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Session not found: $session_id" >&2
+        return ${EXIT_SESSION_NOT_FOUND:-31}
+    fi
+
+    # Check session status - can only archive ended or suspended sessions
+    local current_status
+    current_status=$(echo "$session_info" | jq -r '.status')
+
+    if [[ "$current_status" != "ended" && "$current_status" != "suspended" ]]; then
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Cannot archive session with status '$current_status'. Only 'ended' or 'suspended' sessions can be archived." >&2
+        return ${EXIT_SESSION_ARCHIVE_BLOCKED:-38}
+    fi
+
+    if [[ "$current_status" == "archived" ]]; then
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Session is already archived: $session_id" >&2
+        return ${EXIT_NO_CHANGE:-102}
+    fi
+
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Update session status to "archived"
+    local updated_sessions
+    updated_sessions=$(echo "$sessions_content" | jq \
+        --arg id "$session_id" \
+        --arg ts "$timestamp" \
+        --arg reason "$reason" \
+        '
+        .sessions = [.sessions[] |
+            if .id == $id then
+                .status = "archived" |
+                .archivedAt = $ts |
+                .lastActivity = $ts |
+                (if $reason != "" then .archiveReason = $reason else . end)
+            else . end
+        ] |
+        ._meta.lastModified = $ts
+        ')
+
+    # Save sessions file
+    local pretty_sessions
+    pretty_sessions=$(echo "$updated_sessions" | jq '.')
+    if ! aw_atomic_write "$sessions_file" "$pretty_sessions" "${MAX_BACKUPS:-10}"; then
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Failed to save sessions.json" >&2
+        return 1
+    fi
+
+    unlock_file "$sessions_fd"
+    trap - EXIT ERR
+
+    echo "Session archived: $session_id"
     return 0
 }
 

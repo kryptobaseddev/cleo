@@ -24,6 +24,13 @@
               "getting-started/quickstart",
               "getting-started/installation"
             ]
+          },
+          {
+            "group": "Community",
+            "pages": [
+              "roadmap",
+              "contributing"
+            ]
           }
         ]
       },
@@ -173,14 +180,14 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/your-org/cleo"
+      "github": "https://github.com/kryptobaseddev/cleo"
     }
   },
   "anchors": [
     {
       "name": "GitHub",
       "icon": "github",
-      "url": "https://github.com/your-org/cleo"
+      "url": "https://github.com/kryptobaseddev/cleo"
     }
   ]
 }

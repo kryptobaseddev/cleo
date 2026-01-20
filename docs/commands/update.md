@@ -1,3 +1,9 @@
+---
+title: "update"
+description: "Update existing task fields with validation and logging"
+icon: "pen"
+---
+
 # update Command
 
 **Alias**: `edit`

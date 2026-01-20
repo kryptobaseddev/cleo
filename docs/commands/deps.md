@@ -1,3 +1,9 @@
+---
+title: "deps"
+description: "Visualize task dependency relationships"
+icon: "diagram-project"
+---
+
 # deps Command
 
 **Alias**: `dependencies`

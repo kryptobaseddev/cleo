@@ -1,0 +1,565 @@
+#!/usr/bin/env bash
+# CLEO Installer - Symlink Management
+# Creates, verifies, and manages symlinks for CLI access
+#
+# Version: 1.0.0
+# Task: T1860
+# Based on: claudedocs/research-outputs/2026-01-20_modular-installer-architecture.md
+#
+# LAYER: 2 (Operations)
+# DEPENDENCIES: core.sh
+# PROVIDES: installer_link_create, installer_link_remove, installer_link_verify,
+#           installer_link_setup_bin
+
+# ============================================
+# GUARD: Prevent double-sourcing
+# ============================================
+[[ -n "${_INSTALLER_LINK_LOADED:-}" ]] && return 0
+readonly _INSTALLER_LINK_LOADED=1
+
+# ============================================
+# DEPENDENCIES
+# ============================================
+INSTALLER_LIB_DIR="${INSTALLER_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+source "${INSTALLER_LIB_DIR}/core.sh"
+
+# ============================================
+# CONSTANTS
+# ============================================
+readonly LINK_BIN_DIR="${CLEO_BIN_DIR:-$HOME/.local/bin}"
+readonly LINK_CLI_NAME="cleo"
+readonly LINK_ALIAS_NAME="ct"
+
+# Backup suffix for replaced links
+readonly LINK_BACKUP_SUFFIX=".cleo-backup"
+
+# ============================================
+# LINK CREATION
+# ============================================
+
+# Create a symlink with backup of existing target
+# Args: source target
+# Returns: 0 on success, 1 on failure
+installer_link_create() {
+    local source="$1"
+    local target="$2"
+
+    # Verify source exists
+    if [[ ! -e "$source" ]]; then
+        installer_log_error "Link source does not exist: $source"
+        return 1
+    fi
+
+    # Create target directory if needed
+    local target_dir
+    target_dir=$(dirname "$target")
+    if [[ ! -d "$target_dir" ]]; then
+        installer_log_debug "Creating directory: $target_dir"
+        mkdir -p "$target_dir" || {
+            installer_log_error "Failed to create directory: $target_dir"
+            return $EXIT_PERMISSION_DENIED
+        }
+    fi
+
+    # Handle existing target
+    if [[ -e "$target" || -L "$target" ]]; then
+        # Check if it's already correct
+        if [[ -L "$target" ]]; then
+            local existing_target
+            existing_target=$(readlink "$target")
+            if [[ "$existing_target" == "$source" ]]; then
+                installer_log_debug "Link already correct: $target -> $source"
+                return 0
+            fi
+        fi
+
+        # Backup existing
+        local backup="${target}${LINK_BACKUP_SUFFIX}"
+        installer_log_debug "Backing up existing: $target -> $backup"
+        mv "$target" "$backup" || {
+            installer_log_error "Failed to backup existing link: $target"
+            return 1
+        }
+    fi
+
+    # Create the symlink
+    if ln -sf "$source" "$target"; then
+        installer_log_debug "Created link: $target -> $source"
+        return 0
+    else
+        installer_log_error "Failed to create link: $target -> $source"
+        return 1
+    fi
+}
+
+# Remove a symlink safely (restore backup if exists)
+# Args: target [restore_backup]
+# Returns: 0 on success
+installer_link_remove() {
+    local target="$1"
+    local restore_backup="${2:-true}"
+
+    if [[ -L "$target" ]]; then
+        rm -f "$target"
+        installer_log_debug "Removed link: $target"
+    elif [[ -e "$target" ]]; then
+        installer_log_warn "Target is not a symlink: $target"
+        return 1
+    fi
+
+    # Restore backup if exists and requested
+    local backup="${target}${LINK_BACKUP_SUFFIX}"
+    if [[ "$restore_backup" == "true" && -e "$backup" ]]; then
+        mv "$backup" "$target"
+        installer_log_debug "Restored backup: $backup -> $target"
+    fi
+
+    return 0
+}
+
+# Verify a symlink is valid and points to expected target
+# Args: link [expected_target]
+# Returns: 0 if valid, 1 otherwise
+installer_link_verify() {
+    local link="$1"
+    local expected_target="${2:-}"
+
+    # Check link exists
+    if [[ ! -L "$link" ]]; then
+        if [[ -e "$link" ]]; then
+            installer_log_error "Path exists but is not a symlink: $link"
+        else
+            installer_log_error "Link does not exist: $link"
+        fi
+        return 1
+    fi
+
+    # Check link target exists
+    if [[ ! -e "$link" ]]; then
+        installer_log_error "Symlink is broken: $link"
+        return 1
+    fi
+
+    # Check expected target if provided
+    if [[ -n "$expected_target" ]]; then
+        local actual_target
+        actual_target=$(readlink "$link")
+
+        # Resolve both to absolute paths for comparison
+        local resolved_actual resolved_expected
+        resolved_actual=$(cd "$(dirname "$link")" && cd "$(dirname "$actual_target")" && pwd)/$(basename "$actual_target")
+        resolved_expected=$(cd "$(dirname "$expected_target")" 2>/dev/null && pwd)/$(basename "$expected_target")
+
+        if [[ "$resolved_actual" != "$resolved_expected" && "$actual_target" != "$expected_target" ]]; then
+            installer_log_error "Link target mismatch: $link"
+            installer_log_error "  Expected: $expected_target"
+            installer_log_error "  Actual:   $actual_target"
+            return 1
+        fi
+    fi
+
+    installer_log_debug "Link verified: $link"
+    return 0
+}
+
+# ============================================
+# BIN DIRECTORY SETUP
+# ============================================
+
+# Ensure bin directory exists and is in PATH
+# Returns: 0 on success, 1 on failure
+installer_link_ensure_bin_dir() {
+    if [[ ! -d "$LINK_BIN_DIR" ]]; then
+        installer_log_info "Creating bin directory: $LINK_BIN_DIR"
+        mkdir -p "$LINK_BIN_DIR" || {
+            installer_log_error "Failed to create bin directory: $LINK_BIN_DIR"
+            return 1
+        }
+    fi
+
+    # Check if bin dir is in PATH
+    if [[ ":$PATH:" != *":$LINK_BIN_DIR:"* ]]; then
+        installer_log_warn "Bin directory not in PATH: $LINK_BIN_DIR"
+        installer_log_warn "Add to your shell profile: export PATH=\"\$HOME/.local/bin:\$PATH\""
+        return 2  # Warning, not failure
+    fi
+
+    return 0
+}
+
+# Setup all CLI symlinks
+# Args: install_dir
+# Returns: 0 on success, non-zero on failure
+installer_link_setup_bin() {
+    local install_dir="${1:-$INSTALL_DIR}"
+    local wrapper=""
+    local failed=0
+
+    installer_log_step "Setting up CLI symlinks..."
+
+    # Ensure bin directory exists
+    installer_link_ensure_bin_dir || true  # Continue even if PATH warning
+
+    # Find or create the wrapper script
+    # Check locations in order of preference
+    local wrapper_locations=(
+        "$install_dir/cleo"
+        "$install_dir/bin/cleo"
+        "$install_dir/scripts/cleo"
+    )
+
+    for loc in "${wrapper_locations[@]}"; do
+        if [[ -f "$loc" ]]; then
+            wrapper="$loc"
+            installer_log_debug "Found wrapper at: $wrapper"
+            break
+        fi
+    done
+
+    # If no wrapper found, create one
+    if [[ -z "$wrapper" ]]; then
+        installer_log_info "Creating CLI wrapper script..."
+        wrapper="$install_dir/cleo"
+        if ! installer_link_create_wrapper "$wrapper" "$install_dir"; then
+            installer_log_error "Failed to create wrapper script"
+            return $EXIT_INSTALL_FAILED
+        fi
+    fi
+
+    # Make wrapper executable
+    chmod +x "$wrapper" 2>/dev/null || true
+
+    # Create main CLI symlink (cleo)
+    if installer_link_create "$wrapper" "$LINK_BIN_DIR/$LINK_CLI_NAME"; then
+        installer_log_info "Created symlink: $LINK_CLI_NAME -> $wrapper"
+    else
+        installer_log_error "Failed to create $LINK_CLI_NAME symlink"
+        ((failed++))
+    fi
+
+    # Create alias symlink (ct)
+    if installer_link_create "$wrapper" "$LINK_BIN_DIR/$LINK_ALIAS_NAME"; then
+        installer_log_info "Created symlink: $LINK_ALIAS_NAME -> $wrapper"
+    else
+        installer_log_error "Failed to create $LINK_ALIAS_NAME symlink"
+        ((failed++))
+    fi
+
+    if [[ $failed -gt 0 ]]; then
+        return $EXIT_INSTALL_FAILED
+    fi
+
+    return 0
+}
+
+# Create CLI wrapper script
+# Args: wrapper_path install_dir
+# Returns: 0 on success, 1 on failure
+installer_link_create_wrapper() {
+    local wrapper_path="$1"
+    local install_dir="$2"
+
+    cat > "$wrapper_path" << 'WRAPPER_EOF'
+#!/usr/bin/env bash
+# CLEO CLI Wrapper - Task management for AI agents
+# Generated by CLEO installer
+set -uo pipefail
+
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+SCRIPT_DIR="$CLEO_HOME/scripts"
+LIB_DIR="$CLEO_HOME/lib"
+
+# Source the main dispatcher if it exists
+if [[ -f "$SCRIPT_DIR/cleo" ]]; then
+    exec "$SCRIPT_DIR/cleo" "$@"
+fi
+
+# Fallback: direct script execution
+declare -A CMD_MAP=(
+    [init]="init.sh" [validate]="validate.sh" [archive]="archive.sh"
+    [add]="add-task.sh" [complete]="complete-task.sh" [list]="list-tasks.sh"
+    [update]="update-task.sh" [focus]="focus.sh" [session]="session.sh"
+    [show]="show.sh" [find]="find.sh" [dash]="dash.sh" [next]="next.sh"
+    [config]="config.sh" [backup]="backup.sh" [restore]="restore.sh"
+    [export]="export.sh" [stats]="stats.sh" [log]="log.sh"
+    [labels]="labels.sh" [deps]="deps-command.sh" [blockers]="blockers-command.sh"
+    [phases]="phases.sh" [phase]="phase.sh" [exists]="exists.sh"
+    [history]="history.sh" [analyze]="analyze.sh" [sync]="sync-todowrite.sh"
+    [commands]="commands.sh" [research]="research.sh" [delete]="delete.sh"
+    [uncancel]="uncancel.sh" [reopen]="reopen.sh" [reparent]="reparent.sh"
+    [promote]="promote.sh" [verify]="verify.sh" [upgrade]="upgrade.sh"
+    [context]="context.sh" [doctor]="doctor.sh" [migrate]="migrate.sh"
+)
+
+declare -A CMD_ALIASES=(
+    [ls]="list" [done]="complete" [new]="add" [edit]="update"
+    [rm]="archive" [check]="validate" [overview]="dash" [search]="find"
+)
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+
+# Resolve aliases
+[[ -n "${CMD_ALIASES[$cmd]:-}" ]] && cmd="${CMD_ALIASES[$cmd]}"
+
+# Handle special commands
+case "$cmd" in
+    version|--version|-v)
+        head -1 "$CLEO_HOME/VERSION" 2>/dev/null || echo "unknown"
+        exit 0
+        ;;
+    --validate|--debug)
+        echo "[INFO] Validating CLEO CLI configuration..."
+        errors=0
+        for c in "${!CMD_MAP[@]}"; do
+            script="$SCRIPT_DIR/${CMD_MAP[$c]}"
+            if [[ ! -f "$script" ]]; then
+                echo "[ERROR] Missing script for '$c': $script" >&2
+                ((errors++))
+            fi
+        done
+        if [[ $errors -eq 0 ]]; then
+            echo "[INFO] All command scripts found"
+            exit 0
+        else
+            echo "[ERROR] Validation failed with $errors error(s)" >&2
+            exit 1
+        fi
+        ;;
+    help|--help|-h)
+        echo "CLEO - Task management for AI agents"
+        echo "Usage: cleo <command> [options]"
+        echo ""
+        echo "Commands: init, add, list, update, complete, focus, session, show, find"
+        echo "          dash, analyze, config, backup, restore, archive, validate"
+        echo ""
+        echo "Run 'cleo help <command>' for detailed options."
+        exit 0
+        ;;
+esac
+
+# Execute command
+if [[ -n "${CMD_MAP[$cmd]:-}" ]]; then
+    script="$SCRIPT_DIR/${CMD_MAP[$cmd]}"
+    if [[ -x "$script" ]]; then
+        exec "$script" "$@"
+    elif [[ -f "$script" ]]; then
+        exec bash "$script" "$@"
+    fi
+fi
+
+echo "Unknown command: $cmd" >&2
+echo "Run 'cleo help' for available commands." >&2
+exit 1
+WRAPPER_EOF
+
+    chmod +x "$wrapper_path"
+    installer_log_debug "Created wrapper: $wrapper_path"
+    return 0
+}
+
+# Remove all CLI symlinks
+# Returns: 0 on success
+installer_link_remove_bin() {
+    installer_log_info "Removing CLI symlinks..."
+
+    installer_link_remove "$LINK_BIN_DIR/$LINK_CLI_NAME" "true" || true
+    installer_link_remove "$LINK_BIN_DIR/$LINK_ALIAS_NAME" "true" || true
+
+    return 0
+}
+
+# ============================================
+# VERIFICATION
+# ============================================
+
+# Verify all symlinks are correct
+# Args: install_dir
+# Returns: 0 if all valid, 1 otherwise
+installer_link_verify_all() {
+    local install_dir="${1:-$INSTALL_DIR}"
+    local wrapper="$install_dir/cleo"
+    local failed=0
+
+    installer_log_info "Verifying CLI symlinks..."
+
+    # Find wrapper
+    if [[ ! -f "$wrapper" ]]; then
+        wrapper="$install_dir/bin/cleo"
+    fi
+
+    # Verify main CLI
+    if [[ -L "$LINK_BIN_DIR/$LINK_CLI_NAME" ]]; then
+        installer_link_verify "$LINK_BIN_DIR/$LINK_CLI_NAME" || ((failed++))
+    else
+        installer_log_error "Missing symlink: $LINK_BIN_DIR/$LINK_CLI_NAME"
+        ((failed++))
+    fi
+
+    # Verify alias
+    if [[ -L "$LINK_BIN_DIR/$LINK_ALIAS_NAME" ]]; then
+        installer_link_verify "$LINK_BIN_DIR/$LINK_ALIAS_NAME" || ((failed++))
+    else
+        installer_log_error "Missing symlink: $LINK_BIN_DIR/$LINK_ALIAS_NAME"
+        ((failed++))
+    fi
+
+    # Test execution
+    if [[ $failed -eq 0 ]]; then
+        if "$LINK_BIN_DIR/$LINK_CLI_NAME" version &>/dev/null; then
+            installer_log_debug "CLI execution test passed"
+        else
+            installer_log_warn "CLI symlink exists but execution failed"
+            ((failed++))
+        fi
+    fi
+
+    if [[ $failed -gt 0 ]]; then
+        installer_log_error "Symlink verification failed: $failed issue(s)"
+        return 1
+    fi
+
+    installer_log_info "All symlinks verified"
+    return 0
+}
+
+# ============================================
+# SKILLS INTEGRATION
+# ============================================
+
+# Setup skills symlink to Claude Code's skills directory
+# Args: source_skills_dir
+# Returns: 0 on success, 1 on failure
+installer_link_setup_skills() {
+    local source_dir="${1:-$INSTALL_DIR/skills}"
+    local target_dir="$HOME/.claude/skills/cleo"
+
+    if [[ ! -d "$source_dir" ]]; then
+        installer_log_debug "No skills directory to link: $source_dir"
+        return 0
+    fi
+
+    installer_log_info "Setting up skills integration..."
+
+    # Ensure Claude skills directory exists
+    mkdir -p "$(dirname "$target_dir")"
+
+    # Create symlink
+    if installer_link_create "$source_dir" "$target_dir"; then
+        installer_log_info "Skills linked: $target_dir -> $source_dir"
+        return 0
+    else
+        installer_log_error "Failed to link skills directory"
+        return 1
+    fi
+}
+
+# Remove skills symlink
+installer_link_remove_skills() {
+    local target_dir="$HOME/.claude/skills/cleo"
+
+    if [[ -L "$target_dir" ]]; then
+        installer_link_remove "$target_dir" "false"
+        installer_log_info "Skills symlink removed"
+    fi
+
+    return 0
+}
+
+# ============================================
+# CLAUDE.md INTEGRATION
+# ============================================
+
+# Detect Claude.md location
+# Returns: Path to CLAUDE.md or empty
+installer_link_detect_claudemd() {
+    local locations=(
+        "$HOME/.claude/CLAUDE.md"
+        "$HOME/CLAUDE.md"
+    )
+
+    for loc in "${locations[@]}"; do
+        if [[ -f "$loc" ]]; then
+            echo "$loc"
+            return 0
+        fi
+    done
+
+    echo ""
+}
+
+# Inject CLEO reference into CLAUDE.md
+# Args: claudemd_path
+# Returns: 0 on success, 1 on failure
+installer_link_inject_claudemd() {
+    local claudemd="${1:-$(installer_link_detect_claudemd)}"
+
+    if [[ -z "$claudemd" || ! -f "$claudemd" ]]; then
+        installer_log_debug "No CLAUDE.md found to inject"
+        return 0
+    fi
+
+    local cleo_marker="<!-- CLEO:START"
+
+    # Check if already injected
+    if grep -q "$cleo_marker" "$claudemd" 2>/dev/null; then
+        installer_log_debug "CLEO already present in CLAUDE.md"
+        return 0
+    fi
+
+    installer_log_info "Adding CLEO reference to CLAUDE.md..."
+
+    # Backup original
+    cp "$claudemd" "${claudemd}${LINK_BACKUP_SUFFIX}"
+
+    # Add CLEO reference at the beginning
+    local temp_file="${claudemd}.tmp.$$"
+    {
+        echo "<!-- CLEO:START -->"
+        echo "## Task Management (cleo)"
+        echo ""
+        echo "@~/.cleo/docs/TODO_Task_Management.md"
+        echo "<!-- CLEO:END -->"
+        echo ""
+        cat "$claudemd"
+    } > "$temp_file"
+
+    mv "$temp_file" "$claudemd"
+    installer_log_info "CLEO reference added to: $claudemd"
+
+    return 0
+}
+
+# Remove CLEO reference from CLAUDE.md
+# Args: claudemd_path
+installer_link_remove_claudemd() {
+    local claudemd="${1:-$(installer_link_detect_claudemd)}"
+
+    if [[ -z "$claudemd" || ! -f "$claudemd" ]]; then
+        return 0
+    fi
+
+    # Remove CLEO section using sed
+    local temp_file="${claudemd}.tmp.$$"
+    sed '/<!-- CLEO:START/,/<!-- CLEO:END -->/d' "$claudemd" > "$temp_file"
+    mv "$temp_file" "$claudemd"
+
+    installer_log_debug "CLEO reference removed from CLAUDE.md"
+}
+
+# ============================================
+# EXPORT PUBLIC API
+# ============================================
+export -f installer_link_create
+export -f installer_link_remove
+export -f installer_link_verify
+export -f installer_link_ensure_bin_dir
+export -f installer_link_setup_bin
+export -f installer_link_create_wrapper
+export -f installer_link_remove_bin
+export -f installer_link_verify_all
+export -f installer_link_setup_skills
+export -f installer_link_remove_skills
+export -f installer_link_detect_claudemd
+export -f installer_link_inject_claudemd
+export -f installer_link_remove_claudemd

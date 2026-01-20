@@ -116,8 +116,8 @@
         },
         "status": {
           "type": "string",
-          "enum": ["active", "suspended", "ended"],
-          "description": "active=currently working, suspended=paused but resumable, ended=finished but can resume."
+          "enum": ["active", "suspended", "ended", "archived"],
+          "description": "active=currently working, suspended=paused but resumable, ended=finished but can resume, archived=permanently stored (read-only, for audit trail)."
         },
         "endedAt": {
           "type": ["string", "null"],
@@ -155,6 +155,11 @@
           "type": ["string", "null"],
           "format": "date-time",
           "description": "When session was suspended. Null if active."
+        },
+        "archivedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "When session was archived. Null if not archived. Set when status transitions to 'archived'."
         },
         "resumeCount": {
           "type": "integer",

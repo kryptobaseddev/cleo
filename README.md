@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.55.0-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.56.0-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -138,47 +138,68 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 | Dependency | Required | Install |
 |------------|----------|---------|
 | **Bash 4.0+** | Critical | Pre-installed (check: `bash --version`) |
-| **jq** | Critical | `apt install jq` / `brew install jq` |
-| **flock** | Recommended | `brew install flock` (macOS) |
-| **sha256sum** | Recommended | Pre-installed / `brew install coreutils` |
+| **jq 1.6+** | Critical | `apt install jq` / `brew install jq` |
+| **curl** | For remote install | Pre-installed on most systems |
 
-```bash
-# Check all dependencies
-./install.sh --check-deps
-
-# Auto-install missing (Linux/macOS)
-./install.sh --install-deps
-```
+Optional:
+- **ajv-cli** - For JSON Schema validation
 
 ### Installation
 
+#### Quick Install (Recommended)
+
 ```bash
-# 1. Clone and install globally
+curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/installer/install.sh | bash
+```
+
+#### From Source
+
+```bash
+# Clone repository
 git clone https://github.com/kryptobaseddev/cleo.git
 cd cleo
-./install.sh
 
-# 2. Verify installation
+# Install (creates symlinks to repo for development)
+./installer/install.sh --dev
+
+# Or install as release (copies files)
+./installer/install.sh --release
+```
+
+### Verify Installation
+
+```bash
 cleo version
 cleo --validate
+```
 
-# 3. Initialize in your project
+### Initialize in Your Project
+
+```bash
 cd /path/to/your/project
 cleo init
 ```
 
 > **Note**: The installer creates symlinks in `~/.local/bin/`, which works immediately with Claude Code and most modern shells.
 
-### Upgrade Existing Installation
+### Upgrade
 
 ```bash
-cd cleo
-git pull origin main
-./install.sh --upgrade
+# Check for updates
+./installer/install.sh --check-upgrade
+
+# Upgrade to latest
+./installer/install.sh --upgrade
 
 # For project schema migrations
 cleo migrate status
 cleo migrate run
+```
+
+### Uninstall
+
+```bash
+./installer/install.sh --uninstall
 ```
 
 ### The `ct` Shortcut
@@ -693,10 +714,10 @@ Skills are installed as symlinks to `~/.claude/skills/ct-*`:
 
 ```bash
 # Install with skills (default)
-./install.sh
+./installer/install.sh
 
 # Skip skills installation
-./install.sh --skip-skills
+./installer/install.sh --skip-skills
 
 # Check installed skills
 ls ~/.claude/skills/ct-*
@@ -808,6 +829,7 @@ Target metrics (optimized for 1000+ tasks):
 | Category | Documents |
 |----------|-----------|
 | **Start Here** | [Quick Start](docs/getting-started/quick-start.md) · [Design Philosophy](docs/guides/design-philosophy.md) |
+| **Installation** | [Installer Architecture](docs/guides/installer-architecture.md) · [Migration Guide](docs/guides/installer-migration.md) |
 | **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) · [Task Management](docs/TODO_Task_Management.md) |
 | **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flows](docs/architecture/DATA-FLOWS.md) |
 | **Specifications** | [LLM-Agent-First Spec](docs/specs/LLM-AGENT-FIRST-SPEC.md) · [Task ID System](docs/specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) · [Hierarchy Spec](docs/specs/TASK-HIERARCHY-SPEC.md) |
@@ -865,7 +887,7 @@ MIT License — See [LICENSE](LICENSE)
 
 <p align="center">
   <strong>Ready to build with your AI agent?</strong><br>
-  <code>./install.sh && cleo init</code>
+  <code>./installer/install.sh && cleo init</code>
 </p>
 
 <p align="center">

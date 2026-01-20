@@ -1,0 +1,160 @@
+---
+title: "Roadmap"
+description: "CLEO development roadmap and future direction"
+icon: "map"
+---
+
+# Roadmap
+
+CLEO is actively developed with a focus on improving AI-agent workflows and multi-session orchestration. This roadmap outlines our current priorities and future direction.
+
+<Info>
+**Current Version**: v0.55.0 | [View Changelog](/api/changelog)
+</Info>
+
+## Vision
+
+CLEO aims to be the definitive task management system for AI-assisted development workflows, providing:
+
+- **Bulletproof data integrity** through anti-hallucination validation
+- **Seamless multi-agent coordination** with session isolation
+- **Context-aware orchestration** that respects LLM token limits
+- **Skills-based extensibility** for custom workflows
+
+## Current Release Highlights (v0.55.x)
+
+<CardGroup cols={2}>
+  <Card title="Skills System" icon="puzzle-piece">
+    Agent Skills format with ct-* prefixed skills for epic architecture, research, validation, and more
+  </Card>
+  <Card title="Context Monitoring" icon="gauge">
+    Real-time context window tracking with automatic alerts at threshold crossings
+  </Card>
+  <Card title="Research Subagent Protocol" icon="flask">
+    Structured research output format with MANIFEST.jsonl for efficient subagent coordination
+  </Card>
+  <Card title="Multi-Session Support" icon="users">
+    Epic-bound sessions with scope isolation for parallel agent work
+  </Card>
+</CardGroup>
+
+## Planned Features
+
+### Near-Term (Next 2-3 Releases)
+
+<AccordionGroup>
+  <Accordion title="Multi-Session Improvements" icon="layer-group">
+    - Enhanced scope conflict detection and resolution
+    - Session handoff protocols for agent transitions
+    - Improved session-aware command context
+    - Session metrics and analytics
+  </Accordion>
+
+  <Accordion title="Skills System Expansion" icon="wand-magic-sparkles">
+    - Additional skills for common development workflows
+    - Skill chaining and composition
+    - Custom skill creation tooling
+    - Skills marketplace/registry
+  </Accordion>
+
+  <Accordion title="Documentation Platform" icon="book">
+    - Mintlify-powered documentation site
+    - Interactive command reference
+    - Video tutorials and walkthroughs
+    - Improved API documentation
+  </Accordion>
+
+  <Accordion title="Claude Code Plugin" icon="plug">
+    - Native Claude Code integration
+    - Slash commands for common operations
+    - Session lifecycle hooks
+    - Auto-discovered skills
+  </Accordion>
+</AccordionGroup>
+
+### Medium-Term
+
+<Steps>
+  <Step title="Orchestration Platform">
+    Deterministic Python-based routing for LLM agent workflows with verification gates and templated prompts
+  </Step>
+  <Step title="Visual Task Management">
+    Terminal UI (TUI) for visual task organization, dependency graphs, and progress tracking
+  </Step>
+  <Step title="Multi-Agent Sync Adapters">
+    Agent-agnostic sync framework supporting Claude Code, Gemini CLI, Codex CLI, and other AI agents
+  </Step>
+</Steps>
+
+### Long-Term Vision
+
+- **NEXUS Agent Protocol**: Standardized specification for LLM agent behavior and communication
+- **Distributed Orchestration**: Cloud-based coordination for team workflows
+- **Analytics Dashboard**: Insights into development velocity and patterns
+
+## How to Influence the Roadmap
+
+### Feature Requests
+
+Have an idea for CLEO? We welcome feature requests through GitHub Issues.
+
+<Tabs>
+  <Tab title="Submit a Request">
+    1. Check [existing issues](https://github.com/kryptobaseddev/cleo/issues) for duplicates
+    2. Create a new issue with the **Feature Request** template
+    3. Include:
+       - Problem description
+       - Proposed solution
+       - Use case / real-world scenario
+       - Alternatives considered
+  </Tab>
+  <Tab title="Vote on Features">
+    - React with :+1: on issues you want prioritized
+    - Add comments with additional use cases
+    - Share context about your workflow needs
+  </Tab>
+</Tabs>
+
+### Bug Reports
+
+Found a bug? Help us fix it quickly with a detailed report.
+
+<Steps>
+  <Step title="Reproduce">
+    Confirm you can reproduce the issue consistently
+  </Step>
+  <Step title="Gather Info">
+    Collect: OS, Bash version (`bash --version`), jq version (`jq --version`), CLEO version (`cleo version`)
+  </Step>
+  <Step title="Submit">
+    Create an issue with steps to reproduce, expected vs actual behavior, and relevant logs
+  </Step>
+</Steps>
+
+## Release Philosophy
+
+CLEO follows semantic versioning with frequent minor releases:
+
+| Version Type | Frequency | Content |
+|--------------|-----------|---------|
+| Patch (x.x.X) | Weekly | Bug fixes, documentation |
+| Minor (x.X.0) | Bi-weekly | New features, enhancements |
+| Major (X.0.0) | As needed | Breaking changes (rare) |
+
+<Note>
+Breaking changes are extremely rare and always accompanied by migration guides and deprecation warnings in prior releases.
+</Note>
+
+## Get Involved
+
+<CardGroup cols={3}>
+  <Card title="Contribute" icon="code-pull-request" href="/contributing">
+    Submit code, docs, or tests
+  </Card>
+  <Card title="Report Issues" icon="bug" href="https://github.com/kryptobaseddev/cleo/issues">
+    Help us improve quality
+  </Card>
+  <Card title="Discussions" icon="comments" href="https://github.com/kryptobaseddev/cleo/discussions">
+    Ask questions, share ideas
+  </Card>
+</CardGroup>

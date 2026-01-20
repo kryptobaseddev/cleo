@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-01-20
+
+### Added
+- Modular installer architecture with 7 focused modules
+- 10-state installation machine with recovery checkpoints
+- Atomic operations for safe installations
+- Auto-recovery from interrupted installations
+- Dual-mode support: dev (symlinks) and release (copy)
+- Lock protection for concurrent installations
+- Cross-platform support (Linux, macOS)
+- 219 comprehensive installer tests (100% pass rate)
+
+### Changed
+- Installer refactored from ~800 line monolith to modular design
+- VERSION file now includes mode, source, and timestamp metadata
+
+### Documentation
+- Added installer-architecture.md guide
+- Added installer-migration.md guide
+- Updated README with new installation instructions
+
 ## [0.55.0] - 2026-01-20
 
 ### Added

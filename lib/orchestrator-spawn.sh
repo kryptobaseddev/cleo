@@ -245,6 +245,15 @@ orchestrator_spawn_for_task() {
 
     _osp_debug "Tokens: TASK_ID=$task_id, DATE=$date_today, TOPIC_SLUG=$topic_slug, EPIC_ID=${epic_id:-none}"
 
+    # Step 5.5: Set taskContext tokens from task data
+    # This populates TI_TASK_TITLE, TI_TASK_DESCRIPTION, TI_TOPICS_JSON, TI_DEPENDS_LIST
+    # These tokens are used by skill templates like task-executor
+    if ! ti_set_task_context "$task_json"; then
+        _osp_warn "Failed to set task context tokens - continuing with defaults"
+    else
+        _osp_debug "Task context tokens set: TASK_TITLE='${TI_TASK_TITLE:-}', TOPICS_JSON='${TI_TOPICS_JSON:-}'"
+    fi
+
     # Step 6: Inject and return complete prompt
     # skill_inject handles: token setting, skill loading, protocol injection
     local prompt_content

@@ -1,3 +1,9 @@
+---
+title: "dash"
+description: "Generate a comprehensive dashboard view of your todo system"
+icon: "gauge-high"
+---
+
 # dash Command
 
 **Alias**: `overview`

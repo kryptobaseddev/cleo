@@ -3,7 +3,8 @@
 #
 # LAYER: 2 (Core Services)
 # DEPENDENCIES: exit-codes.sh, config.sh
-# PROVIDES: read_manifest, append_manifest, find_entry, filter_entries, archive_entry
+# PROVIDES: read_manifest, append_manifest, find_entry, filter_entries, archive_entry,
+#           manifest_check_size, manifest_archive_old, manifest_rotate (T1678)
 #
 # Implements atomic append-only operations for JSONL manifest file.
 # JSONL chosen for O(1) append, race-condition free concurrent writes,
@@ -326,6 +327,11 @@ append_manifest() {
             }'
         return 8
     fi
+
+    # Check if rotation is needed after successful append (T1678)
+    # This is a background optimization - don't fail append if rotation fails
+    # Redirect rotation output to /dev/null to keep append output clean
+    manifest_rotate >/dev/null 2>&1 || true
 
     jq -n \
         --arg id "$entry_id" \
@@ -1540,6 +1546,308 @@ validate_research_links() {
     return 0
 }
 
+
+# ============================================================================
+# MANIFEST ARCHIVAL FUNCTIONS (T1678 - Retention Policy)
+# ============================================================================
+
+# Default archival threshold: 50K tokens (~200KB at 4 chars/token)
+# Archive 50% oldest entries when exceeded
+_RM_ARCHIVE_THRESHOLD_BYTES=200000
+_RM_ARCHIVE_PERCENTAGE=50
+
+# Get archive file path
+# Returns path to MANIFEST-ARCHIVE.jsonl
+_rm_get_archive_path() {
+    local output_dir
+    output_dir=$(_rm_get_output_dir)
+    echo "${output_dir}/MANIFEST-ARCHIVE.jsonl"
+}
+
+# manifest_check_size - Check if MANIFEST.jsonl exceeds threshold
+# Returns JSON with size info and whether archival is needed
+# Exit codes: 0 = success, 100 = file doesn't exist
+manifest_check_size() {
+    local manifest_path threshold_bytes
+    manifest_path=$(_rm_get_manifest_path)
+    threshold_bytes="${1:-$_RM_ARCHIVE_THRESHOLD_BYTES}"
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n \
+            --argjson threshold "$threshold_bytes" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "check_size"
+                },
+                "success": true,
+                "result": {
+                    "fileExists": false,
+                    "currentBytes": 0,
+                    "thresholdBytes": $threshold,
+                    "needsArchival": false,
+                    "percentUsed": 0
+                }
+            }'
+        return "$EXIT_NO_DATA"
+    fi
+
+    local current_bytes entry_count percent_used needs_archival
+    current_bytes=$(stat -c %s "$manifest_path" 2>/dev/null || stat -f %z "$manifest_path" 2>/dev/null || echo 0)
+    entry_count=$(wc -l < "$manifest_path" | tr -d ' ')
+    
+    # Calculate percent used (avoid division by zero)
+    if [[ $threshold_bytes -gt 0 ]]; then
+        percent_used=$(( (current_bytes * 100) / threshold_bytes ))
+    else
+        percent_used=0
+    fi
+    
+    # Determine if archival needed
+    if [[ $current_bytes -ge $threshold_bytes ]]; then
+        needs_archival="true"
+    else
+        needs_archival="false"
+    fi
+
+    jq -n \
+        --argjson current "$current_bytes" \
+        --argjson threshold "$threshold_bytes" \
+        --argjson entries "$entry_count" \
+        --argjson percent "$percent_used" \
+        --argjson needs_archival "$needs_archival" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "check_size"
+            },
+            "success": true,
+            "result": {
+                "fileExists": true,
+                "currentBytes": $current,
+                "thresholdBytes": $threshold,
+                "entryCount": $entries,
+                "percentUsed": $percent,
+                "needsArchival": $needs_archival
+            }
+        }'
+    
+    return 0
+}
+
+# manifest_archive_old - Move oldest entries to MANIFEST-ARCHIVE.jsonl
+# Removes oldest N% of entries from MANIFEST.jsonl and appends to archive
+# Args: [archive_percentage] - Percentage of entries to archive (default: 50)
+# Exit codes: 0 = success, 8 = lock failed, 100 = no entries to archive
+manifest_archive_old() {
+    local archive_pct manifest_path archive_path lock_path
+    archive_pct="${1:-$_RM_ARCHIVE_PERCENTAGE}"
+    manifest_path=$(_rm_get_manifest_path)
+    archive_path=$(_rm_get_archive_path)
+    lock_path="${manifest_path}.archive.lock"
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "archive_old"
+            },
+            "success": true,
+            "result": {
+                "entriesArchived": 0,
+                "entriesKept": 0,
+                "message": "No manifest file to archive"
+            }
+        }'
+        return "$EXIT_NO_DATA"
+    fi
+
+    local total_entries entries_to_archive entries_to_keep
+    total_entries=$(wc -l < "$manifest_path" | tr -d ' ')
+    
+    if [[ $total_entries -le 1 ]]; then
+        jq -n \
+            --argjson total "$total_entries" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "archive_old"
+                },
+                "success": true,
+                "result": {
+                    "entriesArchived": 0,
+                    "entriesKept": $total,
+                    "message": "Too few entries to archive"
+                }
+            }'
+        return "$EXIT_NO_DATA"
+    fi
+
+    # Calculate how many entries to archive (oldest N%)
+    entries_to_archive=$(( (total_entries * archive_pct) / 100 ))
+    [[ $entries_to_archive -lt 1 ]] && entries_to_archive=1
+    entries_to_keep=$(( total_entries - entries_to_archive ))
+
+    # Ensure lock file exists (use different lock file to avoid fd collision)
+    touch "$lock_path" 2>/dev/null || true
+
+    # Atomic operation: archive + truncate within exclusive flock
+    # Use fd 201 to avoid collision with append_manifest's fd 200
+    local lock_result archive_timestamp
+    archive_timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    
+    lock_result=$(
+        flock -x 201 2>/dev/null
+
+        # Read entries to archive (oldest = first N lines)
+        local archived_entries
+        archived_entries=$(head -n "$entries_to_archive" "$manifest_path")
+        
+        # Add archive metadata to each entry
+        while IFS= read -r entry; do
+            [[ -z "$entry" ]] && continue
+            # Add archivedAt timestamp to entry
+            echo "$entry" | jq -c --arg ts "$archive_timestamp" '. + {archivedAt: $ts}'
+        done <<< "$archived_entries" >> "$archive_path"
+
+        # Keep only the newest entries (tail)
+        local kept_entries
+        kept_entries=$(tail -n "$entries_to_keep" "$manifest_path")
+        
+        # Atomic overwrite of manifest with kept entries
+        echo "$kept_entries" > "${manifest_path}.tmp"
+        mv "${manifest_path}.tmp" "$manifest_path"
+
+        echo "SUCCESS"
+        exit 0
+    ) 201>"$lock_path"
+    local lock_exit=$?
+
+    if [[ $lock_exit -ne 0 ]]; then
+        jq -n \
+            --arg error "Failed to acquire lock for archive operation" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "archive_old"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_LOCK_FAILED",
+                    "message": $error,
+                    "exitCode": 8
+                }
+            }'
+        return 8
+    fi
+
+    jq -n \
+        --argjson archived "$entries_to_archive" \
+        --argjson kept "$entries_to_keep" \
+        --arg archive_file "$archive_path" \
+        --arg timestamp "$archive_timestamp" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "archive_old"
+            },
+            "success": true,
+            "result": {
+                "entriesArchived": $archived,
+                "entriesKept": $kept,
+                "archiveFile": $archive_file,
+                "archivedAt": $timestamp
+            }
+        }'
+    
+    return 0
+}
+
+# manifest_rotate - Check size and archive if needed
+# Orchestrates check_size + archive_old operations
+# Args: [threshold_bytes] [archive_percentage]
+# Exit codes: 0 = success, 100 = no action needed
+manifest_rotate() {
+    local threshold_bytes archive_pct
+    threshold_bytes="${1:-$_RM_ARCHIVE_THRESHOLD_BYTES}"
+    archive_pct="${2:-$_RM_ARCHIVE_PERCENTAGE}"
+
+    # Check current size
+    local size_result needs_archival
+    size_result=$(manifest_check_size "$threshold_bytes")
+    needs_archival=$(echo "$size_result" | jq -r '.result.needsArchival')
+
+    if [[ "$needs_archival" != "true" ]]; then
+        local current_bytes percent_used
+        current_bytes=$(echo "$size_result" | jq '.result.currentBytes')
+        percent_used=$(echo "$size_result" | jq '.result.percentUsed')
+        
+        jq -n \
+            --argjson current "$current_bytes" \
+            --argjson threshold "$threshold_bytes" \
+            --argjson percent "$percent_used" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "rotate"
+                },
+                "success": true,
+                "result": {
+                    "action": "none",
+                    "reason": "Below threshold",
+                    "currentBytes": $current,
+                    "thresholdBytes": $threshold,
+                    "percentUsed": $percent
+                }
+            }'
+        return "$EXIT_NO_CHANGE"
+    fi
+
+    # Archive old entries
+    local archive_result
+    archive_result=$(manifest_archive_old "$archive_pct")
+    local archive_exit=$?
+
+    if [[ $archive_exit -ne 0 ]] && [[ $archive_exit -ne "$EXIT_NO_DATA" ]]; then
+        echo "$archive_result"
+        return $archive_exit
+    fi
+
+    # Get post-archive stats
+    local post_size_result post_bytes post_percent entries_archived entries_kept
+    post_size_result=$(manifest_check_size "$threshold_bytes")
+    post_bytes=$(echo "$post_size_result" | jq '.result.currentBytes')
+    post_percent=$(echo "$post_size_result" | jq '.result.percentUsed')
+    entries_archived=$(echo "$archive_result" | jq '.result.entriesArchived')
+    entries_kept=$(echo "$archive_result" | jq '.result.entriesKept')
+
+    jq -n \
+        --argjson archived "$entries_archived" \
+        --argjson kept "$entries_kept" \
+        --argjson bytes_before "$(echo "$size_result" | jq '.result.currentBytes')" \
+        --argjson bytes_after "$post_bytes" \
+        --argjson threshold "$threshold_bytes" \
+        --argjson percent_after "$post_percent" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "rotate"
+            },
+            "success": true,
+            "result": {
+                "action": "archived",
+                "entriesArchived": $archived,
+                "entriesKept": $kept,
+                "bytesBefore": $bytes_before,
+                "bytesAfter": $bytes_after,
+                "thresholdBytes": $threshold,
+                "percentUsedAfter": $percent_after
+            }
+        }'
+    
+    return 0
+}
+
 # ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
@@ -1560,3 +1868,6 @@ export -f unlink_research_from_task
 export -f get_task_research
 export -f get_research_tasks
 export -f validate_research_links
+export -f manifest_check_size
+export -f manifest_archive_old
+export -f manifest_rotate

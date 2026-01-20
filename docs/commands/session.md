@@ -1,3 +1,9 @@
+---
+title: "session"
+description: "Manage epic-bound work sessions with multi-session support"
+icon: "clock"
+---
+
 # session Command
 
 Manage epic-bound work sessions with multi-session support for concurrent LLM agents.
