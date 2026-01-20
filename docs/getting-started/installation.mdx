@@ -1,0 +1,257 @@
+---
+title: "Installation"
+description: "Complete installation guide for CLEO task management system"
+icon: "download"
+---
+
+# Installation Guide
+
+This guide covers global installation and per-project initialization of CLEO.
+
+## System Requirements
+
+<CardGroup cols={3}>
+  <Card title="Operating System" icon="desktop">
+    Linux, macOS, or WSL2 on Windows
+  </Card>
+  <Card title="Disk Space" icon="hard-drive">
+    ~10 MB for installation
+  </Card>
+  <Card title="Permissions" icon="key">
+    User home directory write access
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+### Required Software
+
+<AccordionGroup>
+  <Accordion title="Bash 4.0 or higher" icon="terminal">
+    ```bash
+    bash --version
+    # Should output: GNU bash, version 4.0 or higher
+    ```
+
+    macOS ships with Bash 3.x. Upgrade with:
+    ```bash
+    brew install bash
+    # Add to /etc/shells and chsh to new bash
+    ```
+  </Accordion>
+
+  <Accordion title="jq (JSON processor)" icon="code">
+    ```bash
+    jq --version
+    # Should output: jq-1.5 or higher
+    ```
+
+    <Tabs>
+      <Tab title="Ubuntu/Debian">
+        ```bash
+        sudo apt-get install jq
+        ```
+      </Tab>
+      <Tab title="macOS">
+        ```bash
+        brew install jq
+        ```
+      </Tab>
+      <Tab title="RHEL/CentOS">
+        ```bash
+        sudo yum install jq
+        ```
+      </Tab>
+    </Tabs>
+  </Accordion>
+
+  <Accordion title="JSON Schema Validator (optional)" icon="check-circle">
+    One of the following (CLEO has built-in fallback):
+
+    - **ajv-cli** (recommended): `npm install -g ajv-cli`
+    - **jsonschema**: `pip install jsonschema`
+    - Built-in jq-based validator works without external tools
+  </Accordion>
+</AccordionGroup>
+
+## Global Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    cd /tmp
+    git clone https://github.com/kryptobaseddev/cleo.git
+    cd cleo
+    ```
+  </Step>
+
+  <Step title="Run the Installer">
+    ```bash
+    chmod +x install.sh
+    ./install.sh
+    ```
+
+    <Note>
+      Custom installation directory: `CLEO_HOME=/opt/cleo ./install.sh`
+    </Note>
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    cleo version
+    cleo --validate
+    ```
+  </Step>
+</Steps>
+
+### Installation Directory Structure
+
+```
+~/.cleo/
+├── schemas/          # JSON Schema definitions
+├── templates/        # Template files
+├── scripts/          # Executable scripts
+├── lib/              # Shared libraries
+├── docs/             # Documentation
+└── completions/      # Shell completions
+```
+
+## Project Initialization
+
+After global installation, initialize CLEO in each project:
+
+```bash
+cd /path/to/your/project
+cleo init
+```
+
+This creates:
+
+| File | Purpose |
+|------|---------|
+| `.cleo/todo.json` | Active tasks |
+| `.cleo/todo-archive.json` | Completed tasks |
+| `.cleo/config.json` | Project configuration |
+| `.cleo/todo-log.json` | Audit trail |
+
+<Info>
+`cleo init` automatically injects task management instructions into `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` using `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
+</Info>
+
+## Migration from claude-todo
+
+If you have existing claude-todo installations:
+
+<CodeGroup>
+```bash Check Status
+cleo claude-migrate --check
+```
+
+```bash Migrate Global
+cleo claude-migrate --global
+# Moves ~/.cleo/ → ~/.cleo/
+```
+
+```bash Migrate Project
+cleo claude-migrate --project
+# Moves .claude/ → .cleo/ (preserves all data)
+```
+
+```bash Migrate Everything
+cleo claude-migrate --all
+# Runs both --global and --project
+```
+</CodeGroup>
+
+## Shell Completions
+
+Enable tab completion for faster command entry:
+
+<Tabs>
+  <Tab title="Bash">
+    Add to `~/.bashrc`:
+    ```bash
+    source ~/.cleo/completions/bash-completion.sh
+    ```
+  </Tab>
+  <Tab title="Zsh">
+    Add to `~/.zshrc`:
+    ```bash
+    fpath=(~/.cleo/completions $fpath)
+    autoload -Uz compinit && compinit
+    ```
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Command Not Found" icon="circle-exclamation">
+    ```bash
+    # Check symlink
+    ls -l ~/.local/bin/cleo
+
+    # Verify PATH includes ~/.local/bin
+    echo $PATH | grep ".local/bin"
+
+    # Add to PATH if missing (in ~/.bashrc or ~/.zshrc)
+    export PATH="$HOME/.local/bin:$PATH"
+
+    # Reload shell
+    source ~/.bashrc
+    ```
+  </Accordion>
+
+  <Accordion title="Validation Errors" icon="triangle-exclamation">
+    ```bash
+    # Check file integrity
+    cleo validate
+
+    # Attempt automatic fix
+    cleo validate --fix
+
+    # Restore from backup if needed
+    cleo restore
+    ```
+  </Accordion>
+
+  <Accordion title="Permission Denied" icon="lock">
+    ```bash
+    # Fix script permissions
+    chmod +x ~/.cleo/scripts/*.sh
+
+    # Verify home directory is writable
+    touch ~/.cleo/test && rm ~/.cleo/test
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Uninstallation
+
+To remove CLEO completely:
+
+```bash
+# Remove global installation
+rm -rf ~/.cleo
+
+# Remove symlink
+rm ~/.local/bin/cleo
+
+# Remove project data (per project)
+rm -rf .cleo/
+```
+
+<Warning>
+This permanently deletes all task data. Create backups first with `cleo backup`.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/getting-started/quickstart">
+    Create your first task
+  </Card>
+  <Card title="Configuration" icon="gear" href="/api/configuration">
+    Customize CLEO for your workflow
+  </Card>
+</CardGroup>
