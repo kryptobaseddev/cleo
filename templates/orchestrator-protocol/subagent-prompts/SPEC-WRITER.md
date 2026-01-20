@@ -127,7 +127,7 @@ Specifications go in: `docs/specs/{SPEC-NAME}.md`
 ### Output Requirements
 
 1. MUST write specification to: `docs/specs/{SPEC-NAME}.md`
-2. MUST append ONE line to: `docs/claudedocs/research-outputs/MANIFEST.jsonl`
+2. MUST append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
 3. MUST return ONLY: "Specification complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return specification content in response
 

@@ -254,7 +254,7 @@ bats tests/integration/{feature}.bats --filter "test name"
 
 1. MUST create test file in appropriate tests/ subdirectory
 2. MUST run tests and verify they pass
-3. MUST append ONE line to: `docs/claudedocs/research-outputs/MANIFEST.jsonl`
+3. MUST append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
 4. MUST return ONLY: "Tests complete. See MANIFEST.jsonl for summary."
 5. MUST NOT return full test content in response
 

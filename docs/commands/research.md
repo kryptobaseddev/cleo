@@ -107,8 +107,8 @@ cleo research init --json
   },
   "success": true,
   "result": {
-    "outputDir": "docs/claudedocs/research-outputs",
-    "created": ["docs/claudedocs/research-outputs/", "MANIFEST.jsonl", "SUBAGENT_PROTOCOL.md"]
+    "outputDir": "claudedocs/research-outputs",
+    "created": ["claudedocs/research-outputs/", "MANIFEST.jsonl", "SUBAGENT_PROTOCOL.md"]
   }
 }
 ```
@@ -117,12 +117,12 @@ cleo research init --json
 
 ```
 Research outputs initialized
-  Directory: docs/claudedocs/research-outputs
+  Directory: claudedocs/research-outputs
   Manifest:  MANIFEST.jsonl
   Archive:   archive/
 
 Created:
-  - docs/claudedocs/research-outputs/
+  - claudedocs/research-outputs/
   - MANIFEST.jsonl
   - SUBAGENT_PROTOCOL.md
   - INJECT.md
@@ -342,8 +342,8 @@ cleo research inject --clipboard
 
 ```
 OUTPUT REQUIREMENTS (RFC 2119):
-1. MUST write findings to: docs/claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: docs/claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 
@@ -572,7 +572,7 @@ Research output locations are configurable in `.cleo/config.json`:
 ```json
 {
   "research": {
-    "outputDir": "docs/claudedocs/research-outputs",
+    "outputDir": "claudedocs/research-outputs",
     "manifestFile": "MANIFEST.jsonl"
   }
 }
@@ -580,7 +580,7 @@ Research output locations are configurable in `.cleo/config.json`:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `research.outputDir` | `docs/claudedocs/research-outputs` | Directory for research output files |
+| `research.outputDir` | `claudedocs/research-outputs` | Directory for research output files |
 | `research.manifestFile` | `MANIFEST.jsonl` | Manifest filename |
 
 ---

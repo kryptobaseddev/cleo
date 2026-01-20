@@ -7,6 +7,8 @@
 **Epic**: T1575
 **Session**: session_20260118_132917_801b75
 
+**See Also**: [Version Guide](../guides/ORCHESTRATOR-VERSIONS.md) for version relationships
+
 ---
 
 ## RFC 2119 Conformance
@@ -133,8 +135,8 @@ Every research subagent prompt MUST include this instruction block:
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: docs/claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: docs/claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 
@@ -210,7 +212,7 @@ When a new conversation starts, the orchestrator MUST execute this startup seque
 cleo session list --status active
 
 # Step 2: Check manifest for pending work
-cat docs/claudedocs/research-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
+cat claudedocs/research-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 
 # Step 3: Check focused task
 cleo focus show
@@ -445,7 +447,7 @@ def should_spawn(task_id, completed_tasks):
 
 ```bash
 # Rebuild manifest from files (disaster recovery)
-for f in docs/claudedocs/research-outputs/*.md; do
+for f in claudedocs/research-outputs/*.md; do
   # Extract metadata and append to manifest
   cleo research show --file "$f" --format jsonl >> MANIFEST.jsonl.new
 done
@@ -502,12 +504,16 @@ cleo session close <session-id> --force
 | `cleo research link <tid> <rid>` | Link research to task | After research complete |
 | `cleo analyze --parent <epic>` | Find next work | Orchestrator planning |
 | `cleo deps <id>` | Check dependencies | Before spawn decision |
+| `cleo research list` | List research entries (context-efficient) | Manifest query |
+| `cleo research show <id>` | Get research entry details | Deep-dive on specific research |
+| `cleo research pending` | Get entries with needs_followup | Find next agent work |
+| `cleo research links <task-id>` | Get research linked to task | Traceability check |
 
 ### 10.2 File Locations
 
 | File | Purpose | Created By |
 |------|---------|------------|
-| `docs/claudedocs/research-outputs/` | Research output directory | `cleo research init` |
+| `claudedocs/research-outputs/` | Research output directory | `cleo research init` |
 | `MANIFEST.jsonl` | Research index | Subagents (append) |
 | `SUBAGENT_PROTOCOL.md` | Protocol reference | `cleo research init` |
 | `INJECT.md` | Copy-paste injection block | `cleo research init` |

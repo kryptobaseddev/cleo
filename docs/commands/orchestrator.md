@@ -91,6 +91,7 @@ cleo orchestrator next --epic <id>
 
 **Options:**
 - `--epic, -e <id>`: Epic ID (required)
+- `--phase, -p <slug>`: Filter by project phase (optional)
 
 **Output:**
 - `hasReadyTask`: Boolean indicating ready tasks exist
@@ -100,7 +101,11 @@ cleo orchestrator next --epic <id>
 
 **Example:**
 ```bash
+# Get next task from any phase
 cleo orchestrator next --epic T1575
+
+# Get next task from testing phase only
+cleo orchestrator next --epic T1575 --phase testing
 ```
 
 ### ready
@@ -113,11 +118,21 @@ cleo orchestrator ready --epic <id>
 
 **Options:**
 - `--epic, -e <id>`: Epic ID (required)
+- `--phase, -p <slug>`: Filter by project phase (optional)
 
 **Output:**
 - `readyCount`: Number of parallel-safe tasks
 - `parallelSafe`: Always true (filtered for safety)
 - `tasks`: Array of task summaries
+
+**Example:**
+```bash
+# Get all ready tasks
+cleo orchestrator ready --epic T1575
+
+# Get ready tasks in testing phase only
+cleo orchestrator ready --epic T1575 --phase testing
+```
 
 ### spawn
 
@@ -291,7 +306,7 @@ The orchestrator commands use these configuration values:
 
 | Config Key | Default | Description |
 |------------|---------|-------------|
-| `research.outputDir` | `docs/claudedocs/research-outputs` | Research output directory |
+| `research.outputDir` | `claudedocs/research-outputs` | Research output directory |
 | `research.manifestFile` | `MANIFEST.jsonl` | Manifest filename |
 
 ## Related Commands
