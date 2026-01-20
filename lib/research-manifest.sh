@@ -32,7 +32,7 @@ source "${_RM_LIB_DIR}/config.sh"
 # Get research output directory from config (project-agnostic)
 _rm_get_output_dir() {
     local dir
-    dir=$(get_config_value "research.outputDir" "docs/claudedocs/research-outputs")
+    dir=$(get_config_value "research.outputDir" "claudedocs/research-outputs")
     echo "$dir"
 }
 
@@ -49,6 +49,11 @@ _rm_get_manifest_path() {
     output_dir=$(_rm_get_output_dir)
     manifest_file=$(_rm_get_manifest_file)
     echo "${output_dir}/${manifest_file}"
+}
+
+# Get lock file path for manifest
+_rm_get_lock_path() {
+    echo "$(_rm_get_manifest_path).lock"
 }
 
 # ============================================================================
@@ -183,13 +188,15 @@ read_manifest() {
 # append_manifest - Append single JSON entry to MANIFEST.jsonl
 # Args: $1 = JSON entry (single line)
 # Output: JSON result wrapped in CLEO envelope
-# Returns: 0 on success, 6 if validation fails
+# Returns: 0 on success, 6 if validation fails, 101 if duplicate
+# Thread Safety: Uses flock for atomic duplicate check + append
 append_manifest() {
     local entry="$1"
-    local manifest_path
+    local manifest_path lock_path
     manifest_path=$(_rm_get_manifest_path)
+    lock_path=$(_rm_get_lock_path)
 
-    # Validate entry before write
+    # Validate entry before write (outside lock - read-only)
     local validation_error
     if ! validation_error=$(_rm_validate_entry "$entry" 2>&1); then
         jq -n \
@@ -209,11 +216,81 @@ append_manifest() {
         return "$EXIT_VALIDATION_ERROR"
     fi
 
-    # Check for duplicate ID
+    # Extract entry ID before lock
     local entry_id
     entry_id=$(echo "$entry" | jq -r '.id')
 
-    if [[ -f "$manifest_path" ]] && grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
+    # Validate needs_followup task IDs exist (if present)
+    # This is a read-only check, safe to do outside lock
+    local needs_followup
+    needs_followup=$(echo "$entry" | jq -r '.needs_followup // [] | .[]' 2>/dev/null)
+
+    if [[ -n "$needs_followup" ]]; then
+        local invalid_tasks=()
+        while IFS= read -r followup_id; do
+            # Skip empty lines
+            [[ -z "$followup_id" ]] && continue
+            # Skip BLOCKED: entries (reasons, not task IDs)
+            if [[ "$followup_id" =~ ^BLOCKED: ]]; then
+                continue
+            fi
+            # Validate task ID format and existence
+            if [[ "$followup_id" =~ ^T[0-9]+$ ]]; then
+                if ! cleo exists "$followup_id" --quiet 2>/dev/null; then
+                    invalid_tasks+=("$followup_id")
+                fi
+            fi
+        done <<< "$needs_followup"
+
+        if [[ ${#invalid_tasks[@]} -gt 0 ]]; then
+            jq -n \
+                --arg ids "${invalid_tasks[*]}" \
+                '{
+                    "_meta": {"command": "research-manifest", "operation": "append"},
+                    "success": false,
+                    "error": {
+                        "code": "E_INVALID_FOLLOWUP",
+                        "message": ("needs_followup contains non-existent tasks: " + $ids),
+                        "exitCode": 6
+                    }
+                }'
+            return "$EXIT_VALIDATION_ERROR"
+        fi
+    fi
+
+    # Compact JSON to single line before lock
+    local compact_entry
+    compact_entry=$(echo "$entry" | jq -c '.')
+
+    # Ensure output directory exists (before lock)
+    local output_dir
+    output_dir=$(_rm_get_output_dir)
+    mkdir -p "$output_dir"
+
+    # Ensure lock file exists
+    touch "$lock_path" 2>/dev/null || true
+
+    # Atomic operation: duplicate check + append within exclusive flock
+    # Uses subshell to scope the lock; exit code propagates
+    local lock_result
+    lock_result=$(
+        flock -x 200
+
+        # Duplicate check (inside lock to prevent TOCTOU race)
+        if [[ -f "$manifest_path" ]] && grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
+            echo "DUPLICATE"
+            exit 101
+        fi
+
+        # Append (inside lock - atomic with duplicate check)
+        echo "$compact_entry" >> "$manifest_path"
+        echo "SUCCESS"
+        exit 0
+    ) 200>"$lock_path"
+    local lock_exit=$?
+
+    # Handle duplicate case
+    if [[ "$lock_result" == "DUPLICATE" ]] || [[ $lock_exit -eq 101 ]]; then
         jq -n \
             --arg id "$entry_id" \
             '{
@@ -231,15 +308,24 @@ append_manifest() {
         return "$EXIT_ALREADY_EXISTS"
     fi
 
-    # Ensure output directory exists
-    local output_dir
-    output_dir=$(_rm_get_output_dir)
-    mkdir -p "$output_dir"
-
-    # Compact JSON to single line and append (atomic on POSIX)
-    local compact_entry
-    compact_entry=$(echo "$entry" | jq -c '.')
-    echo "$compact_entry" >> "$manifest_path"
+    # Handle other errors
+    if [[ $lock_exit -ne 0 ]]; then
+        jq -n \
+            --arg error "Failed to acquire lock or write to manifest" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "append"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_LOCK_FAILED",
+                    "message": $error,
+                    "exitCode": 8
+                }
+            }'
+        return 8
+    fi
 
     jq -n \
         --arg id "$entry_id" \
@@ -444,10 +530,12 @@ filter_entries() {
 # Args: $1 = entry ID
 # Output: JSON result wrapped in CLEO envelope
 # Returns: 0 on success, 4 if not found
+# Thread Safety: Uses flock for atomic read-modify-write
 archive_entry() {
     local entry_id="$1"
-    local manifest_path
+    local manifest_path lock_path
     manifest_path=$(_rm_get_manifest_path)
+    lock_path=$(_rm_get_lock_path)
 
     if [[ ! -f "$manifest_path" ]]; then
         jq -n \
@@ -467,8 +555,46 @@ archive_entry() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Check if entry exists
-    if ! grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
+    # Ensure lock file exists
+    touch "$lock_path" 2>/dev/null || true
+
+    # Atomic read-modify-write within exclusive flock
+    local lock_result
+    lock_result=$(
+        flock -x 200
+
+        # Check if entry exists (inside lock)
+        if ! grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
+            echo "NOT_FOUND"
+            exit 4
+        fi
+
+        # For JSONL, we need to rewrite the file with the updated entry
+        # This is the tradeoff: updates are O(n) but appends are O(1)
+        # Create temp file, process, atomic rename
+        local temp_file
+        temp_file=$(mktemp)
+
+        # Update the matching entry's status to "archived"
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            local line_id
+            line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+            if [[ "$line_id" == "$entry_id" ]]; then
+                echo "$line" | jq -c '.status = "archived"' >> "$temp_file"
+            else
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$manifest_path"
+
+        # Atomic move (inside lock)
+        mv "$temp_file" "$manifest_path"
+        echo "SUCCESS"
+        exit 0
+    ) 200>"$lock_path"
+    local lock_exit=$?
+
+    # Handle not found case
+    if [[ "$lock_result" == "NOT_FOUND" ]] || [[ $lock_exit -eq 4 ]]; then
         jq -n \
             --arg id "$entry_id" \
             '{
@@ -486,25 +612,24 @@ archive_entry() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # For JSONL, we need to rewrite the file with the updated entry
-    # This is the tradeoff: updates are O(n) but appends are O(1)
-    # Create temp file, process, atomic rename
-    local temp_file
-    temp_file=$(mktemp)
-
-    # Update the matching entry's status to "archived"
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        local line_id
-        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
-        if [[ "$line_id" == "$entry_id" ]]; then
-            echo "$line" | jq -c '.status = "archived"' >> "$temp_file"
-        else
-            echo "$line" >> "$temp_file"
-        fi
-    done < "$manifest_path"
-
-    # Atomic move
-    mv "$temp_file" "$manifest_path"
+    # Handle other errors
+    if [[ $lock_exit -ne 0 ]]; then
+        jq -n \
+            --arg error "Failed to acquire lock or update manifest" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "archive"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_LOCK_FAILED",
+                    "message": $error,
+                    "exitCode": 8
+                }
+            }'
+        return 8
+    fi
 
     jq -n \
         --arg id "$entry_id" \
@@ -768,11 +893,13 @@ get_followup_tasks() {
 # Args: $1 = entry ID, $2 = jq filter to apply (e.g., '.status = "archived"')
 # Output: JSON result wrapped in CLEO envelope
 # Returns: 0 on success, 4 if not found
+# Thread Safety: Uses flock for atomic read-modify-write
 update_entry() {
     local entry_id="$1"
     local jq_update="$2"
-    local manifest_path
+    local manifest_path lock_path
     manifest_path=$(_rm_get_manifest_path)
+    lock_path=$(_rm_get_lock_path)
 
     if [[ ! -f "$manifest_path" ]]; then
         jq -n \
@@ -792,8 +919,44 @@ update_entry() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Check if entry exists
-    if ! grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
+    # Ensure lock file exists
+    touch "$lock_path" 2>/dev/null || true
+
+    # Atomic read-modify-write within exclusive flock
+    local lock_result
+    lock_result=$(
+        flock -x 200
+
+        # Check if entry exists (inside lock)
+        if ! grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
+            echo "NOT_FOUND"
+            exit 4
+        fi
+
+        # Create temp file, process, atomic rename
+        local temp_file
+        temp_file=$(mktemp)
+
+        # Apply update to matching entry
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            local line_id
+            line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+            if [[ "$line_id" == "$entry_id" ]]; then
+                echo "$line" | jq -c "$jq_update" >> "$temp_file"
+            else
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$manifest_path"
+
+        # Atomic move (inside lock)
+        mv "$temp_file" "$manifest_path"
+        echo "SUCCESS"
+        exit 0
+    ) 200>"$lock_path"
+    local lock_exit=$?
+
+    # Handle not found case
+    if [[ "$lock_result" == "NOT_FOUND" ]] || [[ $lock_exit -eq 4 ]]; then
         jq -n \
             --arg id "$entry_id" \
             '{
@@ -811,23 +974,24 @@ update_entry() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Create temp file, process, atomic rename
-    local temp_file
-    temp_file=$(mktemp)
-
-    # Apply update to matching entry
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        local line_id
-        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
-        if [[ "$line_id" == "$entry_id" ]]; then
-            echo "$line" | jq -c "$jq_update" >> "$temp_file"
-        else
-            echo "$line" >> "$temp_file"
-        fi
-    done < "$manifest_path"
-
-    # Atomic move
-    mv "$temp_file" "$manifest_path"
+    # Handle other errors
+    if [[ $lock_exit -ne 0 ]]; then
+        jq -n \
+            --arg error "Failed to acquire lock or update manifest" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "update"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_LOCK_FAILED",
+                    "message": $error,
+                    "exitCode": 8
+                }
+            }'
+        return 8
+    fi
 
     jq -n \
         --arg id "$entry_id" \
@@ -854,12 +1018,14 @@ update_entry() {
 # Args: $1 = task ID, $2 = research ID, $3 = optional note text
 # Output: JSON result wrapped in CLEO envelope
 # Returns: 0 on success, 4 if research not found
+# Thread Safety: Uses flock for atomic read-modify-write
 link_research_to_task() {
     local task_id="$1"
     local research_id="$2"
     local note_text="${3:-}"
-    local manifest_path
+    local manifest_path lock_path
     manifest_path=$(_rm_get_manifest_path)
+    lock_path=$(_rm_get_lock_path)
 
     if [[ ! -f "$manifest_path" ]]; then
         jq -n \
@@ -880,8 +1046,59 @@ link_research_to_task() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Verify research entry exists
-    if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
+    # Ensure lock file exists
+    touch "$lock_path" 2>/dev/null || true
+
+    # Atomic read-modify-write within exclusive flock
+    local lock_result
+    lock_result=$(
+        flock -x 200
+
+        # Verify research entry exists (inside lock)
+        if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
+            echo "NOT_FOUND"
+            exit 4
+        fi
+
+        # Update manifest entry: add task_id to linked_tasks array if not already present
+        local temp_file
+        temp_file=$(mktemp)
+        local link_added=false
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            local line_id
+            line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+            if [[ "$line_id" == "$research_id" ]]; then
+                # Check if already linked
+                local already_linked
+                already_linked=$(echo "$line" | jq --arg tid "$task_id" '.linked_tasks // [] | any(. == $tid)')
+                if [[ "$already_linked" == "true" ]]; then
+                    echo "$line" >> "$temp_file"
+                else
+                    # Add task_id to linked_tasks array
+                    echo "$line" | jq -c --arg tid "$task_id" '.linked_tasks = ((.linked_tasks // []) + [$tid] | unique)' >> "$temp_file"
+                    link_added=true
+                fi
+            else
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$manifest_path"
+
+        # Atomic move (inside lock)
+        mv "$temp_file" "$manifest_path"
+
+        # Output result for parent to parse
+        if [[ "$link_added" == "true" ]]; then
+            echo "LINKED"
+        else
+            echo "ALREADY_LINKED"
+        fi
+        exit 0
+    ) 200>"$lock_path"
+    local lock_exit=$?
+
+    # Handle not found case
+    if [[ "$lock_result" == "NOT_FOUND" ]] || [[ $lock_exit -eq 4 ]]; then
         jq -n \
             --arg task_id "$task_id" \
             --arg research_id "$research_id" \
@@ -900,36 +1117,28 @@ link_research_to_task() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Update manifest entry: add task_id to linked_tasks array if not already present
-    local temp_file
-    temp_file=$(mktemp)
-    local link_added=false
+    # Handle other errors
+    if [[ $lock_exit -ne 0 ]]; then
+        jq -n \
+            --arg error "Failed to acquire lock or update manifest" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "link_research_to_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_LOCK_FAILED",
+                    "message": $error,
+                    "exitCode": 8
+                }
+            }'
+        return 8
+    fi
 
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        local line_id
-        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
-        if [[ "$line_id" == "$research_id" ]]; then
-            # Check if already linked
-            local already_linked
-            already_linked=$(echo "$line" | jq --arg tid "$task_id" '.linked_tasks // [] | any(. == $tid)')
-            if [[ "$already_linked" == "true" ]]; then
-                echo "$line" >> "$temp_file"
-            else
-                # Add task_id to linked_tasks array
-                echo "$line" | jq -c --arg tid "$task_id" '.linked_tasks = ((.linked_tasks // []) + [$tid] | unique)' >> "$temp_file"
-                link_added=true
-            fi
-        else
-            echo "$line" >> "$temp_file"
-        fi
-    done < "$manifest_path"
-
-    # Atomic move
-    mv "$temp_file" "$manifest_path"
-
-    # Convert bash boolean to jq boolean and determine action
+    # Convert result to action string
     local action_str manifest_updated_json
-    if [[ "$link_added" == "true" ]]; then
+    if [[ "$lock_result" == "LINKED" ]]; then
         action_str="linked"
         manifest_updated_json="true"
     else
@@ -963,11 +1172,13 @@ link_research_to_task() {
 # Args: $1 = task ID, $2 = research ID
 # Output: JSON result wrapped in CLEO envelope
 # Returns: 0 on success, 4 if not found
+# Thread Safety: Uses flock for atomic read-modify-write
 unlink_research_from_task() {
     local task_id="$1"
     local research_id="$2"
-    local manifest_path
+    local manifest_path lock_path
     manifest_path=$(_rm_get_manifest_path)
+    lock_path=$(_rm_get_lock_path)
 
     if [[ ! -f "$manifest_path" ]]; then
         jq -n \
@@ -988,8 +1199,59 @@ unlink_research_from_task() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Verify research entry exists
-    if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
+    # Ensure lock file exists
+    touch "$lock_path" 2>/dev/null || true
+
+    # Atomic read-modify-write within exclusive flock
+    local lock_result
+    lock_result=$(
+        flock -x 200
+
+        # Verify research entry exists (inside lock)
+        if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
+            echo "NOT_FOUND"
+            exit 4
+        fi
+
+        # Update manifest entry: remove task_id from linked_tasks array
+        local temp_file
+        temp_file=$(mktemp)
+        local link_removed=false
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            local line_id
+            line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+            if [[ "$line_id" == "$research_id" ]]; then
+                # Check if linked
+                local is_linked
+                is_linked=$(echo "$line" | jq --arg tid "$task_id" '.linked_tasks // [] | any(. == $tid)')
+                if [[ "$is_linked" == "true" ]]; then
+                    # Remove task_id from linked_tasks array
+                    echo "$line" | jq -c --arg tid "$task_id" '.linked_tasks = [.linked_tasks[] | select(. != $tid)]' >> "$temp_file"
+                    link_removed=true
+                else
+                    echo "$line" >> "$temp_file"
+                fi
+            else
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$manifest_path"
+
+        # Atomic move (inside lock)
+        mv "$temp_file" "$manifest_path"
+
+        # Output result for parent to parse
+        if [[ "$link_removed" == "true" ]]; then
+            echo "UNLINKED"
+        else
+            echo "NOT_LINKED"
+        fi
+        exit 0
+    ) 200>"$lock_path"
+    local lock_exit=$?
+
+    # Handle not found case
+    if [[ "$lock_result" == "NOT_FOUND" ]] || [[ $lock_exit -eq 4 ]]; then
         jq -n \
             --arg task_id "$task_id" \
             --arg research_id "$research_id" \
@@ -1008,36 +1270,28 @@ unlink_research_from_task() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Update manifest entry: remove task_id from linked_tasks array
-    local temp_file
-    temp_file=$(mktemp)
-    local link_removed=false
+    # Handle other errors
+    if [[ $lock_exit -ne 0 ]]; then
+        jq -n \
+            --arg error "Failed to acquire lock or update manifest" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "unlink_research_from_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_LOCK_FAILED",
+                    "message": $error,
+                    "exitCode": 8
+                }
+            }'
+        return 8
+    fi
 
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        local line_id
-        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
-        if [[ "$line_id" == "$research_id" ]]; then
-            # Check if linked
-            local is_linked
-            is_linked=$(echo "$line" | jq --arg tid "$task_id" '.linked_tasks // [] | any(. == $tid)')
-            if [[ "$is_linked" == "true" ]]; then
-                # Remove task_id from linked_tasks array
-                echo "$line" | jq -c --arg tid "$task_id" '.linked_tasks = [.linked_tasks[] | select(. != $tid)]' >> "$temp_file"
-                link_removed=true
-            else
-                echo "$line" >> "$temp_file"
-            fi
-        else
-            echo "$line" >> "$temp_file"
-        fi
-    done < "$manifest_path"
-
-    # Atomic move
-    mv "$temp_file" "$manifest_path"
-
-    # Convert bash boolean to jq boolean and determine action
+    # Convert result to action string
     local action_str manifest_updated_json
-    if [[ "$link_removed" == "true" ]]; then
+    if [[ "$lock_result" == "UNLINKED" ]]; then
         action_str="unlinked"
         manifest_updated_json="true"
     else

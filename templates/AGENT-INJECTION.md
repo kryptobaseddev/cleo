@@ -210,7 +210,7 @@ ct research link T001 <research-id>  # Link research to task
 **Subagent Workflow**:
 1. Use `ct research inject` to get the protocol injection block
 2. Inject into subagent prompts via Task tool
-3. Subagents write to `docs/claudedocs/research-outputs/` + append to `MANIFEST.jsonl`
+3. Subagents write to `claudedocs/research-outputs/` + append to `MANIFEST.jsonl`
 4. Query via `ct research list/show` instead of reading full files (context-efficient)
 
 ### Export/Import (Cross-Project)

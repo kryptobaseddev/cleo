@@ -222,7 +222,7 @@ Use standard CLEO exit codes from `lib/exit-codes.sh`:
 
 1. MUST create/modify script files in scripts/
 2. MUST update install.sh registration if new command
-3. MUST append ONE line to: `docs/claudedocs/research-outputs/MANIFEST.jsonl`
+3. MUST append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
 4. MUST return ONLY: "CLI integration complete. See MANIFEST.jsonl for summary."
 5. MUST NOT return full script content in response
 

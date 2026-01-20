@@ -971,7 +971,7 @@
       "properties": {
         "outputDir": {
           "type": "string",
-          "default": "docs/claudedocs/research-outputs",
+          "default": "claudedocs/research-outputs",
           "description": "Directory for subagent research outputs relative to project root."
         },
         "manifestFile": {

@@ -189,7 +189,7 @@ cleo research link T001 <research-id>  # Link research to task
 
 **Aliases**: `dig` → `research`
 
-**Output**: Creates `docs/claudedocs/research-outputs/` with MANIFEST.jsonl + `.md` files.
+**Output**: Creates `claudedocs/research-outputs/` with MANIFEST.jsonl + `.md` files.
 
 **Subagent Workflow**: Use `research inject` to get the injection block for subagent prompts, then query `research list` and `research show` instead of reading full research files.
 

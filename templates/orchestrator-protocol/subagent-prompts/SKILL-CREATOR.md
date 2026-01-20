@@ -165,7 +165,7 @@ description: Orchestrator skill for workflows.
 
 1. MUST create skill directory: `skills/{skill-name}/`
 2. MUST create SKILL.md with proper frontmatter
-3. MUST append ONE line to: `docs/claudedocs/research-outputs/MANIFEST.jsonl`
+3. MUST append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
 4. MUST return ONLY: "Skill created. See MANIFEST.jsonl for summary."
 5. MUST NOT return skill content in response
 

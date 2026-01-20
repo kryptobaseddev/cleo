@@ -542,7 +542,7 @@ _os_get_templates_dir() {
 # Get research output directory
 _os_get_research_output_dir() {
     local dir
-    dir=$(get_config_value "research.outputDir" "docs/claudedocs/research-outputs" 2>/dev/null || echo "docs/claudedocs/research-outputs")
+    dir=$(get_config_value "research.outputDir" "claudedocs/research-outputs" 2>/dev/null || echo "claudedocs/research-outputs")
     echo "$dir"
 }
 
