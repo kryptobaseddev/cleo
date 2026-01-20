@@ -1,14 +1,14 @@
 ---
 name: orchestrator
 description: |
-  Activate orchestrator mode for managing complex multi-agent workflows.
-  Use when user says "orchestrate", "orchestrator mode", "run as orchestrator",
-  "delegate to subagents", "multi-agent workflow", "context-protected workflow".
+  This skill should be used when the user asks to "orchestrate", "orchestrator mode",
+  "run as orchestrator", "delegate to subagents", "coordinate agents", "spawn subagents",
+  "multi-agent workflow", "context-protected workflow", "agent farm", "HITL orchestration",
+  or needs to manage complex workflows by delegating work to subagents while protecting
+  the main context window. Enforces ORC-001 through ORC-005 constraints: stay high-level,
+  delegate ALL work via Task tool, read only manifest summaries, enforce dependency order,
+  and maintain context budget under 10K tokens.
 version: 1.0.0
-triggers:
-  - orchestrate
-  - orchestrator
-  - orc
 ---
 
 # Orchestrator Protocol
@@ -18,6 +18,8 @@ complex workflows by delegating ALL detailed work to subagents while protecting
 your context window.
 
 ## Immutable Constraints (ORC)
+
+> **Authoritative source**: [ORCHESTRATOR-PROTOCOL-SPEC.md Part 2.1](../../docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md#21-core-constraints)
 
 | ID | Rule | Enforcement |
 |----|------|-------------|
@@ -32,7 +34,7 @@ your context window.
 Every conversation, execute:
 ```bash
 # 1. Check for pending work
-cat docs/claudedocs/research-outputs/MANIFEST.jsonl | \
+cat claudedocs/research-outputs/MANIFEST.jsonl | \
   jq -s '.[] | select(.needs_followup | length > 0) | {id, needs_followup}'
 
 # 2. Check active sessions
@@ -54,7 +56,7 @@ Use Task tool with subagent_type="general-purpose" and include:
 Read summaries only:
 ```bash
 # Get latest entry
-tail -1 docs/claudedocs/research-outputs/MANIFEST.jsonl | jq '{id, key_findings}'
+tail -1 claudedocs/research-outputs/MANIFEST.jsonl | jq '{id, key_findings}'
 
 # Get pending followup
 cat MANIFEST.jsonl | jq -s '.[] | select(.needs_followup | length > 0)'
@@ -65,8 +67,8 @@ cat MANIFEST.jsonl | jq -s '.[] | select(.needs_followup | length > 0)'
 Include in EVERY subagent prompt:
 ```
 OUTPUT REQUIREMENTS (RFC 2119):
-1. MUST write findings to: docs/claudedocs/research-outputs/YYYY-MM-DD_{topic}.md
-2. MUST append ONE line to: docs/claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic}.md
+2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 ```
