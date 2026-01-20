@@ -43,27 +43,36 @@ cleo orchestrator spawn T002
 orchestrator-protocol/
   README.md                  # This file
   PLACEHOLDER-REGISTRY.md    # Template placeholder definitions
-  subagent-prompts/          # Spawn templates
-    BASE-SUBAGENT-PROMPT.md  # Core protocol block
-    TASK-EXECUTOR.md         # General task execution
-    RESEARCH-AGENT.md        # Research and investigation
-    EPIC-ARCHITECT.md        # Epic planning and decomposition
-    VALIDATOR.md             # Testing and validation
+
+skills/                      # Skill definitions (migrated from subagent-prompts/)
+  _shared/                   # Shared references for all skills
+  spec-writer/SKILL.md       # Specification writing
+  epic-architect/SKILL.md    # Epic planning and decomposition
+  test-writer-bats/SKILL.md  # BATS test writing
+  library-implementer-bash/SKILL.md  # Bash library implementation
+  research-agent/SKILL.md    # Research and investigation
+  task-executor/SKILL.md     # General task execution
+  validator/SKILL.md         # Testing and validation
 ```
 
 **Archived**: `docs/archive/ORCHESTRATOR-INJECT.md` (deprecated CLAUDE.md injection)
 
-## Templates
+## Skills (Migrated)
 
-### Subagent Prompts
+Skills have replaced subagent prompt templates. Each skill is self-contained with:
+- `SKILL.md` - Main skill definition with frontmatter
+- `references/` - Optional supporting documentation
+- `examples/` - Optional usage examples
 
-| Template | Use Case | Size |
-|----------|----------|------|
-| BASE-SUBAGENT-PROMPT | Protocol block only | ~500 tokens |
-| TASK-EXECUTOR | General task work | ~800 tokens |
-| RESEARCH-AGENT | Research tasks | ~700 tokens |
-| EPIC-CREATOR | Planning epics | ~900 tokens |
-| VALIDATOR | Testing/validation | ~700 tokens |
+| Skill | Use Case | Location |
+|-------|----------|----------|
+| spec-writer | Specification writing | `skills/spec-writer/` |
+| epic-architect | Epic planning | `skills/epic-architect/` |
+| test-writer-bats | BATS test writing | `skills/test-writer-bats/` |
+| library-implementer-bash | Bash library implementation | `skills/library-implementer-bash/` |
+| research-agent | Research tasks | `skills/research-agent/` |
+| task-executor | General task work | `skills/task-executor/` |
+| validator | Testing/validation | `skills/validator/` |
 
 ### Placeholders
 
@@ -98,9 +107,9 @@ cleo orchestrator spawn T1586 --template RESEARCH-AGENT
 
 ### Manual
 
-1. Read template:
+1. Read skill:
 ```bash
-cat templates/orchestrator-protocol/subagent-prompts/TASK-EXECUTOR.md
+cat skills/task-executor/SKILL.md
 ```
 
 2. Replace placeholders manually
@@ -109,16 +118,16 @@ cat templates/orchestrator-protocol/subagent-prompts/TASK-EXECUTOR.md
 
 ## Customization
 
-### Add New Template
+### Add New Skill
 
-1. Copy `BASE-SUBAGENT-PROMPT.md` to new file
-2. Add task-specific sections
-3. Use standard placeholders
-4. Keep under 1K tokens
+1. Create directory under `skills/`
+2. Add `SKILL.md` with YAML frontmatter
+3. Add `references/` for supporting docs
+4. Use standard placeholders
 
 ### Modify Existing
 
-Edit templates in `subagent-prompts/`. Changes take effect on next spawn.
+Edit skills in `skills/<skill-name>/`. Changes take effect on next spawn.
 
 ## Legacy: CLAUDE.md Injection (DEPRECATED)
 

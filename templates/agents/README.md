@@ -176,23 +176,22 @@ template="${template//\{\{TASK_COMPLETE_CMD\}\}/jira issue move --status Done}"
 
 ---
 
-## Migration from Old Location
+## Migration from Old Location (COMPLETED)
 
-Files moved from `templates/orchestrator-protocol/subagent-prompts/`:
-
-| Old | New |
-|-----|-----|
-| `BASE-SUBAGENT-PROMPT.md` | `templates/agents/BASE-SUBAGENT-PROTOCOL.md` |
-| `RESEARCH-AGENT.md` | `templates/agents/RESEARCH-AGENT.md` |
-| `TASK-EXECUTOR.md` | `templates/agents/TASK-EXECUTOR.md` |
-| `VALIDATOR.md` | `templates/agents/VALIDATOR.md` |
-| `DOCUMENTOR.md` | `templates/agents/DOCUMENTOR.md` |
+**MIGRATION COMPLETE**: The old `templates/orchestrator-protocol/subagent-prompts/` directory has been removed. All content migrated to `skills/`.
 
 Files promoted to Skills:
 
-| Old | New |
-|-----|-----|
+| Old Location | New Location |
+|--------------|--------------|
 | `SPEC-WRITER.md` | `skills/spec-writer/SKILL.md` |
 | `EPIC-ARCHITECT.md` | `skills/epic-architect/SKILL.md` |
 | `TEST-WRITER-BATS.md` | `skills/test-writer-bats/SKILL.md` |
 | `LIBRARY-IMPLEMENTER.md` | `skills/library-implementer-bash/SKILL.md` |
+| `RESEARCH-AGENT.md` | `skills/research-agent/SKILL.md` |
+| `TASK-EXECUTOR.md` | `skills/task-executor/SKILL.md` |
+| `VALIDATOR.md` | `skills/validator/SKILL.md` |
+
+Shared content in `skills/_shared/`:
+- `subagent-protocol-base.md` - Base protocol (replaces BASE-SUBAGENT-PROMPT.md)
+- `task-system-integration.md` - Task system integration
