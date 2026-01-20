@@ -18,7 +18,7 @@ setup() {
 }
 
 # Paths (relative to project root)
-OLD_TEMPLATE="templates/orchestrator-protocol/subagent-prompts/EPIC-ARCHITECT.md"
+# OLD_TEMPLATE removed - subagent-prompts directory deprecated and deleted
 NEW_SKILL="skills/epic-architect/SKILL.md"
 NEW_REFERENCES="skills/epic-architect/references"
 SHARED_DIR="skills/_shared"
@@ -47,8 +47,10 @@ SHARED_DIR="skills/_shared"
     [[ -f "$NEW_REFERENCES/output-format.md" ]]
 }
 
-@test "epic-architect skill: original template still exists (dual test)" {
-    [[ -f "$OLD_TEMPLATE" ]]
+@test "epic-architect skill: old template removed (migration complete)" {
+    # OLD_TEMPLATE was: templates/orchestrator-protocol/subagent-prompts/EPIC-ARCHITECT.md
+    # Verify it no longer exists (migration complete)
+    [[ ! -f "templates/orchestrator-protocol/subagent-prompts/EPIC-ARCHITECT.md" ]]
 }
 
 # ============================================================================
@@ -254,38 +256,115 @@ SHARED_DIR="skills/_shared"
 }
 
 # ============================================================================
-# COMPARISON TESTS (old vs new)
+# SKILL QUALITY TESTS (migration validation removed - old template deleted)
 # ============================================================================
 
-@test "epic-architect: old template has 'cleo' commands hardcoded" {
-    # Old format should have hardcoded cleo commands
-    cleo_count=$(grep -c "cleo " "$OLD_TEMPLATE" || true)
-    [[ $cleo_count -gt 20 ]]
-}
-
-@test "epic-architect: new skill uses tokens instead of hardcoded commands" {
-    # New format should have fewer direct 'cleo' references
-    old_cleo=$(grep -c "cleo " "$OLD_TEMPLATE" || true)
-    new_cleo=$(grep -c "cleo " "$NEW_SKILL" || true)
-
-    # New skill should have significantly fewer hardcoded cleo commands
-    [[ $new_cleo -lt $((old_cleo / 2)) ]]
-}
-
-@test "epic-architect: token count in new skill shows abstraction" {
+@test "epic-architect: skill uses token abstraction" {
     # New format should have token placeholders
     token_count=$(grep -oP '\{\{[A-Z_]+\}\}' "$NEW_SKILL" | wc -l || true)
     [[ $token_count -gt 10 ]]
 }
 
+@test "epic-architect: skill has minimal hardcoded cleo commands" {
+    # Skills should use tokens instead of hardcoded commands
+    # Some hardcoded references are OK in documentation sections
+    cleo_count=$(grep -c "cleo " "$NEW_SKILL" || true)
+    [[ $cleo_count -lt 30 ]]
+}
+
 # ============================================================================
-# VERSION COMPARISON
+# VERSION TESTS
 # ============================================================================
 
-@test "epic-architect: version maintained during migration" {
-    old_version=$(grep "^version:" "$OLD_TEMPLATE" | head -1 | awk '{print $2}')
+@test "epic-architect: version is set" {
     new_version=$(grep "^version:" "$NEW_SKILL" | head -1 | awk '{print $2}')
+    # Version should be set (2.1.0 or later)
+    [[ -n "$new_version" ]]
+}
 
-    # Versions should match (both should be 2.1.0)
-    [[ "$old_version" == "$new_version" ]]
+# ============================================================================
+# EXAMPLES TESTS
+# ============================================================================
+
+@test "epic-architect skill: examples directory exists" {
+    [[ -d "skills/epic-architect/examples" ]]
+}
+
+@test "epic-architect skill: has feature-epic-example.md" {
+    [[ -f "skills/epic-architect/examples/feature-epic-example.md" ]]
+}
+
+@test "epic-architect skill: has bug-epic-example.md" {
+    [[ -f "skills/epic-architect/examples/bug-epic-example.md" ]]
+}
+
+@test "epic-architect skill: has research-epic-example.md" {
+    [[ -f "skills/epic-architect/examples/research-epic-example.md" ]]
+}
+
+@test "epic-architect skill: has migration-epic-example.md" {
+    [[ -f "skills/epic-architect/examples/migration-epic-example.md" ]]
+}
+
+@test "epic-architect skill: feature example has dependency graph" {
+    grep -q "Dependency Graph" "skills/epic-architect/examples/feature-epic-example.md"
+}
+
+@test "epic-architect skill: feature example has wave analysis" {
+    grep -q "Wave Analysis" "skills/epic-architect/examples/feature-epic-example.md"
+}
+
+@test "epic-architect skill: bug example has severity mapping" {
+    grep -q "Severity" "skills/epic-architect/examples/bug-epic-example.md"
+}
+
+@test "epic-architect skill: research example has 3 patterns" {
+    # Should have exploratory, decision, and codebase analysis
+    grep -qi "exploratory" "skills/epic-architect/examples/research-epic-example.md"
+    grep -qi "decision" "skills/epic-architect/examples/research-epic-example.md"
+    grep -qi "codebase" "skills/epic-architect/examples/research-epic-example.md"
+}
+
+@test "epic-architect skill: migration example has rollback" {
+    grep -qi "rollback" "skills/epic-architect/examples/migration-epic-example.md"
+}
+
+# ============================================================================
+# SKILL-AWARE EXECUTION TESTS
+# ============================================================================
+
+@test "epic-architect skill: has skill-aware-execution.md reference" {
+    [[ -f "$NEW_REFERENCES/skill-aware-execution.md" ]]
+}
+
+@test "epic-architect skill: SKILL.md references skill-aware-execution" {
+    grep -q "skill-aware-execution.md" "$NEW_SKILL"
+}
+
+@test "epic-architect skill: skill-aware-execution has orchestrator workflow" {
+    grep -qi "orchestrator" "$NEW_REFERENCES/skill-aware-execution.md"
+}
+
+@test "epic-architect skill: skill-aware-execution has subagent patterns" {
+    grep -qi "subagent" "$NEW_REFERENCES/skill-aware-execution.md"
+}
+
+@test "epic-architect skill: skill-aware-execution has research integration" {
+    grep -qi "research" "$NEW_REFERENCES/skill-aware-execution.md"
+}
+
+# ============================================================================
+# INSTALLATION TESTS
+# ============================================================================
+
+@test "epic-architect skill: installation script exists" {
+    [[ -f "scripts/epic-architect-install.sh" ]]
+}
+
+@test "epic-architect skill: installation script is executable" {
+    [[ -x "scripts/epic-architect-install.sh" ]]
+}
+
+@test "epic-architect skill: installation script has help" {
+    scripts/epic-architect-install.sh --help | grep -q "USAGE"
 }

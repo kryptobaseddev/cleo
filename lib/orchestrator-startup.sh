@@ -532,11 +532,11 @@ orchestrator_get_startup_state() {
 # AGENT SPAWNER FUNCTIONS
 # ============================================================================
 
-# Template directory
+# Template directory - now points to skills
 _os_get_templates_dir() {
     local script_dir="${BASH_SOURCE[0]%/*}"
     [[ "$script_dir" == "${BASH_SOURCE[0]}" ]] && script_dir="."
-    echo "$(cd "$script_dir/../templates/orchestrator-protocol/subagent-prompts" && pwd)"
+    echo "$(cd "$script_dir/../skills" && pwd)"
 }
 
 # Get research output directory

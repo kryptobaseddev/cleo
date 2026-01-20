@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-The CLEO skills system has **5 skills** and **1 shared resource**, but requires structural fixes before deployment as a proper Claude Code plugin. All skills have good content but need frontmatter fixes and broken file references repaired.
+The CLEO skills system has **6 skills** and **2 shared resources**, but requires structural fixes before deployment as a proper Claude Code plugin. Most skills have good content but some need frontmatter fixes and broken file references repaired.
 
 ### Critical Issues (Must Fix)
 
@@ -22,6 +22,7 @@ The CLEO skills system has **5 skills** and **1 shared resource**, but requires 
 
 | Skill | Frontmatter | Content | References | Overall |
 |-------|-------------|---------|------------|---------|
+| **epic-architect** | Good | Good | Good | **Good** |
 | orchestrator | Needs fix | Good | Good | Needs Improvement |
 | docs-lookup | Good | Good | N/A | Good |
 | docs-write | Needs fix | Good | BROKEN | Critical Fix Needed |
@@ -34,6 +35,18 @@ The CLEO skills system has **5 skills** and **1 shared resource**, but requires 
 
 ```
 skills/
+├── epic-architect/
+│   ├── SKILL.md              # Epic creation and task decomposition (v2.1.0)
+│   ├── references/
+│   │   ├── commands.md       # CLEO commands reference with tokens
+│   │   ├── patterns.md       # Research, Bug, Task naming patterns
+│   │   ├── output-format.md  # Epic output file templates
+│   │   └── skill-aware-execution.md  # Orchestrator integration
+│   └── examples/
+│       ├── feature-epic-example.md   # Greenfield feature epic
+│       ├── bug-epic-example.md       # Bug fix epic with severity
+│       ├── research-epic-example.md  # 3 research patterns
+│       └── migration-epic-example.md # Multi-phase migration
 ├── orchestrator/
 │   ├── SKILL.md              # Multi-agent workflow orchestration
 │   ├── INSTALL.md            # Installation instructions
@@ -49,14 +62,51 @@ skills/
 ├── skill-lookup/
 │   └── SKILL.md              # prompts.chat skill discovery
 └── _shared/
-    └── cleo-style-guide.md   # Shared writing style guide
+    ├── cleo-style-guide.md          # Shared writing style guide
+    ├── task-system-integration.md   # Portable task commands (tokens)
+    └── subagent-protocol-base.md    # RFC 2119 subagent output rules
 ```
 
 ---
 
 ## Skill Details
 
-### 1. orchestrator
+### 1. epic-architect (NEW)
+
+**Purpose**: Create comprehensive CLEO epics with full task decomposition, dependency analysis, and wave planning. Converted from subagent template to skill format with progressive disclosure.
+
+**Version**: 2.1.0
+
+**Triggers**: "create epic", "plan epic", "decompose into tasks", "architect the work", "break down this project", "epic planning", "task breakdown", "dependency analysis", "wave planning", "sprint planning"
+
+**Status**: **Good** - Properly structured with valid frontmatter, progressive disclosure, and 69 passing tests.
+
+**Structure**:
+- SKILL.md (490 lines) - Core workflow
+- references/ (4 files) - Commands, patterns, output format, orchestrator integration
+- examples/ (4 files) - Feature, bug, research, migration epic examples
+
+**Token-Based Commands**: Uses `{{TASK_ADD_CMD}}`, `{{TASK_COMPLETE_CMD}}`, etc. for portable task system integration.
+
+**Frontmatter**:
+```yaml
+---
+name: epic-architect
+description: |
+  Epic architecture agent for creating comprehensive epics with full task decomposition.
+  Use when user says "create epic", "plan epic", "decompose into tasks",
+  "architect the work", "break down this project", "epic planning",
+  "task breakdown", "dependency analysis", "wave planning", "sprint planning".
+version: 2.1.0
+model: sonnet
+---
+```
+
+**Installation**: `./scripts/epic-architect-install.sh [--global]`
+
+---
+
+### 2. orchestrator
 
 **Purpose**: Activate orchestrator mode for managing complex multi-agent workflows with ORC-001 through ORC-005 constraints.
 
@@ -259,19 +309,23 @@ All CLEO skills installed to `~/.claude/skills/` MUST use `ct-` prefix:
 
 ---
 
-## Subagent Prompts Inventory
+## Subagent Prompts Inventory (MIGRATED)
 
-Located in `templates/orchestrator-protocol/subagent-prompts/`:
+**MIGRATED**: Subagent prompts have been migrated to `skills/` as proper skills.
 
-| Agent | Purpose | Status |
-|-------|---------|--------|
-| BASE-SUBAGENT-PROMPT.md | Template for all subagents | Good |
-| RESEARCH-AGENT.md | General research tasks | Good |
-| TASK-EXECUTOR.md | Task implementation | Good |
-| EPIC-CREATOR.md | Epic/task hierarchy creation | Good |
-| VALIDATOR.md | Validation tasks | Good |
-| docs-researcher.md | Context7 doc fetching | Good |
-| DOCUMENTOR.md | Documentation writing/review | **NEW** |
+| Old Template | New Skill | Status |
+|--------------|-----------|--------|
+| SPEC-WRITER.md | `skills/spec-writer/SKILL.md` | Migrated |
+| EPIC-ARCHITECT.md | `skills/epic-architect/SKILL.md` | Migrated |
+| TEST-WRITER-BATS.md | `skills/test-writer-bats/SKILL.md` | Migrated |
+| LIBRARY-IMPLEMENTER.md | `skills/library-implementer-bash/SKILL.md` | Migrated |
+| RESEARCH-AGENT.md | `skills/research-agent/SKILL.md` | Migrated |
+| TASK-EXECUTOR.md | `skills/task-executor/SKILL.md` | Migrated |
+| VALIDATOR.md | `skills/validator/SKILL.md` | Migrated |
+
+Shared references in `skills/_shared/`:
+- `subagent-protocol-base.md` - Base protocol block
+- `task-system-integration.md` - CLEO task system integration
 
 ---
 
