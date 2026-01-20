@@ -36,6 +36,8 @@
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
 - [For Claude Code Users](#for-claude-code-users)
+- [Skills Architecture](#skills-architecture-v0550)
+- [Orchestrator Protocol](#orchestrator-protocol-v0550)
 - [Extensibility](#extensibility)
 - [Troubleshooting](#troubleshooting)
 - [Performance](#performance)
@@ -222,14 +224,15 @@ cleo focus set <TAB>        # Shows pending/active task IDs
 
 ## Command Reference
 
-### 37 Commands Across 4 Categories
+### 47 Commands Across 5 Categories
 
 | Category | Commands | Purpose |
 |----------|----------|---------|
-| **Write (10)** | `add`, `update`, `complete`, `focus`, `session`, `phase`, `archive`, `promote`, `reparent`, `populate-hierarchy` | Modify task state |
+| **Write (14)** | `add`, `update`, `complete`, `focus`, `session`, `phase`, `archive`, `promote`, `reparent`, `populate-hierarchy`, `delete`, `uncancel`, `reopen`, `verify` | Modify task state |
 | **Read (17)** | `list`, `show`, `find`, `analyze`, `next`, `dash`, `deps`, `blockers`, `phases`, `labels`, `stats`, `log`, `commands`, `exists`, `export`, `history`, `research` | Query and analyze |
 | **Sync (3)** | `sync`, `inject`, `extract` | TodoWrite integration |
-| **Maintenance (7)** | `init`, `validate`, `backup`, `restore`, `migrate`, `migrate-backups`, `config` | System administration |
+| **Orchestration (5)** | `orchestrator`, `context`, `tree`, `import-tasks`, `export-tasks` | Multi-agent coordination |
+| **Maintenance (8)** | `init`, `validate`, `backup`, `restore`, `migrate`, `migrate-backups`, `config`, `upgrade` | System administration |
 
 ### Essential Commands
 
@@ -269,6 +272,18 @@ cleo exists T001 --quiet      # Exit 0 if exists, 1 if not
 cleo research "TypeScript patterns"           # Multi-source web research
 cleo research --library svelte --topic state  # Official docs via Context7
 cleo research --url https://example.com       # Extract from URL
+
+# Verification gates (v0.43.0+)
+cleo verify T001 --gate testsPassed           # Set specific gate
+cleo verify T001 --all                        # Set all required gates
+
+# Task cancellation (v0.32.0+)
+cleo delete T001 --reason "No longer needed"  # Cancel/soft-delete task
+cleo uncancel T001                            # Restore cancelled task
+
+# Context monitoring (v0.46.0+)
+cleo context                                  # Check context window usage
+cleo context check                            # Exit codes for scripting
 ```
 
 ### Command Discovery (v0.21.0+)
@@ -579,19 +594,24 @@ CLEO_FORMAT=json              # Force output format
 ## Project Structure
 
 ```
-~/.cleo/              # Global installation
-├── scripts/                 # Command implementations (35 scripts)
-├── lib/                     # Shared libraries (validation, file-ops, logging, phase-tracking)
+~/.cleo/                     # Global installation
+├── scripts/                 # Command implementations (56 scripts)
+├── lib/                     # Shared libraries (58 files)
 ├── schemas/                 # JSON Schema definitions
+├── skills/                  # Modular agent skills (14 skills)
+│   ├── manifest.json        # Skill registry with versions
+│   ├── ct-epic-architect/   # Epic creation skill
+│   ├── ct-orchestrator/     # Workflow coordination
+│   └── ...                  # 12 more skills
 ├── templates/               # Starter templates
 └── docs/                    # Documentation
 
-your-project/.cleo/        # Per-project instance
-├── todo.json               # Active tasks (source of truth)
-├── todo-archive.json       # Completed tasks (immutable)
-├── todo-log.json           # Audit trail (append-only)
-├── config.json        # Project configuration
-└── .backups/               # Automatic versioned backups
+your-project/.cleo/          # Per-project instance
+├── todo.json                # Active tasks (source of truth)
+├── todo-archive.json        # Completed tasks (immutable)
+├── todo-log.json            # Audit trail (append-only)
+├── config.json              # Project configuration
+└── .backups/                # Automatic versioned backups
 ```
 
 ---
@@ -641,6 +661,83 @@ cleo focus note "Working on $ACTIVE"
 # Context-efficient task discovery
 cleo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
 ```
+
+---
+
+## Skills Architecture (v0.55.0+)
+
+CLEO includes 14 modular skills for AI agent workflows:
+
+### Installed Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `ct-epic-architect` | Create epics with task decomposition |
+| `ct-orchestrator` | Multi-agent workflow coordination |
+| `ct-docs-lookup` | Documentation search via Context7 |
+| `ct-docs-write` | Documentation generation |
+| `ct-docs-review` | Documentation compliance review |
+| `ct-research-agent` | Multi-source research |
+| `ct-task-executor` | Generic task execution |
+| `ct-spec-writer` | Technical specification writing |
+| `ct-test-writer-bats` | BATS test generation |
+| `ct-validator` | Compliance validation |
+| `ct-skill-creator` | Create new skills |
+| `ct-skill-lookup` | Search prompts.chat skills |
+| `ct-library-implementer-bash` | Bash library creation |
+| `ct-documentor` | Documentation orchestration |
+
+### Skills Installation
+
+Skills are installed as symlinks to `~/.claude/skills/ct-*`:
+
+```bash
+# Install with skills (default)
+./install.sh
+
+# Skip skills installation
+./install.sh --skip-skills
+
+# Check installed skills
+ls ~/.claude/skills/ct-*
+```
+
+### Skills Manifest
+
+All skills are tracked in `skills/manifest.json`:
+
+```bash
+# View registered skills
+cat skills/manifest.json | jq '.skills[].name'
+
+# Check skill versions
+cleo upgrade  # Detects and updates skill versions
+```
+
+---
+
+## Orchestrator Protocol (v0.55.0+)
+
+Coordinate multi-agent workflows with the orchestrator command:
+
+```bash
+# Start orchestrator session
+cleo orchestrator start --epic T001
+
+# Get next task to spawn
+cleo orchestrator next --epic T001
+
+# Check parallel execution safety
+cleo orchestrator check T002 T003 T004
+
+# Analyze dependency waves
+cleo orchestrator analyze T001
+
+# Validate protocol compliance
+cleo orchestrator validate --epic T001
+```
+
+See [Orchestrator Protocol Guide](docs/guides/ORCHESTRATOR-PROTOCOL.md) for details.
 
 ---
 

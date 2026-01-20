@@ -16,11 +16,13 @@
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
+| **[Getting Started](guides/getting-started.md)** | Installation, first task, daily workflow | New users and setup |
 | **[CLEO Project Management Guide](guides/cleo-project-management-guide.md)** | Epic -> Task -> Subtask organization, phases, dependencies, waves | Planning project structure and task decomposition |
 | **[Design Philosophy](guides/design-philosophy.md)** | The contract between developer and agent | Understanding flat IDs, JSON output, exit codes |
 | **[Filtering Guide](guides/filtering-guide.md)** | Task filtering and queries | Advanced task filtering |
 | **[Archive Guide](guides/archive-guide.md)** | Task lifecycle and retention | Archive strategies, retrieval, configuration |
 | **[Context Safeguard Guide](guides/context-safeguard.md)** | Automatic context alerts and monitoring | Setup, configuration, agent workflow integration |
+| **[Orchestrator Protocol](guides/ORCHESTRATOR-PROTOCOL.md)** | Multi-agent workflow coordination | Complex epics and parallel work |
 
 ### 🏗️ Architecture & Design
 
@@ -37,9 +39,8 @@
 |----------|---------|--------------|
 | **[installation.md](reference/installation.md)** | Installation guide | Setting up the system |
 | **[usage.md](usage.md)** | Usage guide and examples | Learning system operations |
-| **[PHASE-3-FEATURES.md](PHASE-3-FEATURES.md)** | Phase 3 features overview (v0.8.2) | Understanding new workflow commands |
 | **[TODO_Task_Management.md](TODO_Task_Management.md)** | CLI reference (installed to ~/.cleo/docs/) | Quick CLI command reference |
-| **[TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md)** | Task sizing and completion philosophy | Understanding "Always Be Shipping" principles for agents |
+| **[FEATURES.md](FEATURES.md)** | Feature inventory and capabilities | Understanding available features |
 | **[cli-output-formats.md](reference/cli-output-formats.md)** | Output formats reference | Understanding output formats (list: text/json/jsonl/markdown/table, export: csv/tsv) |
 | **[configuration.md](reference/configuration.md)** | Configuration reference | Customizing system behavior |
 | **[sessions-json.md](reference/sessions-json.md)** | sessions.json file structure | Multi-session data format |
@@ -312,26 +313,6 @@
 
 ---
 
-### TASK-COMPLETION-PHILOSOPHY.md
-**Purpose**: Task sizing and completion philosophy for agent-driven development
-
-**Contents**:
-- "Always Be Shipping" core principles
-- Minimum viable task size (1-4 hours sweet spot)
-- Epic/Story/Task hierarchy and shippable increments
-- Definition of Done vs. Acceptance Criteria
-- Work-in-Progress (WIP) limits for agents
-- Task:Planning ratio guidelines (80/20)
-- Preventing planning paralysis anti-patterns
-- Deployment frequency best practices
-- Trunk-based development model
-- Agent-specific completion rules
-- Governance and quality standards
-
-**Best For**: Understanding task sizing, preventing planning paralysis, agent automation workflows, deployment velocity optimization
-
----
-
 ### cli-output-formats.md
 **Purpose**: CLI output formats reference guide
 
@@ -466,7 +447,6 @@
 1. Start with [usage.md](usage.md) for operations
 2. Keep [QUICK-REFERENCE.md](QUICK-REFERENCE.md) nearby for quick lookups
 3. Reference [schema-reference.md](architecture/SCHEMAS.md) for data structures
-4. Review [TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md) for task sizing and shipping velocity
 
 #### ...implement the system
 1. Read [ARCHITECTURE.md](architecture/ARCHITECTURE.md) thoroughly
@@ -662,7 +642,6 @@ You understand the CLEO system when you can:
 - **Configuring**: [configuration.md](reference/configuration.md) → Configuration options
 - **Using**: [usage.md](usage.md) → Operation guide
 - **Understanding**: [ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary) → Overview
-- **Task Sizing**: [TASK-COMPLETION-PHILOSOPHY.md](TASK-COMPLETION-PHILOSOPHY.md) → Shipping velocity and completion philosophy
 - **ID System**: [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) → **IMMUTABLE** ID design bible
 - **Phase System**: [PHASE-SYSTEM-SPEC.md](specs/PHASE-SYSTEM-SPEC.md) → **AUTHORITATIVE** phase lifecycle bible
 - **Hierarchy**: [HIERARCHY-ENHANCEMENT-SPEC.md](specs/HIERARCHY-ENHANCEMENT-SPEC.md) → Epic/Task/Subtask specification

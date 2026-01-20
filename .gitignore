@@ -147,6 +147,15 @@ archive/
 docs/_build/
 docs/.doctrees/
 
+# Mintlify local development
+.mintlify/
+.mint/
+node_modules/
+
+# Mintlify build artifacts
+docs/.mintlify/
+docs/node_modules/
+
 # ============================================================
 # KEEP THESE TRACKED
 # ============================================================

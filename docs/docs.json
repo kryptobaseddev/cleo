@@ -1,0 +1,186 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "CLEO Documentation",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373"
+  },
+  "logo": {
+    "light": "/images/logo-light.png",
+    "dark": "/images/logo-dark.png"
+  },
+  "favicon": "/images/favicon.png",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Getting Started",
+        "groups": [
+          {
+            "group": "Introduction",
+            "pages": [
+              "getting-started/introduction",
+              "getting-started/quickstart",
+              "getting-started/installation"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Core Workflows",
+            "pages": [
+              "guides/project-management",
+              "guides/sessions",
+              "guides/context-monitoring"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "guides/multi-agent",
+              "guides/orchestrator",
+              "guides/todowrite-sync"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Commands",
+        "groups": [
+          {
+            "group": "Task Management",
+            "pages": [
+              "commands/add",
+              "commands/update",
+              "commands/complete",
+              "commands/list",
+              "commands/show",
+              "commands/find"
+            ]
+          },
+          {
+            "group": "Session & Focus",
+            "pages": [
+              "commands/session",
+              "commands/focus",
+              "commands/context"
+            ]
+          },
+          {
+            "group": "Analysis",
+            "pages": [
+              "commands/analyze",
+              "commands/dash",
+              "commands/next",
+              "commands/blockers",
+              "commands/deps"
+            ]
+          },
+          {
+            "group": "Hierarchy",
+            "pages": [
+              "commands/hierarchy",
+              "commands/reparent",
+              "commands/promote"
+            ]
+          },
+          {
+            "group": "Phases & Labels",
+            "pages": [
+              "commands/phase",
+              "commands/phases",
+              "commands/labels"
+            ]
+          },
+          {
+            "group": "Maintenance",
+            "pages": [
+              "commands/validate",
+              "commands/backup",
+              "commands/restore",
+              "commands/archive",
+              "commands/upgrade"
+            ]
+          },
+          {
+            "group": "All Commands",
+            "pages": [
+              "commands/commands"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Concepts",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "concepts/architecture",
+              "concepts/data-flows",
+              "concepts/anti-hallucination"
+            ]
+          },
+          {
+            "group": "Data Model",
+            "pages": [
+              "concepts/task-hierarchy",
+              "concepts/sessions",
+              "concepts/phases"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": [
+              "api/schemas",
+              "api/exit-codes",
+              "api/output-formats",
+              "api/configuration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Skills",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "skills/overview",
+              "skills/installation"
+            ]
+          },
+          {
+            "group": "Available Skills",
+            "pages": [
+              "skills/epic-architect",
+              "skills/orchestrator",
+              "skills/research-agent"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/your-org/cleo"
+    }
+  },
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/your-org/cleo"
+    }
+  ]
+}

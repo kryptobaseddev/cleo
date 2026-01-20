@@ -1,8 +1,8 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
   "_meta": {
-    "schemaVersion": "1.0.0",
-    "lastUpdated": "2026-01-19",
+    "schemaVersion": "1.1.0",
+    "lastUpdated": "2026-01-20",
     "totalSkills": 14
   },
   "skills": [
@@ -13,7 +13,14 @@
       "path": "skills/ct-epic-architect",
       "model": "sonnet",
       "tags": ["planning", "architecture", "task-management"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "FEATURE_NAME", "FEATURE_SLUG", "DATE", "EPIC_ID", "SESSION_ID"],
+        "outputs": ["epic", "tasks", "manifest-entry", "session"],
+        "dependencies": [],
+        "dispatch_triggers": ["create epic", "plan epic", "decompose into tasks", "architect the work", "break down this project", "epic planning", "task breakdown", "dependency analysis", "wave planning", "sprint planning"],
+        "compatible_subagent_types": ["general-purpose", "planning"]
+      }
     },
     {
       "name": "ct-orchestrator",
@@ -21,7 +28,14 @@
       "description": "Orchestrator protocol for coordinating complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-005 constraints.",
       "path": "skills/ct-orchestrator",
       "tags": ["workflow", "multi-agent", "coordination"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "SESSION_ID", "EPIC_ID"],
+        "outputs": ["workflow-coordination", "subagent-spawns"],
+        "dependencies": ["ct-epic-architect", "ct-research-agent", "ct-task-executor", "ct-test-writer-bats", "ct-spec-writer", "ct-library-implementer-bash", "ct-validator"],
+        "dispatch_triggers": ["orchestrate", "orchestrator mode", "run as orchestrator", "delegate to subagents", "coordinate agents", "spawn subagents", "multi-agent workflow", "context-protected workflow", "agent farm", "HITL orchestration"],
+        "compatible_subagent_types": ["orchestrator"]
+      }
     },
     {
       "name": "ct-docs-lookup",
@@ -29,7 +43,14 @@
       "description": "Library documentation lookup via Context7. Use for framework setup, API references, version-specific docs for React, Vue, Next.js, Prisma, Supabase, etc.",
       "path": "skills/ct-docs-lookup",
       "tags": ["documentation", "libraries", "context7"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["library_name", "query", "version"],
+        "outputs": ["documentation-content", "code-examples"],
+        "dependencies": [],
+        "dispatch_triggers": ["how do I configure", "write code using", "what are the methods", "show me examples", "library docs", "framework setup", "API reference", "version-specific docs"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Explore"]
+      }
     },
     {
       "name": "ct-docs-write",
@@ -37,7 +58,14 @@
       "description": "Documentation writing skill applying CLEO's conversational, clear, and user-focused writing style. Use for creating or editing markdown, MDX, README, guides.",
       "path": "skills/ct-docs-write",
       "tags": ["documentation", "writing", "style-guide"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["file_path", "content_topic", "audience"],
+        "outputs": ["documentation-file", "markdown-content"],
+        "dependencies": [],
+        "dispatch_triggers": ["write docs", "create documentation", "edit the README", "improve doc clarity", "make docs more readable", "follow the style guide", "write user-facing content"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Code"]
+      }
     },
     {
       "name": "ct-docs-review",
@@ -45,7 +73,14 @@
       "description": "Documentation review skill for checking docs against CLEO writing style guide. Supports local file review and GitHub PR review modes.",
       "path": "skills/ct-docs-review",
       "tags": ["documentation", "review", "style-guide"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["file_path", "pr_url", "diff_content"],
+        "outputs": ["review-comments", "style-violations", "improvement-suggestions"],
+        "dependencies": [],
+        "dispatch_triggers": ["review documentation", "check docs style", "review this markdown file", "check style guide compliance", "review PR documentation"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Explore"]
+      }
     },
     {
       "name": "ct-documentor",
@@ -53,7 +88,14 @@
       "description": "Documentation specialist orchestrating ct-docs-lookup, ct-docs-write, and ct-docs-review skills. Use for end-to-end documentation workflows with anti-duplication enforcement.",
       "path": "skills/ct-documentor",
       "tags": ["documentation", "orchestration", "workflow"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "documentation_topic", "target_audience"],
+        "outputs": ["documentation-file", "manifest-entry", "review-report"],
+        "dependencies": ["ct-docs-lookup", "ct-docs-write", "ct-docs-review"],
+        "dispatch_triggers": ["write documentation", "create docs", "review docs", "update documentation", "document this feature", "fix the docs", "sync docs with code", "documentation is outdated", "full docs workflow", "end-to-end documentation"],
+        "compatible_subagent_types": ["general-purpose", "documentation", "Code"]
+      }
     },
     {
       "name": "ct-skill-lookup",
@@ -61,7 +103,14 @@
       "description": "Find and retrieve Agent Skills from prompts.chat. Use for searching skills, extending Claude capabilities, or installing reusable AI agent components.",
       "path": "skills/ct-skill-lookup",
       "tags": ["skills", "discovery", "prompts-chat"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["search_query", "skill_id", "category", "tag"],
+        "outputs": ["skill-list", "skill-content", "skill-files"],
+        "dependencies": [],
+        "dispatch_triggers": ["find me a skill", "search for skills", "what skills are available", "get skill", "install a skill", "extend Claude capabilities with skills"],
+        "compatible_subagent_types": ["general-purpose", "Explore"]
+      }
     },
     {
       "name": "ct-library-implementer-bash",
@@ -69,7 +118,14 @@
       "description": "Bash library implementation skill for creating shared shell functions. Use for creating utilities in lib/*.sh with shell best practices.",
       "path": "skills/ct-library-implementer-bash",
       "tags": ["implementation", "bash", "library"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "MODULE_NAME", "function_signatures", "DATE", "TOPIC_SLUG"],
+        "outputs": ["library-file", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["create library", "implement functions", "add to lib/", "shared utilities", "bash library", "helper functions", "lib/*.sh", "shell functions", "bash module", "utility functions"],
+        "compatible_subagent_types": ["general-purpose", "Code"]
+      }
     },
     {
       "name": "ct-research-agent",
@@ -77,7 +133,14 @@
       "description": "Research and investigation agent for gathering information from multiple sources. Use for background research, fact-finding, exploring options, due diligence.",
       "path": "skills/ct-research-agent",
       "tags": ["research", "investigation", "discovery"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "TOPIC", "TOPIC_SLUG", "RESEARCH_QUESTIONS", "RESEARCH_TITLE", "DATE", "EPIC_ID", "SESSION_ID", "TOPICS_JSON"],
+        "outputs": ["research-file", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["research", "investigate", "gather information", "look up", "find out about", "analyze topic", "explore options", "survey alternatives", "collect data on", "background research", "discovery", "fact-finding", "information gathering", "due diligence", "explore requirements"],
+        "compatible_subagent_types": ["general-purpose", "Explore"]
+      }
     },
     {
       "name": "ct-skill-creator",
@@ -85,7 +148,14 @@
       "description": "Guide for creating effective skills that extend Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
       "path": "skills/ct-skill-creator",
       "tags": ["skills", "creation", "meta"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["skill_name", "skill_purpose", "concrete_examples"],
+        "outputs": ["skill-directory", "SKILL.md", "skill-resources"],
+        "dependencies": [],
+        "dispatch_triggers": ["create a new skill", "update an existing skill", "skill creation", "extend Claude capabilities", "build a skill"],
+        "compatible_subagent_types": ["general-purpose", "Code"]
+      }
     },
     {
       "name": "ct-spec-writer",
@@ -93,7 +163,14 @@
       "description": "Specification writing agent for creating technical specifications and protocol documents using RFC 2119 language.",
       "path": "skills/ct-spec-writer",
       "tags": ["specification", "documentation", "rfc"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "SPEC_NAME", "spec_topic", "requirements_list", "DATE", "TOPIC_SLUG"],
+        "outputs": ["specification-file", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["write a spec", "create specification", "define protocol", "document requirements", "RFC-style document", "technical specification", "write requirements", "define constraints", "create protocol spec", "architecture specification", "API specification", "interface contract"],
+        "compatible_subagent_types": ["general-purpose", "Code"]
+      }
     },
     {
       "name": "ct-task-executor",
@@ -101,7 +178,14 @@
       "description": "Generic task execution agent for completing implementation work. Use for executing assigned CLEO tasks and producing concrete outputs.",
       "path": "skills/ct-task-executor",
       "tags": ["execution", "implementation", "task-management"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "TASK_NAME", "TASK_INSTRUCTIONS", "DELIVERABLES_LIST", "ACCEPTANCE_CRITERIA", "TOPIC_SLUG", "DATE", "EPIC_ID", "SESSION_ID", "DEPENDS_LIST", "MANIFEST_SUMMARIES", "TOPICS_JSON"],
+        "outputs": ["deliverables", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["execute task", "implement", "do the work", "complete this task", "carry out", "perform task", "run task", "work on", "implement feature", "build component", "create implementation", "execute plan", "do implementation", "complete implementation", "finish task", "execute instructions"],
+        "compatible_subagent_types": ["general-purpose", "Code"]
+      }
     },
     {
       "name": "ct-test-writer-bats",
@@ -109,7 +193,14 @@
       "description": "Integration test writing agent using BATS framework. Use for creating bash script tests, shell function tests, integration tests.",
       "path": "skills/ct-test-writer-bats",
       "tags": ["testing", "bats", "integration"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "test_target", "test_scenarios", "DATE", "TOPIC_SLUG"],
+        "outputs": ["test-file", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["write tests", "create BATS tests", "add integration tests", "bash tests", "test coverage", "write test cases", "shell script tests", "create unit tests", "BATS framework", "testing bash scripts"],
+        "compatible_subagent_types": ["general-purpose", "Code"]
+      }
     },
     {
       "name": "ct-validator",
@@ -117,7 +208,14 @@
       "description": "Compliance validation agent for verifying system, document, and code compliance against requirements, schemas, or standards.",
       "path": "skills/ct-validator",
       "tags": ["validation", "compliance", "audit"],
-      "status": "active"
+      "status": "active",
+      "capabilities": {
+        "inputs": ["TASK_ID", "VALIDATION_TARGET", "TARGET_FILES_OR_SYSTEMS", "VALIDATION_CRITERIA", "VALIDATION_COMMANDS", "TOPIC_SLUG", "DATE"],
+        "outputs": ["validation-report", "manifest-entry"],
+        "dependencies": [],
+        "dispatch_triggers": ["validate", "verify", "check compliance", "audit", "compliance check", "verify conformance", "check requirements", "run validation", "validate schema", "check standards", "audit compliance", "verify rules", "validation report", "compliance audit", "check constraints"],
+        "compatible_subagent_types": ["general-purpose", "Explore"]
+      }
     }
   ]
 }

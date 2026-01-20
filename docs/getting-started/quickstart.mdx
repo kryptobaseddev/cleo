@@ -1,0 +1,134 @@
+---
+title: "Quick Start"
+description: "Get up and running with CLEO in 5 minutes"
+icon: "rocket"
+---
+
+# Quick Start
+
+Get CLEO installed and managing your first task in under 5 minutes.
+
+## Prerequisites
+
+<Tabs>
+  <Tab title="Check Requirements">
+    ```bash
+    # Verify Bash version (4.0+ required)
+    bash --version
+
+    # Verify jq is installed
+    jq --version
+    ```
+  </Tab>
+  <Tab title="Install jq">
+    ```bash
+    # Ubuntu/Debian
+    sudo apt-get install jq
+
+    # macOS
+    brew install jq
+
+    # RHEL/CentOS
+    sudo yum install jq
+    ```
+  </Tab>
+</Tabs>
+
+## Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/kryptobaseddev/cleo.git
+    cd cleo
+    ```
+  </Step>
+
+  <Step title="Run the Installer">
+    ```bash
+    ./install.sh
+    ```
+
+    This installs CLEO to `~/.cleo/` and creates symlinks in `~/.local/bin/`.
+  </Step>
+
+  <Step title="Initialize Your Project">
+    ```bash
+    cd /path/to/your/project
+    cleo init
+    ```
+
+    Creates `.cleo/` directory with task files and auto-injects instructions into `CLAUDE.md`.
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    cleo version
+    cleo validate
+    ```
+  </Step>
+</Steps>
+
+## Your First Task
+
+<CodeGroup>
+```bash Create Task
+cleo add "Fix login bug" --priority high --labels bug,auth
+```
+
+```json Output
+{
+  "success": true,
+  "task": {
+    "id": "T001",
+    "title": "Fix login bug",
+    "status": "pending",
+    "priority": "high",
+    "labels": ["bug", "auth"]
+  }
+}
+```
+</CodeGroup>
+
+## Essential Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `cleo add` | Create a task | `cleo add "Task title"` |
+| `cleo list` | View tasks | `cleo list --status pending` |
+| `cleo complete` | Mark done | `cleo complete T001` |
+| `cleo focus set` | Set active task | `cleo focus set T001` |
+| `cleo dash` | Project overview | `cleo dash` |
+
+## Daily Workflow
+
+```bash
+# Morning: Start your session
+cleo session start
+cleo list --status pending
+cleo focus set T001
+
+# During work: Track progress
+cleo update T001 --notes "Fixed validation logic"
+cleo complete T001
+cleo focus set T002
+
+# Evening: Clean up
+cleo archive
+cleo session end
+```
+
+<Tip>
+Use `ct` as a shorthand alias for `cleo`. Install shell aliases with `source ~/.cleo/completions/bash-completion.sh`.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Full Installation Guide" icon="download" href="/getting-started/installation">
+    Custom installation options and troubleshooting
+  </Card>
+  <Card title="Session Management" icon="clock" href="/guides/sessions">
+    Learn session protocols and focus management
+  </Card>
+</CardGroup>

@@ -15,16 +15,22 @@ CLEO (Command Line Entity Orchestrator) is a task management system designed for
 
 Before installing, ensure you have:
 
-1. **Bash 4.0+**
+1. **Bash 4.0 or higher**
    ```bash
    bash --version
+   # Should output: GNU bash, version 4.0 or higher
    ```
 
 2. **jq (JSON processor)**
    ```bash
    jq --version
-   # Install if missing: apt install jq / brew install jq
+   # Should output: jq-1.5 or higher
    ```
+
+   **Installation if missing:**
+   - Ubuntu/Debian: `sudo apt-get install jq`
+   - macOS: `brew install jq`
+   - RHEL/CentOS: `sudo yum install jq`
 
 ## Fresh Installation
 
@@ -36,7 +42,7 @@ cd cleo
 ./install.sh
 ```
 
-This installs to `~/.cleo/` and creates symlinks in `~/.local/bin/`.
+This installs to `~/.cleo/` and creates symlinks in `~/.local/bin/` for immediate access.
 
 ### 2. Initialize Your Project
 
@@ -51,19 +57,9 @@ Creates `.cleo/` directory with:
 - `config.json` - Configuration
 - `todo-log.json` - Change history
 
-### 3. Inject Agent Instructions
+Additionally, `cleo init` automatically injects CLEO instructions into CLAUDE.md, AGENTS.md, and GEMINI.md using `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
 
-```bash
-# Initialize automatically injects into all agent files
-cleo init
-
-# Or update existing agent docs to latest version
-cleo upgrade
-```
-
-This injects CLEO instructions into CLAUDE.md, AGENTS.md, and GEMINI.md automatically.
-
-### 4. Verify Installation
+### 3. Verify Installation
 
 ```bash
 cleo version
@@ -101,6 +97,44 @@ cleo claude-migrate --all
 # Runs both --global and --project
 ```
 
+## Your First Task
+
+### Create a Task
+
+```bash
+# Simple task
+cleo add "Fix login bug"
+
+# Task with details
+cleo add "Implement authentication" \
+  --priority high \
+  --labels backend,security \
+  --description "Add JWT-based authentication"
+```
+
+### List Tasks
+
+```bash
+# View all tasks
+cleo list
+
+# High-priority tasks only
+cleo list --priority high
+
+# Compact view
+cleo list --compact
+```
+
+### Complete a Task
+
+```bash
+# Mark task complete
+cleo complete T001
+
+# View statistics
+cleo stats
+```
+
 ## Essential Commands
 
 ### Task Management
@@ -122,43 +156,65 @@ cleo focus clear                   # Clear focus
 
 ### Session Protocol
 
+#### Morning: Session Start
+
 ```bash
-# Start of work
 cleo session start
 cleo list --status pending
 cleo focus set <task-id>
+```
 
-# During work
-cleo add "Discovered task"
-cleo update <id> --notes "Progress"
+#### During Work
+
+```bash
+cleo add "Discovered task" --priority medium
+cleo update <id> --notes "Progress update"
 cleo complete <id>
+```
 
-# End of work
+#### Evening: Session End
+
+```bash
 cleo archive
 cleo session end
+cleo stats --period 1
 ```
 
-## Agent-Specific Setup
+## Command Aliases
 
-### Claude Code
-
-CLEO is designed primarily for Claude Code. After installation:
+CLEO provides shell aliases for faster workflows:
 
 ```bash
-cleo init  # Automatically injects into CLAUDE.md
+# Built-in CLI aliases
+cleo ls              # Same as: list
+cleo done T001       # Same as: complete T001
+cleo new "Task"      # Same as: add "Task"
+cleo edit T001       # Same as: update T001
+cleo check           # Same as: validate
+
+# Shell aliases (if installed)
+ct              # cleo
+ct-add          # cleo add
+ct-list         # cleo list
+ct-done         # cleo complete
+ct-focus        # cleo focus
 ```
 
-This injects CLEO instructions between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
-
-### Other AI Agents
-
-CLEO automatically injects into multiple agent documentation files:
+## Output Formats
 
 ```bash
-cleo init  # Injects into CLAUDE.md, AGENTS.md, and GEMINI.md
-```
+# Human-readable (default)
+cleo list
 
-All files receive the same CLEO template with registry-based auto-discovery.
+# JSON for scripting
+cleo list --format json
+
+# CSV export (via export command)
+cleo export --format csv > tasks.csv
+
+# Markdown checklist
+cleo list --format markdown
+```
 
 ## Configuration
 
@@ -166,38 +222,97 @@ Edit `.cleo/config.json`:
 
 ```json
 {
+  "archive": {
+    "daysUntilArchive": 7,
+    "preserveRecentCount": 3
+  },
   "validation": {
-    "maxActiveTasks": 1,          // Enforce single focus
-    "requireDescription": false    // Optional descriptions
+    "maxActiveTasks": 1,
+    "requireDescription": false
   },
   "defaults": {
     "priority": "medium",
     "phase": "core"
-  },
-  "archive": {
-    "daysUntilArchive": 7
   }
 }
 ```
 
-## Aliases
+## Tips for Success
 
-CLEO provides shell aliases for faster workflows:
+1. **One Active Task**: Set focus to maintain clarity
+   ```bash
+   cleo focus set T002
+   ```
+
+2. **Use Labels**: Organize with labels
+   ```bash
+   cleo add "Fix bug" --labels bug,backend,urgent
+   ```
+
+3. **Regular Archiving**: Keep active list clean
+   ```bash
+   cleo archive --dry-run   # Preview
+   cleo archive              # Execute
+   ```
+
+4. **Track Progress**: Add notes for context
+   ```bash
+   cleo update T001 --notes "Implemented JWT validation"
+   ```
+
+5. **Disable Colors When Needed**: Follow NO_COLOR standard
+   ```bash
+   NO_COLOR=1 cleo list
+   ```
+
+## Common Issues
+
+### Command Not Found
 
 ```bash
-ct          # cleo
-ct-add      # cleo add
-ct-list     # cleo list
-ct-done     # cleo complete
-ct-focus    # cleo focus
+# Check symlink
+ls -l ~/.local/bin/cleo
+
+# If missing, verify PATH
+echo $PATH | grep ".local/bin"
+
+# Reload shell if needed
+source ~/.bashrc  # or ~/.zshrc
+```
+
+### Validation Errors
+
+```bash
+# Check file integrity
+cleo validate
+
+# Attempt automatic fix
+cleo validate --fix
+
+# Restore from backup if needed
+cleo restore .cleo/.backups/todo.json.1
+```
+
+### jq Not Installed
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install jq
+
+# macOS
+brew install jq
+
+# Verify
+jq --version
 ```
 
 ## Next Steps
 
 - **Full Command Reference**: `~/.cleo/docs/TODO_Task_Management.md`
-- **Architecture**: See `docs/architecture/ARCHITECTURE.md`
-- **Configuration**: See `docs/reference/configuration.md`
-- **Quick Reference**: Run `cleo help`
+- **Detailed Usage**: See [usage.md](../usage.md) for complete command reference
+- **Configuration Guide**: See [configuration.md](../reference/configuration.md) for all settings
+- **Architecture**: See [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) for system design
+- **Troubleshooting**: See [troubleshooting.md](../reference/troubleshooting.md) for common issues
 
 ## Support
 
