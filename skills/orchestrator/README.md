@@ -49,13 +49,9 @@ This is the critical difference from CLAUDE.md injection, which affected all age
 
 ## Constraints (ORC)
 
-| ID | Rule | Enforcement |
-|----|------|-------------|
-| ORC-001 | Stay high-level | NO implementation details |
-| ORC-002 | Delegate ALL work | Use Task tool for everything |
-| ORC-003 | No full file reads | Manifest summaries ONLY |
-| ORC-004 | Dependency order | No overlapping agents |
-| ORC-005 | Context budget | Stay under 10K tokens |
+See [SKILL.md](SKILL.md) for quick reference or [ORCHESTRATOR-PROTOCOL-SPEC.md](../../docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md#21-core-constraints) for full specification.
+
+**Summary**: ORC-001 (high-level) | ORC-002 (delegate) | ORC-003 (no full reads) | ORC-004 (dependency order) | ORC-005 (10K budget)
 
 ## Why Skill-Based?
 
