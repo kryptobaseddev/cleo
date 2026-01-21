@@ -178,7 +178,9 @@ cd /path/to/your/project && cleo init
 |------------|---------|---------|
 | **Bash** | 4.0+ | Pre-installed (check: `bash --version`). macOS: `brew install bash` |
 | **jq** | 1.6+ | `apt install jq` / `brew install jq` / `dnf install jq` |
+| **flock** | Any | For atomic file operations. Linux: pre-installed. macOS: `brew install flock` or `brew install util-linux` |
 | **curl** or **wget** | Any | Pre-installed on most systems (for remote install) |
+| **sha256sum** | Any | For checksum verification. Linux: pre-installed. macOS: comes with coreutils |
 
 **Optional (Advanced Features):**
 
