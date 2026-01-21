@@ -621,9 +621,9 @@ display_json() {
   local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
   if [[ -f "$cleo_home/VERSION" ]]; then
-    version=$(cat "$cleo_home/VERSION" | tr -d '[:space:]')
+    version=$(head -n 1 "$cleo_home/VERSION" | tr -d '[:space:]')
   elif [[ -f "$script_dir/../VERSION" ]]; then
-    version=$(cat "$script_dir/../VERSION" | tr -d '[:space:]')
+    version=$(head -n 1 "$script_dir/../VERSION" | tr -d '[:space:]')
   else
     version="0.1.0"
   fi

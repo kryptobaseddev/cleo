@@ -35,9 +35,9 @@ fi
 _CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 if [[ -f "$_CLEO_HOME/VERSION" ]]; then
-  CLEO_VERSION="$(cat "$_CLEO_HOME/VERSION" | tr -d '[:space:]')"
+  CLEO_VERSION="$(head -n 1 "$_CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$_LIB_DIR/../VERSION" ]]; then
-  CLEO_VERSION="$(cat "$_LIB_DIR/../VERSION" | tr -d '[:space:]')"
+  CLEO_VERSION="$(head -n 1 "$_LIB_DIR/../VERSION" | tr -d '[:space:]')"
 else
   CLEO_VERSION="0.1.0"
 fi

@@ -114,9 +114,9 @@ if [[ -f "$LIB_DIR/version.sh" ]]; then
 fi
 # VERSION from central location (compliant pattern)
 if [[ -f "$CLEO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]')"
+  VERSION="$(head -n 1 "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
-  VERSION="$(cat "$SCRIPT_DIR/../VERSION" 2>/dev/null | tr -d '[:space:]')"
+  VERSION="$(head -n 1 "$SCRIPT_DIR/../VERSION" 2>/dev/null | tr -d '[:space:]')"
 else
   VERSION="${CLEO_VERSION:-unknown}"
 fi

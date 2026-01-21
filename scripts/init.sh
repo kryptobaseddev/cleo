@@ -15,9 +15,9 @@ fi
 
 # Source version from central location
 if [[ -f "$CLEO_HOME/VERSION" ]]; then
-  VERSION="$(cat "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
+  VERSION="$(head -n 1 "$CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
-  VERSION="$(cat "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
+  VERSION="$(head -n 1 "$SCRIPT_DIR/../VERSION" | tr -d '[:space:]')"
 else
   VERSION="unknown"
 fi
