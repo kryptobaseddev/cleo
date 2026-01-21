@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.48.0 -->
+<!-- CLEO:START -->
 ## Task Management (cleo)
 
 Old instructions here.

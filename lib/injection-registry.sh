@@ -17,7 +17,9 @@ readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md"
 # Marker format specification
 readonly INJECTION_MARKER_START="<!-- CLEO:START"
 readonly INJECTION_MARKER_END="<!-- CLEO:END -->"
-readonly INJECTION_VERSION_PATTERN='CLEO:START v([0-9]+\.[0-9]+\.[0-9]+)'
+# Version pattern - optional version for backward compatibility with old markers
+# Matches: "CLEO:START -->" (new) or "CLEO:START v0.58.6 -->" (legacy)
+readonly INJECTION_VERSION_PATTERN='CLEO:START( v([0-9]+\.[0-9]+\.[0-9]+))? -->'
 
 # Template paths (relative to CLEO_HOME)
 readonly INJECTION_TEMPLATE_MAIN="templates/AGENT-INJECTION.md"

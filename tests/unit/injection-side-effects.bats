@@ -94,8 +94,8 @@ teardown_file() {
 
     injection_update "$target"
 
-    # File should contain injection markers
-    grep -q "<!-- CLEO:START v0.50.2 -->" "$target"
+    # File should contain versionless injection markers (no version - content is external)
+    grep -q "<!-- CLEO:START -->" "$target"
     grep -q "<!-- CLEO:END -->" "$target"
 
     # File should contain @-reference to template (not full content)
@@ -213,8 +213,8 @@ EOF
     # Old injection content should be gone
     ! grep -q "Old Content" "$target"
 
-    # New injection should be present (version and @-reference)
-    grep -q "v0.50.2" "$target"
+    # New injection should be present (versionless marker and @-reference)
+    grep -q "<!-- CLEO:START -->" "$target"
     grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
 
     # Existing content should be preserved
@@ -248,8 +248,8 @@ EOF
     injection_count=$(grep -c "CLEO:START" "$target")
     [ "$injection_count" -eq 1 ]
 
-    # Should have new version
-    grep -q "v0.50.2" "$target"
+    # Should have versionless marker
+    grep -q "<!-- CLEO:START -->" "$target"
 
     # Other content preserved
     grep -q "# Content" "$target"
@@ -385,8 +385,8 @@ EOF
     run injection_apply "$target" "$new_content" "updated"
     assert_success
 
-    # Should have new version and @-reference
-    grep -q "v0.50.2" "$target"
+    # Should have versionless marker and @-reference
+    grep -q "<!-- CLEO:START -->" "$target"
     grep -q "@.cleo/templates/AGENT-INJECTION.md" "$target"
 
     # Should not have old version or old content
@@ -406,14 +406,15 @@ EOF
 # injection_update_all() Tests - Batch Operations
 # =============================================================================
 
-@test "injection_update_all updates multiple files" {
+@test "injection_update_all skips files with existing blocks" {
+    # Block presence = current (no version tracking)
     # Mock injection_get_targets to return test targets
     injection_get_targets() {
         REPLY=("CLAUDE.md" "AGENTS.md")
     }
     export -f injection_get_targets
 
-    # Create files with old injections in current dir (not TEST_TEMP_DIR)
+    # Create files with existing injections (any format is considered current)
     cat > "CLAUDE.md" <<'EOF'
 <!-- CLEO:START v0.40.0 -->
 Old
@@ -421,48 +422,40 @@ Old
 EOF
 
     cat > "AGENTS.md" <<'EOF'
-<!-- CLEO:START v0.40.0 -->
-Old
+<!-- CLEO:START -->
+Current
 <!-- CLEO:END -->
 EOF
 
     run injection_update_all "."
     assert_success
 
-    # Should report updates
-    echo "$output" | grep -q '"updated":2'
-    echo "$output" | grep -q '"skipped":0'
-    echo "$output" | grep -q '"failed":0'
-
-    # Files should be updated
-    grep -q "v0.50.2" "CLAUDE.md"
-    grep -q "v0.50.2" "AGENTS.md"
+    # Both files have blocks, so both should be skipped (block = current)
+    echo "$output" | grep -q '"skipped":2'
 }
 
-@test "injection_update_all skips current files" {
+@test "injection_update_all creates missing files when no block exists" {
     injection_get_targets() {
         REPLY=("CLAUDE.md" "AGENTS.md")
     }
     export -f injection_get_targets
 
-    # Create one current file
+    # Create one file with block (will be skipped - block = current)
     cat > "CLAUDE.md" <<'EOF'
-<!-- CLEO:START v0.50.2 -->
+<!-- CLEO:START -->
 Current
 <!-- CLEO:END -->
 EOF
 
-    # Create one outdated file
+    # Create one file without block (will be updated)
     cat > "AGENTS.md" <<'EOF'
-<!-- CLEO:START v0.40.0 -->
-Old
-<!-- CLEO:END -->
+# Just content, no injection block
 EOF
 
     run injection_update_all "."
     assert_success
 
-    # Should skip current, update outdated
+    # Should skip file with block, update file without
     echo "$output" | grep -q '"updated":1'
     echo "$output" | grep -q '"skipped":1'
 }
@@ -640,8 +633,8 @@ EOF
 
     injection_update "$target"
 
-    # Should replace with new injection
-    grep -q "v0.50.2" "$target"
+    # Should replace with new injection (versionless marker)
+    grep -q "<!-- CLEO:START -->" "$target"
     ! grep -q "Only this" "$target"
 }
 

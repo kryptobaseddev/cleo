@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.55.0 -->
+<!-- CLEO:START -->
 @.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
 <!-- AGENT:GEMINI -->

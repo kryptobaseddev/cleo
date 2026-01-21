@@ -60,18 +60,11 @@ injection_update() {
 # Check injection status for a target file
 # Args: target_file
 # Returns: JSON with status
+# Note: Since markers use @-references to external files, version is irrelevant.
+# Block presence = current (external file always has latest content)
 injection_check() {
     local target="$1"
-    local installed_version current_version status
-
-    # Get installed version: CLI_VERSION env var > VERSION file > template extraction
-    if [[ -n "${CLI_VERSION:-}" ]]; then
-        installed_version="$CLI_VERSION"
-    elif [[ -f "${CLEO_HOME:-$HOME/.cleo}/VERSION" ]]; then
-        installed_version=$(cat "${CLEO_HOME:-$HOME/.cleo}/VERSION" 2>/dev/null | tr -d '[:space:]')
-    else
-        installed_version=$(injection_extract_version "$(injection_get_template_path)")
-    fi
+    local status
 
     if [[ ! -f "$target" ]]; then
         echo "{\"target\":\"$target\",\"status\":\"missing\",\"fileExists\":false}"
@@ -83,17 +76,9 @@ injection_check() {
         return 0
     fi
 
-    current_version=$(injection_extract_version "$target")
-
-    if [[ -z "$current_version" ]]; then
-        status="legacy"
-    elif [[ "$current_version" == "$installed_version" ]]; then
-        status="current"
-    else
-        status="outdated"
-    fi
-
-    echo "{\"target\":\"$target\",\"status\":\"$status\",\"currentVersion\":\"$current_version\",\"installedVersion\":\"$installed_version\"}"
+    # Block exists - always current since content is external @-reference
+    status="current"
+    echo "{\"target\":\"$target\",\"status\":\"$status\",\"fileExists\":true}"
 }
 
 # Check all targets and return combined status
@@ -120,33 +105,24 @@ injection_apply() {
     local content="$2"  # Unused - kept for backward compatibility
     local action="$3"
     local temp_file
-    local version
 
     # Reference to template (relative to project root)
     local reference="@.cleo/templates/AGENT-INJECTION.md"
 
-    # Get version: CLI_VERSION env var > VERSION file > extract from template
-    if [[ -n "${CLI_VERSION:-}" ]]; then
-        version="$CLI_VERSION"
-    elif [[ -f "${CLEO_HOME:-$HOME/.cleo}/VERSION" ]]; then
-        version=$(cat "${CLEO_HOME:-$HOME/.cleo}/VERSION" 2>/dev/null | tr -d '[:space:]')
-    else
-        version=$(injection_extract_version "$(injection_get_template_path)" 2>/dev/null || echo "unknown")
-    fi
-
+    # No version in markers - content is external, always current
     temp_file=$(mktemp)
     trap "rm -f '$temp_file'" RETURN
 
     case "$action" in
         created)
-            # Wrap reference in markers
-            echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
+            # Wrap reference in markers (no version)
+            echo "${INJECTION_MARKER_START} -->" > "$temp_file"
             echo "$reference" >> "$temp_file"
             echo "$INJECTION_MARKER_END" >> "$temp_file"
             ;;
         added)
             # Wrap reference in markers before prepending to existing file
-            echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
+            echo "${INJECTION_MARKER_START} -->" > "$temp_file"
             echo "$reference" >> "$temp_file"
             echo "$INJECTION_MARKER_END" >> "$temp_file"
             echo "" >> "$temp_file"
@@ -154,7 +130,7 @@ injection_apply() {
             ;;
         updated)
             # Wrap reference in markers and replace existing block
-            echo "${INJECTION_MARKER_START} v${version} -->" > "$temp_file"
+            echo "${INJECTION_MARKER_START} -->" > "$temp_file"
             echo "$reference" >> "$temp_file"
             echo "$INJECTION_MARKER_END" >> "$temp_file"
             # Strip all existing blocks and add remaining content

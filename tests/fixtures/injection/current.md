@@ -1,4 +1,4 @@
-<!-- CLEO:START v0.50.2 -->
+<!-- CLEO:START -->
 ## Task Management (cleo)
 
 Use `ct` for task operations.
