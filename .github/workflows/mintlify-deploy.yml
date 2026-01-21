@@ -130,25 +130,6 @@ jobs:
               body: body
             });
 
-  deploy:
-    name: Deploy to Mintlify
-    runs-on: ubuntu-latest
-    needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to Mintlify
-        uses: mintlify/github-action@v1
-        with:
-          directory: docs
-        env:
-          MINTLIFY_API_KEY: ${{ secrets.MINTLIFY_API_KEY }}
-
-      - name: Deployment notification
-        if: success()
-        run: |
-          echo "Documentation deployed successfully!"
-          echo "Visit: https://cleo.mintlify.app"
+  # Note: Mintlify deployment is handled automatically via Mintlify dashboard
+  # when the repo is connected. This workflow validates docs only.
+  # To set up: https://dashboard.mintlify.com → Connect GitHub repo
