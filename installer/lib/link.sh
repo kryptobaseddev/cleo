@@ -563,6 +563,190 @@ installer_link_remove_claudemd() {
 }
 
 # ============================================
+# GLOBAL AGENT CONFIGURATION
+# ============================================
+
+# Agent configuration mapping
+# agent_name -> (directory, config_file)
+# Format: "agent_name:directory:config_file"
+readonly AGENT_CONFIGS=(
+    "claude:$HOME/.claude:CLAUDE.md"
+    "gemini:$HOME/.gemini:GEMINI.md"
+    "codex:$HOME/.codex:AGENTS.md"
+    "kimi:$HOME/.kimi:AGENTS.md"
+)
+
+# Get CLEO version for agent config injection
+# Returns: version string
+installer_link_get_cleo_version() {
+    local version=""
+
+    # Try multiple sources for version
+    if [[ -n "${INSTALL_DIR:-}" && -f "$INSTALL_DIR/VERSION" ]]; then
+        version=$(head -1 "$INSTALL_DIR/VERSION" 2>/dev/null)
+    elif [[ -f "$HOME/.cleo/VERSION" ]]; then
+        version=$(head -1 "$HOME/.cleo/VERSION" 2>/dev/null)
+    elif [[ -n "${INSTALLER_DIR:-}" && -f "$INSTALLER_DIR/../VERSION" ]]; then
+        version=$(head -1 "$INSTALLER_DIR/../VERSION" 2>/dev/null)
+    fi
+
+    # Strip any 'v' prefix for consistency
+    version="${version#v}"
+
+    # Fallback
+    echo "${version:-0.57.0}"
+}
+
+# Generate versioned CLEO injection content
+# Args: version
+# Returns: injection content (stdout)
+installer_link_generate_cleo_content() {
+    local version="${1:-$(installer_link_get_cleo_version)}"
+
+    cat <<EOF
+<!-- CLEO:START v${version} -->
+# Task Management
+@~/.cleo/docs/TODO_Task_Management.md
+<!-- CLEO:END -->
+EOF
+}
+
+# Inject CLEO content into a single agent config file
+# Args: config_path agent_name
+# Returns: 0 on success, 1 on error, 2 on skip (already current)
+installer_link_inject_agent_config() {
+    local config_path="$1"
+    local agent_name="$2"
+    local config_dir config_file
+
+    config_dir=$(dirname "$config_path")
+    config_file=$(basename "$config_path")
+
+    local version
+    version=$(installer_link_get_cleo_version)
+    local cleo_marker="<!-- CLEO:START"
+    local version_pattern="<!-- CLEO:START v"
+
+    # Check if already has CLEO injection
+    if [[ -f "$config_path" ]] && grep -q "$cleo_marker" "$config_path" 2>/dev/null; then
+        # Extract current version
+        local current_version
+        current_version=$(grep -oP '<!-- CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+' "$config_path" 2>/dev/null | head -1)
+
+        if [[ "$current_version" == "$version" ]]; then
+            installer_log_debug "Agent $agent_name already current (v$version)"
+            return 2  # Skip - already current
+        fi
+
+        # Update existing injection
+        installer_log_info "Updating $agent_name config: v${current_version:-unknown} -> v$version"
+
+        local temp_file="${config_path}.tmp.$$"
+        local new_content
+        new_content=$(installer_link_generate_cleo_content "$version")
+
+        # Extract content before and after markers
+        local before after
+        before=$(sed -n '1,/<!-- CLEO:START/p' "$config_path" | sed '$d')
+        after=$(sed -n '/<!-- CLEO:END -->/,$p' "$config_path" | tail -n +2)
+
+        # Reconstruct file
+        {
+            [[ -n "$before" ]] && printf '%s\n' "$before"
+            printf '%s\n' "$new_content"
+            [[ -n "$after" ]] && printf '%s\n' "$after"
+        } > "$temp_file"
+
+        mv "$temp_file" "$config_path"
+        return 0
+    fi
+
+    # New injection
+    local new_content
+    new_content=$(installer_link_generate_cleo_content "$version")
+
+    if [[ -f "$config_path" ]]; then
+        # Prepend to existing file
+        installer_log_info "Adding CLEO to existing $agent_name config"
+
+        # Backup original
+        cp "$config_path" "${config_path}${LINK_BACKUP_SUFFIX}"
+
+        local temp_file="${config_path}.tmp.$$"
+        {
+            printf '%s\n\n' "$new_content"
+            cat "$config_path"
+        } > "$temp_file"
+        mv "$temp_file" "$config_path"
+    else
+        # Create new file
+        installer_log_info "Creating $agent_name config with CLEO"
+        printf '%s\n' "$new_content" > "$config_path"
+    fi
+
+    return 0
+}
+
+# Setup all global agent configurations
+# Auto-discovers installed agent CLIs and injects CLEO instructions
+# Returns: 0 on success (at least one configured), 1 on error, 2 on no agents found
+installer_link_setup_all_agents() {
+    local configured=0
+    local updated=0
+    local skipped=0
+    local current=0
+
+    installer_log_step "Setting up global agent configurations..."
+
+    for agent_entry in "${AGENT_CONFIGS[@]}"; do
+        # Parse agent entry
+        local agent_name agent_dir config_file
+        IFS=':' read -r agent_name agent_dir config_file <<< "$agent_entry"
+
+        # Skip if agent directory doesn't exist (CLI not installed)
+        if [[ ! -d "$agent_dir" ]]; then
+            installer_log_debug "Skipping $agent_name: directory $agent_dir not found"
+            ((skipped++))
+            continue
+        fi
+
+        # Ensure directory exists (should already, but be safe)
+        mkdir -p "$agent_dir" 2>/dev/null || true
+
+        local config_path="$agent_dir/$config_file"
+        local result
+
+        installer_link_inject_agent_config "$config_path" "$agent_name"
+        result=$?
+
+        case $result in
+            0)
+                if [[ -f "$config_path" ]] && grep -q "<!-- CLEO:START" "$config_path"; then
+                    ((configured++))
+                else
+                    ((updated++))
+                fi
+                ;;
+            2) ((current++)) ;;
+            *) installer_log_warn "Failed to configure $agent_name" ;;
+        esac
+    done
+
+    # Summary
+    local total=$((configured + updated + current))
+    if [[ $total -gt 0 ]]; then
+        installer_log_info "Agent configs: $configured new, $updated updated, $current current, $skipped skipped"
+        return 0
+    elif [[ $skipped -gt 0 ]]; then
+        installer_log_info "No agent directories found (skipped $skipped)"
+        return 2
+    else
+        installer_log_warn "No agent configurations processed"
+        return 1
+    fi
+}
+
+# ============================================
 # EXPORT PUBLIC API
 # ============================================
 export -f installer_link_create
@@ -578,3 +762,7 @@ export -f installer_link_remove_skills
 export -f installer_link_detect_claudemd
 export -f installer_link_inject_claudemd
 export -f installer_link_remove_claudemd
+export -f installer_link_get_cleo_version
+export -f installer_link_generate_cleo_content
+export -f installer_link_inject_agent_config
+export -f installer_link_setup_all_agents

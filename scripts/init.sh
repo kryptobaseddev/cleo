@@ -748,10 +748,20 @@ if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
 
   result=$(injection_update_all ".")
   updated=$(echo "$result" | jq -r '.updated')
+  skipped=$(echo "$result" | jq -r '.skipped')
+  failed=$(echo "$result" | jq -r '.failed')
 
   if [[ "$updated" -gt 0 ]]; then
     log_info "Injected task management docs to $updated agent file(s)"
+  elif [[ "$skipped" -gt 0 ]]; then
+    log_info "Agent docs already up-to-date ($skipped file(s))"
   fi
+
+  if [[ "$failed" -gt 0 ]]; then
+    log_warn "Failed to update $failed agent doc file(s) - check file permissions"
+  fi
+else
+  log_warn "lib/injection.sh not found - agent docs not updated"
 fi
 
 # Register project in global registry
