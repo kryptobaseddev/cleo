@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.3] - 2026-01-20
+
+### Fixed
+- **Self-update**: Download correct release tarball instead of GitHub source archive
+  - Was downloading `.tarball_url` (source code without execute permissions)
+  - Now downloads from `/releases/download/` (our packaged tarball with permissions)
+  - Fixes "Permission denied" error during `--to-release` mode switch
+
 ## [0.58.2] - 2026-01-20
 
 ### Fixed
