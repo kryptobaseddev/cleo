@@ -1,0 +1,53 @@
+### JSON Output Handling
+
+CLEO outputs JSON by default when piped to another command or when stdout is not a TTY.
+
+```bash
+# Auto-JSON when piped
+cleo list | jq '.tasks[0]'
+
+# Force JSON output
+cleo list --format json
+
+# Force human-readable output
+cleo analyze --human
+```
+
+### JSON Envelope Structure
+
+All JSON responses follow this structure:
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+  "_meta": {
+    "command": "list",
+    "timestamp": "2026-01-20T10:00:00Z",
+    "version": "0.60.0",
+    "format": "json"
+  },
+  "success": true,
+  "summary": { ... },
+  "tasks": [ ... ]
+}
+```
+
+### Error Response Format
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_NOT_FOUND",
+    "message": "Task T999 not found",
+    "exitCode": 4,
+    "recoverable": true,
+    "fix": "cleo find T999 --include-archive",
+    "alternatives": [...]
+  }
+}
+```
+
+<Tip>
+Always check `success` field before processing response data.
+</Tip>

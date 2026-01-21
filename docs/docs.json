@@ -21,7 +21,33 @@
     }
   },
   "seo": {
-    "indexHiddenPages": false
+    "indexHiddenPages": false,
+    "metatags": {
+      "og:site_name": "CLEO Documentation",
+      "og:type": "website",
+      "og:image": "/images/og-image.png",
+      "twitter:card": "summary_large_image",
+      "twitter:site": "@cleo_dev",
+      "robots": "index, follow"
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode",
+      {
+        "title": "Report Issue",
+        "description": "Report a documentation issue on GitHub",
+        "icon": "bug",
+        "href": "https://github.com/kryptobaseddev/cleo/issues/new?template=docs_issue.md"
+      }
+    ]
   },
   "feedback": {
     "thumbsRating": true,
@@ -224,6 +250,17 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Changelog",
+        "groups": [
+          {
+            "group": "Updates",
+            "pages": [
+              "changelog/overview"
+            ]
+          }
+        ]
       }
     ]
   },
@@ -237,6 +274,11 @@
       "name": "GitHub",
       "icon": "github",
       "url": "https://github.com/kryptobaseddev/cleo"
+    },
+    {
+      "name": "Changelog",
+      "icon": "clock-rotate-left",
+      "url": "/changelog/overview"
     }
   ]
 }

@@ -1,0 +1,50 @@
+### MCP Server Integration
+
+Connect AI tools directly to CLEO documentation via Model Context Protocol.
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add --transport http CLEO https://cleo.dev/docs/mcp
+    claude mcp list  # Verify connection
+    ```
+  </Tab>
+  <Tab title="Cursor">
+    Add to `.cursor/mcp.json`:
+    ```json
+    {
+      "mcpServers": {
+        "CLEO": {
+          "url": "https://cleo.dev/docs/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="VS Code">
+    Add to Continue settings:
+    ```json
+    {
+      "contextProviders": [
+        {
+          "name": "mcp",
+          "params": {
+            "url": "https://cleo.dev/docs/mcp"
+          }
+        }
+      ]
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### What MCP Provides
+
+- **Documentation Context**: Full CLEO docs available to AI
+- **Command Reference**: All 53 commands with examples
+- **Schema Definitions**: JSON schemas for validation
+- **Error Codes**: Exit code meanings and fixes
+
+<Info>
+MCP integration allows AI tools to query CLEO documentation directly without manual copy-paste.
+</Info>
