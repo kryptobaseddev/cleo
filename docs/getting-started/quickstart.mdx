@@ -8,66 +8,52 @@ icon: "rocket"
 
 Get CLEO installed and managing your first task in under 5 minutes.
 
-## Prerequisites
+## TL;DR - Just Install It
 
 <Tabs>
-  <Tab title="Check Requirements">
+  <Tab title="One-liner (Easiest)">
     ```bash
-    # Verify Bash version (4.0+ required)
-    bash --version
+    curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+    ```
 
-    # Verify jq is installed
-    jq --version
+    Reinstalling over existing installation? Use `--force`:
+    ```bash
+    curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash -s -- --force
     ```
   </Tab>
-  <Tab title="Install jq">
+  <Tab title="Download and Run">
+    1. Download [install.sh](https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh)
+    2. Open Terminal and run:
     ```bash
-    # Ubuntu/Debian
-    sudo apt-get install jq
-
-    # macOS
-    brew install jq
-
-    # RHEL/CentOS
-    sudo yum install jq
+    bash ~/Downloads/install.sh
+    ```
+  </Tab>
+  <Tab title="From Source (Contributors)">
+    ```bash
+    git clone https://github.com/kryptobaseddev/cleo.git && cd cleo && ./installer/install.sh --dev
     ```
   </Tab>
 </Tabs>
 
-## Installation
+<Info>
+The installer automatically detects missing dependencies (jq, flock) and offers to install them. On macOS, it auto-detects Homebrew Bash if your system Bash is below version 4.
+</Info>
 
-<Steps>
-  <Step title="Clone the Repository">
-    ```bash
-    git clone https://github.com/kryptobaseddev/cleo.git
-    cd cleo
-    ```
-  </Step>
+## Initialize Your Project
 
-  <Step title="Run the Installer">
-    ```bash
-    ./install.sh
-    ```
+```bash
+cd /path/to/your/project
+cleo init
+```
 
-    This installs CLEO to `~/.cleo/` and creates symlinks in `~/.local/bin/`.
-  </Step>
+This creates `.cleo/` directory with task files and auto-injects instructions into `CLAUDE.md`.
 
-  <Step title="Initialize Your Project">
-    ```bash
-    cd /path/to/your/project
-    cleo init
-    ```
+## Verify Installation
 
-    Creates `.cleo/` directory with task files and auto-injects instructions into `CLAUDE.md`.
-  </Step>
-
-  <Step title="Verify Installation">
-    ```bash
-    cleo version
-    cleo validate
-    ```
-  </Step>
-</Steps>
+```bash
+cleo version
+cleo validate
+```
 
 ## Your First Task
 

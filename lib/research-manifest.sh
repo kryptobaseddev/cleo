@@ -406,9 +406,6 @@ get_manifest_stats() {
     fi
     
     local current_bytes entry_count archive_bytes archive_count
-    local oldest_date newest_date today_date
-    local status_complete status_partial status_blocked status_archived
-    local actionable_count topic_list
     
     current_bytes=$(stat -c %s "$manifest_path" 2>/dev/null || stat -f %z "$manifest_path" 2>/dev/null || echo 0)
     entry_count=$(wc -l < "$manifest_path" | tr -d ' ')
@@ -453,27 +450,18 @@ get_manifest_stats() {
         return 0
     fi
     
-    # Calculate age stats and status counts via jq
+    # Calculate status counts, actionable count, and topic counts via jq
+    # Use simpler approach without date arithmetic to avoid jq portability issues
     local stats_json
     stats_json=$(cat "$manifest_path" | jq -sc '
-        def today: now | strftime("%Y-%m-%d");
-        def days_since(d): 
-            ((now | floor) - (d | strptime("%Y-%m-%d") | mktime)) / 86400 | floor;
-        
         {
-            oldest: (map(.date) | sort | first),
-            newest: (map(.date) | sort | last),
+            oldest: (map(.date // "") | map(select(. != "")) | sort | first // null),
+            newest: (map(.date // "") | map(select(. != "")) | sort | last // null),
             statusCounts: (group_by(.status) | map({key: .[0].status, value: length}) | from_entries),
             actionableCount: (map(select(.actionable == true)) | length),
-            topicCounts: ([.[].topics[]] | group_by(.) | map({key: .[0], value: length}) | from_entries),
-            ageDistribution: {
-                today: (map(select(.date == today)) | length),
-                last7days: (map(select(days_since(.date) <= 7)) | length),
-                last30days: (map(select(days_since(.date) <= 30)) | length),
-                older: (map(select(days_since(.date) > 30)) | length)
-            }
+            topicCounts: ([.[].topics // [] | .[]] | group_by(.) | map({key: .[0], value: length}) | from_entries)
         }
-    ')
+    ' 2>/dev/null || echo '{"statusCounts":{},"actionableCount":0,"topicCounts":{},"oldest":null,"newest":null}')
     
     jq -n \
         --argjson manifest_bytes "$current_bytes" \
@@ -501,8 +489,7 @@ get_manifest_stats() {
                 "topicCounts": $stats.topicCounts,
                 "ageStats": {
                     "oldestEntry": $stats.oldest,
-                    "newestEntry": $stats.newest,
-                    "distribution": $stats.ageDistribution
+                    "newestEntry": $stats.newest
                 }
             }
         }'

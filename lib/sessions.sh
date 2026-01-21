@@ -2456,9 +2456,420 @@ discover_available_epics() {
 }
 
 # ============================================================================
+# SESSION CONSISTENCY VALIDATION (T1946)
+# ============================================================================
+
+# Validate consistency between session registry and context state files
+# Checks:
+#   1. sessions.json status matches reality (not pointing to deleted sessions)
+#   2. .current-session file points to valid active/suspended session
+#   3. TTY bindings reference existing sessions
+#   4. Context state files have corresponding sessions
+# Args:
+#   $1 - repair mode: "check" (default), "repair", "verbose"
+# Returns:
+#   0 = consistent, 1 = inconsistencies found (check), repaired (repair)
+# Output: JSON report of findings
+session_validate_consistency() {
+    local mode="${1:-check}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    local issues=()
+    local repairs=()
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Helper to add issue
+    add_issue() {
+        local type="$1" source="$2" detail="$3" fix="$4"
+        issues+=("{\"type\":\"$type\",\"source\":\"$source\",\"detail\":\"$detail\",\"fix\":\"$fix\"}")
+    }
+
+    # 1. Check sessions.json exists
+    if [[ ! -f "$sessions_file" ]]; then
+        jq -nc \
+            --arg ts "$timestamp" \
+            '{
+                success: true,
+                consistent: true,
+                message: "No sessions.json - nothing to validate",
+                timestamp: $ts,
+                issues: [],
+                repairs: []
+            }'
+        return 0
+    fi
+
+    local sessions_content
+    sessions_content=$(cat "$sessions_file")
+
+    # Get all session IDs and their statuses
+    local session_ids session_statuses
+    session_ids=$(echo "$sessions_content" | jq -r '.sessions[].id' 2>/dev/null)
+
+    # 2. Check .current-session file consistency
+    local current_session_file="${cleo_dir}/.current-session"
+    if [[ -f "$current_session_file" ]]; then
+        local bound_session
+        bound_session=$(cat "$current_session_file" 2>/dev/null | tr -d '[:space:]')
+
+        if [[ -n "$bound_session" ]]; then
+            # Check if session exists in registry
+            local session_exists session_status
+            session_exists=$(echo "$sessions_content" | jq --arg id "$bound_session" \
+                '[.sessions[] | select(.id == $id)] | length')
+
+            if [[ "$session_exists" -eq 0 ]]; then
+                add_issue "orphan_binding" ".current-session" \
+                    "Points to non-existent session: $bound_session" \
+                    "rm $current_session_file"
+
+                if [[ "$mode" == "repair" ]]; then
+                    rm -f "$current_session_file"
+                    repairs+=("Removed .current-session pointing to $bound_session")
+                fi
+            else
+                # Check if session is still usable (active or suspended)
+                session_status=$(echo "$sessions_content" | jq -r --arg id "$bound_session" \
+                    '.sessions[] | select(.id == $id) | .status')
+
+                if [[ "$session_status" != "active" && "$session_status" != "suspended" ]]; then
+                    add_issue "stale_binding" ".current-session" \
+                        "Points to $session_status session: $bound_session" \
+                        "rm $current_session_file"
+
+                    if [[ "$mode" == "repair" ]]; then
+                        rm -f "$current_session_file"
+                        repairs+=("Removed .current-session pointing to $session_status session")
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    # 3. Check TTY bindings consistency
+    local tty_dir
+    tty_dir=$(get_tty_bindings_dir 2>/dev/null || echo "${cleo_dir}/tty-bindings")
+
+    if [[ -d "$tty_dir" ]]; then
+        for binding_file in "$tty_dir"/*; do
+            [[ -f "$binding_file" ]] || continue
+
+            local tty_session
+            tty_session=$(jq -r '.sessionId // empty' "$binding_file" 2>/dev/null)
+
+            if [[ -n "$tty_session" ]]; then
+                local exists
+                exists=$(echo "$sessions_content" | jq --arg id "$tty_session" \
+                    '[.sessions[] | select(.id == $id)] | length')
+
+                if [[ "$exists" -eq 0 ]]; then
+                    local tty_name
+                    tty_name=$(basename "$binding_file")
+                    add_issue "orphan_tty_binding" "tty-bindings/$tty_name" \
+                        "TTY bound to non-existent session: $tty_session" \
+                        "rm $binding_file"
+
+                    if [[ "$mode" == "repair" ]]; then
+                        rm -f "$binding_file"
+                        repairs+=("Removed TTY binding for $tty_session")
+                    fi
+                fi
+            fi
+        done
+    fi
+
+    # 4. Check context state files consistency
+    local context_dir
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states" 2>/dev/null)
+    local project_root="${cleo_dir%/.cleo}"
+    local full_context_dir="${project_root}/${context_dir}"
+
+    # Check new location
+    if [[ -d "$full_context_dir" ]]; then
+        while IFS= read -r -d '' ctx_file; do
+            local filename ctx_session
+            filename=$(basename "$ctx_file")
+            ctx_session=$(echo "$filename" | sed -n 's/^context-state-\(.*\)\.json$/\1/p')
+
+            if [[ -n "$ctx_session" ]]; then
+                local exists status
+                exists=$(echo "$sessions_content" | jq --arg id "$ctx_session" \
+                    '[.sessions[] | select(.id == $id)] | length')
+
+                if [[ "$exists" -eq 0 ]]; then
+                    # Check history too
+                    local in_history
+                    in_history=$(echo "$sessions_content" | jq --arg id "$ctx_session" \
+                        '[.sessionHistory[] | select(.id == $id)] | length')
+
+                    if [[ "$in_history" -eq 0 ]]; then
+                        add_issue "orphan_context_state" "context-states/$filename" \
+                            "Context state for unknown session: $ctx_session" \
+                            "rm $ctx_file"
+
+                        if [[ "$mode" == "repair" ]]; then
+                            rm -f "$ctx_file"
+                            repairs+=("Removed orphan context state for $ctx_session")
+                        fi
+                    fi
+                else
+                    # Session exists - check if context file should be cleaned
+                    status=$(echo "$sessions_content" | jq -r --arg id "$ctx_session" \
+                        '.sessions[] | select(.id == $id) | .status')
+
+                    if [[ "$status" == "ended" || "$status" == "closed" || "$status" == "archived" ]]; then
+                        add_issue "stale_context_state" "context-states/$filename" \
+                            "Context state for $status session: $ctx_session" \
+                            "rm $ctx_file"
+
+                        if [[ "$mode" == "repair" ]]; then
+                            rm -f "$ctx_file"
+                            repairs+=("Removed stale context state for $status session")
+                        fi
+                    fi
+                fi
+            fi
+        done < <(find "$full_context_dir" -name "context-state-*.json" -type f -print0 2>/dev/null)
+    fi
+
+    # Check legacy location too
+    while IFS= read -r -d '' ctx_file; do
+        local filename ctx_session
+        filename=$(basename "$ctx_file")
+
+        [[ "$filename" == ".context-state.json" ]] && continue
+
+        ctx_session=$(echo "$filename" | sed -n 's/^\.context-state-\(.*\)\.json$/\1/p')
+
+        if [[ -n "$ctx_session" ]]; then
+            local exists
+            exists=$(echo "$sessions_content" | jq --arg id "$ctx_session" \
+                '[.sessions[] | select(.id == $id)] | length')
+
+            if [[ "$exists" -eq 0 ]]; then
+                add_issue "orphan_legacy_context" "$filename" \
+                    "Legacy context state for unknown session: $ctx_session" \
+                    "rm $ctx_file"
+
+                if [[ "$mode" == "repair" ]]; then
+                    rm -f "$ctx_file"
+                    repairs+=("Removed orphan legacy context state for $ctx_session")
+                fi
+            fi
+        fi
+    done < <(find "$cleo_dir" -maxdepth 1 -name ".context-state-*.json" -type f -print0 2>/dev/null)
+
+    # 5. Check session registry internal consistency
+    # Verify active sessions have valid focus tasks
+    while read -r session_id; do
+        [[ -z "$session_id" ]] && continue
+
+        local session_info focus_task scope_ids
+        session_info=$(echo "$sessions_content" | jq -c --arg id "$session_id" \
+            '.sessions[] | select(.id == $id)')
+
+        focus_task=$(echo "$session_info" | jq -r '.focus.currentTask // ""')
+        scope_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+
+        if [[ -n "$focus_task" ]]; then
+            local in_scope
+            in_scope=$(echo "$scope_ids" | jq --arg id "$focus_task" 'index($id)')
+
+            if [[ "$in_scope" == "null" ]]; then
+                add_issue "focus_out_of_scope" "sessions.json" \
+                    "Session $session_id focus task $focus_task not in computed scope" \
+                    "cleo focus set <valid-task> --session $session_id"
+            fi
+        fi
+    done <<< "$(echo "$sessions_content" | jq -r '.sessions[] | select(.status == "active") | .id')"
+
+    # Build result
+    local issue_count=${#issues[@]}
+    local repair_count=${#repairs[@]}
+    local issues_json="[]"
+    local repairs_json="[]"
+
+    if [[ $issue_count -gt 0 ]]; then
+        issues_json=$(printf '%s\n' "${issues[@]}" | jq -s '.')
+    fi
+
+    if [[ $repair_count -gt 0 ]]; then
+        repairs_json=$(printf '%s\n' "${repairs[@]}" | jq -Rs 'split("\n") | map(select(length > 0))')
+    fi
+
+    local consistent="true"
+    [[ $issue_count -gt 0 && "$mode" == "check" ]] && consistent="false"
+    [[ "$mode" == "repair" && $repair_count -gt 0 ]] && consistent="true"
+
+    jq -nc \
+        --arg ts "$timestamp" \
+        --arg mode "$mode" \
+        --argjson issues "$issues_json" \
+        --argjson repairs "$repairs_json" \
+        --argjson issueCount "$issue_count" \
+        --argjson repairCount "$repair_count" \
+        --argjson consistent "$consistent" \
+        '{
+            success: true,
+            consistent: $consistent,
+            mode: $mode,
+            timestamp: $ts,
+            issueCount: $issueCount,
+            repairCount: $repairCount,
+            issues: $issues,
+            repairs: $repairs
+        }'
+
+    if [[ $issue_count -gt 0 && "$mode" == "check" ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Repair session status inconsistencies
+# Wrapper for session_validate_consistency with repair mode
+# Args: $1 - verbose (optional: "true" for detailed output)
+# Returns: 0 on success, 1 on failure
+session_repair_consistency() {
+    local verbose="${1:-false}"
+
+    local result
+    result=$(session_validate_consistency "repair")
+
+    if [[ "$verbose" == "true" ]]; then
+        echo "$result" | jq '.'
+    else
+        local repair_count
+        repair_count=$(echo "$result" | jq -r '.repairCount')
+
+        if [[ "$repair_count" -gt 0 ]]; then
+            echo "Repaired $repair_count inconsistencies"
+        else
+            echo "No inconsistencies found"
+        fi
+    fi
+
+    return 0
+}
+
+# Synchronize session status atomically across all sources
+# Ensures status updates propagate to: sessions.json, context files, bindings
+# Args:
+#   $1 - session ID
+#   $2 - new status (active|suspended|ended|closed|archived)
+#   $3 - optional note
+# Returns: 0 on success, non-zero on failure
+session_sync_status() {
+    local session_id="$1"
+    local new_status="$2"
+    local note="${3:-}"
+
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    if [[ ! -f "$sessions_file" ]]; then
+        echo "Error: Sessions file not found" >&2
+        return 1
+    fi
+
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Lock sessions.json
+    local sessions_fd
+    if ! lock_file "$sessions_file" sessions_fd 30; then
+        echo "Error: Failed to acquire lock on sessions.json" >&2
+        return $FO_LOCK_FAILED
+    fi
+
+    trap "unlock_file $sessions_fd" EXIT ERR
+
+    local sessions_content
+    sessions_content=$(cat "$sessions_file")
+
+    # Verify session exists
+    local exists
+    exists=$(echo "$sessions_content" | jq --arg id "$session_id" \
+        '[.sessions[] | select(.id == $id)] | length')
+
+    if [[ "$exists" -eq 0 ]]; then
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Session not found: $session_id" >&2
+        return 31  # E_SESSION_NOT_FOUND
+    fi
+
+    # Update session status in registry
+    local updated_sessions
+    updated_sessions=$(echo "$sessions_content" | jq \
+        --arg id "$session_id" \
+        --arg status "$new_status" \
+        --arg ts "$timestamp" \
+        --arg note "$note" \
+        '
+        .sessions = [.sessions[] |
+            if .id == $id then
+                .status = $status |
+                .lastActivity = $ts |
+                (if $note != "" then .focus.sessionNote = $note else . end)
+            else . end
+        ] |
+        ._meta.lastModified = $ts
+        ')
+
+    # Save updated sessions.json
+    local pretty_json
+    pretty_json=$(echo "$updated_sessions" | jq '.')
+    if ! aw_atomic_write "$sessions_file" "$pretty_json" "${MAX_BACKUPS:-10}"; then
+        unlock_file "$sessions_fd"
+        trap - EXIT ERR
+        echo "Error: Failed to save sessions.json" >&2
+        return 1
+    fi
+
+    unlock_file "$sessions_fd"
+    trap - EXIT ERR
+
+    # Sync dependent artifacts based on new status
+    case "$new_status" in
+        ended|closed|archived)
+            # Clean up .current-session if it points to this session
+            local current_session_file="${cleo_dir}/.current-session"
+            if [[ -f "$current_session_file" ]]; then
+                local bound_id
+                bound_id=$(cat "$current_session_file" 2>/dev/null | tr -d '[:space:]')
+                if [[ "$bound_id" == "$session_id" ]]; then
+                    rm -f "$current_session_file"
+                fi
+            fi
+
+            # Clear TTY bindings for this session
+            if declare -f clear_session_tty_bindings >/dev/null 2>&1; then
+                clear_session_tty_bindings "$session_id" 2>/dev/null || true
+            fi
+
+            # Clean up context state file based on config
+            cleanup_context_state_for_session "$session_id" "$new_status" 2>/dev/null || true
+            ;;
+        active|suspended)
+            # No cleanup needed - these are resumable states
+            ;;
+    esac
+
+    return 0
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
+export -f session_validate_consistency
+export -f session_repair_consistency
+export -f session_sync_status
 export -f get_sessions_file
 export -f is_multi_session_enabled
 export -f generate_session_id

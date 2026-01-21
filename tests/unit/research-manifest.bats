@@ -898,3 +898,304 @@ _create_sample_manifest() {
     local error_msg=$(echo "$output" | jq -r '.result.errors[0]')
     assert_output --partial "Line 2"
 }
+
+# =============================================================================
+# manifest_check_size Tests
+# =============================================================================
+
+@test "manifest_check_size returns file not found when manifest missing" {
+    rm -f "$MANIFEST_FILE"
+
+    run manifest_check_size 100000
+    # Returns EXIT_NO_DATA (100) when file doesn't exist
+    [[ "$status" -eq 100 ]]
+
+    assert_valid_json
+    local file_exists=$(echo "$output" | jq -r '.result.fileExists')
+    [[ "$file_exists" == "false" ]]
+}
+
+@test "manifest_check_size calculates size correctly" {
+    _create_sample_manifest
+
+    run manifest_check_size 100000
+    assert_success
+    assert_valid_json
+
+    local file_exists=$(echo "$output" | jq -r '.result.fileExists')
+    [[ "$file_exists" == "true" ]]
+
+    local current_bytes=$(echo "$output" | jq -r '.result.currentBytes')
+    [[ "$current_bytes" -gt 0 ]]
+}
+
+@test "manifest_check_size detects when archival needed" {
+    _create_sample_manifest
+
+    # Set threshold very low to trigger archival
+    run manifest_check_size 100
+    assert_success
+    assert_valid_json
+
+    local needs_archival=$(echo "$output" | jq -r '.result.needsArchival')
+    [[ "$needs_archival" == "true" ]]
+
+    local percent_used=$(echo "$output" | jq -r '.result.percentUsed')
+    [[ "$percent_used" -gt 100 ]]
+}
+
+@test "manifest_check_size reports entry count" {
+    _create_sample_manifest
+
+    run manifest_check_size 100000
+    assert_success
+    assert_valid_json
+
+    local entry_count=$(echo "$output" | jq -r '.result.entryCount')
+    [[ "$entry_count" -eq 3 ]]
+}
+
+# =============================================================================
+# manifest_archive_old Tests
+# =============================================================================
+
+@test "manifest_archive_old returns no data when manifest missing" {
+    rm -f "$MANIFEST_FILE"
+
+    run manifest_archive_old 50
+    [[ "$status" -eq 100 ]]
+
+    assert_valid_json
+    echo "$output" | jq -e '.result.entriesArchived == 0' >/dev/null
+}
+
+@test "manifest_archive_old handles single entry manifest" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    echo '{"id":"single","file":"t.md","title":"T","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' > "$MANIFEST_FILE"
+
+    run manifest_archive_old 50
+    # Too few entries to archive
+    [[ "$status" -eq 100 ]]
+
+    assert_valid_json
+    echo "$output" | jq -e '.result.message | contains("Too few")' >/dev/null
+}
+
+@test "manifest_archive_old archives percentage of entries" {
+    _create_sample_manifest
+
+    # Archive 50% = 1-2 entries out of 3
+    run manifest_archive_old 50
+    assert_success
+    assert_valid_json
+
+    local archived=$(echo "$output" | jq -r '.result.entriesArchived')
+    [[ "$archived" -ge 1 ]]
+
+    # Verify archive file created
+    [[ -f "${RESEARCH_OUTPUT_DIR}/MANIFEST-ARCHIVE.jsonl" ]]
+}
+
+@test "manifest_archive_old preserves kept entries" {
+    _create_sample_manifest
+    local original_count=$(wc -l < "$MANIFEST_FILE" | tr -d ' ')
+
+    run manifest_archive_old 50
+    assert_success
+
+    local archived=$(echo "$output" | jq -r '.result.entriesArchived')
+    local kept=$(echo "$output" | jq -r '.result.entriesKept')
+
+    # Verify counts add up
+    [[ $((archived + kept)) -eq $original_count ]]
+
+    # Verify manifest has expected number of entries
+    local new_count=$(wc -l < "$MANIFEST_FILE" | tr -d ' ')
+    [[ "$new_count" -eq "$kept" ]]
+}
+
+# =============================================================================
+# manifest_rotate Tests
+# =============================================================================
+
+@test "manifest_rotate skips when below threshold" {
+    _create_sample_manifest
+
+    run manifest_rotate 1000000 50
+    # Returns EXIT_NO_CHANGE (102) when below threshold
+    [[ "$status" -eq 102 ]]
+
+    assert_valid_json
+    local action=$(echo "$output" | jq -r '.result.action')
+    [[ "$action" == "none" ]]
+}
+
+@test "manifest_rotate archives when over threshold" {
+    _create_sample_manifest
+
+    # Very low threshold to force archival
+    run manifest_rotate 100 50
+    assert_success
+    assert_valid_json
+
+    local action=$(echo "$output" | jq -r '.result.action')
+    [[ "$action" == "archived" ]]
+
+    local entries_archived=$(echo "$output" | jq -r '.result.entriesArchived')
+    [[ "$entries_archived" -ge 1 ]]
+}
+
+@test "manifest_rotate reports before/after bytes" {
+    _create_sample_manifest
+
+    run manifest_rotate 100 50
+    assert_success
+    assert_valid_json
+
+    local bytes_before=$(echo "$output" | jq -r '.result.bytesBefore')
+    local bytes_after=$(echo "$output" | jq -r '.result.bytesAfter')
+
+    [[ "$bytes_before" -gt "$bytes_after" ]]
+}
+
+# =============================================================================
+# get_manifest_stats Tests
+# =============================================================================
+
+@test "get_manifest_stats returns error when manifest missing" {
+    rm -f "$MANIFEST_FILE"
+
+    run get_manifest_stats
+    assert_failure
+
+    assert_valid_json
+    local error_code=$(echo "$output" | jq -r '.error.code')
+    [[ "$error_code" == "E_NOT_FOUND" ]]
+}
+
+@test "get_manifest_stats handles empty manifest" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    touch "$MANIFEST_FILE"
+
+    run get_manifest_stats
+    assert_success
+    assert_valid_json
+
+    local entry_count=$(echo "$output" | jq -r '.result.manifest.entries')
+    [[ "$entry_count" -eq 0 ]]
+}
+
+@test "get_manifest_stats returns comprehensive stats" {
+    _create_sample_manifest
+
+    run get_manifest_stats
+    assert_success
+    assert_valid_json
+
+    # Check manifest section
+    echo "$output" | jq -e '.result.manifest.bytes > 0' >/dev/null
+    echo "$output" | jq -e '.result.manifest.entries == 3' >/dev/null
+
+    # Check status counts
+    echo "$output" | jq -e '.result.statusCounts | has("complete")' >/dev/null
+
+    # Check actionable count exists
+    echo "$output" | jq -e '.result | has("actionableCount")' >/dev/null
+}
+
+# =============================================================================
+# compact_manifest Tests
+# =============================================================================
+
+@test "compact_manifest handles empty manifest" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    touch "$MANIFEST_FILE"
+
+    run compact_manifest
+    [[ "$status" -eq 100 ]]
+
+    assert_valid_json
+    echo "$output" | jq -e '.result.entriesBefore == 0' >/dev/null
+}
+
+@test "compact_manifest removes duplicates by ID" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    # Two entries with same ID
+    echo '{"id":"dup-1","file":"t1.md","title":"T1","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' > "$MANIFEST_FILE"
+    echo '{"id":"dup-1","file":"t2.md","title":"T2 Updated","date":"2025-01-18","status":"complete","topics":[],"key_findings":[],"actionable":false}' >> "$MANIFEST_FILE"
+    echo '{"id":"unique","file":"t3.md","title":"T3","date":"2025-01-17","status":"partial","topics":[],"key_findings":[],"actionable":true}' >> "$MANIFEST_FILE"
+
+    run compact_manifest
+    assert_success
+    assert_valid_json
+
+    local entries_before=$(echo "$output" | jq -r '.result.entriesBefore')
+    local entries_after=$(echo "$output" | jq -r '.result.entriesAfter')
+
+    [[ "$entries_before" -eq 3 ]]
+    [[ "$entries_after" -eq 2 ]]
+}
+
+@test "compact_manifest removes archived status entries" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    echo '{"id":"active-1","file":"t1.md","title":"T1","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' > "$MANIFEST_FILE"
+    echo '{"id":"archived-1","file":"t2.md","title":"T2","date":"2025-01-17","status":"archived","topics":[],"key_findings":[],"actionable":false}' >> "$MANIFEST_FILE"
+
+    run compact_manifest
+    assert_success
+    assert_valid_json
+
+    local entries_after=$(echo "$output" | jq -r '.result.entriesAfter')
+    [[ "$entries_after" -eq 1 ]]
+
+    # Verify archived entry is removed
+    local remaining=$(cat "$MANIFEST_FILE")
+    ! echo "$remaining" | grep -q "archived-1"
+}
+
+# =============================================================================
+# list_archived_entries Tests
+# =============================================================================
+
+@test "list_archived_entries returns empty when no archive" {
+    rm -f "${RESEARCH_OUTPUT_DIR}/MANIFEST-ARCHIVE.jsonl"
+
+    run list_archived_entries
+    [[ "$status" -eq 100 ]]
+
+    assert_valid_json
+    echo "$output" | jq -e '.result.total == 0' >/dev/null
+}
+
+@test "list_archived_entries returns archived entries" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    echo '{"id":"arch-1","file":"t1.md","title":"Archived 1","date":"2025-01-15","status":"complete","archivedAt":"2025-01-17T10:00:00Z","topics":[],"key_findings":[],"actionable":false}' > "${RESEARCH_OUTPUT_DIR}/MANIFEST-ARCHIVE.jsonl"
+    echo '{"id":"arch-2","file":"t2.md","title":"Archived 2","date":"2025-01-16","status":"complete","archivedAt":"2025-01-17T11:00:00Z","topics":[],"key_findings":[],"actionable":false}' >> "${RESEARCH_OUTPUT_DIR}/MANIFEST-ARCHIVE.jsonl"
+
+    run list_archived_entries
+    assert_success
+    assert_valid_json
+
+    local total=$(echo "$output" | jq -r '.result.total')
+    [[ "$total" -eq 2 ]]
+
+    local returned=$(echo "$output" | jq -r '.result.returned')
+    [[ "$returned" -eq 2 ]]
+}
+
+@test "list_archived_entries respects limit" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    for i in 1 2 3 4 5; do
+        echo "{\"id\":\"arch-$i\",\"file\":\"t$i.md\",\"title\":\"Archived $i\",\"date\":\"2025-01-$((10+i))\",\"status\":\"complete\",\"archivedAt\":\"2025-01-17T1$i:00:00Z\",\"topics\":[],\"key_findings\":[],\"actionable\":false}" >> "${RESEARCH_OUTPUT_DIR}/MANIFEST-ARCHIVE.jsonl"
+    done
+
+    run list_archived_entries --limit 2
+    assert_success
+    assert_valid_json
+
+    local total=$(echo "$output" | jq -r '.result.total')
+    [[ "$total" -eq 5 ]]
+
+    local returned=$(echo "$output" | jq -r '.result.returned')
+    [[ "$returned" -eq 2 ]]
+}
