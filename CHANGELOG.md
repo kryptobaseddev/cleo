@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Multi-session isolation now works correctly with hybrid binding architecture (T1356)
+- Session resolution uses 4-priority cascade: --session flag, CLEO_SESSION env, TTY binding, .current-session
+- Per-session context state files now written correctly
+
 ## [0.61.0] - 2026-01-21
 
 ### Added

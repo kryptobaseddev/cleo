@@ -1,9 +1,9 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "lastUpdated": "2026-01-21",
-    "totalCommands": 53,
+    "totalCommands": 54,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -40,6 +40,7 @@
       "list",
       "log",
       "next",
+      "orchestrator",
       "phases",
       "research",
       "show",
@@ -728,6 +729,46 @@
       "agentRelevance": "critical"
     },
     {
+      "name": "orchestrator",
+      "script": "orchestrator.sh",
+      "category": "read",
+      "doc": "orchestrator.md",
+      "synopsis": "Multi-agent coordination for parallel task execution with dependency analysis",
+      "flags": [
+        "--epic",
+        "--tokens",
+        "--template",
+        "--subagent",
+        "--manifest",
+        "--orchestrator",
+        "--install",
+        "--verify"
+      ],
+      "subcommands": [
+        "start",
+        "status",
+        "next",
+        "ready",
+        "context",
+        "spawn",
+        "analyze",
+        "parallel",
+        "check",
+        "validate",
+        "skill"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        4,
+        52
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "critical",
+      "note": "Part of Orchestrator Protocol - enables LLM agents to coordinate parallel work via subagents"
+    },
+    {
       "name": "phase",
       "script": "phase.sh",
       "category": "write",
@@ -1063,15 +1104,27 @@
       "script": "session.sh",
       "category": "write",
       "doc": "session.md",
-      "synopsis": "Work session lifecycle (start, end, status)",
+      "synopsis": "Work session lifecycle (start, end, status, gc for garbage collection)",
       "flags": [
         "--format",
-        "--quiet"
+        "--quiet",
+        "--dry-run",
+        "--force",
+        "--verbose",
+        "--orphans",
+        "--stale"
       ],
       "subcommands": [
         "start",
         "end",
-        "status"
+        "status",
+        "suspend",
+        "resume",
+        "close",
+        "list",
+        "show",
+        "switch",
+        "gc"
       ],
       "exitCodes": [
         0,

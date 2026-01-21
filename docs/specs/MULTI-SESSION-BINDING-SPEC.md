@@ -1,7 +1,7 @@
 # Multi-Session Binding Specification
 
 **Version**: 1.0.0
-**Status**: DRAFT
+**Status**: ACTIVE
 **Created**: 2025-12-29
 **Task**: T1016
 **Related**: MULTI-SESSION-SPEC.md, LLM-AGENT-FIRST-SPEC.md
