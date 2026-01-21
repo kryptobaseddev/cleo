@@ -1,0 +1,555 @@
+# Skill Development Tutorial
+
+**Version**: 1.0.0
+**Status**: Active
+**Last Updated**: 2026-01-21
+
+This tutorial covers creating skills for CLEO's multi-agent architecture. Skills are modular prompt packages that extend Claude Code's capabilities with specialized knowledge and workflows.
+
+---
+
+## Overview
+
+### What is a Skill?
+
+A skill is a self-contained package that provides:
+
+1. **Specialized Knowledge** - Domain expertise packaged as prompt instructions
+2. **Workflow Patterns** - Proven patterns for multi-step tasks
+3. **Tool Integration** - Instructions for working with MCP servers and APIs
+4. **Reusable Components** - Scripts, references, and assets for complex tasks
+
+Think of skills as "onboarding guides" for specific domains. They transform a general-purpose LLM agent into a specialized agent with procedural knowledge.
+
+### When to Create a Skill
+
+| Create a Skill When | Do Not Create When |
+|---------------------|-------------------|
+| Task requires multi-step workflow | Single-step operations |
+| Domain expertise is non-obvious | Claude's native knowledge suffices |
+| Same workflow executed repeatedly | One-off task |
+| Coordination with task system needed | Direct execution is faster |
+| Subagent protocol compliance required | No orchestrator involvement |
+
+---
+
+## Directory Structure
+
+Skills live in `skills/{skill-name}/`:
+
+```
+skills/ct-my-skill/
+├── SKILL.md                 # Required: Main skill instructions
+├── references/              # Optional: Supporting documentation
+│   ├── patterns.md
+│   └── examples.md
+├── scripts/                 # Optional: Executable code
+│   └── helper.py
+└── assets/                  # Optional: Output templates
+    └── template.md
+```
+
+### Naming Conventions
+
+- **Directory**: `ct-{descriptive-name}` (e.g., `ct-research-agent`, `ct-task-executor`)
+- **SKILL.md**: Always uppercase, always present
+- **References**: Lowercase with hyphens (e.g., `output-patterns.md`)
+
+---
+
+## SKILL.md Anatomy
+
+Every skill requires a `SKILL.md` file with YAML frontmatter and markdown body.
+
+### Frontmatter (Required)
+
+```yaml
+---
+name: ct-my-skill
+description: |
+  One-paragraph description of what this skill does.
+  Use when user says "keyword1", "keyword2", "phrase that triggers skill",
+  or needs guidance on specific domain tasks.
+version: 1.0.0
+---
+```
+
+**Critical**: The `description` field is the **primary trigger mechanism**. Claude reads this to determine when to invoke the skill. Include:
+
+- What the skill does
+- Specific trigger phrases (what users might say)
+- Use cases and contexts
+
+Do NOT put "When to Use" sections in the body - only frontmatter triggers skill loading.
+
+### Body Sections
+
+```markdown
+# Skill Name
+
+You are a [role description]. Your role is to [primary function].
+
+## Capabilities
+
+1. **Capability 1** - Brief description
+2. **Capability 2** - Brief description
+
+---
+
+## Parameters (Orchestrator-Provided)
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `{{TASK_ID}}` | Current task identifier | Yes |
+| `{{DATE}}` | Current date (YYYY-MM-DD) | Yes |
+| `{{TOPIC_SLUG}}` | URL-safe topic name | Yes |
+
+---
+
+## Task System Integration
+
+@skills/_shared/task-system-integration.md
+
+### Execution Sequence
+
+1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
+2. Set focus (if not pre-set): `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+3. Do skill-specific work
+4. Write output: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+5. Append manifest: `{{MANIFEST_PATH}}`
+6. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
+7. Return summary message
+
+---
+
+## Subagent Protocol
+
+@skills/_shared/subagent-protocol-base.md
+
+### Output Requirements
+
+1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return content in response
+
+---
+
+## Methodology
+
+[Skill-specific workflow and process details]
+
+---
+
+## Output File Format
+
+[Define expected output structure]
+
+---
+
+## Manifest Entry Format
+
+[Define JSONL entry format]
+
+---
+
+## Completion Checklist
+
+- [ ] Task focus set
+- [ ] Work completed
+- [ ] Output file written
+- [ ] Manifest entry appended
+- [ ] Task completed
+- [ ] Response is ONLY summary message
+
+---
+
+## Error Handling
+
+[Partial/blocked status handling]
+```
+
+---
+
+## Subagent Protocol Compliance
+
+Skills operating as subagents under an orchestrator **MUST** follow the subagent protocol.
+
+### Output Requirements (RFC 2119)
+
+| ID | Rule | Rationale |
+|----|------|-----------|
+| OUT-001 | MUST write output to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md` | Persistent storage for orchestrator |
+| OUT-002 | MUST append ONE line to `{{MANIFEST_PATH}}` | O(1) lookup of key findings |
+| OUT-003 | MUST return ONLY summary message | Preserves orchestrator context |
+| OUT-004 | MUST NOT return content in response | Prevents context bloat |
+
+### Why This Matters
+
+The orchestrator reads ONLY manifest entries, never full output files. Returning content in your response bloats the orchestrator's context window and violates ORC-005 (context budget).
+
+### Manifest Entry Format
+
+Append ONE line (no pretty-printing):
+
+```json
+{"id":"topic-slug-2026-01-21","file":"2026-01-21_topic-slug.md","title":"Human Title","date":"2026-01-21","status":"complete","topics":["topic1","topic2"],"key_findings":["Finding 1","Finding 2","Finding 3"],"actionable":true,"needs_followup":[],"linked_tasks":["T1000","T1234"]}
+```
+
+**Field Guidelines**:
+
+| Field | Guideline |
+|-------|-----------|
+| `key_findings` | 3-7 one-sentence findings, action-oriented |
+| `actionable` | `true` if findings require implementation work |
+| `needs_followup` | Task IDs requiring attention based on findings |
+| `topics` | 2-5 categorization tags for discoverability |
+| `status` | `complete`, `partial`, or `blocked` |
+
+---
+
+## Return Message Standards
+
+Skills MUST return a standardized message based on completion status:
+
+### Complete
+
+All work finished successfully:
+
+```
+Research complete. See MANIFEST.jsonl for summary.
+```
+
+### Partial
+
+Some work completed but blockers exist:
+
+```
+Research partial. See MANIFEST.jsonl for details.
+```
+
+Set manifest `"status": "partial"` and document what was achieved plus blocking reasons.
+
+### Blocked
+
+Cannot proceed with work:
+
+```
+Research blocked. See MANIFEST.jsonl for blocker details.
+```
+
+Set manifest `"status": "blocked"` and do NOT complete the task. Leave for orchestrator decision.
+
+---
+
+## Token Injection
+
+Tokens use the `{{TOKEN_NAME}}` format and are replaced before skill execution.
+
+### Required Tokens
+
+Always provided by orchestrator:
+
+| Token | Pattern | Example |
+|-------|---------|---------|
+| `{{TASK_ID}}` | `^T[0-9]+$` | `T1234` |
+| `{{DATE}}` | `^[0-9]{4}-[0-9]{2}-[0-9]{2}$` | `2026-01-21` |
+| `{{TOPIC_SLUG}}` | `^[a-zA-Z0-9_-]+$` | `auth-research` |
+
+### Context Tokens (Optional)
+
+| Token | Default | Description |
+|-------|---------|-------------|
+| `{{EPIC_ID}}` | `""` | Parent epic ID |
+| `{{SESSION_ID}}` | `""` | Session identifier |
+| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` | Output directory |
+| `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` | Manifest location |
+
+### Task Command Tokens
+
+Portable commands that work with CLEO (or other task systems):
+
+| Token | CLEO Default |
+|-------|--------------|
+| `{{TASK_SHOW_CMD}}` | `cleo show` |
+| `{{TASK_FOCUS_CMD}}` | `cleo focus set` |
+| `{{TASK_COMPLETE_CMD}}` | `cleo complete` |
+| `{{TASK_LINK_CMD}}` | `cleo research link` |
+
+### Using @ References
+
+Reference shared protocols in SKILL.md:
+
+```markdown
+## Task System Integration
+
+@skills/_shared/task-system-integration.md
+
+## Subagent Protocol
+
+@skills/_shared/subagent-protocol-base.md
+```
+
+This keeps SKILL.md lean while ensuring protocol compliance.
+
+---
+
+## Debugging with SKILL_DISPATCH_DEBUG
+
+Enable debug logging to troubleshoot skill selection and injection:
+
+```bash
+# Enable skill dispatch debugging
+export SKILL_DISPATCH_DEBUG=1
+cleo orchestrate --epic T001
+
+# Sample output
+[skill-dispatch] DEBUG: Matching skill for task T1234
+[skill-dispatch] DEBUG: Checking triggers: ["research", "investigate"]
+[skill-dispatch] DEBUG: Selected skill: ct-research-agent
+
+# Disable debugging
+unset SKILL_DISPATCH_DEBUG
+```
+
+### Debug Environment Variables
+
+| Variable | Component | Prefix |
+|----------|-----------|--------|
+| `SKILL_DISPATCH_DEBUG` | Skill selection & injection | `[skill-dispatch]` |
+| `ORCHESTRATOR_SPAWN_DEBUG` | Agent spawning lifecycle | `[orchestrator-spawn]` |
+| `SUBAGENT_INJECT_DEBUG` | Prompt template injection | `[subagent-inject]` |
+
+### Common Issues
+
+**Wrong skill selected?**
+
+Check task labels and title keywords:
+
+```bash
+export SKILL_DISPATCH_DEBUG=1
+cleo show T001 --format json | jq '.task.labels, .task.title'
+```
+
+Verify these match expected skill triggers in manifest.json.
+
+---
+
+## Testing Your Skill
+
+### 1. Validate SKILL.md Structure
+
+Ensure frontmatter is valid YAML:
+
+```bash
+# Check YAML syntax
+head -20 skills/ct-my-skill/SKILL.md | yq .
+```
+
+### 2. Verify Registration
+
+Add skill to `skills/manifest.json`:
+
+```json
+{
+  "name": "ct-my-skill",
+  "version": "1.0.0",
+  "description": "Brief description for manifest",
+  "path": "skills/ct-my-skill",
+  "tags": ["category1", "category2"],
+  "status": "active",
+  "capabilities": {
+    "inputs": ["TASK_ID", "DATE", "TOPIC_SLUG"],
+    "outputs": ["output-file", "manifest-entry"],
+    "dependencies": [],
+    "dispatch_triggers": ["trigger phrase 1", "trigger phrase 2"],
+    "compatible_subagent_types": ["general-purpose"]
+  }
+}
+```
+
+### 3. Test Skill Invocation
+
+```bash
+# Test via skill tool
+Skill: my-skill
+
+# Or test via trigger phrase
+"please my-skill-trigger-phrase for this task"
+```
+
+### 4. Verify Output
+
+Check output file and manifest:
+
+```bash
+# Check output file created
+ls -la claudedocs/research-outputs/
+
+# Verify manifest entry
+tail -1 claudedocs/research-outputs/MANIFEST.jsonl | jq .
+```
+
+---
+
+## Skill Examples
+
+### Simple Skill: ct-validator
+
+A validation skill with minimal complexity:
+
+```yaml
+---
+name: ct-validator
+description: |
+  Compliance validation agent for verifying system, document, and code compliance.
+  Use when user says "validate", "verify", "check compliance", "audit",
+  "compliance check", "verify conformance", "check requirements".
+version: 1.0.0
+---
+```
+
+Key characteristics:
+- Single-purpose focus (validation)
+- Clear trigger phrases
+- Structured output format (PASS/PARTIAL/FAIL)
+
+See: `skills/ct-validator/SKILL.md`
+
+### Research Skill: ct-research-agent
+
+A research skill for gathering information:
+
+```yaml
+---
+name: ct-research-agent
+description: |
+  Research and investigation agent for gathering information from multiple sources.
+  Use when user says "research", "investigate", "gather information", "look up",
+  "find out about", "analyze topic", "explore options", "survey alternatives".
+version: 1.0.0
+---
+```
+
+Key characteristics:
+- Multi-source research (web, docs, codebase)
+- Synthesis and recommendations
+- Citation tracking
+
+See: `skills/ct-research-agent/SKILL.md`
+
+### Implementation Skill: ct-task-executor
+
+A generic task execution skill:
+
+```yaml
+---
+name: ct-task-executor
+description: |
+  Generic task execution agent for completing implementation work.
+  Use when user says "execute task", "implement", "do the work", "complete this task",
+  "carry out", "perform task", "run task", "implement feature".
+version: 1.0.0
+---
+```
+
+Key characteristics:
+- Follows task instructions
+- Produces deliverables
+- Verifies acceptance criteria
+
+See: `skills/ct-task-executor/SKILL.md`
+
+---
+
+## Common Patterns
+
+### Progressive Disclosure
+
+Keep SKILL.md lean by splitting content:
+
+```markdown
+# SKILL.md
+
+## Quick Start
+[Essential workflow]
+
+## Advanced Features
+- **Complex Feature A**: See [FEATURE-A.md](references/feature-a.md)
+- **Complex Feature B**: See [FEATURE-B.md](references/feature-b.md)
+```
+
+### Conditional Details
+
+Link to detailed docs only when needed:
+
+```markdown
+## Editing Documents
+
+For simple edits, modify directly.
+
+**For tracked changes**: See [REDLINING.md](references/redlining.md)
+**For OOXML details**: See [OOXML.md](references/ooxml.md)
+```
+
+### Domain Organization
+
+For skills with multiple domains:
+
+```
+skill-name/
+├── SKILL.md
+└── references/
+    ├── domain-a.md
+    ├── domain-b.md
+    └── domain-c.md
+```
+
+Load only the relevant domain reference when needed.
+
+---
+
+## Anti-Patterns
+
+| Pattern | Problem | Solution |
+|---------|---------|----------|
+| Returning full content | Bloats orchestrator context | Return only summary message |
+| Pretty-printed JSON | Multiple lines in manifest | Single line JSON |
+| Missing manifest entry | Orchestrator can't find findings | Always append to manifest |
+| "When to Use" in body | Not loaded during trigger check | Put in frontmatter description |
+| Deeply nested references | Hard to navigate | Keep one level deep |
+| Vague triggers | Wrong skill selected | Specific, unambiguous phrases |
+
+---
+
+## Checklist for New Skills
+
+- [ ] Directory structure: `skills/ct-{name}/SKILL.md`
+- [ ] Frontmatter: `name`, `description`, `version`
+- [ ] Description includes trigger phrases
+- [ ] Task System Integration section (@ reference)
+- [ ] Subagent Protocol section (@ reference)
+- [ ] Output file format defined
+- [ ] Manifest entry format defined
+- [ ] Error handling (partial/blocked)
+- [ ] Completion checklist
+- [ ] Registered in `skills/manifest.json`
+- [ ] Tested with debug mode
+
+---
+
+## Related Documentation
+
+- **Subagent Protocol**: `skills/_shared/subagent-protocol-base.md`
+- **Task System Integration**: `skills/_shared/task-system-integration.md`
+- **Token Placeholders**: `skills/_shared/placeholders.json`
+- **Orchestrator Protocol**: `docs/guides/ORCHESTRATOR-PROTOCOL.md`
+- **Troubleshooting**: `docs/troubleshooting.md`
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2026-01-21 | Initial release |

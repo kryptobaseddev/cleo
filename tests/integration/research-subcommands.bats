@@ -654,3 +654,138 @@ create_multiple_manifest_entries() {
     echo "$output" | jq -e '.result.manifest.exists == true' >/dev/null
     echo "$output" | jq -e '.result.manifest.entries == 0' >/dev/null
 }
+
+# =============================================================================
+# VALIDATE SUBCOMMAND TESTS (T1899)
+# =============================================================================
+
+@test "research validate: succeeds for valid manifest" {
+    # Create valid manifest entries
+    create_multiple_manifest_entries
+
+    # Also create archive directory to avoid warning
+    mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+
+    run "$SCRIPTS_DIR/research.sh" validate --json
+    assert_success
+
+    # Should report valid
+    echo "$output" | jq -e '.valid == true' >/dev/null
+    echo "$output" | jq -e '.result.validEntries == 4' >/dev/null
+    echo "$output" | jq -e '.result.invalidEntries == 0' >/dev/null
+}
+
+@test "research validate: detects invalid JSON lines" {
+    # Create manifest with invalid entry
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+    echo '{"id":"valid-1","file":"2026-01-17_valid.md","title":"Valid Entry","date":"2026-01-17","status":"complete","topics":["test"],"key_findings":["finding"],"actionable":true}' > "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo 'not valid json at all' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo '{"id":"valid-2","file":"2026-01-17_valid2.md","title":"Valid Entry 2","date":"2026-01-17","status":"complete","topics":["test"],"key_findings":["finding"],"actionable":false}' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" validate --json
+    assert_failure
+    [[ "$status" -eq 6 ]]  # EXIT_VALIDATION_ERROR
+
+    # Should report invalid
+    echo "$output" | jq -e '.valid == false' >/dev/null
+    echo "$output" | jq -e '.result.validEntries == 2' >/dev/null
+    echo "$output" | jq -e '.result.invalidEntries == 1' >/dev/null
+
+    # Error should include line number
+    echo "$output" | jq -e '.result.errors | length == 1' >/dev/null
+    echo "$output" | jq -e '.result.errors[0] | contains("Line 2")' >/dev/null
+}
+
+@test "research validate: detects missing required fields" {
+    # Create manifest with entry missing required fields
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+    echo '{"id":"missing-fields","file":"2026-01-17_test.md","title":"Missing Fields"}' > "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" validate --json
+    assert_failure
+    [[ "$status" -eq 6 ]]
+
+    echo "$output" | jq -e '.valid == false' >/dev/null
+    echo "$output" | jq -e '.result.invalidEntries == 1' >/dev/null
+}
+
+@test "research validate: --fix removes invalid entries" {
+    # Create manifest with valid and invalid entries
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+    echo '{"id":"valid-1","file":"2026-01-17_valid.md","title":"Valid Entry","date":"2026-01-17","status":"complete","topics":["test"],"key_findings":["finding"],"actionable":true}' > "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo 'invalid json line' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo '{"id":"valid-2","file":"2026-01-17_valid2.md","title":"Valid Entry 2","date":"2026-01-17","status":"complete","topics":["test"],"key_findings":["finding"],"actionable":false}' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" validate --fix --json
+    assert_success
+
+    # Should have fixed the manifest
+    echo "$output" | jq -e '.valid == true' >/dev/null
+    echo "$output" | jq -e '.result.fix.entriesRemoved == 1' >/dev/null
+    echo "$output" | jq -e '.result.fix.entriesKept == 2' >/dev/null
+
+    # Backup should be created
+    echo "$output" | jq -e '.result.fix.backupFile | test("MANIFEST.jsonl.backup")' >/dev/null
+
+    # Manifest should now only have valid entries
+    local line_count
+    line_count=$(wc -l < "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl" | tr -d ' ')
+    [[ "$line_count" -eq 2 ]]
+}
+
+@test "research validate: --fix creates backup file" {
+    # Create manifest with invalid entry
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+    echo '{"id":"valid-1","file":"2026-01-17_valid.md","title":"Valid Entry","date":"2026-01-17","status":"complete","topics":["test"],"key_findings":["finding"],"actionable":true}' > "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo 'invalid' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" validate --fix --json
+    assert_success
+
+    # Verify backup file exists
+    local backup_files
+    backup_files=$(ls "$RESEARCH_OUTPUT_DIR"/MANIFEST.jsonl.backup.* 2>/dev/null | wc -l)
+    [[ "$backup_files" -ge 1 ]]
+}
+
+@test "research validate: returns success for empty manifest" {
+    # Create empty manifest
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+    touch "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" validate --json
+    assert_success
+
+    echo "$output" | jq -e '.valid == true' >/dev/null
+    echo "$output" | jq -e '.result.totalLines == 0' >/dev/null
+}
+
+@test "research validate: exit code 4 when manifest not found" {
+    # Don't create manifest
+
+    run "$SCRIPTS_DIR/research.sh" validate --json
+    [[ "$status" -eq 4 ]]  # EXIT_NOT_FOUND
+}
+
+@test "research validate: reports line numbers for errors" {
+    # Create manifest with multiple invalid entries at specific lines
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+    echo '{"id":"valid-1","file":"2026-01-17_valid.md","title":"Valid Entry","date":"2026-01-17","status":"complete","topics":["test"],"key_findings":["finding"],"actionable":true}' > "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo 'invalid line 2' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo '{"id":"valid-2","file":"2026-01-17_valid2.md","title":"Valid Entry 2","date":"2026-01-17","status":"complete","topics":["test"],"key_findings":["finding"],"actionable":false}' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    echo '{"id":"bad-status","file":"test.md","title":"Bad Status","date":"2026-01-17","status":"invalid_status","topics":["t"],"key_findings":["f"],"actionable":true}' >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
+    run "$SCRIPTS_DIR/research.sh" validate --json
+    assert_failure
+
+    # Should have 2 errors with line numbers
+    echo "$output" | jq -e '.result.errors | length == 2' >/dev/null
+    echo "$output" | jq -e '.result.errors[0] | contains("Line 2")' >/dev/null
+    echo "$output" | jq -e '.result.errors[1] | contains("Line 4")' >/dev/null
+}

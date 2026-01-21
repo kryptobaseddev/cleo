@@ -14,14 +14,37 @@
 
 set -euo pipefail
 
-# Early Bash version check - warn but don't block installation
+# Early Bash version check - try to find and use Bash 4+ on macOS
 if [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
-    echo "WARNING: CLEO requires Bash 4.0+ to run commands." >&2
-    echo "Your version: ${BASH_VERSION:-unknown}" >&2
-    echo "" >&2
-    echo "Installation will proceed, but you'll need Bash 4+ to use CLEO." >&2
-    echo "On macOS: brew install bash" >&2
-    echo "" >&2
+    # Check if we haven't already tried to re-exec (prevent infinite loop)
+    if [[ -z "${_CLEO_REEXEC:-}" ]]; then
+        # Look for Bash 4+ in common locations (Homebrew paths)
+        BASH4_PATHS=(
+            "/opt/homebrew/bin/bash"  # macOS Apple Silicon
+            "/usr/local/bin/bash"     # macOS Intel / Linux Homebrew
+            "/home/linuxbrew/.linuxbrew/bin/bash"  # Linux Homebrew
+        )
+
+        for bash_path in "${BASH4_PATHS[@]}"; do
+            if [[ -x "$bash_path" ]]; then
+                # Check version of this bash
+                bash_ver=$("$bash_path" -c 'echo ${BASH_VERSINFO[0]}' 2>/dev/null || echo 0)
+                if [[ "$bash_ver" -ge 4 ]]; then
+                    echo "Found Bash $bash_ver at $bash_path, re-executing installer..." >&2
+                    export _CLEO_REEXEC=1
+                    exec "$bash_path" "$0" "$@"
+                fi
+            fi
+        done
+
+        # No Bash 4+ found, warn and continue
+        echo "WARNING: CLEO requires Bash 4.0+ to run commands." >&2
+        echo "Your version: ${BASH_VERSION:-unknown}" >&2
+        echo "" >&2
+        echo "Installation will proceed, but you'll need Bash 4+ to use CLEO." >&2
+        echo "On macOS: brew install bash" >&2
+        echo "" >&2
+    fi
 fi
 
 # Configuration
@@ -105,6 +128,44 @@ Examples:
 EOF
 }
 
+# Detect package manager
+detect_pkg_manager() {
+    if command -v apt-get &>/dev/null; then echo "apt"
+    elif command -v dnf &>/dev/null; then echo "dnf"
+    elif command -v yum &>/dev/null; then echo "yum"
+    elif command -v brew &>/dev/null; then echo "brew"
+    elif command -v pacman &>/dev/null; then echo "pacman"
+    elif command -v apk &>/dev/null; then echo "apk"
+    else echo "unknown"
+    fi
+}
+
+# Try to auto-install missing dependencies
+auto_install_deps() {
+    local pkg_manager="$1"
+    shift
+    local deps=("$@")
+
+    local install_cmd=""
+    case "$pkg_manager" in
+        apt)    install_cmd="sudo apt-get update && sudo apt-get install -y" ;;
+        dnf)    install_cmd="sudo dnf install -y" ;;
+        yum)    install_cmd="sudo yum install -y" ;;
+        brew)   install_cmd="brew install" ;;
+        pacman) install_cmd="sudo pacman -S --noconfirm" ;;
+        apk)    install_cmd="apk add" ;;
+        *)      return 1 ;;
+    esac
+
+    info "Installing: ${deps[*]}"
+    if eval "$install_cmd ${deps[*]}"; then
+        success "Dependencies installed"
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Check for required commands
 check_deps() {
     local missing=()
@@ -118,6 +179,25 @@ check_deps() {
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
+        warn "Missing required dependencies: ${missing[*]}"
+
+        local pkg_manager
+        pkg_manager=$(detect_pkg_manager)
+
+        if [[ "$pkg_manager" != "unknown" ]]; then
+            # Ask user if they want auto-install (only if interactive)
+            if [[ -t 0 ]]; then
+                echo ""
+                read -p "Would you like to install them automatically? [Y/n]: " confirm
+                if [[ ! "${confirm,,}" =~ ^(n|no)$ ]]; then
+                    if auto_install_deps "$pkg_manager" "${missing[@]}"; then
+                        return 0
+                    fi
+                fi
+            fi
+        fi
+
+        # Manual instructions if auto-install not used or failed
         error "Missing required dependencies: ${missing[*]}"
         echo ""
         echo "Install them with:"

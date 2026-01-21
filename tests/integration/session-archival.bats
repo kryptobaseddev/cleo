@@ -602,3 +602,149 @@ EOF
     # Binding should be gone
     [[ ! -f "$binding_dir/tty-orphan999" ]]
 }
+
+# =============================================================================
+# Session Auto-Archive Tests (30-day inactivity)
+# =============================================================================
+
+# Create sessions with old lastActivity for auto-archive testing
+create_auto_archive_test_sessions() {
+    local sessions_file="${1:-$SESSIONS_FILE}"
+    mkdir -p "$(dirname "$sessions_file")"
+
+    cat > "$sessions_file" << 'EOF'
+{
+  "version": "2.6.0",
+  "project": "test-project",
+  "_meta": {
+    "schemaVersion": "2.6.0",
+    "checksum": "abc123",
+    "lastModified": "2025-12-30T10:00:00Z",
+    "totalSessionsCreated": 4
+  },
+  "config": {
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict"
+  },
+  "sessions": [
+    {
+      "id": "session_active_recent",
+      "status": "active",
+      "name": "Active Recent",
+      "agentId": null,
+      "scope": {"type": "epic", "rootTaskId": "T001", "computedTaskIds": ["T001"]},
+      "focus": {"currentTask": "T001"},
+      "startedAt": "2025-12-20T10:00:00Z",
+      "lastActivity": "2025-12-30T10:00:00Z"
+    },
+    {
+      "id": "session_ended_old",
+      "status": "ended",
+      "name": "Ended Old Session",
+      "agentId": null,
+      "scope": {"type": "task", "rootTaskId": "T002", "computedTaskIds": ["T002"]},
+      "focus": {"currentTask": null},
+      "startedAt": "2025-10-01T10:00:00Z",
+      "lastActivity": "2025-10-01T14:00:00Z",
+      "endedAt": "2025-10-01T14:00:00Z"
+    },
+    {
+      "id": "session_suspended_old",
+      "status": "suspended",
+      "name": "Suspended Old Session",
+      "agentId": null,
+      "scope": {"type": "task", "rootTaskId": "T003", "computedTaskIds": ["T003"]},
+      "focus": {"currentTask": "T003"},
+      "startedAt": "2025-09-15T10:00:00Z",
+      "lastActivity": "2025-09-15T16:00:00Z",
+      "suspendedAt": "2025-09-15T16:00:00Z"
+    },
+    {
+      "id": "session_ended_recent",
+      "status": "ended",
+      "name": "Ended Recent Session",
+      "agentId": null,
+      "scope": {"type": "task", "rootTaskId": "T004", "computedTaskIds": ["T004"]},
+      "focus": {"currentTask": null},
+      "startedAt": "2025-12-25T10:00:00Z",
+      "lastActivity": "2025-12-28T14:00:00Z",
+      "endedAt": "2025-12-28T14:00:00Z"
+    }
+  ],
+  "sessionHistory": []
+}
+EOF
+}
+
+@test "session gc: auto-archives sessions with 30+ days inactivity" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_auto_archive_test_sessions
+
+    # Get initial counts
+    local initial_ended initial_suspended
+    initial_ended=$(jq '[.sessions[] | select(.status == "ended")] | length' "$SESSIONS_FILE")
+    initial_suspended=$(jq '[.sessions[] | select(.status == "suspended")] | length' "$SESSIONS_FILE")
+
+    # Run gc (should auto-archive old ended/suspended sessions)
+    run bash "$SCRIPTS_DIR/session.sh" gc
+    assert_success
+
+    # Old ended session should now be archived
+    local old_ended_status
+    old_ended_status=$(jq -r '.sessions[] | select(.id == "session_ended_old") | .status' "$SESSIONS_FILE")
+    [[ "$old_ended_status" == "archived" ]]
+
+    # Old suspended session should now be archived
+    local old_suspended_status
+    old_suspended_status=$(jq -r '.sessions[] | select(.id == "session_suspended_old") | .status' "$SESSIONS_FILE")
+    [[ "$old_suspended_status" == "archived" ]]
+
+    # Recent ended session should still be ended (< 30 days old)
+    local recent_ended_status
+    recent_ended_status=$(jq -r '.sessions[] | select(.id == "session_ended_recent") | .status' "$SESSIONS_FILE")
+    [[ "$recent_ended_status" == "ended" ]]
+
+    # Active session should still be active (never auto-archived)
+    local active_status
+    active_status=$(jq -r '.sessions[] | select(.id == "session_active_recent") | .status' "$SESSIONS_FILE")
+    [[ "$active_status" == "active" ]]
+}
+
+@test "session gc: auto-archive dry-run shows count without changes" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_auto_archive_test_sessions
+
+    # Get initial status
+    local initial_old_ended_status
+    initial_old_ended_status=$(jq -r '.sessions[] | select(.id == "session_ended_old") | .status' "$SESSIONS_FILE")
+    [[ "$initial_old_ended_status" == "ended" ]]
+
+    # Run gc in dry-run mode
+    run bash "$SCRIPTS_DIR/session.sh" gc --dry-run
+    assert_success
+
+    # Should show auto-archived count in output
+    assert_output --partial "auto-archived" || assert_output --partial "sessionsAutoArchived"
+
+    # Session should still be ended (not archived yet)
+    local final_old_ended_status
+    final_old_ended_status=$(jq -r '.sessions[] | select(.id == "session_ended_old") | .status' "$SESSIONS_FILE")
+    [[ "$final_old_ended_status" == "ended" ]]
+}
+
+@test "session gc: JSON output includes sessionsAutoArchived field" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_auto_archive_test_sessions
+
+    # Run gc with JSON output in dry-run
+    run bash "$SCRIPTS_DIR/session.sh" gc --dry-run --json
+    assert_success
+
+    # Verify JSON structure includes sessionsAutoArchived
+    assert_valid_json
+    assert_output --partial '"sessionsAutoArchived":'
+}

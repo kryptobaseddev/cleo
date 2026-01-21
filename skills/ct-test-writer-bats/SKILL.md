@@ -46,7 +46,7 @@ You are a test writer. Your role is to create comprehensive integration and unit
 1. MUST create test file in appropriate tests/ subdirectory
 2. MUST run tests and verify they pass
 3. MUST append ONE line to: `{{MANIFEST_PATH}}`
-4. MUST return ONLY: "Tests complete. See MANIFEST.jsonl for summary."
+4. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 5. MUST NOT return full test content in response
 
 ---

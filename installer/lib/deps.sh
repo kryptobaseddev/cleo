@@ -366,10 +366,114 @@ installer_deps_install_instructions() {
         echo ""
     fi
 
+    # Check for flock (needed for atomic operations)
+    if ! command -v flock &>/dev/null; then
+        echo "flock (required for atomic operations):"
+        case "$pkg_manager" in
+            apt)    echo "  sudo apt-get install util-linux" ;;
+            dnf)    echo "  sudo dnf install util-linux" ;;
+            yum)    echo "  sudo yum install util-linux" ;;
+            brew)   echo "  brew install util-linux" ;;
+            pacman) echo "  sudo pacman -S util-linux" ;;
+            apk)    echo "  apk add util-linux" ;;
+            *)      echo "  Install util-linux package for your system" ;;
+        esac
+        echo ""
+    fi
+
     if [[ "${DEPS_STATUS[ajv]}" == "missing" ]]; then
         echo "ajv-cli (optional - for JSON Schema validation):"
         echo "  npm install -g ajv-cli"
         echo ""
+    fi
+}
+
+# Attempt to auto-install missing dependencies
+# Returns: 0 if all required deps installed, 1 if failed
+installer_deps_auto_install() {
+    local pkg_manager missing_deps=() os
+    pkg_manager=$(installer_deps_detect_package_manager)
+    os=$(installer_deps_detect_os)
+
+    # Build list of missing required deps
+    [[ "${DEPS_STATUS[jq]}" == "missing" ]] && missing_deps+=("jq")
+
+    # Check flock separately (not in DEPS_STATUS)
+    if ! command -v flock &>/dev/null; then
+        # On macOS, flock comes from util-linux
+        if [[ "$os" == "darwin" ]]; then
+            missing_deps+=("util-linux")
+        fi
+    fi
+
+    if [[ ${#missing_deps[@]} -eq 0 ]]; then
+        installer_log_success "All required dependencies are installed"
+        return 0
+    fi
+
+    # If no known package manager, can't auto-install
+    if [[ "$pkg_manager" == "unknown" ]]; then
+        installer_log_warn "Cannot auto-install: unknown package manager"
+        installer_deps_install_instructions
+        return 1
+    fi
+
+    installer_log_info "Missing dependencies: ${missing_deps[*]}"
+
+    # Ask user if they want to auto-install (only if interactive)
+    if [[ -t 0 ]]; then
+        echo ""
+        read -p "Would you like to install missing dependencies automatically? [Y/n]: " confirm
+        if [[ "${confirm,,}" =~ ^(n|no)$ ]]; then
+            installer_deps_install_instructions
+            return 1
+        fi
+    else
+        installer_log_info "Non-interactive mode: attempting auto-install"
+    fi
+
+    # Install based on package manager
+    local install_cmd=""
+    case "$pkg_manager" in
+        apt)
+            install_cmd="sudo apt-get update && sudo apt-get install -y"
+            ;;
+        dnf)
+            install_cmd="sudo dnf install -y"
+            ;;
+        yum)
+            install_cmd="sudo yum install -y"
+            ;;
+        brew)
+            install_cmd="brew install"
+            ;;
+        pacman)
+            install_cmd="sudo pacman -S --noconfirm"
+            ;;
+        apk)
+            install_cmd="apk add"
+            ;;
+        *)
+            installer_log_error "Unsupported package manager: $pkg_manager"
+            installer_deps_install_instructions
+            return 1
+            ;;
+    esac
+
+    installer_log_info "Installing: ${missing_deps[*]}"
+    echo ""
+
+    # Run the install command
+    if eval "$install_cmd ${missing_deps[*]}"; then
+        installer_log_success "Dependencies installed successfully"
+
+        # Re-check dependencies
+        installer_deps_check_required
+        return $?
+    else
+        installer_log_error "Failed to install dependencies"
+        installer_deps_install_instructions
+        return 1
     fi
 }
 
@@ -390,3 +494,4 @@ export -f installer_deps_check_optional
 export -f installer_deps_check_all
 export -f installer_deps_report
 export -f installer_deps_install_instructions
+export -f installer_deps_auto_install

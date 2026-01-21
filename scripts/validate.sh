@@ -91,6 +91,12 @@ if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
   source "$LIB_DIR/hierarchy.sh"
 fi
 
+# Source research-manifest library for research-outputs validation (T1947)
+if [[ -f "$LIB_DIR/research-manifest.sh" ]]; then
+  # shellcheck source=../lib/research-manifest.sh
+  source "$LIB_DIR/research-manifest.sh"
+fi
+
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
   RED='\033[0;31m'
@@ -1387,6 +1393,62 @@ if command -v injection_get_targets &>/dev/null && command -v injection_check &>
         ;;
     esac
   done
+fi
+
+# 13. Check research-outputs structure (T1947)
+if declare -f validate_research_manifest >/dev/null 2>&1; then
+  RESEARCH_OUTPUT_DIR="claudedocs/research-outputs"
+  RESEARCH_MANIFEST="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
+
+  if [[ ! -d "$RESEARCH_OUTPUT_DIR" ]]; then
+    if [[ "$FIX" == true ]]; then
+      if declare -f ensure_research_outputs >/dev/null 2>&1; then
+        ensure_result=$(ensure_research_outputs)
+        if [[ $? -eq 0 ]]; then
+          created=$(echo "$ensure_result" | jq -r '.result.created | length')
+          if [[ "$created" -gt 0 ]]; then
+            echo "  Fixed: Created research-outputs directory structure"
+            log_info "Research outputs structure valid (after fix)" "research_outputs"
+          else
+            log_info "Research outputs structure valid" "research_outputs"
+          fi
+        else
+          log_error "Failed to create research-outputs directory" "research_outputs"
+        fi
+      fi
+    else
+      log_warn "Research outputs directory missing: $RESEARCH_OUTPUT_DIR. Run with --fix or: cleo research init"
+    fi
+  elif [[ ! -f "$RESEARCH_MANIFEST" ]]; then
+    if [[ "$FIX" == true ]]; then
+      if declare -f ensure_research_outputs >/dev/null 2>&1; then
+        ensure_result=$(ensure_research_outputs)
+        if [[ $? -eq 0 ]]; then
+          echo "  Fixed: Created MANIFEST.jsonl"
+          log_info "Research outputs structure valid (after fix)" "research_outputs"
+        else
+          log_error "Failed to create MANIFEST.jsonl" "research_outputs"
+        fi
+      fi
+    else
+      log_warn "Research manifest file missing: $RESEARCH_MANIFEST. Run with --fix or: cleo research init"
+    fi
+  else
+    # Validate manifest content
+    validation_result=$(validate_research_manifest 2>/dev/null || echo '{"valid":false}')
+    is_valid=$(echo "$validation_result" | jq -r '.valid // false')
+    invalid_count=$(echo "$validation_result" | jq -r '.result.invalidEntries // 0')
+
+    if [[ "$is_valid" == "true" ]]; then
+      log_info "Research manifest valid" "research_outputs"
+    else
+      if [[ "$invalid_count" -gt 0 ]]; then
+        log_warn "Research manifest has $invalid_count invalid entries"
+      else
+        log_info "Research manifest valid (empty)" "research_outputs"
+      fi
+    fi
+  fi
 fi
 
 # Summary

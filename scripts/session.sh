@@ -2061,12 +2061,21 @@ cmd_cleanup() {
 
 # Garbage collection - comprehensive cleanup of session artifacts
 # Handles: archived sessions, stale TTY bindings, orphaned context states
-# Usage: cleo session gc [--dry-run] [--force] [--verbose]
+# Usage: cleo session gc [--dry-run] [--force] [--verbose] [--orphans] [--stale]
+# Options:
+#   --dry-run   Preview what would be cleaned without making changes
+#   --force     Skip confirmation prompt
+#   --orphans   Clean orphaned context files only (skip session auto-archive)
+#   --stale     Archive old sessions only (skip orphan cleanup)
+#   --verbose   Show detailed output of items removed
+# Default: Both auto-archive stale sessions AND cleanup orphaned files
 cmd_gc() {
   local format_arg=""
   local dry_run=false
   local force=false
   local verbose=false
+  local orphans_only=false
+  local stale_only=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -2076,10 +2085,18 @@ cmd_gc() {
       --dry-run) dry_run=true; shift ;;
       --force) force=true; shift ;;
       --verbose|-v) verbose=true; shift ;;
+      --orphans) orphans_only=true; shift ;;
+      --stale) stale_only=true; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
   done
+
+  # Validate mutually exclusive options
+  if [[ "$orphans_only" == "true" ]] && [[ "$stale_only" == "true" ]]; then
+    log_error "Cannot use --orphans and --stale together" "E_INVALID_INPUT" "$EXIT_INVALID_INPUT" "Use one or neither (default runs both)"
+    exit "$EXIT_INVALID_INPUT"
+  fi
 
   local output_format
   output_format=$(resolve_format "$format_arg")
@@ -2110,6 +2127,19 @@ cmd_gc() {
   retention_days=$(get_config_value "retention.sessions.archivedRetentionDays" "90" 2>/dev/null || echo "90")
   local max_archived
   max_archived=$(get_config_value "retention.sessions.maxArchivedSessions" "100" 2>/dev/null || echo "100")
+
+  # 0. Auto-archive inactive ended/suspended sessions
+  local auto_archived=0
+  if declare -f session_auto_archive >/dev/null 2>&1; then
+    local auto_archive_result
+    if [[ "$dry_run" == "true" ]]; then
+      auto_archive_result=$(session_auto_archive "true" 2>/dev/null)
+      # Parse count from output
+      auto_archived=$(echo "$auto_archive_result" | grep -E '^[0-9]+$' || echo "0")
+    else
+      auto_archived=$(session_auto_archive "false" 2>/dev/null || echo "0")
+    fi
+  fi
 
   # 1. Remove old archived sessions beyond retention period
   if [[ -f "$sessions_file" ]]; then
@@ -2209,8 +2239,21 @@ cmd_gc() {
     fi
   fi
 
+  # 4. Clean up stale context state files (ended/archived sessions)
+  local stale_context_removed=0
+  if declare -f cleanup_stale_context_states >/dev/null 2>&1; then
+    local stale_result
+    if [[ "$dry_run" == "true" ]]; then
+      stale_result=$(cleanup_stale_context_states "true" 2>/dev/null)
+      # Parse "would delete X stale" format
+      stale_context_removed=$(echo "$stale_result" | grep -oE '[0-9]+' | head -1 || echo "0")
+    else
+      stale_context_removed=$(cleanup_stale_context_states "false" 2>/dev/null || echo "0")
+    fi
+  fi
+
   # Build output
-  local total_removed=$((archived_removed + stale_bindings_removed + orphaned_context_removed))
+  local total_removed=$((auto_archived + archived_removed + stale_bindings_removed + orphaned_context_removed + stale_context_removed))
 
   if [[ "$output_format" == "json" ]]; then
     local version
@@ -2220,9 +2263,11 @@ cmd_gc() {
       --arg ts "$timestamp" \
       --arg version "$version" \
       --argjson dryRun "$dry_run" \
+      --argjson autoArchived "$auto_archived" \
       --argjson archived "$archived_removed" \
       --argjson bindings "$stale_bindings_removed" \
       --argjson contexts "$orphaned_context_removed" \
+      --argjson stale "$stale_context_removed" \
       --argjson total "$total_removed" \
       --argjson bytes "$total_bytes_freed" \
       --argjson items "$(printf '%s\n' "${removed_items[@]}" 2>/dev/null | jq -R . | jq -s . 2>/dev/null || echo '[]')" \
@@ -2237,9 +2282,11 @@ cmd_gc() {
         "success": true,
         "dryRun": $dryRun,
         "summary": {
+          "sessionsAutoArchived": $autoArchived,
           "archivedSessionsRemoved": $archived,
           "staleBindingsRemoved": $bindings,
           "orphanedContextStatesRemoved": $contexts,
+          "staleContextStatesRemoved": $stale,
           "totalItemsRemoved": $total,
           "bytesFreed": $bytes
         },
@@ -2254,9 +2301,11 @@ cmd_gc() {
       echo "==================="
     fi
     echo ""
+    echo "Sessions auto-archived (30+ days inactive): $auto_archived"
     echo "Archived sessions removed: $archived_removed"
     echo "Stale TTY bindings removed: $stale_bindings_removed"
     echo "Orphaned context states removed: $orphaned_context_removed"
+    echo "Stale context states removed: $stale_context_removed"
     echo "─────────────────────────────────"
     echo "Total items cleaned: $total_removed"
 

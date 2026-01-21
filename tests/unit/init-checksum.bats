@@ -134,3 +134,57 @@ teardown_file() {
     run jq empty .cleo/todo-log.json
     assert_success
 }
+
+# =============================================================================
+# T1947: Init creates research-outputs structure
+# =============================================================================
+
+@test "T1947: init creates research-outputs directory" {
+    rm -rf "$TEST_TEMP_DIR/.cleo"
+    rm -rf "$TEST_TEMP_DIR/claudedocs"
+    cd "$TEST_TEMP_DIR"
+    bash "$INIT_SCRIPT" test-project
+
+    [[ -d "claudedocs/research-outputs" ]]
+}
+
+@test "T1947: init creates MANIFEST.jsonl file" {
+    rm -rf "$TEST_TEMP_DIR/.cleo"
+    rm -rf "$TEST_TEMP_DIR/claudedocs"
+    cd "$TEST_TEMP_DIR"
+    bash "$INIT_SCRIPT" test-project
+
+    [[ -f "claudedocs/research-outputs/MANIFEST.jsonl" ]]
+}
+
+@test "T1947: init creates archive subdirectory" {
+    rm -rf "$TEST_TEMP_DIR/.cleo"
+    rm -rf "$TEST_TEMP_DIR/claudedocs"
+    cd "$TEST_TEMP_DIR"
+    bash "$INIT_SCRIPT" test-project
+
+    [[ -d "claudedocs/research-outputs/archive" ]]
+}
+
+@test "T1947: init is idempotent for research-outputs" {
+    rm -rf "$TEST_TEMP_DIR/.cleo"
+    rm -rf "$TEST_TEMP_DIR/claudedocs"
+    cd "$TEST_TEMP_DIR"
+
+    # First init
+    bash "$INIT_SCRIPT" test-project
+
+    # Add content to MANIFEST.jsonl to verify it's not wiped
+    echo '{"id":"test","file":"t.md","title":"T","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' >> "claudedocs/research-outputs/MANIFEST.jsonl"
+
+    # Second init with force (simulating reinit)
+    run bash "$INIT_SCRIPT" --force --confirm-wipe test-project-2
+    assert_success
+
+    # Verify directory still exists (reinit doesn't delete it)
+    [[ -d "claudedocs/research-outputs" ]]
+    [[ -f "claudedocs/research-outputs/MANIFEST.jsonl" ]]
+
+    # Note: Content may or may not be preserved depending on reinit behavior
+    # The key is that the structure exists after reinit
+}

@@ -425,3 +425,241 @@ orchestrator_spawn_preview() {
             }
         }'
 }
+
+# ============================================================================
+# PROTOCOL ENFORCEMENT FUNCTIONS
+# ============================================================================
+
+# orchestrator_verify_protocol_injection - Verify prompt contains protocol block
+#
+# Args:
+#   $1 = prompt content (required)
+#
+# Returns:
+#   0 if protocol block found, 1 if missing
+#
+# Example:
+#   if orchestrator_verify_protocol_injection "$prompt"; then
+#       echo "Protocol block present"
+#   fi
+#
+orchestrator_verify_protocol_injection() {
+    local prompt="${1:-}"
+
+    if [[ -z "$prompt" ]]; then
+        _osp_error "Prompt content is required"
+        return 1
+    fi
+
+    if echo "$prompt" | grep -q "SUBAGENT PROTOCOL"; then
+        _osp_debug "Protocol block found in prompt"
+        return 0
+    else
+        _osp_error "PROTOCOL VIOLATION: Missing protocol block in spawn prompt"
+        return 1
+    fi
+}
+
+# orchestrator_validate_return_message - Validate subagent return message format
+#
+# Args:
+#   $1 = return message from subagent (required)
+#
+# Returns:
+#   0 if valid format, 1 if invalid
+#   Outputs JSON with validation result
+#
+# Example:
+#   result=$(orchestrator_validate_return_message "$response")
+#
+orchestrator_validate_return_message() {
+    local message="${1:-}"
+
+    if [[ -z "$message" ]]; then
+        _osp_error "Return message is required"
+        jq -n '{
+            "_meta": { "command": "orchestrator", "operation": "validate_return" },
+            "success": false,
+            "valid": false,
+            "error": "Empty return message"
+        }'
+        return 1
+    fi
+
+    local status=""
+    local valid=false
+
+    # Check against allowed return message formats
+    case "$message" in
+        "Research complete. See MANIFEST.jsonl for summary.")
+            status="complete"
+            valid=true
+            ;;
+        "Research partial. See MANIFEST.jsonl for details.")
+            status="partial"
+            valid=true
+            ;;
+        "Research blocked. See MANIFEST.jsonl for blocker details.")
+            status="blocked"
+            valid=true
+            ;;
+        *)
+            status="invalid"
+            valid=false
+            ;;
+    esac
+
+    if [[ "$valid" == "true" ]]; then
+        _osp_debug "Valid return message: status=$status"
+        jq -n \
+            --arg status "$status" \
+            --arg message "$message" \
+            '{
+                "_meta": { "command": "orchestrator", "operation": "validate_return" },
+                "success": true,
+                "valid": true,
+                "status": $status,
+                "message": $message
+            }'
+        return 0
+    else
+        _osp_error "PROTOCOL VIOLATION: Invalid return message format"
+        jq -n \
+            --arg message "$message" \
+            '{
+                "_meta": { "command": "orchestrator", "operation": "validate_return" },
+                "success": false,
+                "valid": false,
+                "error": "Invalid return message format",
+                "received": $message,
+                "allowed": [
+                    "Research complete. See MANIFEST.jsonl for summary.",
+                    "Research partial. See MANIFEST.jsonl for details.",
+                    "Research blocked. See MANIFEST.jsonl for blocker details."
+                ]
+            }'
+        return 1
+    fi
+}
+
+# orchestrator_verify_manifest_entry - Verify manifest entry exists after spawn
+#
+# Args:
+#   $1 = research_id (required) - Expected manifest entry ID
+#   $2 = manifest_path (optional) - Defaults to claudedocs/research-outputs/MANIFEST.jsonl
+#
+# Returns:
+#   0 if entry found, 1 if missing
+#   Outputs JSON with verification result
+#
+# Example:
+#   result=$(orchestrator_verify_manifest_entry "auth-research-2026-01-21")
+#
+orchestrator_verify_manifest_entry() {
+    local research_id="${1:-}"
+    local manifest_path="${2:-claudedocs/research-outputs/MANIFEST.jsonl}"
+
+    if [[ -z "$research_id" ]]; then
+        _osp_error "research_id is required"
+        jq -n '{
+            "_meta": { "command": "orchestrator", "operation": "verify_manifest" },
+            "success": false,
+            "found": false,
+            "error": "research_id is required"
+        }'
+        return 1
+    fi
+
+    if [[ ! -f "$manifest_path" ]]; then
+        _osp_error "Manifest file not found: $manifest_path"
+        jq -n \
+            --arg path "$manifest_path" \
+            '{
+                "_meta": { "command": "orchestrator", "operation": "verify_manifest" },
+                "success": false,
+                "found": false,
+                "error": "Manifest file not found",
+                "path": $path
+            }'
+        return 1
+    fi
+
+    # Search for entry in manifest
+    local entry
+    entry=$(jq -s --arg id "$research_id" '.[] | select(.id == $id)' "$manifest_path" 2>/dev/null)
+
+    if [[ -n "$entry" && "$entry" != "null" ]]; then
+        _osp_debug "Manifest entry found: $research_id"
+        local status file_name
+        status=$(echo "$entry" | jq -r '.status // "unknown"')
+        file_name=$(echo "$entry" | jq -r '.file // "unknown"')
+
+        jq -n \
+            --arg id "$research_id" \
+            --arg status "$status" \
+            --arg file "$file_name" \
+            '{
+                "_meta": { "command": "orchestrator", "operation": "verify_manifest" },
+                "success": true,
+                "found": true,
+                "researchId": $id,
+                "status": $status,
+                "file": $file
+            }'
+        return 0
+    else
+        _osp_error "MANIFEST VERIFICATION FAILED: No entry for $research_id"
+        jq -n \
+            --arg id "$research_id" \
+            --arg path "$manifest_path" \
+            '{
+                "_meta": { "command": "orchestrator", "operation": "verify_manifest" },
+                "success": false,
+                "found": false,
+                "error": "Manifest entry not found",
+                "researchId": $id,
+                "manifestPath": $path,
+                "action": "Re-spawn subagent with explicit manifest requirement"
+            }'
+        return 1
+    fi
+}
+
+# orchestrator_get_protocol_block - Get the subagent protocol injection block
+#
+# Uses `cleo research inject` if available, otherwise returns inline block.
+#
+# Returns:
+#   Protocol block content to stdout
+#
+# Example:
+#   protocol=$(orchestrator_get_protocol_block)
+#   prompt="${skill_content}\n\n${protocol}"
+#
+orchestrator_get_protocol_block() {
+    # Try CLI first
+    local protocol
+    protocol=$(cleo research inject 2>/dev/null)
+
+    if [[ -n "$protocol" ]]; then
+        _osp_debug "Protocol block obtained via CLI"
+        echo "$protocol"
+        return 0
+    fi
+
+    # Fallback to inline block
+    _osp_debug "Using inline protocol block (CLI unavailable)"
+    cat << 'PROTOCOL_EOF'
+## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
+
+OUTPUT REQUIREMENTS:
+1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
+3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return research content in response.
+
+Manifest entry format (single line):
+{"id":"topic-YYYY-MM-DD","file":"YYYY-MM-DD_topic.md","title":"Title","date":"YYYY-MM-DD","status":"complete|partial|blocked","topics":["t1"],"key_findings":["Finding 1","Finding 2"],"actionable":true,"needs_followup":[]}
+PROTOCOL_EOF
+    return 0
+}
