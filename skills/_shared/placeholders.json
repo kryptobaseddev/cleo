@@ -90,6 +90,11 @@
         "description": "Command to set focus on task"
       },
       {
+        "token": "TASK_FOCUS_SHOW_CMD",
+        "default": "cleo focus show",
+        "description": "Command to show current focus"
+      },
+      {
         "token": "TASK_COMPLETE_CMD",
         "default": "cleo complete",
         "description": "Command to complete task"
@@ -113,6 +118,41 @@
         "token": "TASK_ADD_CMD",
         "default": "cleo add",
         "description": "Command to add task"
+      },
+      {
+        "token": "SESSION_LIST_CMD",
+        "default": "cleo session list",
+        "description": "Command to list sessions"
+      },
+      {
+        "token": "SESSION_START_CMD",
+        "default": "cleo session start",
+        "description": "Command to start session"
+      },
+      {
+        "token": "SESSION_END_CMD",
+        "default": "cleo session end",
+        "description": "Command to end session"
+      },
+      {
+        "token": "DASH_CMD",
+        "default": "cleo dash",
+        "description": "Command to show dashboard"
+      },
+      {
+        "token": "RESEARCH_LIST_CMD",
+        "default": "cleo research list",
+        "description": "Command to list research entries"
+      },
+      {
+        "token": "RESEARCH_SHOW_CMD",
+        "default": "cleo research show",
+        "description": "Command to show research entry details"
+      },
+      {
+        "token": "RESEARCH_PENDING_CMD",
+        "default": "cleo research pending",
+        "description": "Command to show pending research followups"
       }
     ]
   },

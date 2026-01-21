@@ -3,7 +3,7 @@
 #
 # LAYER: 1 (Foundation Services)
 # DEPENDENCIES: exit-codes.sh
-# PROVIDES: ti_inject_tokens, ti_validate_required, ti_set_defaults, ti_load_template, ti_reload_tokens
+# PROVIDES: ti_inject_tokens, ti_validate_required, ti_set_defaults, ti_load_template, ti_reload_tokens, ti_populate_skill_specific_tokens, validate_token_value, ti_validate_all_tokens
 #
 # Implements strict token replacement with validation to prevent hallucination.
 # All tokens use {{TOKEN_NAME}} format. Required tokens MUST be set before injection.
@@ -217,6 +217,310 @@ _ti_set_fallback_defaults() {
 
 # Load tokens on source
 _ti_load_tokens_from_json
+
+# ============================================================================
+# TOKEN VALIDATION
+# ============================================================================
+
+# Associative array for validation rules loaded from placeholders.json
+declare -A _TI_VALIDATION_RULES=()
+
+# _ti_load_validation_rules - Load validation rules from placeholders.json
+# Args: none
+# Returns: 0 on success
+# Side effects: Populates _TI_VALIDATION_RULES with type and constraints per token
+_ti_load_validation_rules() {
+    local json_path="$_TI_PLACEHOLDERS_JSON"
+
+    # Check file exists
+    if [[ ! -f "$json_path" ]]; then
+        return 0
+    fi
+
+    # Check jq is available
+    if ! command -v jq &>/dev/null; then
+        return 0
+    fi
+
+    # Clear existing rules
+    _TI_VALIDATION_RULES=()
+
+    # Load validation rules from all sections
+    local sections=("required" "context" "taskContext.tokens" "manifest.tokens")
+
+    for section in "${sections[@]}"; do
+        local tokens_json
+        tokens_json=$(jq -c ".$section // []" "$json_path" 2>/dev/null) || continue
+
+        if [[ "$tokens_json" == "[]" || "$tokens_json" == "null" ]]; then
+            continue
+        fi
+
+        # Extract token validation rules
+        local rules
+        rules=$(echo "$tokens_json" | jq -r '.[] | "\(.token)|\(.type // "string")|\(.pattern // "")|\(.enum // [] | join(","))|\(.required // false)"' 2>/dev/null) || continue
+
+        while IFS='|' read -r token_name type pattern enum_vals required; do
+            [[ -z "$token_name" ]] && continue
+            # Store as: type:pattern:enum:required
+            _TI_VALIDATION_RULES["$token_name"]="${type}:${pattern}:${enum_vals}:${required}"
+        done <<< "$rules"
+    done
+
+    return 0
+}
+
+# validate_token_value - Validate a token value against its type constraints
+# Args:
+#   $1 = token name (without TI_ prefix)
+#   $2 = value to validate
+#   $3 = validation type (optional, auto-detected from placeholders.json if not provided)
+#        Supported types: string, enum, path, array, required
+#   $4 = validation constraint (optional)
+#        For enum: comma-separated allowed values
+#        For array: optional JSON schema or length constraint (e.g., "minLength:3,maxLength:7")
+#        For path: "file", "dir", or "any" (default: "any")
+# Returns: 0 if valid, EXIT_VALIDATION_ERROR (6) if invalid
+# Output: Error message to stderr if validation fails
+#
+# Examples:
+#   validate_token_value "MANIFEST_STATUS" "complete" "enum" "complete,partial,blocked"
+#   validate_token_value "OUTPUT_DIR" "claudedocs/research-outputs" "path" "dir"
+#   validate_token_value "TOPICS_JSON" '["auth","api"]' "array"
+#   validate_token_value "TASK_ID" "T1234"  # Auto-detects type from placeholders.json
+validate_token_value() {
+    local token_name="${1:-}"
+    local value="${2:-}"
+    local val_type="${3:-}"
+    local constraint="${4:-}"
+
+    # Token name is required
+    if [[ -z "$token_name" ]]; then
+        _ti_error "validate_token_value: token_name is required"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Auto-detect validation type from rules if not provided
+    if [[ -z "$val_type" ]]; then
+        local rule="${_TI_VALIDATION_RULES[$token_name]:-}"
+        if [[ -n "$rule" ]]; then
+            # Parse rule: type:pattern:enum:required
+            val_type="${rule%%:*}"
+            local remainder="${rule#*:}"
+            local pattern="${remainder%%:*}"
+            remainder="${remainder#*:}"
+            local enum_vals="${remainder%%:*}"
+            local required="${remainder##*:}"
+
+            # Set constraint based on type
+            case "$val_type" in
+                enum)
+                    [[ -z "$constraint" && -n "$enum_vals" ]] && constraint="$enum_vals"
+                    ;;
+                path)
+                    [[ -z "$constraint" ]] && constraint="any"
+                    ;;
+            esac
+
+            # Check required first
+            if [[ "$required" == "true" && -z "$value" ]]; then
+                _ti_error "Token '$token_name' is required but value is empty"
+                return "$EXIT_VALIDATION_ERROR"
+            fi
+        else
+            # No rule found, default to string validation
+            val_type="string"
+        fi
+    fi
+
+    # Empty values for non-required fields are valid
+    if [[ -z "$value" && "$val_type" != "required" ]]; then
+        return 0
+    fi
+
+    # Validate based on type
+    case "$val_type" in
+        required)
+            if [[ -z "$value" ]]; then
+                _ti_error "Token '$token_name' is required but value is empty"
+                return "$EXIT_VALIDATION_ERROR"
+            fi
+            ;;
+
+        string)
+            # String validation - check pattern if available in rules
+            local rule="${_TI_VALIDATION_RULES[$token_name]:-}"
+            if [[ -n "$rule" ]]; then
+                local pattern="${rule#*:}"
+                pattern="${pattern%%:*}"
+                if [[ -n "$pattern" && ! "$value" =~ $pattern ]]; then
+                    _ti_error "Token '$token_name' value '$value' does not match pattern: $pattern"
+                    return "$EXIT_VALIDATION_ERROR"
+                fi
+            fi
+            ;;
+
+        enum)
+            if [[ -z "$constraint" ]]; then
+                _ti_error "validate_token_value: enum constraint is required for type 'enum'"
+                return "$EXIT_VALIDATION_ERROR"
+            fi
+
+            # Split constraint into array and check value
+            local valid=0
+            IFS=',' read -ra allowed_values <<< "$constraint"
+            for allowed in "${allowed_values[@]}"; do
+                if [[ "$value" == "$allowed" ]]; then
+                    valid=1
+                    break
+                fi
+            done
+
+            if [[ $valid -eq 0 ]]; then
+                _ti_error "Token '$token_name' value '$value' is not in allowed values: $constraint"
+                return "$EXIT_VALIDATION_ERROR"
+            fi
+            ;;
+
+        path)
+            local path_type="${constraint:-any}"
+
+            # Check for obviously invalid paths
+            if [[ "$value" =~ [[:cntrl:]] ]]; then
+                _ti_error "Token '$token_name' path contains invalid characters"
+                return "$EXIT_VALIDATION_ERROR"
+            fi
+
+            # Validate path existence based on constraint
+            case "$path_type" in
+                file)
+                    if [[ ! -f "$value" ]]; then
+                        _ti_error "Token '$token_name' path '$value' is not an existing file"
+                        return "$EXIT_VALIDATION_ERROR"
+                    fi
+                    ;;
+                dir)
+                    if [[ ! -d "$value" ]]; then
+                        _ti_error "Token '$token_name' path '$value' is not an existing directory"
+                        return "$EXIT_VALIDATION_ERROR"
+                    fi
+                    ;;
+                any)
+                    # Path must exist as either file or directory
+                    if [[ ! -e "$value" ]]; then
+                        # For "any", we allow non-existent paths (they may be created later)
+                        # Only warn, don't fail
+                        _ti_warn "Token '$token_name' path '$value' does not exist (may be created later)"
+                    fi
+                    ;;
+                exists)
+                    # Strict: path must exist
+                    if [[ ! -e "$value" ]]; then
+                        _ti_error "Token '$token_name' path '$value' does not exist"
+                        return "$EXIT_VALIDATION_ERROR"
+                    fi
+                    ;;
+            esac
+            ;;
+
+        array)
+            # Verify jq is available for array validation
+            if ! command -v jq &>/dev/null; then
+                _ti_warn "jq not available, skipping array validation for '$token_name'"
+                return 0
+            fi
+
+            # Validate JSON array syntax
+            if ! echo "$value" | jq empty 2>/dev/null; then
+                _ti_error "Token '$token_name' value is not valid JSON"
+                return "$EXIT_VALIDATION_ERROR"
+            fi
+
+            # Check if it's actually an array
+            local is_array
+            is_array=$(echo "$value" | jq 'type == "array"' 2>/dev/null)
+            if [[ "$is_array" != "true" ]]; then
+                _ti_error "Token '$token_name' value is not a JSON array"
+                return "$EXIT_VALIDATION_ERROR"
+            fi
+
+            # Check length constraints if provided
+            if [[ -n "$constraint" ]]; then
+                local length
+                length=$(echo "$value" | jq 'length' 2>/dev/null)
+
+                # Parse constraint (e.g., "minLength:3,maxLength:7" or just "3-7")
+                if [[ "$constraint" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+                    local min="${BASH_REMATCH[1]}"
+                    local max="${BASH_REMATCH[2]}"
+
+                    if [[ $length -lt $min ]]; then
+                        _ti_error "Token '$token_name' array has $length items, minimum is $min"
+                        return "$EXIT_VALIDATION_ERROR"
+                    fi
+                    if [[ $length -gt $max ]]; then
+                        _ti_error "Token '$token_name' array has $length items, maximum is $max"
+                        return "$EXIT_VALIDATION_ERROR"
+                    fi
+                elif [[ "$constraint" =~ minLength:([0-9]+) ]]; then
+                    local min="${BASH_REMATCH[1]}"
+                    if [[ $length -lt $min ]]; then
+                        _ti_error "Token '$token_name' array has $length items, minimum is $min"
+                        return "$EXIT_VALIDATION_ERROR"
+                    fi
+                elif [[ "$constraint" =~ maxLength:([0-9]+) ]]; then
+                    local max="${BASH_REMATCH[1]}"
+                    if [[ $length -gt $max ]]; then
+                        _ti_error "Token '$token_name' array has $length items, maximum is $max"
+                        return "$EXIT_VALIDATION_ERROR"
+                    fi
+                fi
+            fi
+            ;;
+
+        *)
+            _ti_warn "Unknown validation type '$val_type' for token '$token_name', skipping validation"
+            ;;
+    esac
+
+    return 0
+}
+
+# ti_validate_all_tokens - Validate all set TI_* tokens against their rules
+# Args: none
+# Returns: 0 if all valid, EXIT_VALIDATION_ERROR (6) if any invalid
+# Output: Error messages to stderr for each validation failure
+#
+# This function iterates through all known tokens and validates their values
+# against the rules defined in placeholders.json. It's useful for batch
+# validation before template injection.
+ti_validate_all_tokens() {
+    local has_error=0
+    local token value
+
+    for token in "${_TI_ALL_TOKENS[@]}"; do
+        value=$(_ti_get_token_value "$token")
+
+        # Skip empty optional tokens
+        if [[ -z "$value" ]] && ! _ti_is_required "$token"; then
+            continue
+        fi
+
+        # Validate the token
+        if ! validate_token_value "$token" "$value"; then
+            has_error=1
+        fi
+    done
+
+    if [[ $has_error -eq 1 ]]; then
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    return 0
+}
+
+# Load validation rules on source
+_ti_load_validation_rules
 
 # ============================================================================
 # INTERNAL HELPERS
@@ -820,6 +1124,121 @@ ti_extract_next_task_ids() {
     return 0
 }
 
+# ti_populate_skill_specific_tokens - Load skill-specific tokens from placeholders.json
+# Args:
+#   $1 = skill name (e.g., "epicArchitect", "validator", "taskExecutor")
+# Returns: 0 on success, EXIT_VALIDATION_ERROR (6) if skill not found
+# Side effects: Exports TI_* environment variables for each skill-specific token
+#
+# Reads tokens from .skillSpecific[skillName] in placeholders.json and exports
+# them as TI_* environment variables. Tokens with "inherits" property will
+# copy values from already-set taskContext tokens.
+#
+# Example usage:
+#   ti_set_task_context "$task_json"  # Set base taskContext tokens first
+#   ti_populate_skill_specific_tokens "taskExecutor"  # Add skill-specific tokens
+#
+# This allows skills to define additional tokens or override defaults from taskContext.
+ti_populate_skill_specific_tokens() {
+    local skill_name="${1:-}"
+
+    if [[ -z "$skill_name" ]]; then
+        _ti_error "skill_name is required for ti_populate_skill_specific_tokens"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    local json_path="$_TI_PLACEHOLDERS_JSON"
+
+    # Check file exists
+    if [[ ! -f "$json_path" ]]; then
+        _ti_warn "placeholders.json not found at $json_path, skipping skill-specific tokens"
+        return 0
+    fi
+
+    # Check jq is available
+    if ! command -v jq &>/dev/null; then
+        _ti_warn "jq not available, skipping skill-specific tokens"
+        return 0
+    fi
+
+    # Check if skill exists in skillSpecific section
+    local skill_exists
+    skill_exists=$(jq -r --arg skill "$skill_name" '.skillSpecific[$skill] // empty' "$json_path" 2>/dev/null)
+
+    if [[ -z "$skill_exists" || "$skill_exists" == "null" ]]; then
+        _ti_warn "Skill '$skill_name' not found in skillSpecific section"
+        return 0  # Not an error - skill may not have specific tokens
+    fi
+
+    # Load skill-specific tokens
+    local tokens_json
+    tokens_json=$(jq -c --arg skill "$skill_name" '.skillSpecific[$skill] // []' "$json_path" 2>/dev/null)
+
+    if [[ "$tokens_json" == "[]" || "$tokens_json" == "null" ]]; then
+        return 0  # No tokens defined for this skill
+    fi
+
+    # Process each token
+    local token_count
+    token_count=$(echo "$tokens_json" | jq 'length' 2>/dev/null || echo "0")
+
+    local i=0
+    while [[ $i -lt $token_count ]]; do
+        local token_def
+        token_def=$(echo "$tokens_json" | jq -c ".[$i]" 2>/dev/null)
+
+        # Extract token properties
+        local token_name inherits_from default_val
+        token_name=$(echo "$token_def" | jq -r '.token // ""' 2>/dev/null)
+        inherits_from=$(echo "$token_def" | jq -r '.inherits // ""' 2>/dev/null)
+        default_val=$(echo "$token_def" | jq -r '.default // ""' 2>/dev/null)
+
+        if [[ -z "$token_name" ]]; then
+            ((i++))
+            continue
+        fi
+
+        local env_var="TI_${token_name}"
+        local current_val="${!env_var:-}"
+
+        # Skip if already set (don't override explicit values)
+        if [[ -n "$current_val" ]]; then
+            ((i++))
+            continue
+        fi
+
+        # Handle inheritance from taskContext tokens
+        if [[ -n "$inherits_from" && "$inherits_from" != "null" ]]; then
+            # Parse inheritance source (e.g., "taskContext.TASK_TITLE" -> "TASK_TITLE")
+            local source_token
+            source_token="${inherits_from##*.}"  # Get part after last dot
+
+            local source_env_var="TI_${source_token}"
+            local inherited_val="${!source_env_var:-}"
+
+            if [[ -n "$inherited_val" ]]; then
+                export "$env_var"="$inherited_val"
+                ((i++))
+                continue
+            fi
+        fi
+
+        # Fall back to default value if no inheritance or inherited value empty
+        if [[ -n "$default_val" && "$default_val" != "null" ]]; then
+            export "$env_var"="$default_val"
+        fi
+
+        # Add token to _TI_ALL_TOKENS if not already present
+        if ! _ti_is_supported "$token_name"; then
+            _TI_ALL_TOKENS+=("$token_name")
+        fi
+
+        ((i++))
+    done
+
+    return 0
+}
+
 # ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
@@ -836,3 +1255,6 @@ export -f ti_set_task_context
 export -f ti_extract_manifest_summaries
 export -f ti_extract_next_task_ids
 export -f ti_reload_tokens
+export -f ti_populate_skill_specific_tokens
+export -f validate_token_value
+export -f ti_validate_all_tokens
