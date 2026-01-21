@@ -237,11 +237,16 @@ installer_state_get() {
 installer_state_set() {
     local key="$1"
     local value="$2"
-    local temp_state="${STATE_FILE}.tmp.$$"
 
-    jq --arg key "$key" --arg val "$value" \
-       '.[$key] = $val' "$STATE_FILE" > "$temp_state"
-    mv "$temp_state" "$STATE_FILE"
+    [[ -f "$STATE_FILE" ]] || return 0
+
+    local temp_state="${STATE_FILE}.tmp.$$"
+    if jq --arg key "$key" --arg val "$value" \
+       '.[$key] = $val' "$STATE_FILE" > "$temp_state" 2>/dev/null; then
+        mv "$temp_state" "$STATE_FILE" 2>/dev/null || rm -f "$temp_state"
+    else
+        rm -f "$temp_state"
+    fi
 }
 
 # Transition to new state
@@ -254,17 +259,21 @@ installer_state_transition() {
     prev_state=$(installer_state_get)
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    # Update state file atomically
-    local temp_state="${STATE_FILE}.tmp.$$"
-    jq --arg state "$new_state" \
-       --arg prev "$prev_state" \
-       --arg ts "$timestamp" \
-       '.state = $state | .previous_state = $prev | .timestamp = $ts' \
-       "$STATE_FILE" > "$temp_state"
+    # Update state file atomically (if it exists)
+    if [[ -f "$STATE_FILE" ]]; then
+        local temp_state="${STATE_FILE}.tmp.$$"
+        if jq --arg state "$new_state" \
+           --arg prev "$prev_state" \
+           --arg ts "$timestamp" \
+           '.state = $state | .previous_state = $prev | .timestamp = $ts' \
+           "$STATE_FILE" > "$temp_state" 2>/dev/null; then
+            mv "$temp_state" "$STATE_FILE" 2>/dev/null || rm -f "$temp_state"
+        else
+            rm -f "$temp_state"
+        fi
+    fi
 
-    mv "$temp_state" "$STATE_FILE"
     INSTALLER_CURRENT_STATE="$new_state"
-
     installer_log_debug "State transition: $prev_state -> $new_state"
 }
 
@@ -277,16 +286,24 @@ installer_state_mark_complete() {
 
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+    # Ensure directories exist
+    mkdir -p "$MARKERS_DIR" 2>/dev/null || true
+
     # Write marker file
-    echo "$timestamp" > "$marker_file"
+    echo "$timestamp" > "$marker_file" 2>/dev/null || true
     sync "$marker_file" 2>/dev/null || true
 
-    # Update state file
-    local temp_state="${STATE_FILE}.tmp.$$"
-    jq --arg state "$state" \
-       '.completed += [$state] | .pending -= [$state]' \
-       "$STATE_FILE" > "$temp_state"
-    mv "$temp_state" "$STATE_FILE"
+    # Update state file (if it exists)
+    if [[ -f "$STATE_FILE" ]]; then
+        local temp_state="${STATE_FILE}.tmp.$$"
+        if jq --arg state "$state" \
+           '.completed += [$state] | .pending -= [$state]' \
+           "$STATE_FILE" > "$temp_state" 2>/dev/null; then
+            mv "$temp_state" "$STATE_FILE" 2>/dev/null || rm -f "$temp_state"
+        else
+            rm -f "$temp_state"
+        fi
+    fi
 }
 
 # Check if state is complete
