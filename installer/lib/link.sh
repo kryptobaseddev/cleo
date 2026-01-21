@@ -275,32 +275,45 @@ if [[ -f "$SCRIPT_DIR/cleo" ]]; then
 fi
 
 # Fallback: direct script execution
-declare -A CMD_MAP=(
-    [init]="init.sh" [validate]="validate.sh" [archive]="archive.sh"
-    [add]="add-task.sh" [complete]="complete-task.sh" [list]="list-tasks.sh"
-    [update]="update-task.sh" [focus]="focus.sh" [session]="session.sh"
-    [show]="show.sh" [find]="find.sh" [dash]="dash.sh" [next]="next.sh"
-    [config]="config.sh" [backup]="backup.sh" [restore]="restore.sh"
-    [export]="export.sh" [stats]="stats.sh" [log]="log.sh"
-    [labels]="labels.sh" [deps]="deps-command.sh" [blockers]="blockers-command.sh"
-    [phases]="phases.sh" [phase]="phase.sh" [exists]="exists.sh"
-    [history]="history.sh" [analyze]="analyze.sh" [sync]="sync-todowrite.sh"
-    [commands]="commands.sh" [research]="research.sh" [delete]="delete.sh"
-    [uncancel]="uncancel.sh" [reopen]="reopen.sh" [reparent]="reparent.sh"
-    [promote]="promote.sh" [verify]="verify.sh" [upgrade]="upgrade.sh"
-    [context]="context.sh" [doctor]="doctor.sh" [migrate]="migrate.sh"
-)
+# Command to script mapping (Bash 3.2 compatible - no associative arrays)
+_get_cmd_script() {
+    case "$1" in
+        init) echo "init.sh" ;; validate) echo "validate.sh" ;; archive) echo "archive.sh" ;;
+        add) echo "add-task.sh" ;; complete) echo "complete-task.sh" ;; list) echo "list-tasks.sh" ;;
+        update) echo "update-task.sh" ;; focus) echo "focus.sh" ;; session) echo "session.sh" ;;
+        show) echo "show.sh" ;; find) echo "find.sh" ;; dash) echo "dash.sh" ;; next) echo "next.sh" ;;
+        config) echo "config.sh" ;; backup) echo "backup.sh" ;; restore) echo "restore.sh" ;;
+        export) echo "export.sh" ;; stats) echo "stats.sh" ;; log) echo "log.sh" ;;
+        labels) echo "labels.sh" ;; deps) echo "deps-command.sh" ;; blockers) echo "blockers-command.sh" ;;
+        phases) echo "phases.sh" ;; phase) echo "phase.sh" ;; exists) echo "exists.sh" ;;
+        history) echo "history.sh" ;; analyze) echo "analyze.sh" ;; sync) echo "sync-todowrite.sh" ;;
+        commands) echo "commands.sh" ;; research) echo "research.sh" ;; delete) echo "delete.sh" ;;
+        uncancel) echo "uncancel.sh" ;; reopen) echo "reopen.sh" ;; reparent) echo "reparent.sh" ;;
+        promote) echo "promote.sh" ;; verify) echo "verify.sh" ;; upgrade) echo "upgrade.sh" ;;
+        context) echo "context.sh" ;; doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
+        *) echo "" ;;
+    esac
+}
 
-declare -A CMD_ALIASES=(
-    [ls]="list" [done]="complete" [new]="add" [edit]="update"
-    [rm]="archive" [check]="validate" [overview]="dash" [search]="find"
-)
+# Alias resolution (Bash 3.2 compatible)
+_resolve_alias() {
+    case "$1" in
+        ls) echo "list" ;; done) echo "complete" ;; new) echo "add" ;; edit) echo "update" ;;
+        rm) echo "archive" ;; check) echo "validate" ;; overview) echo "dash" ;; search) echo "find" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# List of all commands for validation
+_get_all_commands() {
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers phases phase exists history analyze sync commands research delete uncancel reopen reparent promote verify upgrade context doctor migrate"
+}
 
 cmd="${1:-help}"
 shift 2>/dev/null || true
 
 # Resolve aliases
-[[ -n "${CMD_ALIASES[$cmd]:-}" ]] && cmd="${CMD_ALIASES[$cmd]}"
+cmd="$(_resolve_alias "$cmd")"
 
 # Handle special commands
 case "$cmd" in
@@ -311,11 +324,12 @@ case "$cmd" in
     --validate|--debug)
         echo "[INFO] Validating CLEO CLI configuration..."
         errors=0
-        for c in "${!CMD_MAP[@]}"; do
-            script="$SCRIPT_DIR/${CMD_MAP[$c]}"
+        for c in $(_get_all_commands); do
+            script_name="$(_get_cmd_script "$c")"
+            script="$SCRIPT_DIR/$script_name"
             if [[ ! -f "$script" ]]; then
                 echo "[ERROR] Missing script for '$c': $script" >&2
-                ((errors++))
+                errors=$((errors + 1))
             fi
         done
         if [[ $errors -eq 0 ]]; then
@@ -339,8 +353,9 @@ case "$cmd" in
 esac
 
 # Execute command
-if [[ -n "${CMD_MAP[$cmd]:-}" ]]; then
-    script="$SCRIPT_DIR/${CMD_MAP[$cmd]}"
+script_name="$(_get_cmd_script "$cmd")"
+if [[ -n "$script_name" ]]; then
+    script="$SCRIPT_DIR/$script_name"
     if [[ -x "$script" ]]; then
         exec "$script" "$@"
     elif [[ -f "$script" ]]; then

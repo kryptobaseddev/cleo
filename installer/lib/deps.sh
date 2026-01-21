@@ -29,9 +29,19 @@ source "${INSTALLER_LIB_DIR}/core.sh"
 readonly DEPS_BASH_MIN_VERSION=4
 readonly DEPS_JQ_MIN_VERSION="1.5"
 
-# Dependency status tracking
-declare -A DEPS_STATUS=()
-declare -A DEPS_VERSION=()
+# Dependency status tracking (using simple variables for Bash 3.2 compatibility)
+DEPS_STATUS_bash=""
+DEPS_STATUS_jq=""
+DEPS_STATUS_checksum=""
+DEPS_STATUS_ajv=""
+DEPS_STATUS_git=""
+DEPS_STATUS_downloader=""
+DEPS_VERSION_bash=""
+DEPS_VERSION_jq=""
+DEPS_VERSION_checksum=""
+DEPS_VERSION_ajv=""
+DEPS_VERSION_git=""
+DEPS_VERSION_downloader=""
 
 # ============================================
 # PLATFORM DETECTION
@@ -106,14 +116,14 @@ installer_deps_detect_package_manager() {
 installer_deps_check_bash() {
     local bash_version="${BASH_VERSION%%.*}"
 
-    DEPS_VERSION["bash"]="$BASH_VERSION"
+    DEPS_VERSION_bash="$BASH_VERSION"
 
     if [[ "$bash_version" -ge "$DEPS_BASH_MIN_VERSION" ]]; then
-        DEPS_STATUS["bash"]="ok"
+        DEPS_STATUS_bash="ok"
         installer_log_debug "Bash version $BASH_VERSION meets requirements (>= $DEPS_BASH_MIN_VERSION)"
         return 0
     else
-        DEPS_STATUS["bash"]="fail"
+        DEPS_STATUS_bash="fail"
         installer_log_error "Bash version $BASH_VERSION is too old (need >= $DEPS_BASH_MIN_VERSION)"
         return 1
     fi
@@ -125,13 +135,13 @@ installer_deps_check_jq() {
     if command -v jq &>/dev/null; then
         local jq_version
         jq_version=$(jq --version 2>/dev/null | sed 's/jq-//')
-        DEPS_VERSION["jq"]="$jq_version"
-        DEPS_STATUS["jq"]="ok"
+        DEPS_VERSION_jq="$jq_version"
+        DEPS_STATUS_jq="ok"
         installer_log_debug "jq version $jq_version found"
         return 0
     else
-        DEPS_VERSION["jq"]=""
-        DEPS_STATUS["jq"]="missing"
+        DEPS_VERSION_jq=""
+        DEPS_STATUS_jq="missing"
         installer_log_error "jq is required but not found"
         return 1
     fi
@@ -141,18 +151,18 @@ installer_deps_check_jq() {
 # Returns: 0 if available, 1 otherwise
 installer_deps_check_checksum() {
     if command -v sha256sum &>/dev/null; then
-        DEPS_VERSION["checksum"]="sha256sum"
-        DEPS_STATUS["checksum"]="ok"
+        DEPS_VERSION_checksum="sha256sum"
+        DEPS_STATUS_checksum="ok"
         installer_log_debug "sha256sum found"
         return 0
     elif command -v shasum &>/dev/null; then
-        DEPS_VERSION["checksum"]="shasum"
-        DEPS_STATUS["checksum"]="ok"
+        DEPS_VERSION_checksum="shasum"
+        DEPS_STATUS_checksum="ok"
         installer_log_debug "shasum found (BSD variant)"
         return 0
     else
-        DEPS_VERSION["checksum"]=""
-        DEPS_STATUS["checksum"]="missing"
+        DEPS_VERSION_checksum=""
+        DEPS_STATUS_checksum="missing"
         installer_log_warn "No checksum utility found (sha256sum or shasum)"
         return 1
     fi
@@ -164,13 +174,13 @@ installer_deps_check_ajv() {
     if command -v ajv &>/dev/null; then
         local ajv_version
         ajv_version=$(ajv --version 2>/dev/null || echo "unknown")
-        DEPS_VERSION["ajv"]="$ajv_version"
-        DEPS_STATUS["ajv"]="ok"
+        DEPS_VERSION_ajv="$ajv_version"
+        DEPS_STATUS_ajv="ok"
         installer_log_debug "ajv-cli found: $ajv_version"
         return 0
     else
-        DEPS_VERSION["ajv"]=""
-        DEPS_STATUS["ajv"]="missing"
+        DEPS_VERSION_ajv=""
+        DEPS_STATUS_ajv="missing"
         installer_log_debug "ajv-cli not found (optional)"
         return 1
     fi
@@ -182,13 +192,13 @@ installer_deps_check_git() {
     if command -v git &>/dev/null; then
         local git_version
         git_version=$(git --version 2>/dev/null | sed 's/git version //')
-        DEPS_VERSION["git"]="$git_version"
-        DEPS_STATUS["git"]="ok"
+        DEPS_VERSION_git="$git_version"
+        DEPS_STATUS_git="ok"
         installer_log_debug "git found: $git_version"
         return 0
     else
-        DEPS_VERSION["git"]=""
-        DEPS_STATUS["git"]="missing"
+        DEPS_VERSION_git=""
+        DEPS_STATUS_git="missing"
         installer_log_debug "git not found (optional)"
         return 1
     fi
@@ -200,20 +210,20 @@ installer_deps_check_downloader() {
     if command -v curl &>/dev/null; then
         local curl_version
         curl_version=$(curl --version 2>/dev/null | head -1 | sed 's/curl //' | cut -d' ' -f1)
-        DEPS_VERSION["downloader"]="curl:$curl_version"
-        DEPS_STATUS["downloader"]="ok"
+        DEPS_VERSION_downloader="curl:$curl_version"
+        DEPS_STATUS_downloader="ok"
         installer_log_debug "curl found: $curl_version"
         return 0
     elif command -v wget &>/dev/null; then
         local wget_version
         wget_version=$(wget --version 2>/dev/null | head -1 | sed 's/GNU Wget //' | cut -d' ' -f1)
-        DEPS_VERSION["downloader"]="wget:$wget_version"
-        DEPS_STATUS["downloader"]="ok"
+        DEPS_VERSION_downloader="wget:$wget_version"
+        DEPS_STATUS_downloader="ok"
         installer_log_debug "wget found: $wget_version"
         return 0
     else
-        DEPS_VERSION["downloader"]=""
-        DEPS_STATUS["downloader"]="missing"
+        DEPS_VERSION_downloader=""
+        DEPS_STATUS_downloader="missing"
         installer_log_debug "No downloader found (curl or wget - optional)"
         return 1
     fi
