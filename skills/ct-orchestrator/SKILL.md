@@ -53,16 +53,16 @@ Returns session state, context budget, next task, and recommended action.
 
 ```bash
 # 1. Check active sessions
-cleo session list --status active
+{{SESSION_LIST_CMD}} --status active
 
 # 2. Check manifest for pending followup
-jq -s '[.[] | select(.needs_followup | length > 0)]' claudedocs/research-outputs/MANIFEST.jsonl
+jq -s '[.[] | select(.needs_followup | length > 0)]' {{MANIFEST_PATH}}
 
 # 3. Check current focus
-cleo focus show
+{{TASK_FOCUS_SHOW_CMD}}
 
 # 4. Review epic status
-cleo dash --compact
+{{DASH_CMD}} --compact
 ```
 
 ### Decision Matrix
@@ -114,14 +114,14 @@ The `spawn` command returns:
 
 ```bash
 # List research entries (context-efficient)
-cleo research list
-cleo research list --status complete --limit 10
+{{RESEARCH_LIST_CMD}}
+{{RESEARCH_LIST_CMD}} --status complete --limit 10
 
 # Get entry details
-cleo research show <research-id>
+{{RESEARCH_SHOW_CMD}} <research-id>
 
 # Get pending followups
-cleo research pending
+{{RESEARCH_PENDING_CMD}}
 ```
 
 ### Direct jq Queries
@@ -154,10 +154,10 @@ OUTPUT REQUIREMENTS:
 4. MUST NOT return research content in response.
 
 CLEO INTEGRATION:
-1. MUST read task details: `cleo show {{TASK_ID}}`
-2. MUST set focus: `cleo focus set {{TASK_ID}}`
-3. MUST complete task when done: `cleo complete {{TASK_ID}}`
-4. SHOULD link research: `cleo research link {{TASK_ID}} {{RESEARCH_ID}}`
+1. MUST read task details: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
+2. MUST set focus: `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+3. MUST complete task when done: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
+4. SHOULD link research: `{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}`
 ```
 
 **Token defaults** (from `skills/_shared/placeholders.json`):
@@ -173,7 +173,7 @@ CLEO INTEGRATION:
 cleo orchestrator start --epic T1575
 
 # Or check manifest pending work
-cleo research pending
+{{RESEARCH_PENDING_CMD}}
 ```
 
 - Check MANIFEST.jsonl for pending followup
@@ -430,6 +430,164 @@ prompt=$(echo "$spawn_result" | jq -r '.result.prompt')
 # Pass $prompt to Task tool
 ```
 
+---
+
+## Programmatic Spawning with orchestrator_spawn_for_task()
+
+For advanced automation, use the `orchestrator_spawn_for_task()` function from `lib/orchestrator-spawn.sh`. This consolidates the manual 6-step workflow into a single function call.
+
+### Basic Usage
+
+```bash
+source lib/orchestrator-spawn.sh
+
+# Prepare complete subagent prompt for a task
+prompt=$(orchestrator_spawn_for_task "T1234")
+
+# With explicit skill override (bypasses auto-dispatch)
+prompt=$(orchestrator_spawn_for_task "T1234" "ct-research-agent")
+
+# With target model validation
+prompt=$(orchestrator_spawn_for_task "T1234" "" "sonnet")
+```
+
+### What orchestrator_spawn_for_task() Does
+
+The function performs these steps automatically:
+
+| Step | Action | Details |
+|------|--------|---------|
+| 1 | Read task from CLEO | `cleo show T1234 --format json` |
+| 2 | Select skill | Auto-dispatch from task type/labels or use override |
+| 3 | Validate skill | Check compatibility with target model |
+| 4 | Inject protocol | Load skill template + subagent protocol |
+| 5 | Set tokens | `{{TASK_ID}}`, `{{DATE}}`, `{{TOPIC_SLUG}}`, `{{EPIC_ID}}` |
+| 6 | Return prompt | Complete JSON with prompt ready for Task tool |
+
+### Return Value Structure
+
+```json
+{
+  "_meta": { "command": "orchestrator", "operation": "spawn_for_task" },
+  "success": true,
+  "result": {
+    "taskId": "T1234",
+    "skill": "ct-research-agent",
+    "topicSlug": "auth-implementation",
+    "date": "2026-01-20",
+    "epicId": "T1200",
+    "outputFile": "2026-01-20_auth-implementation.md",
+    "spawnTimestamp": "2026-01-20T15:30:00Z",
+    "targetModel": "auto",
+    "taskContext": {
+      "title": "Implement auth module",
+      "description": "Full task description..."
+    },
+    "instruction": "Use Task tool to spawn subagent with the following prompt:",
+    "prompt": "Complete injected prompt content..."
+  }
+}
+```
+
+### Helper Functions
+
+| Function | Purpose |
+|----------|---------|
+| `orchestrator_spawn_for_task()` | Main function - prepare single task spawn |
+| `orchestrator_spawn_batch()` | Prepare prompts for multiple tasks |
+| `orchestrator_spawn_preview()` | Preview skill selection without injection |
+
+### Complete Workflow Example
+
+```bash
+#!/usr/bin/env bash
+# Example: Spawn research subagent for task T1586
+
+source lib/orchestrator-spawn.sh
+
+# 1. Generate spawn result (includes all tokens and context)
+spawn_result=$(orchestrator_spawn_for_task "T1586")
+
+# 2. Check success
+if [[ $(echo "$spawn_result" | jq -r '.success') != "true" ]]; then
+    echo "Spawn failed: $(echo "$spawn_result" | jq -r '.error.message')" >&2
+    exit 1
+fi
+
+# 3. Extract prompt for Task tool
+prompt=$(echo "$spawn_result" | jq -r '.result.prompt')
+output_file=$(echo "$spawn_result" | jq -r '.result.outputFile')
+skill=$(echo "$spawn_result" | jq -r '.result.skill')
+
+# 4. Log spawn metadata
+echo "Spawning $skill for task T1586"
+echo "Expected output: $output_file"
+
+# 5. Pass $prompt to Task tool (in orchestrator context)
+# The Task tool invocation would include:
+#   - description: "Execute task T1586 with $skill"
+#   - prompt: $prompt
+```
+
+### Token Injection with lib/token-inject.sh
+
+For fine-grained control over token injection, use `lib/token-inject.sh` directly.
+
+#### Token Categories
+
+| Category | Tokens | Source |
+|----------|--------|--------|
+| **Required** | `{{TASK_ID}}`, `{{DATE}}`, `{{TOPIC_SLUG}}` | Must be set before injection |
+| **Task Commands** | `{{TASK_SHOW_CMD}}`, `{{TASK_FOCUS_CMD}}`, `{{TASK_COMPLETE_CMD}}`, etc. | CLEO defaults |
+| **Output Paths** | `{{OUTPUT_DIR}}`, `{{MANIFEST_PATH}}` | CLEO defaults |
+| **Task Context** | `{{TASK_TITLE}}`, `{{TASK_DESCRIPTION}}`, `{{DEPENDS_LIST}}`, etc. | From CLEO task data |
+| **Manifest Context** | `{{MANIFEST_SUMMARIES}}` | From recent MANIFEST.jsonl entries |
+
+#### Manual Token Injection Example
+
+```bash
+source lib/token-inject.sh
+
+# 1. Set required tokens
+ti_set_context "T1234" "2026-01-20" "auth-research"
+
+# 2. Set CLEO defaults for task commands and paths
+ti_set_defaults
+
+# 3. Get task context from CLEO
+task_json=$(cleo show T1234 --format json)
+ti_set_task_context "$task_json"
+
+# 4. Load and inject skill template
+template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
+
+# 5. Verify tokens were injected
+echo "$template" | grep -c '{{' && echo "WARNING: Uninjected tokens remain"
+```
+
+#### Key Functions
+
+| Function | Purpose | Example |
+|----------|---------|---------|
+| `ti_set_context()` | Set required tokens | `ti_set_context "T1234" "" "topic"` |
+| `ti_set_defaults()` | Set CLEO command defaults | `ti_set_defaults` |
+| `ti_set_task_context()` | Populate from CLEO JSON | `ti_set_task_context "$task_json"` |
+| `ti_extract_manifest_summaries()` | Get recent findings | `ti_extract_manifest_summaries 5` |
+| `ti_load_template()` | Load and inject file | `ti_load_template "path/to/SKILL.md"` |
+| `ti_list_tokens()` | Debug token values | `ti_list_tokens` |
+
+### Debug Mode
+
+Enable debug output for troubleshooting:
+
+```bash
+export ORCHESTRATOR_SPAWN_DEBUG=1
+prompt=$(orchestrator_spawn_for_task "T1234")
+# Logs to stderr: [orchestrator-spawn] DEBUG: ...
+```
+
+---
+
 ### Manual Workflow
 
 #### Step 1: Identify Task Type
@@ -475,10 +633,10 @@ Use Task tool with:
 
 ```bash
 # Check manifest for completion
-cleo research show <research-id>
+{{RESEARCH_SHOW_CMD}} <research-id>
 
 # Or use jq
-jq -s '.[-1] | {id, status, key_findings}' claudedocs/research-outputs/MANIFEST.jsonl
+jq -s '.[-1] | {id, status, key_findings}' {{MANIFEST_PATH}}
 ```
 
 ---
@@ -525,7 +683,7 @@ cleo orchestrator validate --manifest
 | Failure | Detection | Recovery |
 |---------|-----------|----------|
 | No output file | `test -f <path>` fails | Re-spawn with clearer instructions |
-| No manifest entry | `cleo research show` fails | Manual entry or re-spawn |
+| No manifest entry | `{{RESEARCH_SHOW_CMD}}` fails | Manual entry or re-spawn |
 | Task not completed | Status != done | Orchestrator completes manually |
 | Partial status | `status: partial` | Spawn continuation agent |
 | Blocked status | `status: blocked` | Flag for human review |

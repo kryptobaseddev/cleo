@@ -5,13 +5,35 @@
   "colors": {
     "primary": "#0D9373",
     "light": "#07C983",
-    "dark": "#0D9373"
+    "dark": "#0D9373",
+    "anchors": {
+      "from": "#0D9373",
+      "to": "#07C983"
+    }
   },
   "logo": {
     "light": "/images/logo-light.png",
     "dark": "/images/logo-dark.png"
   },
   "favicon": "/images/favicon.png",
+  "mermaid": {
+    "theme": "default"
+  },
+  "integrations": {
+    "plausible": {
+      "domain": "cleo.dev"
+    }
+  },
+  "seo": {
+    "indexHiddenPages": false
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true
+  },
+  "search": {
+    "prompt": "Search CLEO docs..."
+  },
   "navigation": {
     "tabs": [
       {
@@ -23,6 +45,15 @@
               "getting-started/introduction",
               "getting-started/quickstart",
               "getting-started/installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/vision",
+              "concepts/task-hierarchy",
+              "concepts/sessions",
+              "concepts/phases"
             ]
           },
           {
@@ -64,6 +95,9 @@
               "commands/add",
               "commands/update",
               "commands/complete",
+              "commands/delete",
+              "commands/reopen",
+              "commands/uncancel",
               "commands/list",
               "commands/show",
               "commands/find"
@@ -84,15 +118,19 @@
               "commands/dash",
               "commands/next",
               "commands/blockers",
-              "commands/deps"
+              "commands/deps",
+              "commands/stats",
+              "commands/history"
             ]
           },
           {
             "group": "Hierarchy",
             "pages": [
-              "commands/hierarchy",
+              "commands/tree",
               "commands/reparent",
-              "commands/promote"
+              "commands/promote",
+              "commands/reorder",
+              "commands/populate-hierarchy"
             ]
           },
           {
@@ -104,18 +142,41 @@
             ]
           },
           {
+            "group": "Configuration",
+            "pages": [
+              "commands/config",
+              "commands/init"
+            ]
+          },
+          {
             "group": "Maintenance",
             "pages": [
               "commands/validate",
               "commands/backup",
               "commands/restore",
               "commands/archive",
-              "commands/upgrade"
+              "commands/upgrade",
+              "commands/migrate",
+              "commands/doctor",
+              "commands/self-update"
             ]
           },
           {
-            "group": "All Commands",
+            "group": "Integration",
             "pages": [
+              "commands/sync",
+              "commands/export",
+              "commands/export-tasks",
+              "commands/import-tasks",
+              "commands/research"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "commands/exists",
+              "commands/verify",
+              "commands/log",
               "commands/commands"
             ]
           }
@@ -130,14 +191,6 @@
               "concepts/architecture",
               "concepts/data-flows",
               "concepts/anti-hallucination"
-            ]
-          },
-          {
-            "group": "Data Model",
-            "pages": [
-              "concepts/task-hierarchy",
-              "concepts/sessions",
-              "concepts/phases"
             ]
           }
         ]
@@ -167,7 +220,7 @@
             ]
           },
           {
-            "group": "Available Skills",
+            "group": "Agent Skills",
             "pages": [
               "skills/epic-architect",
               "skills/orchestrator",

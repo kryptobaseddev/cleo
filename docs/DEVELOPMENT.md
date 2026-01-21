@@ -27,6 +27,105 @@ All development scripts are in the `dev/` directory. These are NOT installed to 
 
 ---
 
+## Documentation Site (Mintlify)
+
+CLEO uses [Mintlify](https://mintlify.com/) for documentation hosting.
+
+### Local Development
+
+```bash
+# Prerequisites: Node.js v20.17.0+
+node --version  # Must be >= 20.17.0
+
+# Install Mintlify CLI (first time)
+npm install -g mintlify
+
+# Start local development server
+cd docs
+npx mintlify dev
+# Opens http://localhost:3000
+```
+
+### Configuration
+
+- **Config file**: `docs/docs.json`
+- **Theme**: mint (CLEO green: #0D9373)
+- **Mermaid diagrams**: Enabled
+- **Analytics**: Plausible (cleo.dev)
+
+### Key Commands
+
+```bash
+# Validate configuration
+cd docs && npx mintlify check
+
+# Build locally (preview mode)
+cd docs && npx mintlify dev
+
+# View available components
+# See: https://mintlify.com/docs/components
+```
+
+### Directory Structure
+
+```
+docs/
+├── docs.json           # Mintlify configuration
+├── .mintignore         # Exclude from publishing
+├── getting-started/    # Introduction, quickstart
+├── guides/             # How-to guides
+├── commands/           # Command reference (52 docs)
+├── concepts/           # Architecture, data model
+├── api/                # Schemas, exit codes
+├── skills/             # Skill system docs
+└── images/             # Logo, favicon assets
+```
+
+### CI/CD
+
+Deployments are automated via `.github/workflows/mintlify-deploy.yml`:
+- **Push to main**: Auto-deploys to production
+- **Pull requests**: Validates docs, adds preview comment
+- **Requires**: `MINTLIFY_API_KEY` secret
+
+### Writing MDX
+
+All documentation uses MDX format with Mintlify components:
+
+```mdx
+---
+title: "Page Title"
+description: "SEO description"
+icon: "terminal"
+---
+
+# Introduction
+
+<Tabs>
+  <Tab title="Bash">
+    ```bash
+    cleo add "Task title"
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Important information here.
+</Note>
+```
+
+### Mermaid Diagrams
+
+```mdx
+```mermaid
+flowchart LR
+    A[Task] --> B[Session]
+    B --> C[Context]
+```
+```
+
+---
+
 ## Documentation Generation
 
 ### Features Documentation
