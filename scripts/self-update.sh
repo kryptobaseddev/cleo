@@ -652,6 +652,72 @@ remove_copied_files() {
     done
 }
 
+# update_skills_for_mode_switch - Update skills symlinks after mode switch
+# Removes stale ct-* symlinks and ensures cleo umbrella symlink exists
+update_skills_for_mode_switch() {
+    local skills_dir="$HOME/.claude/skills"
+    local cleo_skills_dir="$CLEO_HOME/skills"
+
+    if ! is_json_output; then
+        echo "[STEP] Updating skills symlinks..."
+    fi
+
+    # Ensure skills directory exists
+    mkdir -p "$skills_dir" 2>/dev/null || true
+
+    # 1. Remove stale ct-* symlinks pointing to old dev locations
+    local cleaned=0
+    for skill in "$skills_dir"/ct-*; do
+        if [[ -L "$skill" ]]; then
+            local target
+            target=$(readlink -f "$skill" 2>/dev/null || true)
+
+            # If target doesn't exist OR points outside ~/.cleo, remove it
+            if [[ ! -e "$target" ]] || [[ "$target" != "$CLEO_HOME/"* ]]; then
+                if ! is_json_output; then
+                    echo "  Removing stale symlink: $(basename "$skill")"
+                fi
+                rm -f "$skill"
+                ((cleaned++))
+            fi
+        fi
+    done
+
+    if [[ $cleaned -gt 0 ]] && ! is_json_output; then
+        echo "  Cleaned up $cleaned old ct-* skill symlinks"
+    fi
+
+    # 2. Ensure cleo umbrella symlink exists
+    if [[ -d "$cleo_skills_dir" ]]; then
+        local target_link="$skills_dir/cleo"
+
+        # Check if symlink already correct
+        if [[ -L "$target_link" ]]; then
+            local current_target
+            current_target=$(readlink "$target_link" 2>/dev/null || true)
+            if [[ "$current_target" == "$cleo_skills_dir" ]]; then
+                if ! is_json_output; then
+                    echo "  Skills symlink already correct"
+                fi
+                return 0
+            fi
+            # Remove incorrect symlink
+            rm -f "$target_link"
+        fi
+
+        # Create the cleo umbrella symlink
+        if ln -sf "$cleo_skills_dir" "$target_link"; then
+            if ! is_json_output; then
+                echo "  Created skills symlink: cleo -> $cleo_skills_dir"
+            fi
+        else
+            if ! is_json_output; then
+                echo "  Warning: Failed to create skills symlink"
+            fi
+        fi
+    fi
+}
+
 # create_dev_symlinks - Create symlinks to a local repository
 # Args: $1 = source repository path
 create_dev_symlinks() {
@@ -830,6 +896,9 @@ do_switch_to_release() {
         exit "$EXIT_SELFUPDATE_INSTALL_FAILED"
     fi
 
+    # Update skills symlinks after mode switch
+    update_skills_for_mode_switch
+
     # Success
     if is_json_output; then
         jq -nc \
@@ -966,6 +1035,9 @@ do_switch_to_dev() {
         echo "[STEP 3/3] Creating symlinks..."
     fi
     create_dev_symlinks "$repo_path"
+
+    # Update skills symlinks after mode switch
+    update_skills_for_mode_switch
 
     # Get version
     local version

@@ -468,6 +468,39 @@ installer_link_verify_all() {
 # SKILLS INTEGRATION
 # ============================================
 
+# Clean up old individual ct-* skill symlinks
+# These are legacy symlinks from before the umbrella cleo symlink approach
+# Returns: 0 always (cleanup is best-effort)
+installer_link_cleanup_old_skills() {
+    local skills_dir="$HOME/.claude/skills"
+    local cleaned=0
+
+    if [[ ! -d "$skills_dir" ]]; then
+        return 0
+    fi
+
+    # Remove old ct-* symlinks that point outside ~/.cleo or are broken
+    for old_skill in "$skills_dir"/ct-*; do
+        if [[ -L "$old_skill" ]]; then
+            local target
+            target=$(readlink -f "$old_skill" 2>/dev/null || true)
+
+            # Remove if target doesn't exist OR points outside ~/.cleo
+            if [[ ! -e "$target" ]] || [[ "$target" != "$HOME/.cleo/"* ]]; then
+                installer_log_info "Removing old skill symlink: $(basename "$old_skill")"
+                rm -f "$old_skill"
+                ((cleaned++))
+            fi
+        fi
+    done
+
+    if [[ $cleaned -gt 0 ]]; then
+        installer_log_info "Cleaned up $cleaned old ct-* skill symlinks"
+    fi
+
+    return 0
+}
+
 # Setup skills symlink to Claude Code's skills directory
 # Args: source_skills_dir
 # Returns: 0 on success, 1 on failure
@@ -481,6 +514,9 @@ installer_link_setup_skills() {
     fi
 
     installer_log_info "Setting up skills integration..."
+
+    # Clean up old individual ct-* symlinks before creating umbrella symlink
+    installer_link_cleanup_old_skills
 
     # Ensure Claude skills directory exists
     mkdir -p "$(dirname "$target_dir")"
@@ -925,6 +961,7 @@ export -f installer_link_setup_bin
 export -f installer_link_create_wrapper
 export -f installer_link_remove_bin
 export -f installer_link_verify_all
+export -f installer_link_cleanup_old_skills
 export -f installer_link_setup_skills
 export -f installer_link_remove_skills
 export -f installer_link_detect_claudemd

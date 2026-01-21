@@ -503,6 +503,80 @@ ti_set_context() {
 }
 
 
+# ti_extract_manifest_summaries - Extract key_findings from recent MANIFEST.jsonl entries
+# Args:
+#   $1 = limit (optional, default 5) - number of recent entries to read
+# Returns: 0 on success, EXIT_FILE_ERROR (3) if manifest not found
+# Side effects: Exports TI_MANIFEST_SUMMARIES environment variable
+#
+# Reads the last N entries from MANIFEST.jsonl and extracts key_findings
+# to provide context for subagent spawning.
+ti_extract_manifest_summaries() {
+    local limit="${1:-5}"
+    local manifest_path="${TI_MANIFEST_PATH:-claudedocs/research-outputs/MANIFEST.jsonl}"
+
+    # Check if manifest exists
+    if [[ ! -f "$manifest_path" ]]; then
+        _ti_warn "MANIFEST.jsonl not found at $manifest_path"
+        export TI_MANIFEST_SUMMARIES=""
+        return 0  # Not an error - manifest may not exist yet
+    fi
+
+    # Verify jq is available
+    if ! command -v jq &>/dev/null; then
+        _ti_warn "jq not available, cannot extract manifest summaries"
+        export TI_MANIFEST_SUMMARIES=""
+        return 0
+    fi
+
+    # Extract last N entries and format as summary
+    local summaries=""
+    local entry_count=0
+
+    # Read last N lines and process each entry
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+
+        # Extract fields from entry
+        local title id key_findings_json status
+        title=$(echo "$line" | jq -r '.title // ""' 2>/dev/null) || continue
+        id=$(echo "$line" | jq -r '.id // ""' 2>/dev/null) || continue
+        status=$(echo "$line" | jq -r '.status // ""' 2>/dev/null) || continue
+        key_findings_json=$(echo "$line" | jq -c '.key_findings // []' 2>/dev/null) || continue
+
+        # Skip if no title or findings
+        [[ -z "$title" || "$key_findings_json" == "[]" || "$key_findings_json" == "null" ]] && continue
+
+        # Format entry header
+        summaries+="### ${title}"
+        [[ -n "$id" ]] && summaries+=" (${id})"
+        summaries+=$'\n'
+
+        # Format key findings as bullets
+        local findings
+        findings=$(echo "$key_findings_json" | jq -r '.[] | "- " + .' 2>/dev/null)
+        if [[ -n "$findings" ]]; then
+            summaries+="$findings"$'\n'
+        fi
+
+        summaries+=$'\n'
+        ((entry_count++))
+
+    done < <(tail -n "$limit" "$manifest_path" | tac)  # tac reverses for most-recent-first
+
+    # If no entries found, use empty string
+    if [[ $entry_count -eq 0 ]]; then
+        export TI_MANIFEST_SUMMARIES=""
+    else
+        # Trim trailing newlines and export
+        summaries="${summaries%$'\n'}"
+        summaries="${summaries%$'\n'}"
+        export TI_MANIFEST_SUMMARIES="$summaries"
+    fi
+
+    return 0
+}
+
 # ti_set_task_context - Populate taskContext tokens from CLEO task JSON
 # Args:
 #   $1 = task JSON from `cleo show TASK_ID --format json`
@@ -518,10 +592,9 @@ ti_set_context() {
 #   - TI_TOPICS_JSON (from task.labels as JSON array string)
 #   - TI_DEPENDS_LIST (from task.depends as comma-separated string)
 #
-# The following tokens are NOT populated here (orchestrator provides them):
-#   - TI_ACCEPTANCE_CRITERIA
-#   - TI_DELIVERABLES_LIST
-#   - TI_MANIFEST_SUMMARIES
+# Also calls ti_extract_manifest_summaries() to populate TI_MANIFEST_SUMMARIES.
+#
+# The following token is NOT populated here (orchestrator provides it):
 #   - TI_NEXT_TASK_IDS
 ti_set_task_context() {
     local task_json="${1:-}"
@@ -565,6 +638,185 @@ ti_set_task_context() {
     depends_list=$(echo "$task_json" | jq -r '(.task.depends // []) | join(", ")')
     export TI_DEPENDS_LIST="$depends_list"
 
+    # Extract acceptance criteria
+    # Priority: task.acceptance array > parse from description > default
+    local acceptance_criteria=""
+    local acceptance_array
+    acceptance_array=$(echo "$task_json" | jq -c '.task.acceptance // []')
+
+    if [[ "$acceptance_array" != "[]" && "$acceptance_array" != "null" ]]; then
+        # Format acceptance array as markdown bulleted list
+        acceptance_criteria=$(echo "$task_json" | jq -r '(.task.acceptance // []) | map("- " + .) | join("\n")')
+    elif [[ -n "$description" ]]; then
+        # Try to parse acceptance criteria from description
+        # Look for common patterns: "Acceptance Criteria:", "AC:", "Criteria:", numbered lists after these
+        local parsed_ac
+        parsed_ac=$(echo "$description" | grep -iE '(acceptance|criteria|requirements|must|should):' | head -5 || true)
+
+        if [[ -n "$parsed_ac" ]]; then
+            acceptance_criteria="$parsed_ac"
+        else
+            # Use default
+            acceptance_criteria="${_TI_CLEO_DEFAULTS[ACCEPTANCE_CRITERIA]:-Task completed successfully per description}"
+        fi
+    else
+        # Use default
+        acceptance_criteria="${_TI_CLEO_DEFAULTS[ACCEPTANCE_CRITERIA]:-Task completed successfully per description}"
+    fi
+
+    export TI_ACCEPTANCE_CRITERIA="$acceptance_criteria"
+
+    # Extract deliverables list
+    # Priority: task.deliverables array > task.files array > parse from description > default
+    local deliverables_list=""
+    local deliverables_array
+    deliverables_array=$(echo "$task_json" | jq -c '.task.deliverables // []')
+
+    if [[ "$deliverables_array" != "[]" && "$deliverables_array" != "null" ]]; then
+        # Format deliverables array as markdown bulleted list
+        deliverables_list=$(echo "$task_json" | jq -r '(.task.deliverables // []) | map("- " + .) | join("\n")')
+    else
+        # Fall back to task.files array
+        local files_array
+        files_array=$(echo "$task_json" | jq -c '.task.files // []')
+
+        if [[ "$files_array" != "[]" && "$files_array" != "null" ]]; then
+            # Format files array as markdown bulleted list
+            deliverables_list=$(echo "$task_json" | jq -r '(.task.files // []) | map("- " + .) | join("\n")')
+        elif [[ -n "$description" ]]; then
+            # Try to parse deliverables from description
+            # Look for patterns: "Deliverables:", "Output:", "Files:", numbered/bulleted lists
+            local parsed_deliverables
+            parsed_deliverables=$(echo "$description" | grep -iE '(deliverables?|outputs?|files?|creates?):' | head -5 || true)
+
+            if [[ -n "$parsed_deliverables" ]]; then
+                deliverables_list="$parsed_deliverables"
+            else
+                # Use default
+                deliverables_list="${_TI_CLEO_DEFAULTS[DELIVERABLES_LIST]:-Implementation per task description}"
+            fi
+        else
+            # Use default
+            deliverables_list="${_TI_CLEO_DEFAULTS[DELIVERABLES_LIST]:-Implementation per task description}"
+        fi
+    fi
+
+    export TI_DELIVERABLES_LIST="$deliverables_list"
+
+    # Extract manifest summaries for context from previous subagent work
+    ti_extract_manifest_summaries
+
+    return 0
+}
+
+# ti_extract_next_task_ids - Identify tasks that become unblocked after current task completion
+# Args:
+#   $1 = task_id (optional, defaults to TI_TASK_ID)
+# Returns: 0 on success, 1 if no task ID available
+# Side effects: Exports TI_NEXT_TASK_IDS environment variable (comma-separated list)
+#
+# Analyzes dependencies to find tasks that depend on the current task and would
+# become executable after the current task completes. A task becomes unblocked
+# when ALL its dependencies are done (or will be done including the current task).
+#
+# Example output: "T1234,T1235,T1236"
+ti_extract_next_task_ids() {
+    local task_id="${1:-${TI_TASK_ID:-}}"
+
+    # If no task ID provided, try to get from focus
+    if [[ -z "$task_id" ]]; then
+        if command -v cleo &>/dev/null; then
+            task_id=$(cleo focus show --quiet 2>/dev/null || true)
+        fi
+    fi
+
+    if [[ -z "$task_id" ]]; then
+        _ti_warn "No task ID available for dependency analysis"
+        export TI_NEXT_TASK_IDS=""
+        return 0
+    fi
+
+    # Verify cleo and jq are available
+    if ! command -v cleo &>/dev/null; then
+        _ti_warn "cleo not available, cannot analyze dependencies"
+        export TI_NEXT_TASK_IDS=""
+        return 0
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        _ti_warn "jq not available, cannot analyze dependencies"
+        export TI_NEXT_TASK_IDS=""
+        return 0
+    fi
+
+    # Get downstream dependents (tasks that depend on current task)
+    local deps_json
+    deps_json=$(cleo deps "$task_id" --format json 2>/dev/null || echo '{"downstream_dependents":[]}')
+
+    local dependents
+    dependents=$(echo "$deps_json" | jq -r '.downstream_dependents // [] | .[]' 2>/dev/null)
+
+    if [[ -z "$dependents" ]]; then
+        # No tasks depend on this one
+        export TI_NEXT_TASK_IDS=""
+        return 0
+    fi
+
+    # Get all tasks to check their dependency status
+    local all_tasks_json
+    all_tasks_json=$(cleo list --format json 2>/dev/null || echo '{"tasks":[]}')
+
+    # For each dependent, check if it would become unblocked
+    local next_ids=()
+    local dependent_id
+
+    while IFS= read -r dependent_id; do
+        [[ -z "$dependent_id" ]] && continue
+
+        # Get dependent task's dependencies
+        local task_deps
+        task_deps=$(echo "$all_tasks_json" | jq -r --arg id "$dependent_id" \
+            '.tasks[] | select(.id == $id) | .depends // [] | .[]' 2>/dev/null)
+
+        if [[ -z "$task_deps" ]]; then
+            # Task has no dependencies listed, should already be unblocked
+            continue
+        fi
+
+        # Check if all OTHER dependencies are done
+        local all_deps_satisfied=1
+        local dep
+
+        while IFS= read -r dep; do
+            [[ -z "$dep" ]] && continue
+
+            # Skip the current task (we're assuming it will be done)
+            [[ "$dep" == "$task_id" ]] && continue
+
+            # Check if this dependency is done
+            local dep_status
+            dep_status=$(echo "$all_tasks_json" | jq -r --arg id "$dep" \
+                '.tasks[] | select(.id == $id) | .status // "pending"' 2>/dev/null)
+
+            if [[ "$dep_status" != "done" ]]; then
+                all_deps_satisfied=0
+                break
+            fi
+        done <<< "$task_deps"
+
+        # If all other deps are done, this task will become unblocked
+        if [[ $all_deps_satisfied -eq 1 ]]; then
+            next_ids+=("$dependent_id")
+        fi
+    done <<< "$dependents"
+
+    # Format as comma-separated list
+    local result=""
+    if [[ ${#next_ids[@]} -gt 0 ]]; then
+        result=$(IFS=','; echo "${next_ids[*]}")
+    fi
+
+    export TI_NEXT_TASK_IDS="$result"
     return 0
 }
 
@@ -581,4 +833,6 @@ export -f ti_get_default
 export -f ti_clear_all
 export -f ti_set_context
 export -f ti_set_task_context
+export -f ti_extract_manifest_summaries
+export -f ti_extract_next_task_ids
 export -f ti_reload_tokens

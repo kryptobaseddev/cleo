@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-01-20
+
+### Fixed
+- **Skills Installation**: Clean up stale individual `ct-*` symlinks during installation
+  - Installer now removes old `ct-*` symlinks before creating umbrella `cleo` symlink
+  - Prevents conflicts between old individual symlinks and new umbrella approach
+  - Logs cleanup progress: "Cleaned up N old ct-* skill symlinks"
+- **Mode Switching**: Update skills symlinks during `--to-release` and `--to-dev` operations
+  - Self-update now calls `update_skills_for_mode_switch()` after mode transitions
+  - Removes stale symlinks pointing to old dev locations
+  - Ensures `~/.claude/skills/cleo` umbrella symlink is always valid
+
 ## [0.58.0] - 2026-01-20
 
 ### Added

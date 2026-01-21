@@ -464,6 +464,14 @@ skill_inject_for_task() {
                  sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g')
     [[ -z "$topic_slug" ]] && topic_slug="task-${task_id}"
 
+    # Set task context tokens from task JSON (TI_TASK_TITLE, TI_TASK_DESCRIPTION, etc.)
+    # This matches the pattern in orchestrator-spawn.sh
+    if ! ti_set_task_context "$task_json"; then
+        _sd_warn "Failed to set task context tokens - continuing with defaults"
+    else
+        _sd_debug "Task context tokens set: TASK_TITLE='${TI_TASK_TITLE:-}', TOPICS_JSON='${TI_TOPICS_JSON:-}'"
+    fi
+
     # Inject skill with tokens
     skill_inject "$skill_name" "$task_id" "$date_today" "$topic_slug"
 }
