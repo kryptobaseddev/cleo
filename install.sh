@@ -1,19 +1,28 @@
 #!/usr/bin/env bash
 #
-# CLEO Installer - User-friendly entry point
-# Delegates to the modular installer at installer/install.sh
+# CLEO Installer - Universal entry point
+#
+# Works in two modes:
+#   1. Local repo:  ./install.sh (delegates to installer/install.sh)
+#   2. Remote:      curl ... | bash (downloads release from GitHub)
 #
 # Usage:
-#   ./install.sh              # Interactive mode (human)
-#   ./install.sh --auto       # Non-interactive (AI agent)
-#   ./install.sh --dev        # Development mode (symlinks)
-#   ./install.sh --help       # Show all options
+#   curl -fsSL https://cleo.sh/install | bash     # End user install
+#   ./install.sh                                   # Interactive (from repo)
+#   ./install.sh --dev                             # Developer mode
 #
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALLER="$SCRIPT_DIR/installer/install.sh"
+# Configuration
+GITHUB_REPO="kryptobaseddev/cleo"
+INSTALL_DIR="${CLEO_HOME:-$HOME/.cleo}"
+
+# Detect script location (empty if piped)
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || true
+fi
 
 # Colors (disabled if not TTY or NO_COLOR set)
 if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
@@ -23,150 +32,346 @@ if [[ -t 1 ]] && [[ -z "${NO_COLOR:-}" ]]; then
     GREEN='\033[32m'
     YELLOW='\033[33m'
     CYAN='\033[36m'
+    RED='\033[31m'
     RESET='\033[0m'
 else
-    BOLD='' DIM='' BLUE='' GREEN='' YELLOW='' CYAN='' RESET=''
+    BOLD='' DIM='' BLUE='' GREEN='' YELLOW='' CYAN='' RED='' RESET=''
 fi
+
+info()  { echo -e "${CYAN}[INFO]${RESET} $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${RESET} $*"; }
+error() { echo -e "${RED}[ERROR]${RESET} $*" >&2; }
+success() { echo -e "${GREEN}[OK]${RESET} $*"; }
 
 show_banner() {
     echo -e "${BOLD}${BLUE}"
-    echo "   _____ _      ______ ____  "
-    echo "  / ____| |    |  ____/ __ \\ "
-    echo " | |    | |    | |__ | |  | |"
-    echo " | |    | |    |  __|| |  | |"
-    echo " | |____| |____| |___| |__| |"
-    echo "  \\_____|______|______\\____/ "
+    cat << 'EOF'
+   _____ _      ______ ____
+  / ____| |    |  ____/ __ \
+ | |    | |    | |__ | |  | |
+ | |    | |    |  __|| |  | |
+ | |____| |____| |___| |__| |
+  \_____|______|______\____/
+EOF
     echo -e "${RESET}"
     echo -e "${DIM}Command Line Entity Orchestrator${RESET}"
     echo ""
 }
 
 show_help() {
-    echo "CLEO Installer"
-    echo ""
-    echo "Usage: ./install.sh [OPTIONS]"
-    echo ""
-    echo "Installation Modes:"
-    echo "  --dev             Development mode (symlinks to repo)"
-    echo "  --release         Release mode (copy files)"
-    echo "  --auto            Non-interactive mode for AI agents"
-    echo ""
-    echo "Options:"
-    echo "  --force           Overwrite existing installation"
-    echo "  --skip-profile    Skip shell profile updates"
-    echo "  --skip-skills     Skip skills installation"
-    echo "  --version VER     Install specific version"
-    echo ""
-    echo "Information:"
-    echo "  --check-deps      Check dependencies only"
-    echo "  --status          Show installation status"
-    echo "  --help            Show this help"
-    echo ""
-    echo "Recovery:"
-    echo "  --recover         Recover from interrupted installation"
-    echo "  --rollback        Rollback to previous backup"
-    echo "  --uninstall       Remove CLEO installation"
-    echo ""
-    echo "Examples:"
-    echo "  ./install.sh                    # Interactive installation"
-    echo "  ./install.sh --auto --dev       # AI agent, dev mode"
-    echo "  ./install.sh --force            # Reinstall/upgrade"
-    echo ""
+    cat << 'EOF'
+CLEO Installer
+
+Usage:
+  curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/install.sh | bash
+  ./install.sh [OPTIONS]
+
+Installation Modes:
+  (default)         Standard installation from GitHub release
+  --dev             Development mode (symlinks to local repo)
+
+Options:
+  --force           Overwrite existing installation
+  --skip-profile    Skip shell profile updates
+  --skip-skills     Skip skills installation
+  --version VER     Install specific version (e.g., 0.56.0)
+
+Information:
+  --check-deps      Check dependencies only
+  --status          Show installation status
+  --help            Show this help
+
+Recovery:
+  --recover         Recover from interrupted installation
+  --rollback        Rollback to previous backup
+  --uninstall       Remove CLEO installation
+
+Examples:
+  curl ... | bash                 # Quick install (end user)
+  ./install.sh                    # Interactive (from cloned repo)
+  ./install.sh --dev              # Developer mode with symlinks
+  ./install.sh --version 0.56.0   # Install specific version
+
+EOF
 }
 
+# Check for required commands
+check_deps() {
+    local missing=()
+
+    command -v bash >/dev/null || missing+=("bash")
+    command -v jq >/dev/null || missing+=("jq")
+
+    # Need either curl or wget for remote install
+    if ! command -v curl >/dev/null && ! command -v wget >/dev/null; then
+        missing+=("curl or wget")
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        error "Missing required dependencies: ${missing[*]}"
+        echo ""
+        echo "Install them with:"
+        echo "  Ubuntu/Debian: sudo apt install ${missing[*]}"
+        echo "  macOS:         brew install ${missing[*]}"
+        echo "  Fedora:        sudo dnf install ${missing[*]}"
+        exit 1
+    fi
+}
+
+# Download a file using curl or wget
+download() {
+    local url="$1"
+    local dest="$2"
+
+    if command -v curl >/dev/null; then
+        curl -fsSL "$url" -o "$dest"
+    elif command -v wget >/dev/null; then
+        wget -q "$url" -O "$dest"
+    else
+        error "No download tool available (need curl or wget)"
+        exit 1
+    fi
+}
+
+# Get latest release version from GitHub
+get_latest_version() {
+    local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    local version=""
+
+    if command -v curl >/dev/null; then
+        version=$(curl -fsSL "$api_url" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null || true)
+    elif command -v wget >/dev/null; then
+        version=$(wget -qO- "$api_url" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null || true)
+    fi
+
+    # Strip 'v' prefix if present
+    version="${version#v}"
+    echo "$version"
+}
+
+# Install from GitHub release (for end users)
+remote_install() {
+    local version="${1:-}"
+    local force="${2:-false}"
+
+    show_banner
+    info "Installing CLEO from GitHub..."
+    echo ""
+
+    check_deps
+
+    # Get version
+    if [[ -z "$version" ]]; then
+        info "Fetching latest version..."
+        version=$(get_latest_version)
+        if [[ -z "$version" ]]; then
+            error "Could not determine latest version"
+            echo "Try specifying a version: ./install.sh --version 0.56.0"
+            exit 1
+        fi
+    fi
+
+    info "Installing CLEO v${version}"
+
+    # Check existing installation
+    if [[ -d "$INSTALL_DIR" ]] && [[ "$force" != "true" ]]; then
+        local current=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | head -1 || echo "unknown")
+        warn "Existing installation found: v${current}"
+
+        if [[ -t 0 ]]; then
+            read -p "Overwrite? [y/N]: " confirm
+            if [[ ! "${confirm,,}" =~ ^(y|yes)$ ]]; then
+                echo "Installation cancelled."
+                exit 0
+            fi
+        else
+            error "Use --force to overwrite existing installation"
+            exit 1
+        fi
+    fi
+
+    # Create temp directory
+    local tmp_dir=$(mktemp -d)
+    trap "rm -rf '$tmp_dir'" EXIT
+
+    # Download release tarball
+    local tarball_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/v${version}.tar.gz"
+    local tarball="$tmp_dir/cleo.tar.gz"
+
+    info "Downloading v${version}..."
+    if ! download "$tarball_url" "$tarball"; then
+        error "Failed to download release"
+        echo "Check if version exists: https://github.com/${GITHUB_REPO}/releases"
+        exit 1
+    fi
+
+    # Extract
+    info "Extracting..."
+    tar -xzf "$tarball" -C "$tmp_dir"
+
+    # Find extracted directory
+    local src_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "cleo-*" | head -1)
+    if [[ -z "$src_dir" ]] || [[ ! -d "$src_dir" ]]; then
+        error "Failed to extract release"
+        exit 1
+    fi
+
+    # Run the modular installer from extracted source
+    local installer="$src_dir/installer/install.sh"
+    if [[ -f "$installer" ]]; then
+        info "Running installer..."
+        chmod +x "$installer"
+        exec "$installer" --force
+    else
+        # Fallback: manual copy if modular installer not in release
+        info "Installing files..."
+        mkdir -p "$INSTALL_DIR"
+        cp -r "$src_dir/scripts" "$INSTALL_DIR/"
+        cp -r "$src_dir/lib" "$INSTALL_DIR/"
+        cp -r "$src_dir/schemas" "$INSTALL_DIR/"
+        cp -r "$src_dir/templates" "$INSTALL_DIR/"
+        [[ -d "$src_dir/skills" ]] && cp -r "$src_dir/skills" "$INSTALL_DIR/"
+        [[ -d "$src_dir/docs" ]] && cp -r "$src_dir/docs" "$INSTALL_DIR/"
+        cp "$src_dir/VERSION" "$INSTALL_DIR/"
+
+        # Create CLI wrapper
+        create_cli_wrapper
+
+        # Setup symlinks
+        setup_bin_links
+
+        success "CLEO v${version} installed successfully!"
+        echo ""
+        echo "Run 'cleo version' to verify installation."
+        echo "Run 'cleo init' in a project directory to get started."
+    fi
+}
+
+# Create the CLI wrapper script
+create_cli_wrapper() {
+    cat > "$INSTALL_DIR/cleo" << 'WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
+export CLEO_HOME
+
+cmd="${1:-}"
+[[ -z "$cmd" ]] && { "$CLEO_HOME/scripts/help.sh"; exit 0; }
+
+case "$cmd" in
+    --help|-h) "$CLEO_HOME/scripts/help.sh"; exit 0 ;;
+    --version|-v) cat "$CLEO_HOME/VERSION" | head -1; exit 0 ;;
+    --validate) "$CLEO_HOME/scripts/validate-install.sh"; exit $? ;;
+    --list-commands) "$CLEO_HOME/scripts/commands.sh"; exit $? ;;
+esac
+
+script="$CLEO_HOME/scripts/${cmd}.sh"
+[[ -f "$script" ]] || script="$CLEO_HOME/scripts/${cmd}-task.sh"
+[[ -f "$script" ]] || { echo "Unknown command: $cmd" >&2; exit 1; }
+
+shift
+exec "$script" "$@"
+WRAPPER
+    chmod +x "$INSTALL_DIR/cleo"
+}
+
+# Setup bin symlinks
+setup_bin_links() {
+    local bin_dir="$HOME/.local/bin"
+    mkdir -p "$bin_dir"
+
+    ln -sf "$INSTALL_DIR/cleo" "$bin_dir/cleo"
+    ln -sf "$INSTALL_DIR/cleo" "$bin_dir/ct"
+
+    # Check if bin_dir is in PATH
+    if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+        warn "$bin_dir is not in your PATH"
+        echo ""
+        echo "Add this to your shell profile (~/.bashrc or ~/.zshrc):"
+        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo ""
+        echo "Then run: source ~/.bashrc"
+    fi
+}
+
+# Interactive install for local repo
 interactive_install() {
     show_banner
 
     echo -e "${CYAN}Welcome to the CLEO installer!${RESET}"
     echo ""
 
-    # Check if this looks like a git repo (dev mode candidate)
+    # Check if this looks like a git repo
     local is_git_repo=false
     [[ -d "$SCRIPT_DIR/.git" ]] && is_git_repo=true
 
     # Detect existing installation
-    local has_existing=false
-    [[ -d "$HOME/.cleo" ]] && has_existing=true
-
-    if $has_existing; then
-        local current_version=$(cat "$HOME/.cleo/VERSION" 2>/dev/null | head -1 || echo "unknown")
+    if [[ -d "$INSTALL_DIR" ]]; then
+        local current_version=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null | head -1 || echo "unknown")
         echo -e "${YELLOW}Existing installation detected: v${current_version}${RESET}"
         echo ""
     fi
 
-    # Installation mode selection
+    # Mode selection
     echo -e "${BOLD}Select installation mode:${RESET}"
     echo ""
     if $is_git_repo; then
         echo -e "  ${GREEN}1)${RESET} Development mode ${DIM}(recommended for contributors)${RESET}"
         echo "     Creates symlinks to this repository"
-        echo "     Changes in repo reflect immediately"
         echo ""
         echo -e "  ${GREEN}2)${RESET} Release mode"
         echo "     Copies files to ~/.cleo"
-        echo "     Independent of this repository"
     else
         echo -e "  ${GREEN}1)${RESET} Standard installation ${DIM}(recommended)${RESET}"
-        echo "     Copies files to ~/.cleo"
+        echo "     Downloads latest release from GitHub"
         echo ""
         echo -e "  ${GREEN}2)${RESET} Development mode"
-        echo "     Creates symlinks (requires git clone)"
+        echo "     Requires cloning the repository first"
     fi
     echo ""
 
-    local choice
     read -p "Enter choice [1]: " choice
     choice="${choice:-1}"
 
-    local mode_flag=""
     case "$choice" in
         1)
             if $is_git_repo; then
-                mode_flag="--dev"
-                echo -e "\n${GREEN}→ Development mode selected${RESET}\n"
+                exec "$SCRIPT_DIR/installer/install.sh" --dev
             else
-                mode_flag=""
-                echo -e "\n${GREEN}→ Standard installation selected${RESET}\n"
+                remote_install "" "true"
             fi
             ;;
         2)
             if $is_git_repo; then
-                mode_flag=""
-                echo -e "\n${GREEN}→ Release mode selected${RESET}\n"
+                exec "$SCRIPT_DIR/installer/install.sh" --force
             else
-                mode_flag="--dev"
-                echo -e "\n${GREEN}→ Development mode selected${RESET}\n"
+                error "Development mode requires cloning the repository first:"
+                echo ""
+                echo "  git clone https://github.com/${GITHUB_REPO}.git"
+                echo "  cd cleo && ./install.sh --dev"
+                exit 1
             fi
             ;;
         *)
-            echo -e "${YELLOW}Invalid choice, using default${RESET}"
-            mode_flag=$($is_git_repo && echo "--dev" || echo "")
+            warn "Invalid choice, using default"
+            if $is_git_repo; then
+                exec "$SCRIPT_DIR/installer/install.sh" --dev
+            else
+                remote_install "" "true"
+            fi
             ;;
     esac
-
-    # Force flag for existing installations
-    local force_flag=""
-    if $has_existing; then
-        echo -e "${YELLOW}This will upgrade/reinstall CLEO.${RESET}"
-        read -p "Continue? [Y/n]: " confirm
-        confirm="${confirm:-Y}"
-        if [[ "${confirm,,}" =~ ^(y|yes)$ ]]; then
-            force_flag="--force"
-        else
-            echo -e "${YELLOW}Installation cancelled.${RESET}"
-            exit 0
-        fi
-    fi
-
-    echo -e "${CYAN}Starting installation...${RESET}\n"
-
-    # Run the modular installer
-    exec "$INSTALLER" $mode_flag $force_flag
 }
 
+# =============================================================================
+# Main
+# =============================================================================
+
 # Parse arguments
-AUTO_MODE=false
-PASS_THROUGH_ARGS=()
+VERSION=""
+FORCE=false
+DEV_MODE=false
+PASS_THROUGH=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -174,29 +379,57 @@ while [[ $# -gt 0 ]]; do
             show_help
             exit 0
             ;;
-        --auto)
-            AUTO_MODE=true
+        --version)
+            VERSION="$2"
+            shift 2
+            ;;
+        --force|-f)
+            FORCE=true
+            PASS_THROUGH+=("--force")
             shift
             ;;
+        --dev)
+            DEV_MODE=true
+            PASS_THROUGH+=("--dev")
+            shift
+            ;;
+        --check-deps)
+            check_deps
+            success "All required dependencies are installed"
+            exit 0
+            ;;
         *)
-            PASS_THROUGH_ARGS+=("$1")
+            PASS_THROUGH+=("$1")
             shift
             ;;
     esac
 done
 
-# Verify modular installer exists
-if [[ ! -f "$INSTALLER" ]]; then
-    echo "Error: Modular installer not found at $INSTALLER" >&2
-    echo "Please ensure you have the complete CLEO repository." >&2
-    exit 1
+# Determine install mode based on context
+LOCAL_INSTALLER=""
+if [[ -n "$SCRIPT_DIR" ]] && [[ -f "$SCRIPT_DIR/installer/install.sh" ]]; then
+    LOCAL_INSTALLER="$SCRIPT_DIR/installer/install.sh"
 fi
 
-# Run in appropriate mode
-if $AUTO_MODE || [[ ${#PASS_THROUGH_ARGS[@]} -gt 0 ]] || [[ ! -t 0 ]]; then
-    # Non-interactive: pass through to modular installer
-    exec "$INSTALLER" "${PASS_THROUGH_ARGS[@]}"
+# Route to appropriate installer
+if [[ -n "$LOCAL_INSTALLER" ]]; then
+    # We have the full repo - use modular installer
+    if [[ ${#PASS_THROUGH[@]} -gt 0 ]] || [[ ! -t 0 ]]; then
+        # Non-interactive or has flags: pass through
+        exec "$LOCAL_INSTALLER" "${PASS_THROUGH[@]}"
+    else
+        # Interactive mode
+        interactive_install
+    fi
 else
-    # Interactive mode for humans
-    interactive_install
+    # Remote install - download from GitHub
+    if $DEV_MODE; then
+        error "Development mode requires cloning the repository:"
+        echo ""
+        echo "  git clone https://github.com/${GITHUB_REPO}.git"
+        echo "  cd cleo && ./install.sh --dev"
+        exit 1
+    fi
+
+    remote_install "$VERSION" "$FORCE"
 fi

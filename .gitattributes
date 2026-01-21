@@ -1,0 +1,21 @@
+# Git archive export-ignore rules
+# Excludes development files from git archive exports
+
+# Git/GitHub files
+.git* export-ignore
+.github/ export-ignore
+
+# Development directories
+tests/ export-ignore
+docs/ export-ignore
+dev/ export-ignore
+claudedocs/ export-ignore
+archive/ export-ignore
+
+# Test files
+*.bats export-ignore
+
+# Development config
+.editorconfig export-ignore
+Makefile export-ignore
+install.sh.legacy export-ignore
