@@ -17,14 +17,18 @@ Use `ct` (alias for `cleo`) for all task operations. Full docs: `~/.cleo/docs/TO
 **Common Errors and Fixes:**
 | Exit | Code | Meaning | Fix |
 |:----:|------|---------|-----|
+| 4 | `E_NOT_FOUND` | Task doesn't exist | Use `ct find` or `ct list` to verify |
 | 6 | `E_VALIDATION_*` | Validation failed | Check field lengths, escape `$` in notes |
 | 10 | `E_PARENT_NOT_FOUND` | Parent doesn't exist | Verify with `ct exists <parent-id>` |
 | 11 | `E_DEPTH_EXCEEDED` | Max depth (3) exceeded | Use shallower hierarchy (epic→task→subtask max) |
 | 12 | `E_SIBLING_LIMIT` | Too many siblings (7) | Move task to different parent |
-| 4 | `E_NOT_FOUND` | Task doesn't exist | Use `ct find` or `ct list` to verify |
+| 38 | `E_FOCUS_REQUIRED` | Session needs focus | Add `--auto-focus` or `--focus <id>` to session start |
+| 100 | `E_SESSION_DISCOVERY_MODE` | Session needs scope | Add `--scope epic:<id>` **and** run `ct session list` first |
 
 **Recoverable errors (retry with backoff):** 7, 20, 21, 22
-**Special codes (not errors):** 100 = no data, 101 = already exists, 102 = no change needed
+**Special codes (not errors):** 101 = already exists, 102 = no change needed
+
+**CRITICAL: When you get exit 100 or 38, read `error.fix` and `error.alternatives` in the JSON output - they contain copy-paste commands to resolve the issue.**
 
 **Shell escaping for notes:** Always escape `$` as `\$` in notes to prevent shell interpolation:
 ```bash
@@ -78,7 +82,8 @@ ct add "Task"              # Create task
 ct done <id>               # Complete task
 ct focus set <id>          # Set active task
 ct focus show              # Show current focus
-ct session start|end       # Session lifecycle
+ct session list            # Check existing sessions FIRST
+ct session status          # Show current session context
 ct exists <id>             # Verify task exists
 ct dash                    # Project overview
 ct analyze                 # Task triage (JSON default)
@@ -96,17 +101,24 @@ cleo commands -r critical    # Show critical commands (no jq needed)
 
 ### Session Protocol
 
+**CRITICAL: Multi-session mode requires BOTH flags:**
+```bash
+ct session start --scope epic:T001 --auto-focus --name "Name"
+#                ↑ REQUIRED         ↑ REQUIRED (or --focus T005)
+```
+**MUST** run `ct session list` first - if sessions exist, use `ct session resume <id>` instead.
+
 **Sessions persist across Claude conversations.** Resume where you left off.
 
 **Sessions coexist.** No need to suspend one to start another.
 
-#### START (State Awareness)
+#### START (State Awareness) - ALWAYS do this first
 ```bash
-ct session list              # Check existing sessions
-ct list                      # See task state
+ct session list              # ← ALWAYS CHECK FIRST
+ct session status            # Show current session (if bound)
 ct dash                      # Project overview
-ct session resume <id>       # Resume existing
-# OR
+ct session resume <id>       # Resume existing session
+# OR (only if no suitable session exists):
 ct session start --scope epic:T001 --auto-focus --name "Feature Work"
 ```
 
@@ -121,12 +133,13 @@ ct complete T005             # Complete task
 ct focus set T006            # Next task
 ```
 
-#### END (Cleanup)
+#### END (Cleanup) - ALWAYS do this when stopping
 ```bash
 ct complete <task-id>        # Complete current work
 ct archive                   # Clean up old done tasks
-ct session end --note "Progress notes"
+ct session end --note "Progress notes"  # ← ALWAYS END SESSION
 ```
+**MUST** end session when stopping work to prevent session accumulation.
 
 ### Phase Tracking
 ```bash
