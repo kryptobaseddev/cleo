@@ -353,6 +353,21 @@ else
     [[ "$QUIET" != true ]] && log_info "VERSION file"
 fi
 
+# 1b. Sync global VERSION if in dev mode
+GLOBAL_VERSION="$HOME/.cleo/VERSION"
+if [[ -f "$GLOBAL_VERSION" ]]; then
+    # Check if installed in dev mode (VERSION file has mode=dev)
+    if grep -q "mode=dev" "$GLOBAL_VERSION" 2>/dev/null; then
+        if [[ "$DRY_RUN" == true ]]; then
+            [[ "$QUIET" != true ]] && log_info "~/.cleo/VERSION (dry-run, dev mode sync)"
+        else
+            # Update first line (version) while preserving metadata
+            sed -i "1s/.*/$NEW_VERSION/" "$GLOBAL_VERSION"
+            [[ "$QUIET" != true ]] && log_info "~/.cleo/VERSION (dev mode sync)"
+        fi
+    fi
+fi
+
 # 2. Update README badge
 README_FILE="$PROJECT_ROOT/README.md"
 update_file_sed \
