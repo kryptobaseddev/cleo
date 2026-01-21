@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="banner.png" alt="CLEO banner" width="900">
+  <img src="docs/images/banner.png" alt="CLEO banner" width="900">
 </p>
 
 <h1 align="center">CLEO</h1>
