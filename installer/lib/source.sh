@@ -1062,6 +1062,7 @@ installer_source_download() {
 installer_source_verify_checksum() {
     local file="$1"
     local checksum_url="$2"
+    local lookup_name="${3:-}"  # Optional: filename to look up in checksum file
 
     installer_log_info "Verifying checksum..."
 
@@ -1076,8 +1077,9 @@ installer_source_verify_checksum() {
     fi
 
     # Extract expected checksum for our file
+    # Use lookup_name if provided, otherwise use local filename
     local filename
-    filename=$(basename "$file")
+    filename="${lookup_name:-$(basename "$file")}"
     local expected
     expected=$(grep "$filename" "$checksum_file" 2>/dev/null | awk '{print $1}')
 
@@ -1140,9 +1142,11 @@ installer_source_fetch_remote() {
 
     # Construct download URLs
     # Try tarball first, then source archive as fallback
-    local tarball_name="cleo-${version}.tar.gz"
+    # Strip 'v' prefix for tarball name (release assets use bare version numbers)
+    local version_bare="${version#v}"
+    local tarball_name="cleo-${version_bare}.tar.gz"
     local tarball_url="${SOURCE_GITHUB_DOWNLOAD}/${version}/${tarball_name}"
-    local checksum_url="${SOURCE_GITHUB_DOWNLOAD}/${version}/cleo-${version}.sha256"
+    local checksum_url="${SOURCE_GITHUB_DOWNLOAD}/${version}/SHA256SUMS"
 
     # Fallback to GitHub-generated source archive
     local source_archive_url="https://github.com/${SOURCE_GITHUB_REPO}/archive/refs/tags/${version}.tar.gz"
@@ -1165,7 +1169,7 @@ installer_source_fetch_remote() {
 
     # Verify checksum (only for release tarballs, not source archives)
     if [[ "$use_source_archive" != "true" ]]; then
-        if ! installer_source_verify_checksum "$tarball_path" "$checksum_url"; then
+        if ! installer_source_verify_checksum "$tarball_path" "$checksum_url" "$tarball_name"; then
             installer_log_error "Checksum verification failed"
             rm -rf "$temp_dir"
             return $EXIT_CHECKSUM_FAILED
