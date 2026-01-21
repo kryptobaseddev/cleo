@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-01-21
+
+### Added
+- **Token Pipeline Completion** (Epic T1756)
+  - Four new token extraction functions in `lib/token-inject.sh`:
+    - `TI_ACCEPTANCE_CRITERIA` - Extract acceptance criteria from tasks
+    - `TI_DELIVERABLES_LIST` - Extract deliverables/files from tasks
+    - `TI_MANIFEST_SUMMARIES` - Extract key findings from manifest entries
+    - `TI_NEXT_TASK_IDS` - Extract dependent task IDs via dependency analysis
+  - `ti_set_task_context()` integration in both orchestrator and skill-dispatch paths
+  - Skill name mapping configuration for legacy/new name support
+
+### Changed
+- **Orchestrator Architecture**
+  - Consolidated duplicate `orchestrator_spawn()` functions - single canonical location
+  - Renamed skill-based variant to `orchestrator_spawn_skill()` for clarity
+  - Fixed template path resolution to use `skills/ct-{name}/SKILL.md` pattern
+  - Integrated `token-inject.sh` into `orchestrator_build_prompt()` for consistent `{{TOKEN}}` handling
+  - Both orchestrator-spawn.sh and skill-dispatch.sh now use unified token injection
+
+### Documentation
+- **Orchestrator Reference** (`docs/commands/orchestrator.md`)
+  - Complete subcommand reference with examples
+  - Skill dispatch matrix
+  - Token injection workflow documentation
+- **Orchestrator Skill** (`skills/ct-orchestrator/SKILL.md`)
+  - Validated spawning workflow examples
+  - Corrected token placeholder references
+- **Quickstart Guide** (`docs/guides/orchestrator-quickstart.md`)
+  - Step-by-step tutorial for orchestrator usage
+  - Copy-paste ready commands
+- **Architecture Documentation**
+  - Documented lib/ files: token-inject.sh, orchestrator-startup.sh, orchestrator-spawn.sh, skill-dispatch.sh, subagent-inject.sh
+  - Function purposes and call graph relationships
+
+### Validated
+- ORC-001 through ORC-005 constraints verified with real subagent spawning
+  - ORC-001: Orchestrator stays high-level (no direct implementation)
+  - ORC-002: All work delegated via Task tool
+  - ORC-003: Manifest summaries only (no full file reads)
+  - ORC-004: Sequential wave execution (dependency order)
+  - ORC-005: Context budget maintained via manifest-based handoff
+
 ## [0.58.7] - 2026-01-21
 
 ### Fixed
