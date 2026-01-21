@@ -216,30 +216,30 @@ get_current_version() {
     fi
 }
 
-# is_dev_mode - Check if CLEO is installed in development mode (symlinks)
+# is_dev_mode - Check if CLEO is installed in development mode
+# Primary check: mode= field in VERSION file
+# Fallback: symlink detection for legacy installs
 is_dev_mode() {
-    local cleo_bin
-    cleo_bin=$(command -v cleo 2>/dev/null || echo "")
+    local version_file="$CLEO_HOME/VERSION"
 
-    if [[ -z "$cleo_bin" ]]; then
-        return 1
+    # Primary check: read mode from VERSION file
+    if [[ -f "$version_file" ]]; then
+        local mode
+        mode=$(grep "^mode=" "$version_file" 2>/dev/null | cut -d= -f2)
+        if [[ "$mode" == "dev" ]]; then
+            return 0
+        elif [[ "$mode" == "release" ]]; then
+            return 1
+        fi
     fi
 
-    # Check if the cleo binary is a symlink
-    if [[ -L "$cleo_bin" ]]; then
-        return 0
-    fi
-
-    # Check if scripts directory contains symlinks (dev mode indicator)
+    # Fallback for legacy installs without mode field:
+    # Check if scripts directory is a symlink (dev mode indicator)
     if [[ -L "$CLEO_HOME/scripts" ]]; then
         return 0
     fi
 
-    # Check for .git directory in CLEO_HOME (cloned repo)
-    if [[ -d "$CLEO_HOME/.git" ]]; then
-        return 0
-    fi
-
+    # Default to release mode if we can't determine
     return 1
 }
 
