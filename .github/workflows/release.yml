@@ -27,7 +27,7 @@ jobs:
 
       - name: Validate required files exist
         run: |
-          for path in scripts lib schemas templates skills installer VERSION LICENSE README.md install.sh; do
+          for path in scripts lib schemas templates skills installer completions docs VERSION LICENSE README.md install.sh; do
             if [[ ! -e "$path" ]]; then
               echo "ERROR: Required path missing: $path"
               exit 1
@@ -44,12 +44,15 @@ jobs:
           mkdir -p "staging/cleo-${VERSION}"
 
           # Copy runtime components only
+          # NOTE: Must match SOURCE_INSTALLABLE_DIRS in installer/lib/source.sh
           cp -r scripts "staging/cleo-${VERSION}/"
           cp -r lib "staging/cleo-${VERSION}/"
           cp -r schemas "staging/cleo-${VERSION}/"
           cp -r templates "staging/cleo-${VERSION}/"
           cp -r skills "staging/cleo-${VERSION}/"
           cp -r installer "staging/cleo-${VERSION}/"
+          cp -r completions "staging/cleo-${VERSION}/"
+          cp -r docs "staging/cleo-${VERSION}/"
           cp VERSION "staging/cleo-${VERSION}/"
           cp LICENSE "staging/cleo-${VERSION}/"
           cp README.md "staging/cleo-${VERSION}/"
