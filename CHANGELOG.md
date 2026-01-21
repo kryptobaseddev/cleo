@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-01-21
+
+### Added
+- **Epic T1890: CLEO System Polish & Consistency**
+  - `cleo init` now creates `claudedocs/research-outputs/` directory and `MANIFEST.jsonl`
+  - `cleo research validate` - validates manifest entry integrity
+  - `cleo research stats` - shows manifest statistics
+  - `cleo research rotate` - archives old entries (configurable max 100)
+  - `cleo research archive-list` - lists archived entries
+  - `cleo research status` - shows research system status
+  - `cleo research pending` - lists entries needing followup
+  - Protocol enforcement in ct-orchestrator with 4 verification functions
+  - Standardized return messages across all 14 skills
+  - Session conflict detection integration tests
+  - Skill development tutorial at `docs/guides/skill-development.md`
+  - `SKILL_DISPATCH_DEBUG` env var documentation
+
+### Changed
+- ct-orchestrator MUST inject subagent protocol block to all spawned agents
+- Manifest validation runs on every append operation
+
 ## [0.60.2] - 2026-01-21
 
 ### Added
