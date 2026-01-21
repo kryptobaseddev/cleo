@@ -8,8 +8,8 @@
     "dark": "#0D9373"
   },
   "logo": {
-    "light": "/images/logo-light.png",
-    "dark": "/images/logo-dark.png"
+    "light": "/images/logo.png",
+    "dark": "/images/logo.png"
   },
   "favicon": "/images/favicon.png",
   "mermaid": {
