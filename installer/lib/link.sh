@@ -278,20 +278,39 @@ fi
 # Command to script mapping (Bash 3.2 compatible - no associative arrays)
 _get_cmd_script() {
     case "$1" in
+        # Core commands
         init) echo "init.sh" ;; validate) echo "validate.sh" ;; archive) echo "archive.sh" ;;
         add) echo "add-task.sh" ;; complete) echo "complete-task.sh" ;; list) echo "list-tasks.sh" ;;
         update) echo "update-task.sh" ;; focus) echo "focus.sh" ;; session) echo "session.sh" ;;
         show) echo "show.sh" ;; find) echo "find.sh" ;; dash) echo "dash.sh" ;; next) echo "next.sh" ;;
+        # Config and backup
         config) echo "config.sh" ;; backup) echo "backup.sh" ;; restore) echo "restore.sh" ;;
         export) echo "export.sh" ;; stats) echo "stats.sh" ;; log) echo "log.sh" ;;
+        # Labels, deps, phases
         labels) echo "labels.sh" ;; deps) echo "deps-command.sh" ;; blockers) echo "blockers-command.sh" ;;
         phases) echo "phases.sh" ;; phase) echo "phase.sh" ;; exists) echo "exists.sh" ;;
+        # Analysis and sync
         history) echo "history.sh" ;; analyze) echo "analyze.sh" ;; sync) echo "sync-todowrite.sh" ;;
-        commands) echo "commands.sh" ;; research) echo "research.sh" ;; delete) echo "delete.sh" ;;
-        uncancel) echo "uncancel.sh" ;; reopen) echo "reopen.sh" ;; reparent) echo "reparent.sh" ;;
-        promote) echo "promote.sh" ;; verify) echo "verify.sh" ;; upgrade) echo "upgrade.sh" ;;
-        context) echo "context.sh" ;; doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
+        commands) echo "commands.sh" ;; research) echo "research.sh" ;;
+        # Task lifecycle (delete, cancel, reopen)
+        delete) echo "delete.sh" ;; uncancel) echo "uncancel.sh" ;; reopen) echo "reopen.sh" ;;
+        # Hierarchy management
+        reparent) echo "reparent.sh" ;; promote) echo "promote.sh" ;; populate-hierarchy) echo "populate-hierarchy.sh" ;;
+        reorder) echo "reorder.sh" ;;
+        # Verification and maintenance
+        verify) echo "verify.sh" ;; upgrade) echo "upgrade.sh" ;; context) echo "context.sh" ;;
+        doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
+        # Installation and setup
         self-update) echo "self-update.sh" ;; setup-agents) echo "setup-agents.sh" ;;
+        # Import/export tasks
+        export-tasks) echo "export-tasks.sh" ;; import-tasks) echo "import-tasks.sh" ;;
+        # Archive management
+        archive-stats) echo "archive-stats.sh" ;; unarchive) echo "unarchive.sh" ;;
+        reorganize-backups) echo "reorganize-backups.sh" ;;
+        # Orchestration and automation
+        orchestrator) echo "orchestrator.sh" ;; safestop) echo "safestop.sh" ;; sequence) echo "sequence.sh" ;;
+        # Other tools
+        roadmap) echo "roadmap.sh" ;; claude-migrate) echo "claude-migrate.sh" ;;
         *) echo "" ;;
     esac
 }
@@ -299,15 +318,21 @@ _get_cmd_script() {
 # Alias resolution (Bash 3.2 compatible)
 _resolve_alias() {
     case "$1" in
+        # Standard aliases
         ls) echo "list" ;; done) echo "complete" ;; new) echo "add" ;; edit) echo "update" ;;
         rm) echo "archive" ;; check) echo "validate" ;; overview) echo "dash" ;; search) echo "find" ;;
+        tags) echo "labels" ;; dig) echo "research" ;;
+        # Task lifecycle aliases
+        cancel) echo "delete" ;; restore-cancelled) echo "uncancel" ;; restore-done) echo "reopen" ;;
+        # Hierarchy aliases
+        swap) echo "reorder" ;;
         *) echo "$1" ;;
     esac
 }
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers phases phase exists history analyze sync commands research delete uncancel reopen reparent promote verify upgrade context doctor migrate self-update setup-agents"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence roadmap claude-migrate"
 }
 
 cmd="${1:-help}"
@@ -748,6 +773,148 @@ installer_link_setup_all_agents() {
 }
 
 # ============================================
+# POST-INSTALL SETUP
+# ============================================
+
+# Create plugins directory with README
+# Args: install_dir
+# Returns: 0 on success
+installer_link_setup_plugins() {
+    local install_dir="${1:-$INSTALL_DIR}"
+    local plugins_dir="$install_dir/plugins"
+
+    mkdir -p "$plugins_dir"
+
+    if [[ ! -f "$plugins_dir/README.md" ]]; then
+        installer_log_info "Creating plugins directory with README..."
+        cat > "$plugins_dir/README.md" << 'PLUGINS_EOF'
+# CLEO Plugins
+
+Place custom command scripts here. Each `.sh` file becomes a command.
+
+## Plugin Format
+
+```bash
+#!/usr/bin/env bash
+###PLUGIN
+# description: Brief description
+###END
+
+echo "Hello from my plugin!"
+```
+
+## Usage
+
+1. Create: `~/.cleo/plugins/my-command.sh`
+2. Make executable: `chmod +x ~/.cleo/plugins/my-command.sh`
+3. Run: `cleo my-command`
+PLUGINS_EOF
+        installer_log_debug "Created plugins README: $plugins_dir/README.md"
+    fi
+
+    return 0
+}
+
+# Generate checksums for installed scripts
+# Args: install_dir
+# Returns: 0 on success
+installer_link_generate_checksums() {
+    local install_dir="${1:-$INSTALL_DIR}"
+    local scripts_dir="$install_dir/scripts"
+    local checksum_file="$install_dir/checksums.sha256"
+
+    if [[ ! -d "$scripts_dir" ]]; then
+        installer_log_debug "Scripts directory not found, skipping checksum generation"
+        return 0
+    fi
+
+    installer_log_info "Generating script checksums..."
+
+    if command -v sha256sum &>/dev/null; then
+        (cd "$scripts_dir" && sha256sum *.sh > "$checksum_file" 2>/dev/null) || true
+    elif command -v shasum &>/dev/null; then
+        (cd "$scripts_dir" && shasum -a 256 *.sh > "$checksum_file" 2>/dev/null) || true
+    else
+        installer_log_debug "No checksum utility available, skipping"
+        return 0
+    fi
+
+    if [[ -f "$checksum_file" ]]; then
+        installer_log_debug "Checksums written to: $checksum_file"
+    fi
+
+    return 0
+}
+
+# Update template version markers
+# Args: install_dir
+# Returns: 0 on success
+installer_link_update_template_versions() {
+    local install_dir="${1:-$INSTALL_DIR}"
+    local templates_dir="$install_dir/templates"
+    local version_file="$install_dir/VERSION"
+
+    if [[ ! -d "$templates_dir" ]]; then
+        installer_log_debug "Templates directory not found, skipping version update"
+        return 0
+    fi
+
+    if [[ ! -f "$version_file" ]]; then
+        installer_log_debug "VERSION file not found, skipping template version update"
+        return 0
+    fi
+
+    local version
+    version=$(head -1 "$version_file" 2>/dev/null | tr -d '[:space:]')
+
+    if [[ -z "$version" ]]; then
+        installer_log_debug "Could not read version, skipping template version update"
+        return 0
+    fi
+
+    installer_log_info "Updating template version markers to v$version..."
+
+    # Update CLEO:START version markers in templates
+    for template in "$templates_dir"/*.md; do
+        [[ -f "$template" ]] || continue
+
+        if grep -q "CLEO:START" "$template" 2>/dev/null; then
+            # Use sed to update version markers (portable syntax)
+            if sed --version 2>&1 | grep -q GNU; then
+                # GNU sed
+                sed -i "s/CLEO:START v[0-9.]\+/CLEO:START v$version/g" "$template" 2>/dev/null || true
+            else
+                # BSD sed (macOS)
+                sed -i '' "s/CLEO:START v[0-9.][0-9.]*/CLEO:START v$version/g" "$template" 2>/dev/null || true
+            fi
+            installer_log_debug "Updated version marker in: $(basename "$template")"
+        fi
+    done
+
+    return 0
+}
+
+# Run all post-install setup tasks
+# Args: install_dir
+# Returns: 0 on success
+installer_link_post_install() {
+    local install_dir="${1:-$INSTALL_DIR}"
+
+    installer_log_step "Running post-install setup..."
+
+    # Create plugins directory
+    installer_link_setup_plugins "$install_dir" || true
+
+    # Generate checksums (non-critical)
+    installer_link_generate_checksums "$install_dir" || true
+
+    # Update template version markers (non-critical)
+    installer_link_update_template_versions "$install_dir" || true
+
+    return 0
+}
+
+# ============================================
 # EXPORT PUBLIC API
 # ============================================
 export -f installer_link_create
@@ -767,3 +934,7 @@ export -f installer_link_get_cleo_version
 export -f installer_link_generate_cleo_content
 export -f installer_link_inject_agent_config
 export -f installer_link_setup_all_agents
+export -f installer_link_setup_plugins
+export -f installer_link_generate_checksums
+export -f installer_link_update_template_versions
+export -f installer_link_post_install

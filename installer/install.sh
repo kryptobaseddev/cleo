@@ -348,6 +348,9 @@ do_state_link() {
     # This ensures LLM agents know about CLEO without requiring separate setup
     installer_link_setup_all_agents || true  # Non-critical
 
+    # Run post-install setup (plugins dir, checksums, template versions)
+    installer_link_post_install "$INSTALL_DIR" || true  # Non-critical
+
     return 0
 }
 
