@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.11] - 2026-01-20
+
+### Fixed
+- **Installer**: Add user-friendly progress output for all installation scenarios
+  - Added `[INFO]` and `[STEP]` prefixes for progress visibility
+  - Added informative message when installation already complete (no longer silent)
+  - `--force` flag now shows "Clearing previous installation state" message
+- **Self-update**: Improve dev mode feedback and progress indicators
+  - Clear `[INFO]` message explaining dev mode behavior
+  - Added `[STEP N/4]` progress indicators for update process
+  - Improved both JSON and human-readable output formats
+
 ## [0.57.10] - 2026-01-20
 
 ### Fixed

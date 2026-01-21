@@ -2,7 +2,7 @@
 
 **The Task Management Protocol for Solo Developers and Their AI Coding Agents**
 
-*Version 1.0.0 | January 2026*
+*Version 1.1.0 | January 2026*
 
 ---
 
@@ -17,7 +17,8 @@
 7. [MCP Integration](#mcp-integration)
 8. [Data Flow](#data-flow)
 9. [Session Protocol](#session-protocol)
-10. [For Solo Developers](#for-solo-developers)
+10. [Command System Architecture](#command-system-architecture)
+11. [For Solo Developers](#for-solo-developers)
 
 ---
 
@@ -573,6 +574,259 @@ Tasks inherit `project.currentPhase` on creation. Use `--phase` to override.
 
 ---
 
+## Command System Architecture
+
+CLEO provides **55+ CLI commands** organized into functional categories that support the core philosophy. Each command is designed for machine consumption (JSON output, exit codes) with human readability as an opt-in feature (`--human`).
+
+### Command Categories
+
+| Category | Commands | Purpose | Philosophy Support |
+|----------|----------|---------|-------------------|
+| **Read** | 17 | Query without side effects | Context efficiency |
+| **Write** | 14 | Modify task state | Anti-hallucination validation |
+| **Analysis** | 8 | Decision support | Leverage scoring, triage |
+| **Orchestration** | 6 | Multi-agent coordination | ORC protocol support |
+| **Maintenance** | 10 | System administration | Data integrity |
+
+### Read Commands (Context-Efficient Querying)
+
+Commands that query state without modification. Use these liberally - they're designed for minimal context consumption.
+
+| Command | Purpose | Context Impact |
+|---------|---------|----------------|
+| `list` | View all tasks with filters | Medium (full metadata) |
+| `find "query"` | Fuzzy search tasks | **99% less than list** |
+| `show <id>` | Full single task details | Low (one task) |
+| `exists <id>` | Validate task ID exists | Minimal (exit code only) |
+| `dash` | Project overview | Low (summary) |
+| `next` | Suggest next task | Low (one recommendation) |
+| `deps <id>` | Show dependencies | Low |
+| `blockers` | Show blocked tasks | Low |
+| `tree` | Hierarchical task view | Medium |
+| `phases` | Phase progress overview | Low |
+| `labels` | Label listing with counts | Low |
+| `stats` | Project statistics | Low |
+| `log` | Audit trail entries | Medium |
+| `history` | Completion timeline | Medium |
+| `commands` | Command discovery | Low |
+| `context` | Context window usage | Minimal |
+| `roadmap` | Project roadmap view | Medium |
+
+**Context Efficiency Pattern:**
+```bash
+# ✅ EFFICIENT: Discovery → Specific lookup
+cleo find "auth"              # Find candidates (minimal fields)
+cleo show T1234               # Get full details (one task)
+
+# ❌ INEFFICIENT: Full list when searching
+cleo list | jq '.tasks[] | select(.title | contains("auth"))'
+```
+
+### Write Commands (Anti-Hallucination Validated)
+
+Every write command passes through four validation layers before modifying state.
+
+| Command | Purpose | Validation Enforced |
+|---------|---------|---------------------|
+| `add "Title"` | Create new task | Unique ID, required fields |
+| `update <id>` | Modify task fields | ID exists, valid enum values |
+| `complete <id>` | Mark task done | ID exists, sets `implemented` gate |
+| `delete <id>` | Cancel/soft-delete task | ID exists, reason required |
+| `uncancel <id>` | Restore cancelled task | Was cancelled |
+| `reopen <id>` | Restore completed task | Was completed |
+| `reparent <id>` | Move in hierarchy | Valid parent, depth ≤3 |
+| `promote <id>` | Remove parent (make root) | Has parent |
+| `focus set <id>` | Set active task | ID exists, sets status=active |
+| `focus note` | Add session progress note | Session active |
+| `verify <id>` | Set verification gate | ID exists, valid gate name |
+| `archive` | Move done tasks to archive | Completed tasks only |
+| `unarchive <id>` | Restore from archive | Exists in archive |
+| `reorder <id>` | Change sibling position | Valid position |
+
+**Validation Layers (All Writes):**
+```
+1. Schema     → JSON structure valid
+2. Semantic   → Business logic (unique IDs, valid enums)
+3. Cross-file → Referential integrity (parent exists)
+4. State      → Valid transitions (pending→active→done)
+```
+
+### Analysis Commands (Decision Support)
+
+Commands that help agents and developers make informed decisions about what to work on.
+
+| Command | Purpose | Output |
+|---------|---------|--------|
+| `analyze` | **Task triage with leverage scoring** | Priority-ranked task list |
+| `analyze --auto-focus` | Analyze and set focus to top task | Sets focus automatically |
+| `blockers analyze` | Critical path analysis | Blocking chain visualization |
+| `deps tree` | Full dependency graph | Tree visualization |
+| `next --explain` | Suggestion with reasoning | Why this task next |
+| `phases stats` | Detailed phase breakdown | Progress by phase |
+| `archive-stats` | Completion analytics | By phase, label, time |
+| `sequence check` | ID sequence integrity | Gap detection |
+
+**The `analyze` Command:**
+
+The `analyze` command is central to CLEO's decision-making support. It calculates **leverage scores** based on:
+- Priority weight (critical=4, high=3, medium=2, low=1)
+- Dependency unblocking (tasks that unblock others score higher)
+- Size strategy (configurable: quick-wins, big-impact, balanced)
+
+```bash
+cleo analyze                    # JSON with scored tasks
+cleo analyze --parent T001      # Analyze epic's children only
+cleo analyze --auto-focus       # Auto-set focus to top task
+cleo config set analyze.sizeStrategy quick-wins  # Favor small tasks
+```
+
+### Orchestration Commands (Multi-Agent Coordination)
+
+Commands that support the Orchestrator Protocol for managing complex workflows with subagents.
+
+| Command | Purpose | ORC Support |
+|---------|---------|-------------|
+| `orchestrator spawn <id>` | Generate subagent spawn command | ORC-002 (delegation) |
+| `orchestrator next` | Get next task for spawning | ORC-004 (dependency order) |
+| `orchestrator ready` | List parallel-safe tasks | Wave-based execution |
+| `orchestrator analyze` | Show dependency waves | Wave visualization |
+| `orchestrator validate` | Check protocol compliance | ORC constraint verification |
+| `safestop` | Graceful agent shutdown | Context preservation |
+
+**Orchestrator Workflow:**
+```bash
+# 1. Analyze waves
+cleo orchestrator analyze T001
+
+# 2. Get next task respecting dependencies
+cleo orchestrator next --epic T001
+
+# 3. Spawn subagent for task
+cleo orchestrator spawn T1234
+
+# 4. On context limit, graceful shutdown
+cleo safestop --reason "context-limit" --handoff ./handoff.json
+```
+
+### Session Commands (Context Preservation)
+
+Commands that maintain continuity across conversations and agent sessions.
+
+| Command | Purpose | Persistence |
+|---------|---------|-------------|
+| `session start` | Begin work session | Creates session record |
+| `session end` | End session (resumable) | Preserves state |
+| `session suspend` | Pause session | Waiting for external |
+| `session resume <id>` | Continue session | Full context restored |
+| `session close <id>` | Archive permanently | All tasks must be done |
+| `session list` | Show all sessions | Filter by status |
+| `session switch <id>` | Change active session | Multi-session support |
+| `session status` | Current session info | Quick check |
+
+### Research Commands (Knowledge Persistence)
+
+Commands that support the manifest-based research system for orchestrator workflows.
+
+| Command | Purpose | Manifest Integration |
+|---------|---------|---------------------|
+| `research "query"` | Multi-source web research | Creates manifest entry |
+| `research --library X` | Library docs via Context7 | Curated documentation |
+| `research --reddit` | Reddit discussions | Community insights |
+| `research --url` | Extract from URL | Direct extraction |
+| `research init` | Initialize outputs directory | Creates MANIFEST.jsonl |
+| `research list` | List manifest entries | Query by status |
+| `research show <id>` | Show research details | Full or summary |
+| `research inject` | Subagent protocol template | ORC-003 compliance |
+| `research link <task> <id>` | Link research to task | Traceability |
+
+### Maintenance Commands (System Health)
+
+Commands for maintaining data integrity and system health.
+
+| Command | Purpose | When to Use |
+|---------|---------|-------------|
+| `validate` | Check file integrity | After errors |
+| `validate --fix` | Repair checksum issues | Recovery |
+| `backup` | Create snapshot backup | Before risky ops |
+| `restore` | Restore from backup | Recovery |
+| `upgrade` | Unified maintenance | After CLEO update |
+| `doctor` | System health diagnostics | Troubleshooting |
+| `doctor --fix` | Auto-fix issues | Automated repair |
+| `migrate-backups` | Backup taxonomy migration | Legacy systems |
+| `sequence show/check` | ID sequence state | Integrity check |
+| `self-update` | Update CLEO installation | Keep current |
+
+### Multi-Agent Setup Commands
+
+Commands for configuring CLEO across multiple AI coding agents.
+
+| Command | Purpose | Files Affected |
+|---------|---------|----------------|
+| `init` | Initialize project + inject docs | CLAUDE.md, AGENTS.md, GEMINI.md |
+| `upgrade` | Update all project injections | All agent docs |
+| `setup-agents` | Global agent configuration | ~/.claude/CLAUDE.md, etc. |
+| `claude-migrate` | Migrate from legacy formats | Config files |
+
+### Import/Export Commands
+
+Commands for cross-project task transfer.
+
+| Command | Purpose | Format |
+|---------|---------|--------|
+| `export-tasks <id>` | Export task(s) to file | JSON |
+| `export-tasks --subtree` | Export with children | JSON |
+| `import-tasks <file>` | Import from file | JSON |
+| `export --format csv` | Export all to CSV | CSV |
+| `export --format todowrite` | Export for TodoWrite | TodoWrite format |
+
+### Command Aliases
+
+Built-in shortcuts for common operations:
+
+| Alias | Expands To | Purpose |
+|-------|------------|---------|
+| `ct` | `cleo` | Short form |
+| `ls` | `list` | Unix familiarity |
+| `done` | `complete` | Natural language |
+| `new` | `add` | Natural language |
+| `edit` | `update` | Natural language |
+| `rm` | `archive` | Unix familiarity |
+| `check` | `validate` | Natural language |
+| `tags` | `labels` | Alternative term |
+| `overview` | `dash` | Descriptive |
+| `dig` | `research` | Short form |
+| `tree` | `list --tree` | Convenience |
+| `cancel` | `delete` | Alternative term |
+| `restore-cancelled` | `uncancel` | Descriptive |
+| `restore-done` | `reopen` | Descriptive |
+| `swap` | `reorder` | Alternative term |
+
+### How Commands Support Philosophy
+
+| Philosophy Principle | Supporting Commands |
+|---------------------|---------------------|
+| **Anti-hallucination** | `exists`, `validate`, all write validation |
+| **Context efficiency** | `find` (99% less), `show` (single task) |
+| **Agent-first output** | All commands default JSON, exit codes |
+| **Session persistence** | `session *`, `focus *` |
+| **Audit trails** | `log`, `history`, automatic logging |
+| **Atomic operations** | All writes via `backup` + `validate` |
+| **Orchestrator protocol** | `orchestrator *`, `research *`, `safestop` |
+
+### Command Discovery
+
+```bash
+cleo commands                    # List all commands (JSON)
+cleo commands --human            # Human-readable list
+cleo commands -c write           # Filter by category
+cleo commands -r critical        # Filter by agent relevance
+cleo commands add                # Details for specific command
+cleo commands --workflows        # Agent workflow sequences
+cleo help <command>              # Detailed help
+```
+
+---
+
 ## For Solo Developers
 
 ### The Daily Workflow
@@ -655,6 +909,7 @@ CLEO bridges the gap between human intention and AI execution:
 | **MCP** | External tool integration | Context7, Tavily, Chrome |
 | **Data Flow** | Traceable state management | todo -> archive -> log lifecycle |
 | **Sessions** | Context preservation | Multi-session with scoped isolation |
+| **Commands** | 55+ CLI operations | Read, Write, Analysis, Orchestration, Maintenance |
 | **Solo Dev** | Human-agent partnership | Shared source of truth |
 
 **CLEO: The contract between you and your AI coding agent.**

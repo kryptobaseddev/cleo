@@ -571,6 +571,12 @@ main() {
         fi
     fi
 
+    # Clear state markers on --force to ensure full reinstall
+    if [[ "$OPT_FORCE" == "true" ]]; then
+        installer_log_info "Clearing previous installation state (--force)..."
+        rm -f "$STATE_DIR/markers/"*.done 2>/dev/null || true
+    fi
+
     # Initialize state machine
     local options_json
     options_json=$(jq -n \
@@ -581,8 +587,32 @@ main() {
 
     installer_state_init "$version" "$INSTALLER_DIR/.." "$INSTALL_DIR" "$options_json"
 
+    installer_log_info "Starting installation state machine..."
+
     # Run state machine
     if installer_run_state_machine "do_state"; then
+        # Check if any states were actually executed (not all skipped)
+        local executed_count=0
+        for state in INIT PREPARE VALIDATE BACKUP INSTALL LINK PROFILE VERIFY CLEANUP COMPLETE; do
+            local marker_file="$STATE_DIR/markers/${state}.done"
+            if [[ -f "$marker_file" ]]; then
+                # Check if marker was created during this run (within last 60 seconds)
+                local marker_age
+                marker_age=$(($(date +%s) - $(stat -c %Y "$marker_file" 2>/dev/null || stat -f %m "$marker_file" 2>/dev/null || echo 0)))
+                if [[ $marker_age -lt 60 ]]; then
+                    ((executed_count++)) || true
+                fi
+            fi
+        done
+
+        if [[ $executed_count -eq 0 ]]; then
+            installer_log_info ""
+            installer_log_info "All installation states already complete."
+            installer_log_info "CLEO is already installed at: $INSTALL_DIR"
+            installer_log_info ""
+            installer_log_info "To reinstall, use: ./install.sh --force"
+        fi
+
         installer_lock_release
         exit 0
     else
