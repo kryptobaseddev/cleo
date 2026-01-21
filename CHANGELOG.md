@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.2] - 2026-01-21
+
+### Added
+- **Installer auto-install dependencies**: Both `install.sh` and `installer/install.sh` now offer to automatically install missing dependencies (jq, flock, etc.) using detected package manager (apt, dnf, brew, pacman, apk)
+- **Bash 4+ auto-detection on macOS**: Installer detects system Bash < 4 and automatically re-executes with Homebrew Bash if available at `/opt/homebrew/bin/bash` or `/usr/local/bin/bash`
+
+### Fixed
+- **Mintlify MDX parsing errors**: Converted HTML comments (`<!-- -->`) to JSX comments (`{/* */}`) in all 53 command documentation files
+- **MDX frontmatter placement**: Comments now placed AFTER frontmatter closing `---` as required by MDX spec
+- **Generator script**: `dev/generate-command-docs.sh` now outputs JSX comments for future regenerations
+
 ## [0.60.1] - 2026-01-21
 
 ### Added

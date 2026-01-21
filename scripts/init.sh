@@ -544,6 +544,32 @@ else
     log_warn "AGENT-INJECTION.md template not found at $TEMPLATES_DIR/AGENT-INJECTION.md"
 fi
 
+# Create research-outputs directory structure
+# This enables research subcommands without requiring `cleo research init`
+log_info "Creating research outputs directory structure..."
+RESEARCH_OUTPUT_DIR="claudedocs/research-outputs"
+mkdir -p "$RESEARCH_OUTPUT_DIR"
+mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
+# Create empty MANIFEST.jsonl (JSONL format - one JSON object per line)
+if [[ ! -f "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl" ]]; then
+    touch "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+    log_info "Created $RESEARCH_OUTPUT_DIR/ with MANIFEST.jsonl"
+else
+    log_info "Research outputs directory already exists at $RESEARCH_OUTPUT_DIR/"
+fi
+
+# Copy subagent protocol templates if available
+if [[ -d "$TEMPLATES_DIR/subagent-protocol" ]]; then
+    if [[ ! -f "$RESEARCH_OUTPUT_DIR/SUBAGENT_PROTOCOL.md" ]] && [[ -f "$TEMPLATES_DIR/subagent-protocol/SUBAGENT_PROTOCOL.md" ]]; then
+        cp "$TEMPLATES_DIR/subagent-protocol/SUBAGENT_PROTOCOL.md" "$RESEARCH_OUTPUT_DIR/"
+        log_info "Copied SUBAGENT_PROTOCOL.md to $RESEARCH_OUTPUT_DIR/"
+    fi
+    if [[ ! -f "$RESEARCH_OUTPUT_DIR/INJECT.md" ]] && [[ -f "$TEMPLATES_DIR/subagent-protocol/INJECT.md" ]]; then
+        cp "$TEMPLATES_DIR/subagent-protocol/INJECT.md" "$RESEARCH_OUTPUT_DIR/"
+        log_info "Copied INJECT.md to $RESEARCH_OUTPUT_DIR/"
+    fi
+fi
+
 # ============================================================================
 # EXTRACT SCHEMA VERSIONS FROM SOURCE OF TRUTH
 # ============================================================================

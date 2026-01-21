@@ -140,9 +140,25 @@ jq -s '[.[] | select(.topics | contains(["auth"]))]' claudedocs/research-outputs
 jq -s '[.[] | select(.linked_tasks | contains(["T1575"])) | .key_findings] | flatten' claudedocs/research-outputs/MANIFEST.jsonl
 ```
 
-## CRITICAL: Subagent Protocol Block
+## CRITICAL: Subagent Protocol Injection (MANDATORY)
 
-Include in EVERY subagent prompt:
+**MUST** inject protocol block to EVERY spawned subagent. NO EXCEPTIONS.
+
+### Method 1: CLI Injection (Recommended)
+
+```bash
+# Get the ready-to-inject protocol block
+cleo research inject
+
+# Or copy to clipboard for manual inclusion
+cleo research inject --clipboard
+```
+
+The `cleo research inject` command returns the complete protocol block with all requirements.
+
+### Method 2: Inline Protocol Block
+
+If CLI is unavailable, include this block directly in the subagent prompt:
 
 ```markdown
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
@@ -163,6 +179,72 @@ CLEO INTEGRATION:
 **Token defaults** (from `skills/_shared/placeholders.json`):
 - `{{OUTPUT_DIR}}` → `claudedocs/research-outputs`
 - `{{MANIFEST_PATH}}` → `claudedocs/research-outputs/MANIFEST.jsonl`
+
+---
+
+## Protocol Enforcement Requirements
+
+### MUST Inject Protocol Block
+
+Every Task tool spawn **MUST** include the protocol block. Verification:
+
+```bash
+# Before spawning, verify protocol injection
+echo "$prompt" | grep -q "SUBAGENT PROTOCOL" || echo "ERROR: Missing protocol block!"
+```
+
+### MUST Validate Return Messages
+
+Only accept these return message formats from subagents:
+
+| Status | Valid Return Message |
+|--------|---------------------|
+| Complete | "Research complete. See MANIFEST.jsonl for summary." |
+| Partial | "Research partial. See MANIFEST.jsonl for details." |
+| Blocked | "Research blocked. See MANIFEST.jsonl for blocker details." |
+
+Any other return format indicates protocol violation.
+
+### MUST Verify Manifest Entry
+
+After EACH subagent spawn completes, verify manifest entry exists:
+
+```bash
+# 1. Get expected research ID
+research_id="${topic_slug}-${date}"  # e.g., "auth-research-2026-01-21"
+
+# 2. Verify manifest entry exists
+cleo research show "$research_id"
+# OR
+jq -s '.[] | select(.id == "'$research_id'")' claudedocs/research-outputs/MANIFEST.jsonl
+
+# 3. Block on missing manifest - DO NOT spawn next agent until confirmed
+if ! cleo research show "$research_id" &>/dev/null; then
+    echo "ERROR: Manifest entry missing for $research_id"
+    echo "ACTION: Re-spawn with clearer protocol instructions"
+    exit 1
+fi
+```
+
+### Enforcement Sequence
+
+```
+1. Generate spawn prompt  →  orchestrator_spawn_for_task() or cleo orchestrator spawn
+2. VERIFY protocol block  →  Check prompt contains "SUBAGENT PROTOCOL"
+3. Spawn subagent         →  Task tool with validated prompt
+4. Receive return message →  VALIDATE against allowed formats
+5. Verify manifest entry  →  cleo research show <id> BEFORE proceeding
+6. Continue or escalate   →  Only spawn next if manifest confirmed
+```
+
+### Anti-Patterns (Protocol Violations)
+
+| Violation | Detection | Recovery |
+|-----------|-----------|----------|
+| Missing protocol block | `grep -q "SUBAGENT PROTOCOL"` fails | Re-inject via `cleo research inject` |
+| Invalid return message | Not in allowed format list | Mark as violation, re-spawn |
+| No manifest entry | `cleo research show` returns error | Re-spawn with explicit manifest requirement |
+| Spawning before verification | Multiple agents, missing entries | Stop, verify all, then resume |
 
 ## Workflow Phases
 

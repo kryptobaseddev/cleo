@@ -136,6 +136,241 @@ _rm_manifest_exists() {
 }
 
 # ============================================================================
+# INITIALIZATION & VALIDATION
+# ============================================================================
+
+# ensure_research_outputs - Create research-outputs directory and MANIFEST.jsonl if missing
+# This is idempotent - safe to call multiple times
+# Args: none
+# Returns: 0 on success (created or already exists), 3 on write error
+# Output: JSON with created items list
+ensure_research_outputs() {
+    local output_dir manifest_file manifest_path archive_dir
+    local created=()
+    
+    output_dir=$(_rm_get_output_dir)
+    manifest_file=$(_rm_get_manifest_file)
+    manifest_path="${output_dir}/${manifest_file}"
+    archive_dir="${output_dir}/archive"
+    
+    # Create output directory if not exists
+    if [[ ! -d "$output_dir" ]]; then
+        if ! mkdir -p "$output_dir" 2>/dev/null; then
+            jq -nc --arg dir "$output_dir" '{
+                "_meta": {"command": "research-manifest", "operation": "ensure"},
+                "success": false,
+                "error": {
+                    "code": "E_FILE_WRITE_ERROR",
+                    "message": ("Failed to create directory: " + $dir)
+                }
+            }'
+            return "${EXIT_FILE_ERROR:-3}"
+        fi
+        created+=("$output_dir/")
+    fi
+    
+    # Create archive directory if not exists
+    if [[ ! -d "$archive_dir" ]]; then
+        if ! mkdir -p "$archive_dir" 2>/dev/null; then
+            jq -nc --arg dir "$archive_dir" '{
+                "_meta": {"command": "research-manifest", "operation": "ensure"},
+                "success": false,
+                "error": {
+                    "code": "E_FILE_WRITE_ERROR",
+                    "message": ("Failed to create archive directory: " + $dir)
+                }
+            }'
+            return "${EXIT_FILE_ERROR:-3}"
+        fi
+        created+=("archive/")
+    fi
+    
+    # Create MANIFEST.jsonl if not exists
+    if [[ ! -f "$manifest_path" ]]; then
+        if ! touch "$manifest_path" 2>/dev/null; then
+            jq -nc --arg file "$manifest_path" '{
+                "_meta": {"command": "research-manifest", "operation": "ensure"},
+                "success": false,
+                "error": {
+                    "code": "E_FILE_WRITE_ERROR",
+                    "message": ("Failed to create manifest file: " + $file)
+                }
+            }'
+            return "${EXIT_FILE_ERROR:-3}"
+        fi
+        created+=("$manifest_file")
+    fi
+    
+    # Return success with created items
+    local created_json
+    if [[ ${#created[@]} -eq 0 ]]; then
+        created_json="[]"
+    else
+        created_json=$(printf '%s\n' "${created[@]}" | jq -R . | jq -s .)
+    fi
+    
+    jq -nc \
+        --arg output_dir "$output_dir" \
+        --argjson created "$created_json" \
+        --argjson already_existed "$([ ${#created[@]} -eq 0 ] && echo true || echo false)" \
+        '{
+            "_meta": {"command": "research-manifest", "operation": "ensure"},
+            "success": true,
+            "result": {
+                "outputDir": $output_dir,
+                "created": $created,
+                "alreadyExisted": $already_existed
+            }
+        }'
+    return 0
+}
+
+# validate_research_manifest - Validate manifest file integrity
+# Checks: file exists, valid JSONL format, each line has required fields
+# Args: none
+# Returns: 0 if valid, 4 if missing, 6 if validation errors
+# Output: JSON with validation result and any errors
+validate_research_manifest() {
+    local manifest_path output_dir
+    local errors=()
+    local warnings=()
+    local line_num=0
+    local valid_entries=0
+    local invalid_entries=0
+    
+    output_dir=$(_rm_get_output_dir)
+    manifest_path=$(_rm_get_manifest_path)
+    
+    # Check directory exists
+    if [[ ! -d "$output_dir" ]]; then
+        jq -nc --arg dir "$output_dir" '{
+            "_meta": {"command": "research-manifest", "operation": "validate"},
+            "success": false,
+            "valid": false,
+            "error": {
+                "code": "E_FILE_NOT_FOUND",
+                "message": ("Research outputs directory not found: " + $dir),
+                "fixCommand": "cleo research init"
+            }
+        }'
+        return "${EXIT_FILE_NOT_FOUND:-4}"
+    fi
+    
+    # Check manifest file exists
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -nc --arg file "$manifest_path" '{
+            "_meta": {"command": "research-manifest", "operation": "validate"},
+            "success": false,
+            "valid": false,
+            "error": {
+                "code": "E_FILE_NOT_FOUND",
+                "message": ("Manifest file not found: " + $file),
+                "fixCommand": "cleo research init"
+            }
+        }'
+        return "${EXIT_FILE_NOT_FOUND:-4}"
+    fi
+    
+    # Check archive directory exists
+    if [[ ! -d "${output_dir}/archive" ]]; then
+        warnings+=("Archive directory missing: ${output_dir}/archive")
+    fi
+    
+    # If manifest is empty, it's valid (just no entries)
+    if [[ ! -s "$manifest_path" ]]; then
+        local warnings_json
+        if [[ ${#warnings[@]} -eq 0 ]]; then
+            warnings_json="[]"
+        else
+            warnings_json=$(printf '%s\n' "${warnings[@]}" | jq -R . | jq -s .)
+        fi
+        
+        jq -nc \
+            --argjson warnings "$warnings_json" \
+            '{
+                "_meta": {"command": "research-manifest", "operation": "validate"},
+                "success": true,
+                "valid": true,
+                "result": {
+                    "totalLines": 0,
+                    "validEntries": 0,
+                    "invalidEntries": 0,
+                    "errors": [],
+                    "warnings": $warnings
+                }
+            }'
+        return 0
+    fi
+    
+    # Validate each line as JSON
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_num=$((line_num + 1))
+        
+        # Skip empty lines
+        [[ -z "${line// }" ]] && continue
+        
+        # Check if line is valid JSON
+        if ! echo "$line" | jq empty 2>/dev/null; then
+            errors+=("Line $line_num: Invalid JSON syntax")
+            invalid_entries=$((invalid_entries + 1))
+            continue
+        fi
+        
+        # Validate entry structure
+        local validation_error
+        if ! validation_error=$(_rm_validate_entry "$line" 2>&1); then
+            errors+=("Line $line_num: $validation_error")
+            invalid_entries=$((invalid_entries + 1))
+            continue
+        fi
+        
+        valid_entries=$((valid_entries + 1))
+    done < "$manifest_path"
+    
+    # Build result JSON
+    local errors_json warnings_json
+    if [[ ${#errors[@]} -eq 0 ]]; then
+        errors_json="[]"
+    else
+        errors_json=$(printf '%s\n' "${errors[@]}" | jq -R . | jq -s .)
+    fi
+    
+    if [[ ${#warnings[@]} -eq 0 ]]; then
+        warnings_json="[]"
+    else
+        warnings_json=$(printf '%s\n' "${warnings[@]}" | jq -R . | jq -s .)
+    fi
+    
+    local is_valid="true"
+    local exit_code=0
+    if [[ ${#errors[@]} -gt 0 ]]; then
+        is_valid="false"
+        exit_code="${EXIT_VALIDATION_ERROR:-6}"
+    fi
+    
+    jq -nc \
+        --argjson total "$line_num" \
+        --argjson valid "$valid_entries" \
+        --argjson invalid "$invalid_entries" \
+        --argjson errors "$errors_json" \
+        --argjson warnings "$warnings_json" \
+        --argjson is_valid "$is_valid" \
+        '{
+            "_meta": {"command": "research-manifest", "operation": "validate"},
+            "success": true,
+            "valid": $is_valid,
+            "result": {
+                "totalLines": $total,
+                "validEntries": $valid,
+                "invalidEntries": $invalid,
+                "errors": $errors,
+                "warnings": $warnings
+            }
+        }'
+    return "$exit_code"
+}
+
+# ============================================================================
 # PUBLIC API
 # ============================================================================
 
@@ -143,6 +378,349 @@ _rm_manifest_exists() {
 # Args: none
 # Output: JSON array of all entries wrapped in CLEO envelope
 # Returns: 0 on success, 4 if file not found
+
+# ============================================================================
+# Manifest Statistics and Compaction
+# ============================================================================
+
+# Get comprehensive manifest statistics
+# Returns: Entry count, size, age distribution, topics
+get_manifest_stats() {
+    local manifest_path archive_path
+    manifest_path=$(_rm_get_manifest_path)
+    archive_path=$(_rm_get_archive_path)
+    
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "stats"
+            },
+            "success": false,
+            "error": {
+                "code": "E_NOT_FOUND",
+                "message": "Manifest file not found"
+            }
+        }'
+        return "${EXIT_NOT_FOUND:-4}"
+    fi
+    
+    local current_bytes entry_count archive_bytes archive_count
+    local oldest_date newest_date today_date
+    local status_complete status_partial status_blocked status_archived
+    local actionable_count topic_list
+    
+    current_bytes=$(stat -c %s "$manifest_path" 2>/dev/null || stat -f %z "$manifest_path" 2>/dev/null || echo 0)
+    entry_count=$(wc -l < "$manifest_path" | tr -d ' ')
+    
+    # Archive stats
+    if [[ -f "$archive_path" ]]; then
+        archive_bytes=$(stat -c %s "$archive_path" 2>/dev/null || stat -f %z "$archive_path" 2>/dev/null || echo 0)
+        archive_count=$(wc -l < "$archive_path" | tr -d ' ')
+    else
+        archive_bytes=0
+        archive_count=0
+    fi
+    
+    # Skip detailed stats if manifest is empty
+    if [[ $entry_count -eq 0 ]]; then
+        jq -n \
+            --argjson manifest_bytes "$current_bytes" \
+            --argjson manifest_entries 0 \
+            --argjson archive_bytes "$archive_bytes" \
+            --argjson archive_entries "$archive_count" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "stats"
+                },
+                "success": true,
+                "result": {
+                    "manifest": {
+                        "bytes": $manifest_bytes,
+                        "entries": 0
+                    },
+                    "archive": {
+                        "bytes": $archive_bytes,
+                        "entries": $archive_entries
+                    },
+                    "statusCounts": {},
+                    "actionableCount": 0,
+                    "topicCounts": {},
+                    "ageStats": null
+                }
+            }'
+        return 0
+    fi
+    
+    # Calculate age stats and status counts via jq
+    local stats_json
+    stats_json=$(cat "$manifest_path" | jq -sc '
+        def today: now | strftime("%Y-%m-%d");
+        def days_since(d): 
+            ((now | floor) - (d | strptime("%Y-%m-%d") | mktime)) / 86400 | floor;
+        
+        {
+            oldest: (map(.date) | sort | first),
+            newest: (map(.date) | sort | last),
+            statusCounts: (group_by(.status) | map({key: .[0].status, value: length}) | from_entries),
+            actionableCount: (map(select(.actionable == true)) | length),
+            topicCounts: ([.[].topics[]] | group_by(.) | map({key: .[0], value: length}) | from_entries),
+            ageDistribution: {
+                today: (map(select(.date == today)) | length),
+                last7days: (map(select(days_since(.date) <= 7)) | length),
+                last30days: (map(select(days_since(.date) <= 30)) | length),
+                older: (map(select(days_since(.date) > 30)) | length)
+            }
+        }
+    ')
+    
+    jq -n \
+        --argjson manifest_bytes "$current_bytes" \
+        --argjson manifest_entries "$entry_count" \
+        --argjson archive_bytes "$archive_bytes" \
+        --argjson archive_entries "$archive_count" \
+        --argjson stats "$stats_json" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "stats"
+            },
+            "success": true,
+            "result": {
+                "manifest": {
+                    "bytes": $manifest_bytes,
+                    "entries": $manifest_entries
+                },
+                "archive": {
+                    "bytes": $archive_bytes,
+                    "entries": $archive_entries
+                },
+                "statusCounts": $stats.statusCounts,
+                "actionableCount": $stats.actionableCount,
+                "topicCounts": $stats.topicCounts,
+                "ageStats": {
+                    "oldestEntry": $stats.oldest,
+                    "newestEntry": $stats.newest,
+                    "distribution": $stats.ageDistribution
+                }
+            }
+        }'
+    
+    return 0
+}
+
+# Compact manifest by removing duplicate entries (keep newest by ID)
+# and entries with status "archived" that have been archived to MANIFEST-ARCHIVE.jsonl
+compact_manifest() {
+    local manifest_path lock_path
+    manifest_path=$(_rm_get_manifest_path)
+    lock_path="${manifest_path}.compact.lock"
+    
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "compact"
+            },
+            "success": true,
+            "result": {
+                "entriesBefore": 0,
+                "entriesAfter": 0,
+                "duplicatesRemoved": 0,
+                "obsoleteRemoved": 0
+            }
+        }'
+        return "${EXIT_NO_DATA:-100}"
+    fi
+    
+    local entries_before
+    entries_before=$(wc -l < "$manifest_path" | tr -d ' ')
+    
+    if [[ $entries_before -eq 0 ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "compact"
+            },
+            "success": true,
+            "result": {
+                "entriesBefore": 0,
+                "entriesAfter": 0,
+                "duplicatesRemoved": 0,
+                "obsoleteRemoved": 0
+            }
+        }'
+        return "${EXIT_NO_DATA:-100}"
+    fi
+    
+    # Ensure lock file exists
+    touch "$lock_path" 2>/dev/null || true
+    
+    # Perform compaction within exclusive lock
+    local lock_result duplicates_removed obsolete_removed entries_after
+    lock_result=$(
+        flock -x 202 2>/dev/null
+        
+        # Read all entries and deduplicate by ID (keep last occurrence)
+        # Also remove entries with status "archived" (they're in archive file)
+        local compacted
+        compacted=$(cat "$manifest_path" | jq -sc '
+            # Group by ID and keep last occurrence
+            group_by(.id) | 
+            map(last) |
+            # Filter out archived entries (they belong in archive file)
+            map(select(.status != "archived")) |
+            .[]
+        ' | jq -c '.')
+        
+        local new_count=0
+        if [[ -n "$compacted" ]]; then
+            echo "$compacted" > "${manifest_path}.tmp"
+            new_count=$(wc -l < "${manifest_path}.tmp" | tr -d ' ')
+            mv "${manifest_path}.tmp" "$manifest_path"
+        else
+            # Empty result - truncate manifest
+            : > "$manifest_path"
+        fi
+        
+        echo "$new_count"
+        exit 0
+    ) 202>"$lock_path"
+    local lock_exit=$?
+    
+    if [[ $lock_exit -ne 0 ]]; then
+        jq -n \
+            --arg error "Failed to acquire lock for compact operation" \
+            '{
+                "_meta": {
+                    "command": "research-manifest",
+                    "operation": "compact"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_LOCK_FAILED",
+                    "message": $error
+                }
+            }'
+        return 8
+    fi
+    
+    entries_after=${lock_result:-0}
+    local total_removed=$((entries_before - entries_after))
+    
+    jq -n \
+        --argjson before "$entries_before" \
+        --argjson after "$entries_after" \
+        --argjson removed "$total_removed" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "compact"
+            },
+            "success": true,
+            "result": {
+                "entriesBefore": $before,
+                "entriesAfter": $after,
+                "entriesRemoved": $removed
+            }
+        }'
+    
+    return 0
+}
+
+# List entries from archive file
+# Usage: list_archived_entries [--limit N] [--since DATE]
+list_archived_entries() {
+    local limit=50
+    local since=""
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --limit)
+                limit="$2"
+                shift 2
+                ;;
+            --since)
+                since="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    local archive_path
+    archive_path=$(_rm_get_archive_path)
+    
+    if [[ ! -f "$archive_path" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "list_archived"
+            },
+            "success": true,
+            "result": {
+                "total": 0,
+                "returned": 0,
+                "entries": []
+            }
+        }'
+        return "${EXIT_NO_DATA:-100}"
+    fi
+    
+    local total_entries
+    total_entries=$(wc -l < "$archive_path" | tr -d ' ')
+    
+    if [[ $total_entries -eq 0 ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "list_archived"
+            },
+            "success": true,
+            "result": {
+                "total": 0,
+                "returned": 0,
+                "entries": []
+            }
+        }'
+        return "${EXIT_NO_DATA:-100}"
+    fi
+    
+    # Build jq filter
+    local jq_filter="."
+    
+    if [[ -n "$since" ]]; then
+        jq_filter="${jq_filter} | select(.date >= \"$since\" or .archivedAt >= \"${since}T00:00:00Z\")"
+    fi
+    
+    # Read and filter entries
+    local entries filtered_count
+    entries=$(cat "$archive_path" | jq -sc "map($jq_filter) | .[-${limit}:]")
+    filtered_count=$(echo "$entries" | jq 'length')
+    
+    jq -n \
+        --argjson total "$total_entries" \
+        --argjson returned "$filtered_count" \
+        --argjson entries "$entries" \
+        '{
+            "_meta": {
+                "command": "research-manifest",
+                "operation": "list_archived"
+            },
+            "success": true,
+            "result": {
+                "total": $total,
+                "returned": $returned,
+                "entries": $entries
+            }
+        }'
+    
+    return 0
+}
+
 read_manifest() {
     local manifest_path
     manifest_path=$(_rm_get_manifest_path)
