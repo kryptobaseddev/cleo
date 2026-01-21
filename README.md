@@ -139,6 +139,9 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 
 ```bash
 curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+
+# Reinstalling over existing installation? Use --force:
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash -s -- --force
 ```
 
 **Option 2: Download and Run**
@@ -235,7 +238,18 @@ cleo init
 <details>
 <summary><strong>Upgrade & Self-Update</strong></summary>
 
+#### When to Use Each Method
+
+| Scenario | Command |
+|----------|---------|
+| **Fresh install** | `curl ... \| bash` |
+| **Update to latest** | `cleo self-update` (preferred) |
+| **Update to specific version** | `cleo self-update --version X.Y.Z` |
+| **Reinstall / fix broken install** | `curl ... \| bash -s -- --force` |
+
 #### Self-Update (Recommended)
+
+Use `self-update` for routine updates. It preserves user data and is safer than reinstalling.
 
 ```bash
 # Check for updates
@@ -251,7 +265,16 @@ cleo self-update --version 0.60.0
 cleo self-update --status
 ```
 
-#### Manual Upgrade
+#### Reinstall with --force
+
+Only use installer `--force` for fresh reinstalls or troubleshooting broken installations:
+
+```bash
+# Force reinstall (overwrites existing installation)
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash -s -- --force
+```
+
+#### Manual Upgrade (Legacy)
 
 ```bash
 # Check for updates (if self-update unavailable)
