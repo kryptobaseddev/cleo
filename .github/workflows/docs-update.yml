@@ -1,0 +1,51 @@
+name: Update Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'CHANGELOG.md'
+      - 'scripts/generate-changelog.sh'
+
+permissions:
+  contents: write
+
+jobs:
+  update-changelog:
+    name: Regenerate Mintlify Changelog
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if changelog needs update
+        id: check
+        run: |
+          # Generate new changelog
+          ./scripts/generate-changelog.sh 20
+
+          # Check if there are changes
+          if git diff --quiet docs/changelog/overview.mdx; then
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+            echo "Changelog is already up to date"
+          else
+            echo "needs_update=true" >> "$GITHUB_OUTPUT"
+            echo "Changelog needs updating"
+          fi
+
+      - name: Commit updated changelog
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add docs/changelog/overview.mdx
+          git commit -m "docs(changelog): Auto-regenerate Mintlify changelog
+
+          Triggered by changes to CHANGELOG.md
+
+          [skip ci]"
+          git push

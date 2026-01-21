@@ -1,6 +1,6 @@
 # Roadmap
 
-> Auto-generated from CLEO task data. Current version: v0.47.0
+> Auto-generated from CLEO task data. Current version: v0.60.1
 
 ---
 
@@ -44,15 +44,51 @@ EXIT_RESEARCH_FAILED=30, EXIT_INSUFFICIENT_SOURCES=31, EXIT_CONSENSUS_FAILED=32,
 
 #### T1205: Unified cleo update command for project maintenance
 
-**Phase**: core | **Progress**: 100% (4/4 tasks)
+**Phase**: core | **Progress**: 83% (5/6 tasks)
 
-Single command to detect and fix all project-level issues when global cleo version updates. Consolidates validate --fix, migrate run, migrate repair, and agent docs updates into one idempotent cleo upgrade command.
+Single command to detect and fix all project-level issues when global cleo version updates. Consolidates validate --fix, migrate run, migrate repair, init --update-claude-md into one idempotent cleo update command.
+
+#### T1243: Upgrade Command Production Readiness - Critical Bug Fixes
+
+**Phase**: core | **Progress**: 76% (10/13 tasks)
+
+CRITICAL: Multiple serious bugs prevent production use. See task notes for comprehensive issue documentation.
+
+#### T1362: Cleo Work: Embedded Iterative Loop System
+
+**Phase**: core | **Progress**: 0% (0/14 tasks)
+
+Full 'cleo work' command system - self-contained iterative loop for working through cleo epics. No external dependencies (replaces ralph-wiggum plugin).
+
+#### T1432: LLM-Agent-First JSON Output System with Smart Pagination
+
+**Phase**: core | **Progress**: 0% (0/15 tasks)
+
+Fix JSON truncation issues and implement smart pagination/sorting across all commands to comply with LLM-AGENT-FIRST-SPEC.md. Current issue: 'cleo session list' returns all 91 sessions (79KB) causing tool truncation. Solution: centralized lib/json-output.sh with pagination, smart defaults (lastActivity DESC, limit 20), and consistent compact JSON output (-c flag).
+
+#### T1463: Automated Schema Migration System with Pre-Commit Hooks
+
+**Phase**: core | **Progress**: 85% (6/7 tasks)
+
+Implement automated schema migration generation to prevent manual workflow bypasses and agent confusion. Three-layer defense: (1) Remove migrate command from agent docs - agents only see 'cleo upgrade', (2) Add developer mode gate to migrate command with interactive warning/redirect, (3) Create intelligent pre-commit hook that auto-generates migration functions by analyzing schema diffs. Includes smart diff analyzer that classifies changes (PATCH/MINOR/MAJOR) and generates appropriate code - PATCH changes fully automated, MINOR/MAJOR get templates with TODOs. Replaces manual 'cleo migrate create' workflow. Prevents T1462 class of bugs where agents bypass automation.
+
+#### T1569: Release v0.53.0 - Research Subagent Integration
+
+**Phase**: polish | **Progress**: 0% (0/0 tasks)
+
+Release workflow for research subcommand feature
 
 ### High Priority
 
+#### T1523: Workflow Recipes System Integration
+
+**Phase**: setup | **Progress**: 0% (0/15 tasks)
+
+Research, design, and implement a comprehensive recipes system for canned workflows that enables LLM agents and users to execute complex multi-step project management workflows via single CLI commands. Integrates with CLEO position system (T805), verification gates (T1150), orchestration platform (T1062), roadmap generation (T1165), git workflow (T1114), and multi-file injection (T1384). Focus on agent-first design, security, parallel execution, and cross-epic coordination. Deliverable: claudedocs/specs/RECIPES-SYSTEM-SPEC.md for planning phase.
+
 #### T753: Task Decomposition System Implementation (TASK-DECOMPOSITION-SPEC v1.0.0)
 
-**Phase**: core | **Progress**: 100% (1/1 tasks)
+**Phase**: core | **Progress**: 0% (0/0 tasks)
 
 Master Epic for implementing the Task Decomposition System per TASK-DECOMPOSITION-SPEC.md v1.0.0. This implements Stage 4 (DECOMPOSE) of the RCSD Pipeline.
 
@@ -94,12 +130,6 @@ ct update <task-id> --notes "COMPLETE: <summary of deliverables>"
 - Report: docs/specs/TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md
 - Target: v0.22.0+
 
-#### T805: Explicit Positional Ordering System
-
-**Phase**: core | **Progress**: 0% (0/6 tasks)
-
-Enable explicit, ID-independent task ordering where position/rank is separate from task ID. Epics, tasks, and subtasks each have shuffleable positions. LLM agents see FORCED priority order with dependency/blocking info. Currently: only categorical priority + creation date ordering exists. Need: position field, reorder commands, mandatory position assignment, dependency-aware display. Requires research on scope (per-parent vs global), enforcement strategy, and integration with existing priority field.
-
 #### T1062: Epic: CLEO Orchestration Platform - Deterministic State Machine for LLM Agent Workflows
 
 **Phase**: core | **Progress**: 0% (0/13 tasks)
@@ -126,13 +156,92 @@ Define the NEXUS Agent Protocol - a specification for HOW LLM agents behave and 
 
 #### T1198: Context Safeguard System (Agent Graceful Shutdown)
 
-**Phase**: core | **Progress**: 100% (6/6 tasks)
+**Phase**: core | **Progress**: 100% (7/7 tasks)
 
 Implement CLEO-integrated context window monitoring and graceful shutdown protocol. Enables agents to safely stop when approaching context limits by: updating task notes, committing git changes, generating handoff documents, and ending sessions properly. Integrates with Claude Code's status line hook for real-time context awareness.
 
+#### T1270: Cross-Project Task Import/Export System
+
+**Phase**: core | **Progress**: 100% (6/6 tasks)
+
+Enable selective task export from one cleo project and import into another with automatic ID remapping, hierarchy preservation, and dependency graph maintenance.
+
+## Problem Statement
+Different projects have independent ID sequences (Project A: T001-T050, Project B: T001-T025). Transferring tasks requires:
+1. ID collision resolution (remap T001→T031)
+2. Dependency preservation (depends:[T002] → depends:[T032])
+3. Hierarchy integrity (parentId remapping)
+4. Conflict detection (duplicate titles, missing refs)
+
+## Deliverables
+- cleo export-tasks command with single/subtree/filter modes
+- cleo import-tasks command with ID remapping and dry-run
+- .cleo-export.json package format with schema
+- Conflict resolution (interactive, auto-rename, skip, fail)
+- Checksum verification for integrity
+- Audit trail for provenance tracking
+
+## Key Specs
+- claudedocs/IMPORT-EXPORT-SPEC.md (v1.0.0)
+- claudedocs/IMPORT-EXPORT-ALGORITHMS.md
+- schemas/export-package.schema.json
+
+## Non-Goals (v1.0)
+- Bidirectional sync (future feature)
+- Real-time multi-project collaboration
+- Archive/cancelled task export (deferred)
+
+#### T1384: Multi-File LLM Agent Instruction Injection System
+
+**Phase**: core | **Progress**: 90% (27/30 tasks)
+
+Extend CLEO instruction injection to support AGENTS.md, CLAUDE.md, and GEMINI.md files. Currently injection targets only CLAUDE.md via init --update-claude-md. This epic implements multi-target injection with upgrade command integration, validation, and template management per NML compiled spec.
+
+#### T1610: Documentation Management System
+
+**Phase**: core | **Progress**: 10% (1/10 tasks)
+
+Build reusable DOCUMENTOR subagent and documentation management best practices. Includes: subagent template, skill integration, versioning strategy, archiving policy, deduplication rules, temp doc handling. Designed for ANY project reuse.
+
+#### T1342: Fix CI Test Failures (80 tests)
+
+**Phase**: testing | **Progress**: 0% (0/7 tasks)
+
+Fix 80 failing tests discovered after CI infrastructure repair. Tests now run but many fail.
+
+## GitHub Issue
+https://github.com/kryptobaseddev/cleo/issues/3
+
+## Background
+CI was failing immediately due to:
+1. statusline-setup.sh set -e exit (fixed v0.48.4)
+2. Wrong .claude/ directory in ci.yml (fixed)
+3. Incorrect bats paths in test files (fixed)
+
+Now tests run (2269+ total) but 80 fail.
+
+## Categories (8 groups)
+- LLM-Agent-First compliance: 17 tests
+- Phase sync: 17 tests  
+- Analyze size strategy: 11 tests
+- Config system: 10 tests
+- Hierarchy auto-complete: 7 tests
+- TodoWrite sync: 7 tests
+- Upgrade command: 6 tests
+- Other (backup, error codes): 5 tests
+
+## Last Successful CI
+v0.30.1 on Dec 23, 2025
+
+#### T1930: BATS Test Infrastructure Review
+
+**Phase**: testing | **Progress**: 0% (0/6 tasks)
+
+Review and fix BATS test infrastructure issues causing hangs in run-all-tests.sh and GitHub CI workflow. Tests complete individually but hang when run as a suite. Need to identify root cause (likely resource cleanup, parallel execution issues, or infinite loops) and implement fixes.
+
 #### T998: Session System Documentation & Enhancement
 
-**Phase**: polish | **Progress**: 60% (17/28 tasks)
+**Phase**: polish | **Progress**: 35% (6/17 tasks)
 
 EPIC: Session System Documentation & Enhancement
 
@@ -168,6 +277,18 @@ Fix bugs blocking proper multi-session usage:
 - Each phase = 1 scoped session
 - Tasks within phase can be parallelized by multiple agents
 - Phase N+1 blocked until Phase N complete
+
+#### T1890: CLEO System Polish & Consistency
+
+**Phase**: polish | **Progress**: 60% (6/10 tasks)
+
+Tactical improvements to strengthen the existing CLEO + Orchestrator system. Covers test coverage gaps, documentation drift, schema inconsistencies, and protocol standardization. Companion to T1062 (platform rewrite) - this epic focuses on immediate cleanup while T1062 handles architectural evolution. Source: docs/CLEO-SYSTEM-IMPROVEMENTS.md
+
+#### T1941: Session System Improvements & Cleanup
+
+**Phase**: maintenance | **Progress**: 20% (1/5 tasks)
+
+Address session accumulation (127 sessions with no cleanup), orphaned context files (63 identified), auto-archive capability, and session binding limitations. Consolidates gaps identified during T1842/T1843 research.
 
 ### Medium Priority
 
@@ -208,26 +329,4 @@ Parking lot for validated but deferred features. Tasks here are NOT abandoned - 
 
 ---
 
-## Release History
-
-| Version | Date |
-|---------|------|
-| v0.47.0 | 2026-01-02 |
-| v0.46.0 | 2026-01-02 |
-| v0.45.0 | 2026-01-02 |
-| v0.44.0 | 2026-01-02 |
-| v0.43.2 | 2026-01-02 |
-| v0.43.1 | 2026-01-02 |
-| v0.43.0 | 2026-01-01 |
-| v0.42.2 | 2025-12-31 |
-| v0.42.1 | 2025-12-31 |
-| v0.42.0 | 2025-12-31 |
-| v0.41.10 | 2025-12-31 |
-| v0.41.9 | 2025-12-31 |
-| v0.41.8 | 2025-12-30 |
-| v0.41.7 | 2025-12-29 |
-| v0.41.6 | 2025-12-29 |
-
----
-
-*Generated by `cleo roadmap` on 2026-01-02*
+*Generated by `cleo roadmap` on 2026-01-21*
