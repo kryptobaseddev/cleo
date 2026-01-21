@@ -27,6 +27,12 @@ This command implements the [Web Aggregation Pipeline Specification](../specs/WE
 | `show <id>` | Show details of a research entry from manifest |
 | `inject` | Output the subagent injection template for prompts |
 | `link <task> <research>` | Link a research entry to a CLEO task |
+| `pending` | Show entries with `needs_followup` for orchestrator handoffs |
+| `archive` | Archive old manifest entries to maintain context efficiency |
+| `archive-list` | List entries from the archive file |
+| `status` | Show manifest size and archival status |
+| `stats` | Show comprehensive manifest statistics |
+| `validate` | Validate manifest file integrity and entry format |
 
 ## Research Modes
 
@@ -410,6 +416,419 @@ cleo research link T042 auth-patterns-2026-01-15 --notes "Implements OAuth 2.1 r
 Linked research to task
   Task:     T042
   Research: auth-patterns-2026-01-15 (Authentication Patterns Research)
+```
+
+---
+
+## Subcommand: pending
+
+Show entries with pending follow-up tasks for orchestrator handoffs.
+
+### Usage
+
+```bash
+cleo research pending [OPTIONS]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--limit N` | Maximum entries to return | `20` |
+
+### Description
+
+Returns all research entries that have non-empty `needs_followup` arrays. These entries represent research that discovered additional work items during investigation. Useful for orchestrators to identify actionable handoff points.
+
+### Examples
+
+```bash
+# Show all entries with pending follow-ups
+cleo research pending
+
+# Limit results
+cleo research pending --limit 5
+```
+
+### JSON Output
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "command": "research",
+    "subcommand": "pending"
+  },
+  "success": true,
+  "summary": {
+    "total": 3,
+    "returned": 3,
+    "description": "Entries with pending follow-up tasks"
+  },
+  "entries": [
+    {
+      "id": "auth-patterns-2026-01-15",
+      "title": "Authentication Patterns Research",
+      "status": "complete",
+      "needs_followup": ["Investigate passkey implementation", "Review OAuth 2.1 changes"]
+    }
+  ]
+}
+```
+
+---
+
+## Subcommand: archive
+
+Archive old manifest entries to maintain context efficiency.
+
+### Usage
+
+```bash
+cleo research archive [OPTIONS]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--percent N` | Percentage of oldest entries to archive | `50` |
+| `--dry-run` | Show what would be archived without making changes | `false` |
+
+### Description
+
+Archives the oldest entries from the manifest to `MANIFEST-ARCHIVE.jsonl`. This maintains manifest size for context efficiency while preserving historical research. Archived entries can be retrieved via `archive-list`.
+
+### Examples
+
+```bash
+# Archive 50% of oldest entries (default)
+cleo research archive
+
+# Archive 25% of entries
+cleo research archive --percent 25
+
+# Preview archive operation
+cleo research archive --dry-run
+```
+
+### JSON Output
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "command": "research",
+    "subcommand": "archive"
+  },
+  "success": true,
+  "result": {
+    "action": "archived",
+    "entriesArchived": 10,
+    "entriesKept": 10,
+    "bytesBefore": 15000,
+    "bytesAfter": 7500
+  }
+}
+```
+
+---
+
+## Subcommand: archive-list
+
+List entries from the archive file.
+
+### Usage
+
+```bash
+cleo research archive-list [OPTIONS]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--status STATUS` | Filter by status: `complete`, `partial`, `blocked`, `archived` | - |
+| `--since DATE` | Filter entries archived since date (ISO 8601: YYYY-MM-DD) | - |
+| `--limit N` | Maximum entries to return | `20` |
+
+### Description
+
+Lists research entries that have been archived from the main manifest. Archived entries retain all original metadata plus an `archivedAt` timestamp.
+
+### Examples
+
+```bash
+# List archived entries
+cleo research archive-list
+
+# Filter by status
+cleo research archive-list --status complete
+
+# Filter by archive date
+cleo research archive-list --since 2026-01-01
+
+# Limit results
+cleo research archive-list --limit 10
+```
+
+### JSON Output
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "command": "research",
+    "subcommand": "archive-list"
+  },
+  "success": true,
+  "summary": {
+    "total": 25,
+    "returned": 10
+  },
+  "entries": [
+    {
+      "id": "old-research-2025-06-01",
+      "file": "2025-06-01_old-research.md",
+      "title": "Old Research Entry",
+      "date": "2025-06-01",
+      "status": "complete",
+      "archivedAt": "2026-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+---
+
+## Subcommand: status
+
+Show manifest size and archival status.
+
+### Usage
+
+```bash
+cleo research status [OPTIONS]
+```
+
+### Description
+
+Displays current manifest statistics including size, entry count, and archive information. Useful for monitoring when archiving may be needed.
+
+### Examples
+
+```bash
+# Show manifest status
+cleo research status
+
+# JSON output
+cleo research status --json
+```
+
+### JSON Output
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "command": "research",
+    "subcommand": "status"
+  },
+  "success": true,
+  "result": {
+    "manifest": {
+      "bytes": 8500,
+      "entries": 15
+    },
+    "archive": {
+      "bytes": 12000,
+      "entries": 25
+    }
+  }
+}
+```
+
+### Human Output
+
+```
+Research Manifest Status
+========================
+
+Manifest:
+  Size:    8500 bytes
+  Entries: 15
+
+Archive:
+  Size:    12000 bytes
+  Entries: 25
+```
+
+---
+
+## Subcommand: stats
+
+Show comprehensive manifest statistics.
+
+### Usage
+
+```bash
+cleo research stats [OPTIONS]
+```
+
+### Description
+
+Provides detailed statistics about the research manifest including entry counts by status, age distribution, and topic frequency.
+
+### Examples
+
+```bash
+# Show full statistics
+cleo research stats
+
+# JSON output
+cleo research stats --json
+```
+
+### JSON Output
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "command": "research",
+    "subcommand": "stats"
+  },
+  "success": true,
+  "result": {
+    "manifest": {
+      "bytes": 8500,
+      "entries": 15
+    },
+    "archive": {
+      "bytes": 12000,
+      "entries": 25
+    },
+    "statusCounts": {
+      "complete": 12,
+      "partial": 2,
+      "blocked": 1
+    },
+    "ageStats": {
+      "oldestEntry": "2025-11-01",
+      "newestEntry": "2026-01-20",
+      "distribution": {
+        "today": 2,
+        "last7days": 5,
+        "last30days": 10,
+        "older": 5
+      }
+    }
+  }
+}
+```
+
+### Human Output
+
+```
+Research Statistics
+===================
+
+Manifest:
+  Size:    8500 bytes
+  Entries: 15
+
+Archive:
+  Size:    12000 bytes
+  Entries: 25
+
+Status Counts:
+  complete: 12, partial: 2, blocked: 1
+
+Age Distribution:
+  Oldest: 2025-11-01
+  Newest: 2026-01-20
+  Today: 2
+  Last 7 days: 5
+  Last 30 days: 10
+  Older: 5
+```
+
+---
+
+## Subcommand: validate
+
+Validate manifest file integrity and entry format.
+
+### Usage
+
+```bash
+cleo research validate [OPTIONS]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--fix` | Attempt to repair invalid entries | `false` |
+
+### Description
+
+Validates the manifest file by checking:
+- JSON line parsing for each entry
+- Required fields (`id`, `file`, `title`, `date`, `status`)
+- Valid status values (`complete`, `partial`, `blocked`)
+- Date format (ISO 8601: YYYY-MM-DD)
+
+With `--fix`, invalid entries are removed from the manifest.
+
+### Examples
+
+```bash
+# Validate manifest
+cleo research validate
+
+# Validate and fix issues
+cleo research validate --fix
+```
+
+### JSON Output
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "command": "research",
+    "subcommand": "validate"
+  },
+  "success": true,
+  "result": {
+    "valid": true,
+    "totalEntries": 15,
+    "validEntries": 15,
+    "invalidEntries": 0,
+    "errors": []
+  }
+}
+```
+
+### Human Output (with errors)
+
+```
+Manifest Validation
+===================
+
+Status: INVALID
+
+Total entries: 15
+Valid entries: 13
+Invalid entries: 2
+
+Errors:
+  Line 5: Missing required field 'status'
+  Line 12: Invalid date format '01-15-2026'
+
+To fix these issues, run:
+  cleo research validate --fix
 ```
 
 ---
