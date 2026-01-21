@@ -730,6 +730,276 @@ cleo research pending
 
 ---
 
+## Orchestrator Library Architecture (lib/)
+
+The orchestrator protocol is implemented through five interconnected library files in `lib/`. These libraries follow a layered architecture pattern with strict dependency ordering.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       LAYER 3: APPLICATION                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  orchestrator-startup.sh      orchestrator-spawn.sh                         │
+│  (Session management,         (Dynamic skill injection,                     │
+│   dependency analysis,         single-function spawning)                    │
+│   prompt building)                                                          │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                       LAYER 2: SERVICES                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  skill-dispatch.sh            subagent-inject.sh                            │
+│  (Skill selection,            (Protocol injection,                          │
+│   trigger matching,            context assembly)                            │
+│   content injection)                                                        │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                       LAYER 1: FOUNDATION                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  token-inject.sh                                                            │
+│  (Token replacement, validation, template loading)                          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Call Graph
+
+```
+orchestrator_spawn_for_task() [orchestrator-spawn.sh]
+    │
+    ├── cleo show → Get task JSON
+    │
+    ├── skill_select_for_task() [skill-dispatch.sh]
+    │   ├── skill_matches_labels()
+    │   ├── skill_matches_type()
+    │   └── skill_matches_keywords()
+    │
+    ├── skill_validate_for_spawn() [skill-validate.sh]
+    │
+    ├── ti_set_task_context() [token-inject.sh]
+    │   └── ti_extract_manifest_summaries()
+    │
+    └── skill_inject() [skill-dispatch.sh]
+        ├── ti_set_defaults()
+        └── ti_load_template()
+
+orchestrator_get_startup_state() [orchestrator-startup.sh]
+    │
+    ├── orchestrator_session_init()
+    │   └── orchestrator_check_pending()
+    │       └── get_pending_followup() [research-manifest.sh]
+    │
+    ├── orchestrator_context_check()
+    │
+    ├── orchestrator_get_next_task()
+    │
+    └── orchestrator_get_ready_tasks()
+
+orchestrator_spawn_skill() [subagent-inject.sh]
+    │
+    ├── skill_select_for_task() [skill-dispatch.sh]
+    │
+    ├── skill_validate_for_spawn() [skill-validate.sh]
+    │
+    ├── subagent_prepare()
+    │   ├── ti_set_context() [token-inject.sh]
+    │   ├── ti_set_defaults()
+    │   └── ti_validate_required()
+    │
+    ├── ti_load_template() [token-inject.sh]
+    │
+    └── subagent_inject_protocol()
+        └── subagent_get_task_context()
+```
+
+---
+
+### lib/token-inject.sh
+
+**Layer**: 1 (Foundation Services)
+**Purpose**: Token injection and template loading for subagent prompts
+
+Provides the core token replacement system that ensures consistent variable injection across all skill templates and protocol files.
+
+**Key Functions**:
+
+| Function | Purpose |
+|----------|---------|
+| `ti_set_context()` | Set required context tokens (TASK_ID, DATE, TOPIC_SLUG, EPIC_ID) |
+| `ti_set_defaults()` | Apply CLEO defaults for optional tokens |
+| `ti_validate_required()` | Validate all required tokens are set |
+| `ti_inject_tokens()` | Replace `{{TOKEN}}` patterns with values |
+| `ti_load_template()` | Load template file and inject tokens |
+| `ti_set_task_context()` | Populate task-specific tokens from CLEO task JSON |
+| `ti_extract_manifest_summaries()` | Extract key_findings from recent MANIFEST.jsonl entries |
+| `ti_extract_next_task_ids()` | Identify tasks unblocked after current task completion |
+
+**Token Categories**:
+- **Required**: `TASK_ID`, `DATE`, `TOPIC_SLUG`
+- **Context**: `EPIC_ID`, `SESSION_ID`, `OUTPUT_DIR`, `MANIFEST_PATH`
+- **Task Commands**: `TASK_SHOW_CMD`, `TASK_FOCUS_CMD`, `TASK_COMPLETE_CMD`
+- **Task Context**: `TASK_TITLE`, `TASK_DESCRIPTION`, `TOPICS_JSON`, `DEPENDS_LIST`
+
+**Dependencies**: `exit-codes.sh`, `skills/_shared/placeholders.json`
+
+---
+
+### lib/orchestrator-startup.sh
+
+**Layer**: 3 (Domain Logic)
+**Purpose**: Session startup sequence and state management for orchestrator protocol
+
+Implements the decision matrix for orchestrator session initialization, determining whether to resume, spawn followups, or request user direction.
+
+**Key Functions**:
+
+| Function | Purpose |
+|----------|---------|
+| `orchestrator_check_pending()` | Check for pending work from manifest and CLEO |
+| `orchestrator_session_init()` | Resume or start orchestrator session with decision matrix |
+| `orchestrator_get_next_task()` | Get next task to spawn based on dependency satisfaction |
+| `orchestrator_get_ready_tasks()` | Get all parallel-safe tasks ready to spawn |
+| `orchestrator_context_check()` | Validate orchestrator context limits (10K budget) |
+| `orchestrator_get_startup_state()` | Get complete startup state in single call |
+| `orchestrator_analyze_dependencies()` | Build dependency graph and compute execution waves |
+| `orchestrator_get_manifest_summaries()` | Get key_findings for dependency chain tasks |
+| `orchestrator_build_prompt()` | Generate agent prompt from template + context |
+| `orchestrator_spawn()` | Generate spawn command with complete prompt |
+| `orchestrator_can_parallelize()` | Check if tasks can be spawned in parallel |
+| `orchestrator_get_parallel_waves()` | Get tasks organized by execution waves |
+
+**Session Decision Matrix**:
+- Active session + focus → Resume focused task
+- Active session, no focus → Query manifest, spawn next
+- No session, manifest has followup → Create session, spawn
+- No session, no followup → Request user direction
+
+**Dependencies**: `exit-codes.sh`, `config.sh`, `research-manifest.sh`, `paths.sh`
+
+---
+
+### lib/orchestrator-spawn.sh
+
+**Layer**: 3 (Application)
+**Purpose**: Dynamic skill injection for subagent spawning
+
+Consolidates the manual 6-step orchestrator workflow into a single function call that handles task reading, skill selection, validation, protocol injection, token setting, and prompt generation.
+
+**Key Functions**:
+
+| Function | Purpose |
+|----------|---------|
+| `orchestrator_spawn_for_task()` | Complete subagent prompt preparation (main entry point) |
+| `orchestrator_spawn_batch()` | Prepare prompts for multiple tasks |
+| `orchestrator_spawn_preview()` | Preview skill selection without injection |
+
+**Workflow Steps** (automated by `orchestrator_spawn_for_task`):
+1. Read task from CLEO
+2. Select skill based on task type/labels (or use override)
+3. Validate skill compatibility with target model
+4. Inject protocol base + skill content
+5. Set context tokens (TASK_ID, DATE, TOPIC_SLUG, EPIC_ID)
+6. Return complete prompt ready for Task tool
+
+**Dependencies**: `exit-codes.sh`, `skill-dispatch.sh`, `skill-validate.sh`, `token-inject.sh`
+
+---
+
+### lib/skill-dispatch.sh
+
+**Layer**: 2 (Services)
+**Purpose**: Skill selection and dispatch based on task metadata
+
+Enables orchestrator to automatically select appropriate skills using a three-tier matching strategy: labels, types, and keywords.
+
+**Key Functions**:
+
+| Function | Purpose |
+|----------|---------|
+| `skill_select_for_task()` | Select skill based on task JSON (main entry point) |
+| `skill_dispatch_validate()` | Validate skill can be used for dispatch |
+| `skill_inject()` | Inject skill into subagent prompt with protocol |
+| `skill_inject_for_task()` | High-level function to inject skill for CLEO task |
+| `skill_get_dispatch_triggers()` | Get dispatch triggers for a skill |
+| `skill_matches_labels()` | Check if task labels match skill's triggers |
+| `skill_matches_keywords()` | Check if title/description matches skill's keywords |
+| `skill_matches_type()` | Check if task type matches skill's type triggers |
+| `skill_list_with_triggers()` | List all skills with their dispatch triggers |
+| `skill_find_by_trigger()` | Find skills matching specific trigger |
+
+**Dispatch Priority**:
+1. **Label Match**: Task labels intersect with skill tags
+2. **Type Match**: Task type (epic/task/subtask) maps to skill
+3. **Keyword Match**: Title/description contains skill keywords
+4. **Fallback**: `ct-task-executor` catches all unmatched tasks
+
+**Dependencies**: `exit-codes.sh`, `skill-validate.sh`, `token-inject.sh`, `skills/manifest.json`
+
+---
+
+### lib/subagent-inject.sh
+
+**Layer**: 2 (Services)
+**Purpose**: Protocol injection and context assembly for subagent spawns
+
+Guarantees RFC 2119 protocol compliance by automatically injecting the subagent protocol base into all spawned agent prompts.
+
+**Key Functions**:
+
+| Function | Purpose |
+|----------|---------|
+| `subagent_prepare()` | Prepare tokens and context for subagent |
+| `subagent_get_task_context()` | Get task context block for prompt |
+| `subagent_inject_protocol()` | Inject protocol block into prompt |
+| `orchestrator_spawn_skill()` | Full skill-based workflow (primary entry point) |
+| `orchestrator_spawn_minimal()` | Spawn with minimal context (no task details) |
+| `orchestrator_validate_spawn()` | Pre-flight validation before spawning |
+
+**Injection Pattern**:
+```
+[SKILL CONTENT]
+---
+## SUBAGENT PROTOCOL (RFC 2119)
+[Content from subagent-protocol-base.md with tokens resolved]
+---
+[TASK CONTEXT]
+```
+
+**Dependencies**: `exit-codes.sh`, `token-inject.sh`, `skill-validate.sh`, `skill-dispatch.sh`
+
+---
+
+### Integration Example
+
+```bash
+#!/usr/bin/env bash
+# Example: Spawning a subagent for task T1234
+
+source lib/orchestrator-spawn.sh
+
+# Option 1: Full automation (recommended)
+result=$(orchestrator_spawn_for_task "T1234")
+prompt=$(echo "$result" | jq -r '.result.prompt')
+
+# Option 2: With explicit skill override
+result=$(orchestrator_spawn_for_task "T1234" "ct-research-agent")
+
+# Option 3: Manual workflow via subagent-inject.sh
+source lib/subagent-inject.sh
+subagent_prepare "T1234" "my-topic" "T1666"  # Sets TI_* tokens
+prompt=$(orchestrator_spawn_skill "T1234")   # Full prompt with protocol
+
+# Option 4: Startup state check
+source lib/orchestrator-startup.sh
+state=$(orchestrator_get_startup_state "T1666")
+action=$(echo "$state" | jq -r '.result.session.recommendedAction')
+```
+
+---
+
 ## Related Documentation
 
 | Document | Purpose |
