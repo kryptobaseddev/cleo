@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.60.2-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.61.0-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -590,6 +590,20 @@ cleo session end
 | `focus note "text"` | Session-level progress | Replaces `.focus.sessionNote` |
 | `update T001 --notes "text"` | Task-specific history | Appends to `.tasks[].notes[]` with timestamp |
 
+### Session Maintenance (v0.60.0+)
+
+**Garbage Collection**: Clean up session artifacts and auto-archive inactive sessions.
+
+```bash
+cleo session gc                     # Full cleanup
+cleo session gc --dry-run           # Preview without changes
+cleo session gc --verbose           # Detailed output
+cleo session gc --orphans           # Clean orphaned context files only
+cleo session gc --stale             # Archive old sessions only
+```
+
+**Auto-Archive**: Sessions inactive for 30+ days are automatically archived during garbage collection. Configure via `retention.autoArchiveEndedAfterDays` in config.
+
 ---
 
 ## Output Formats & Exit Codes
@@ -823,6 +837,32 @@ cleo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
 <summary><h2>Skills Architecture (v0.55.0+)</h2></summary>
 
 CLEO includes 14 modular skills for AI agent workflows:
+
+### Token Injection System (v0.60.0+)
+
+The token injection system provides validated placeholder replacement for skill templates:
+
+| Function | Purpose |
+|----------|---------|
+| `ti_inject_tokens()` | Replace `{{TOKEN}}` placeholders in templates |
+| `ti_validate_required()` | Ensure required tokens (TASK_ID, DATE, TOPIC_SLUG) are set |
+| `ti_set_task_context()` | Auto-populate tokens from CLEO task data |
+| `validate_token_value()` | Validate against enum/path/array/required types |
+
+Token validation prevents hallucinated or malformed values from reaching skill templates.
+
+### Orchestrator Automation (v0.60.0+)
+
+The `orchestrator_spawn_for_task()` function consolidates subagent spawning into a single call:
+
+```bash
+# Programmatic spawning (from lib/orchestrator-spawn.sh)
+source lib/orchestrator-spawn.sh
+prompt=$(orchestrator_spawn_for_task "T1234")              # Default skill
+prompt=$(orchestrator_spawn_for_task "T1234" "ct-research-agent")  # Specific skill
+```
+
+Automates: task validation, context loading, token injection, template rendering, and prompt generation.
 
 ### Installed Skills
 
