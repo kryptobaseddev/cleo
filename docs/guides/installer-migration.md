@@ -316,6 +316,32 @@ source ~/.bashrc
 
 We recommend migrating to the new installer for a more reliable experience.
 
+## Future Upgrades
+
+After migrating to v0.56.0+, future upgrades are simplified with the `self-update` command:
+
+```bash
+# Check for updates
+cleo self-update --check
+
+# View current vs latest version
+cleo self-update --status
+
+# Update to latest version
+cleo self-update
+
+# Update to specific version
+cleo self-update --version 0.58.0
+```
+
+**Note:** For development mode installations (symlinks), use `git pull` instead of `self-update`.
+
+The self-update command:
+- Queries GitHub releases for the latest version
+- Downloads and verifies the release tarball (SHA256 checksum)
+- Creates a backup before updating
+- Runs the bundled installer automatically
+
 ## See Also
 
 - [Installer Architecture](./installer-architecture.md) - Technical details of the new installer
