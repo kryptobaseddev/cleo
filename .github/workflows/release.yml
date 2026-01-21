@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          # Extract version from tag (remove 'v' prefix)
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building release for version: $VERSION"
+
+      - name: Validate required files exist
+        run: |
+          for path in scripts lib schemas templates skills installer VERSION LICENSE README.md install.sh; do
+            if [[ ! -e "$path" ]]; then
+              echo "ERROR: Required path missing: $path"
+              exit 1
+            fi
+          done
+          echo "All required files present"
+
+      - name: Build runtime tarball
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARBALL="cleo-${VERSION}.tar.gz"
+
+          # Create staging directory
+          mkdir -p "staging/cleo-${VERSION}"
+
+          # Copy runtime components only
+          cp -r scripts "staging/cleo-${VERSION}/"
+          cp -r lib "staging/cleo-${VERSION}/"
+          cp -r schemas "staging/cleo-${VERSION}/"
+          cp -r templates "staging/cleo-${VERSION}/"
+          cp -r skills "staging/cleo-${VERSION}/"
+          cp -r installer "staging/cleo-${VERSION}/"
+          cp VERSION "staging/cleo-${VERSION}/"
+          cp LICENSE "staging/cleo-${VERSION}/"
+          cp README.md "staging/cleo-${VERSION}/"
+
+          # Create tarball
+          tar -czvf "$TARBALL" -C staging "cleo-${VERSION}"
+
+          echo "Created: $TARBALL"
+          ls -lh "$TARBALL"
+
+      - name: Copy standalone installer
+        run: |
+          # Copy root install.sh as standalone installer
+          cp install.sh install.sh
+          chmod +x install.sh
+          echo "Standalone installer ready"
+
+      - name: Generate checksums
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARBALL="cleo-${VERSION}.tar.gz"
+
+          # Generate SHA256 checksums
+          sha256sum "$TARBALL" install.sh > SHA256SUMS
+
+          echo "Checksums:"
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            cleo-${{ steps.version.outputs.version }}.tar.gz
+            install.sh
+            SHA256SUMS
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
