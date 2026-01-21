@@ -13,6 +13,19 @@ Stay up to date with the latest CLEO improvements, features, and fixes.
 Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https://github.com/kryptobaseddev/cleo/releases).
 </Info>
 
+<Update label="January 2026" description="v0.60.1" tags={["Fix", "Injection"]}>
+## Agent Documentation Fix
+
+Patch release fixing agent documentation injection.
+
+**Bug Fixes:**
+- Fix missing agent docs during injection
+- Validate block content before writing
+- Ensure CLAUDE.md, AGENTS.md, and GEMINI.md are properly created
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.60.1)
+</Update>
+
 <Update label="January 2026" description="v0.60.0" tags={["Skills", "Documentation", "Orchestrator"]}>
 ## Skills System & Mintlify Documentation
 
@@ -41,6 +54,95 @@ Major release introducing the Agent Skills architecture and comprehensive Mintli
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.60.0)
 </Update>
 
+<Update label="January 2026" description="v0.59.0" tags={["Orchestrator", "Production"]}>
+## Orchestrator Protocol Production Readiness
+
+Stabilization release making the orchestrator protocol production-ready.
+
+**Key Changes:**
+- Orchestrator Protocol finalized for production use
+- Enhanced dependency wave analysis
+- Improved subagent spawn command generation
+- Better context budget management
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.59.0)
+</Update>
+
+<Update label="January 2026" description="v0.58.0" tags={["Installer", "Fixes", "Compatibility"]}>
+## Installer Stability Release
+
+Series of fixes (v0.58.0-v0.58.7) improving installer reliability across platforms.
+
+**Bug Fixes:**
+- Remove version tracking from CLEO markers in injected files
+- Create individual ct-* skill symlinks instead of umbrella symlink
+- Read mode from VERSION file instead of checking symlinks
+- Find installer in both root and installer/ directory
+- Download release tarball instead of source archive
+- Set execute permissions on shell scripts in tarball
+- Clean up stale ct-* symlinks during mode switch
+
+**Documentation:**
+- Add mode switching documentation to README
+- Improve installer architecture documentation
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.7)
+</Update>
+
+<Update label="January 2026" description="v0.57.0" tags={["Installer", "Self-Update", "Compatibility"]}>
+## Self-Update & Shell Compatibility
+
+Major installer improvements with self-update enhancements and cross-platform compatibility.
+
+**New Features:**
+- Add `--release` flag and mode switching to self-update
+- User-friendly progress output for all installation scenarios
+
+**Bug Fixes:**
+- Add session error codes and clarify multi-session requirements
+- Add completions/ and docs/ to release tarball
+- Add missing directory installation for completions and docs
+- Add self-update and setup-agents to command map
+- Add global agent config setup and fix version migration bug
+- Make installer Bash 3.2 compatible for stock macOS
+- Add early Bash 4+ version check for macOS compatibility
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.11)
+</Update>
+
+<Update label="January 2026" description="v0.56.0" tags={["Installer", "Architecture"]}>
+## Modular Installer Architecture
+
+Redesigned installer with modular architecture for better maintainability.
+
+**Key Changes:**
+- Completely rewritten installer with modular components
+- Cleaner separation of concerns
+- Improved error handling and rollback support
+- Better PATH configuration across shells
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.56.0)
+</Update>
+
+<Update label="January 2026" description="v0.55.0" tags={["Skills", "Architecture"]}>
+## Skills Architecture Foundation
+
+Foundation release establishing the Agent Skills system.
+
+**New Features:**
+- Skills Architecture and AgentSkills compliance
+- Migrate subagent prompts to Agent Skills format
+- Comprehensive skills library with shared resources
+- Enhanced EPIC-ARCHITECT.md to canonical v2.0.0 template
+- Orchestrator protocol documentation and schemas
+
+**Improvements:**
+- Removed deprecated subagent-prompts directory
+- Synced orchestrator protocol docs, templates, and schemas
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.55.0)
+</Update>
+
 <Update label="January 2026" description="v0.54.0" tags={["Sessions", "Context", "Multi-Agent"]}>
 ## Multi-Session & Context Monitoring
 
@@ -59,6 +161,38 @@ Enhanced multi-agent support with session binding and context awareness.
 - Better hierarchy management
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.54.0)
+</Update>
+
+<Update label="December 2025" description="v0.53.0" tags={["Research", "CLI"]}>
+## Research Subcommands
+
+Enhanced research capabilities with new subcommands.
+
+**New Features:**
+- `cleo research init` - Initialize research outputs directory
+- `cleo research list` - List research entries from manifest
+- `cleo research show` - Show research entry details
+- `cleo research inject` - Output subagent injection template
+- `cleo research link` - Link research to tasks
+
+**Improvements:**
+- Research manifest (MANIFEST.jsonl) for tracking outputs
+- Context-efficient research querying
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.53.4)
+</Update>
+
+<Update label="December 2025" description="v0.52.0" tags={["Core", "Stability"]}>
+## Core Stability
+
+Stability improvements and bug fixes.
+
+**Improvements:**
+- Enhanced validation and error handling
+- Better JSON output formatting
+- Improved atomic file operations
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.52.2)
 </Update>
 
 <Update label="December 2025" description="v0.50.0" tags={["Core", "CLI", "Validation"]}>
