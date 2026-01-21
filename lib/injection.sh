@@ -60,8 +60,7 @@ injection_update() {
 # Check injection status for a target file
 # Args: target_file
 # Returns: JSON with status
-# Note: Since markers use @-references to external files, version is irrelevant.
-# Block presence = current (external file always has latest content)
+# Validates block content matches expected @-reference format
 injection_check() {
     local target="$1"
     local status
@@ -76,22 +75,40 @@ injection_check() {
         return 0
     fi
 
-    # Block exists - always current since content is external @-reference
-    status="current"
+    # Block exists - validate content matches expected @-reference
+    local expected_reference="@.cleo/templates/AGENT-INJECTION.md"
+    local block_content
+
+    # Extract block content between markers (excluding markers themselves)
+    block_content=$(awk "
+        /${INJECTION_MARKER_START//\//\\/}/ { found = 1; next }
+        /${INJECTION_MARKER_END//\//\\/}/ { found = 0; next }
+        found { print }
+    " "$target" | tr -d '[:space:]')
+
+    # Expected content (normalized - no whitespace)
+    local expected_normalized
+    expected_normalized=$(echo "$expected_reference" | tr -d '[:space:]')
+
+    if [[ "$block_content" == "$expected_normalized" ]]; then
+        status="current"
+    else
+        status="outdated"
+    fi
+
     echo "{\"target\":\"$target\",\"status\":\"$status\",\"fileExists\":true}"
 }
 
 # Check all targets and return combined status
-# Returns: JSON array of all target statuses
+# Returns: JSON array of all target statuses (including missing files)
 injection_check_all() {
     local results=()
     local target
 
     injection_get_targets
     for target in "${REPLY[@]}"; do
-        if [[ -f "$target" ]]; then
-            results+=("$(injection_check "$target")")
-        fi
+        # Check ALL targets - injection_check handles missing files correctly
+        results+=("$(injection_check "$target")")
     done
 
     printf '[%s]' "$(IFS=,; echo "${results[*]}")"

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-01-21
+
+### Added
+- **`init --update-docs` flag**: Safe operation to create/update agent documentation files (CLAUDE.md, AGENTS.md, GEMINI.md) on existing projects without touching task data
+  - Exit codes: 0 (updated), 102 (no changes needed), 1 (failed)
+  - Useful alternative to full `upgrade` when only agent docs need updating
+
+### Fixed
+- **Agent docs not created on existing projects**: `injection_check_all()` was silently skipping missing files due to `if [[ -f "$target" ]]` guard
+  - Now reports ALL targets including missing ones with status "missing"
+  - Enables `upgrade` to properly detect and create missing CLAUDE.md/AGENTS.md/GEMINI.md
+- **Block content validation**: `injection_check()` now validates block content matches expected `@.cleo/templates/AGENT-INJECTION.md` reference
+  - Returns "outdated" status if content doesn't match, triggering update
+  - Previously returned "current" for any existing block without content validation
+
+### Changed
+- `upgrade` now properly handles all agent doc scenarios:
+  - Missing files → Creates them
+  - Outdated content → Updates them
+  - No block present → Prepends block
+  - Current → Skips (no change)
+
 ## [0.60.0] - 2026-01-20
 
 ### Added

@@ -28,6 +28,7 @@ The `init` command sets up a new project for cleo by creating the `.cleo/` direc
 |--------|-------------|---------|
 | `--force` | Signal intent to reinitialize (requires `--confirm-wipe`) | `false` |
 | `--confirm-wipe` | Confirm destructive data wipe (used with `--force`) | `false` |
+| `--update-docs` | Update agent docs only (safe on existing projects) | `false` |
 | `-f, --format FMT` | Output format: `text`, `json` | auto-detect |
 | `--json` | Force JSON output | |
 | `--human` | Force human-readable text output | |
@@ -37,8 +38,7 @@ The `init` command sets up a new project for cleo by creating the `.cleo/` direc
 **Deprecated Options** (removed in v0.50.0):
 - `--target FILE` - Registry-based auto-discovery replaces per-file flags
 - `--no-claude-md` - Injection now automatic, no skip option
-- `--update-claude-md` - Use `cleo upgrade` instead
-- `--update-docs` - Use `cleo upgrade` instead
+- `--update-claude-md` - Use `--update-docs` instead
 
 ## Exit Codes
 
@@ -48,6 +48,7 @@ The `init` command sets up a new project for cleo by creating the `.cleo/` direc
 | 2 | `EXIT_INVALID_INPUT` | `--force` provided without `--confirm-wipe` |
 | 3 | `EXIT_FILE_ERROR` | Failed to create safety backup |
 | 101 | `EXIT_ALREADY_EXISTS` | Project already initialized (use `--force --confirm-wipe`) |
+| 102 | `EXIT_NO_CHANGE` | No changes needed (`--update-docs` with current agent docs) |
 
 ## Examples
 
@@ -78,23 +79,45 @@ Output:
 cleo initialized successfully!
 ```
 
-### Update Agent Doc Injections
+### Update Agent Docs Only (Existing Project)
 
 ```bash
-# Update all agent doc file injections to latest version
+# Safe operation - only updates agent docs, doesn't touch task data
+cleo init --update-docs
+```
+
+Output:
+```
+[SUCCESS] Updated 2 agent doc file(s)
+```
+
+Or if already current:
+```
+[INFO] Agent docs already up-to-date (3 file(s))
+```
+
+**Use cases:**
+- Create missing CLAUDE.md/AGENTS.md/GEMINI.md on existing project
+- Update outdated injection content
+- Lightweight alternative to full `cleo upgrade`
+
+### Update via Upgrade Command
+
+```bash
+# Full upgrade - includes agent docs, schemas, migrations, etc.
 cleo upgrade
 ```
 
 Output:
 ```
 [INFO] Updating agent documentation injections...
-[INFO]   ✓ CLAUDE.md (v0.49.0 → v0.50.2)
-[INFO]   ✓ AGENTS.md (v0.49.0 → v0.50.2)
-[INFO]   ⊘ GEMINI.md (current v0.50.2)
+[INFO]   ✓ CLAUDE.md (updated)
+[INFO]   ✓ AGENTS.md (created)
+[INFO]   ⊘ GEMINI.md (current)
 [INFO] Updated 2 of 3 files
 ```
 
-**Note:** `cleo init` automatically injects into all agent files on first run. Use `cleo upgrade` to update existing injections.
+**Note:** `cleo init` automatically injects into all agent files on first run. Use `cleo init --update-docs` for quick updates or `cleo upgrade` for comprehensive project maintenance.
 
 ### Multi-Agent Project Support
 
@@ -112,10 +135,10 @@ cleo init
 
 **Behavior:**
 - Creates missing files with injection
-- Updates outdated injections (version mismatch)
-- Skips files with current version
+- Updates outdated injections (content mismatch)
+- Skips files with current content
 - Same CLEO template content for all targets
-- Markers: `<!-- CLEO:START vX.X.X -->` and `<!-- CLEO:END -->`
+- Markers: `<!-- CLEO:START -->` and `<!-- CLEO:END -->` (versionless since v0.58.7)
 
 **Why Multiple Files?**
 Different LLM agents prefer different instruction files. CLEO injects identical content into all standard formats for maximum compatibility.
