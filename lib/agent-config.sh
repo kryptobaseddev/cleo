@@ -90,16 +90,17 @@ update_agent_config_registry() {
     return 0
 }
 
-# Get agent config version from file
+# Get agent config version from file (legacy support)
 # Args: file_path
-# Returns: version string or empty
+# Returns: version string or empty (empty for new versionless markers)
+# Note: New markers don't include version - returns empty which is expected
 get_agent_config_version() {
     local file_path="$1"
 
     [[ ! -f "$file_path" ]] && return 1
 
-    # Extract version from CLEO injection marker
-    grep -oP "${INJECTION_VERSION_PATTERN}" "$file_path" 2>/dev/null | \
+    # Extract version from legacy CLEO injection marker (if present)
+    grep -oP 'CLEO:START v([0-9]+\.[0-9]+\.[0-9]+)' "$file_path" 2>/dev/null | \
         head -1 | \
         grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || true
 }

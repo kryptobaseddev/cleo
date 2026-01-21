@@ -127,13 +127,22 @@ teardown_file() {
     [[ "$test_marker" =~ $INJECTION_VERSION_PATTERN ]]
 }
 
-@test "INJECTION_VERSION_PATTERN captures version number" {
+@test "INJECTION_VERSION_PATTERN captures version number from legacy markers" {
     local test_marker="<!-- CLEO:START v1.2.3 -->"
     if [[ "$test_marker" =~ $INJECTION_VERSION_PATTERN ]]; then
-        [ "${BASH_REMATCH[1]}" = "1.2.3" ]
+        # Group 1 is " v1.2.3", group 2 is "1.2.3"
+        [ "${BASH_REMATCH[2]}" = "1.2.3" ]
     else
         fail "Pattern should match version marker"
     fi
+}
+
+@test "INJECTION_VERSION_PATTERN matches versionless markers" {
+    local test_marker="<!-- CLEO:START -->"
+    [[ "$test_marker" =~ $INJECTION_VERSION_PATTERN ]]
+    # Group 1 and 2 should be empty for versionless markers
+    [ -z "${BASH_REMATCH[1]}" ]
+    [ -z "${BASH_REMATCH[2]}" ]
 }
 
 # =============================================================================
@@ -405,20 +414,28 @@ teardown_file() {
 }
 
 @test "version pattern accepts valid formats" {
-    local valid_markers=(
+    local valid_versioned_markers=(
         "<!-- CLEO:START v0.50.2 -->"
         "<!-- CLEO:START v1.0.0 -->"
         "<!-- CLEO:START v10.20.30 -->"
     )
 
-    for marker in "${valid_markers[@]}"; do
+    for marker in "${valid_versioned_markers[@]}"; do
         if ! [[ "$marker" =~ $INJECTION_VERSION_PATTERN ]]; then
             fail "Pattern should match valid marker: $marker"
         fi
-        # Verify captured version is semver format
-        local version="${BASH_REMATCH[1]}"
+        # Verify captured version is semver format (group 2)
+        local version="${BASH_REMATCH[2]}"
         [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
     done
+
+    # Also test versionless markers (new format)
+    local versionless_marker="<!-- CLEO:START -->"
+    if ! [[ "$versionless_marker" =~ $INJECTION_VERSION_PATTERN ]]; then
+        fail "Pattern should match versionless marker"
+    fi
+    # Version groups should be empty
+    [ -z "${BASH_REMATCH[2]}" ]
 }
 
 # =============================================================================
