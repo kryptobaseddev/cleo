@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-01-20
+
+### Added
+- **Orchestrator Protocol Production Readiness** (Epic T1666)
+  - Token injection system with `ti_set_task_context()` fully integrated
+  - Manifest archival functions: `manifest_check_size`, `manifest_archive_old`, `manifest_rotate`
+  - `skills/_shared/placeholders.json` canonical token registry
+  - `lib/skill-dispatch.sh` for automatic skill selection based on intent
+  - `lib/skill-validate.sh` for skill validation and discovery
+  - `lib/orchestrator-spawn.sh` for subagent prompt generation
+  - `lib/subagent-inject.sh` for protocol injection into subagent prompts
+
+### Fixed
+- Token injection now properly resolves `TASK_TITLE`, `TASK_DESCRIPTION`, `TOPICS_JSON`, `DEPENDS_LIST` placeholders
+
 ## [0.59.0] - 2026-01-21
 
 ### Added
