@@ -1,0 +1,36 @@
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/kryptobaseddev/cleo.git
+    cd cleo
+    ```
+  </Step>
+
+  <Step title="Run the Installer">
+    ```bash
+    ./install.sh
+    ```
+
+    This installs CLEO to `~/.cleo/` and creates symlinks in `~/.local/bin/`.
+
+    <Note>
+      Custom installation directory: `CLEO_HOME=/opt/cleo ./install.sh`
+    </Note>
+  </Step>
+
+  <Step title="Initialize Your Project">
+    ```bash
+    cd /path/to/your/project
+    cleo init
+    ```
+
+    Creates `.cleo/` directory with task files and auto-injects instructions into `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md`.
+  </Step>
+
+  <Step title="Verify Installation">
+    ```bash
+    cleo version
+    cleo validate
+    ```
+  </Step>
+</Steps>

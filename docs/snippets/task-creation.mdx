@@ -1,0 +1,36 @@
+### Task Creation Patterns
+
+```bash
+# Basic task
+cleo add "Implement login form"
+
+# Task with full metadata
+cleo add "Build authentication API" \
+  --priority high \
+  --phase core \
+  --labels backend,security \
+  --description "Implement JWT-based auth with refresh tokens"
+
+# Create subtask under parent
+cleo add "Write unit tests" --parent T001 --size small
+
+# Create epic (large scope task)
+cleo add "EPIC: User Management System" --type epic --size large
+
+# Task with dependencies
+cleo add "Deploy to production" --depends T001,T002,T003
+```
+
+### Hierarchy Structure
+
+```
+Epic (T001)          ← Large scope, contains related work
+├── Task (T002)      ← Individual work item
+│   ├── Subtask (T003)
+│   └── Subtask (T004)
+└── Task (T005)
+```
+
+<Warning>
+Maximum hierarchy depth is 3 levels: epic → task → subtask.
+</Warning>

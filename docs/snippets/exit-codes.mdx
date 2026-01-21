@@ -1,0 +1,45 @@
+### Exit Code Reference
+
+| Range | Category | Meaning |
+|-------|----------|---------|
+| 0 | Success | Operation completed |
+| 1-22 | Errors | Operation failed |
+| 100+ | Special | Not errors, special states |
+
+### Common Exit Codes
+
+| Code | Name | Description | Recoverable |
+|------|------|-------------|-------------|
+| 0 | Success | Operation completed | - |
+| 2 | E_INPUT_MISSING | Required input missing | Yes |
+| 4 | E_NOT_FOUND | Task not found | Yes |
+| 6 | E_VALIDATION | Validation failed | Yes |
+| 10 | E_PARENT_NOT_FOUND | Parent task missing | Yes |
+| 11 | E_DEPTH_EXCEEDED | Max depth (3) exceeded | No |
+| 36 | E_SESSION_REQUIRED | Session needed | Yes |
+
+### Special Codes (Not Errors)
+
+| Code | Meaning |
+|------|---------|
+| 100 | No data (empty result) |
+| 101 | Already exists |
+| 102 | No change needed |
+
+### Error Handling Pattern
+
+```bash
+if ! result=$(cleo complete T001 --notes "Done" 2>&1); then
+  code=$?
+  if [[ $code -ge 100 ]]; then
+    echo "Special state: $code"
+  else
+    echo "Error: $(echo "$result" | jq -r '.error.message')"
+    echo "Fix: $(echo "$result" | jq -r '.error.fix')"
+  fi
+fi
+```
+
+<Warning>
+Exit codes 7, 20, 21, 22 are recoverable with retry and backoff.
+</Warning>

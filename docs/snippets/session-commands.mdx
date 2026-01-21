@@ -1,0 +1,46 @@
+### Session Lifecycle Commands
+
+```bash
+# Start a work session (scoped to epic or task group)
+cleo session start --scope epic:T001 --auto-focus --name "Feature Work"
+
+# Check session status
+cleo session status
+cleo session list --status active
+
+# Suspend session (waiting on external blocker)
+cleo session suspend --note "Waiting for code review"
+
+# Resume a session
+cleo session resume <session-id>
+cleo session resume --last --scope epic:T001
+
+# End session (work complete for now)
+cleo session end --note "Completed auth feature"
+
+# Switch between active sessions
+cleo session switch <session-id>
+```
+
+### Focus Management
+
+```bash
+# Set active task
+cleo focus set T001
+
+# View current focus
+cleo focus show
+
+# Add session-level progress note
+cleo focus note "Implementing validation logic"
+
+# Set suggested next action
+cleo focus next "Write unit tests"
+
+# Clear focus
+cleo focus clear
+```
+
+<Info>
+Sessions persist across Claude conversations. Resume where you left off with `cleo session resume`.
+</Info>

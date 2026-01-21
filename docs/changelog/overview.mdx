@@ -1,0 +1,87 @@
+---
+title: "Changelog"
+description: "CLEO release history and product updates"
+icon: "clock-rotate-left"
+rss: true
+---
+
+# Changelog
+
+Stay up to date with the latest CLEO improvements, features, and fixes.
+
+<Info>
+Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https://github.com/kryptobaseddev/cleo/releases).
+</Info>
+
+<Update label="January 2026" description="v0.60.0" tags={["Skills", "Documentation", "Orchestrator"]}>
+## Skills System & Mintlify Documentation
+
+Major release introducing the Agent Skills architecture and comprehensive Mintlify documentation.
+
+**New Features:**
+- Agent Skills system with ct-prefixed skills (epic-architect, orchestrator, research-agent, etc.)
+- Token injection pipeline for dynamic skill loading
+- Skills manifest and registry for automated installation
+- Orchestrator protocol with context protection constraints (ORC-001 through ORC-005)
+
+**Documentation Platform:**
+- Full Mintlify documentation with 80+ MDX pages
+- Auto-generated command reference (53 commands)
+- AI contextual menus on all pages (Claude, ChatGPT, Cursor, MCP)
+- Interactive Mermaid diagrams for workflows
+- Reusable snippets for consistent content
+- MCP server integration for AI tools
+
+**Improvements:**
+- Enhanced installer with dual-mode (fresh install vs upgrade)
+- Better shell detection and PATH configuration
+- Atomic installation with rollback capability
+- Improved error handling with actionable fix suggestions
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.60.0)
+</Update>
+
+<Update label="January 2026" description="v0.54.0" tags={["Sessions", "Context", "Multi-Agent"]}>
+## Multi-Session & Context Monitoring
+
+Enhanced multi-agent support with session binding and context awareness.
+
+**New Features:**
+- Multi-session support with epic-bound session architecture
+- Context monitoring with automatic alerts
+- Session scope types: task, taskGroup, subtree, epicPhase, epic
+- Automatic agent injection (CLAUDE.md, AGENTS.md, GEMINI.md)
+
+**Improvements:**
+- Research subcommands (init, list, show, inject, link)
+- Enhanced verification gates for task completion
+- Phase discipline enforcement
+- Better hierarchy management
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.54.0)
+</Update>
+
+<Update label="December 2025" description="v0.50.0" tags={["Core", "CLI", "Validation"]}>
+## Agent-First Architecture
+
+Foundation release establishing CLEO's LLM-agent-first design principles.
+
+**Key Features:**
+- JSON-by-default output (auto-detection when piped)
+- Structured error responses with fix suggestions
+- Anti-hallucination validation
+- Atomic file operations with backup
+- Append-only audit logging
+
+**CLI Improvements:**
+- Comprehensive command aliases
+- Tab completion for Bash and Zsh
+- Native filters (--status, --label, --phase)
+- Context-efficient find command
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.50.0)
+</Update>
+
+## Earlier Releases
+
+For releases prior to v0.50.0, see the [GitHub releases page](https://github.com/kryptobaseddev/cleo/releases).

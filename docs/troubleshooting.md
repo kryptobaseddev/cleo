@@ -153,6 +153,61 @@ cleo validate --fix-orphans delete  # Delete orphaned tasks
 
 **Fix:** Remove the dependency manually or restore the missing task.
 
+## Debug Environment Variables
+
+### Orchestrator & Skill System Debug
+
+Enable debug output for troubleshooting skill dispatch and orchestration issues:
+
+| Variable | Component | Prefix |
+|----------|-----------|--------|
+| `SKILL_DISPATCH_DEBUG` | Skill selection & injection | `[skill-dispatch]` |
+| `ORCHESTRATOR_SPAWN_DEBUG` | Agent spawning lifecycle | `[orchestrator-spawn]` |
+| `SUBAGENT_INJECT_DEBUG` | Prompt template injection | `[subagent-inject]` |
+| `CLEO_DEBUG` | General CLI operations | varies |
+
+### Usage
+
+```bash
+# Enable skill dispatch debugging
+export SKILL_DISPATCH_DEBUG=1
+cleo orchestrate --epic T001
+
+# Enable full orchestrator debugging
+export SKILL_DISPATCH_DEBUG=1
+export ORCHESTRATOR_SPAWN_DEBUG=1
+export SUBAGENT_INJECT_DEBUG=1
+cleo orchestrate --epic T001
+
+# Disable debugging
+unset SKILL_DISPATCH_DEBUG ORCHESTRATOR_SPAWN_DEBUG SUBAGENT_INJECT_DEBUG
+```
+
+### Sample Debug Output
+
+```
+[skill-dispatch] DEBUG: Selecting skill for type='task', labels=["research"]
+[skill-dispatch] DEBUG: Keyword match: 'research' in 'ct-research-agent'
+[skill-dispatch] Selected 'ct-research-agent' (reason: keyword match)
+[skill-dispatch] DEBUG: Skill 'ct-research-agent' passed validation
+```
+
+### Troubleshooting Skill Dispatch
+
+**Symptom:** Wrong skill selected for task
+
+**Debug steps:**
+```bash
+export SKILL_DISPATCH_DEBUG=1
+cleo show T001 --format json | jq '.task.labels, .task.title'
+# Check if labels or title keywords match expected skill triggers
+```
+
+**Common causes:**
+- Task missing labels that match skill dispatch triggers
+- Keywords in title not matching skill's keyword triggers
+- Skill status not "active" in manifest.json
+
 ## Getting Help
 
 If issues persist:

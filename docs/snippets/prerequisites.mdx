@@ -1,0 +1,47 @@
+<AccordionGroup>
+  <Accordion title="Bash 4.0 or higher" icon="terminal">
+    ```bash
+    bash --version
+    # Should output: GNU bash, version 4.0 or higher
+    ```
+
+    macOS ships with Bash 3.x. Upgrade with:
+    ```bash
+    brew install bash
+    # Add to /etc/shells and chsh to new bash
+    ```
+  </Accordion>
+
+  <Accordion title="jq (JSON processor)" icon="code">
+    ```bash
+    jq --version
+    # Should output: jq-1.5 or higher
+    ```
+
+    <Tabs>
+      <Tab title="Ubuntu/Debian">
+        ```bash
+        sudo apt-get install jq
+        ```
+      </Tab>
+      <Tab title="macOS">
+        ```bash
+        brew install jq
+        ```
+      </Tab>
+      <Tab title="RHEL/CentOS">
+        ```bash
+        sudo yum install jq
+        ```
+      </Tab>
+    </Tabs>
+  </Accordion>
+
+  <Accordion title="JSON Schema Validator (optional)" icon="check-circle">
+    One of the following (CLEO has built-in fallback):
+
+    - **ajv-cli** (recommended): `npm install -g ajv-cli`
+    - **jsonschema**: `pip install jsonschema`
+    - Built-in jq-based validator works without external tools
+  </Accordion>
+</AccordionGroup>

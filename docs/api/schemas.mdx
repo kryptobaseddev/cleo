@@ -220,6 +220,184 @@ Use `cleo complete` for the `active/pending → done` transition. Use `cleo reop
 }
 ```
 
+## Session Object
+
+Sessions track multi-agent work coordination.
+
+<Expandable title="Full Session Schema">
+```json
+{
+  "id": "session_20260119_193457_1e6699",
+  "status": "active",
+  "name": "Feature Development",
+  "agentId": "claude-opus-1",
+  "scope": {
+    "type": "epic",
+    "rootTaskId": "T001",
+    "computedTaskIds": ["T001", "T002", "T003"]
+  },
+  "focus": {
+    "currentTask": "T002",
+    "sessionNote": "Implementing auth flow",
+    "nextAction": "Write unit tests"
+  },
+  "startedAt": "2026-01-19T19:34:57Z",
+  "lastActivity": "2026-01-19T20:15:00Z"
+}
+```
+</Expandable>
+
+<ResponseField name="id" type="string" required>
+  Unique session identifier. Format: `session_YYYYMMDD_HHMMSS_hash`
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Session state. One of: `active`, `suspended`, `ended`, `closed`
+</ResponseField>
+
+<ResponseField name="scope" type="object" required>
+  Defines what tasks this session can access.
+
+  <Expandable title="Scope Properties">
+    <ResponseField name="type" type="string" required>
+      Scope type. One of: `task`, `taskGroup`, `subtree`, `epicPhase`, `epic`
+    </ResponseField>
+    <ResponseField name="rootTaskId" type="string" required>
+      Root task ID defining scope boundary
+    </ResponseField>
+    <ResponseField name="computedTaskIds" type="string[]">
+      Array of task IDs computed from scope
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="focus" type="object">
+  Current focus state within session.
+
+  <Expandable title="Focus Properties">
+    <ResponseField name="currentTask" type="string | null">
+      Currently focused task ID
+    </ResponseField>
+    <ResponseField name="sessionNote" type="string">
+      Session-level progress note
+    </ResponseField>
+    <ResponseField name="nextAction" type="string">
+      Suggested next action
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Verification Object
+
+Verification gates for task completion quality.
+
+```json
+{
+  "passed": false,
+  "round": 1,
+  "gates": {
+    "implemented": true,
+    "testsPassed": true,
+    "qaPassed": null,
+    "securityPassed": null,
+    "documented": false
+  },
+  "lastAgent": "coder",
+  "lastUpdated": "2026-01-19T20:00:00Z",
+  "failureLog": [
+    {
+      "round": 1,
+      "agent": "coder",
+      "reason": "Tests failing on edge case",
+      "timestamp": "2026-01-19T19:45:00Z"
+    }
+  ]
+}
+```
+
+<ResponseField name="passed" type="boolean" required>
+  Overall verification status. True when all required gates pass.
+</ResponseField>
+
+<ResponseField name="gates" type="object" required>
+  Individual verification gates.
+
+  <Expandable title="Gate Definitions">
+    <ResponseField name="implemented" type="boolean | null">
+      Implementation complete. Auto-set by `complete` command.
+    </ResponseField>
+    <ResponseField name="testsPassed" type="boolean | null">
+      Tests pass. Set via `cleo verify --gate testsPassed`
+    </ResponseField>
+    <ResponseField name="qaPassed" type="boolean | null">
+      QA review passed.
+    </ResponseField>
+    <ResponseField name="securityPassed" type="boolean | null">
+      Security scan clear.
+    </ResponseField>
+    <ResponseField name="documented" type="boolean | null">
+      Documentation complete.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="failureLog" type="object[]">
+  History of verification failures for debugging.
+</ResponseField>
+
+## Error Response Object
+
+All error responses follow this structure.
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_VALIDATION_FAILED",
+    "message": "Task title exceeds maximum length",
+    "exitCode": 6,
+    "recoverable": true,
+    "suggestion": "Shorten title to under 200 characters",
+    "fix": "cleo update T001 --title \"Shorter title\"",
+    "alternatives": [
+      {
+        "action": "View current task",
+        "command": "cleo show T001"
+      }
+    ],
+    "context": {
+      "field": "title",
+      "maxLength": 200,
+      "actualLength": 250
+    }
+  }
+}
+```
+
+<ResponseField name="code" type="string" required>
+  Error code identifier (e.g., `E_VALIDATION_FAILED`, `E_NOT_FOUND`)
+</ResponseField>
+
+<ResponseField name="exitCode" type="number" required>
+  CLI exit code for scripting
+</ResponseField>
+
+<ResponseField name="recoverable" type="boolean">
+  Whether error can be retried with different input
+</ResponseField>
+
+<ResponseField name="fix" type="string">
+  Copy-paste ready command to resolve the error
+</ResponseField>
+
+<ResponseField name="alternatives" type="object[]">
+  Alternative commands to try
+</ResponseField>
+
+<ResponseField name="context" type="object">
+  Structured error context for debugging
+</ResponseField>
+
 ## Next Steps
 
 <CardGroup cols={2}>

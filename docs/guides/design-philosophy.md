@@ -312,8 +312,8 @@ cleo list --format json | jq '.tasks[] | select(.status == "pending")'
 | [LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md](../specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) | Complete ID system specification |
 | [TASK-HIERARCHY-SPEC.md](../specs/TASK-HIERARCHY-SPEC.md) | Hierarchy features specification |
 | [LLM-AGENT-FIRST-SPEC.md](../specs/LLM-AGENT-FIRST-SPEC.md) | CLI design principles |
-| [LLM-AGENT-FIRST-DESIGN.md](../research/LLM-AGENT-FIRST-DESIGN.md) | Research and rationale |
-| [TASK-COMPLETION-PHILOSOPHY.md](../TASK-COMPLETION-PHILOSOPHY.md) | "Always Be Shipping" principles |
+| [LLM-AGENT-FIRST-DESIGN.md](../../claudedocs/research/LLM-AGENT-FIRST-DESIGN.md) | Research and rationale |
+| [TASK-COMPLETION-PHILOSOPHY.md](../../claudedocs/research/TASK-COMPLETION-PHILOSOPHY.md) | "Always Be Shipping" principles |
 
 ---
 
