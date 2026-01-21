@@ -58,6 +58,7 @@ fi
 # Defaults
 FORCE=false
 CONFIRM_WIPE=false
+UPDATE_DOCS=false
 PROJECT_NAME=""
 FORMAT=""
 QUIET=false
@@ -98,11 +99,19 @@ Initialize CLEO in the current directory.
 Options:
   --force             Signal intent to reinitialize (requires --confirm-wipe)
   --confirm-wipe      Confirm data destruction when used with --force
+  --update-docs       Update agent docs only (CLAUDE.md, AGENTS.md, GEMINI.md)
+                      Safe to run on existing projects - does not touch task data
   -f, --format FMT    Output format: text, json (default: auto-detect)
   --human             Force human-readable text output
   --json              Force JSON output
   -q, --quiet         Suppress non-essential output
   -h, --help          Show this help
+
+AGENT DOCUMENTATION UPDATE:
+  Use --update-docs to create or update agent documentation files without
+  affecting existing task data. Creates files if missing, updates if outdated.
+
+  Example: cleo init --update-docs
 
 DESTRUCTIVE REINITIALIZE:
   Both --force AND --confirm-wipe are required to reinitialize an existing
@@ -116,6 +125,7 @@ DESTRUCTIVE REINITIALIZE:
 Exit Codes:
   0   - Success
   101 - Project already initialized (use --force --confirm-wipe to reinitialize)
+  102 - No changes needed (agent docs already up-to-date)
   2   - Invalid input (--force without --confirm-wipe)
 
 Creates:
@@ -138,6 +148,7 @@ JSON Output:
 Examples:
   cleo init                    # Initialize in current directory
   cleo init my-project         # Initialize with project name
+  cleo init --update-docs      # Update agent docs on existing project
   cleo init --json             # JSON output for scripting
 EOF
   exit 0
@@ -158,6 +169,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --force) FORCE=true; shift ;;
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
+    --update-docs) UPDATE_DOCS=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --human) FORMAT="human"; shift ;;
     --json) FORMAT="json"; shift ;;
@@ -278,6 +290,64 @@ _create_init_safety_backup() {
 
 if _project_initialized; then
     existing_count=$(_count_existing_files)
+
+    # Handle --update-docs flag (safe operation, doesn't touch task data)
+    if [[ "$UPDATE_DOCS" == true ]]; then
+        # Source injection library
+        if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
+            source "$CLEO_HOME/lib/injection.sh"
+
+            result=$(injection_update_all ".")
+            updated=$(echo "$result" | jq -r '.updated')
+            skipped=$(echo "$result" | jq -r '.skipped')
+            failed=$(echo "$result" | jq -r '.failed')
+
+            if [[ "$FORMAT" == "json" ]]; then
+                jq -nc \
+                    --arg version "$VERSION" \
+                    --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                    --argjson updated "$updated" \
+                    --argjson skipped "$skipped" \
+                    --argjson failed "$failed" \
+                    '{
+                        "_meta": {
+                            "format": "json",
+                            "version": $version,
+                            "command": "init --update-docs",
+                            "timestamp": $timestamp
+                        },
+                        "success": ($failed == 0),
+                        "agentDocs": {
+                            "updated": $updated,
+                            "skipped": $skipped,
+                            "failed": $failed,
+                            "targets": ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]
+                        }
+                    }'
+            else
+                if [[ "$updated" -gt 0 ]]; then
+                    log_success "Updated $updated agent doc file(s)"
+                elif [[ "$skipped" -gt 0 ]]; then
+                    log_info "Agent docs already up-to-date ($skipped file(s))"
+                fi
+                if [[ "$failed" -gt 0 ]]; then
+                    log_warn "Failed to update $failed agent doc file(s)"
+                fi
+            fi
+
+            # Exit codes: 0 = updated, 102 = no changes needed, 1 = failures
+            if [[ "$failed" -gt 0 ]]; then
+                exit 1
+            elif [[ "$updated" -eq 0 ]] && [[ "$skipped" -gt 0 ]]; then
+                exit "${EXIT_NO_CHANGE:-102}"
+            else
+                exit 0
+            fi
+        else
+            log_error "Injection library not found at $CLEO_HOME/lib/injection.sh"
+            exit 1
+        fi
+    fi
 
     if [[ "$FORCE" != true ]]; then
         # Project exists, --force not provided

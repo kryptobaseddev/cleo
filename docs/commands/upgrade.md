@@ -29,7 +29,8 @@ The `upgrade` command provides a single, unified interface for all project maint
 **Documentation Updates** (v0.50.0+)
 - Updates all agent doc files (CLAUDE.md, AGENTS.md, GEMINI.md)
 - Registry-based auto-discovery
-- Skips files already at current version
+- Creates missing files, updates outdated content
+- Skips files already current (versionless since v0.58.7)
 
 **Context Monitoring Setup**
 - Configures Claude Code statusline integration
@@ -76,9 +77,9 @@ CLEO Upgrade Status (v0.50.2)
     ✓ Checksums current
 
 [3] Agent Documentation
-    ⚠ CLAUDE.md         v0.49.0 → v0.50.2 (outdated)
-    ⚠ AGENTS.md         v0.49.0 → v0.50.2 (outdated)
-    ✓ GEMINI.md         v0.50.2 (current)
+    ⚠ CLAUDE.md         (missing)
+    ⚠ AGENTS.md         (outdated)
+    ✓ GEMINI.md         (current)
 
 [4] Context Monitoring
     ✓ Claude Code statusline configured
@@ -100,9 +101,9 @@ CLEO Upgrade Preview (--dry-run)
 Changes that would be applied:
 
 [3] Agent Documentation
-    → CLAUDE.md: v0.49.0 → v0.50.2
-    → AGENTS.md: v0.49.0 → v0.50.2
-    ⊘ GEMINI.md: current v0.50.2 (skip)
+    → CLAUDE.md: missing → create
+    → AGENTS.md: outdated → update
+    ⊘ GEMINI.md: current (skip)
 
 Backup would be created at:
 .cleo/backups/safety/safety_20260105_120000_upgrade
@@ -131,8 +132,8 @@ Creating safety backup...
 Apply updates? (y/N): y
 
 Updating agent documentation...
-✓ CLAUDE.md (v0.49.0 → v0.50.2)
-✓ AGENTS.md (v0.49.0 → v0.50.2)
+✓ CLAUDE.md (created)
+✓ AGENTS.md (updated)
 ⊘ GEMINI.md (current)
 
 Validating...
