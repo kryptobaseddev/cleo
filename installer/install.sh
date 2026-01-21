@@ -35,17 +35,14 @@ set -euo pipefail
 # ============================================
 # EARLY BASH VERSION CHECK
 # ============================================
-# Must happen before sourcing any modules that use Bash 4+ features
+# Warn but don't block - installer is Bash 3.2 compatible, but CLEO runtime needs Bash 4+
 if [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
-    echo "ERROR: CLEO requires Bash 4.0 or later." >&2
+    echo "WARNING: CLEO requires Bash 4.0+ to run commands." >&2
     echo "Your version: ${BASH_VERSION:-unknown}" >&2
     echo "" >&2
-    echo "On macOS, install modern Bash with:" >&2
-    echo "  brew install bash" >&2
+    echo "Installation will proceed, but you'll need Bash 4+ to use CLEO." >&2
+    echo "On macOS: brew install bash" >&2
     echo "" >&2
-    echo "Then run the installer with:" >&2
-    echo "  /opt/homebrew/bin/bash $0" >&2
-    exit 1
 fi
 
 # ============================================
