@@ -435,13 +435,22 @@ install_release() {
     fi
 
     # Run the installer from extracted release
+    # Check both root install.sh and installer/install.sh
+    local installer_path=""
     if [[ -f "$extracted_dir/install.sh" ]]; then
-        if ! bash "$extracted_dir/install.sh"; then
+        installer_path="$extracted_dir/install.sh"
+    elif [[ -f "$extracted_dir/installer/install.sh" ]]; then
+        installer_path="$extracted_dir/installer/install.sh"
+    fi
+
+    if [[ -n "$installer_path" ]]; then
+        chmod +x "$installer_path"
+        if ! bash "$installer_path" --force; then
             echo "ERROR: Installation failed" >&2
             return 1
         fi
     else
-        echo "ERROR: No install.sh found in release" >&2
+        echo "ERROR: No install.sh found in release (checked root and installer/)" >&2
         return 1
     fi
 

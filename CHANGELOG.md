@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.4] - 2026-01-20
+
+### Fixed
+- **Self-update**: Find installer in both root and `installer/` directory
+  - Tarball structure has installer at `cleo-X.Y.Z/installer/install.sh`
+  - Now checks both locations before failing
+  - Also ensures installer is executable before running
+
 ## [0.58.3] - 2026-01-20
 
 ### Fixed
