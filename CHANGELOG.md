@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.10] - 2026-01-20
+
+### Fixed
+- **GitHub Release**: Actually commit the release.yml fix (was uncommitted in v0.57.8-v0.57.9)
+  - Release tarball now includes `completions/` and `docs/` directories
+
 ## [0.57.9] - 2026-01-20
 
 ### Fixed
