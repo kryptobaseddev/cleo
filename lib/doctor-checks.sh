@@ -340,7 +340,7 @@ EOF
     fi
 
     local cli_version
-    cli_version=$(cat "$version_file" | tr -d '[:space:]')
+    cli_version=$(head -n 1 "$version_file" | tr -d '[:space:]')
 
     local agents=("claude" "gemini" "codex" "kimi")
     local checked=0
