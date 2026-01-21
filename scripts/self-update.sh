@@ -471,12 +471,18 @@ output_dev_mode_warning() {
             }'
     else
         echo ""
-        echo "CLEO is installed in development mode."
-        echo "Use 'git pull' to update instead."
+        echo "[INFO] Development mode detected."
+        echo ""
+        echo "CLEO is installed in development mode (symlinked to source repository)."
+        echo "Self-update is disabled to prevent overwriting your development files."
+        echo ""
+        echo "To update CLEO in development mode:"
+        echo "  cd $(dirname "$(readlink -f "$(command -v cleo 2>/dev/null || echo "$CLEO_HOME/scripts/cleo.sh")")" 2>/dev/null || echo "\$CLEO_REPO")"
+        echo "  git pull origin main"
         echo ""
         echo "Development mode indicators:"
         echo "  - Symlinked installation"
-        echo "  - Git repository present"
+        echo "  - Git repository present in CLEO_HOME"
         echo ""
     fi
 }
@@ -583,13 +589,13 @@ do_update() {
     # Fetch release info
     if [[ -n "$TARGET_VERSION" ]]; then
         if ! is_json_output; then
-            echo "Fetching release v${TARGET_VERSION}..."
+            echo "[INFO] Fetching release v${TARGET_VERSION}..."
         fi
         release_info=$(get_specific_release "$TARGET_VERSION") || exit "$EXIT_SELFUPDATE_GITHUB_ERROR"
         latest_version="$TARGET_VERSION"
     else
         if ! is_json_output; then
-            echo "Checking for updates..."
+            echo "[INFO] Checking for updates..."
         fi
         release_info=$(get_latest_release) || exit "$EXIT_SELFUPDATE_GITHUB_ERROR"
         latest_version=$(echo "$release_info" | jq -r '.tag_name // empty' | sed 's/^v//')
@@ -647,7 +653,7 @@ do_update() {
 
     # Download release
     if ! is_json_output; then
-        echo "Downloading v$latest_version..."
+        echo "[STEP 1/4] Downloading v$latest_version..."
     fi
 
     if ! download_release "$download_url" "$tarball_path"; then
@@ -663,7 +669,7 @@ do_update() {
 
     if [[ -n "$checksum_url" ]]; then
         if ! is_json_output; then
-            echo "Verifying checksum..."
+            echo "[STEP 2/4] Verifying checksum..."
         fi
         checksum_expected=$(curl -fsSL "$checksum_url" 2>/dev/null | grep -E "\.tar\.gz$" | cut -d' ' -f1)
 
@@ -677,14 +683,14 @@ do_update() {
 
     # Create backup
     if ! is_json_output; then
-        echo "Creating backup..."
+        echo "[STEP 3/4] Creating backup..."
     fi
     local backup_path
     backup_path=$(create_backup)
 
     # Install release
     if ! is_json_output; then
-        echo "Installing v$latest_version..."
+        echo "[STEP 4/4] Installing v$latest_version..."
     fi
 
     if ! install_release "$tarball_path"; then
