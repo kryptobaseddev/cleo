@@ -245,9 +245,12 @@ cleo init --force --confirm-wipe
 | `.cleo/todo-log.json` | Audit log of all operations |
 | `.cleo/schemas/` | JSON Schema files for validation |
 | `.cleo/backups/` | Backup directories (safety, snapshot, etc.) |
+| `claudedocs/research-outputs/` | Research output directory (see `research init`) |
 | `CLAUDE.md` | Agent doc file with CLEO injection (created/updated) |
 | `AGENTS.md` | Agent doc file with CLEO injection (created/updated) |
 | `GEMINI.md` | Agent doc file with CLEO injection (created/updated) |
+
+> **Note**: The `claudedocs/research-outputs/` directory is created automatically during `cleo init`. You can also initialize it separately with `cleo research init`.
 
 ## Directory Structure
 
@@ -265,6 +268,11 @@ project/
 │       ├── incremental/   # Version history
 │       ├── archive/       # Long-term archives
 │       └── migration/     # Schema migration backups
+├── claudedocs/
+│   └── research-outputs/  # Research output directory
+│       ├── MANIFEST.jsonl # Research entry manifest
+│       ├── archive/       # Archived manifest entries
+│       └── *.md           # Research output files
 ├── CLAUDE.md              # Claude Code instructions
 ├── AGENTS.md              # Multi-agent instructions
 └── GEMINI.md              # Gemini CLI instructions
