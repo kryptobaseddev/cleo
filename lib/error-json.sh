@@ -49,9 +49,9 @@ fi
 _CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 if [[ -f "$_CLEO_HOME/VERSION" ]]; then
-    _ERROR_JSON_VERSION="$(cat "$_CLEO_HOME/VERSION" | tr -d '[:space:]')"
+    _ERROR_JSON_VERSION="$(head -n 1 "$_CLEO_HOME/VERSION" | tr -d '[:space:]')"
 elif [[ -f "$_ERROR_JSON_LIB_DIR/../VERSION" ]]; then
-    _ERROR_JSON_VERSION="$(cat "$_ERROR_JSON_LIB_DIR/../VERSION" | tr -d '[:space:]')"
+    _ERROR_JSON_VERSION="$(head -n 1 "$_ERROR_JSON_LIB_DIR/../VERSION" | tr -d '[:space:]')"
 else
     _ERROR_JSON_VERSION="0.16.0"
 fi

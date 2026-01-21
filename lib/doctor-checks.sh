@@ -94,7 +94,7 @@ EOF
     fi
 
     local version
-    version=$(cat "$version_file" 2>/dev/null | tr -d '[:space:]')
+    version=$(head -n 1 "$version_file" 2>/dev/null | tr -d '[:space:]')
 
     # Validate semver format (basic check: x.y.z)
     if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -670,7 +670,7 @@ EOF
     
     # Get CLI version for comparison
     local cli_version
-    cli_version=$(cat "$cleo_home/VERSION" 2>/dev/null | tr -d '[:space:]')
+    cli_version=$(head -n 1 "$cleo_home/VERSION" 2>/dev/null | tr -d '[:space:]')
     
     # Track metrics
     local total=0

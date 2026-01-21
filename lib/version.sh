@@ -33,7 +33,7 @@ get_version() {
   version_file="$(_get_version_file)"
 
   if [[ -n "$version_file" && -f "$version_file" ]]; then
-    cat "$version_file" | tr -d '[:space:]'
+    head -n 1 "$version_file" | tr -d '[:space:]'
   else
     echo "unknown"
   fi

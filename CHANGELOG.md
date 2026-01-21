@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **VERSION parsing with multi-line files**: Fixed version string concatenation when VERSION files contain metadata lines (mode=, source=, installed=). All version consumers now use `head -n 1` to read only the semver line, preventing "version format issues" in `cleo doctor` and ensuring proper initialization in `cleo init` and `cleo focus` commands.
 - Multi-session isolation now works correctly with hybrid binding architecture (T1356)
 - Session resolution uses 4-priority cascade: --session flag, CLEO_SESSION env, TTY binding, .current-session
 - Per-session context state files now written correctly
