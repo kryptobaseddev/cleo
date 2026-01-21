@@ -2449,3 +2449,6 @@ export -f validate_research_links
 export -f manifest_check_size
 export -f manifest_archive_old
 export -f manifest_rotate
+export -f get_manifest_stats
+export -f compact_manifest
+export -f list_archived_entries

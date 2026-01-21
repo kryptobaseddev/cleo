@@ -97,6 +97,16 @@ ARCHIVE_PERCENT=""
 # Validate subcommand options
 VALIDATE_FIX="false"
 
+# Archive-list subcommand options
+ARCHIVE_LIST_LIMIT="50"
+ARCHIVE_LIST_SINCE=""
+
+# Compact subcommand options
+# (no options needed)
+
+# Stats subcommand options
+# (no options needed)
+
 # Research storage
 RESEARCH_DIR=".cleo/research"
 
@@ -126,13 +136,20 @@ SUBCOMMANDS
   pending          Show entries with needs_followup (orchestrator handoffs)
   get <id>         Get single entry by ID (raw JSON object)
   archive          Archive old manifest entries to maintain context efficiency
+  archive-list     List entries from the archive file
   status           Show manifest size and archival status
+  stats            Show comprehensive manifest statistics
+  compact          Remove duplicate/obsolete entries from manifest
   validate         Validate manifest file integrity and entry format
 
 ARCHIVE OPTIONS
   --threshold N    Archive threshold in bytes (default: 200000 = ~50K tokens)
   --percent N      Percentage of oldest entries to archive (default: 50)
   --dry-run        Show what would be archived without making changes
+
+ARCHIVE-LIST OPTIONS
+  --limit N        Max entries to return (default: 50)
+  --since DATE     Filter entries archived since date (ISO 8601: YYYY-MM-DD)
 
 VALIDATE OPTIONS
   --fix            Remove invalid entries from manifest (destructive)
@@ -484,6 +501,34 @@ while [[ $# -gt 0 ]]; do
         esac
       done
       ;;
+    archive-list)
+      MODE="archive-list"
+      shift
+      # Parse archive-list-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --limit)
+            ARCHIVE_LIST_LIMIT="$2"
+            shift 2
+            ;;
+          --since)
+            ARCHIVE_LIST_SINCE="$2"
+            shift 2
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
+    compact)
+      MODE="compact"
+      shift
+      ;;
+    stats)
+      MODE="stats"
+      shift
+      ;;
     --url)
       MODE="url"
       shift
@@ -620,6 +665,31 @@ validate_inputs() {
       ;;
     validate)
       # No validation needed - --fix is optional
+      return 0
+      ;;
+    archive-list)
+      # Validate limit is a positive integer if provided
+      if [[ -n "$ARCHIVE_LIST_LIMIT" ]]; then
+        if ! [[ "$ARCHIVE_LIST_LIMIT" =~ ^[0-9]+$ ]] || [[ "$ARCHIVE_LIST_LIMIT" -eq 0 ]]; then
+          echo '{"error": "Limit must be a positive integer"}' >&2
+          exit 2
+        fi
+      fi
+      # Validate since date format if provided
+      if [[ -n "$ARCHIVE_LIST_SINCE" ]]; then
+        if ! [[ "$ARCHIVE_LIST_SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+          echo '{"error": "Invalid date format. Use ISO 8601: YYYY-MM-DD"}' >&2
+          exit 2
+        fi
+      fi
+      return 0
+      ;;
+    compact)
+      # No validation needed
+      return 0
+      ;;
+    stats)
+      # No validation needed
       return 0
       ;;
     show)
@@ -2371,6 +2441,329 @@ run_status() {
 }
 
 # ============================================================================
+# Archive-List Subcommand
+# ============================================================================
+
+run_archive_list() {
+  # Build list_archived_entries arguments
+  local filter_args=()
+
+  if [[ -n "$ARCHIVE_LIST_LIMIT" ]]; then
+    filter_args+=(--limit "$ARCHIVE_LIST_LIMIT")
+  fi
+
+  if [[ -n "$ARCHIVE_LIST_SINCE" ]]; then
+    filter_args+=(--since "$ARCHIVE_LIST_SINCE")
+  fi
+
+  # Call list_archived_entries from research-manifest.sh
+  local result
+  result=$(list_archived_entries "${filter_args[@]}")
+
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Output based on format
+  if [[ "$format" == "json" ]]; then
+    # Transform to CLEO envelope format
+    local entries total returned
+    entries=$(echo "$result" | jq '.result.entries')
+    total=$(echo "$result" | jq '.result.total')
+    returned=$(echo "$result" | jq '.result.returned')
+
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson entries "$entries" \
+      --argjson total "$total" \
+      --argjson returned "$returned" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "archive-list",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "summary": {
+          "total": $total,
+          "returned": $returned
+        },
+        "entries": $entries
+      }'
+  else
+    # Human-readable table format
+    local entries total returned
+    entries=$(echo "$result" | jq '.result.entries')
+    total=$(echo "$result" | jq -r '.result.total')
+    returned=$(echo "$result" | jq -r '.result.returned')
+
+    echo ""
+    echo "Archived Research Entries"
+    echo "========================="
+    echo ""
+
+    if [[ "$returned" -eq 0 ]]; then
+      echo "No archived entries found."
+      echo ""
+      echo "Archive file location: claudedocs/research-outputs/MANIFEST-ARCHIVE.jsonl"
+    else
+      # Print table header
+      printf "%-30s %-12s %-20s %s\n" "ID" "STATUS" "ARCHIVED AT" "TITLE"
+      printf "%-30s %-12s %-20s %s\n" "------------------------------" "------------" "--------------------" "$(printf '%0.s-' {1..30})"
+
+      # Print entries
+      echo "$entries" | jq -r '.[] | [.id, .status, (.archivedAt // "N/A"), .title] | @tsv' | while IFS=$'\t' read -r id status archived title; do
+        # Truncate title if too long
+        if [[ ${#title} -gt 30 ]]; then
+          title="${title:0:27}..."
+        fi
+        # Truncate archived timestamp
+        if [[ ${#archived} -gt 20 ]]; then
+          archived="${archived:0:16}..."
+        fi
+        printf "%-30s %-12s %-20s %s\n" "$id" "$status" "$archived" "$title"
+      done
+
+      echo ""
+      echo "Showing $returned of $total archived entries"
+
+      # Show active filters
+      local filters=()
+      [[ -n "$ARCHIVE_LIST_SINCE" ]] && filters+=("since=$ARCHIVE_LIST_SINCE")
+      [[ -n "$ARCHIVE_LIST_LIMIT" ]] && filters+=("limit=$ARCHIVE_LIST_LIMIT")
+
+      if [[ ${#filters[@]} -gt 0 ]]; then
+        echo "Filters: ${filters[*]}"
+      fi
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Compact Subcommand
+# ============================================================================
+
+run_compact() {
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Call compact_manifest from research-manifest.sh
+  local result
+  result=$(compact_manifest)
+
+  local entries_before entries_after entries_removed
+  entries_before=$(echo "$result" | jq -r '.result.entriesBefore // 0')
+  entries_after=$(echo "$result" | jq -r '.result.entriesAfter // 0')
+  entries_removed=$(echo "$result" | jq -r '.result.entriesRemoved // 0')
+
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson before "$entries_before" \
+      --argjson after "$entries_after" \
+      --argjson removed "$entries_removed" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "compact",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": {
+          "entriesBefore": $before,
+          "entriesAfter": $after,
+          "entriesRemoved": $removed
+        }
+      }'
+  else
+    echo ""
+    echo "Manifest Compaction"
+    echo "==================="
+    echo ""
+    if [[ "$entries_removed" -gt 0 ]]; then
+      echo "  Action: COMPACTED"
+      echo "  Entries before: $entries_before"
+      echo "  Entries after:  $entries_after"
+      echo "  Entries removed: $entries_removed (duplicates/obsolete)"
+    else
+      echo "  Action: NONE"
+      echo "  Entries: $entries_before"
+      echo "  No duplicates or obsolete entries found"
+    fi
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
+# Stats Subcommand
+# ============================================================================
+
+run_stats() {
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Call get_manifest_stats from research-manifest.sh
+  local result
+  result=$(get_manifest_stats)
+
+  local success
+  success=$(echo "$result" | jq -r '.success')
+
+  if [[ "$success" != "true" ]]; then
+    if [[ "$format" == "json" ]]; then
+      local error_code error_msg
+      error_code=$(echo "$result" | jq -r '.error.code')
+      error_msg=$(echo "$result" | jq -r '.error.message')
+
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg error_code "$error_code" \
+        --arg error_msg "$error_msg" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "stats",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": $error_code,
+            "message": $error_msg
+          }
+        }'
+    else
+      echo ""
+      echo "Error: Manifest file not found."
+      echo ""
+      echo "Run 'cleo research init' to initialize."
+      echo ""
+    fi
+    exit "${EXIT_NOT_FOUND:-4}"
+  fi
+
+  if [[ "$format" == "json" ]]; then
+    # Transform to CLEO envelope
+    local stats_result
+    stats_result=$(echo "$result" | jq '.result')
+
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson result "$stats_result" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "stats",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "result": $result
+      }'
+  else
+    # Human-readable format
+    local manifest_bytes manifest_entries archive_bytes archive_entries
+    manifest_bytes=$(echo "$result" | jq -r '.result.manifest.bytes')
+    manifest_entries=$(echo "$result" | jq -r '.result.manifest.entries')
+    archive_bytes=$(echo "$result" | jq -r '.result.archive.bytes')
+    archive_entries=$(echo "$result" | jq -r '.result.archive.entries')
+
+    echo ""
+    echo "Manifest Statistics"
+    echo "==================="
+    echo ""
+    echo "  MANIFEST.jsonl:"
+    echo "    Size:    $manifest_bytes bytes"
+    echo "    Entries: $manifest_entries"
+    echo ""
+    echo "  MANIFEST-ARCHIVE.jsonl:"
+    echo "    Size:    $archive_bytes bytes"
+    echo "    Entries: $archive_entries"
+
+    # Status counts
+    local status_counts
+    status_counts=$(echo "$result" | jq -r '.result.statusCounts | to_entries | map("\(.key): \(.value)") | join(", ")')
+    if [[ -n "$status_counts" && "$status_counts" != "" ]]; then
+      echo ""
+      echo "  Status Distribution:"
+      echo "    $status_counts"
+    fi
+
+    # Actionable count
+    local actionable_count
+    actionable_count=$(echo "$result" | jq -r '.result.actionableCount // 0')
+    echo "    actionable: $actionable_count"
+
+    # Age stats
+    local age_stats oldest newest
+    age_stats=$(echo "$result" | jq '.result.ageStats // null')
+    if [[ "$age_stats" != "null" ]]; then
+      oldest=$(echo "$age_stats" | jq -r '.oldestEntry // "N/A"')
+      newest=$(echo "$age_stats" | jq -r '.newestEntry // "N/A"')
+      echo ""
+      echo "  Age Stats:"
+      echo "    Oldest: $oldest"
+      echo "    Newest: $newest"
+
+      local today last7 last30 older
+      today=$(echo "$age_stats" | jq -r '.distribution.today // 0')
+      last7=$(echo "$age_stats" | jq -r '.distribution.last7days // 0')
+      last30=$(echo "$age_stats" | jq -r '.distribution.last30days // 0')
+      older=$(echo "$age_stats" | jq -r '.distribution.older // 0')
+      echo "    Today: $today, Last 7 days: $last7, Last 30 days: $last30, Older: $older"
+    fi
+
+    # Topic counts (show top 5)
+    local topic_counts
+    topic_counts=$(echo "$result" | jq -r '.result.topicCounts | to_entries | sort_by(-.value) | .[0:5] | map("\(.key): \(.value)") | join(", ")')
+    if [[ -n "$topic_counts" && "$topic_counts" != "" ]]; then
+      echo ""
+      echo "  Top Topics:"
+      echo "    $topic_counts"
+    fi
+
+    echo ""
+  fi
+
+  exit 0
+}
+
+# ============================================================================
 # Research Plan Generation
 # ============================================================================
 
@@ -2701,6 +3094,15 @@ case "$MODE" in
     ;;
   archive)
     run_archive
+    ;;
+  archive-list)
+    run_archive_list
+    ;;
+  compact)
+    run_compact
+    ;;
+  stats)
+    run_stats
     ;;
   status)
     run_status

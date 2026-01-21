@@ -989,6 +989,38 @@
           "default": 30,
           "minimum": 1,
           "description": "Days until non-actionable research is archived."
+        },
+        "manifest": {
+          "type": "object",
+          "description": "Manifest rotation and archival configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 10,
+              "maximum": 1000,
+              "description": "Maximum number of entries to keep in active manifest before rotation."
+            },
+            "thresholdBytes": {
+              "type": "integer",
+              "default": 200000,
+              "minimum": 10000,
+              "description": "Size threshold in bytes (~50K tokens at 200KB) before suggesting archival."
+            },
+            "archivePercent": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 10,
+              "maximum": 90,
+              "description": "Percentage of oldest entries to archive when threshold is exceeded."
+            },
+            "autoRotate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically rotate manifest when threshold is exceeded during operations."
+            }
+          }
         }
       }
     },

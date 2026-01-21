@@ -177,6 +177,7 @@ Commands:
   archive       Archive an ended/suspended session (multi-session)
   cleanup       Remove stale sessions (empty scope, old ended)
   gc            Garbage collect session artifacts (multi-session)
+                Options: --dry-run, --orphans, --stale, --verbose
   doctor        Diagnose session binding and state issues
 
 Single-Session Options:
@@ -235,6 +236,8 @@ Examples (Multi-Session):
   cleo session archive --reason "Project complete"
   cleo session gc --dry-run              # Preview garbage collection
   cleo session gc --verbose              # Run GC with detailed output
+  cleo session gc --orphans              # Clean orphaned context files only
+  cleo session gc --stale                # Archive old sessions only
   cleo session doctor                    # Diagnose session issues
 EOF
   exit "$EXIT_SUCCESS"
@@ -2128,9 +2131,9 @@ cmd_gc() {
   local max_archived
   max_archived=$(get_config_value "retention.sessions.maxArchivedSessions" "100" 2>/dev/null || echo "100")
 
-  # 0. Auto-archive inactive ended/suspended sessions
+  # 0. Auto-archive inactive ended/suspended sessions (skip if --orphans only)
   local auto_archived=0
-  if declare -f session_auto_archive >/dev/null 2>&1; then
+  if [[ "$orphans_only" != "true" ]] && declare -f session_auto_archive >/dev/null 2>&1; then
     local auto_archive_result
     if [[ "$dry_run" == "true" ]]; then
       auto_archive_result=$(session_auto_archive "true" 2>/dev/null)
@@ -2141,8 +2144,8 @@ cmd_gc() {
     fi
   fi
 
-  # 1. Remove old archived sessions beyond retention period
-  if [[ -f "$sessions_file" ]]; then
+  # 1. Remove old archived sessions beyond retention period (skip if --orphans only)
+  if [[ "$orphans_only" != "true" ]] && [[ -f "$sessions_file" ]]; then
     local cutoff_date
     # Calculate cutoff date (retention_days ago)
     if date --version >/dev/null 2>&1; then
@@ -2183,7 +2186,7 @@ cmd_gc() {
     fi
   fi
 
-  # 2. Clean up stale TTY bindings
+  # 2. Clean up stale TTY bindings (always run - these are session artifacts)
   local binding_dir
   binding_dir="$(get_tty_bindings_dir 2>/dev/null || echo "${cleo_dir}/tty-bindings")"
   if [[ -d "$binding_dir" ]]; then
@@ -2227,21 +2230,31 @@ cmd_gc() {
     done
   fi
 
-  # 3. Clean up orphaned context state files
-  if declare -f cleanup_orphaned_context_states >/dev/null 2>&1; then
+  # 3. Clean up orphaned context state files (skip if --stale only)
+  # Uses session_cleanup_orphans() from T1943
+  if [[ "$stale_only" != "true" ]] && declare -f session_cleanup_orphans >/dev/null 2>&1; then
+    local orphan_result
+    if [[ "$dry_run" == "true" ]]; then
+      orphan_result=$(session_cleanup_orphans "true" 2>/dev/null)
+      # Parse "would delete X of Y" format
+      orphaned_context_removed=$(echo "$orphan_result" | grep -oE '[0-9]+' | head -1 || echo "0")
+    else
+      orphaned_context_removed=$(session_cleanup_orphans "false" 2>/dev/null || echo "0")
+    fi
+  elif [[ "$stale_only" != "true" ]] && declare -f cleanup_orphaned_context_states >/dev/null 2>&1; then
+    # Fallback to direct function if wrapper not available
     local orphan_result
     if [[ "$dry_run" == "true" ]]; then
       orphan_result=$(cleanup_orphaned_context_states "true" 2>/dev/null)
-      # Parse "would delete X of Y" format
       orphaned_context_removed=$(echo "$orphan_result" | grep -oE '[0-9]+' | head -1 || echo "0")
     else
       orphaned_context_removed=$(cleanup_orphaned_context_states "false" 2>/dev/null || echo "0")
     fi
   fi
 
-  # 4. Clean up stale context state files (ended/archived sessions)
+  # 4. Clean up stale context state files (ended/archived sessions) - skip if --orphans only
   local stale_context_removed=0
-  if declare -f cleanup_stale_context_states >/dev/null 2>&1; then
+  if [[ "$orphans_only" != "true" ]] && declare -f cleanup_stale_context_states >/dev/null 2>&1; then
     local stale_result
     if [[ "$dry_run" == "true" ]]; then
       stale_result=$(cleanup_stale_context_states "true" 2>/dev/null)
@@ -2255,6 +2268,14 @@ cmd_gc() {
   # Build output
   local total_removed=$((auto_archived + archived_removed + stale_bindings_removed + orphaned_context_removed + stale_context_removed))
 
+  # Determine mode for output
+  local gc_mode="both"
+  if [[ "$orphans_only" == "true" ]]; then
+    gc_mode="orphans"
+  elif [[ "$stale_only" == "true" ]]; then
+    gc_mode="stale"
+  fi
+
   if [[ "$output_format" == "json" ]]; then
     local version
     version="${CLEO_VERSION:-$(get_version 2>/dev/null || echo 'unknown')}"
@@ -2262,6 +2283,7 @@ cmd_gc() {
     jq -nc \
       --arg ts "$timestamp" \
       --arg version "$version" \
+      --arg mode "$gc_mode" \
       --argjson dryRun "$dry_run" \
       --argjson autoArchived "$auto_archived" \
       --argjson archived "$archived_removed" \
@@ -2280,6 +2302,7 @@ cmd_gc() {
           "version": $version
         },
         "success": true,
+        "mode": $mode,
         "dryRun": $dryRun,
         "summary": {
           "sessionsAutoArchived": $autoArchived,
@@ -2293,19 +2316,32 @@ cmd_gc() {
         "items": $items
       }'
   else
+    local mode_suffix=""
+    if [[ "$gc_mode" == "orphans" ]]; then
+      mode_suffix=" (orphans only)"
+    elif [[ "$gc_mode" == "stale" ]]; then
+      mode_suffix=" (stale only)"
+    fi
+
     if [[ "$dry_run" == "true" ]]; then
-      echo "Session GC (dry-run mode)"
+      echo "Session GC${mode_suffix} (dry-run mode)"
       echo "========================="
     else
-      echo "Session GC Complete"
+      echo "Session GC${mode_suffix} Complete"
       echo "==================="
     fi
     echo ""
-    echo "Sessions auto-archived (30+ days inactive): $auto_archived"
-    echo "Archived sessions removed: $archived_removed"
+    if [[ "$gc_mode" != "orphans" ]]; then
+      echo "Sessions auto-archived (30+ days inactive): $auto_archived"
+      echo "Archived sessions removed: $archived_removed"
+    fi
     echo "Stale TTY bindings removed: $stale_bindings_removed"
-    echo "Orphaned context states removed: $orphaned_context_removed"
-    echo "Stale context states removed: $stale_context_removed"
+    if [[ "$gc_mode" != "stale" ]]; then
+      echo "Orphaned context states removed: $orphaned_context_removed"
+    fi
+    if [[ "$gc_mode" != "orphans" ]]; then
+      echo "Stale context states removed: $stale_context_removed"
+    fi
     echo "─────────────────────────────────"
     echo "Total items cleaned: $total_removed"
 
