@@ -17,6 +17,33 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.61.0" tags={["Feature", "Skills", "Orchestrator"]}>
+## v0.61.0 Release
+
+
+**Added**
+- **Epic T1890: CLEO System Polish & Consistency**
+  - `cleo init` now creates `claudedocs/research-outputs/` directory and `MANIFEST.jsonl`
+  - `cleo research validate` - validates manifest entry integrity
+  - `cleo research stats` - shows manifest statistics
+  - `cleo research rotate` - archives old entries (configurable max 100)
+  - `cleo research archive-list` - lists archived entries
+  - `cleo research status` - shows research system status
+  - `cleo research pending` - lists entries needing followup
+  - Protocol enforcement in ct-orchestrator with 4 verification functions
+  - Standardized return messages across all 14 skills
+  - Session conflict detection integration tests
+  - Skill development tutorial at `docs/guides/skill-development.md`
+  - `SKILL_DISPATCH_DEBUG` env var documentation
+
+**Changed**
+- ct-orchestrator MUST inject subagent protocol block to all spawned agents
+- Manifest validation runs on every append operation
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.61.0)
+</Update>
+
 <Update label="January 2026" description="v0.60.2" tags={["Fix", "Feature", "Installer"]}>
 ## Installer auto-install dependencies
 
@@ -371,19 +398,6 @@ No changes - tag only release for CI testing.
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.5)
-</Update>
-
-<Update label="January 2026" description="v0.57.4" tags={["Fix", "Feature", "Installer"]}>
-## Installer
-
-
-**Fixed**
-- **Installer**: Add early Bash 4+ version check for macOS compatibility
-  - Prevents cryptic errors on stock macOS with Bash 3.2
-  - Provides clear upgrade instructions for users on older Bash
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.4)
 </Update>
 
 ## Earlier Releases
