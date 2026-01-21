@@ -1,7 +1,6 @@
-<!-- TODO: Add header image here -->
-<!-- <p align="center">
-  <img src="assets/cleo-header.png" alt="CLEO - Command Line Entity Orchestrator" width="800">
-</p> -->
+<p align="center">
+  <img src="banner.png" alt="CLEO banner" width="900">
+</p>
 
 <h1 align="center">CLEO</h1>
 <h3 align="center">Command Line Entity Orchestrator</h3>
@@ -17,35 +16,51 @@
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
 
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#command-reference">Command reference</a> ·
+  <a href="#documentation">Documentation</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
+
 <!-- VERSION_SYNC: This badge version should match VERSION file. Run ./dev/bump-version.sh to update. -->
 
 ---
 
 ## Table of Contents
 
-- [One Developer. One Agent. One Source of Truth.](#one-developer-one-agent-one-source-of-truth)
-- [Why This Exists](#why-this-exists)
-- [Core Principles](#core-principles)
-- [Quick Start](#quick-start)
-- [Command Reference](#command-reference)
-- [Task Hierarchy](#task-hierarchy-v0170)
-- [Session Protocol](#session-protocol)
-- [Output Formats & Exit Codes](#output-formats--exit-codes)
-- [Validation & Integrity](#validation--integrity)
-- [Phase Tracking](#phase-tracking)
-- [Configuration](#configuration)
-- [Project Structure](#project-structure)
-- [For Claude Code Users](#for-claude-code-users)
-- [Skills Architecture](#skills-architecture-v0550)
-- [Orchestrator Protocol](#orchestrator-protocol-v0550)
-- [Extensibility](#extensibility)
-- [Troubleshooting](#troubleshooting)
-- [Performance](#performance)
-- [Documentation](#documentation)
-- [The Philosophy](#the-philosophy)
-- [Contributing](#contributing)
-- [Star History](#star-history)
-- [License](#license)
+<details>
+<summary><strong>Open the full outline</strong></summary>
+
+- **Getting started**
+  - [One Developer. One Agent. One Source of Truth.](#one-developer-one-agent-one-source-of-truth)
+  - [Why This Exists](#why-this-exists)
+  - [Core Principles](#core-principles)
+  - [Quick Start](#quick-start)
+- **Using CLEO**
+  - [Command Reference](#command-reference)
+  - [Task Hierarchy](#task-hierarchy-v0170)
+  - [Session Protocol](#session-protocol)
+  - [Output Formats & Exit Codes](#output-formats--exit-codes)
+  - [Validation & Integrity](#validation--integrity)
+  - [Phase Tracking](#phase-tracking)
+  - [Configuration](#configuration)
+- **Integrations and extensibility**
+  - [For Claude Code Users](#for-claude-code-users)
+  - [Skills Architecture](#skills-architecture-v0550)
+  - [Orchestrator Protocol](#orchestrator-protocol-v0550)
+  - [Extensibility](#extensibility)
+- **Reference**
+  - [Project Structure](#project-structure)
+  - [Troubleshooting](#troubleshooting)
+  - [Performance](#performance)
+  - [Documentation](#documentation)
+- **Community**
+  - [The Philosophy](#the-philosophy)
+  - [Contributing](#contributing)
+  - [Star History](#star-history)
+  - [License](#license)
+</details>
 
 ---
 
