@@ -662,68 +662,91 @@ remove_copied_files() {
 }
 
 # update_skills_for_mode_switch - Update skills symlinks after mode switch
-# Removes stale ct-* symlinks and ensures cleo umbrella symlink exists
+# Creates individual ct-* symlinks in agent skills directories (Claude, Gemini, Codex)
 update_skills_for_mode_switch() {
-    local skills_dir="$HOME/.claude/skills"
     local cleo_skills_dir="$CLEO_HOME/skills"
+    local target_dirs=("$HOME/.claude/skills" "$HOME/.gemini/skills" "$HOME/.codex/skills")
+    local linked=0
+    local cleaned=0
 
     if ! is_json_output; then
         echo "[STEP] Updating skills symlinks..."
     fi
 
-    # Ensure skills directory exists
-    mkdir -p "$skills_dir" 2>/dev/null || true
+    # Process each agent skills directory
+    for skills_dir in "${target_dirs[@]}"; do
+        # Ensure skills directory exists
+        mkdir -p "$skills_dir" 2>/dev/null || continue
 
-    # 1. Remove stale ct-* symlinks pointing to old dev locations
-    local cleaned=0
-    for skill in "$skills_dir"/ct-*; do
-        if [[ -L "$skill" ]]; then
-            local target
-            target=$(readlink -f "$skill" 2>/dev/null || true)
-
-            # If target doesn't exist OR points outside ~/.cleo, remove it
-            if [[ ! -e "$target" ]] || [[ "$target" != "$CLEO_HOME/"* ]]; then
-                if ! is_json_output; then
-                    echo "  Removing stale symlink: $(basename "$skill")"
-                fi
-                rm -f "$skill"
-                ((cleaned++))
+        # 1. Remove old umbrella cleo symlink (legacy approach)
+        if [[ -L "$skills_dir/cleo" ]]; then
+            if ! is_json_output; then
+                echo "  Removing old umbrella symlink: $skills_dir/cleo"
             fi
+            rm -f "$skills_dir/cleo"
+            ((cleaned++))
         fi
+
+        # 2. Remove stale ct-* symlinks pointing to non-existent targets
+        for skill in "$skills_dir"/ct-*; do
+            if [[ -L "$skill" ]]; then
+                local target
+                target=$(readlink -f "$skill" 2>/dev/null || true)
+
+                # If target doesn't exist, remove it
+                if [[ ! -e "$target" ]]; then
+                    if ! is_json_output; then
+                        echo "  Removing broken symlink: $(basename "$skill")"
+                    fi
+                    rm -f "$skill"
+                    ((cleaned++))
+                fi
+            fi
+        done
     done
 
     if [[ $cleaned -gt 0 ]] && ! is_json_output; then
-        echo "  Cleaned up $cleaned old ct-* skill symlinks"
+        echo "  Cleaned up $cleaned old/broken skill symlinks"
     fi
 
-    # 2. Ensure cleo umbrella symlink exists
+    # 3. Create individual ct-* symlinks for each agent directory
     if [[ -d "$cleo_skills_dir" ]]; then
-        local target_link="$skills_dir/cleo"
+        for skills_dir in "${target_dirs[@]}"; do
+            # Ensure directory exists
+            mkdir -p "$skills_dir" 2>/dev/null || continue
 
-        # Check if symlink already correct
-        if [[ -L "$target_link" ]]; then
-            local current_target
-            current_target=$(readlink "$target_link" 2>/dev/null || true)
-            if [[ "$current_target" == "$cleo_skills_dir" ]]; then
-                if ! is_json_output; then
-                    echo "  Skills symlink already correct"
+            for skill_source in "$cleo_skills_dir"/ct-*; do
+                if [[ -d "$skill_source" ]]; then
+                    local skill_name
+                    skill_name=$(basename "$skill_source")
+                    local target_link="$skills_dir/$skill_name"
+
+                    # Check if symlink already correct
+                    if [[ -L "$target_link" ]]; then
+                        local current_target
+                        current_target=$(readlink "$target_link" 2>/dev/null || true)
+                        if [[ "$current_target" == "$skill_source" ]]; then
+                            continue  # Already correct
+                        fi
+                        # Remove incorrect symlink
+                        rm -f "$target_link"
+                    fi
+
+                    # Create the skill symlink
+                    if ln -sf "$skill_source" "$target_link"; then
+                        ((linked++))
+                    else
+                        if ! is_json_output; then
+                            echo "  Warning: Failed to create symlink for $skill_name"
+                        fi
+                    fi
                 fi
-                return 0
-            fi
-            # Remove incorrect symlink
-            rm -f "$target_link"
-        fi
+            done
+        done
+    fi
 
-        # Create the cleo umbrella symlink
-        if ln -sf "$cleo_skills_dir" "$target_link"; then
-            if ! is_json_output; then
-                echo "  Created skills symlink: cleo -> $cleo_skills_dir"
-            fi
-        else
-            if ! is_json_output; then
-                echo "  Warning: Failed to create skills symlink"
-            fi
-        fi
+    if [[ $linked -gt 0 ]] && ! is_json_output; then
+        echo "  Created $linked skill symlinks across agent directories"
     fi
 }
 
