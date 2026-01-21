@@ -1396,6 +1396,20 @@
       "complete <id>",
       "sync --extract",
       "session end"
+    ],
+    "orchestratorStartup": [
+      "orchestrator start --epic <id>",
+      "orchestrator analyze <epic-id>",
+      "orchestrator ready --epic <id>"
+    ],
+    "orchestratorSpawn": [
+      "orchestrator next --epic <id>",
+      "orchestrator spawn <task-id>",
+      "orchestrator validate --subagent <id>"
+    ],
+    "sessionMaintenance": [
+      "session gc --dry-run",
+      "session gc"
     ]
   },
   "quickLookup": {
@@ -1420,6 +1434,10 @@
     "reopenCompleted": "reopen",
     "reorderTask": "reorder",
     "updateCleo": "self-update",
-    "projectMaintenance": "upgrade"
+    "projectMaintenance": "upgrade",
+    "multiAgentCoordination": "orchestrator",
+    "spawnSubagent": "orchestrator spawn",
+    "parallelTasks": "orchestrator ready",
+    "sessionCleanup": "session gc"
   }
 }
