@@ -7,7 +7,7 @@
 #   cleo orchestrator next [--epic <id>]       # Get next agent to spawn
 #   cleo orchestrator ready [--epic <id>]      # Get all parallel-safe tasks
 #   cleo orchestrator context [--tokens <n>]   # Check context limits
-#   cleo orchestrator spawn <task-id> [--template <name>]  # Generate spawn command
+#   cleo orchestrator spawn <task-id> [--template <skill>] # Generate spawn command
 #   cleo orchestrator analyze <epic-id>        # Show dependency analysis
 #   cleo orchestrator parallel <epic-id>       # Show parallel execution waves
 #   cleo orchestrator check <task-id>...       # Check if tasks can run in parallel
@@ -162,7 +162,7 @@ cmd_context() {
 
 cmd_spawn() {
     local task_id=""
-    local template="TASK-EXECUTOR"
+    local template="ct-task-executor"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -597,7 +597,7 @@ COMMANDS:
 OPTIONS:
     --epic, -e <id>       Epic ID to scope operations
     --tokens, -t <n>      Current token usage for context check
-    --template, -T <name> Template name for spawn (default: TASK-EXECUTOR)
+    --template, -T <name> Skill name for spawn (default: ct-task-executor)
     --subagent, -s <id>   Research ID for subagent validation
     --manifest, -m        Validate manifest only
     --orchestrator, -o    Validate orchestrator compliance only
@@ -607,11 +607,27 @@ SKILL SUBCOMMAND:
     cleo orchestrator skill --install Copy skill to project's .cleo/skills/
     cleo orchestrator skill --verify  Check skill is properly installed
 
-TEMPLATES:
-    TASK-EXECUTOR   General task execution (default)
-    RESEARCH-AGENT  Research and investigation
-    EPIC-CREATOR    Epic planning and decomposition
-    VALIDATOR       Testing and validation
+SKILLS (for --template):
+    ct-task-executor           General task execution (default)
+    ct-research-agent          Research and investigation
+    ct-epic-architect          Epic planning and decomposition
+    ct-spec-writer             Technical specification writing
+    ct-test-writer-bats        BATS integration test writing
+    ct-library-implementer-bash  Bash library implementation
+    ct-validator               Compliance validation
+    ct-documentor              Documentation orchestration
+
+SKILL DISPATCH MATRIX:
+    Task Type              Recommended Skill
+    ─────────────────────  ─────────────────────────
+    Implementation work    ct-task-executor
+    Research/investigation ct-research-agent
+    Epic/project planning  ct-epic-architect
+    Spec/protocol writing  ct-spec-writer
+    Test writing (BATS)    ct-test-writer-bats
+    Bash library work      ct-library-implementer-bash
+    Validation/auditing    ct-validator
+    Documentation          ct-documentor
 
 EXAMPLES:
     # Start orchestrator for an epic
@@ -628,7 +644,7 @@ EXAMPLES:
 
     # Generate spawn command for a task
     cleo orchestrator spawn T1586
-    cleo orchestrator spawn T1586 --template RESEARCH-AGENT
+    cleo orchestrator spawn T1586 --template ct-research-agent
 
     # Analyze dependencies and waves
     cleo orchestrator analyze T1575

@@ -8,12 +8,14 @@ description: |
   the main context window. Enforces ORC-001 through ORC-005 constraints: stay high-level,
   delegate ALL work via Task tool, read only manifest summaries, enforce dependency order,
   and maintain context budget under 10K tokens.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Orchestrator Protocol
 
 > **Vision**: See [ORCHESTRATOR-VISION.md](../../docs/ORCHESTRATOR-VISION.md) for the core philosophy.
+> **Guide**: See [ORCHESTRATOR-PROTOCOL.md](../../docs/guides/ORCHESTRATOR-PROTOCOL.md) for practical workflows.
+> **CLI Reference**: See [orchestrator.md](../../docs/commands/orchestrator.md) for command details.
 >
 > **The Mantra**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
 
@@ -24,7 +26,7 @@ symphony but never play an instrument.
 
 ## Immutable Constraints (ORC)
 
-> **Authoritative source**: [ORCHESTRATOR-PROTOCOL-SPEC.md Part 2.1](../../docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md#21-core-constraints)
+> **Authoritative source**: [ORCHESTRATOR-PROTOCOL-SPEC.md Part 2.1](../../docs/specs/ORCHESTRATOR-PROTOCOL-SPEC.md)
 
 | ID | Rule | Enforcement |
 |----|------|-------------|
@@ -36,95 +38,248 @@ symphony but never play an instrument.
 
 ## Session Startup Protocol
 
-Every conversation, execute:
-```bash
-# 1. Check for pending work
-cat claudedocs/research-outputs/MANIFEST.jsonl | \
-  jq -s '.[] | select(.needs_followup | length > 0) | {id, needs_followup}'
+Every conversation, execute one of these approaches:
 
-# 2. Check active sessions
-cleo session list --status active | jq '.sessions[0]'
+### Option A: Single Command (Recommended)
+
+```bash
+# All-in-one startup state with decision guidance
+cleo orchestrator start --epic T1575
+```
+
+Returns session state, context budget, next task, and recommended action.
+
+### Option B: Manual Steps
+
+```bash
+# 1. Check active sessions
+cleo session list --status active
+
+# 2. Check manifest for pending followup
+jq -s '[.[] | select(.needs_followup | length > 0)]' claudedocs/research-outputs/MANIFEST.jsonl
 
 # 3. Check current focus
 cleo focus show
+
+# 4. Review epic status
+cleo dash --compact
 ```
+
+### Decision Matrix
+
+| Condition | Action |
+|-----------|--------|
+| Active session + focus | Resume; continue focused task |
+| Active session, no focus | Query manifest `needs_followup`; spawn next |
+| No session + manifest has followup | Create session; spawn for followup |
+| No session + no followup | Ask user for direction |
 
 ## Subagent Spawning
 
-Use Task tool with subagent_type="general-purpose" and include:
+### Quick Spawn Workflow
+
+```bash
+# 1. Get next ready task
+cleo orchestrator next --epic T1575
+
+# 2. Generate spawn command with prompt
+cleo orchestrator spawn T1586
+
+# 3. Or specify a skill template
+cleo orchestrator spawn T1586 --template ct-research-agent
+cleo orchestrator spawn T1586 --template RESEARCH-AGENT  # aliases work
+```
+
+### Manual Spawn (when CLI spawn unavailable)
+
+Use Task tool with `subagent_type="general-purpose"` and include:
 1. Subagent protocol block (RFC 2119 requirements)
-2. Context from previous agents (manifest key_findings ONLY)
+2. Context from previous agents (manifest `key_findings` ONLY)
 3. Clear task definition and completion criteria
+
+### Spawn Output
+
+The `spawn` command returns:
+- `taskId`: Target task
+- `template`: Skill used
+- `topicSlug`: Slugified topic name
+- `outputFile`: Expected output filename
+- `prompt`: Complete prompt ready for Task tool
 
 ## Manifest Operations
 
-Read summaries only:
-```bash
-# Get latest entry
-tail -1 claudedocs/research-outputs/MANIFEST.jsonl | jq '{id, key_findings}'
+**CRITICAL**: Read summaries only, never full files.
 
-# Get pending followup
-cat MANIFEST.jsonl | jq -s '.[] | select(.needs_followup | length > 0)'
+### CLI Commands (Preferred)
+
+```bash
+# List research entries (context-efficient)
+cleo research list
+cleo research list --status complete --limit 10
+
+# Get entry details
+cleo research show <research-id>
+
+# Get pending followups
+cleo research pending
+```
+
+### Direct jq Queries
+
+```bash
+# Latest entry
+jq -s '.[-1]' claudedocs/research-outputs/MANIFEST.jsonl
+
+# Pending followups
+jq -s '[.[] | select(.needs_followup | length > 0)]' claudedocs/research-outputs/MANIFEST.jsonl
+
+# Filter by topic
+jq -s '[.[] | select(.topics | contains(["auth"]))]' claudedocs/research-outputs/MANIFEST.jsonl
+
+# Key findings for epic
+jq -s '[.[] | select(.linked_tasks | contains(["T1575"])) | .key_findings] | flatten' claudedocs/research-outputs/MANIFEST.jsonl
 ```
 
 ## CRITICAL: Subagent Protocol Block
 
 Include in EVERY subagent prompt:
-```
-OUTPUT REQUIREMENTS (RFC 2119):
-1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic}.md
-2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
+
+```markdown
+## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
+
+OUTPUT REQUIREMENTS:
+1. MUST write findings to: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
+2. MUST append ONE line to: {{MANIFEST_PATH}}
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
+
+CLEO INTEGRATION:
+1. MUST read task details: `cleo show {{TASK_ID}}`
+2. MUST set focus: `cleo focus set {{TASK_ID}}`
+3. MUST complete task when done: `cleo complete {{TASK_ID}}`
+4. SHOULD link research: `cleo research link {{TASK_ID}} {{RESEARCH_ID}}`
 ```
+
+**Token defaults** (from `skills/_shared/placeholders.json`):
+- `{{OUTPUT_DIR}}` → `claudedocs/research-outputs`
+- `{{MANIFEST_PATH}}` → `claudedocs/research-outputs/MANIFEST.jsonl`
 
 ## Workflow Phases
 
 ### Phase 1: Discovery
+
+```bash
+# Use the start command for comprehensive state
+cleo orchestrator start --epic T1575
+
+# Or check manifest pending work
+cleo research pending
+```
+
 - Check MANIFEST.jsonl for pending followup
 - Review active sessions and focus
 - Identify next actionable task
 
 ### Phase 2: Planning
+
+```bash
+# Analyze dependency waves
+cleo orchestrator analyze T1575
+
+# Get all parallel-safe tasks
+cleo orchestrator ready --epic T1575
+```
+
 - Decompose work into subagent-sized chunks
 - Define clear completion criteria
 - Establish dependency order
 
 ### Phase 3: Execution
-- Spawn subagents sequentially (not parallel)
+
+```bash
+# Get next ready task
+cleo orchestrator next --epic T1575
+
+# Generate and use spawn prompt
+cleo orchestrator spawn T1586
+```
+
+- Spawn subagents sequentially (not parallel unless verified safe)
 - Wait for manifest entry before proceeding
-- Read only key_findings from completed work
+- Read only `key_findings` from completed work
 
 ### Phase 4: Integration
+
+```bash
+# Validate subagent output
+cleo orchestrator validate --subagent <research-id>
+
+# Check context budget
+cleo orchestrator context
+```
+
 - Verify all subagent outputs in manifest
 - Update CLEO task status
 - Document completion in session notes
 
+## Parallel Execution
+
+When tasks have no inter-dependencies, they can run in parallel:
+
+```bash
+# Check if tasks can run together
+cleo orchestrator check T1578 T1580 T1582
+
+# Get all parallel-safe tasks
+cleo orchestrator ready --epic T1575
+
+# Analyze full wave structure
+cleo orchestrator parallel T1575
+```
+
+**Wave-Based Execution**:
+- Wave 0: Tasks with no dependencies (can run in parallel)
+- Wave 1: Tasks depending only on Wave 0
+- Wave N: Tasks depending on Wave N-1 or earlier
+
 ## Anti-Patterns (MUST NOT)
 
 1. **MUST NOT** read full research files - use manifest summaries
-2. **MUST NOT** spawn parallel subagents - sequential only
+2. **MUST NOT** spawn parallel subagents without checking dependencies
 3. **MUST NOT** implement code directly - delegate to subagents
 4. **MUST NOT** exceed 10K context tokens
 5. **MUST NOT** skip subagent protocol block injection
+6. **MUST NOT** spawn tasks out of dependency order
 
 ---
 
 ## Skill Dispatch Rules
 
-Use the appropriate skill for each task type. Load skills via token injection.
+Use the appropriate skill for each task type. The `spawn` command accepts skill names in multiple formats.
 
 ### Skill Selection Matrix
 
 | Task Type | Skill | Trigger Keywords |
 |-----------|-------|------------------|
-| Epic planning | `ct-epic-architect` | "create epic", "plan tasks", "decompose", "break down", "wave planning" |
-| Specification writing | `ct-spec-writer` | "write spec", "define protocol", "RFC", "requirements", "specification" |
-| Research | `ct-research-agent` | "research", "investigate", "gather info", "look up", "explore options" |
-| Test writing | `ct-test-writer-bats` | "write tests", "BATS", "bash tests", "test coverage", "integration tests" |
-| Bash library creation | `ct-library-implementer-bash` | "create library", "bash functions", "lib/*.sh", "utility functions" |
 | Generic implementation | `ct-task-executor` | "implement", "execute task", "do the work", "build component" |
-| Compliance validation | `ct-validator` | "validate", "verify", "check compliance", "audit", "schema validation" |
+| Research/investigation | `ct-research-agent` | "research", "investigate", "gather info", "explore options" |
+| Epic/project planning | `ct-epic-architect` | "create epic", "plan tasks", "decompose", "wave planning" |
+| Specification writing | `ct-spec-writer` | "write spec", "define protocol", "RFC", "specification" |
+| Test writing (BATS) | `ct-test-writer-bats` | "write tests", "BATS", "bash tests", "integration tests" |
+| Bash library creation | `ct-library-implementer-bash` | "create library", "bash functions", "lib/*.sh" |
+| Compliance validation | `ct-validator` | "validate", "verify", "check compliance", "audit" |
+| Documentation | `ct-documentor` | "write docs", "document", "update README" |
+
+### Skill Name Aliases
+
+The `spawn` command supports multiple name formats:
+
+| Format | Example |
+|--------|---------|
+| Full name | `ct-task-executor`, `ct-research-agent` |
+| Uppercase | `TASK-EXECUTOR`, `RESEARCH-AGENT` |
+| Lowercase | `task-executor`, `research-agent` |
+| Short aliases | `EXECUTOR`, `RESEARCH`, `BATS`, `SPEC` |
 
 ### Skill Paths
 
@@ -136,40 +291,61 @@ skills/ct-test-writer-bats/SKILL.md
 skills/ct-library-implementer-bash/SKILL.md
 skills/ct-task-executor/SKILL.md
 skills/ct-validator/SKILL.md
+skills/ct-documentor/SKILL.md
 ```
 
 ---
 
 ## Token Injection System
 
-Before spawning subagents, inject tokens using `lib/token-inject.sh`.
+The `spawn` command handles token injection automatically. For manual injection, use `lib/token-inject.sh`.
 
-### Quick Start
+### Automatic (via spawn command)
+
+```bash
+# The spawn command automatically:
+# 1. Loads the skill template
+# 2. Sets required context tokens
+# 3. Gets task context from CLEO
+# 4. Extracts manifest summaries
+# 5. Injects all tokens
+cleo orchestrator spawn T1586 --template ct-research-agent
+```
+
+### Manual Token Injection
 
 ```bash
 source lib/token-inject.sh
 
 # 1. Set required tokens
 export TI_TASK_ID="T1234"
-export TI_DATE="2026-01-19"
+export TI_DATE="$(date +%Y-%m-%d)"
 export TI_TOPIC_SLUG="my-research-topic"
 
 # 2. Set CLEO defaults (task commands, output paths)
 ti_set_defaults
 
-# 3. Load and inject skill template
+# 3. Optional: Get task context from CLEO
+task_json=$(cleo show T1234 --format json)
+ti_set_task_context "$task_json"
+
+# 4. Load and inject skill template
 template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 ```
 
-### Required Tokens
+### Token Reference
 
-| Token | Description | Example |
-|-------|-------------|---------|
-| `{{TASK_ID}}` | Current task identifier | `T1234` |
-| `{{DATE}}` | Current date (YYYY-MM-DD) | `2026-01-19` |
-| `{{TOPIC_SLUG}}` | URL-safe topic name | `auth-research` |
+**Source of Truth**: `skills/_shared/placeholders.json`
 
-### Task Command Tokens (CLEO defaults)
+#### Required Tokens
+
+| Token | Description | Pattern | Example |
+|-------|-------------|---------|---------|
+| `{{TASK_ID}}` | CLEO task identifier | `^T[0-9]+$` | `T1234` |
+| `{{DATE}}` | ISO date | `YYYY-MM-DD` | `2026-01-20` |
+| `{{TOPIC_SLUG}}` | URL-safe topic name | `[a-zA-Z0-9_-]+` | `auth-research` |
+
+#### Task Command Tokens (CLEO defaults)
 
 | Token | Default Value |
 |-------|---------------|
@@ -181,12 +357,25 @@ template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 | `{{TASK_FIND_CMD}}` | `cleo find` |
 | `{{TASK_ADD_CMD}}` | `cleo add` |
 
-### Output Tokens (CLEO defaults)
+#### Output Tokens (CLEO defaults)
 
 | Token | Default Value |
 |-------|---------------|
 | `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` |
 | `{{MANIFEST_PATH}}` | `claudedocs/research-outputs/MANIFEST.jsonl` |
+
+#### Task Context Tokens (populated from CLEO task data)
+
+| Token | Source | Description |
+|-------|--------|-------------|
+| `{{TASK_NAME}}` | `task.title` | Task title |
+| `{{TASK_DESCRIPTION}}` | `task.description` | Full description |
+| `{{TASK_INSTRUCTIONS}}` | `task.description` | Execution instructions |
+| `{{DELIVERABLES_LIST}}` | `task.deliverables` | Expected outputs |
+| `{{ACCEPTANCE_CRITERIA}}` | Extracted | Completion criteria |
+| `{{DEPENDS_LIST}}` | `task.depends` | Completed dependencies |
+| `{{MANIFEST_SUMMARIES}}` | MANIFEST.jsonl | Key findings from previous agents |
+| `{{NEXT_TASK_IDS}}` | Dependency analysis | Tasks unblocked after completion |
 
 ### Helper Functions
 
@@ -194,9 +383,11 @@ template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 |----------|---------|
 | `ti_set_defaults()` | Set CLEO defaults for unset tokens |
 | `ti_validate_required()` | Verify required tokens are set |
-| `ti_inject_tokens()` | Replace {{TOKEN}} patterns |
+| `ti_inject_tokens()` | Replace `{{TOKEN}}` patterns |
 | `ti_load_template()` | Load file and inject tokens |
 | `ti_set_context()` | Set TASK_ID, DATE, TOPIC_SLUG in one call |
+| `ti_set_task_context()` | Populate task context tokens from CLEO JSON |
+| `ti_extract_manifest_summaries()` | Get key_findings from recent manifest entries |
 | `ti_list_tokens()` | Show all tokens with current values |
 
 ---
@@ -222,46 +413,119 @@ Defines RFC 2119 output requirements for all subagents:
 
 ---
 
-## Spawning Workflow
+## Complete Spawning Workflow
 
-### Step 1: Identify Task Type
+### Automated Workflow (Recommended)
+
+```bash
+# Step 1: Get ready task
+cleo orchestrator next --epic T1575
+# Returns: { nextTask: { id: "T1586", title: "...", priority: "high" } }
+
+# Step 2: Generate spawn prompt (handles all token injection)
+spawn_result=$(cleo orchestrator spawn T1586)
+
+# Step 3: Extract prompt and use with Task tool
+prompt=$(echo "$spawn_result" | jq -r '.result.prompt')
+# Pass $prompt to Task tool
+```
+
+### Manual Workflow
+
+#### Step 1: Identify Task Type
 
 ```bash
 # Check task details
 cleo show T1234 | jq '{title, description, labels}'
 ```
 
-### Step 2: Select Skill
+#### Step 2: Select Skill
 
 Match task keywords to skill selection matrix above.
 
-### Step 3: Prepare Context
+#### Step 3: Prepare Context
 
 ```bash
 source lib/token-inject.sh
-export TI_TASK_ID="T1234"
-export TI_DATE="$(date +%Y-%m-%d)"
-export TI_TOPIC_SLUG="auth-implementation"
+
+# Set required tokens
+ti_set_context "T1234" "$(date +%Y-%m-%d)" "auth-implementation"
+
+# Set defaults and get task context
 ti_set_defaults
+task_json=$(cleo show T1234 --format json)
+ti_set_task_context "$task_json"
 ```
 
-### Step 4: Load Skill Template
+#### Step 4: Load Skill Template
 
 ```bash
 template=$(ti_load_template "skills/ct-task-executor/SKILL.md")
 ```
 
-### Step 5: Spawn Subagent
+#### Step 5: Spawn Subagent
 
 Use Task tool with:
 1. Injected skill template
 2. Subagent protocol block
-3. Context from previous agents (manifest key_findings ONLY)
+3. Context from previous agents (manifest `key_findings` ONLY)
 4. Clear task definition and completion criteria
 
-### Step 6: Monitor Completion
+#### Step 6: Monitor Completion
 
 ```bash
 # Check manifest for completion
-tail -1 claudedocs/research-outputs/MANIFEST.jsonl | jq '{id, status, key_findings}'
+cleo research show <research-id>
+
+# Or use jq
+jq -s '.[-1] | {id, status, key_findings}' claudedocs/research-outputs/MANIFEST.jsonl
 ```
+
+---
+
+## Context Budget Monitoring
+
+```bash
+# Check current context usage
+cleo orchestrator context
+
+# With specific token count
+cleo orchestrator context --tokens 5000
+```
+
+**Status Thresholds**:
+| Status | Usage | Action |
+|--------|-------|--------|
+| `ok` | <70% | Continue orchestration |
+| `warning` | 70-89% | Delegate current work soon |
+| `critical` | >=90% | STOP - Delegate immediately |
+
+---
+
+## Validation
+
+```bash
+# Full protocol validation
+cleo orchestrator validate
+
+# Validate for specific epic
+cleo orchestrator validate --epic T1575
+
+# Validate specific subagent output
+cleo orchestrator validate --subagent research-id-2026-01-18
+
+# Manifest only
+cleo orchestrator validate --manifest
+```
+
+---
+
+## Error Recovery
+
+| Failure | Detection | Recovery |
+|---------|-----------|----------|
+| No output file | `test -f <path>` fails | Re-spawn with clearer instructions |
+| No manifest entry | `cleo research show` fails | Manual entry or re-spawn |
+| Task not completed | Status != done | Orchestrator completes manually |
+| Partial status | `status: partial` | Spawn continuation agent |
+| Blocked status | `status: blocked` | Flag for human review |

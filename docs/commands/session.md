@@ -31,12 +31,15 @@ cleo session <subcommand> [OPTIONS]
 | `end` | End session (resumable later) |
 | `suspend` | Pause session, preserve state |
 | `resume` | Continue a suspended/ended session |
+| `archive` | Move ended/suspended session to archived (read-only) |
 | `close` | Permanently archive session |
 | `status` | Show current session context |
 | `info` | Show detailed session information |
 | `list` | List all sessions |
 | `show` | Show specific session details |
 | `switch` | Switch this conversation's session binding |
+| `gc` | Garbage collect session artifacts |
+| `doctor` | Diagnose session binding and state issues |
 | (none) | Show help message |
 
 ## Session Lifecycle
@@ -58,6 +61,7 @@ cleo session <subcommand> [OPTIONS]
 │     SUSPENDED       │              │       ENDED         │
 │  - State preserved  │              │  - State preserved  │
 │  - Resumable        │              │  - Resumable        │
+│  - Archivable       │              │  - Archivable       │
 └─────────┬───────────┘              └──────────┬──────────┘
           │                                     │
           │ resume                              │ resume
@@ -73,6 +77,17 @@ cleo session <subcommand> [OPTIONS]
 │                      CLOSED                              │
 │  - Permanently archived                                  │
 │  - NOT resumable                                         │
+└─────────────────────────────────────────────────────────┘
+
+     From SUSPENDED or ENDED:
+     ┌─────────────────────┐
+     │  archive            │
+     ▼                     │
+┌─────────────────────────────────────────────────────────┐
+│                     ARCHIVED                             │
+│  - Read-only (audit trail)                               │
+│  - NOT resumable                                         │
+│  - Reduces sessions.json size                            │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -90,13 +105,38 @@ cleo session <subcommand> [OPTIONS]
 
 **Note:** Either `--focus` or `--auto-focus` is required.
 
+## Archive Options
+
+| Option | Description |
+|--------|-------------|
+| `<session-id>` | Archive specific session |
+| `--all-ended` | Archive all ended/suspended sessions |
+| `--older-than DAYS` | Only archive sessions inactive for N+ days |
+| `--reason TEXT` | Add reason for archival |
+| `--dry-run` | Preview without changes |
+
+**Examples:**
+```bash
+# Archive a single session
+cleo session archive session_20251230_161248_81c3ce
+
+# Archive all ended sessions
+cleo session archive --all-ended
+
+# Archive sessions inactive for 30+ days
+cleo session archive --all-ended --older-than 30
+
+# Preview what would be archived
+cleo session archive --all-ended --dry-run
+```
+
 ## Other Options
 
 | Option | Subcommands | Description |
 |--------|-------------|-------------|
 | `--note TEXT` | end, suspend | Add a note when ending/suspending |
 | `--last` | resume | Resume most recent session |
-| `--status STATUS` | list | Filter by status (active/suspended/ended) |
+| `--status STATUS` | list | Filter by status (active/suspended/ended/archived) |
 
 ## Scope Types
 
@@ -171,9 +211,46 @@ cleo session list --status active
 
 **Key insight:** Starting a new session does NOT affect other sessions. Each session is independent.
 
-## Session Binding
+## Session Binding (Hybrid Resolution)
 
-When you start a session, cleo writes the session ID to `.cleo/.current-session`. This **binds this terminal/conversation** to that session. All subsequent commands use this session context automatically.
+Session binding determines which session context is used for commands. CLEO uses a **hybrid binding** system with the following resolution priority:
+
+### Resolution Priority (highest to lowest)
+
+1. **`--session` flag** - Explicit session ID on command line
+2. **`CLEO_SESSION` env var** - Environment variable override
+3. **TTY binding** - Per-terminal binding in `.cleo/tty-bindings/`
+4. **`.current-session` file** - Legacy single-session fallback
+
+### TTY Binding (Multi-Terminal Support)
+
+Each terminal gets its own session binding, enabling multiple agents to work simultaneously from different terminals:
+
+```bash
+# Terminal 1 (Agent opus-1)
+cleo session start --scope epic:T001 --auto-focus
+# Creates: .cleo/tty-bindings/tty-<device-id>.json
+
+# Terminal 2 (Agent haiku-1)
+cleo session start --scope epic:T050 --auto-focus
+# Creates different binding file for this terminal
+```
+
+### CLEO_SESSION Environment Variable
+
+Override session binding for a shell session or subagent:
+
+```bash
+# Set session for this shell
+export CLEO_SESSION="session_20251230_161248_81c3ce"
+
+# Or inline for single command
+CLEO_SESSION=session_abc cleo focus show
+```
+
+### Legacy Binding
+
+For backward compatibility, `.cleo/.current-session` still works when TTY binding is unavailable:
 
 ```bash
 # After session start, these commands know your session:
@@ -298,6 +375,89 @@ In `.cleo/config.json`:
 | "Only one session can be active" | Multiple active sessions allowed (multi-session mode) |
 | "Sessions are per-terminal" | Sessions persist in cleo; terminals just bind to them |
 | "End session deletes it" | End preserves state; use `close` to archive |
+
+## Garbage Collection (gc)
+
+Clean up session artifacts including archived sessions, stale TTY bindings, and orphaned context state files:
+
+```bash
+# Preview what would be cleaned
+cleo session gc --dry-run
+
+# Run garbage collection
+cleo session gc
+
+# With verbose output showing each item
+cleo session gc --verbose
+
+# JSON output for automation
+cleo session gc --json
+```
+
+**What gets cleaned:**
+
+| Artifact | Criteria |
+|----------|----------|
+| Archived sessions | Older than `retention.sessions.archivedRetentionDays` (default: 90) |
+| Excess archived | More than `retention.sessions.maxArchivedSessions` (default: 100) |
+| Stale TTY bindings | Older than `multiSession.ttyBinding.maxAgeHours` (default: 168) |
+| Orphan bindings | Session no longer exists in sessions.json |
+| Orphaned context states | Session no longer exists |
+
+## Diagnostics (doctor)
+
+Diagnose session binding and state issues:
+
+```bash
+# Run diagnostics
+cleo session doctor
+
+# JSON output
+cleo session doctor --json
+```
+
+**Output includes:**
+
+- **Resolution Chain**: Shows all binding sources and which is active
+- **Session Counts**: Active, suspended, ended, archived sessions
+- **Context State Files**: Per-session and orphaned file counts
+- **TTY Bindings**: Total and stale binding counts
+- **Warnings**: Binding conflicts, invalid sessions, cleanup recommendations
+
+**Example output:**
+```
+Session Diagnostics
+===================
+
+Multi-Session Mode: ENABLED
+
+Resolution Chain:
+  --session flag:     (not used in doctor)
+  CLEO_SESSION:       (not set)
+  TTY binding:        session_abc123
+  .current-session:   session_old456
+
+Active Session: session_abc123 (via TTY binding)
+
+Session Counts:
+  Active:    2
+  Suspended: 1
+  Ended:     5
+  Archived:  127
+  Total:     135
+
+Context State Files:
+  Per-session: 8
+  Orphaned:    3
+
+TTY Bindings:
+  Total:  4
+  Stale:  1
+
+Warnings:
+  - 3 orphaned context state file(s) found
+  - 1 stale TTY binding(s) found
+```
 
 ## See Also
 

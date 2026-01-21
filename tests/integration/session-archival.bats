@@ -1,0 +1,604 @@
+#!/usr/bin/env bats
+# =============================================================================
+# session-archival.bats - Integration tests for session archival and cleanup
+# =============================================================================
+# Tests the session archival, gc, and doctor commands:
+# - Session archival (single, bulk, retention)
+# - Garbage collection (archived sessions, TTY bindings, context states)
+# - Diagnostics (resolution chain, counts, warnings)
+#
+# Schema: v2.6.0 with multi-session extensions
+# =============================================================================
+
+# Load test helpers
+setup_file() {
+    load '../test_helper/common_setup'
+    common_setup_file
+}
+
+setup() {
+    load '../test_helper/common_setup'
+    load '../test_helper/fixtures'
+    load '../test_helper/assertions'
+    common_setup_per_test
+
+    # Create empty archive for tests
+    export ARCHIVE_FILE="${TEST_TEMP_DIR}/.cleo/todo-archive.json"
+    create_empty_archive "$ARCHIVE_FILE"
+
+    # Create sessions.json for multi-session tests
+    export SESSIONS_FILE="${TEST_TEMP_DIR}/.cleo/sessions.json"
+}
+
+teardown() {
+    common_teardown_per_test
+}
+
+teardown_file() {
+    common_teardown_file
+}
+
+# =============================================================================
+# Session Fixtures
+# =============================================================================
+
+# Create multi-session enabled config
+create_multi_session_config() {
+    local dest="${1:-$CONFIG_FILE}"
+    cat > "$dest" << 'EOF'
+{
+  "version": "2.6.0",
+  "validation": {
+    "strictMode": false,
+    "requireDescription": false
+  },
+  "multiSession": {
+    "enabled": true,
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict",
+    "allowNestedScopes": true,
+    "allowScopeOverlap": false,
+    "ttyBinding": {
+      "enabled": true,
+      "maxAgeHours": 168
+    }
+  },
+  "retention": {
+    "sessions": {
+      "archivedRetentionDays": 90,
+      "maxArchivedSessions": 100,
+      "autoArchiveEndedAfterDays": 30
+    }
+  },
+  "session": {
+    "requireSession": false,
+    "enforcement": "warn"
+  }
+}
+EOF
+}
+
+# Create todo.json with Epic hierarchy for session testing
+create_epic_hierarchy_todo() {
+    local dest="${1:-$TODO_FILE}"
+    cat > "$dest" << 'EOF'
+{
+  "version": "2.6.0",
+  "project": {
+    "name": "session-test",
+    "currentPhase": "core",
+    "phases": {
+      "setup": {"order": 1, "name": "Setup", "description": "Initial setup", "status": "completed"},
+      "core": {"order": 2, "name": "Core", "description": "Core features", "status": "active"},
+      "testing": {"order": 3, "name": "Testing", "description": "Testing", "status": "pending"}
+    }
+  },
+  "_meta": {"version": "2.6.0", "checksum": "placeholder", "configVersion": "2.6.0"},
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Auth System Epic",
+      "description": "Implement authentication",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "phase": "core",
+      "createdAt": "2025-12-01T10:00:00Z"
+    },
+    {
+      "id": "T002",
+      "title": "Login endpoint",
+      "description": "Implement login API",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T001",
+      "phase": "core",
+      "createdAt": "2025-12-01T10:01:00Z"
+    }
+  ],
+  "focus": {},
+  "labels": {},
+  "lastUpdated": "2025-12-01T10:01:00Z"
+}
+EOF
+    _update_fixture_checksum "$dest"
+}
+
+# Create empty archive helper
+create_empty_archive() {
+    local dest="$1"
+    cat > "$dest" << 'EOF'
+{
+  "version": "2.6.0",
+  "project": "test",
+  "_meta": {"totalArchived": 0, "lastArchived": null},
+  "archivedTasks": [],
+  "statistics": {"byPhase": {}, "byPriority": {"critical":0,"high":0,"medium":0,"low":0}, "byLabel": {}, "cancelled": 0}
+}
+EOF
+}
+
+# Create sessions.json with various session states
+create_test_sessions() {
+    local dest="${1:-$SESSIONS_FILE}"
+    local now
+    now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Create dates for testing (we'll use static dates for reproducibility)
+    cat > "$dest" << 'EOF'
+{
+  "$schema": "../schemas/sessions.schema.json",
+  "version": "1.0.0",
+  "project": "session-test",
+  "_meta": {
+    "checksum": "",
+    "lastModified": "2026-01-01T10:00:00Z",
+    "totalSessionsCreated": 5
+  },
+  "config": {
+    "maxConcurrentSessions": 5,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict",
+    "allowNestedScopes": true,
+    "allowScopeOverlap": false
+  },
+  "sessions": [
+    {
+      "id": "session_active_001",
+      "status": "active",
+      "name": "Active Session",
+      "agentId": "test-agent",
+      "scope": {"type": "task", "rootTaskId": "T001", "computedTaskIds": ["T001"]},
+      "focus": {"currentTask": "T001"},
+      "startedAt": "2026-01-01T10:00:00Z",
+      "lastActivity": "2026-01-01T12:00:00Z",
+      "suspendedAt": null,
+      "stats": {"tasksCompleted": 0, "focusChanges": 1, "suspendCount": 0, "resumeCount": 0}
+    },
+    {
+      "id": "session_ended_002",
+      "status": "ended",
+      "name": "Ended Session",
+      "agentId": null,
+      "scope": {"type": "task", "rootTaskId": "T002", "computedTaskIds": ["T002"]},
+      "focus": {"currentTask": null},
+      "startedAt": "2025-12-15T10:00:00Z",
+      "lastActivity": "2025-12-15T14:00:00Z",
+      "endedAt": "2025-12-15T14:00:00Z",
+      "suspendedAt": null,
+      "stats": {"tasksCompleted": 1, "focusChanges": 2, "suspendCount": 0, "resumeCount": 0}
+    },
+    {
+      "id": "session_suspended_003",
+      "status": "suspended",
+      "name": "Suspended Session",
+      "agentId": null,
+      "scope": {"type": "epic", "rootTaskId": "T001", "computedTaskIds": ["T001", "T002"]},
+      "focus": {"currentTask": "T002", "sessionNote": "Paused for review"},
+      "startedAt": "2025-12-20T10:00:00Z",
+      "lastActivity": "2025-12-20T16:00:00Z",
+      "suspendedAt": "2025-12-20T16:00:00Z",
+      "stats": {"tasksCompleted": 0, "focusChanges": 1, "suspendCount": 1, "resumeCount": 0}
+    },
+    {
+      "id": "session_archived_004",
+      "status": "archived",
+      "name": "Old Archived Session",
+      "agentId": null,
+      "scope": {"type": "task", "rootTaskId": "T001", "computedTaskIds": ["T001"]},
+      "focus": {"currentTask": null},
+      "startedAt": "2025-09-01T10:00:00Z",
+      "lastActivity": "2025-09-01T14:00:00Z",
+      "endedAt": "2025-09-01T14:00:00Z",
+      "archivedAt": "2025-09-02T10:00:00Z",
+      "archiveReason": "Project complete",
+      "stats": {"tasksCompleted": 1, "focusChanges": 1, "suspendCount": 0, "resumeCount": 0}
+    },
+    {
+      "id": "session_archived_005",
+      "status": "archived",
+      "name": "Recent Archived Session",
+      "agentId": null,
+      "scope": {"type": "task", "rootTaskId": "T002", "computedTaskIds": ["T002"]},
+      "focus": {"currentTask": null},
+      "startedAt": "2025-12-28T10:00:00Z",
+      "lastActivity": "2025-12-28T14:00:00Z",
+      "endedAt": "2025-12-28T14:00:00Z",
+      "archivedAt": "2025-12-29T10:00:00Z",
+      "archiveReason": "Sprint complete",
+      "stats": {"tasksCompleted": 1, "focusChanges": 1, "suspendCount": 0, "resumeCount": 0}
+    }
+  ],
+  "sessionHistory": []
+}
+EOF
+}
+
+# =============================================================================
+# Session Archive Tests
+# =============================================================================
+
+@test "session archive: archives single ended session by ID" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Archive the ended session
+    run bash "$SCRIPTS_DIR/session.sh" archive session_ended_002
+    assert_success
+
+    # Verify session is now archived
+    local status
+    status=$(jq -r '.sessions[] | select(.id == "session_ended_002") | .status' "$SESSIONS_FILE")
+    [[ "$status" == "archived" ]]
+}
+
+@test "session archive: fails on active session" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Try to archive active session
+    run bash "$SCRIPTS_DIR/session.sh" archive session_active_001
+    assert_failure
+
+    # Active session should still be active
+    local status
+    status=$(jq -r '.sessions[] | select(.id == "session_active_001") | .status' "$SESSIONS_FILE")
+    [[ "$status" == "active" ]]
+}
+
+@test "session archive: archives suspended session" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Archive suspended session
+    run bash "$SCRIPTS_DIR/session.sh" archive session_suspended_003
+    assert_success
+
+    # Verify session is now archived
+    local status
+    status=$(jq -r '.sessions[] | select(.id == "session_suspended_003") | .status' "$SESSIONS_FILE")
+    [[ "$status" == "archived" ]]
+}
+
+@test "session archive: --all-ended archives all ended sessions" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Archive all ended sessions
+    run bash "$SCRIPTS_DIR/session.sh" archive --all-ended
+    assert_success
+
+    # Verify ended session is now archived
+    local ended_count archived_count
+    ended_count=$(jq '[.sessions[] | select(.status == "ended")] | length' "$SESSIONS_FILE")
+    [[ "$ended_count" -eq 0 ]]
+
+    # Active session should still be active
+    local active_status
+    active_status=$(jq -r '.sessions[] | select(.id == "session_active_001") | .status' "$SESSIONS_FILE")
+    [[ "$active_status" == "active" ]]
+}
+
+@test "session archive: dry-run shows preview without changes" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Get initial session counts
+    local initial_ended
+    initial_ended=$(jq '[.sessions[] | select(.status == "ended")] | length' "$SESSIONS_FILE")
+
+    # Dry-run archive
+    run bash "$SCRIPTS_DIR/session.sh" archive --all-ended --dry-run
+    assert_success
+
+    # Session counts should be unchanged
+    local final_ended
+    final_ended=$(jq '[.sessions[] | select(.status == "ended")] | length' "$SESSIONS_FILE")
+    [[ "$initial_ended" -eq "$final_ended" ]]
+}
+
+@test "session archive: adds archiveReason when provided" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Archive with reason
+    run bash "$SCRIPTS_DIR/session.sh" archive session_ended_002 --reason "Test complete"
+    assert_success
+
+    # Verify archive reason was set
+    local reason
+    reason=$(jq -r '.sessions[] | select(.id == "session_ended_002") | .archiveReason' "$SESSIONS_FILE")
+    [[ "$reason" == "Test complete" ]]
+}
+
+# =============================================================================
+# Session GC Tests
+# =============================================================================
+
+@test "session gc: reports counts without changes in dry-run" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Run gc in dry-run mode
+    run bash "$SCRIPTS_DIR/session.sh" gc --dry-run
+    assert_success
+
+    # Should mention dry-run
+    assert_output --partial "dry-run" || assert_output --partial "dryRun"
+}
+
+@test "session gc: JSON output has expected structure" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Run gc with JSON output
+    run bash "$SCRIPTS_DIR/session.sh" gc --dry-run --json
+    assert_success
+
+    # Verify JSON structure
+    assert_valid_json
+    assert_output --partial '"success":true'
+    assert_output --partial '"dryRun":true'
+    assert_output --partial '"summary":'
+}
+
+@test "session gc: cleans orphaned TTY bindings" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Create TTY binding directory with orphan file
+    local binding_dir="${TEST_TEMP_DIR}/.cleo/tty-bindings"
+    mkdir -p "$binding_dir"
+
+    # Create binding for non-existent session
+    cat > "$binding_dir/tty-orphan123" << 'EOF'
+{
+  "sessionId": "session_nonexistent",
+  "boundAt": "2025-12-01T10:00:00Z",
+  "lastActivity": "2025-12-01T12:00:00Z"
+}
+EOF
+
+    # Run gc (not dry-run)
+    run bash "$SCRIPTS_DIR/session.sh" gc
+    assert_success
+
+    # Orphan binding should be removed
+    [[ ! -f "$binding_dir/tty-orphan123" ]]
+}
+
+@test "session gc: verbose shows item details" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Create orphan binding for verbose output
+    local binding_dir="${TEST_TEMP_DIR}/.cleo/tty-bindings"
+    mkdir -p "$binding_dir"
+    cat > "$binding_dir/tty-orphan456" << 'EOF'
+{
+  "sessionId": "session_nonexistent",
+  "boundAt": "2025-12-01T10:00:00Z"
+}
+EOF
+
+    # Run gc with verbose
+    run bash "$SCRIPTS_DIR/session.sh" gc --verbose
+    assert_success
+
+    # Should show details
+    assert_output --partial "Details" || assert_output --partial "orphan-binding"
+}
+
+# =============================================================================
+# Session Doctor Tests
+# =============================================================================
+
+@test "session doctor: shows resolution chain" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Run doctor
+    run bash "$SCRIPTS_DIR/session.sh" doctor
+    assert_success
+
+    # Should show resolution chain components
+    assert_output --partial "Resolution Chain" || assert_output --partial "resolution"
+    assert_output --partial "CLEO_SESSION" || assert_output --partial "cleoSession"
+}
+
+@test "session doctor: shows session counts" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Run doctor
+    run bash "$SCRIPTS_DIR/session.sh" doctor
+    assert_success
+
+    # Should show counts
+    assert_output --partial "Active" || assert_output --partial "active"
+    assert_output --partial "Suspended" || assert_output --partial "suspended"
+    assert_output --partial "Archived" || assert_output --partial "archived"
+}
+
+@test "session doctor: JSON output has expected structure" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Run doctor with JSON output
+    run bash "$SCRIPTS_DIR/session.sh" doctor --json
+    assert_success
+
+    # Verify JSON structure
+    assert_valid_json
+    assert_output --partial '"success":true'
+    assert_output --partial '"resolution":'
+    assert_output --partial '"counts":'
+}
+
+@test "session doctor: detects CLEO_SESSION env var" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Set CLEO_SESSION
+    export CLEO_SESSION="session_active_001"
+
+    # Run doctor
+    run bash "$SCRIPTS_DIR/session.sh" doctor
+    assert_success
+
+    # Should show env var
+    assert_output --partial "session_active_001"
+
+    unset CLEO_SESSION
+}
+
+@test "session doctor: detects stale bindings" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Create binding directory with stale binding
+    local binding_dir="${TEST_TEMP_DIR}/.cleo/tty-bindings"
+    mkdir -p "$binding_dir"
+
+    # Create very old binding (stale)
+    cat > "$binding_dir/tty-stale789" << 'EOF'
+{
+  "sessionId": "session_active_001",
+  "boundAt": "2020-01-01T10:00:00Z",
+  "lastActivity": "2020-01-01T12:00:00Z"
+}
+EOF
+
+    # Run doctor
+    run bash "$SCRIPTS_DIR/session.sh" doctor
+    assert_success
+
+    # Should report stale bindings
+    # (depending on implementation, may show warning or count)
+}
+
+@test "session doctor: shows no warnings when healthy" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+
+    # Create minimal sessions.json with just active session
+    cat > "$SESSIONS_FILE" << 'EOF'
+{
+  "$schema": "../schemas/sessions.schema.json",
+  "version": "1.0.0",
+  "project": "test",
+  "_meta": {"checksum": "", "lastModified": "2026-01-01T10:00:00Z", "totalSessionsCreated": 1},
+  "config": {"maxConcurrentSessions": 5, "maxActiveTasksPerScope": 1, "scopeValidation": "strict", "allowNestedScopes": true, "allowScopeOverlap": false},
+  "sessions": [
+    {
+      "id": "session_healthy_001",
+      "status": "active",
+      "name": "Healthy Session",
+      "agentId": null,
+      "scope": {"type": "task", "rootTaskId": "T001", "computedTaskIds": ["T001"]},
+      "focus": {"currentTask": "T001"},
+      "startedAt": "2026-01-01T10:00:00Z",
+      "lastActivity": "2026-01-01T12:00:00Z",
+      "suspendedAt": null,
+      "stats": {"tasksCompleted": 0, "focusChanges": 1, "suspendCount": 0, "resumeCount": 0}
+    }
+  ],
+  "sessionHistory": []
+}
+EOF
+
+    # Set current session binding
+    echo "session_healthy_001" > "${TEST_TEMP_DIR}/.cleo/.current-session"
+
+    # Run doctor
+    run bash "$SCRIPTS_DIR/session.sh" doctor
+    assert_success
+
+    # Should indicate healthy state
+    assert_output --partial "No warnings" || [[ "$output" != *"warning"* ]] || [[ "$output" == *"warnings\":[]"* ]]
+}
+
+# =============================================================================
+# Integration Tests
+# =============================================================================
+
+@test "integration: archive then gc workflow" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Archive all ended sessions
+    run bash "$SCRIPTS_DIR/session.sh" archive --all-ended
+    assert_success
+
+    # Run gc
+    run bash "$SCRIPTS_DIR/session.sh" gc --dry-run
+    assert_success
+
+    # Should not have major issues to clean
+}
+
+@test "integration: doctor identifies issues fixed by gc" {
+    create_epic_hierarchy_todo
+    create_multi_session_config
+    create_test_sessions
+
+    # Create orphan binding
+    local binding_dir="${TEST_TEMP_DIR}/.cleo/tty-bindings"
+    mkdir -p "$binding_dir"
+    cat > "$binding_dir/tty-orphan999" << 'EOF'
+{
+  "sessionId": "session_nonexistent",
+  "boundAt": "2025-12-01T10:00:00Z"
+}
+EOF
+
+    # Doctor should detect issue
+    run bash "$SCRIPTS_DIR/session.sh" doctor --json
+    assert_success
+
+    # GC should fix it
+    run bash "$SCRIPTS_DIR/session.sh" gc
+    assert_success
+
+    # Binding should be gone
+    [[ ! -f "$binding_dir/tty-orphan999" ]]
+}

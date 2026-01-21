@@ -426,9 +426,13 @@ cmd_set() {
 
   # Handle multi-session focus
   if [[ "$multi_session_enabled" == "true" ]]; then
-    # Get session ID from flag, env var, or .current-session file
-    local session_id="$SESSION_ID"
-    if [[ -z "$session_id" ]] && declare -f get_current_session_id >/dev/null 2>&1; then
+    # Resolve session using priority chain: flag > env > TTY binding > .current-session > auto-detect (T1778)
+    local session_id
+    if declare -f resolve_current_session_id >/dev/null 2>&1; then
+      session_id=$(resolve_current_session_id "$SESSION_ID" 2>/dev/null || true)
+    elif [[ -n "$SESSION_ID" ]]; then
+      session_id="$SESSION_ID"
+    elif declare -f get_current_session_id >/dev/null 2>&1; then
       session_id=$(get_current_session_id 2>/dev/null || true)
     fi
 
@@ -436,6 +440,11 @@ cmd_set() {
       log_error "Multi-session mode requires --session ID or CLEO_SESSION"
       log_error "Use 'cleo session list' to see active sessions"
       exit "${EXIT_INVALID_INPUT:-64}"
+    fi
+
+    # Validate session binding (T1794 - warn about conflicts but don't block)
+    if declare -f validate_session_binding >/dev/null 2>&1; then
+      validate_session_binding "$session_id" 2>&1 || true
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then

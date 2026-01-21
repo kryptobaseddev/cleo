@@ -36,6 +36,8 @@ source "${_OS_LIB_DIR}/config.sh"
 source "${_OS_LIB_DIR}/research-manifest.sh"
 # shellcheck source=lib/paths.sh
 source "${_OS_LIB_DIR}/paths.sh"
+# shellcheck source=lib/token-inject.sh
+source "${_OS_LIB_DIR}/token-inject.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -46,6 +48,167 @@ readonly ORCHESTRATOR_CONTEXT_BUDGET=10000
 
 # Context warning threshold (percentage)
 readonly ORCHESTRATOR_CONTEXT_WARNING=70
+
+# ============================================================================
+# SKILL NAME MAPPING
+# ============================================================================
+
+# Skill name mapping table: user-friendly names to skill directory names
+# Supports: UPPER-CASE, lower-case, with/without ct- prefix
+#
+# Usage: _os_map_skill_name "TASK-EXECUTOR" -> "ct-task-executor"
+#        _os_map_skill_name "research-agent" -> "ct-research-agent"
+#        _os_map_skill_name "ct-validator" -> "ct-validator"
+#
+# Returns: Normalized skill directory name (always ct-prefixed, lowercase)
+# Exit: 0 on success, 1 if skill not recognized (returns input unchanged)
+
+# Explicit mapping table (associative array)
+declare -A _OS_SKILL_MAP=(
+    # Task execution and generic work
+    ["TASK-EXECUTOR"]="ct-task-executor"
+    ["task-executor"]="ct-task-executor"
+    ["ct-task-executor"]="ct-task-executor"
+    ["EXECUTOR"]="ct-task-executor"
+    ["executor"]="ct-task-executor"
+
+    # Research and investigation
+    ["RESEARCH-AGENT"]="ct-research-agent"
+    ["research-agent"]="ct-research-agent"
+    ["ct-research-agent"]="ct-research-agent"
+    ["RESEARCH"]="ct-research-agent"
+    ["research"]="ct-research-agent"
+
+    # Epic and architecture planning
+    ["EPIC-ARCHITECT"]="ct-epic-architect"
+    ["epic-architect"]="ct-epic-architect"
+    ["ct-epic-architect"]="ct-epic-architect"
+    ["ARCHITECT"]="ct-epic-architect"
+    ["architect"]="ct-epic-architect"
+
+    # Specification writing
+    ["SPEC-WRITER"]="ct-spec-writer"
+    ["spec-writer"]="ct-spec-writer"
+    ["ct-spec-writer"]="ct-spec-writer"
+    ["SPEC"]="ct-spec-writer"
+    ["spec"]="ct-spec-writer"
+
+    # BATS test writing
+    ["TEST-WRITER-BATS"]="ct-test-writer-bats"
+    ["test-writer-bats"]="ct-test-writer-bats"
+    ["ct-test-writer-bats"]="ct-test-writer-bats"
+    ["TEST-WRITER"]="ct-test-writer-bats"
+    ["test-writer"]="ct-test-writer-bats"
+    ["BATS"]="ct-test-writer-bats"
+    ["bats"]="ct-test-writer-bats"
+
+    # Bash library implementation
+    ["LIBRARY-IMPLEMENTER-BASH"]="ct-library-implementer-bash"
+    ["library-implementer-bash"]="ct-library-implementer-bash"
+    ["ct-library-implementer-bash"]="ct-library-implementer-bash"
+    ["LIB-IMPLEMENTER"]="ct-library-implementer-bash"
+    ["lib-implementer"]="ct-library-implementer-bash"
+    ["BASH-LIB"]="ct-library-implementer-bash"
+    ["bash-lib"]="ct-library-implementer-bash"
+
+    # Validation
+    ["VALIDATOR"]="ct-validator"
+    ["validator"]="ct-validator"
+    ["ct-validator"]="ct-validator"
+    ["VALIDATE"]="ct-validator"
+    ["validate"]="ct-validator"
+
+    # Documentation orchestrator
+    ["DOCUMENTOR"]="ct-documentor"
+    ["documentor"]="ct-documentor"
+    ["ct-documentor"]="ct-documentor"
+    ["DOCS"]="ct-documentor"
+    ["docs"]="ct-documentor"
+
+    # Documentation sub-skills
+    ["DOCS-LOOKUP"]="ct-docs-lookup"
+    ["docs-lookup"]="ct-docs-lookup"
+    ["ct-docs-lookup"]="ct-docs-lookup"
+
+    ["DOCS-WRITE"]="ct-docs-write"
+    ["docs-write"]="ct-docs-write"
+    ["ct-docs-write"]="ct-docs-write"
+
+    ["DOCS-REVIEW"]="ct-docs-review"
+    ["docs-review"]="ct-docs-review"
+    ["ct-docs-review"]="ct-docs-review"
+
+    # Skill management
+    ["SKILL-CREATOR"]="ct-skill-creator"
+    ["skill-creator"]="ct-skill-creator"
+    ["ct-skill-creator"]="ct-skill-creator"
+
+    ["SKILL-LOOKUP"]="ct-skill-lookup"
+    ["skill-lookup"]="ct-skill-lookup"
+    ["ct-skill-lookup"]="ct-skill-lookup"
+
+    # Orchestrator
+    ["ORCHESTRATOR"]="ct-orchestrator"
+    ["orchestrator"]="ct-orchestrator"
+    ["ct-orchestrator"]="ct-orchestrator"
+)
+
+# Map skill name to canonical directory name
+# Args:
+#   $1 - Skill name (any supported format)
+# Output: Canonical skill directory name (ct-prefixed, lowercase)
+# Returns: 0 if mapped, 1 if fallback used
+_os_map_skill_name() {
+    local input="$1"
+    local normalized
+
+    # First, try direct lookup (case-sensitive match for speed)
+    if [[ -n "${_OS_SKILL_MAP[$input]:-}" ]]; then
+        echo "${_OS_SKILL_MAP[$input]}"
+        return 0
+    fi
+
+    # Convert to uppercase for case-insensitive lookup
+    local upper_input
+    upper_input=$(echo "$input" | tr '[:lower:]' '[:upper:]' | tr '_' '-')
+
+    if [[ -n "${_OS_SKILL_MAP[$upper_input]:-}" ]]; then
+        echo "${_OS_SKILL_MAP[$upper_input]}"
+        return 0
+    fi
+
+    # Fallback: normalize to ct-prefixed lowercase
+    # This handles any format: "SOME-SKILL" -> "ct-some-skill"
+    normalized=$(echo "$input" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+    if [[ ! "$normalized" =~ ^ct- ]]; then
+        normalized="ct-${normalized}"
+    fi
+
+    echo "$normalized"
+    return 1  # Indicate fallback was used
+}
+
+# List all known skill mappings (for debugging/documentation)
+# Output: JSON array of skill mappings
+_os_list_skill_mappings() {
+    local mappings='['
+    local first=true
+    local seen=()
+
+    for key in "${!_OS_SKILL_MAP[@]}"; do
+        local value="${_OS_SKILL_MAP[$key]}"
+        # Only include each canonical name once
+        if [[ ! " ${seen[*]} " =~ " ${value} " ]]; then
+            seen+=("$value")
+            [[ "$first" == "true" ]] || mappings+=","
+            first=false
+            mappings+="{\"canonical\":\"${value}\",\"aliases\":[\"${key}\"]}"
+        fi
+    done
+
+    mappings+=']'
+    echo "$mappings"
+}
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -540,6 +703,46 @@ _os_get_templates_dir() {
     echo "$(cd "$script_dir/../skills" && pwd)"
 }
 
+# Map template name to skill directory path
+# Args:
+#   $1 - Template name (e.g., "TASK-EXECUTOR", "task-executor", "ct-task-executor")
+# Output: Full path to SKILL.md file
+# Returns: 0 on success, 1 if skill not found
+#
+# Uses _os_map_skill_name() for canonical name resolution, supporting:
+# - User-friendly names: "TASK-EXECUTOR", "RESEARCH-AGENT"
+# - Short aliases: "EXECUTOR", "RESEARCH", "BATS"
+# - Mixed case: "Task-Executor", "research-Agent"
+# - Already-normalized: "ct-task-executor"
+_os_resolve_template_path() {
+    local template_name="$1"
+    local templates_dir skill_name skill_path
+
+    templates_dir=$(_os_get_templates_dir)
+
+    # Use skill name mapping for canonical resolution
+    skill_name=$(_os_map_skill_name "$template_name")
+
+    # Primary path: skills/ct-{name}/SKILL.md
+    skill_path="${templates_dir}/${skill_name}/SKILL.md"
+
+    if [[ -f "$skill_path" ]]; then
+        echo "$skill_path"
+        return 0
+    fi
+
+    # Fallback: try without ct- prefix (legacy support)
+    local legacy_path="${templates_dir}/${skill_name#ct-}/SKILL.md"
+    if [[ -f "$legacy_path" ]]; then
+        echo "$legacy_path"
+        return 0
+    fi
+
+    # Not found - return empty and error
+    echo ""
+    return 1
+}
+
 # Get research output directory
 _os_get_research_output_dir() {
     local dir
@@ -790,13 +993,16 @@ orchestrator_get_manifest_summaries() {
 #   $2 - Template name (default: TASK-EXECUTOR)
 # Output: JSON with complete prompt ready for spawning
 # Returns: 0 on success, 4 if task/template not found
+#
+# Uses token-inject.sh for proper {{TOKEN}} substitution from placeholders.json
 orchestrator_build_prompt() {
     local task_id="$1"
     local template_name="${2:-TASK-EXECUTOR}"
-    local todo_file template_dir template_path
+    local todo_file template_path
     todo_file=$(_os_get_todo_file)
-    template_dir=$(_os_get_templates_dir)
-    template_path="${template_dir}/${template_name}.md"
+
+    # Resolve template path using skill directory mapping
+    template_path=$(_os_resolve_template_path "$template_name")
 
     # Verify task exists
     if [[ ! -f "$todo_file" ]]; then
@@ -814,9 +1020,13 @@ orchestrator_build_prompt() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Get task details
+    # Get task details as JSON (for ti_set_task_context)
+    local task_json
+    task_json=$(jq --arg task_id "$task_id" '{task: (.tasks[] | select(.id == $task_id))}' "$todo_file" 2>/dev/null)
+
+    # Extract task for null check
     local task
-    task=$(jq --arg task_id "$task_id" '.tasks[] | select(.id == $task_id)' "$todo_file" 2>/dev/null)
+    task=$(echo "$task_json" | jq '.task' 2>/dev/null)
 
     if [[ -z "$task" || "$task" == "null" ]]; then
         jq -n \
@@ -836,10 +1046,15 @@ orchestrator_build_prompt() {
     fi
 
     # Verify template exists
-    if [[ ! -f "$template_path" ]]; then
+    if [[ -z "$template_path" || ! -f "$template_path" ]]; then
+        local templates_dir expected_path
+        templates_dir=$(_os_get_templates_dir)
+        # Show expected path for debugging
+        expected_path="${templates_dir}/ct-$(echo "$template_name" | tr '[:upper:]' '[:lower:]' | tr '_' '-')/SKILL.md"
         jq -n \
             --arg template "$template_name" \
-            --arg path "$template_path" \
+            --arg expected "$expected_path" \
+            --arg templates_dir "$templates_dir" \
             '{
                 "_meta": {
                     "command": "orchestrator",
@@ -848,26 +1063,61 @@ orchestrator_build_prompt() {
                 "success": false,
                 "error": {
                     "code": "E_TEMPLATE_NOT_FOUND",
-                    "message": ("Template " + $template + " not found at " + $path)
+                    "message": ("Skill template " + $template + " not found"),
+                    "expectedPath": $expected,
+                    "hint": "Skill should be at skills/ct-{name}/SKILL.md"
                 }
             }'
         return "$EXIT_NOT_FOUND"
     fi
 
-    # Read template
+    # Read template content
     local template_content
     template_content=$(cat "$template_path")
 
-    # Get epic details
+    # =========================================================================
+    # TOKEN INJECTION SETUP (using token-inject.sh)
+    # =========================================================================
+
+    # Clear any previous token state
+    ti_clear_all
+
+    # Prepare context values
+    local date_today output_dir topic_slug
+    date_today=$(date +%Y-%m-%d)
+    output_dir=$(_os_get_research_output_dir)
+    topic_slug=$(echo "$task" | jq -r '.title | gsub("[^a-zA-Z0-9]+"; "-") | ascii_downcase | ltrimstr("-") | rtrimstr("-")')
+
+    # Set required context tokens via ti_set_context
+    ti_set_context "$task_id" "$date_today" "$topic_slug"
+
+    # Set defaults for CLEO commands (TASK_SHOW_CMD, TASK_FOCUS_CMD, etc.)
+    ti_set_defaults
+
+    # Set task context tokens from task JSON (TASK_TITLE, TASK_DESCRIPTION, etc.)
+    ti_set_task_context "$task_json"
+
+    # Get epic details for additional context
     local parent_id epic_title
     parent_id=$(echo "$task" | jq -r '.parentId // ""')
     if [[ -n "$parent_id" ]]; then
         epic_title=$(jq -r --arg pid "$parent_id" '.tasks[] | select(.id == $pid) | .title // "Unknown Epic"' "$todo_file" 2>/dev/null)
+        export TI_EPIC_ID="$parent_id"
     else
         epic_title="No Epic"
+        export TI_EPIC_ID=""
     fi
 
-    # Get manifest summaries for dependencies
+    # Get session info
+    local session_id
+    session_id=$(cat "$(get_cleo_dir)/.current-session" 2>/dev/null || echo "no-session")
+    export TI_SESSION_ID="$session_id"
+
+    # Set output directory
+    export TI_OUTPUT_DIR="$output_dir"
+    export TI_MANIFEST_PATH="${output_dir}/MANIFEST.jsonl"
+
+    # Get manifest summaries for dependencies (provides context from previous agents)
     local manifest_result summaries_text
     manifest_result=$(orchestrator_get_manifest_summaries "$task_id")
     summaries_text=$(echo "$manifest_result" | jq -r '
@@ -880,46 +1130,21 @@ orchestrator_build_prompt() {
             ] | join("\n\n")
         end
     ')
+    export TI_MANIFEST_SUMMARIES="$summaries_text"
 
-    # Get session info
-    local session_id
-    session_id=$(cat "$(get_cleo_dir)/.current-session" 2>/dev/null || echo "no-session")
+    # Extract next task IDs (tasks that become unblocked after this one)
+    ti_extract_next_task_ids "$task_id"
 
-    # Prepare variables for substitution
-    local date_today output_dir topic_slug
-    date_today=$(date +%Y-%m-%d)
-    output_dir=$(_os_get_research_output_dir)
-    topic_slug=$(echo "$task" | jq -r '.title | gsub("[^a-zA-Z0-9]+"; "-") | ascii_downcase | ltrimstr("-") | rtrimstr("-")')
+    # Set additional tokens not covered by ti_set_task_context
+    export TI_TITLE="$(echo "$task" | jq -r '.title')"
+    export TI_RESEARCH_ID="${topic_slug}-${date_today}"
 
-    # Get task fields
-    local task_title task_description task_depends
-    task_title=$(echo "$task" | jq -r '.title')
-    task_description=$(echo "$task" | jq -r '.description // "No description provided"')
-    task_depends=$(echo "$task" | jq -r '(.depends // []) | if length == 0 then "None" else join(", ") end')
+    # =========================================================================
+    # INJECT TOKENS INTO TEMPLATE
+    # =========================================================================
 
-    # Build substitution map and apply
-    local prompt_content="$template_content"
-    prompt_content="${prompt_content//\{TASK_ID\}/$task_id}"
-    prompt_content="${prompt_content//\{TASK_NAME\}/$topic_slug}"
-    prompt_content="${prompt_content//\{TASK_TITLE\}/$task_title}"
-    prompt_content="${prompt_content//\{EPIC_ID\}/$parent_id}"
-    prompt_content="${prompt_content//\{EPIC_TITLE\}/$epic_title}"
-    prompt_content="${prompt_content//\{SESSION_ID\}/$session_id}"
-    prompt_content="${prompt_content//\{DATE\}/$date_today}"
-    prompt_content="${prompt_content//\{OUTPUT_DIR\}/$output_dir}"
-    prompt_content="${prompt_content//\{TOPIC_SLUG\}/$topic_slug}"
-    prompt_content="${prompt_content//\{DEPENDS_LIST\}/$task_depends}"
-    prompt_content="${prompt_content//\{MANIFEST_SUMMARIES\}/$summaries_text}"
-    prompt_content="${prompt_content//\{TASK_INSTRUCTIONS\}/$task_description}"
-
-    # Provide empty defaults for optional placeholders
-    prompt_content="${prompt_content//\{DELIVERABLES_LIST\}/See task description}"
-    prompt_content="${prompt_content//\{ACCEPTANCE_CRITERIA\}/Task completion via cleo complete}"
-    prompt_content="${prompt_content//\{DESCRIPTIVE_TITLE\}/$task_title}"
-    prompt_content="${prompt_content//\{TOPICS_JSON\}/[\"$(echo "$topic_slug" | tr '-' '\n' | head -3 | tr '\n' ',' | sed 's/,$//' | sed 's/,/\",\"/g')\"]}"
-    prompt_content="${prompt_content//\{KEY_FINDINGS_JSON\}/[]}"
-    prompt_content="${prompt_content//\{ACTIONABLE\}/true}"
-    prompt_content="${prompt_content//\{NEEDS_FOLLOWUP_JSON\}/[]}"
+    local prompt_content
+    prompt_content=$(ti_inject_tokens "$template_content")
 
     # Output result
     jq -n \

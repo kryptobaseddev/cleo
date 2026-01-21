@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.7] - 2026-01-21
+
+### Fixed
+- **Injection Markers**: Remove version tracking from CLEO markers
+  - Markers now versionless: `<!-- CLEO:START -->` (no version number)
+  - Since markers use `@-references` to external files, version was meaningless
+  - Block presence = configured (no version comparison needed)
+  - Prevents unnecessary repeated updates and potential duplication
+  - Legacy versioned markers still recognized for backward compatibility
+  - Simplified `injection_check()` to verify block existence only
+  - Updated `setup-agents.sh`, installer, `session.sh`, `doctor.sh`
+
 ## [0.58.6] - 2026-01-20
 
 ### Fixed

@@ -29,8 +29,70 @@ find_cleo_dir() {
     echo ""
 }
 
+# Get config value from project config (lightweight for statusline performance)
+# Args: $1 = JSON path, $2 = default value
+get_config_value_simple() {
+    local path="$1"
+    local default="$2"
+    local config_file="${CLEO_DIR}/config.json"
+
+    if [[ ! -f "$config_file" ]]; then
+        echo "$default"
+        return 0
+    fi
+
+    local value
+    value=$(jq -r ".$path // \"$default\"" "$config_file" 2>/dev/null)
+    echo "$value"
+}
+
+# Get current session ID from .current-session file
+get_current_session_id() {
+    local session_file="${CLEO_DIR}/.current-session"
+    if [[ -f "$session_file" ]]; then
+        cat "$session_file" 2>/dev/null | tr -d '\n'
+    else
+        echo ""
+    fi
+}
+
+# Build the context state file path based on config and session
+# Returns: path to per-session state file, or singleton fallback
+get_context_state_path() {
+    local session_id
+    session_id=$(get_current_session_id)
+
+    # Get config values with defaults
+    local context_dir filename_pattern
+    context_dir=$(get_config_value_simple "contextStates.directory" ".cleo/context-states")
+    filename_pattern=$(get_config_value_simple "contextStates.filenamePattern" "context-state-{sessionId}.json")
+
+    # Resolve relative directory to project root
+    local project_root="${CLEO_DIR%/.cleo}"
+    local full_dir="${project_root}/${context_dir}"
+
+    # Create directory if needed
+    if [[ ! -d "$full_dir" ]]; then
+        mkdir -p "$full_dir" 2>/dev/null || true
+    fi
+
+    if [[ -n "$session_id" ]]; then
+        # Replace {sessionId} placeholder with actual session ID
+        local filename="${filename_pattern//\{sessionId\}/$session_id}"
+        echo "${full_dir}/${filename}"
+    else
+        # Fallback to singleton in .cleo directory (legacy behavior)
+        echo "${CLEO_DIR}/.context-state.json"
+    fi
+}
+
 CLEO_DIR="${CLEO_PROJECT_DIR:-$(find_cleo_dir)}"
-STATE_FILE="${CLEO_DIR:-.cleo}/.context-state.json"
+STATE_FILE=""
+if [[ -n "$CLEO_DIR" && -d "$CLEO_DIR" ]]; then
+    STATE_FILE=$(get_context_state_path)
+else
+    STATE_FILE="${CLEO_DIR:-.cleo}/.context-state.json"
+fi
 
 # Read JSON from stdin
 input=$(cat)
