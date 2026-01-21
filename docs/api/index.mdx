@@ -1,0 +1,56 @@
+---
+title: "API Reference"
+description: "Technical reference for CLEO schemas, exit codes, and output formats"
+icon: "code"
+---
+
+# API Reference
+
+Technical documentation for integrating with CLEO.
+
+<CardGroup cols={2}>
+  <Card title="Schemas" icon="database" href="/api/schemas">
+    JSON Schema definitions for all data structures
+  </Card>
+  <Card title="Exit Codes" icon="hashtag" href="/api/exit-codes">
+    CLI exit codes and error handling
+  </Card>
+  <Card title="Output Formats" icon="file-export" href="/api/output-formats">
+    JSON, CSV, and human-readable formats
+  </Card>
+  <Card title="Configuration" icon="gear" href="/api/configuration">
+    config.json reference
+  </Card>
+</CardGroup>
+
+## Data Files
+
+| File | Purpose |
+|------|---------|
+| `.cleo/todo.json` | Active tasks |
+| `.cleo/todo-archive.json` | Completed tasks |
+| `.cleo/config.json` | Configuration |
+| `.cleo/todo-log.json` | Audit trail |
+| `.cleo/sessions.json` | Session state |
+
+## JSON Output
+
+All commands output JSON when piped:
+
+```bash
+cleo list | jq '.tasks[0]'
+```
+
+Response envelope:
+```json
+{
+  "$schema": "...",
+  "_meta": { "command": "list", "version": "0.60.0" },
+  "success": true,
+  "tasks": [...]
+}
+```
+
+<Warning>
+Never edit `.cleo/*.json` files directly. Use CLI commands only.
+</Warning>

@@ -64,7 +64,7 @@
           {
             "group": "Introduction",
             "pages": [
-              "getting-started/introduction",
+              "getting-started/index",
               "getting-started/quickstart",
               "getting-started/installation"
             ]
@@ -91,6 +91,12 @@
         "tab": "Guides",
         "groups": [
           {
+            "group": "Overview",
+            "pages": [
+              "guides/index"
+            ]
+          },
+          {
             "group": "Core Workflows",
             "pages": [
               "guides/project-management",
@@ -111,6 +117,12 @@
       {
         "tab": "Commands",
         "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "commands/index"
+            ]
+          },
           {
             "group": "Task Management",
             "pages": [
@@ -208,6 +220,12 @@
         "tab": "Concepts",
         "groups": [
           {
+            "group": "Overview",
+            "pages": [
+              "concepts/index"
+            ]
+          },
+          {
             "group": "Architecture",
             "pages": [
               "concepts/architecture",
@@ -220,6 +238,12 @@
       {
         "tab": "API",
         "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/index"
+            ]
+          },
           {
             "group": "Reference",
             "pages": [
@@ -237,7 +261,7 @@
           {
             "group": "Overview",
             "pages": [
-              "skills/overview",
+              "skills/index",
               "skills/installation"
             ]
           },

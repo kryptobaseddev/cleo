@@ -1,0 +1,44 @@
+---
+title: "Guides"
+description: "In-depth guides for CLEO workflows and advanced features"
+icon: "book"
+---
+
+# Guides
+
+Comprehensive guides for mastering CLEO workflows.
+
+<CardGroup cols={2}>
+  <Card title="Project Management" icon="folder" href="/guides/project-management">
+    Organize work with tasks, phases, and labels
+  </Card>
+  <Card title="Sessions" icon="clock" href="/guides/sessions">
+    Multi-session workflows for complex projects
+  </Card>
+  <Card title="Context Monitoring" icon="eye" href="/guides/context-monitoring">
+    Track and manage AI context usage
+  </Card>
+  <Card title="Multi-Agent" icon="users" href="/guides/multi-agent">
+    Coordinate multiple AI agents
+  </Card>
+</CardGroup>
+
+## Core Workflows
+
+### Daily Task Management
+1. Start session: `cleo session start --auto-focus`
+2. Check dashboard: `cleo dash`
+3. Work on focused task
+4. Complete and move: `cleo complete T001 && cleo focus set T002`
+5. End session: `cleo session end`
+
+### Advanced Workflows
+
+<CardGroup cols={2}>
+  <Card title="Orchestrator" icon="sitemap" href="/guides/orchestrator">
+    Multi-agent coordination patterns
+  </Card>
+  <Card title="TodoWrite Sync" icon="sync" href="/guides/todowrite-sync">
+    Sync with Claude Code's TodoWrite
+  </Card>
+</CardGroup>
