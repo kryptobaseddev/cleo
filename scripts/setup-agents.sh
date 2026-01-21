@@ -33,7 +33,6 @@ source "$LIB_DIR/flags.sh"
 # ==============================================================================
 
 AGENT_CONFIGS_REGISTRY="$CLEO_HOME/agent-configs.json"
-CLI_VERSION="${CLEO_VERSION:-0.50.2}"
 
 # Parse command-line flags
 DRY_RUN=false
@@ -115,13 +114,6 @@ skipped_count=0
 updated_count=0
 no_change_count=0
 
-# Get CLI version (fallback to reading from VERSION file if not set)
-if [[ -f "$CLEO_HOME/VERSION" ]]; then
-    CLI_VERSION=$(cat "$CLEO_HOME/VERSION")
-elif [[ -f "$SCRIPT_DIR/../VERSION" ]]; then
-    CLI_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
-fi
-
 # Agent types to check
 agent_types=("claude" "gemini" "codex" "kimi")
 
@@ -131,9 +123,8 @@ if [[ "$DRY_RUN" == true ]]; then
     for agent_name in "${agent_types[@]}"; do
         if is_agent_cli_installed "$agent_name"; then
             config_path=$(get_agent_config_path "$agent_name")
-            current_version=$(get_agent_config_version "$config_path" 2>/dev/null || echo "")
-            if [[ -n "$current_version" ]]; then
-                echo "  ↻ $config_path (v$current_version → v$CLI_VERSION)"
+            if injection_has_block "$config_path" 2>/dev/null; then
+                echo "  ✓ $config_path (already configured)"
             else
                 echo "  📝 $config_path (new setup)"
             fi
@@ -160,26 +151,21 @@ for agent_name in "${agent_types[@]}"; do
     # Ensure agent directory exists
     mkdir -p "$config_dir"
 
-    # Get current version from file
-    current_version=$(get_agent_config_version "$config_path" 2>/dev/null || echo "")
-
-    # Version-aware behavior
-    needs_update=false
-    if [[ -f "$config_path" ]] && [[ -n "$current_version" ]]; then
-        if [[ "$current_version" == "$CLI_VERSION" ]] && [[ "$FORCE" != true ]] && [[ "$UPDATE" != true ]]; then
-            echo "✓ $agent_name/$config_file: Already current (v$current_version)"
+    # Check if block already exists (version is irrelevant - content is external)
+    if [[ -f "$config_path" ]] && injection_has_block "$config_path"; then
+        if [[ "$FORCE" != true ]] && [[ "$UPDATE" != true ]]; then
+            echo "✓ $agent_name/$config_file: Already configured"
             : $((no_change_count++))
             continue
-        elif [[ "$current_version" != "$CLI_VERSION" ]]; then
-            echo "↻ $agent_name/$config_file: Updating v$current_version → v$CLI_VERSION"
-            needs_update=true
+        else
+            echo "↻ $agent_name/$config_file: Refreshing markers"
         fi
     else
         echo "📝 $agent_name/$config_file: Initial setup"
     fi
 
-    # Create @ reference block (NOT full content)
-    versioned_content="<!-- CLEO:START v${CLI_VERSION} -->
+    # Create @ reference block (NO version - content is external, always current)
+    injection_content="<!-- CLEO:START -->
 # Task Management
 @~/.cleo/docs/TODO_Task_Management.md
 <!-- CLEO:END -->"
@@ -187,10 +173,11 @@ for agent_name in "${agent_types[@]}"; do
     # Create or update file with marker-based injection
     if [[ ! -f "$config_path" ]]; then
         # Create new file
-        echo "$versioned_content" > "$config_path"
+        echo "$injection_content" > "$config_path"
         action="created"
+        : $((configured_count++))
     elif injection_has_block "$config_path"; then
-        # Update existing block
+        # Update existing block (strip old markers, add new)
         temp_file="${config_path}.tmp"
 
         # Extract content before and after markers
@@ -200,12 +187,13 @@ for agent_name in "${agent_types[@]}"; do
         # Reconstruct file
         {
             [[ -n "$before" ]] && echo "$before"
-            echo "$versioned_content"
+            echo "$injection_content"
             [[ -n "$after" ]] && echo "$after"
         } > "$temp_file"
 
         mv "$temp_file" "$config_path"
         action="updated"
+        : $((updated_count++))
     elif [[ "$MIGRATE_LEGACY" == true ]]; then
         # Migrate old append-style config to marker-based
         backup_path="${config_path}.pre-migration-$(date +%Y%m%d-%H%M%S)"
@@ -219,35 +207,25 @@ for agent_name in "${agent_types[@]}"; do
         {
             echo "$user_content"
             echo ""
-            echo "$versioned_content"
+            echo "$injection_content"
         } > "${config_path}.tmp"
         mv "${config_path}.tmp" "$config_path"
         action="migrated"
         echo "↻ Converted legacy append-style to marker-based injection"
+        : $((configured_count++))
     else
         # Prepend to existing file (user content comes AFTER)
         {
-            echo "$versioned_content"
+            echo "$injection_content"
             echo ""
             cat "$config_path"
         } > "${config_path}.tmp"
         mv "${config_path}.tmp" "$config_path"
         action="prepended"
-    fi
-
-    # Update registry
-    if update_agent_config_registry "$config_path" "$CLI_VERSION"; then
-        if [[ "$needs_update" == true ]]; then
-            echo "✅ $agent_name/$config_file: Updated to v$CLI_VERSION"
-            : $((updated_count++))
-        else
-            echo "✅ $agent_name/$config_file: Configured (v$CLI_VERSION)"
-            : $((configured_count++))
-        fi
-    else
-        echo "⚠️  $agent_name/$config_file: Configured but registry update failed" >&2
         : $((configured_count++))
     fi
+
+    echo "✅ $agent_name/$config_file: Done ($action)"
 done
 
 # ==============================================================================
@@ -258,10 +236,11 @@ echo ""
 echo "✅ Agent config setup complete!"
 echo "   Configured: $configured_count agents"
 echo "   Updated: $updated_count agents"
-echo "   Already current: $no_change_count agents"
+echo "   Already configured: $no_change_count agents"
 echo "   Skipped: $skipped_count agents (CLI not installed)"
 echo ""
 echo "These configs reference: @~/.cleo/docs/TODO_Task_Management.md"
+echo "(No version tracking - external file always has current content)"
 
 # Exit with appropriate code
 total_changes=$((configured_count + updated_count))

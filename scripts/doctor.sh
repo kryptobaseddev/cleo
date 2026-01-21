@@ -322,20 +322,13 @@ run_project_registry_validation() {
                     continue
                 fi
 
-                # Check if injection markers present
+                # Check if injection markers present (no version check - content is external)
                 if ! grep -q "<!-- CLEO:START" "$agent_path" 2>/dev/null; then
                     injection_outdated+=("$agent_file")
                     continue
                 fi
 
-                # Extract version from marker (<!-- CLEO:START v0.50.2 -->)
-                local injected_version
-                injected_version=$(grep "<!-- CLEO:START" "$agent_path" | sed -n 's/.*CLEO:START v\([0-9.]*\).*/\1/p' 2>/dev/null || echo "")
-
-                # Compare versions
-                if [[ -z "$injected_version" || "$injected_version" != "$current_cli_version" ]]; then
-                    injection_outdated+=("$agent_file")
-                fi
+                # Block exists - considered configured (version is irrelevant since content is external)
             done
 
             if [[ ${#injection_outdated[@]} -gt 0 ]]; then

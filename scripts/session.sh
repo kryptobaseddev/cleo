@@ -176,6 +176,8 @@ Commands:
   switch        Switch to different session (multi-session)
   archive       Archive an ended/suspended session (multi-session)
   cleanup       Remove stale sessions (empty scope, old ended)
+  gc            Garbage collect session artifacts (multi-session)
+  doctor        Diagnose session binding and state issues
 
 Single-Session Options:
   --note TEXT       Add a note when ending session
@@ -231,6 +233,9 @@ Examples (Multi-Session):
   cleo session close session_20251227_... # Close when all tasks done
   cleo session archive session_20251227_... # Archive ended session
   cleo session archive --reason "Project complete"
+  cleo session gc --dry-run              # Preview garbage collection
+  cleo session gc --verbose              # Run GC with detailed output
+  cleo session doctor                    # Diagnose session issues
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -630,15 +635,11 @@ cmd_start() {
     check_context_alert || true
   fi
 
-  # Check if CLAUDE.md injection is outdated
-  if [[ -f "CLAUDE.md" ]] && [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
-    local current_version installed_version
-    current_version=$(grep -oP 'CLEO:START v\K[0-9.]+' CLAUDE.md 2>/dev/null || echo "")
-    installed_version=$(grep -oP 'CLEO:START v\K[0-9.]+' "$CLEO_HOME/templates/AGENT-INJECTION.md" 2>/dev/null || echo "")
-
-    if [[ -n "$installed_version" ]] && [[ "$current_version" != "$installed_version" ]]; then
-      log_warn "CLAUDE.md injection outdated (${current_version:-unknown} → $installed_version)"
-      log_warn "Run: cleo upgrade"
+  # Check if CLAUDE.md has CLEO injection (no version check - content is external)
+  if [[ -f "CLAUDE.md" ]]; then
+    if ! grep -q "<!-- CLEO:START" CLAUDE.md 2>/dev/null; then
+      log_warn "CLAUDE.md missing CLEO injection"
+      log_warn "Run: cleo init"
     fi
   fi
 }
@@ -651,6 +652,18 @@ cmd_start_multi_session() {
   local agent_id="$4"
   local auto_focus="$5"
   local phase_filter="$6"
+
+  # Check for existing TTY binding conflict (T1794)
+  if declare -f get_tty_bound_session >/dev/null 2>&1; then
+    local existing_binding
+    existing_binding=$(get_tty_bound_session 2>/dev/null || true)
+    if [[ -n "$existing_binding" ]]; then
+      log_warn "This terminal is already bound to session: $existing_binding"
+      log_info "  To use that session: commands will auto-resolve to it"
+      log_info "  To switch: cleo session switch <new-session-id>"
+      log_info "  Starting new session will rebind this terminal..."
+    fi
+  fi
 
   # Parse scope string into JSON
   local scope_def
@@ -743,6 +756,14 @@ cmd_start_multi_session() {
     auto_bind_session "$session_id"
   fi
 
+  # TTY-based binding for multi-terminal isolation (T1788)
+  local tty_bound=false
+  if declare -f bind_session_to_tty >/dev/null 2>&1; then
+    if bind_session_to_tty "$session_id" 2>/dev/null; then
+      tty_bound=true
+    fi
+  fi
+
   # Get CLEO_DIR for binding output
   local cleo_dir
   if declare -f get_cleo_dir >/dev/null 2>&1; then
@@ -764,6 +785,7 @@ cmd_start_multi_session() {
       --arg agent "$agent_id" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
       --arg bindFile "${cleo_dir}/.current-session" \
+      --argjson ttyBound "$tty_bound" \
       '{
         "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
@@ -781,7 +803,8 @@ cmd_start_multi_session() {
         "binding": {
           "file": $bindFile,
           "envVar": "CLEO_SESSION",
-          "export": ("export CLEO_SESSION=" + $sid)
+          "export": ("export CLEO_SESSION=" + $sid),
+          "ttyBound": $ttyBound
         },
         "hint": "Session context auto-bound. All subsequent commands will use this session."
       }'
@@ -790,6 +813,9 @@ cmd_start_multi_session() {
     log_info "Scope: $scope_str"
     log_info "Focus: $focus_task"
     [[ -n "$session_name" ]] && log_info "Name: $session_name"
+    if [[ "$tty_bound" == "true" ]]; then
+      log_info "Session bound to terminal (TTY)"
+    fi
     log_info "Session bound to: ${cleo_dir}/.current-session"
     log_info "Or set: export CLEO_SESSION=$session_id"
   fi
@@ -931,6 +957,11 @@ cmd_end() {
       local end_exit=$?
       log_error "Failed to end session" "E_SESSION_END_FAILED" "$end_exit"
       exit "$end_exit"
+    fi
+
+    # Clear TTY binding for this session (T1788)
+    if declare -f clear_session_tty_bindings >/dev/null 2>&1; then
+      clear_session_tty_bindings "$current_session"
     fi
 
     # Clear .current-session binding
@@ -1366,6 +1397,18 @@ cmd_resume() {
   if resume_session "$session_id"; then
     log_step "Session resumed: $session_id"
 
+    # Bind resumed session to current TTY (T1788)
+    if declare -f bind_session_to_tty >/dev/null 2>&1; then
+      if bind_session_to_tty "$session_id" 2>/dev/null; then
+        log_info "Session bound to terminal"
+      fi
+    fi
+
+    # Also update .current-session for compatibility
+    if declare -f auto_bind_session >/dev/null 2>&1; then
+      auto_bind_session "$session_id"
+    fi
+
     # Show session info
     local session_info
     session_info=$(get_session "$session_id")
@@ -1375,6 +1418,7 @@ cmd_resume() {
 
     [[ -n "$session_name" ]] && log_info "Name: $session_name"
     [[ -n "$focus_task" ]] && log_info "Focus: $focus_task"
+    log_info "Or set: export CLEO_SESSION=$session_id"
   else
     resume_exit_code=$?
     # Library function already output structured error via output_error_actionable
@@ -1869,10 +1913,17 @@ cmd_switch() {
     exit "$EXIT_SUCCESS"
   fi
 
+  # Update TTY binding to new session (T1788)
+  if declare -f bind_session_to_tty >/dev/null 2>&1; then
+    bind_session_to_tty "$session_id" 2>/dev/null || true
+  fi
+
+  # Also update .current-session for compatibility
   echo "$session_id" > "$current_session_file"
 
   log_step "Switched to session: $session_id"
-  log_info "Set CLEO_SESSION=$session_id in your environment for persistent context"
+  log_info "Session bound to terminal"
+  log_info "Or set: export CLEO_SESSION=$session_id"
 
   # Show session info
   local focus_task session_name status
@@ -2008,6 +2059,522 @@ cmd_cleanup() {
   fi
 }
 
+# Garbage collection - comprehensive cleanup of session artifacts
+# Handles: archived sessions, stale TTY bindings, orphaned context states
+# Usage: cleo session gc [--dry-run] [--force] [--verbose]
+cmd_gc() {
+  local format_arg=""
+  local dry_run=false
+  local force=false
+  local verbose=false
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -f|--format) format_arg="$2"; shift 2 ;;
+      --json) format_arg="json"; shift ;;
+      --human) format_arg="human"; shift ;;
+      --dry-run) dry_run=true; shift ;;
+      --force) force=true; shift ;;
+      --verbose|-v) verbose=true; shift ;;
+      -q|--quiet) QUIET=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  local output_format
+  output_format=$(resolve_format "$format_arg")
+
+  if ! is_multi_session_enabled "$CONFIG_FILE" 2>/dev/null; then
+    log_error "Multi-session mode not enabled" "E_CONFIG_ERROR" 8 "Enable with: cleo config set multiSession.enabled true"
+    exit 8
+  fi
+
+  local sessions_file
+  sessions_file=$(get_sessions_file 2>/dev/null || echo ".cleo/sessions.json")
+
+  local cleo_dir
+  cleo_dir="$(get_cleo_dir 2>/dev/null || echo '.cleo')"
+
+  local timestamp
+  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Track cleanup results
+  local archived_removed=0
+  local stale_bindings_removed=0
+  local orphaned_context_removed=0
+  local total_bytes_freed=0
+  local removed_items=()
+
+  # Get retention settings from config
+  local retention_days
+  retention_days=$(get_config_value "retention.sessions.archivedRetentionDays" "90" 2>/dev/null || echo "90")
+  local max_archived
+  max_archived=$(get_config_value "retention.sessions.maxArchivedSessions" "100" 2>/dev/null || echo "100")
+
+  # 1. Remove old archived sessions beyond retention period
+  if [[ -f "$sessions_file" ]]; then
+    local cutoff_date
+    # Calculate cutoff date (retention_days ago)
+    if date --version >/dev/null 2>&1; then
+      cutoff_date=$(date -d "$retention_days days ago" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+    else
+      cutoff_date=$(date -v-"${retention_days}"d -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+    fi
+
+    if [[ -n "$cutoff_date" ]]; then
+      # Find archived sessions older than cutoff
+      while IFS= read -r sid; do
+        if [[ -n "$sid" ]]; then
+          if [[ "$dry_run" != "true" ]]; then
+            jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+          fi
+          ((archived_removed++))
+          removed_items+=("archived:$sid")
+        fi
+      done < <(jq -r --arg cutoff "$cutoff_date" '.sessions[] | select(.status == "archived" and .archivedAt < $cutoff) | .id' "$sessions_file" 2>/dev/null)
+    fi
+
+    # Enforce max archived sessions limit
+    local current_archived_count
+    current_archived_count=$(jq '[.sessions[] | select(.status == "archived")] | length' "$sessions_file" 2>/dev/null || echo "0")
+    if [[ "$current_archived_count" -gt "$max_archived" ]]; then
+      local excess=$((current_archived_count - max_archived))
+      # Remove oldest archived sessions
+      while IFS= read -r sid; do
+        if [[ -n "$sid" ]] && [[ $excess -gt 0 ]]; then
+          if [[ "$dry_run" != "true" ]]; then
+            jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+          fi
+          ((archived_removed++))
+          ((excess--))
+          removed_items+=("archived-excess:$sid")
+        fi
+      done < <(jq -r '[.sessions[] | select(.status == "archived")] | sort_by(.archivedAt) | .[].id' "$sessions_file" 2>/dev/null | head -n "$excess")
+    fi
+  fi
+
+  # 2. Clean up stale TTY bindings
+  local binding_dir
+  binding_dir="$(get_tty_bindings_dir 2>/dev/null || echo "${cleo_dir}/tty-bindings")"
+  if [[ -d "$binding_dir" ]]; then
+    local max_age_hours
+    max_age_hours=$(get_config_value "multiSession.ttyBinding.maxAgeHours" "168" 2>/dev/null || echo "168")
+
+    for binding_file in "$binding_dir"/tty-*; do
+      [[ -f "$binding_file" ]] || continue
+
+      # Check if binding is stale
+      if ! check_binding_staleness "$binding_file" "$max_age_hours" 2>/dev/null; then
+        local file_size
+        file_size=$(stat -f%z "$binding_file" 2>/dev/null || stat -c%s "$binding_file" 2>/dev/null || echo "0")
+        total_bytes_freed=$((total_bytes_freed + file_size))
+
+        if [[ "$dry_run" != "true" ]]; then
+          rm -f "$binding_file"
+        fi
+        ((stale_bindings_removed++))
+        removed_items+=("tty-binding:$(basename "$binding_file")")
+      fi
+
+      # Also check if bound session still exists
+      local bound_session
+      bound_session=$(jq -r '.sessionId // empty' "$binding_file" 2>/dev/null)
+      if [[ -n "$bound_session" ]] && [[ -f "$sessions_file" ]]; then
+        local session_exists
+        session_exists=$(jq -r --arg sid "$bound_session" '.sessions[] | select(.id == $sid) | .id' "$sessions_file" 2>/dev/null)
+        if [[ -z "$session_exists" ]]; then
+          local file_size
+          file_size=$(stat -f%z "$binding_file" 2>/dev/null || stat -c%s "$binding_file" 2>/dev/null || echo "0")
+          total_bytes_freed=$((total_bytes_freed + file_size))
+
+          if [[ "$dry_run" != "true" ]]; then
+            rm -f "$binding_file"
+          fi
+          ((stale_bindings_removed++))
+          removed_items+=("orphan-binding:$(basename "$binding_file")")
+        fi
+      fi
+    done
+  fi
+
+  # 3. Clean up orphaned context state files
+  if declare -f cleanup_orphaned_context_states >/dev/null 2>&1; then
+    local orphan_result
+    if [[ "$dry_run" == "true" ]]; then
+      orphan_result=$(cleanup_orphaned_context_states "true" 2>/dev/null)
+      # Parse "would delete X of Y" format
+      orphaned_context_removed=$(echo "$orphan_result" | grep -oE '[0-9]+' | head -1 || echo "0")
+    else
+      orphaned_context_removed=$(cleanup_orphaned_context_states "false" 2>/dev/null || echo "0")
+    fi
+  fi
+
+  # Build output
+  local total_removed=$((archived_removed + stale_bindings_removed + orphaned_context_removed))
+
+  if [[ "$output_format" == "json" ]]; then
+    local version
+    version="${CLEO_VERSION:-$(get_version 2>/dev/null || echo 'unknown')}"
+
+    jq -nc \
+      --arg ts "$timestamp" \
+      --arg version "$version" \
+      --argjson dryRun "$dry_run" \
+      --argjson archived "$archived_removed" \
+      --argjson bindings "$stale_bindings_removed" \
+      --argjson contexts "$orphaned_context_removed" \
+      --argjson total "$total_removed" \
+      --argjson bytes "$total_bytes_freed" \
+      --argjson items "$(printf '%s\n' "${removed_items[@]}" 2>/dev/null | jq -R . | jq -s . 2>/dev/null || echo '[]')" \
+      '{
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+        "_meta": {
+          "format": "json",
+          "command": "session gc",
+          "timestamp": $ts,
+          "version": $version
+        },
+        "success": true,
+        "dryRun": $dryRun,
+        "summary": {
+          "archivedSessionsRemoved": $archived,
+          "staleBindingsRemoved": $bindings,
+          "orphanedContextStatesRemoved": $contexts,
+          "totalItemsRemoved": $total,
+          "bytesFreed": $bytes
+        },
+        "items": $items
+      }'
+  else
+    if [[ "$dry_run" == "true" ]]; then
+      echo "Session GC (dry-run mode)"
+      echo "========================="
+    else
+      echo "Session GC Complete"
+      echo "==================="
+    fi
+    echo ""
+    echo "Archived sessions removed: $archived_removed"
+    echo "Stale TTY bindings removed: $stale_bindings_removed"
+    echo "Orphaned context states removed: $orphaned_context_removed"
+    echo "─────────────────────────────────"
+    echo "Total items cleaned: $total_removed"
+
+    if [[ "$verbose" == "true" ]] && [[ ${#removed_items[@]} -gt 0 ]]; then
+      echo ""
+      echo "Details:"
+      for item in "${removed_items[@]}"; do
+        echo "  - $item"
+      done
+    fi
+
+    if [[ "$dry_run" == "true" ]]; then
+      echo ""
+      echo "(use without --dry-run to actually remove)"
+    fi
+  fi
+}
+
+# Session diagnostics - troubleshooting command
+# Shows: resolution chain, binding status, session counts, conflicts
+# Usage: cleo session doctor [--verbose]
+cmd_doctor() {
+  local format_arg=""
+  local verbose=false
+
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -f|--format) format_arg="$2"; shift 2 ;;
+      --json) format_arg="json"; shift ;;
+      --human) format_arg="human"; shift ;;
+      --verbose|-v) verbose=true; shift ;;
+      -q|--quiet) QUIET=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  local output_format
+  output_format=$(resolve_format "$format_arg")
+
+  local cleo_dir
+  cleo_dir="$(get_cleo_dir 2>/dev/null || echo '.cleo')"
+
+  local sessions_file
+  sessions_file=$(get_sessions_file 2>/dev/null || echo "${cleo_dir}/sessions.json")
+
+  local timestamp
+  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Gather diagnostic data
+  local multi_session_enabled=false
+  if is_multi_session_enabled "$CONFIG_FILE" 2>/dev/null; then
+    multi_session_enabled=true
+  fi
+
+  # Resolution chain components
+  local session_flag=""  # Would be passed via --session (not available in doctor)
+  local cleo_session_env="${CLEO_SESSION:-}"
+  local tty_binding=""
+  local current_session_file="${cleo_dir}/.current-session"
+  local current_session_binding=""
+  local resolved_session=""
+  local resolution_source=""
+
+  # Get TTY binding
+  if declare -f get_tty_bound_session >/dev/null 2>&1; then
+    tty_binding=$(get_tty_bound_session 2>/dev/null || echo "")
+  fi
+
+  # Get .current-session file content
+  if [[ -f "$current_session_file" ]]; then
+    current_session_binding=$(cat "$current_session_file" 2>/dev/null | tr -d '[:space:]')
+  fi
+
+  # Determine resolved session via priority
+  if [[ -n "$cleo_session_env" ]]; then
+    resolved_session="$cleo_session_env"
+    resolution_source="CLEO_SESSION"
+  elif [[ -n "$tty_binding" ]]; then
+    resolved_session="$tty_binding"
+    resolution_source="TTY binding"
+  elif [[ -n "$current_session_binding" ]]; then
+    resolved_session="$current_session_binding"
+    resolution_source=".current-session"
+  fi
+
+  # Session counts
+  local active_count=0
+  local suspended_count=0
+  local ended_count=0
+  local archived_count=0
+  local total_sessions=0
+
+  if [[ -f "$sessions_file" ]]; then
+    active_count=$(jq '[.sessions[] | select(.status == "active")] | length' "$sessions_file" 2>/dev/null || echo "0")
+    suspended_count=$(jq '[.sessions[] | select(.status == "suspended")] | length' "$sessions_file" 2>/dev/null || echo "0")
+    ended_count=$(jq '[.sessions[] | select(.status == "ended")] | length' "$sessions_file" 2>/dev/null || echo "0")
+    archived_count=$(jq '[.sessions[] | select(.status == "archived")] | length' "$sessions_file" 2>/dev/null || echo "0")
+    total_sessions=$(jq '.sessions | length' "$sessions_file" 2>/dev/null || echo "0")
+  fi
+
+  # Context state files
+  local context_states_dir
+  context_states_dir=$(get_config_value "contextStates.directory" ".cleo/context-states" 2>/dev/null || echo ".cleo/context-states")
+  local project_root="${cleo_dir%/.cleo}"
+  local full_context_dir="${project_root}/${context_states_dir}"
+
+  local context_state_count=0
+  local orphaned_context_count=0
+
+  if [[ -d "$full_context_dir" ]]; then
+    context_state_count=$(find "$full_context_dir" -name "context-state-*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+
+  # Count orphaned context states
+  if [[ -f "$sessions_file" ]] && [[ -d "$full_context_dir" ]]; then
+    local all_session_ids
+    all_session_ids=$(jq -r '([.sessions[].id] + [.sessionHistory[].id]) | unique | .[]' "$sessions_file" 2>/dev/null)
+
+    for ctx_file in "$full_context_dir"/context-state-*.json; do
+      [[ -f "$ctx_file" ]] || continue
+      local ctx_session_id
+      ctx_session_id=$(basename "$ctx_file" | sed 's/^context-state-//; s/\.json$//')
+      if ! echo "$all_session_ids" | grep -qF "$ctx_session_id"; then
+        ((orphaned_context_count++))
+      fi
+    done
+  fi
+
+  # TTY binding count
+  local binding_dir
+  binding_dir="$(get_tty_bindings_dir 2>/dev/null || echo "${cleo_dir}/tty-bindings")"
+  local tty_binding_count=0
+  local stale_binding_count=0
+
+  if [[ -d "$binding_dir" ]]; then
+    tty_binding_count=$(find "$binding_dir" -name "tty-*" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+    # Check for stale bindings
+    local max_age_hours
+    max_age_hours=$(get_config_value "multiSession.ttyBinding.maxAgeHours" "168" 2>/dev/null || echo "168")
+    for bf in "$binding_dir"/tty-*; do
+      [[ -f "$bf" ]] || continue
+      if ! check_binding_staleness "$bf" "$max_age_hours" 2>/dev/null; then
+        ((stale_binding_count++))
+      fi
+    done
+  fi
+
+  # Check for conflicts
+  local warnings=()
+  local conflict_detected=false
+
+  # Conflict: CLEO_SESSION vs TTY binding
+  if [[ -n "$cleo_session_env" ]] && [[ -n "$tty_binding" ]] && [[ "$cleo_session_env" != "$tty_binding" ]]; then
+    warnings+=("CLEO_SESSION ($cleo_session_env) conflicts with TTY binding ($tty_binding)")
+    conflict_detected=true
+  fi
+
+  # Conflict: TTY binding vs .current-session
+  if [[ -n "$tty_binding" ]] && [[ -n "$current_session_binding" ]] && [[ "$tty_binding" != "$current_session_binding" ]]; then
+    warnings+=("TTY binding ($tty_binding) differs from .current-session ($current_session_binding)")
+  fi
+
+  # Check if resolved session is valid
+  if [[ -n "$resolved_session" ]] && [[ -f "$sessions_file" ]]; then
+    local session_status
+    session_status=$(jq -r --arg sid "$resolved_session" '.sessions[] | select(.id == $sid) | .status' "$sessions_file" 2>/dev/null)
+    if [[ -z "$session_status" ]]; then
+      warnings+=("Resolved session ($resolved_session) not found in sessions.json")
+    elif [[ "$session_status" == "archived" ]]; then
+      warnings+=("Resolved session ($resolved_session) is archived and cannot be used")
+    elif [[ "$session_status" == "ended" ]]; then
+      warnings+=("Resolved session ($resolved_session) is ended - consider resuming it")
+    fi
+  fi
+
+  # Orphaned context files warning
+  if [[ "$orphaned_context_count" -gt 0 ]]; then
+    warnings+=("$orphaned_context_count orphaned context state file(s) found")
+  fi
+
+  # Stale bindings warning
+  if [[ "$stale_binding_count" -gt 0 ]]; then
+    warnings+=("$stale_binding_count stale TTY binding(s) found")
+  fi
+
+  if [[ "$output_format" == "json" ]]; then
+    local version
+    version="${CLEO_VERSION:-$(get_version 2>/dev/null || echo 'unknown')}"
+
+    local warnings_json
+    warnings_json=$(printf '%s\n' "${warnings[@]}" 2>/dev/null | jq -R . | jq -s . 2>/dev/null || echo '[]')
+
+    jq -nc \
+      --arg ts "$timestamp" \
+      --arg version "$version" \
+      --argjson multiSession "$multi_session_enabled" \
+      --arg cleoSession "$cleo_session_env" \
+      --arg ttyBinding "$tty_binding" \
+      --arg currentSession "$current_session_binding" \
+      --arg resolved "$resolved_session" \
+      --arg source "$resolution_source" \
+      --argjson active "$active_count" \
+      --argjson suspended "$suspended_count" \
+      --argjson ended "$ended_count" \
+      --argjson archived "$archived_count" \
+      --argjson total "$total_sessions" \
+      --argjson contextStates "$context_state_count" \
+      --argjson orphanedContexts "$orphaned_context_count" \
+      --argjson ttyBindings "$tty_binding_count" \
+      --argjson staleBindings "$stale_binding_count" \
+      --argjson conflict "$conflict_detected" \
+      --argjson warnings "$warnings_json" \
+      '{
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+        "_meta": {
+          "format": "json",
+          "command": "session doctor",
+          "timestamp": $ts,
+          "version": $version
+        },
+        "success": true,
+        "multiSessionEnabled": $multiSession,
+        "resolution": {
+          "CLEO_SESSION": (if $cleoSession == "" then null else $cleoSession end),
+          "ttyBinding": (if $ttyBinding == "" then null else $ttyBinding end),
+          "currentSessionFile": (if $currentSession == "" then null else $currentSession end),
+          "resolved": (if $resolved == "" then null else $resolved end),
+          "source": (if $source == "" then null else $source end)
+        },
+        "counts": {
+          "active": $active,
+          "suspended": $suspended,
+          "ended": $ended,
+          "archived": $archived,
+          "total": $total
+        },
+        "contextStates": {
+          "perSession": $contextStates,
+          "orphaned": $orphanedContexts
+        },
+        "ttyBindings": {
+          "total": $ttyBindings,
+          "stale": $staleBindings
+        },
+        "conflict": $conflict,
+        "warnings": $warnings
+      }'
+  else
+    echo ""
+    echo "Session Diagnostics"
+    echo "==================="
+    echo ""
+
+    if [[ "$multi_session_enabled" == "true" ]]; then
+      echo "Multi-Session Mode: ENABLED"
+    else
+      echo "Multi-Session Mode: DISABLED"
+    fi
+    echo ""
+
+    echo "Resolution Chain:"
+    echo "  --session flag:     (not used in doctor)"
+    if [[ -n "$cleo_session_env" ]]; then
+      echo "  CLEO_SESSION:       $cleo_session_env"
+    else
+      echo "  CLEO_SESSION:       (not set)"
+    fi
+    if [[ -n "$tty_binding" ]]; then
+      echo "  TTY binding:        $tty_binding"
+    else
+      echo "  TTY binding:        (not bound)"
+    fi
+    if [[ -n "$current_session_binding" ]]; then
+      echo "  .current-session:   $current_session_binding"
+    else
+      echo "  .current-session:   (empty)"
+    fi
+    echo ""
+
+    if [[ -n "$resolved_session" ]]; then
+      echo "Active Session: $resolved_session (via $resolution_source)"
+    else
+      echo "Active Session: (none resolved)"
+    fi
+    echo ""
+
+    echo "Session Counts:"
+    echo "  Active:    $active_count"
+    echo "  Suspended: $suspended_count"
+    echo "  Ended:     $ended_count"
+    echo "  Archived:  $archived_count"
+    echo "  Total:     $total_sessions"
+    echo ""
+
+    echo "Context State Files:"
+    echo "  Per-session: $context_state_count"
+    echo "  Orphaned:    $orphaned_context_count"
+    echo ""
+
+    echo "TTY Bindings:"
+    echo "  Total:  $tty_binding_count"
+    echo "  Stale:  $stale_binding_count"
+    echo ""
+
+    if [[ ${#warnings[@]} -gt 0 ]]; then
+      echo "Warnings:"
+      for warning in "${warnings[@]}"; do
+        echo "  - $warning"
+      done
+      echo ""
+    else
+      echo "No warnings detected."
+      echo ""
+    fi
+  fi
+}
+
 # Main command dispatch
 COMMAND="${1:-help}"
 shift || true
@@ -2025,6 +2592,8 @@ case "$COMMAND" in
   switch)  cmd_switch "$@" ;;
   cleanup) cmd_cleanup "$@" ;;
   archive) cmd_archive "$@" ;;
+  gc) cmd_gc "$@" ;;
+  doctor) cmd_doctor "$@" ;;
   -h|--help|help) usage ;;
   *)
     log_error "Unknown command: $COMMAND" "E_INPUT_INVALID" "$EXIT_INVALID_INPUT" "Run 'cleo session --help' for usage"

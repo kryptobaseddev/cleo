@@ -719,14 +719,11 @@ installer_link_get_cleo_version() {
     echo "${version:-0.57.0}"
 }
 
-# Generate versioned CLEO injection content
-# Args: version
+# Generate CLEO injection content (versionless - content is external)
 # Returns: injection content (stdout)
 installer_link_generate_cleo_content() {
-    local version="${1:-$(installer_link_get_cleo_version)}"
-
     cat <<EOF
-<!-- CLEO:START v${version} -->
+<!-- CLEO:START -->
 # Task Management
 @~/.cleo/docs/TODO_Task_Management.md
 <!-- CLEO:END -->
@@ -734,38 +731,33 @@ EOF
 }
 
 # Inject CLEO content into a single agent config file
-# Args: config_path agent_name
-# Returns: 0 on success, 1 on error, 2 on skip (already current)
+# Args: config_path agent_name [--force]
+# Returns: 0 on success, 1 on error, 2 on skip (already has block)
+# Note: No version tracking - block presence = configured (content is external)
 installer_link_inject_agent_config() {
     local config_path="$1"
     local agent_name="$2"
+    local force="${3:-}"
     local config_dir config_file
 
     config_dir=$(dirname "$config_path")
     config_file=$(basename "$config_path")
 
-    local version
-    version=$(installer_link_get_cleo_version)
     local cleo_marker="<!-- CLEO:START"
-    local version_pattern="<!-- CLEO:START v"
 
     # Check if already has CLEO injection
     if [[ -f "$config_path" ]] && grep -q "$cleo_marker" "$config_path" 2>/dev/null; then
-        # Extract current version
-        local current_version
-        current_version=$(grep -oP '<!-- CLEO:START v\K[0-9]+\.[0-9]+\.[0-9]+' "$config_path" 2>/dev/null | head -1)
-
-        if [[ "$current_version" == "$version" ]]; then
-            installer_log_debug "Agent $agent_name already current (v$version)"
-            return 2  # Skip - already current
+        if [[ "$force" != "--force" ]]; then
+            installer_log_debug "Agent $agent_name already configured"
+            return 2  # Skip - already has block
         fi
 
-        # Update existing injection
-        installer_log_info "Updating $agent_name config: v${current_version:-unknown} -> v$version"
+        # Force update - refresh markers (strip old, add new)
+        installer_log_info "Refreshing $agent_name config markers"
 
         local temp_file="${config_path}.tmp.$$"
         local new_content
-        new_content=$(installer_link_generate_cleo_content "$version")
+        new_content=$(installer_link_generate_cleo_content)
 
         # Extract content before and after markers
         local before after
@@ -785,7 +777,7 @@ installer_link_inject_agent_config() {
 
     # New injection
     local new_content
-    new_content=$(installer_link_generate_cleo_content "$version")
+    new_content=$(installer_link_generate_cleo_content)
 
     if [[ -f "$config_path" ]]; then
         # Prepend to existing file
@@ -945,45 +937,34 @@ installer_link_generate_checksums() {
 # Update template version markers
 # Args: install_dir
 # Returns: 0 on success
+# Convert any legacy versioned markers to versionless format
+# No longer updates versions - just ensures markers are versionless
 installer_link_update_template_versions() {
     local install_dir="${1:-$INSTALL_DIR}"
     local templates_dir="$install_dir/templates"
-    local version_file="$install_dir/VERSION"
 
     if [[ ! -d "$templates_dir" ]]; then
-        installer_log_debug "Templates directory not found, skipping version update"
+        installer_log_debug "Templates directory not found, skipping marker cleanup"
         return 0
     fi
 
-    if [[ ! -f "$version_file" ]]; then
-        installer_log_debug "VERSION file not found, skipping template version update"
-        return 0
-    fi
+    installer_log_debug "Cleaning up any legacy versioned markers in templates..."
 
-    local version
-    version=$(head -1 "$version_file" 2>/dev/null | tr -d '[:space:]')
-
-    if [[ -z "$version" ]]; then
-        installer_log_debug "Could not read version, skipping template version update"
-        return 0
-    fi
-
-    installer_log_info "Updating template version markers to v$version..."
-
-    # Update CLEO:START version markers in templates
+    # Convert legacy versioned markers to versionless format
     for template in "$templates_dir"/*.md; do
         [[ -f "$template" ]] || continue
 
-        if grep -q "CLEO:START" "$template" 2>/dev/null; then
-            # Use sed to update version markers (portable syntax)
+        # Check for legacy versioned markers
+        if grep -q "CLEO:START v[0-9]" "$template" 2>/dev/null; then
+            # Convert "CLEO:START vX.X.X -->" to "CLEO:START -->"
             if sed --version 2>&1 | grep -q GNU; then
                 # GNU sed
-                sed -i "s/CLEO:START v[0-9.]\+/CLEO:START v$version/g" "$template" 2>/dev/null || true
+                sed -i "s/CLEO:START v[0-9.]\+ -->/CLEO:START -->/g" "$template" 2>/dev/null || true
             else
                 # BSD sed (macOS)
-                sed -i '' "s/CLEO:START v[0-9.][0-9.]*/CLEO:START v$version/g" "$template" 2>/dev/null || true
+                sed -i '' "s/CLEO:START v[0-9.][0-9.]* -->/CLEO:START -->/g" "$template" 2>/dev/null || true
             fi
-            installer_log_debug "Updated version marker in: $(basename "$template")"
+            installer_log_debug "Cleaned up versioned markers in: $(basename "$template")"
         fi
     done
 

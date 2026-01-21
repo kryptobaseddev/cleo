@@ -37,15 +37,24 @@ teardown_file() {
 # injection_extract_version() Tests
 # =============================================================================
 
-@test "injection_extract_version extracts version from versioned marker" {
+@test "injection_extract_version returns empty for versionless markers" {
+    # New format: markers don't include version (content is external)
     local version
     version=$(injection_extract_version "${FIXTURES_DIR}/injection/current.md")
-    [ "$version" = "0.50.2" ]
+    [ -z "$version" ]
 }
 
-@test "injection_extract_version extracts version from outdated file" {
+@test "injection_extract_version extracts version from legacy versioned file" {
+    # Create a temp file with legacy versioned marker
+    local temp_file
+    temp_file="${TEST_TEMP_DIR}/legacy-versioned.md"
+    cat > "$temp_file" <<EOF
+<!-- CLEO:START v0.48.0 -->
+Old content
+<!-- CLEO:END -->
+EOF
     local version
-    version=$(injection_extract_version "${FIXTURES_DIR}/injection/outdated.md")
+    version=$(injection_extract_version "$temp_file")
     [ "$version" = "0.48.0" ]
 }
 
@@ -140,59 +149,57 @@ teardown_file() {
     [ "$file_exists" = "true" ]
 }
 
-@test "injection_check reports 'legacy' status for unversioned marker" {
-    local result status current_version installed_version
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && CLI_VERSION="0.50.2" injection_check "${FIXTURES_DIR}/injection/legacy-unversioned.md")
+@test "injection_check reports 'current' status for versionless marker" {
+    # Versionless markers are now the standard - block presence = current
+    local result status
+    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "${FIXTURES_DIR}/injection/legacy-unversioned.md")
 
     status=$(echo "$result" | jq -r '.status')
-    current_version=$(echo "$result" | jq -r '.currentVersion')
-    installed_version=$(echo "$result" | jq -r '.installedVersion')
 
-    [ "$status" = "legacy" ]
-    [ "$current_version" = "" ]
-    [ "$installed_version" = "0.50.2" ]
+    # Block exists = current (no version tracking)
+    [ "$status" = "current" ]
 }
 
-@test "injection_check reports 'current' status for current version" {
-    local result status current_version installed_version
+@test "injection_check reports 'current' status for any existing block" {
+    # No version tracking - any block is considered current
+    local result status
 
-    # Use CLI_VERSION as the expected version (no longer from template)
-    local expected_version="0.50.2"
-
-    # Create a temp file with current version
+    # Create a temp file with versionless marker (new format)
     local temp_file
     temp_file="${TEST_TEMP_DIR}/current-test.md"
     cat > "$temp_file" <<EOF
-<!-- CLEO:START v${expected_version} -->
+<!-- CLEO:START -->
 ## Task Management
 Content here
 <!-- CLEO:END -->
 EOF
 
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && CLI_VERSION="$expected_version" injection_check "$temp_file")
+    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "$temp_file")
 
     status=$(echo "$result" | jq -r '.status')
-    current_version=$(echo "$result" | jq -r '.currentVersion')
-    installed_version=$(echo "$result" | jq -r '.installedVersion')
 
+    # Block exists = current
     [ "$status" = "current" ]
-    [ "$current_version" = "$expected_version" ]
-    [ "$installed_version" = "$expected_version" ]
 }
 
-@test "injection_check reports 'outdated' status for old version" {
-    local result status current_version installed_version
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && CLI_VERSION="0.50.2" injection_check "${FIXTURES_DIR}/injection/outdated.md")
+@test "injection_check reports 'current' for legacy versioned markers" {
+    # Even legacy versioned markers are considered current (no version comparison)
+    # Create a temp file with legacy versioned marker
+    local temp_file
+    temp_file="${TEST_TEMP_DIR}/legacy-test.md"
+    cat > "$temp_file" <<EOF
+<!-- CLEO:START v0.40.0 -->
+Old content
+<!-- CLEO:END -->
+EOF
+
+    local result status
+    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "$temp_file")
 
     status=$(echo "$result" | jq -r '.status')
-    current_version=$(echo "$result" | jq -r '.currentVersion')
-    installed_version=$(echo "$result" | jq -r '.installedVersion')
 
-    [ "$status" = "outdated" ]
-    [ "$current_version" = "0.48.0" ]
-    [ "$installed_version" = "0.50.2" ]
-    # Installed should be newer than current
-    [[ "$installed_version" > "$current_version" ]]
+    # Block exists = current (version is irrelevant)
+    [ "$status" = "current" ]
 }
 
 @test "injection_check returns valid JSON" {
@@ -374,7 +381,12 @@ EOF
     [[ "$INJECTION_MARKER_END" =~ --\>$ ]]
 }
 
-@test "INJECTION_VERSION_PATTERN matches semantic version" {
-    local test_string="CLEO:START v1.2.3"
-    [[ "$test_string" =~ $INJECTION_VERSION_PATTERN ]]
+@test "INJECTION_VERSION_PATTERN matches complete marker formats" {
+    # Test legacy versioned marker
+    local versioned_string="CLEO:START v1.2.3 -->"
+    [[ "$versioned_string" =~ $INJECTION_VERSION_PATTERN ]]
+
+    # Test new versionless marker
+    local versionless_string="CLEO:START -->"
+    [[ "$versionless_string" =~ $INJECTION_VERSION_PATTERN ]]
 }
