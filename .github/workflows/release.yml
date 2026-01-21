@@ -57,6 +57,12 @@ jobs:
           cp LICENSE "staging/cleo-${VERSION}/"
           cp README.md "staging/cleo-${VERSION}/"
 
+          # Set execute permissions on shell scripts
+          find "staging/cleo-${VERSION}" -name "*.sh" -exec chmod +x {} \;
+          chmod +x "staging/cleo-${VERSION}/installer/install.sh"
+          chmod +x "staging/cleo-${VERSION}/cleo" 2>/dev/null || true
+          echo "Set execute permissions on shell scripts"
+
           # Create tarball
           tar -czvf "$TARBALL" -C staging "cleo-${VERSION}"
 
