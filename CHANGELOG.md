@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.8] - 2026-01-20
+
+### Fixed
+- **Installer**: Fix missing `completions/` and `docs/` directory installation
+  - Added `completions` to `SOURCE_INSTALLABLE_DIRS` in `source.sh`
+  - Tab completion scripts now properly install to `~/.cleo/completions/`
+  - Documentation now properly installs to `~/.cleo/docs/`
+- **CLI wrapper**: Register 17 missing commands in `link.sh` `_get_cmd_script()`
+  - Added: `self-update`, `archive-stats`, `claude-migrate`, `orchestrator`, `safestop`
+  - Added: `sequence`, `reorder`, `setup-agents`, `unarchive`, `roadmap`
+  - Added: `export-tasks`, `import-tasks`, `populate-hierarchy`, `reorganize-backups`
+- **COMMANDS-INDEX.json**: Added 6 missing command entries
+  - `delete`, `reopen`, `roadmap`, `sequence`, `uncancel`, `upgrade`
+  - Updated `meta.totalCommands` to 53
+
+### Documentation
+- **TODO_Task_Management.md**: Added Installation & Updates section
+- **TODO_Task_Management.md**: Documented 9 previously missing commands
+- **CHANGELOG.md**: Synced with git history (added v0.57.2-v0.57.7 entries)
+
+## [0.57.7] - 2026-01-20
+
+### Fixed
+- **CLI dispatcher**: Add `self-update` and `setup-agents` to command map in `link.sh`
+  - Commands now properly route to their respective scripts
+
+## [0.57.6] - 2026-01-20
+
+### Fixed
+- **Installer**: Add global agent config setup during installation
+- **Version migration**: Fix bug in version migration logic
+
+## [0.57.5] - 2026-01-20
+
+No changes - tag only release for CI testing.
+
+## [0.57.4] - 2026-01-20
+
+### Fixed
+- **Installer**: Add early Bash 4+ version check for macOS compatibility
+  - Prevents cryptic errors on stock macOS with Bash 3.2
+  - Provides clear upgrade instructions for users on older Bash
+
+## [0.57.3] - 2026-01-20
+
+### Fixed
+- **Installer**: Make state file operations robust to missing state directory
+  - Prevents errors when `.cleo-install-state/` doesn't exist
+
+### Documentation
+- Simplify install instructions and fix Mac permission issue documentation
+
+## [0.57.2] - 2026-01-20
+
+### Fixed
+- **Installer**: Correct tarball URL and checksum verification
+  - Fixed download URL construction for release assets
+  - Fixed checksum verification logic
+
+### Documentation
+- Update badges to v0.57.1
+
+## [0.57.1] - 2026-01-20
+
+### Fixed
+- **CLI wrapper**: 17 commands now properly registered in `link.sh` `_get_cmd_script()` function
+  - Added: `delete`, `reopen`, `roadmap`, `sequence`, `uncancel`, `setup-agents`, `upgrade`
+  - Added: `archive-stats`, `generate-features`, `orchestrator`, `reorder`, `safestop`, `self-update`
+  - Added: `unarchive`, `doctor`, `plugins`
+- **COMMANDS-INDEX.json**: Added 6 missing command entries
+  - `delete`, `reopen`, `roadmap`, `sequence`, `uncancel`, `upgrade`
+  - Updated `meta.totalCommands` to 53
+  - Updated `meta.lastUpdated` to 2026-01-20
+- **Modular installer**: Fixed 4 missing features from legacy installer migration
+  - Added `completions/` to installable directories (bash/zsh tab completion now installs)
+  - Added `plugins/` directory creation with README scaffold
+  - Added checksum generation (`checksums.sha256`) for script integrity verification
+  - Added template version marker updates (`CLEO:START vX.X.X`)
+
+### Documentation
+- **TODO_Task_Management.md**: Comprehensive documentation update
+  - Added Installation & Updates section with `self-update` command
+  - Added 9 missing commands: `unarchive`, `archive-stats`, `doctor`, `sequence`, `reorder`
+  - Added Orchestrator Protocol section for multi-agent coordination (`orchestrator spawn/next/ready/analyze/validate`)
+  - Added Agent Shutdown section with `safestop` command
+  - Removed stale `PLANNED` tags from Multi-Agent Integration section
+- Verified installer documentation is up-to-date with modular architecture
+
 ## [0.57.0] - 2026-01-20
 
 ### Added
@@ -383,6 +471,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **_meta not created during migration** - `update_version_field()` and `bump_version_only()` now create `_meta` object if missing
 - **Templates missing _meta.schemaVersion** - Added `schemaVersion` to `_meta` in all templates (config, todo, archive, log, sessions)
 
+## [0.50.0] - 2026-01-03
+
+### Added
+- **Migration System Enhancement** (T1249 Phases 4-5) - Complete migration framework overhaul
+  - Migration journal for tracking applied migrations
+  - Timestamp-based migration pattern support
+  - Enhanced version detection and compatibility checking
+
+### Fixed
+- **Tests**: Fix incorrect BATS library paths in test files
+- **CI**: Fix statusline setup `set -e` exit and `.cleo` directory name
+
+### Documentation
+- Remove resolved urgent migration fix doc
+
 ## [0.49.0] - 2026-01-03
 
 ### Added
@@ -422,6 +525,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Created `docs/MIGRATION-SYSTEM.md` with complete architecture guide
   - Updated `CLAUDE.md` with version management section
   - Enhanced `docs/commands/migrate.md` with API documentation
+
+## [0.48.3] - 2026-01-03
+
+### Fixed
+- **Validate**: Fix `--fix` atomicity bug counting errors before fix attempts
+  - Errors were being counted before fixes were applied, causing incorrect reports
 
 ## [0.48.2] - 2026-01-03
 

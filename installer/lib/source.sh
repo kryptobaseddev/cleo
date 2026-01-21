@@ -94,6 +94,7 @@ readonly SOURCE_INSTALLABLE_DIRS=(
     "templates"
     "docs"
     "skills"
+    "completions"
 )
 
 # Files to copy (not link) during dev mode installation

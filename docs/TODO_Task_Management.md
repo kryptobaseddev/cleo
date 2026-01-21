@@ -20,6 +20,26 @@ Use `cleo` CLI for **all** task operations. Single source of truth for persisten
 
 **Multi-Session Note** (v0.38.0+): When `multiSession.enabled`, the "one active task" constraint is **per scope**, not global. Each session maintains isolated focus within its defined scope.
 
+## Installation & Updates
+
+### Fresh Install
+```bash
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+```
+
+### Overwrite Existing (--force)
+```bash
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash -s -- --force
+```
+
+### Update Existing
+```bash
+cleo self-update              # Update to latest version
+cleo self-update --check      # Check for updates only
+cleo self-update --version X  # Install specific version
+cleo self-update --status     # Show version information
+```
+
 ## Command Reference
 
 ### Core Operations
@@ -290,6 +310,11 @@ cleo exists <id>                    # Check if task ID exists (exit code 0/1)
 cleo exists <id> --quiet            # Silent check for scripting
 cleo exists <id> --include-archive  # Search archive too
 cleo archive                        # Archive completed tasks
+cleo unarchive <id>                 # Restore archived task to active
+cleo unarchive <id> --status pending  # Restore with specific status
+cleo archive-stats                  # Summary statistics from archive
+cleo archive-stats --by-phase       # Breakdown by phase
+cleo archive-stats --by-label       # Breakdown by label
 cleo stats                          # Show statistics
 cleo backup                         # Create backup
 cleo backup --list                  # List available backups
@@ -307,6 +332,13 @@ cleo log                            # View recent audit log entries
 cleo log --limit 20                 # Limit entries shown
 cleo log --operation create         # Filter by operation type
 cleo log --task T001                # Filter by task ID
+cleo doctor                         # System health diagnostics
+cleo doctor --fix                   # Auto-fix detected issues
+cleo sequence show                  # Display task ID sequence state
+cleo sequence check                 # Verify sequence integrity
+cleo reorder <id> --position N      # Change task position in sibling group
+cleo reorder <id> --top             # Move to first position
+cleo reorder <id> --bottom          # Move to last position
 ```
 
 ### Context Monitoring (v0.46.0+)
@@ -330,6 +362,28 @@ cleo context --session <id>         # Check specific session
 
 **Automatic Alerts (v0.48.0+)**:
 When a CLEO session is active, context alerts automatically trigger after task operations (`complete`, `add`, `focus set`, session lifecycle). Alerts appear on stderr with visual box format, showing current usage and recommended actions. Only triggers on threshold crossings to avoid noise. Configure behavior with `cleo config set contextAlerts.*`. Full details: [docs/commands/context.md](commands/context.md)
+
+### Orchestrator Protocol (v0.55.0+)
+Multi-agent coordination for parallel task execution.
+
+```bash
+cleo orchestrator spawn <id>        # Generate subagent spawn command
+cleo orchestrator next --epic T001  # Get next task to spawn
+cleo orchestrator ready --epic T001 # List all parallel-safe tasks
+cleo orchestrator analyze T001      # Show dependency waves
+cleo orchestrator validate          # Check protocol compliance
+```
+
+**Related**: See [Orchestrator Protocol Guide](guides/ORCHESTRATOR-PROTOCOL.md)
+
+### Agent Shutdown (v0.55.0+)
+```bash
+cleo safestop                       # Graceful agent shutdown
+cleo safestop --reason "context-limit"  # Shutdown with reason
+cleo safestop --commit              # Commit changes before stop
+cleo safestop --handoff ./out.json  # Generate handoff document
+cleo safestop --dry-run             # Preview shutdown actions
+```
 
 ### Verification (v0.43.0+)
 ```bash
@@ -390,19 +444,21 @@ Behavior:
 - Agent-agnostic design - no per-agent flags needed
 - Safe to run anytime (idempotent)
 
-### Update Instructions (coming in v0.51.0)
+### Update Instructions
 After upgrading cleo, update injections with:
 
 ```bash
-cleo upgrade                 # Updates all project injections (PLANNED - T1397)
+cleo upgrade                 # Updates all project injections
+cleo upgrade --status        # Check what needs updating
 ```
 
-### Global Agent Configuration (coming in v0.51.0)
+### Global Agent Configuration
 For global agent setup (@ syntax references):
 
 ```bash
-cleo install --global        # Setup global agent config (PLANNED - T1428)
-cleo doctor                  # Verify agent integrations (PLANNED - T1429)
+cleo setup-agents            # Setup global agent configs (~/.claude/CLAUDE.md, etc.)
+cleo doctor                  # Verify agent integrations
+cleo doctor --fix            # Auto-fix detected issues
 ```
 
 ## Task Options
