@@ -17,6 +17,23 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.60.2" tags={["Fix", "Feature", "Installer"]}>
+## Installer auto-install dependencies
+
+
+**Added**
+- **Installer auto-install dependencies**: Both `install.sh` and `installer/install.sh` now offer to automatically install missing dependencies (jq, flock, etc.) using detected package manager (apt, dnf, brew, pacman, apk)
+- **Bash 4+ auto-detection on macOS**: Installer detects system Bash < 4 and automatically re-executes with Homebrew Bash if available at `/opt/homebrew/bin/bash` or `/usr/local/bin/bash`
+
+**Fixed**
+- **Mintlify MDX parsing errors**: Converted HTML comments (`<!-- -->`) to JSX comments (`{/* */}`) in all 53 command documentation files
+- **MDX frontmatter placement**: Comments now placed AFTER frontmatter closing `---` as required by MDX spec
+- **Generator script**: `dev/generate-command-docs.sh` now outputs JSX comments for future regenerations
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.60.2)
+</Update>
+
 <Update label="January 2026" description="v0.60.1" tags={["Fix", "Feature", "Documentation"]}>
 ## `init --update-docs` flag
 
@@ -320,6 +337,53 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.8)
+</Update>
+
+<Update label="January 2026" description="v0.57.7" tags={["Fix", "Feature", "CLI"]}>
+## CLI dispatcher
+
+
+**Fixed**
+- **CLI dispatcher**: Add `self-update` and `setup-agents` to command map in `link.sh`
+  - Commands now properly route to their respective scripts
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.7)
+</Update>
+
+<Update label="January 2026" description="v0.57.6" tags={["Fix", "Feature", "Installer"]}>
+## Installer
+
+
+**Fixed**
+- **Installer**: Add global agent config setup during installation
+- **Version migration**: Fix bug in version migration logic
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.6)
+</Update>
+
+<Update label="January 2026" description="v0.57.5" tags={["Core"]}>
+## v0.57.5 Release
+
+
+No changes - tag only release for CI testing.
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.5)
+</Update>
+
+<Update label="January 2026" description="v0.57.4" tags={["Fix", "Feature", "Installer"]}>
+## Installer
+
+
+**Fixed**
+- **Installer**: Add early Bash 4+ version check for macOS compatibility
+  - Prevents cryptic errors on stock macOS with Bash 3.2
+  - Provides clear upgrade instructions for users on older Bash
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.4)
 </Update>
 
 ## Earlier Releases
