@@ -135,24 +135,24 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 
 ### TL;DR - Just Install It
 
-**Option 1: Download Installer (Recommended)**
+**Option 1: One-liner (Easiest)**
+
+```bash
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+```
+
+**Option 2: Download and Run**
 
 <p align="center">
-  <a href="https://github.com/kryptobaseddev/cleo/releases/latest">
-    <img src="https://img.shields.io/badge/Download-Latest%20Release-brightgreen?style=for-the-badge&logo=github" alt="Download Latest Release">
+  <a href="https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh">
+    <img src="https://img.shields.io/badge/Download-install.sh-brightgreen?style=for-the-badge&logo=github" alt="Download install.sh">
   </a>
 </p>
 
-1. Download `cleo-X.Y.Z.tar.gz` from the link above
-2. Extract and run:
-   ```bash
-   tar xzf cleo-*.tar.gz && cd cleo-* && ./install.sh
-   ```
-
-**Option 2: One-liner (for developers)**
-
+After downloading, open Terminal and run:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/installer/install.sh | bash
+# macOS/Linux: Run with bash (no chmod needed)
+bash ~/Downloads/install.sh
 ```
 
 **Option 3: From source (for contributors)**
