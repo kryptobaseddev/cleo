@@ -275,15 +275,27 @@ ls ~/.claude/skills/ct-* 2>/dev/null && echo "Skills installed"
 
 ### Can I switch between dev and release modes?
 
-**Yes.** Run the installer with the appropriate flag:
+**Yes.** There are two ways to switch modes:
 
+**Via self-update command (recommended):**
+```bash
+# Switch from dev to release mode
+cleo self-update --to-release
+
+# Switch from release to dev mode
+cleo self-update --to-dev /path/to/cleo-repo
+```
+
+**Via installer:**
 ```bash
 # Switch to dev mode (symlinks)
-./installer/install.sh --dev
+./installer/install.sh --dev --force
 
-# Switch to release mode (copies)
-./installer/install.sh --no-symlinks
+# Switch to release mode
+./installer/install.sh --release --force
 ```
+
+See [Installation Modes Guide](./INSTALLATION-MODES.md) for detailed information.
 
 ### What if the migration is interrupted?
 
@@ -344,6 +356,7 @@ The self-update command:
 
 ## See Also
 
+- [Installation Modes Guide](./INSTALLATION-MODES.md) - Switching between dev and release modes
 - [Installer Architecture](./installer-architecture.md) - Technical details of the new installer
 - [Getting Started](./getting-started.md) - Fresh installation guide
 - [CLEO CLI Reference](../commands/README.md) - Command documentation

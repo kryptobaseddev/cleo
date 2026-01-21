@@ -40,6 +40,12 @@ cleo self-update --version X  # Install specific version
 cleo self-update --status     # Show version information
 ```
 
+### Mode Switching
+```bash
+cleo self-update --to-release           # Switch from dev to release mode
+cleo self-update --to-dev /path/to/repo # Switch from release to dev mode
+```
+
 ## Command Reference
 
 ### Core Operations

@@ -40,6 +40,13 @@ This command is essential for:
 | `--quiet` | `-q` | Suppress non-essential output | `false` |
 | `--help` | `-h` | Show help message | |
 
+### Mode Switching Options
+
+| Option | Description |
+|--------|-------------|
+| `--to-release` | Switch from dev mode to release mode (downloads latest release) |
+| `--to-dev PATH` | Switch from release mode to dev mode (creates symlinks to repo at PATH) |
+
 ## Exit Codes
 
 | Code | Name | Description |
@@ -50,7 +57,9 @@ This command is essential for:
 | 3 | Checksum Mismatch | SHA256 verification failed |
 | 4 | Install Failed | Installation process failed |
 | 5 | GitHub API Error | Failed to query GitHub API |
-| 100 | Dev Mode | Development installation (use git pull) |
+| 100 | Dev Mode | Development installation (use git pull or --to-release) |
+| 101 | Mode Switch Success | Mode switch completed successfully |
+| 102 | Invalid Repo | Invalid repository path for --to-dev |
 
 ## Examples
 
@@ -194,19 +203,113 @@ else
 fi
 ```
 
+## Mode Switching
+
+CLEO supports two installation modes: **development** (symlinks to a local repository) and **release** (copied files from GitHub releases). The `self-update` command provides options to switch between these modes.
+
+### Switch from Dev to Release Mode
+
+When you want to transition from a development installation to a stable release:
+
+```bash
+# Switch to release mode (downloads latest release)
+cleo self-update --to-release
+
+# Non-interactive switch
+cleo self-update --to-release --force
+```
+
+**What happens:**
+1. Creates backup of current installation
+2. Removes symlinks to development repository
+3. Downloads latest release from GitHub
+4. Installs release files to `~/.cleo`
+
+### Switch from Release to Dev Mode
+
+When you want to contribute or test development changes:
+
+```bash
+# Switch to dev mode (requires path to local repository)
+cleo self-update --to-dev /path/to/cleo-repo
+
+# Non-interactive switch
+cleo self-update --to-dev /path/to/cleo-repo --force
+```
+
+**What happens:**
+1. Creates backup of current installation
+2. Removes copied release files
+3. Validates the repository structure
+4. Creates symlinks to the local repository
+
+**Repository validation checks:**
+- Directory exists
+- Contains `VERSION` file
+- Contains `scripts/` directory
+- Contains `lib/` directory
+- Contains `scripts/cleo.sh` entry point
+
+### Mode Switching Examples
+
+```bash
+# Check current mode
+cleo self-update --status
+
+# Switch from dev to release
+cleo self-update --to-release
+
+# Switch from release to dev (absolute path)
+cleo self-update --to-dev ~/projects/cleo
+
+# Switch from release to dev (relative path - resolved to absolute)
+cleo self-update --to-dev ./cleo
+
+# Re-point dev mode to different repository
+cleo self-update --to-dev /new/path/to/cleo-repo --force
+```
+
+### JSON Output for Mode Switching
+
+```bash
+# Switch to release mode with JSON output
+cleo self-update --to-release --json
+```
+
+Output:
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+  "_meta": {
+    "format": "json",
+    "command": "self-update",
+    "timestamp": "2026-01-20T14:30:00Z"
+  },
+  "success": true,
+  "action": "mode_switch",
+  "from_mode": "dev",
+  "to_mode": "release",
+  "version": "0.57.0",
+  "message": "Successfully switched to release mode v0.57.0"
+}
+```
+
 ## Development Mode
 
-For development installations (symlinks to a git repository), `self-update` detects this and exits with code 100:
+For development installations (symlinks to a git repository), regular `self-update` (without mode switching flags) detects this and exits with code 100:
 
 ```bash
 $ cleo self-update
 
-CLEO is installed in development mode.
-Use 'git pull' to update instead.
+[INFO] Development mode detected.
 
-Development mode indicators:
-  - Symlinked installation
-  - Git repository present
+CLEO is installed in development mode (symlinked to source repository).
+
+To update:
+  cd /path/to/cleo-repo && git pull
+
+To switch to release mode:
+  cleo self-update --to-release
 ```
 
 **Development mode detection checks:**
@@ -327,7 +430,15 @@ git pull
 3. **Review Release Notes**: Check GitHub releases for breaking changes before updating
 4. **Use Specific Versions**: In CI/CD, pin to specific versions with `--version`
 5. **Test Updates**: On critical systems, test updates in a development environment first
+6. **Mode Switching**: Use `--to-release` or `--to-dev` to switch installation modes without reinstalling
+
+## See Also
+
+- [Installation Modes Guide](../guides/INSTALLATION-MODES.md) - Detailed guide on dev vs release modes
+- [Installer Architecture](../guides/installer-architecture.md) - Technical details of the installer
+- [Installer Migration](../guides/installer-migration.md) - Migrating from legacy installer
 
 ## Version History
 
+- **v0.58.0**: Added mode switching with `--to-release` and `--to-dev` flags
 - **v0.57.0**: Initial implementation of self-update command
