@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.5] - 2026-01-20
+
+### Fixed
+- **Self-update**: Fix dev mode detection to read VERSION file
+  - Was checking symlinks instead of `mode=` field in VERSION file
+  - Now correctly detects release mode after `--to-release` switch
+  - Fallback to symlink detection for legacy installs without mode field
+
 ## [0.58.4] - 2026-01-20
 
 ### Fixed
