@@ -435,6 +435,9 @@ start_session() {
         return 1
     fi
 
+    # Initialize context states directory and migrate singleton if needed
+    init_context_states_dir
+
     # Lock sessions.json first (per lock order convention)
     local sessions_fd
     if ! lock_file "$sessions_file" sessions_fd 30; then
@@ -985,6 +988,9 @@ end_session() {
     unlock_file "$sessions_fd"
     trap - EXIT ERR
 
+    # Cleanup context state file based on config
+    cleanup_context_state_for_session "$session_id" "end"
+
     return 0
 }
 
@@ -1138,6 +1144,9 @@ close_session() {
     unlock_file "$sessions_fd"
     trap - EXIT ERR
 
+    # Cleanup context state file based on config
+    cleanup_context_state_for_session "$session_id" "close"
+
     echo "Session closed and archived"
     return 0
 }
@@ -1231,6 +1240,297 @@ archive_session() {
     trap - EXIT ERR
 
     echo "Session archived: $session_id"
+
+    # Cleanup context state file based on config
+    cleanup_context_state_for_session "$session_id" "archive"
+
+    return 0
+}
+
+# ============================================================================
+# CONTEXT STATE MANAGEMENT
+# ============================================================================
+
+# Get the context state file path for a session
+# Args: $1 - session ID
+# Returns: Path to the context state file (may not exist)
+get_context_state_path_for_session() {
+    local session_id="$1"
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+    local project_root="${cleo_dir%/.cleo}"
+
+    # Get config values with defaults
+    local context_dir filename_pattern
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+    filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
+
+    local full_dir="${project_root}/${context_dir}"
+
+    if [[ -n "$session_id" ]]; then
+        # Replace {sessionId} placeholder with actual session ID
+        local filename="${filename_pattern//\{sessionId\}/$session_id}"
+        echo "${full_dir}/${filename}"
+    else
+        # Fallback to singleton in .cleo directory (legacy behavior)
+        echo "${cleo_dir}/.context-state.json"
+    fi
+}
+
+# Cleanup context state file for a session based on config and lifecycle event
+# Args: $1 - session ID, $2 - event (end|close|archive)
+# Returns: 0 on success, 1 on error
+cleanup_context_state_for_session() {
+    local session_id="$1"
+    local event="${2:-end}"
+
+    if [[ -z "$session_id" ]]; then
+        return 0
+    fi
+
+    # Check config for cleanup setting based on event
+    local should_cleanup="true"
+    case "$event" in
+        end)
+            should_cleanup=$(get_config_value "contextStates.cleanupOnSessionEnd" "true")
+            ;;
+        close)
+            should_cleanup=$(get_config_value "contextStates.cleanupOnSessionClose" "true")
+            ;;
+        archive)
+            should_cleanup=$(get_config_value "contextStates.cleanupOnSessionArchive" "true")
+            ;;
+    esac
+
+    if [[ "$should_cleanup" != "true" ]]; then
+        return 0
+    fi
+
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+
+    # Get the state file path from config-based location
+    local state_file
+    state_file=$(get_context_state_path_for_session "$session_id")
+
+    # Delete if exists
+    if [[ -f "$state_file" ]]; then
+        rm -f "$state_file" 2>/dev/null || true
+    fi
+
+    # Also check and delete legacy location (.cleo/.context-state-{sessionId}.json)
+    local legacy_file="${cleo_dir}/.context-state-${session_id}.json"
+    if [[ -f "$legacy_file" ]]; then
+        rm -f "$legacy_file" 2>/dev/null || true
+    fi
+
+    return 0
+}
+
+# Cleanup orphaned context state files (files without corresponding sessions)
+# Args: $1 - dry-run mode (optional: "true" for dry-run)
+# Returns: 0 on success, outputs count of cleaned files
+cleanup_orphaned_context_states() {
+    local dry_run="${1:-false}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+    local project_root="${cleo_dir%/.cleo}"
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    # Get config for context state directory
+    local context_dir
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+    local full_dir="${project_root}/${context_dir}"
+
+    # Get max orphaned files to retain
+    local max_orphaned
+    max_orphaned=$(get_config_value "contextStates.maxOrphanedFiles" "10")
+
+    # Get all session IDs (active and in history)
+    local session_ids
+    if [[ -f "$sessions_file" ]]; then
+        session_ids=$(jq -r '
+            ([.sessions[].id] + [.sessionHistory[].id]) | unique | .[]
+        ' "$sessions_file" 2>/dev/null)
+    else
+        session_ids=""
+    fi
+
+    local cleaned_count=0
+    local orphaned_files=()
+
+    # Check new location (.cleo/context-states/)
+    if [[ -d "$full_dir" ]]; then
+        while IFS= read -r -d '' file; do
+            local filename
+            filename=$(basename "$file")
+
+            # Extract session ID from filename (context-state-{sessionId}.json)
+            local session_id
+            session_id=$(echo "$filename" | sed -n 's/^context-state-\(.*\)\.json$/\1/p')
+
+            if [[ -n "$session_id" ]]; then
+                # Check if session exists
+                if ! echo "$session_ids" | grep -qF "$session_id"; then
+                    orphaned_files+=("$file")
+                fi
+            fi
+        done < <(find "$full_dir" -name "context-state-*.json" -type f -print0 2>/dev/null)
+    fi
+
+    # Check legacy location (.cleo/.context-state-*.json)
+    while IFS= read -r -d '' file; do
+        local filename
+        filename=$(basename "$file")
+
+        # Skip singleton file
+        if [[ "$filename" == ".context-state.json" ]]; then
+            continue
+        fi
+
+        # Extract session ID from filename (.context-state-{sessionId}.json)
+        local session_id
+        session_id=$(echo "$filename" | sed -n 's/^\.context-state-\(.*\)\.json$/\1/p')
+
+        if [[ -n "$session_id" ]]; then
+            # Check if session exists
+            if ! echo "$session_ids" | grep -qF "$session_id"; then
+                orphaned_files+=("$file")
+            fi
+        fi
+    done < <(find "$cleo_dir" -maxdepth 1 -name ".context-state-*.json" -type f -print0 2>/dev/null)
+
+    # Sort orphaned files by modification time (oldest first)
+    local sorted_orphaned=()
+    if [[ ${#orphaned_files[@]} -gt 0 ]]; then
+        while IFS= read -r file; do
+            sorted_orphaned+=("$file")
+        done < <(printf '%s\n' "${orphaned_files[@]}" | xargs -d '\n' ls -1t 2>/dev/null | tac)
+    fi
+
+    # Calculate how many to delete (keep max_orphaned newest)
+    local total_orphaned=${#sorted_orphaned[@]}
+    local to_delete=$((total_orphaned - max_orphaned))
+    if [[ $to_delete -lt 0 ]]; then
+        to_delete=0
+    fi
+
+    # Delete oldest orphaned files
+    for ((i=0; i<to_delete; i++)); do
+        local file="${sorted_orphaned[$i]}"
+        if [[ "$dry_run" == "true" ]]; then
+            echo "Would delete: $file"
+        else
+            rm -f "$file" 2>/dev/null && ((cleaned_count++)) || true
+        fi
+    done
+
+    if [[ "$dry_run" != "true" ]]; then
+        echo "$cleaned_count"
+    else
+        echo "Dry run: would delete $to_delete of $total_orphaned orphaned files"
+    fi
+
+    return 0
+}
+
+# Migrate existing singleton context state file to per-session format
+# This handles the transition from the old singleton .context-state.json
+# to the new per-session .cleo/context-states/ directory structure.
+# Args: $1 - dry-run mode (optional: "true" for dry-run)
+# Returns: 0 on success, outputs migration status
+migrate_context_state_singleton() {
+    local dry_run="${1:-false}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+    local project_root="${cleo_dir%/.cleo}"
+
+    # Get config for context state directory
+    local context_dir
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+    local full_dir="${project_root}/${context_dir}"
+
+    # Check for singleton file
+    local singleton_file="${cleo_dir}/.context-state.json"
+    if [[ ! -f "$singleton_file" ]]; then
+        echo "No singleton context state file found - nothing to migrate"
+        return 0
+    fi
+
+    # Create directory if needed
+    if [[ "$dry_run" != "true" && ! -d "$full_dir" ]]; then
+        mkdir -p "$full_dir" 2>/dev/null || true
+    fi
+
+    # Read singleton file to determine session ID
+    local session_id
+    session_id=$(jq -r '.cleoSessionId // ""' "$singleton_file" 2>/dev/null)
+
+    if [[ -z "$session_id" || "$session_id" == "null" ]]; then
+        # No session ID in singleton - check .current-session
+        local current_session_file="${cleo_dir}/.current-session"
+        if [[ -f "$current_session_file" ]]; then
+            session_id=$(cat "$current_session_file" 2>/dev/null | tr -d '\n')
+        fi
+    fi
+
+    if [[ -n "$session_id" && "$session_id" != "null" ]]; then
+        # Get filename pattern
+        local filename_pattern
+        filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
+
+        # Build new file path
+        local filename="${filename_pattern//\{sessionId\}/$session_id}"
+        local new_file="${full_dir}/${filename}"
+
+        if [[ "$dry_run" == "true" ]]; then
+            echo "Would migrate: $singleton_file -> $new_file"
+        else
+            # Move to new location
+            if mv "$singleton_file" "$new_file" 2>/dev/null; then
+                echo "Migrated singleton to: $new_file"
+            else
+                # Fallback: copy then delete
+                if cp "$singleton_file" "$new_file" 2>/dev/null; then
+                    rm -f "$singleton_file" 2>/dev/null
+                    echo "Migrated singleton to: $new_file"
+                else
+                    echo "Warning: Failed to migrate singleton file" >&2
+                    return 1
+                fi
+            fi
+        fi
+    else
+        # No active session - delete singleton (it's stale)
+        if [[ "$dry_run" == "true" ]]; then
+            echo "Would delete stale singleton: $singleton_file"
+        else
+            rm -f "$singleton_file" 2>/dev/null
+            echo "Deleted stale singleton (no active session)"
+        fi
+    fi
+
+    return 0
+}
+
+# Initialize context states directory structure
+# Creates the .cleo/context-states/ directory if it doesn't exist
+# Args: none
+# Returns: 0 on success
+init_context_states_dir() {
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+    local project_root="${cleo_dir%/.cleo}"
+
+    # Get config for context state directory
+    local context_dir
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+    local full_dir="${project_root}/${context_dir}"
+
+    # Create directory if needed
+    if [[ ! -d "$full_dir" ]]; then
+        mkdir -p "$full_dir" 2>/dev/null || true
+    fi
+
+    # Run migration for existing singleton file
+    migrate_context_state_singleton >/dev/null 2>&1 || true
+
     return 0
 }
 
@@ -1308,15 +1608,16 @@ get_current_session_id() {
 # Resolve current session ID using priority order:
 # 1. Explicit --session flag (passed as $1)
 # 2. CLEO_SESSION environment variable
-# 3. .current-session file
-# 4. Auto-detect single active session
+# 3. TTY-based binding (multi-terminal isolation) [T1778]
+# 4. .current-session file (legacy singleton)
+# 5. Auto-detect single active session
 # Returns: session ID on success, empty on failure
 # Exit code: 0 on success, 1 if no session found
 resolve_current_session_id() {
     local provided="${1:-}"
     local sessions_file
     sessions_file=$(get_sessions_file)
-    
+
     # Helper function to validate session exists and is active/suspended
     _validate_session_exists() {
         local sid="$1"
@@ -1328,7 +1629,7 @@ resolve_current_session_id() {
         # Session must exist and be active or suspended (not ended/closed)
         [[ "$status" == "active" || "$status" == "suspended" ]]
     }
-    
+
     # Priority 1: Explicit flag
     if [[ -n "$provided" ]]; then
         if _validate_session_exists "$provided"; then
@@ -1337,7 +1638,7 @@ resolve_current_session_id() {
         fi
         return 1  # Invalid session ID
     fi
-    
+
     # Priority 2: Environment variable
     if [[ -n "${CLEO_SESSION:-}" ]]; then
         if _validate_session_exists "$CLEO_SESSION"; then
@@ -1346,8 +1647,19 @@ resolve_current_session_id() {
         fi
         return 1  # Invalid env var
     fi
-    
-    # Priority 3: .current-session file
+
+    # Priority 3: TTY-based binding (multi-terminal isolation) [T1778]
+    local tty_session
+    if tty_session=$(get_tty_bound_session 2>/dev/null) && [[ -n "$tty_session" ]]; then
+        if _validate_session_exists "$tty_session"; then
+            echo "$tty_session"
+            return 0
+        fi
+        # Stale TTY binding - clean it up
+        clear_tty_binding 2>/dev/null || true
+    fi
+
+    # Priority 4: .current-session file (legacy singleton)
     local current_file
     current_file="$(get_cleo_dir)/.current-session"
     if [[ -f "$current_file" ]]; then
@@ -1362,14 +1674,14 @@ resolve_current_session_id() {
             rm -f "$current_file" 2>/dev/null
         fi
     fi
-    
-    # Priority 4: Auto-detect single active session
+
+    # Priority 5: Auto-detect single active session
     if [[ -f "$sessions_file" ]]; then
         local active_sessions
         active_sessions=$(jq -c '[.sessions[] | select(.status == "active")]' "$sessions_file" 2>/dev/null)
         local active_count
         active_count=$(echo "$active_sessions" | jq 'length')
-        
+
         if [[ "$active_count" -eq 1 ]]; then
             local active_session
             active_session=$(echo "$active_sessions" | jq -r '.[0].id')
@@ -1377,7 +1689,7 @@ resolve_current_session_id() {
             return 0
         fi
     fi
-    
+
     return 1  # Could not resolve
 }
 
@@ -1662,6 +1974,177 @@ clear_session_binding() {
 }
 
 # ============================================================================
+# TTY-BASED SESSION BINDING (T1778, T1788)
+# Multi-terminal isolation via terminal-specific binding files
+# ============================================================================
+
+# Get sanitized TTY identifier for binding files
+# Returns: Sanitized TTY ID (e.g., "tty-dev-pts-0") or exit 1 if not available
+get_tty_id() {
+    local tty_path
+    tty_path=$(tty 2>/dev/null) || return 1
+
+    # Not a TTY (pipe, cron, etc.)
+    [[ "$tty_path" == "not a tty" ]] && return 1
+
+    # Sanitize: /dev/pts/0 -> tty-dev-pts-0
+    echo "$tty_path" | sed 's|^/||; s|/|-|g; s|^|tty-|'
+}
+
+# Get TTY bindings directory path
+# Returns: Path to tty-bindings directory
+get_tty_bindings_dir() {
+    local cleo_dir
+    cleo_dir="$(get_cleo_dir)"
+    echo "${cleo_dir}/tty-bindings"
+}
+
+# Bind session to current TTY
+# Args: $1 - session ID
+# Returns: 0 on success, 1 if TTY not available
+bind_session_to_tty() {
+    local session_id="$1"
+    local tty_id
+    tty_id=$(get_tty_id) || return 1
+
+    local binding_dir
+    binding_dir="$(get_tty_bindings_dir)"
+    mkdir -p "$binding_dir"
+
+    local binding_file="${binding_dir}/${tty_id}"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Write binding with metadata
+    jq -nc --arg sid "$session_id" \
+           --arg tty "$(tty 2>/dev/null || echo 'unknown')" \
+           --arg ts "$timestamp" \
+           --arg pid "$$" '{
+        sessionId: $sid,
+        tty: $tty,
+        boundAt: $ts,
+        pid: ($pid | tonumber)
+    }' > "$binding_file"
+
+    chmod 600 "$binding_file" 2>/dev/null || true
+    return 0
+}
+
+# Get session bound to current TTY
+# Returns: Session ID or empty if no binding/TTY not available
+get_tty_bound_session() {
+    local tty_id
+    tty_id=$(get_tty_id) || return 1
+
+    local binding_dir
+    binding_dir="$(get_tty_bindings_dir)"
+    local binding_file="${binding_dir}/${tty_id}"
+
+    [[ -f "$binding_file" ]] || return 1
+
+    jq -r '.sessionId // empty' "$binding_file" 2>/dev/null
+}
+
+# Clear TTY binding for current terminal
+# Returns: 0 always (idempotent)
+clear_tty_binding() {
+    local tty_id
+    tty_id=$(get_tty_id) || return 0
+
+    local binding_dir
+    binding_dir="$(get_tty_bindings_dir)"
+    local binding_file="${binding_dir}/${tty_id}"
+
+    rm -f "$binding_file" 2>/dev/null
+    return 0
+}
+
+# Clear all TTY bindings for a specific session
+# Args: $1 - session ID
+# Returns: 0 always (idempotent)
+clear_session_tty_bindings() {
+    local session_id="$1"
+    local binding_dir
+    binding_dir="$(get_tty_bindings_dir)"
+
+    [[ -d "$binding_dir" ]] || return 0
+
+    local file bound_session
+    for file in "$binding_dir"/tty-*; do
+        [[ -f "$file" ]] || continue
+        bound_session=$(jq -r '.sessionId // empty' "$file" 2>/dev/null)
+        if [[ "$bound_session" == "$session_id" ]]; then
+            rm -f "$file"
+        fi
+    done
+    return 0
+}
+
+# Check if TTY binding is stale (older than max age)
+# Args: $1 - binding file path, $2 - max age in hours (default: 168 = 7 days)
+# Returns: 0 if fresh, 1 if stale or invalid
+check_binding_staleness() {
+    local binding_file="$1"
+    local max_age_hours="${2:-168}"
+
+    [[ -f "$binding_file" ]] || return 1
+
+    local bound_at
+    bound_at=$(jq -r '.boundAt // empty' "$binding_file" 2>/dev/null)
+    [[ -n "$bound_at" ]] || return 0  # No timestamp = treat as fresh
+
+    local bound_ts now_ts age_hours
+    # Try GNU date first, then BSD date
+    if date --version >/dev/null 2>&1; then
+        bound_ts=$(date -d "$bound_at" +%s 2>/dev/null || echo 0)
+    else
+        bound_ts=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$bound_at" +%s 2>/dev/null || echo 0)
+    fi
+    now_ts=$(date +%s)
+    age_hours=$(( (now_ts - bound_ts) / 3600 ))
+
+    [[ "$age_hours" -le "$max_age_hours" ]]
+}
+
+# Validate session binding - check for conflicts and staleness
+# Args: $1 - session ID to validate
+# Returns: 0 if valid, 1 if conflict/issue detected (warning printed to stderr)
+validate_session_binding() {
+    local session_id="$1"
+    local tty_id
+    tty_id=$(get_tty_id) || return 0  # No TTY = no conflict possible
+
+    local binding_dir
+    binding_dir="$(get_tty_bindings_dir)"
+    local binding_file="${binding_dir}/${tty_id}"
+
+    # Check if another session is bound to this TTY
+    if [[ -f "$binding_file" ]]; then
+        local existing_session
+        existing_session=$(jq -r '.sessionId // empty' "$binding_file" 2>/dev/null)
+
+        if [[ -n "$existing_session" && "$existing_session" != "$session_id" ]]; then
+            echo "Warning: Another session ($existing_session) is bound to this terminal" >&2
+            echo "  Switch: cleo session switch $session_id" >&2
+            echo "  Or set: export CLEO_SESSION=$session_id" >&2
+            return 1
+        fi
+
+        # Check staleness
+        local max_age_hours
+        max_age_hours=$(get_config_value "multiSession.ttyBinding.maxAgeHours" "168" 2>/dev/null || echo "168")
+        if ! check_binding_staleness "$binding_file" "$max_age_hours"; then
+            local age_days=$(( max_age_hours / 24 ))
+            echo "Warning: Session binding is stale (bound >${age_days}d ago)" >&2
+            echo "  Refresh: cleo session resume $existing_session" >&2
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # AUTO-FOCUS
 # ============================================================================
 
@@ -1749,11 +2232,25 @@ export -f suspend_session
 export -f resume_session
 export -f end_session
 export -f close_session
+export -f archive_session
 export -f list_sessions
 export -f get_session
 export -f get_current_session_id
 export -f resolve_current_session_id
 export -f auto_bind_session
 export -f clear_session_binding
+export -f get_tty_id
+export -f get_tty_bindings_dir
+export -f bind_session_to_tty
+export -f get_tty_bound_session
+export -f clear_tty_binding
+export -f clear_session_tty_bindings
+export -f check_binding_staleness
+export -f validate_session_binding
 export -f auto_select_focus_task
 export -f discover_available_epics
+export -f get_context_state_path_for_session
+export -f cleanup_context_state_for_session
+export -f cleanup_orphaned_context_states
+export -f migrate_context_state_singleton
+export -f init_context_states_dir

@@ -69,6 +69,34 @@ get_current_session_id() {
     fi
 }
 
+# get_context_state_path - Get the context state file path for a session
+#
+# Args:
+#   $1 - Session ID (optional, defaults to current session)
+#
+# Returns: Path to the context state file (may not exist)
+get_context_state_path() {
+    local session_id="${1:-$(get_current_session_id)}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-.cleo}"
+    local project_root="${cleo_dir%/.cleo}"
+
+    # Get config values with defaults
+    local context_dir filename_pattern
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+    filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
+
+    local full_dir="${project_root}/${context_dir}"
+
+    if [[ -n "$session_id" ]]; then
+        # Replace {sessionId} placeholder with actual session ID
+        local filename="${filename_pattern//\{sessionId\}/$session_id}"
+        echo "${full_dir}/${filename}"
+    else
+        # Fallback to singleton in .cleo directory (legacy behavior)
+        echo "${cleo_dir}/.context-state.json"
+    fi
+}
+
 # read_context_state - Read the current context state file
 #
 # Args:
@@ -78,13 +106,26 @@ get_current_session_id() {
 # Outputs: JSON content to stdout
 read_context_state() {
     local session_id="${1:-$(get_current_session_id)}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-.cleo}"
 
-    # Determine which state file to read
+    # Get the state file path from config-based location
     local state_file
-    if [[ -n "$session_id" ]]; then
-        state_file="${CLEO_PROJECT_DIR:-.cleo}/.context-state-${session_id}.json"
-    else
-        state_file="${CLEO_PROJECT_DIR:-.cleo}/.context-state.json"
+    state_file=$(get_context_state_path "$session_id")
+
+    # Fallback: check legacy locations if new location doesn't exist
+    if [[ ! -f "$state_file" ]]; then
+        # Try legacy flat file pattern (.cleo/.context-state-{sessionId}.json)
+        if [[ -n "$session_id" ]]; then
+            local legacy_file="${cleo_dir}/.context-state-${session_id}.json"
+            if [[ -f "$legacy_file" ]]; then
+                state_file="$legacy_file"
+            fi
+        fi
+    fi
+
+    # Try singleton fallback
+    if [[ ! -f "$state_file" ]]; then
+        state_file="${cleo_dir}/.context-state.json"
     fi
 
     if [[ ! -f "$state_file" ]]; then
@@ -457,6 +498,7 @@ check_context_alert() {
 
 export -f get_config_value
 export -f get_current_session_id
+export -f get_context_state_path
 export -f read_context_state
 export -f read_alert_state
 export -f should_alert

@@ -87,7 +87,7 @@ Each session in the `sessions` array:
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | Unique session identifier |
-| `status` | enum | `active`, `suspended`, `ended`, `closed` |
+| `status` | enum | `active`, `suspended`, `ended`, `archived`, `closed` |
 | `name` | string | Human-readable session name |
 | `agentId` | string | Agent identifier (auto-detected or specified) |
 | `scope` | object | Session scope definition |
@@ -96,6 +96,8 @@ Each session in the `sessions` array:
 | `lastActivity` | ISO8601 | Last command timestamp |
 | `suspendedAt` | ISO8601 | When suspended (null if not) |
 | `endedAt` | ISO8601 | When ended (null if active) |
+| `archivedAt` | ISO8601 | When archived (null if not) |
+| `archiveReason` | string | Reason for archival (optional) |
 | `stats` | object | Session statistics |
 
 ### Scope Object
@@ -136,8 +138,19 @@ ACTIVE → suspend → SUSPENDED
 ACTIVE → end → ENDED
 SUSPENDED → resume → ACTIVE
 ENDED → resume → ACTIVE
+SUSPENDED/ENDED → archive → ARCHIVED (read-only, audit trail)
 ACTIVE/ENDED → close → CLOSED (moved to sessionHistory)
 ```
+
+### Status Descriptions
+
+| Status | Description | Resumable | Archivable |
+|--------|-------------|-----------|------------|
+| `active` | Currently working | - | No |
+| `suspended` | Paused, state preserved | Yes | Yes |
+| `ended` | Finished, state preserved | Yes | Yes |
+| `archived` | Read-only audit record | No | - |
+| `closed` | Permanently archived | No | - |
 
 ## Related Files
 
