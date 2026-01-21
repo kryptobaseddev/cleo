@@ -838,11 +838,10 @@ do_switch_to_release() {
     local latest_version
     latest_version=$(echo "$release_info" | jq -r '.tag_name // empty' | sed 's/^v//')
 
+    # Download our release tarball (NOT GitHub's source archive)
+    # Our tarball has execute permissions set on scripts
     local download_url
-    download_url=$(echo "$release_info" | jq -r '.tarball_url // empty')
-    if [[ -z "$download_url" ]]; then
-        download_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/v${latest_version}.tar.gz"
-    fi
+    download_url="https://github.com/${GITHUB_REPO}/releases/download/v${latest_version}/cleo-${latest_version}.tar.gz"
 
     local temp_dir
     temp_dir=$(mktemp -d)
@@ -1226,14 +1225,10 @@ do_update() {
         fi
     fi
 
-    # Get download URL for tarball
+    # Download our release tarball (NOT GitHub's source archive)
+    # Our tarball has execute permissions set on scripts
     local download_url
-    download_url=$(echo "$release_info" | jq -r '.tarball_url // empty')
-
-    if [[ -z "$download_url" ]]; then
-        # Fallback: construct URL from tag
-        download_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/v${latest_version}.tar.gz"
-    fi
+    download_url="https://github.com/${GITHUB_REPO}/releases/download/v${latest_version}/cleo-${latest_version}.tar.gz"
 
     # Create temp directory for download
     local temp_dir
