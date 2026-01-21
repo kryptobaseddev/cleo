@@ -133,7 +133,41 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 
 ## Quick Start
 
-### Prerequisites
+### TL;DR - Just Install It
+
+**Option 1: Download Installer (Recommended)**
+
+<p align="center">
+  <a href="https://github.com/kryptobaseddev/cleo/releases/latest">
+    <img src="https://img.shields.io/badge/Download-Latest%20Release-brightgreen?style=for-the-badge&logo=github" alt="Download Latest Release">
+  </a>
+</p>
+
+1. Download `cleo-X.Y.Z.tar.gz` from the link above
+2. Extract and run:
+   ```bash
+   tar xzf cleo-*.tar.gz && cd cleo-* && ./install.sh
+   ```
+
+**Option 2: One-liner (for developers)**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/installer/install.sh | bash
+```
+
+**Option 3: From source (for contributors)**
+
+```bash
+git clone https://github.com/kryptobaseddev/cleo.git && cd cleo && ./installer/install.sh --dev
+```
+
+Then initialize in your project:
+```bash
+cd /path/to/your/project && cleo init
+```
+
+<details>
+<summary><strong>Prerequisites</strong></summary>
 
 | Dependency | Required | Install |
 |------------|----------|---------|
@@ -144,36 +178,50 @@ IDs are **flat, sequential, and eternal**. No hierarchical IDs like `T001.2.3` t
 Optional:
 - **ajv-cli** - For JSON Schema validation
 
-### Installation
+</details>
 
-#### Quick Install (Recommended)
+<details>
+<summary><strong>Detailed Installation Options</strong></summary>
+
+#### Download from Releases (Recommended for Users)
+
+1. Go to [Releases](https://github.com/kryptobaseddev/cleo/releases/latest)
+2. Download `cleo-X.Y.Z.tar.gz`
+3. Extract and install:
+   ```bash
+   tar xzf cleo-*.tar.gz
+   cd cleo-*
+   ./install.sh
+   ```
+
+#### One-liner Install (for Developers)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/installer/install.sh | bash
 ```
 
-#### From Source
+#### From Source (for Contributors)
 
 ```bash
 # Clone repository
 git clone https://github.com/kryptobaseddev/cleo.git
 cd cleo
 
-# Install (creates symlinks to repo for development)
+# Install for development (creates symlinks to repo)
 ./installer/install.sh --dev
 
 # Or install as release (copies files)
 ./installer/install.sh --release
 ```
 
-### Verify Installation
+#### Verify Installation
 
 ```bash
 cleo version
 cleo --validate
 ```
 
-### Initialize in Your Project
+#### Initialize in Your Project
 
 ```bash
 cd /path/to/your/project
@@ -182,10 +230,31 @@ cleo init
 
 > **Note**: The installer creates symlinks in `~/.local/bin/`, which works immediately with Claude Code and most modern shells.
 
-### Upgrade
+</details>
+
+<details>
+<summary><strong>Upgrade & Self-Update</strong></summary>
+
+#### Self-Update (Recommended)
 
 ```bash
 # Check for updates
+cleo self-update --check
+
+# Update to latest version
+cleo self-update
+
+# Update to specific version
+cleo self-update --version 0.60.0
+
+# Show current version and update status
+cleo self-update --status
+```
+
+#### Manual Upgrade
+
+```bash
+# Check for updates (if self-update unavailable)
 ./installer/install.sh --check-upgrade
 
 # Upgrade to latest
@@ -196,11 +265,16 @@ cleo migrate status
 cleo migrate run
 ```
 
-### Uninstall
+</details>
+
+<details>
+<summary><strong>Uninstall</strong></summary>
 
 ```bash
 ./installer/install.sh --uninstall
 ```
+
+</details>
 
 ### The `ct` Shortcut
 
@@ -243,9 +317,10 @@ cleo focus set <TAB>        # Shows pending/active task IDs
 
 ---
 
-## Command Reference
+<details>
+<summary><h2>Command Reference</h2></summary>
 
-### 47 Commands Across 5 Categories
+### 48 Commands Across 5 Categories
 
 | Category | Commands | Purpose |
 |----------|----------|---------|
@@ -253,7 +328,7 @@ cleo focus set <TAB>        # Shows pending/active task IDs
 | **Read (17)** | `list`, `show`, `find`, `analyze`, `next`, `dash`, `deps`, `blockers`, `phases`, `labels`, `stats`, `log`, `commands`, `exists`, `export`, `history`, `research` | Query and analyze |
 | **Sync (3)** | `sync`, `inject`, `extract` | TodoWrite integration |
 | **Orchestration (5)** | `orchestrator`, `context`, `tree`, `import-tasks`, `export-tasks` | Multi-agent coordination |
-| **Maintenance (8)** | `init`, `validate`, `backup`, `restore`, `migrate`, `migrate-backups`, `config`, `upgrade` | System administration |
+| **Maintenance (9)** | `init`, `validate`, `backup`, `restore`, `migrate`, `migrate-backups`, `config`, `upgrade`, `self-update` | System administration |
 
 ### Essential Commands
 
@@ -305,6 +380,10 @@ cleo uncancel T001                            # Restore cancelled task
 # Context monitoring (v0.46.0+)
 cleo context                                  # Check context window usage
 cleo context check                            # Exit codes for scripting
+
+# Self-update (v0.56.0+)
+cleo self-update                              # Update to latest version
+cleo self-update --check                      # Check for updates
 ```
 
 ### Command Discovery (v0.21.0+)
@@ -380,6 +459,8 @@ Errors return structured JSON with error codes, exit codes, and recovery suggest
 ```
 
 ---
+
+</details>
 
 ## Task Hierarchy (v0.17.0+)
 
@@ -558,7 +639,8 @@ cleo list --phase core
 
 ---
 
-## Configuration
+<details>
+<summary><h2>Configuration</h2></summary>
 
 ### Priority Resolution
 
@@ -609,6 +691,8 @@ CLEO_HOME=/custom/path        # Installation directory
 CLEO_DEBUG=1                  # Verbose output
 CLEO_FORMAT=json              # Force output format
 ```
+
+</details>
 
 ---
 
@@ -685,7 +769,8 @@ cleo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
 
 ---
 
-## Skills Architecture (v0.55.0+)
+<details>
+<summary><h2>Skills Architecture (v0.55.0+)</h2></summary>
 
 CLEO includes 14 modular skills for AI agent workflows:
 
@@ -735,9 +820,12 @@ cat skills/manifest.json | jq '.skills[].name'
 cleo upgrade  # Detects and updates skill versions
 ```
 
+</details>
+
 ---
 
-## Orchestrator Protocol (v0.55.0+)
+<details>
+<summary><h2>Orchestrator Protocol (v0.55.0+)</h2></summary>
 
 Coordinate multi-agent workflows with the orchestrator command:
 
@@ -760,9 +848,12 @@ cleo orchestrator validate --epic T001
 
 See [Orchestrator Protocol Guide](docs/guides/ORCHESTRATOR-PROTOCOL.md) for details.
 
+</details>
+
 ---
 
-## Extensibility
+<details>
+<summary><h2>Extensibility</h2></summary>
 
 CLEO supports extension points for custom workflows:
 
@@ -784,9 +875,12 @@ task_id="$1"
 
 See [docs/PLUGINS.md](docs/PLUGINS.md) for extension development.
 
+</details>
+
 ---
 
-## Troubleshooting
+<details>
+<summary><h2>Troubleshooting</h2></summary>
 
 ### Common Issues
 
@@ -808,9 +902,12 @@ cleo --validate                # Check CLI integrity
 cleo --list-commands           # Show all available commands
 ```
 
+</details>
+
 ---
 
-## Performance
+<details>
+<summary><h2>Performance</h2></summary>
 
 Target metrics (optimized for 1000+ tasks):
 
@@ -821,6 +918,8 @@ Target metrics (optimized for 1000+ tasks):
 | List tasks | < 50ms |
 | Archive (100 tasks) | < 500ms |
 | Validation (100 tasks) | < 200ms |
+
+</details>
 
 ---
 

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-01-20
+
+### Added
+- **Self-update command**: `cleo self-update` for automatic updates from GitHub releases
+  - `--check` - Check if update is available without installing
+  - `--status` - Show current vs latest version information
+  - `--version X.Y.Z` - Update to specific version
+  - `--force` - Skip confirmation prompts for non-interactive use
+  - SHA256 checksum verification of downloaded tarballs
+  - Automatic backup creation before updating
+  - Development mode detection (exits with code 100, suggests git pull)
+- **GitHub Release workflow**: `.github/workflows/release.yml` for automated releases
+  - Triggers on version tags (`v*.*.*`)
+  - Builds runtime tarball (`cleo-X.Y.Z.tar.gz`) with only runtime components
+  - Generates `SHA256SUMS` for checksum verification
+  - Attaches `install.sh` as standalone installer
+  - Auto-generates release notes from commits
+
+### Documentation
+- Updated installer-architecture.md with self-update command and release workflow sections
+- Updated installer-migration.md with future upgrades section
+
 ## [0.56.0] - 2026-01-20
 
 ### Added

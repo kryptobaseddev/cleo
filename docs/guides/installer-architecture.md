@@ -569,6 +569,135 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
+## Self-Update Command
+
+CLEO v0.57.0+ includes a self-update command that allows automatic updates from GitHub releases without running the full installer manually.
+
+### Usage
+
+```bash
+# Check for updates
+cleo self-update --check
+
+# Show current vs latest version
+cleo self-update --status
+
+# Update to latest version
+cleo self-update
+
+# Update to specific version
+cleo self-update --version 0.58.0
+
+# Non-interactive update (for scripts/CI)
+cleo self-update --force
+```
+
+### How Self-Update Works
+
+1. **Version Check**: Queries GitHub API for latest release information
+2. **Download**: Fetches the release tarball (`cleo-X.Y.Z.tar.gz`)
+3. **Checksum Verification**: Validates SHA256 checksum from `SHA256SUMS` file
+4. **Backup**: Creates backup of current installation in `~/.cleo/backups/self-update/`
+5. **Install**: Runs the bundled installer from the extracted tarball
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success / already up to date |
+| 1 | Update available (with `--check`) |
+| 2 | Download failed |
+| 3 | Checksum mismatch |
+| 4 | Installation failed |
+| 5 | GitHub API error |
+| 100 | Dev mode (use git pull instead) |
+
+### Development Mode Detection
+
+For development installations (symlinks to git repository), `self-update` exits with code 100 and instructs the user to use `git pull` instead:
+
+```bash
+$ cleo self-update
+CLEO is installed in development mode.
+Use 'git pull' to update instead.
+
+Development mode indicators:
+  - Symlinked installation
+  - Git repository present
+```
+
+## GitHub Release Workflow
+
+CLEO releases are automated via GitHub Actions. When a version tag (`v*.*.*`) is pushed, the release workflow automatically builds and publishes release artifacts.
+
+### Workflow Trigger
+
+```yaml
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+```
+
+### Release Artifacts
+
+Each release includes:
+
+| Artifact | Description |
+|----------|-------------|
+| `cleo-X.Y.Z.tar.gz` | Runtime tarball (scripts, lib, schemas, templates, skills, installer) |
+| `install.sh` | Standalone installer script |
+| `SHA256SUMS` | SHA256 checksums for verification |
+
+### Runtime Tarball Contents
+
+The tarball contains only runtime components (no tests, dev scripts, or documentation):
+
+```
+cleo-X.Y.Z/
+├── scripts/       # CLI command scripts
+├── lib/           # Core libraries
+├── schemas/       # JSON Schema definitions
+├── templates/     # User templates
+├── skills/        # Agent skills
+├── installer/     # Modular installer
+├── VERSION        # Version file
+├── LICENSE        # License file
+└── README.md      # Project readme
+```
+
+**Excluded from runtime tarball:**
+- `tests/` - BATS test suite
+- `docs/` - User documentation
+- `.github/` - CI configurations
+- `dev/` - Development scripts
+- `claudedocs/` - Internal research
+- `archive/` - Historical data
+
+### Creating a Release
+
+To create a new release:
+
+```bash
+# Update VERSION file
+echo "0.58.0" > VERSION
+
+# Commit and tag
+git add VERSION
+git commit -m "chore: Bump version to 0.58.0"
+git tag v0.58.0
+
+# Push tag to trigger release workflow
+git push origin main --tags
+```
+
+The GitHub Action will:
+1. Validate required files exist
+2. Build the runtime tarball
+3. Generate SHA256 checksums
+4. Create a GitHub Release with auto-generated release notes
+5. Attach all artifacts to the release
+
 ## See Also
 
 - [Getting Started Guide](./getting-started.md)
