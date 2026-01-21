@@ -291,6 +291,7 @@ _get_cmd_script() {
         uncancel) echo "uncancel.sh" ;; reopen) echo "reopen.sh" ;; reparent) echo "reparent.sh" ;;
         promote) echo "promote.sh" ;; verify) echo "verify.sh" ;; upgrade) echo "upgrade.sh" ;;
         context) echo "context.sh" ;; doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
+        self-update) echo "self-update.sh" ;; setup-agents) echo "setup-agents.sh" ;;
         *) echo "" ;;
     esac
 }
@@ -306,7 +307,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers phases phase exists history analyze sync commands research delete uncancel reopen reparent promote verify upgrade context doctor migrate"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers phases phase exists history analyze sync commands research delete uncancel reopen reparent promote verify upgrade context doctor migrate self-update setup-agents"
 }
 
 cmd="${1:-help}"
