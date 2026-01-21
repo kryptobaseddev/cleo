@@ -172,14 +172,23 @@ cd /path/to/your/project && cleo init
 <details>
 <summary><strong>Prerequisites</strong></summary>
 
-| Dependency | Required | Install |
-|------------|----------|---------|
-| **Bash 4.0+** | Critical | Pre-installed (check: `bash --version`) |
-| **jq 1.6+** | Critical | `apt install jq` / `brew install jq` |
-| **curl** | For remote install | Pre-installed on most systems |
+**Required (Core CLI):**
 
-Optional:
-- **ajv-cli** - For JSON Schema validation
+| Dependency | Version | Install |
+|------------|---------|---------|
+| **Bash** | 4.0+ | Pre-installed (check: `bash --version`). macOS: `brew install bash` |
+| **jq** | 1.6+ | `apt install jq` / `brew install jq` / `dnf install jq` |
+| **curl** or **wget** | Any | Pre-installed on most systems (for remote install) |
+
+**Optional (Advanced Features):**
+
+| Dependency | For | Install |
+|------------|-----|---------|
+| **Python 3.x** | Skill creator scripts | Pre-installed on most systems |
+| **PyYAML** | Skill creator scripts | `pip install pyyaml` |
+| **ajv-cli** | JSON Schema validation | `npm install -g ajv-cli` |
+
+> **Note**: The core CLEO CLI is pure Bash. Python is only needed for skill creation/validation scripts.
 
 </details>
 
@@ -194,13 +203,13 @@ Optional:
    ```bash
    tar xzf cleo-*.tar.gz
    cd cleo-*
-   ./install.sh
+   ./installer/install.sh
    ```
 
 #### One-liner Install (for Developers)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/installer/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/kryptobaseddev/cleo/main/install.sh | bash
 ```
 
 #### From Source (for Contributors)
