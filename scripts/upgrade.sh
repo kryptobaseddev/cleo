@@ -775,11 +775,27 @@ if [[ "$agent_docs_updated" == true ]]; then
     if type injection_update_all &>/dev/null; then
         result=$(injection_update_all ".")
         updated=$(echo "$result" | jq -r '.updated')
+        skipped=$(echo "$result" | jq -r '.skipped')
+        failed=$(echo "$result" | jq -r '.failed')
 
         if [[ "$updated" -gt 0 ]]; then
             (( UPDATES_APPLIED += updated ))
-        else
-            ERRORS+=("Agent docs update completed with 0 updates")
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Updated $updated agent doc file(s)"
+            fi
+        fi
+
+        if [[ "$skipped" -gt 0 ]] && ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            echo "  Skipped $skipped file(s) - already up-to-date"
+        fi
+
+        if [[ "$failed" -gt 0 ]]; then
+            ERRORS+=("Agent docs: $failed file(s) failed to update")
+        fi
+
+        # Only error if we expected updates but got none AND had no skips
+        if [[ "$updated" -eq 0 ]] && [[ "$skipped" -eq 0 ]] && [[ "$failed" -eq 0 ]]; then
+            ERRORS+=("Agent docs update completed with no files processed")
         fi
     else
         ERRORS+=("Injection library not available")

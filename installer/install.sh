@@ -344,8 +344,9 @@ do_state_link() {
         installer_link_setup_skills "$INSTALL_DIR/skills" || true  # Non-critical
     fi
 
-    # Inject into CLAUDE.md
-    installer_link_inject_claudemd || true  # Non-critical
+    # Setup global agent configurations (claude, gemini, codex, kimi)
+    # This ensures LLM agents know about CLEO without requiring separate setup
+    installer_link_setup_all_agents || true  # Non-critical
 
     return 0
 }

@@ -743,11 +743,10 @@ discover_migration_versions() {
 
     # Sort by sortKey and extract identifiers
     # This naturally gives us: semver first (smaller numeric keys), then timestamps
+    # Output newline-separated for proper consumption with mapfile/head/tail
     printf '%s\n' "${parsed_migrations[@]}" | \
         jq -rs 'sort_by(.sortKey) | .[].identifier' | \
-        tr -d '"' | \
-        tr '\n' ' ' | \
-        sed 's/ $//'  # Remove trailing space
+        tr -d '"'
 }
 
 # Find migration path between versions
