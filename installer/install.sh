@@ -85,6 +85,7 @@ OPT_VERBOSE=false
 OPT_SHOW_HELP=false
 OPT_SHOW_VERSION=false
 OPT_DEV_MODE=false
+OPT_RELEASE_MODE=false
 OPT_NO_SYMLINKS=false
 OPT_SHOW_STATUS=false
 OPT_REFRESH=false
@@ -121,6 +122,10 @@ parse_args() {
             --dev)
                 OPT_DEV_MODE=true
                 export INSTALLER_DEV_MODE=1
+                ;;
+            --release)
+                OPT_RELEASE_MODE=true
+                export INSTALLER_MODE=release
                 ;;
             --no-symlinks)
                 OPT_NO_SYMLINKS=true
@@ -175,6 +180,12 @@ parse_args() {
         esac
         shift
     done
+
+    # Validate conflicting options
+    if [[ "$OPT_DEV_MODE" == "true" && "$OPT_RELEASE_MODE" == "true" ]]; then
+        echo "ERROR: Cannot specify both --dev and --release" >&2
+        exit 1
+    fi
 }
 
 show_usage() {
@@ -189,7 +200,8 @@ Options:
   --cleo-version VER      Install specific CLEO version (e.g., v0.55.0)
   --list-versions         List available CLEO versions from GitHub
   --force, -f             Force reinstall (skip version check)
-  --dev                   Force development mode (symlinks to repo for live updates)
+  --dev                   Force development mode (symlinks to repo)
+  --release               Force release mode (download and copy files)
   --no-symlinks           In dev mode, copy files instead of symlinking
   --check-deps            Check dependencies only, don't install
   --skip-profile          Skip shell profile modification
@@ -220,6 +232,7 @@ Examples:
   ./install.sh --cleo-version v0.55.0  # Install specific version
   ./install.sh --list-versions     # List available versions
   ./install.sh --dev               # Force dev mode with symlinks
+  ./install.sh --release           # Force release mode (download from GitHub)
   ./install.sh --dev --no-symlinks # Dev mode but copy files
   ./install.sh --check-deps        # Check dependencies only
   ./install.sh --force             # Force reinstall

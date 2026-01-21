@@ -87,9 +87,9 @@ Used when running from a cloned repository. Ideal for contributors and testing.
 Downloads from GitHub releases. Recommended for end users.
 
 ```bash
+./installer/install.sh --release
+# or from a non-git directory:
 ./installer/install.sh
-# or explicitly:
-./installer/install.sh --no-symlinks
 ```
 
 **Characteristics:**
@@ -97,6 +97,7 @@ Downloads from GitHub releases. Recommended for end users.
 - Copies files to `~/.cleo`
 - Includes checksum verification
 - Independent of source repository
+- Updates via `cleo self-update`
 
 #### Mode Auto-Detection
 
@@ -382,7 +383,8 @@ The installer uses distinct exit codes for different failure modes.
 
 Installation:
   --dev               Force development mode (symlinks)
-  --no-symlinks       Force release mode (copy)
+  --release           Force release mode (download from GitHub)
+  --no-symlinks       In dev mode, copy files instead of symlinking
   --force             Overwrite existing installation
   --skip-profile      Skip shell profile updates
   --skip-skills       Skip skills installation

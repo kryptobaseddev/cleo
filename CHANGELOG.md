@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-01-20
+
+### Added
+- **Installer**: Add `--release` flag for explicit release mode installation
+  - Symmetric with existing `--dev` flag
+  - `./install.sh --release --force` downloads latest release and copies files
+  - Conflict detection: `--dev` and `--release` together produces clear error
+- **Self-update**: Add mode switching capabilities
+  - `--to-release` switches from dev mode to release mode
+  - `--to-dev PATH` switches from release mode to dev mode
+  - Dev mode now shows helpful suggestions including switch option
+- **Documentation**: New Installation Modes guide (`docs/guides/INSTALLATION-MODES.md`)
+  - Comprehensive explanation of dev vs release modes
+  - Step-by-step switching instructions
+  - Use cases for each mode
+
+### Changed
+- **Self-update**: Improved dev mode output with actionable suggestions
+  - JSON output includes `suggestions.switch_to_release` field
+  - Human output shows both `git pull` and `--to-release` options
+
 ## [0.57.11] - 2026-01-20
 
 ### Fixed
