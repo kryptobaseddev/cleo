@@ -14,6 +14,20 @@
 
 set -euo pipefail
 
+# Early Bash version check (must happen before any Bash 4+ features)
+if [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
+    echo "ERROR: CLEO requires Bash 4.0 or later." >&2
+    echo "Your version: ${BASH_VERSION:-unknown}" >&2
+    echo "" >&2
+    echo "On macOS, install modern Bash with:" >&2
+    echo "  brew install bash" >&2
+    echo "" >&2
+    echo "Then run the installer with:" >&2
+    echo "  /opt/homebrew/bin/bash install.sh" >&2
+    echo "  # or: /usr/local/bin/bash install.sh" >&2
+    exit 1
+fi
+
 # Configuration
 GITHUB_REPO="kryptobaseddev/cleo"
 INSTALL_DIR="${CLEO_HOME:-$HOME/.cleo}"
