@@ -245,6 +245,8 @@ cleo init
 | **Fresh install** | `curl ... \| bash` |
 | **Update to latest** | `cleo self-update` (preferred) |
 | **Update to specific version** | `cleo self-update --version X.Y.Z` |
+| **Switch dev → release** | `cleo self-update --to-release` |
+| **Switch release → dev** | `cleo self-update --to-dev /path/to/repo` |
 | **Reinstall / fix broken install** | `curl ... \| bash -s -- --force` |
 
 #### Self-Update (Recommended)
@@ -264,6 +266,20 @@ cleo self-update --version 0.60.0
 # Show current version and update status
 cleo self-update --status
 ```
+
+#### Mode Switching (v0.58.0+)
+
+Switch between development mode (symlinks) and release mode (copied files):
+
+```bash
+# Switch from dev mode to release mode
+cleo self-update --to-release
+
+# Switch from release mode to dev mode
+cleo self-update --to-dev /path/to/cleo-repo
+```
+
+See [Installation Modes Guide](docs/guides/INSTALLATION-MODES.md) for details.
 
 #### Reinstall with --force
 

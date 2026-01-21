@@ -628,6 +628,34 @@ Development mode indicators:
   - Git repository present
 ```
 
+### Mode Switching (v0.58.0+)
+
+Self-update now supports switching between installation modes:
+
+```bash
+# Switch from dev mode to release mode
+cleo self-update --to-release
+
+# Switch from release mode to dev mode
+cleo self-update --to-dev /path/to/cleo-repo
+```
+
+**Dev → Release (`--to-release`):**
+1. Creates backup of current installation
+2. Downloads latest release from GitHub
+3. Verifies checksum
+4. Replaces symlinks with copied files
+5. Updates VERSION file to `mode=release`
+
+**Release → Dev (`--to-dev PATH`):**
+1. Validates PATH is a valid CLEO repository
+2. Creates backup of current installation
+3. Removes copied files
+4. Creates symlinks to repository
+5. Updates VERSION file to `mode=dev, source=PATH`
+
+See [Installation Modes Guide](INSTALLATION-MODES.md) for detailed usage.
+
 ## GitHub Release Workflow
 
 CLEO releases are automated via GitHub Actions. When a version tag (`v*.*.*`) is pushed, the release workflow automatically builds and publishes release artifacts.
