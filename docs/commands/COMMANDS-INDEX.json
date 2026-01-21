@@ -2,7 +2,7 @@
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "1.0.0",
-    "lastUpdated": "2026-01-20",
+    "lastUpdated": "2026-01-21",
     "totalCommands": 53,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
@@ -933,10 +933,27 @@
         "--reddit",
         "--library"
       ],
+      "subcommands": [
+        "init",
+        "list",
+        "show",
+        "inject",
+        "link",
+        "pending",
+        "archive",
+        "archive-list",
+        "status",
+        "stats",
+        "validate"
+      ],
       "exitCodes": [
         0,
         2,
-        3
+        3,
+        4,
+        5,
+        6,
+        101
       ],
       "jsonOutput": true,
       "agentRelevance": "high",

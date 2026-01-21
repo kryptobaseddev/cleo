@@ -211,6 +211,14 @@ cleo research show <id> --full      # Include full file content
 cleo research inject                # Output subagent injection template
 cleo research inject --clipboard    # Copy injection template to clipboard
 cleo research link T001 <research-id>  # Link research to task
+cleo research pending               # Show entries with needs_followup (orchestrator handoffs)
+cleo research archive               # Archive old manifest entries
+cleo research archive --percent 25  # Archive 25% of oldest entries
+cleo research archive-list          # List archived entries
+cleo research status                # Show manifest size and archival status
+cleo research stats                 # Show comprehensive manifest statistics
+cleo research validate              # Validate manifest integrity
+cleo research validate --fix        # Fix invalid manifest entries
 ```
 
 **Aliases**: `dig` → `research`
