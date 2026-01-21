@@ -194,8 +194,8 @@ remote_install() {
     local tmp_dir=$(mktemp -d)
     trap "rm -rf '$tmp_dir'" EXIT
 
-    # Download release tarball
-    local tarball_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/v${version}.tar.gz"
+    # Download release tarball (from release assets, not source archive)
+    local tarball_url="https://github.com/${GITHUB_REPO}/releases/download/v${version}/cleo-${version}.tar.gz"
     local tarball="$tmp_dir/cleo.tar.gz"
 
     info "Downloading v${version}..."
@@ -203,6 +203,22 @@ remote_install() {
         error "Failed to download release"
         echo "Check if version exists: https://github.com/${GITHUB_REPO}/releases"
         exit 1
+    fi
+
+    # Verify checksum
+    local checksums_url="https://github.com/${GITHUB_REPO}/releases/download/v${version}/SHA256SUMS"
+    local checksums="$tmp_dir/SHA256SUMS"
+    if download "$checksums_url" "$checksums" 2>/dev/null; then
+        info "Verifying checksum..."
+        local expected=$(grep "cleo-${version}.tar.gz" "$checksums" | cut -d' ' -f1)
+        local actual=$(sha256sum "$tarball" | cut -d' ' -f1)
+        if [[ "$expected" != "$actual" ]]; then
+            error "Checksum verification failed!"
+            echo "Expected: $expected"
+            echo "Got:      $actual"
+            exit 1
+        fi
+        success "Checksum verified"
     fi
 
     # Extract
