@@ -468,45 +468,61 @@ installer_link_verify_all() {
 # SKILLS INTEGRATION
 # ============================================
 
-# Clean up old individual ct-* skill symlinks
-# These are legacy symlinks from before the umbrella cleo symlink approach
+# Target directories for skill symlinks (Claude, Gemini, Codex)
+readonly SKILLS_TARGET_DIRS=(
+    "$HOME/.claude/skills"
+    "$HOME/.gemini/skills"
+    "$HOME/.codex/skills"
+)
+
+# Clean up old umbrella cleo symlink and broken ct-* symlinks
 # Returns: 0 always (cleanup is best-effort)
 installer_link_cleanup_old_skills() {
-    local skills_dir="$HOME/.claude/skills"
     local cleaned=0
 
-    if [[ ! -d "$skills_dir" ]]; then
-        return 0
-    fi
-
-    # Remove old ct-* symlinks that point outside ~/.cleo or are broken
-    for old_skill in "$skills_dir"/ct-*; do
-        if [[ -L "$old_skill" ]]; then
-            local target
-            target=$(readlink -f "$old_skill" 2>/dev/null || true)
-
-            # Remove if target doesn't exist OR points outside ~/.cleo
-            if [[ ! -e "$target" ]] || [[ "$target" != "$HOME/.cleo/"* ]]; then
-                installer_log_info "Removing old skill symlink: $(basename "$old_skill")"
-                rm -f "$old_skill"
-                ((cleaned++))
-            fi
+    for skills_dir in "${SKILLS_TARGET_DIRS[@]}"; do
+        if [[ ! -d "$skills_dir" ]]; then
+            continue
         fi
+
+        # Remove old umbrella cleo symlink (legacy approach)
+        if [[ -L "$skills_dir/cleo" ]]; then
+            installer_log_info "Removing old umbrella symlink: $skills_dir/cleo"
+            rm -f "$skills_dir/cleo"
+            ((cleaned++))
+        fi
+
+        # Remove broken or stale ct-* symlinks
+        for skill in "$skills_dir"/ct-*; do
+            if [[ -L "$skill" ]]; then
+                local target
+                target=$(readlink -f "$skill" 2>/dev/null || true)
+
+                # Remove if target doesn't exist
+                if [[ ! -e "$target" ]]; then
+                    installer_log_info "Removing broken skill symlink: $(basename "$skill")"
+                    rm -f "$skill"
+                    ((cleaned++))
+                fi
+            fi
+        done
     done
 
     if [[ $cleaned -gt 0 ]]; then
-        installer_log_info "Cleaned up $cleaned old ct-* skill symlinks"
+        installer_log_info "Cleaned up $cleaned old/broken skill symlinks"
     fi
 
     return 0
 }
 
-# Setup skills symlink to Claude Code's skills directory
+# Setup individual ct-* skill symlinks to agent skills directories
+# Creates symlinks for EACH ct-* directory found in source
 # Args: source_skills_dir
 # Returns: 0 on success, 1 on failure
 installer_link_setup_skills() {
     local source_dir="${1:-$INSTALL_DIR/skills}"
-    local target_dir="$HOME/.claude/skills/cleo"
+    local linked=0
+    local failed=0
 
     if [[ ! -d "$source_dir" ]]; then
         installer_log_debug "No skills directory to link: $source_dir"
@@ -515,29 +531,73 @@ installer_link_setup_skills() {
 
     installer_log_info "Setting up skills integration..."
 
-    # Clean up old individual ct-* symlinks before creating umbrella symlink
+    # Clean up old umbrella symlink and broken links first
     installer_link_cleanup_old_skills
 
-    # Ensure Claude skills directory exists
-    mkdir -p "$(dirname "$target_dir")"
+    # Process each target directory (Claude, Gemini, Codex)
+    for target_dir in "${SKILLS_TARGET_DIRS[@]}"; do
+        # Ensure target directory exists
+        mkdir -p "$target_dir" 2>/dev/null || {
+            installer_log_debug "Could not create directory: $target_dir"
+            continue
+        }
 
-    # Create symlink
-    if installer_link_create "$source_dir" "$target_dir"; then
-        installer_log_info "Skills linked: $target_dir -> $source_dir"
-        return 0
-    else
-        installer_log_error "Failed to link skills directory"
+        # Create symlinks for each ct-* directory
+        for skill_dir in "$source_dir"/ct-*; do
+            if [[ -d "$skill_dir" ]]; then
+                local skill_name
+                skill_name=$(basename "$skill_dir")
+                local target_link="$target_dir/$skill_name"
+
+                if installer_link_create "$skill_dir" "$target_link"; then
+                    installer_log_debug "Linked skill: $skill_name -> $target_link"
+                    ((linked++))
+                else
+                    installer_log_warn "Failed to link skill: $skill_name to $target_dir"
+                    ((failed++))
+                fi
+            fi
+        done
+    done
+
+    if [[ $linked -gt 0 ]]; then
+        installer_log_info "Created $linked skill symlinks across agent directories"
+    fi
+
+    if [[ $failed -gt 0 ]]; then
+        installer_log_warn "Failed to create $failed skill symlinks"
         return 1
     fi
+
+    return 0
 }
 
-# Remove skills symlink
+# Remove all ct-* skill symlinks from agent directories
 installer_link_remove_skills() {
-    local target_dir="$HOME/.claude/skills/cleo"
+    local removed=0
 
-    if [[ -L "$target_dir" ]]; then
-        installer_link_remove "$target_dir" "false"
-        installer_log_info "Skills symlink removed"
+    for target_dir in "${SKILLS_TARGET_DIRS[@]}"; do
+        if [[ ! -d "$target_dir" ]]; then
+            continue
+        fi
+
+        # Remove old umbrella cleo symlink if exists
+        if [[ -L "$target_dir/cleo" ]]; then
+            installer_link_remove "$target_dir/cleo" "false"
+            ((removed++))
+        fi
+
+        # Remove all ct-* symlinks
+        for skill in "$target_dir"/ct-*; do
+            if [[ -L "$skill" ]]; then
+                installer_link_remove "$skill" "false"
+                ((removed++))
+            fi
+        done
+    done
+
+    if [[ $removed -gt 0 ]]; then
+        installer_log_info "Removed $removed skill symlinks"
     fi
 
     return 0

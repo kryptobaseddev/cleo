@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.6] - 2026-01-20
+
+### Fixed
+- **Skills Installation**: Create individual `ct-*` symlinks instead of umbrella symlink
+  - Each skill directory now symlinked directly: `~/.claude/skills/ct-orchestrator -> ~/.cleo/skills/ct-orchestrator`
+  - Fixes nesting issue where skills were at `~/.claude/skills/cleo/ct-*` instead of root
+  - Skills now installed to all three agent directories:
+    - `~/.claude/skills/ct-*`
+    - `~/.gemini/skills/ct-*`
+    - `~/.codex/skills/ct-*`
+  - Mode switching (`--to-release`, `--to-dev`) updates all directories
+  - Cleanup removes old umbrella `cleo` symlink if present
+
 ## [0.58.5] - 2026-01-20
 
 ### Fixed
