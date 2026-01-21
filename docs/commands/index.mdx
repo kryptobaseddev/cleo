@@ -1,0 +1,102 @@
+---
+title: "Command Reference"
+description: "Complete reference for all CLEO CLI commands"
+icon: "terminal"
+---
+
+# Command Reference
+
+CLEO provides 53 commands organized by function. All commands output JSON when piped.
+
+<Info>
+Use `cleo help <command>` for detailed help on any command.
+</Info>
+
+## Quick Reference
+
+<CardGroup cols={2}>
+  <Card title="Task Management" icon="list-check" href="/commands/add">
+    Create, update, complete, and manage tasks
+  </Card>
+  <Card title="Session & Focus" icon="crosshairs" href="/commands/session">
+    Multi-session support and focus tracking
+  </Card>
+  <Card title="Analysis" icon="chart-line" href="/commands/analyze">
+    Task triage, dashboards, and insights
+  </Card>
+  <Card title="Hierarchy" icon="sitemap" href="/commands/tree">
+    Epic, task, subtask organization
+  </Card>
+  <Card title="Maintenance" icon="wrench" href="/commands/validate">
+    Backup, restore, validation, upgrades
+  </Card>
+  <Card title="Integration" icon="plug" href="/commands/sync">
+    Export, import, research integration
+  </Card>
+</CardGroup>
+
+## Command Categories
+
+### Task Management
+| Command | Description |
+|---------|-------------|
+| [add](/commands/add) | Create a new task |
+| [update](/commands/update) | Modify task properties |
+| [complete](/commands/complete) | Mark task as done |
+| [delete](/commands/delete) | Cancel/soft-delete task |
+| [reopen](/commands/reopen) | Restore completed task |
+| [list](/commands/list) | View tasks with filters |
+| [show](/commands/show) | Full task details |
+| [find](/commands/find) | Search tasks |
+
+### Session & Focus
+| Command | Description |
+|---------|-------------|
+| [session](/commands/session) | Manage work sessions |
+| [focus](/commands/focus) | Set/view active task |
+| [context](/commands/context) | Monitor context usage |
+
+### Analysis
+| Command | Description |
+|---------|-------------|
+| [analyze](/commands/analyze) | Task triage with scoring |
+| [dash](/commands/dash) | Project dashboard |
+| [next](/commands/next) | Suggest next task |
+| [blockers](/commands/blockers) | Show blocked tasks |
+| [deps](/commands/deps) | Dependency overview |
+
+### Hierarchy
+| Command | Description |
+|---------|-------------|
+| [tree](/commands/tree) | Hierarchical view |
+| [reparent](/commands/reparent) | Move task to new parent |
+| [promote](/commands/promote) | Make task root-level |
+
+### Maintenance
+| Command | Description |
+|---------|-------------|
+| [validate](/commands/validate) | Check data integrity |
+| [backup](/commands/backup) | Create backup |
+| [restore](/commands/restore) | Restore from backup |
+| [upgrade](/commands/upgrade) | Update schemas |
+| [doctor](/commands/doctor) | Health diagnostics |
+
+## Common Patterns
+
+```bash
+# Start a work session
+cleo session start --scope epic:T001 --auto-focus
+
+# Add task with full metadata
+cleo add "Implement feature" --priority high --phase core
+
+# Complete with notes
+cleo complete T001 --notes "Implemented and tested"
+
+# View project status
+cleo dash --compact
+```
+
+<Tip>
+All commands support `--help` for detailed usage information.
+</Tip>

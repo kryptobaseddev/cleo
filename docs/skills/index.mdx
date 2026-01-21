@@ -1,0 +1,56 @@
+---
+title: "Skills"
+description: "Agent skills for extending CLEO capabilities"
+icon: "wand-magic-sparkles"
+---
+
+# Agent Skills
+
+CLEO provides a skills system for extending AI agent capabilities.
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="eye" href="/skills/overview">
+    Introduction to the skills system
+  </Card>
+  <Card title="Installation" icon="download" href="/skills/installation">
+    Install and configure skills
+  </Card>
+</CardGroup>
+
+## Available Skills
+
+<CardGroup cols={2}>
+  <Card title="Epic Architect" icon="sitemap" href="/skills/epic-architect">
+    Plan and decompose epics into tasks
+  </Card>
+  <Card title="Orchestrator" icon="network-wired" href="/skills/orchestrator">
+    Coordinate multi-agent workflows
+  </Card>
+  <Card title="Research Agent" icon="magnifying-glass" href="/skills/research-agent">
+    Research and gather information
+  </Card>
+</CardGroup>
+
+## Skill Categories
+
+| Category | Skills |
+|----------|--------|
+| **Planning** | epic-architect, spec-writer |
+| **Execution** | task-executor, test-writer-bats |
+| **Research** | research-agent |
+| **Coordination** | orchestrator, validator |
+| **Documentation** | docs-lookup, docs-write, docs-review |
+
+## Using Skills
+
+Skills are invoked via the `/skill-name` command or through the orchestrator:
+
+```bash
+/ct-epic-architect  # Plan an epic
+/ct-research-agent  # Research a topic
+/ct-orchestrator    # Coordinate workflow
+```
+
+<Info>
+Skills use the `ct-` prefix to distinguish CLEO skills from other plugins.
+</Info>
