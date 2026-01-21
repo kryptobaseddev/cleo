@@ -271,7 +271,7 @@ Libraries go in: `lib/{{MODULE_NAME}}.sh`
 1. MUST create library file in lib/
 2. MUST verify syntax: `bash -n lib/{module}.sh`
 3. MUST append ONE line to: `{{MANIFEST_PATH}}`
-4. MUST return ONLY: "Library implemented. See MANIFEST.jsonl for summary."
+4. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 5. MUST NOT return full library content in response
 
 ### Manifest Entry Format

@@ -1247,6 +1247,72 @@ archive_session() {
     return 0
 }
 
+
+# Auto-archive sessions inactive beyond retention period
+# Uses retention.autoArchiveEndedAfterDays config (default: 30)
+# Only archives 'ended' or 'suspended' sessions (never 'active')
+# Args: $1 - dry_run (optional, default: false)
+# Returns: Number of sessions archived (or would archive if dry_run)
+session_auto_archive() {
+    local dry_run="${1:-false}"
+
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    if [[ ! -f "$sessions_file" ]]; then
+        echo "0"
+        return 0
+    fi
+
+    # Get config for auto-archive days (default 30)
+    local auto_archive_days
+    auto_archive_days=$(get_config_value "retention.autoArchiveEndedAfterDays" "30")
+
+    # Calculate cutoff timestamp (sessions older than this will be archived)
+    local cutoff_timestamp
+    cutoff_timestamp=$(date -u -d "$auto_archive_days days ago" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                      date -u -v-${auto_archive_days}d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+
+    if [[ -z "$cutoff_timestamp" ]]; then
+        echo "Error: Failed to calculate cutoff timestamp" >&2
+        return 1
+    fi
+
+    # Find sessions eligible for auto-archive:
+    # - Status is 'ended' or 'suspended' (never 'active')
+    # - lastActivity is older than cutoff
+    local eligible_sessions
+    eligible_sessions=$(jq -r --arg cutoff "$cutoff_timestamp" '
+        .sessions[] |
+        select(
+            (.status == "ended" or .status == "suspended") and
+            (.lastActivity < $cutoff)
+        ) | .id
+    ' "$sessions_file" 2>/dev/null)
+
+    local archived_count=0
+    local session_id
+
+    while IFS= read -r session_id; do
+        if [[ -z "$session_id" ]]; then
+            continue
+        fi
+
+        if [[ "$dry_run" == "true" ]]; then
+            echo "Would auto-archive session: $session_id"
+            ((archived_count++)) || true
+        else
+            # Archive with reason indicating automatic archival
+            if archive_session "$session_id" "Auto-archived after ${auto_archive_days} days of inactivity" >/dev/null 2>&1; then
+                ((archived_count++)) || true
+            fi
+        fi
+    done <<< "$eligible_sessions"
+
+    echo "$archived_count"
+    return 0
+}
+
 # ============================================================================
 # CONTEXT STATE MANAGEMENT
 # ============================================================================
@@ -1430,6 +1496,179 @@ cleanup_orphaned_context_states() {
     fi
 
     return 0
+}
+
+# Cleanup stale context state files for ended/archived sessions
+# This handles context files that were not properly cleaned up during session lifecycle
+# Args: $1 - dry-run mode (optional: "true" for dry-run)
+#       $2 - include-archived (optional: "true" to also clean archived sessions, default "true")
+# Returns: 0 on success, outputs count of cleaned files
+cleanup_stale_context_states() {
+    local dry_run="${1:-false}"
+    local include_archived="${2:-true}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    if [[ ! -f "$sessions_file" ]]; then
+        echo "0"
+        return 0
+    fi
+
+    # Build jq filter for session IDs to clean up
+    local status_filter='.status == "ended"'
+    if [[ "$include_archived" == "true" ]]; then
+        status_filter='(.status == "ended" or .status == "archived")'
+    fi
+
+    # Get session IDs for ended/archived sessions
+    local stale_session_ids
+    stale_session_ids=$(jq -r --arg filter "$status_filter" "
+        .sessions[] | select($status_filter) | .id
+    " "$sessions_file" 2>/dev/null)
+
+    # Also include sessions in history (already closed)
+    local history_session_ids
+    history_session_ids=$(jq -r '.sessionHistory[].id' "$sessions_file" 2>/dev/null)
+
+    local cleaned_count=0
+    local files_to_clean=()
+
+    # Check legacy location (.cleo/.context-state-*.json) for stale sessions
+    while IFS= read -r -d '' file; do
+        local filename
+        filename=$(basename "$file")
+
+        # Skip singleton file
+        if [[ "$filename" == ".context-state.json" ]]; then
+            continue
+        fi
+
+        # Extract session ID from filename (.context-state-{sessionId}.json)
+        local session_id
+        session_id=$(echo "$filename" | sed -n 's/^\.context-state-\(.*\)\.json$/\1/p')
+
+        if [[ -n "$session_id" ]]; then
+            # Check if session is in stale list or history
+            if echo "$stale_session_ids" | grep -qF "$session_id" || \
+               echo "$history_session_ids" | grep -qF "$session_id"; then
+                files_to_clean+=("$file")
+            fi
+        fi
+    done < <(find "$cleo_dir" -maxdepth 1 -name ".context-state-*.json" -type f -print0 2>/dev/null)
+
+    # Also check new location (.cleo/context-states/)
+    local context_dir
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+    local project_root="${cleo_dir%/.cleo}"
+    local full_dir="${project_root}/${context_dir}"
+
+    if [[ -d "$full_dir" ]]; then
+        while IFS= read -r -d '' file; do
+            local filename
+            filename=$(basename "$file")
+
+            # Extract session ID from filename (context-state-{sessionId}.json)
+            local session_id
+            session_id=$(echo "$filename" | sed -n 's/^context-state-\(.*\)\.json$/\1/p')
+
+            if [[ -n "$session_id" ]]; then
+                # Check if session is in stale list or history
+                if echo "$stale_session_ids" | grep -qF "$session_id" || \
+                   echo "$history_session_ids" | grep -qF "$session_id"; then
+                    files_to_clean+=("$file")
+                fi
+            fi
+        done < <(find "$full_dir" -name "context-state-*.json" -type f -print0 2>/dev/null)
+    fi
+
+    # Delete stale context files
+    for file in "${files_to_clean[@]}"; do
+        if [[ "$dry_run" == "true" ]]; then
+            echo "Would delete: $file"
+        else
+            rm -f "$file" 2>/dev/null && ((cleaned_count++)) || true
+        fi
+    done
+
+    if [[ "$dry_run" != "true" ]]; then
+        echo "$cleaned_count"
+    else
+        echo "Dry run: would delete ${#files_to_clean[@]} stale context files"
+    fi
+
+    return 0
+}
+
+# Full context state cleanup - combines orphan and stale cleanup
+# Args: $1 - dry-run mode (optional: "true" for dry-run)
+# Returns: 0 on success, outputs JSON summary
+session_cleanup_context_files() {
+    local dry_run="${1:-false}"
+
+    local orphan_count stale_count total_count
+
+    if [[ "$dry_run" == "true" ]]; then
+        echo "=== Context State Cleanup (Dry Run) ===" >&2
+        orphan_count=$(cleanup_orphaned_context_states "true" 2>&1 | grep -oP '\d+(?= orphaned)' || echo "0")
+        stale_count=$(cleanup_stale_context_states "true" 2>&1 | grep -oP '\d+(?= stale)' || echo "0")
+    else
+        orphan_count=$(cleanup_orphaned_context_states "false")
+        stale_count=$(cleanup_stale_context_states "false")
+    fi
+
+    total_count=$((orphan_count + stale_count))
+
+    # Output JSON summary
+    jq -nc \
+        --argjson orphaned "${orphan_count:-0}" \
+        --argjson stale "${stale_count:-0}" \
+        --argjson total "${total_count:-0}" \
+        --arg mode "$(if [[ "$dry_run" == "true" ]]; then echo "dry-run"; else echo "executed"; fi)" \
+        '{
+            success: true,
+            mode: $mode,
+            cleaned: {
+                orphaned: $orphaned,
+                stale: $stale,
+                total: $total
+            }
+        }'
+
+    return 0
+}
+
+# Alias for cleanup_orphaned_context_states - named per task T1943 requirements
+# Args: $1 - dry-run mode (optional: "true" for dry-run)
+# Returns: 0 on success, outputs count of cleaned files
+session_cleanup_orphans() {
+    cleanup_orphaned_context_states "$@"
+}
+
+# Validate context state file ownership during session operations
+# Prevents orphans by verifying session exists before creating context state
+# Args: $1 - session ID to validate
+# Returns: 0 if valid, 1 if session not found
+validate_context_state_owner() {
+    local session_id="$1"
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    if [[ -z "$session_id" ]]; then
+        return 1
+    fi
+
+    if [[ ! -f "$sessions_file" ]]; then
+        return 1
+    fi
+
+    # Check if session exists in sessions or history
+    local exists
+    exists=$(jq -r --arg id "$session_id" '
+        ([.sessions[].id] + [.sessionHistory[].id]) | index($id)
+    ' "$sessions_file" 2>/dev/null)
+
+    [[ "$exists" != "null" ]]
 }
 
 # Migrate existing singleton context state file to per-session format
@@ -2252,5 +2491,9 @@ export -f discover_available_epics
 export -f get_context_state_path_for_session
 export -f cleanup_context_state_for_session
 export -f cleanup_orphaned_context_states
+export -f cleanup_stale_context_states
+export -f session_cleanup_context_files
+export -f session_cleanup_orphans
+export -f validate_context_state_owner
 export -f migrate_context_state_singleton
 export -f init_context_states_dir

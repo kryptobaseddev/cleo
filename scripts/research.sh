@@ -94,6 +94,9 @@ ARCHIVE_THRESHOLD=""
 ARCHIVE_PERCENT=""
 # Note: --dry-run is handled by common flags (FLAG_DRY_RUN)
 
+# Validate subcommand options
+VALIDATE_FIX="false"
+
 # Research storage
 RESEARCH_DIR=".cleo/research"
 
@@ -124,11 +127,15 @@ SUBCOMMANDS
   get <id>         Get single entry by ID (raw JSON object)
   archive          Archive old manifest entries to maintain context efficiency
   status           Show manifest size and archival status
+  validate         Validate manifest file integrity and entry format
 
 ARCHIVE OPTIONS
   --threshold N    Archive threshold in bytes (default: 200000 = ~50K tokens)
   --percent N      Percentage of oldest entries to archive (default: 50)
   --dry-run        Show what would be archived without making changes
+
+VALIDATE OPTIONS
+  --fix            Remove invalid entries from manifest (destructive)
 
 LIST OPTIONS
   --status STATUS  Filter by status (complete|partial|blocked|archived)
@@ -461,6 +468,22 @@ while [[ $# -gt 0 ]]; do
         esac
       done
       ;;
+    validate)
+      MODE="validate"
+      shift
+      # Parse validate-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --fix)
+            VALIDATE_FIX="true"
+            shift
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
     --url)
       MODE="url"
       shift
@@ -593,6 +616,10 @@ validate_inputs() {
       ;;
     status)
       # No validation needed
+      return 0
+      ;;
+    validate)
+      # No validation needed - --fix is optional
       return 0
       ;;
     show)
@@ -2058,6 +2085,180 @@ run_archive() {
 }
 
 # ============================================================================
+# Validate Subcommand
+# ============================================================================
+
+run_validate() {
+  # Determine output format
+  local format="${FORMAT:-}"
+  if [[ -z "$format" ]]; then
+    if [[ -t 1 ]]; then
+      format="human"
+    else
+      format="json"
+    fi
+  fi
+
+  # Run validation from library function
+  # Note: validate_research_manifest outputs JSON to stdout, errors to stderr
+  # The function may return non-zero on validation errors, which is expected
+  local result exit_code
+  result=$(validate_research_manifest) || exit_code=$?
+  exit_code=${exit_code:-0}
+
+  # Parse result
+  local valid total_lines valid_entries invalid_entries errors warnings
+  valid=$(echo "$result" | jq -r '.valid // false')
+  total_lines=$(echo "$result" | jq -r '.result.totalLines // 0')
+  valid_entries=$(echo "$result" | jq -r '.result.validEntries // 0')
+  invalid_entries=$(echo "$result" | jq -r '.result.invalidEntries // 0')
+  errors=$(echo "$result" | jq '.result.errors // []')
+  warnings=$(echo "$result" | jq '.result.warnings // []')
+
+  # Handle --fix option
+  local fix_result="null"
+  local entries_removed=0
+  if [[ "$VALIDATE_FIX" == "true" && "$invalid_entries" -gt 0 ]]; then
+    # Get manifest path and create backup
+    local manifest_path
+    manifest_path="$(_rm_get_output_dir)/MANIFEST.jsonl"
+
+    if [[ -f "$manifest_path" ]]; then
+      # Create backup before fixing
+      local backup_path="${manifest_path}.backup.$(date +%Y%m%d_%H%M%S)"
+      cp "$manifest_path" "$backup_path"
+
+      # Read manifest and filter out invalid lines
+      local temp_file
+      temp_file=$(mktemp)
+      local line_num=0
+      local kept_lines=0
+
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        line_num=$((line_num + 1))
+
+        # Skip empty lines
+        [[ -z "${line// }" ]] && continue
+
+        # Validate line - if valid, keep it
+        if echo "$line" | jq empty 2>/dev/null; then
+          if _rm_validate_entry "$line" 2>/dev/null; then
+            echo "$line" >> "$temp_file"
+            kept_lines=$((kept_lines + 1))
+          else
+            entries_removed=$((entries_removed + 1))
+          fi
+        else
+          entries_removed=$((entries_removed + 1))
+        fi
+      done < "$manifest_path"
+
+      # Replace manifest with fixed version
+      mv "$temp_file" "$manifest_path"
+
+      fix_result=$(jq -nc \
+        --arg backup "$backup_path" \
+        --argjson removed "$entries_removed" \
+        --argjson kept "$kept_lines" \
+        '{
+          "action": "fixed",
+          "entriesRemoved": $removed,
+          "entriesKept": $kept,
+          "backupFile": $backup
+        }')
+
+      # Update valid status if all invalid entries were removed
+      if [[ "$entries_removed" -eq "$invalid_entries" ]]; then
+        valid="true"
+        exit_code=0
+      fi
+    fi
+  fi
+
+  if [[ "$format" == "json" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson valid "$valid" \
+      --argjson total_lines "$total_lines" \
+      --argjson valid_entries "$valid_entries" \
+      --argjson invalid_entries "$invalid_entries" \
+      --argjson errors "$errors" \
+      --argjson warnings "$warnings" \
+      --argjson fix_result "$fix_result" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "validate",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "valid": $valid,
+        "result": {
+          "totalLines": $total_lines,
+          "validEntries": $valid_entries,
+          "invalidEntries": $invalid_entries,
+          "errors": $errors,
+          "warnings": $warnings,
+          "fix": $fix_result
+        }
+      }'
+  else
+    echo ""
+    echo "Manifest Validation"
+    echo "==================="
+    echo ""
+
+    if [[ "$valid" == "true" ]]; then
+      echo "  Status: VALID"
+    else
+      echo "  Status: INVALID"
+    fi
+    echo ""
+    echo "  Total lines:    $total_lines"
+    echo "  Valid entries:  $valid_entries"
+    echo "  Invalid entries: $invalid_entries"
+    echo ""
+
+    # Show warnings
+    local warning_count
+    warning_count=$(echo "$warnings" | jq 'length')
+    if [[ "$warning_count" -gt 0 ]]; then
+      echo "  Warnings:"
+      echo "$warnings" | jq -r '.[] | "    - " + .'
+      echo ""
+    fi
+
+    # Show errors
+    local error_count
+    error_count=$(echo "$errors" | jq 'length')
+    if [[ "$error_count" -gt 0 ]]; then
+      echo "  Errors:"
+      echo "$errors" | jq -r '.[] | "    - " + .'
+      echo ""
+    fi
+
+    # Show fix results if applied
+    if [[ "$fix_result" != "null" ]]; then
+      echo "  Fix applied:"
+      echo "    Entries removed: $entries_removed"
+      local backup_file
+      backup_file=$(echo "$fix_result" | jq -r '.backupFile')
+      echo "    Backup saved:    $backup_file"
+      echo ""
+    elif [[ "$invalid_entries" -gt 0 ]]; then
+      echo "  To remove invalid entries, run:"
+      echo "    cleo research validate --fix"
+      echo ""
+    fi
+  fi
+
+  exit "$exit_code"
+}
+
+# ============================================================================
 # Status Subcommand
 # ============================================================================
 
@@ -2503,6 +2704,9 @@ case "$MODE" in
     ;;
   status)
     run_status
+    ;;
+  validate)
+    run_validate
     ;;
   *)
     main

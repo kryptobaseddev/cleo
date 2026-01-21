@@ -682,3 +682,219 @@ _create_sample_manifest() {
     local count=$(echo "$output" | jq '.result.entry.key_findings | length')
     [[ "$count" -eq 50 ]]
 }
+
+# =============================================================================
+# ensure_research_outputs Tests (T1947)
+# =============================================================================
+
+@test "ensure_research_outputs creates directory when missing" {
+    rm -rf "$RESEARCH_OUTPUT_DIR"
+
+    run ensure_research_outputs
+    assert_success
+    assert_valid_json
+
+    [[ -d "$RESEARCH_OUTPUT_DIR" ]]
+    [[ -f "$MANIFEST_FILE" ]]
+
+    local already_existed=$(echo "$output" | jq '.result.alreadyExisted')
+    [[ "$already_existed" == "false" ]]
+}
+
+@test "ensure_research_outputs creates archive directory" {
+    rm -rf "$RESEARCH_OUTPUT_DIR"
+
+    run ensure_research_outputs
+    assert_success
+
+    [[ -d "${RESEARCH_OUTPUT_DIR}/archive" ]]
+}
+
+@test "ensure_research_outputs creates MANIFEST.jsonl when missing" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    rm -f "$MANIFEST_FILE"
+
+    run ensure_research_outputs
+    assert_success
+    assert_valid_json
+
+    [[ -f "$MANIFEST_FILE" ]]
+
+    local created=$(echo "$output" | jq -r '.result.created | length')
+    [[ "$created" -ge 1 ]]
+}
+
+@test "ensure_research_outputs is idempotent" {
+    # Create structure first
+    run ensure_research_outputs
+    assert_success
+
+    local first_created=$(echo "$output" | jq '.result.created | length')
+
+    # Run again
+    run ensure_research_outputs
+    assert_success
+
+    local second_created=$(echo "$output" | jq '.result.created | length')
+    local already_existed=$(echo "$output" | jq '.result.alreadyExisted')
+
+    [[ "$already_existed" == "true" ]]
+    [[ "$second_created" -eq 0 ]]
+}
+
+@test "ensure_research_outputs returns CLEO envelope structure" {
+    run ensure_research_outputs
+    assert_success
+    assert_valid_json
+
+    assert_json_has_key "_meta"
+    assert_json_has_key "success"
+    assert_json_has_key "result"
+
+    local operation=$(echo "$output" | jq -r '._meta.operation')
+    [[ "$operation" == "ensure" ]]
+}
+
+@test "ensure_research_outputs reports created items" {
+    rm -rf "$RESEARCH_OUTPUT_DIR"
+
+    run ensure_research_outputs
+    assert_success
+
+    local created=$(echo "$output" | jq -r '.result.created[]' | wc -l)
+    [[ "$created" -ge 2 ]]  # At least directory and manifest file
+}
+
+# =============================================================================
+# validate_research_manifest Tests (T1947)
+# =============================================================================
+
+@test "validate_research_manifest returns error when directory missing" {
+    rm -rf "$RESEARCH_OUTPUT_DIR"
+
+    run validate_research_manifest
+    assert_failure
+    [[ "$status" -eq 4 ]]  # EXIT_NOT_FOUND
+
+    local error_code=$(echo "$output" | jq -r '.error.code')
+    [[ "$error_code" == "E_FILE_NOT_FOUND" ]]
+
+    # Should include fix command
+    local fix_cmd=$(echo "$output" | jq -r '.error.fixCommand')
+    [[ "$fix_cmd" == "cleo research init" ]]
+}
+
+@test "validate_research_manifest returns error when manifest missing" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    rm -f "$MANIFEST_FILE"
+
+    run validate_research_manifest
+    assert_failure
+    [[ "$status" -eq 4 ]]
+
+    local error_code=$(echo "$output" | jq -r '.error.code')
+    [[ "$error_code" == "E_FILE_NOT_FOUND" ]]
+}
+
+@test "validate_research_manifest succeeds for empty manifest" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    mkdir -p "${RESEARCH_OUTPUT_DIR}/archive"
+    touch "$MANIFEST_FILE"
+
+    run validate_research_manifest
+    assert_success
+    assert_valid_json
+
+    local valid=$(echo "$output" | jq '.valid')
+    [[ "$valid" == "true" ]]
+
+    local total_lines=$(echo "$output" | jq '.result.totalLines')
+    [[ "$total_lines" -eq 0 ]]
+}
+
+@test "validate_research_manifest succeeds for valid entries" {
+    mkdir -p "${RESEARCH_OUTPUT_DIR}/archive"
+    _create_sample_manifest
+
+    run validate_research_manifest
+    assert_success
+    assert_valid_json
+
+    local valid=$(echo "$output" | jq '.valid')
+    [[ "$valid" == "true" ]]
+
+    local valid_entries=$(echo "$output" | jq '.result.validEntries')
+    [[ "$valid_entries" -eq 3 ]]
+}
+
+@test "validate_research_manifest detects invalid JSON line" {
+    mkdir -p "${RESEARCH_OUTPUT_DIR}/archive"
+    echo '{"id":"valid","file":"t.md","title":"T","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' > "$MANIFEST_FILE"
+    echo 'not valid json' >> "$MANIFEST_FILE"
+    echo '{"id":"valid2","file":"t2.md","title":"T2","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":false}' >> "$MANIFEST_FILE"
+
+    run validate_research_manifest
+    assert_failure
+    [[ "$status" -eq 6 ]]  # EXIT_VALIDATION_ERROR
+
+    local valid=$(echo "$output" | jq '.valid')
+    [[ "$valid" == "false" ]]
+
+    local invalid_entries=$(echo "$output" | jq '.result.invalidEntries')
+    [[ "$invalid_entries" -eq 1 ]]
+
+    local valid_entries=$(echo "$output" | jq '.result.validEntries')
+    [[ "$valid_entries" -eq 2 ]]
+}
+
+@test "validate_research_manifest detects missing required fields" {
+    mkdir -p "${RESEARCH_OUTPUT_DIR}/archive"
+    echo '{"id":"missing-fields","file":"t.md","title":"T","date":"2025-01-17"}' > "$MANIFEST_FILE"
+
+    run validate_research_manifest
+    assert_failure
+    [[ "$status" -eq 6 ]]
+
+    local invalid_entries=$(echo "$output" | jq '.result.invalidEntries')
+    [[ "$invalid_entries" -eq 1 ]]
+}
+
+@test "validate_research_manifest warns when archive directory missing" {
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    rm -rf "${RESEARCH_OUTPUT_DIR}/archive"
+    touch "$MANIFEST_FILE"
+
+    run validate_research_manifest
+    assert_success  # Warning, not error
+
+    local warnings_len=$(echo "$output" | jq '.result.warnings | length')
+    [[ "$warnings_len" -ge 1 ]]
+}
+
+@test "validate_research_manifest returns CLEO envelope structure" {
+    mkdir -p "${RESEARCH_OUTPUT_DIR}/archive"
+    touch "$MANIFEST_FILE"
+
+    run validate_research_manifest
+    assert_success
+    assert_valid_json
+
+    assert_json_has_key "_meta"
+    assert_json_has_key "success"
+    assert_json_has_key "valid"
+
+    local operation=$(echo "$output" | jq -r '._meta.operation')
+    [[ "$operation" == "validate" ]]
+}
+
+@test "validate_research_manifest reports errors with line numbers" {
+    mkdir -p "${RESEARCH_OUTPUT_DIR}/archive"
+    echo '{"id":"ok","file":"t.md","title":"T","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' > "$MANIFEST_FILE"
+    echo 'invalid json on line 2' >> "$MANIFEST_FILE"
+
+    run validate_research_manifest
+    assert_failure
+
+    local error_msg=$(echo "$output" | jq -r '.result.errors[0]')
+    assert_output --partial "Line 2"
+}
