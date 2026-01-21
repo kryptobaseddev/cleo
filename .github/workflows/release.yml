@@ -60,12 +60,11 @@ jobs:
           echo "Created: $TARBALL"
           ls -lh "$TARBALL"
 
-      - name: Copy standalone installer
+      - name: Prepare standalone installer
         run: |
-          # Copy root install.sh as standalone installer
-          cp install.sh install.sh
+          # Ensure install.sh is executable for release
           chmod +x install.sh
-          echo "Standalone installer ready"
+          echo "Standalone installer ready: $(wc -l < install.sh) lines"
 
       - name: Generate checksums
         run: |
