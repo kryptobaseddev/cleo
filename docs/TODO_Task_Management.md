@@ -592,13 +592,25 @@ cleo session list --status active
 
 ### Session Binding
 
-When you start/resume a session, cleo writes to `.cleo/.current-session`. This **binds this terminal** to that session. All subsequent commands automatically use this session context.
+Session context is resolved in priority order:
+1. `--session <id>` flag (explicit override)
+2. `CLEO_SESSION` env var (for subagents/scripting)
+3. TTY binding file (terminal-specific, real terminals only)
+4. `.current-session` file (legacy fallback)
 
 ```bash
-# After session start, these commands know your session:
-cleo focus show      # Shows YOUR session's focus
-cleo focus set T005  # Sets focus within YOUR scope
+# Set session for subagent or script
+export CLEO_SESSION="session_20251230_161248_abc123"
+
+# All subsequent commands use that session
+cleo focus show
+cleo complete T001
+
+# Override session for single command
+CLEO_SESSION=session_xyz cleo list --parent T001
 ```
+
+**Note**: TTY binding only works in real terminal sessions, not in Claude Code subprocesses. Use `CLEO_SESSION` env var for programmatic/orchestrated workflows.
 
 To switch which session this terminal uses:
 ```bash
