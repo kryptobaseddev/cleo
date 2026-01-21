@@ -3,7 +3,7 @@
 #
 # LAYER: 2 (Services - depends on Layer 1)
 # DEPENDENCIES: exit-codes.sh, token-inject.sh, skill-validate.sh, skill-dispatch.sh
-# PROVIDES: subagent_prepare, subagent_inject_protocol, orchestrator_spawn, subagent_get_task_context
+# PROVIDES: subagent_prepare, subagent_inject_protocol, orchestrator_spawn_skill, subagent_get_task_context
 #
 # Guarantees protocol compliance for all subagent spawns by automatically
 # injecting the RFC 2119 protocol from skills/_shared/subagent-protocol-base.md.
@@ -19,8 +19,8 @@
 # USAGE:
 #   source lib/subagent-inject.sh
 #
-#   # High-level: Full orchestrator workflow
-#   prompt=$(orchestrator_spawn "T1234" "ct-research-agent")
+#   # High-level: Full orchestrator workflow (skill-based)
+#   prompt=$(orchestrator_spawn_skill "T1234" "ct-research-agent")
 #
 #   # Low-level: Manual preparation
 #   subagent_prepare "T1234" "my-topic" "T1666"
@@ -313,18 +313,19 @@ ${task_context}"
 # PUBLIC API - HIGH-LEVEL ORCHESTRATOR
 # ============================================================================
 
-# orchestrator_spawn - Full workflow to prepare prompt for subagent spawn
+# orchestrator_spawn_skill - Full skill-based workflow to prepare prompt for subagent spawn
 # Args: $1 = task_id (required)
 #       $2 = skill_name (optional, auto-selects if not provided)
 #       $3 = epic_id (optional, auto-detects from task hierarchy)
 # Returns: 0 on success, appropriate exit code on failure
 # Output: Complete prompt ready for Task tool to stdout
-# Note: This is the primary entry point for orchestrators
+# Note: This is the skill-based entry point for orchestrators
+#       For CLI/JSON output, use orchestrator_spawn from orchestrator-startup.sh
 #
 # EXAMPLE:
-#   prompt=$(orchestrator_spawn "T1234" "ct-research-agent")
+#   prompt=$(orchestrator_spawn_skill "T1234" "ct-research-agent")
 #   # Use $prompt with Task tool to spawn subagent
-orchestrator_spawn() {
+orchestrator_spawn_skill() {
     local task_id="$1"
     local skill_name="${2:-}"
     local epic_id="${3:-}"
@@ -333,7 +334,7 @@ orchestrator_spawn() {
 
     # Validate task_id
     if [[ -z "$task_id" ]]; then
-        _si_error "task_id is required for orchestrator_spawn"
+        _si_error "task_id is required for orchestrator_spawn_skill"
         return "$EXIT_INVALID_INPUT"
     fi
 
@@ -529,7 +530,7 @@ subagent_get_protocol_path() {
 export -f subagent_prepare
 export -f subagent_get_task_context
 export -f subagent_inject_protocol
-export -f orchestrator_spawn
+export -f orchestrator_spawn_skill
 export -f orchestrator_spawn_minimal
 export -f orchestrator_validate_spawn
 export -f subagent_list_required_tokens

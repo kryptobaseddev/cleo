@@ -5,7 +5,8 @@
 # DEPENDENCIES: exit-codes.sh, config.sh, research-manifest.sh, sessions.sh
 # PROVIDES: orchestrator_check_pending, orchestrator_session_init,
 #           orchestrator_get_next_task, orchestrator_context_check,
-#           orchestrator_get_startup_state, orchestrator_get_ready_tasks
+#           orchestrator_get_startup_state, orchestrator_get_ready_tasks,
+#           orchestrator_spawn, orchestrator_build_prompt
 #
 # Implements the session startup sequence for the Orchestrator Protocol.
 # Ensures consistent bootstrapping across conversations.

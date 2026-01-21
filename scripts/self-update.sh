@@ -54,6 +54,8 @@ readonly EXIT_SELFUPDATE_CHECKSUM=3
 readonly EXIT_SELFUPDATE_INSTALL_FAILED=4
 readonly EXIT_SELFUPDATE_GITHUB_ERROR=5
 readonly EXIT_SELFUPDATE_DEV_MODE=100
+readonly EXIT_SELFUPDATE_MODE_SWITCH=101
+readonly EXIT_SELFUPDATE_INVALID_REPO=102
 
 # ============================================================================
 # DEFAULTS
@@ -62,6 +64,8 @@ CHECK_ONLY=false
 STATUS_ONLY=false
 TARGET_VERSION=""
 FORMAT=""
+TO_RELEASE=false
+TO_DEV=""
 
 # ============================================================================
 # ARGUMENT PARSING
@@ -88,6 +92,12 @@ OPTIONS:
     -q, --quiet         Suppress non-essential output
     -h, --help          Show this help message
 
+MODE SWITCHING:
+    --to-release        Switch from dev mode to release mode
+                        Downloads latest release and replaces symlinked installation
+    --to-dev PATH       Switch from release mode to dev mode
+                        Creates symlinks to local CLEO repository at PATH
+
 EXIT CODES:
     0   - Success / already up to date
     1   - Update available (--check only)
@@ -95,7 +105,9 @@ EXIT CODES:
     3   - Checksum verification failed
     4   - Installation failed
     5   - GitHub API error
-    100 - Dev mode (use git pull)
+    100 - Dev mode (use git pull or --to-release to switch)
+    101 - Mode switch successful
+    102 - Invalid repository path
 
 EXAMPLES:
     # Check for updates
@@ -113,10 +125,17 @@ EXAMPLES:
     # Non-interactive update
     cleo self-update --force
 
+    # Switch from dev mode to release mode
+    cleo self-update --to-release
+
+    # Switch from release mode to dev mode
+    cleo self-update --to-dev /path/to/cleo-repo
+
 NOTES:
     - Development installations (symlinks) should use 'git pull' instead
     - Creates backup before updating
     - Verifies SHA256 checksum of downloaded files
+    - Mode switching creates backup before making changes
 EOF
 }
 
@@ -151,6 +170,18 @@ parse_args() {
                 TARGET_VERSION="$2"
                 # Normalize: remove leading 'v' if present
                 TARGET_VERSION="${TARGET_VERSION#v}"
+                shift 2
+                ;;
+            --to-release)
+                TO_RELEASE=true
+                shift
+                ;;
+            --to-dev)
+                if [[ -z "${2:-}" ]]; then
+                    echo "ERROR: --to-dev requires a repository path" >&2
+                    exit "$EXIT_INVALID_INPUT"
+                fi
+                TO_DEV="$2"
                 shift 2
                 ;;
             *)
@@ -451,11 +482,15 @@ output_json() {
 }
 
 output_dev_mode_warning() {
+    local repo_path
+    repo_path=$(get_dev_mode_source)
+
     if is_json_output; then
         local current
         current=$(get_current_version)
         jq -nc \
             --arg current "$current" \
+            --arg repo_path "$repo_path" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -467,24 +502,508 @@ output_dev_mode_warning() {
                 success: false,
                 dev_mode: true,
                 current_version: $current,
-                message: "CLEO is installed in development mode. Use git pull to update instead."
+                repo_path: $repo_path,
+                message: "CLEO is installed in development mode. Use git pull to update or --to-release to switch modes.",
+                suggestions: {
+                    update: ("cd " + $repo_path + " && git pull"),
+                    switch_to_release: "cleo self-update --to-release"
+                }
             }'
     else
         echo ""
         echo "[INFO] Development mode detected."
         echo ""
         echo "CLEO is installed in development mode (symlinked to source repository)."
-        echo "Self-update is disabled to prevent overwriting your development files."
         echo ""
-        echo "To update CLEO in development mode:"
-        echo "  cd $(dirname "$(readlink -f "$(command -v cleo 2>/dev/null || echo "$CLEO_HOME/scripts/cleo.sh")")" 2>/dev/null || echo "\$CLEO_REPO")"
-        echo "  git pull origin main"
+        echo "To update:"
+        if [[ -n "$repo_path" ]]; then
+            echo "  cd $repo_path && git pull"
+        else
+            echo "  cd \$CLEO_REPO && git pull"
+        fi
         echo ""
-        echo "Development mode indicators:"
-        echo "  - Symlinked installation"
-        echo "  - Git repository present in CLEO_HOME"
+        echo "To switch to release mode:"
+        echo "  cleo self-update --to-release"
         echo ""
     fi
+}
+
+# get_dev_mode_source - Get the source repository path from VERSION file
+get_dev_mode_source() {
+    local version_file="$CLEO_HOME/VERSION"
+    if [[ -f "$version_file" ]]; then
+        grep "^source=" "$version_file" 2>/dev/null | cut -d= -f2 || echo ""
+    else
+        # Fallback: try to resolve from symlink
+        local cleo_bin
+        cleo_bin=$(command -v cleo 2>/dev/null || echo "")
+        if [[ -n "$cleo_bin" && -L "$cleo_bin" ]]; then
+            local target
+            target=$(readlink -f "$cleo_bin" 2>/dev/null || echo "")
+            if [[ -n "$target" ]]; then
+                dirname "$(dirname "$target")"
+            fi
+        fi
+    fi
+}
+
+# ============================================================================
+# MODE SWITCHING FUNCTIONS
+# ============================================================================
+
+# validate_cleo_repo - Check if a path is a valid CLEO repository
+# Args: $1 = path to check
+# Returns: 0 if valid, 1 if not
+validate_cleo_repo() {
+    local repo_path="$1"
+
+    # Must be a directory
+    if [[ ! -d "$repo_path" ]]; then
+        echo "ERROR: Path does not exist or is not a directory: $repo_path" >&2
+        return 1
+    fi
+
+    # Must have VERSION file
+    if [[ ! -f "$repo_path/VERSION" ]]; then
+        echo "ERROR: No VERSION file found at $repo_path" >&2
+        return 1
+    fi
+
+    # Must have scripts directory
+    if [[ ! -d "$repo_path/scripts" ]]; then
+        echo "ERROR: No scripts/ directory found at $repo_path" >&2
+        return 1
+    fi
+
+    # Must have lib directory
+    if [[ ! -d "$repo_path/lib" ]]; then
+        echo "ERROR: No lib/ directory found at $repo_path" >&2
+        return 1
+    fi
+
+    # Must have cleo.sh entry point
+    if [[ ! -f "$repo_path/scripts/cleo.sh" ]]; then
+        echo "ERROR: No scripts/cleo.sh found at $repo_path" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# update_version_file - Update VERSION file with mode information
+# Args: $1 = version, $2 = mode (dev|release), $3 = source path (optional for dev mode)
+update_version_file() {
+    local version="$1"
+    local mode="$2"
+    local source_path="${3:-}"
+    local version_file="$CLEO_HOME/VERSION"
+    local timestamp
+    timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    {
+        echo "$version"
+        echo "mode=$mode"
+        if [[ "$mode" == "dev" && -n "$source_path" ]]; then
+            echo "source=$source_path"
+        fi
+        echo "installed=$timestamp"
+    } > "$version_file"
+}
+
+# remove_symlinks - Remove symlinked installation
+remove_symlinks() {
+    local bin_dir="${HOME}/.local/bin"
+
+    if ! is_json_output; then
+        echo "[STEP] Removing existing symlinks..."
+    fi
+
+    # Remove cleo symlink
+    if [[ -L "$bin_dir/cleo" ]]; then
+        rm -f "$bin_dir/cleo"
+    fi
+
+    # Remove ct alias symlink
+    if [[ -L "$bin_dir/ct" ]]; then
+        rm -f "$bin_dir/ct"
+    fi
+
+    # Remove symlinked directories in CLEO_HOME
+    local dirs_to_remove=("scripts" "lib" "schemas" "templates" "docs" "completions")
+    for dir in "${dirs_to_remove[@]}"; do
+        if [[ -L "$CLEO_HOME/$dir" ]]; then
+            rm -f "$CLEO_HOME/$dir"
+        fi
+    done
+}
+
+# remove_copied_files - Remove copied (release mode) installation files
+remove_copied_files() {
+    if ! is_json_output; then
+        echo "[STEP] Removing existing release installation..."
+    fi
+
+    # Remove regular directories in CLEO_HOME (not symlinks)
+    local dirs_to_remove=("scripts" "lib" "schemas" "templates" "docs" "completions")
+    for dir in "${dirs_to_remove[@]}"; do
+        if [[ -d "$CLEO_HOME/$dir" && ! -L "$CLEO_HOME/$dir" ]]; then
+            rm -rf "$CLEO_HOME/$dir"
+        fi
+    done
+}
+
+# create_dev_symlinks - Create symlinks to a local repository
+# Args: $1 = source repository path
+create_dev_symlinks() {
+    local repo_path="$1"
+    local bin_dir="${HOME}/.local/bin"
+
+    if ! is_json_output; then
+        echo "[STEP] Creating symlinks to $repo_path..."
+    fi
+
+    # Ensure bin directory exists
+    mkdir -p "$bin_dir"
+    mkdir -p "$CLEO_HOME"
+
+    # Create cleo symlink
+    ln -sf "$repo_path/scripts/cleo.sh" "$bin_dir/cleo"
+
+    # Create ct alias symlink
+    ln -sf "$repo_path/scripts/cleo.sh" "$bin_dir/ct"
+
+    # Create directory symlinks
+    local dirs_to_link=("scripts" "lib" "schemas" "templates" "docs" "completions")
+    for dir in "${dirs_to_link[@]}"; do
+        if [[ -d "$repo_path/$dir" ]]; then
+            ln -sf "$repo_path/$dir" "$CLEO_HOME/$dir"
+        fi
+    done
+
+    # Get version from repo
+    local version
+    version=$(head -1 "$repo_path/VERSION" 2>/dev/null || echo "unknown")
+
+    # Update VERSION file
+    update_version_file "$version" "dev" "$repo_path"
+}
+
+# do_switch_to_release - Switch from dev mode to release mode
+do_switch_to_release() {
+    if ! is_dev_mode; then
+        if is_json_output; then
+            jq -nc \
+                --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        format: "json",
+                        command: "self-update",
+                        timestamp: $timestamp
+                    },
+                    success: false,
+                    message: "Already in release mode. Use --to-dev to switch to development mode."
+                }'
+        else
+            echo "[ERROR] Already in release mode."
+            echo ""
+            echo "Use --to-dev PATH to switch to development mode."
+        fi
+        exit 0
+    fi
+
+    if ! is_json_output; then
+        echo ""
+        echo "[INFO] Switching from development mode to release mode..."
+        echo ""
+    fi
+
+    # Confirm unless --force
+    if [[ "$FLAG_FORCE" != true ]] && ! is_json_output; then
+        echo "This will:"
+        echo "  1. Remove symlinks to your development repository"
+        echo "  2. Download and install the latest release"
+        echo ""
+        read -p "Continue? [y/N] " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Mode switch cancelled."
+            exit 0
+        fi
+    fi
+
+    # Create backup
+    if ! is_json_output; then
+        echo "[STEP 1/4] Creating backup..."
+    fi
+    local backup_path
+    backup_path=$(create_backup)
+
+    # Remove symlinks
+    if ! is_json_output; then
+        echo "[STEP 2/4] Removing symlinks..."
+    fi
+    remove_symlinks
+
+    # Download latest release
+    if ! is_json_output; then
+        echo "[STEP 3/4] Downloading latest release..."
+    fi
+
+    local release_info
+    release_info=$(get_latest_release) || {
+        if is_json_output; then
+            jq -nc \
+                --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        format: "json",
+                        command: "self-update",
+                        timestamp: $timestamp
+                    },
+                    success: false,
+                    message: "Failed to fetch latest release from GitHub"
+                }'
+        fi
+        exit "$EXIT_SELFUPDATE_GITHUB_ERROR"
+    }
+
+    local latest_version
+    latest_version=$(echo "$release_info" | jq -r '.tag_name // empty' | sed 's/^v//')
+
+    local download_url
+    download_url=$(echo "$release_info" | jq -r '.tarball_url // empty')
+    if [[ -z "$download_url" ]]; then
+        download_url="https://github.com/${GITHUB_REPO}/archive/refs/tags/v${latest_version}.tar.gz"
+    fi
+
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    trap "rm -rf '$temp_dir'" EXIT
+
+    local tarball_path="$temp_dir/cleo-${latest_version}.tar.gz"
+
+    if ! download_release "$download_url" "$tarball_path"; then
+        if is_json_output; then
+            jq -nc \
+                --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        format: "json",
+                        command: "self-update",
+                        timestamp: $timestamp
+                    },
+                    success: false,
+                    message: "Failed to download release"
+                }'
+        fi
+        exit "$EXIT_SELFUPDATE_DOWNLOAD_FAILED"
+    fi
+
+    # Install release
+    if ! is_json_output; then
+        echo "[STEP 4/4] Installing release v${latest_version}..."
+    fi
+
+    if ! install_release "$tarball_path"; then
+        if is_json_output; then
+            jq -nc \
+                --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --arg backup "$backup_path" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        format: "json",
+                        command: "self-update",
+                        timestamp: $timestamp
+                    },
+                    success: false,
+                    message: "Installation failed",
+                    backup_path: $backup
+                }'
+        else
+            echo ""
+            echo "Installation failed. Backup available at: $backup_path.*"
+        fi
+        exit "$EXIT_SELFUPDATE_INSTALL_FAILED"
+    fi
+
+    # Success
+    if is_json_output; then
+        jq -nc \
+            --arg version "$latest_version" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                "_meta": {
+                    format: "json",
+                    command: "self-update",
+                    timestamp: $timestamp
+                },
+                success: true,
+                action: "mode_switch",
+                from_mode: "dev",
+                to_mode: "release",
+                version: $version,
+                message: ("Successfully switched to release mode v" + $version)
+            }'
+    else
+        echo ""
+        echo "Successfully switched to release mode (v${latest_version})"
+        echo ""
+        echo "Run 'cleo --version' to verify"
+    fi
+
+    exit 0
+}
+
+# do_switch_to_dev - Switch from release mode to dev mode
+# Args: Uses global TO_DEV variable for repository path
+do_switch_to_dev() {
+    local repo_path="$TO_DEV"
+
+    # Resolve to absolute path
+    repo_path=$(cd "$repo_path" 2>/dev/null && pwd) || {
+        echo "ERROR: Cannot resolve path: $TO_DEV" >&2
+        exit "$EXIT_SELFUPDATE_INVALID_REPO"
+    }
+
+    # Validate repository
+    if ! validate_cleo_repo "$repo_path"; then
+        if is_json_output; then
+            jq -nc \
+                --arg path "$repo_path" \
+                --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        format: "json",
+                        command: "self-update",
+                        timestamp: $timestamp
+                    },
+                    success: false,
+                    message: "Invalid CLEO repository",
+                    path: $path
+                }'
+        fi
+        exit "$EXIT_SELFUPDATE_INVALID_REPO"
+    fi
+
+    if is_dev_mode; then
+        local current_source
+        current_source=$(get_dev_mode_source)
+        if [[ "$current_source" == "$repo_path" ]]; then
+            if is_json_output; then
+                jq -nc \
+                    --arg path "$repo_path" \
+                    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    '{
+                        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                        "_meta": {
+                            format: "json",
+                            command: "self-update",
+                            timestamp: $timestamp
+                        },
+                        success: true,
+                        message: "Already in dev mode with this repository",
+                        path: $path
+                    }'
+            else
+                echo "[INFO] Already in dev mode pointing to: $repo_path"
+            fi
+            exit 0
+        fi
+    fi
+
+    if ! is_json_output; then
+        echo ""
+        echo "[INFO] Switching to development mode..."
+        echo "  Repository: $repo_path"
+        echo ""
+    fi
+
+    # Confirm unless --force
+    if [[ "$FLAG_FORCE" != true ]] && ! is_json_output; then
+        if is_dev_mode; then
+            echo "This will:"
+            echo "  1. Remove current symlinks"
+            echo "  2. Create new symlinks to: $repo_path"
+        else
+            echo "This will:"
+            echo "  1. Remove installed release files"
+            echo "  2. Create symlinks to: $repo_path"
+        fi
+        echo ""
+        read -p "Continue? [y/N] " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Mode switch cancelled."
+            exit 0
+        fi
+    fi
+
+    # Create backup
+    if ! is_json_output; then
+        echo "[STEP 1/3] Creating backup..."
+    fi
+    local backup_path
+    backup_path=$(create_backup)
+
+    # Remove existing installation
+    if ! is_json_output; then
+        echo "[STEP 2/3] Removing existing installation..."
+    fi
+    if is_dev_mode; then
+        remove_symlinks
+    else
+        remove_copied_files
+    fi
+
+    # Create dev symlinks
+    if ! is_json_output; then
+        echo "[STEP 3/3] Creating symlinks..."
+    fi
+    create_dev_symlinks "$repo_path"
+
+    # Get version
+    local version
+    version=$(head -1 "$repo_path/VERSION" 2>/dev/null || echo "unknown")
+
+    # Success
+    if is_json_output; then
+        jq -nc \
+            --arg version "$version" \
+            --arg path "$repo_path" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+                "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                "_meta": {
+                    format: "json",
+                    command: "self-update",
+                    timestamp: $timestamp
+                },
+                success: true,
+                action: "mode_switch",
+                from_mode: "release",
+                to_mode: "dev",
+                version: $version,
+                repo_path: $path,
+                message: ("Successfully switched to dev mode (v" + $version + ")")
+            }'
+    else
+        echo ""
+        echo "Successfully switched to development mode"
+        echo "  Version: $version"
+        echo "  Repository: $repo_path"
+        echo ""
+        echo "To update CLEO:"
+        echo "  cd $repo_path && git pull"
+        echo ""
+    fi
+
+    exit 0
 }
 
 # ============================================================================
@@ -727,7 +1246,16 @@ do_update() {
 main() {
     parse_args "$@"
 
-    # Check for development mode
+    # Handle mode switching flags first (these work regardless of current mode)
+    if [[ "$TO_RELEASE" == true ]]; then
+        do_switch_to_release
+    fi
+
+    if [[ -n "$TO_DEV" ]]; then
+        do_switch_to_dev
+    fi
+
+    # Check for development mode (only for regular update operations)
     if is_dev_mode; then
         output_dev_mode_warning
         exit "$EXIT_SELFUPDATE_DEV_MODE"
