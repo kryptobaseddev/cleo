@@ -185,7 +185,7 @@ for agent_name in "${agent_types[@]}"; do
         action="created"
         : $((configured_count++))
     elif injection_has_block "$config_path"; then
-        # Update existing block (strip old markers, add new)
+        # Update existing block (preserve all content outside markers)
         temp_file="${config_path}.tmp"
 
         # Extract content before markers (everything before CLEO:START)
@@ -223,6 +223,7 @@ for agent_name in "${agent_types[@]}"; do
             [[ -n "$after" ]] && echo "$after"
         } > "$temp_file"
 
+        # Atomic move
         mv "$temp_file" "$config_path"
         action="updated"
         : $((updated_count++))

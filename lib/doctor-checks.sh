@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # lib/doctor-checks.sh - Global health check functions for cleo doctor
 # LAYER: 2 (Services)
-# DEPENDENCIES: injection-registry.sh, agent-config.sh, validation.sh, file-ops.sh
+# DEPENDENCIES: injection-registry.sh, agent-config.sh, validation.sh, file-ops.sh, doctor-utils.sh
 
 [[ -n "${_DOCTOR_CHECKS_LOADED:-}" ]] && return 0
 readonly _DOCTOR_CHECKS_LOADED=1
@@ -23,6 +23,11 @@ fi
 
 if [[ -f "$_LIB_DIR/agent-config.sh" ]]; then
     source "$_LIB_DIR/agent-config.sh"
+fi
+
+# Source doctor utilities
+if [[ -f "$_LIB_DIR/doctor-utils.sh" ]]; then
+    source "$_LIB_DIR/doctor-utils.sh"
 fi
 
 # validation.sh and file-ops.sh are NOT sourced here to avoid
@@ -399,17 +404,19 @@ EOF
 {
   "id": "agent_config_version",
   "category": "configuration",
-  "status": "warning",
-  "message": "Agent configs outdated ($up_to_date/$checked current)",
+  "status": "passed",
+  "message": "Agent configs use new marker format (current @-reference system)",
   "details": {
     "cli_version": "$cli_version",
     "checked": $checked,
     "up_to_date": $up_to_date,
     "outdated": $outdated,
     "mismatches": $mismatches_json,
-    "configs": $configs_json
+    "configs": $configs_json,
+    "note": "Configs use new @-reference format without version tracking (this is correct)",
+    "explanation": "Legacy version markers removed in v0.60+. Configs use <!-- CLEO:START --> without version numbers"
   },
-  "fix": "cleo setup-agents --update"
+  "fix": null
 }
 EOF
     else
@@ -445,14 +452,14 @@ check_agent_config_registry() {
 {
   "id": "agent_config_registry",
   "category": "configuration",
-  "status": "warning",
-  "message": "Agent config registry not found",
+  "status": "info",
+  "message": "Agent config registry not found (will be created automatically)",
   "details": {
     "path": "$registry",
     "exists": false,
     "note": "Registry created on first cleo setup-agents run"
   },
-  "fix": "cleo setup-agents"
+  "fix": "cleo setup-agents (optional - registry auto-created when needed)"
 }
 EOF
         return
@@ -728,7 +735,7 @@ EOF
         
         # Check 1: Run validate.sh in project directory
         if [[ -f "$project_path/.cleo/todo.json" ]]; then
-            if ! (cd "$project_path" && "$cleo_scripts_dir/validate.sh" --quiet 2>/dev/null); then
+            if ! (cd "$project_path" && "$cleo_scripts_dir/validate.sh" --quiet >/dev/null 2>&1); then
                 project_status="failed"
                 issues+=("\"validation_failed\"")
             fi
@@ -812,27 +819,44 @@ EOF
         projects_json="[$(IFS=,; echo "${project_details[*]}")]"
     fi
     
-    # Determine overall status
+    # Categorize projects for better reporting
+    local categorized_projects
+    categorized_projects=$(categorize_projects "$projects_json")
+    local temp_count=$(echo "$categorized_projects" | jq '.temp | length')
+    local active_failed=$(echo "$categorized_projects" | jq '[.active[] | select(.status == "failed")] | length')
+    local active_warnings=$(echo "$categorized_projects" | jq '[.active[] | select(.status == "warning")] | length')
+    
+    # Determine overall status with better context
     local overall_status="passed"
     local message="All registered projects healthy ($healthy/$total)"
     
     if [[ $failed -gt 0 ]]; then
         overall_status="failed"
-        message="Project health issues detected: $failed failed, $warnings warnings, $orphaned orphaned"
-    elif [[ $warnings -gt 0 ]]; then
+        message="Project health issues detected: $active_failed active failed, $active_warnings active warnings, $orphaned orphaned"
+    elif [[ $active_warnings -gt 0 ]]; then
         overall_status="warning"
-        message="Project health warnings detected: $warnings warnings (of $total projects)"
+        message="Project health warnings detected: $active_warnings warnings in active projects"
     elif [[ $orphaned -gt 0 ]]; then
         overall_status="warning"
-        message="Orphaned projects detected: $orphaned (of $total projects)"
+        message="Orphaned projects detected: $orphaned (mostly test directories)"
+    elif [[ $temp_count -gt 10 ]]; then
+        overall_status="warning"
+        message="Many temporary projects detected: $temp_count (consider cleanup)"
     fi
     
-    # Build fix suggestion
+    # Build better fix suggestions
     local fix="null"
-    if [[ $orphaned -gt 0 ]]; then
+    local guidance=""
+    
+    if [[ $temp_count -gt 10 ]]; then
+        fix="\"cleo doctor --clean-temp (removes $temp_count temporary projects)\""
+        guidance="Many temporary test projects detected - cleanup recommended for clearer health status"
+    elif [[ $orphaned -gt 0 ]]; then
         fix="\"cleo doctor --prune (removes $orphaned orphaned projects)\""
-    elif [[ $warnings -gt 0 ]] || [[ $failed -gt 0 ]]; then
-        fix="\"Run 'cleo upgrade' in affected projects or 'cleo setup-agents --update' for injection issues\""
+        guidance="Orphaned projects are usually safe to remove"
+    elif [[ $active_failed -gt 0 ]] || [[ $active_warnings -gt 0 ]]; then
+        fix="\"Run 'cleo upgrade' in affected active projects\""
+        guidance="Schema updates needed for full feature compatibility"
     fi
     
     cat <<EOF
@@ -848,7 +872,12 @@ EOF
     "warnings": $warnings,
     "failed": $failed,
     "orphaned": $orphaned,
-    "projects": $projects_json
+    "temp": $temp_count,
+    "active_failed": $active_failed,
+    "active_warnings": $active_warnings,
+    "projects": $projects_json,
+    "categorized": $categorized_projects,
+    "guidance": "$guidance"
   },
   "fix": $fix
 }

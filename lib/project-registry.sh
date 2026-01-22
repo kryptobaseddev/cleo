@@ -302,3 +302,39 @@ prune_registry() {
         printf '%s\n' "${removed[@]}"
     fi
 }
+
+# Remove a specific project from registry by hash
+# Args: $1 - project hash
+# Returns: 0 on success, 1 on failure
+remove_project_from_registry() {
+    local hash="$1"
+    local registry="${CLEO_HOME:-$HOME/.cleo}/projects-registry.json"
+    
+    if [[ ! -f "$registry" ]]; then
+        echo "Registry not found at $registry" >&2
+        return 1
+    fi
+    
+    # Check if project exists
+    if ! is_project_registered "$hash"; then
+        echo "Project $hash not found in registry" >&2
+        return 1
+    fi
+    
+    # Create temporary file for atomic update
+    local temp_file="${registry}.tmp.$$"
+    trap "rm -f '$temp_file'" EXIT
+    
+    # Remove project from registry
+    if jq "del(.projects[\"$hash\"])" "$registry" > "$temp_file"; then
+        if save_json "$registry" < "$temp_file"; then
+            return 0
+        else
+            echo "Failed to save updated registry" >&2
+            return 1
+        fi
+    else
+        echo "Failed to remove project from registry" >&2
+        return 1
+    fi
+}
