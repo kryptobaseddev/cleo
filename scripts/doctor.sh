@@ -174,8 +174,7 @@ run_global_health_checks() {
 # ============================================================================
 # PROJECT REGISTRY VALIDATION (T1508)
 # ============================================================================
-# Validates all projects in the registry.
-# TODO: Implementation in T1508
+# Validates all projects in the registry with caching for performance.
 # Returns: JSON object with per-project health status
 
 run_project_registry_validation() {
@@ -184,7 +183,7 @@ run_project_registry_validation() {
 
     # Check if registry exists
     if [[ ! -f "$registry" ]]; then
-        echo '{"total":0,"healthy":0,"warnings":0,"failed":0,"orphaned":0,"projects":[]}'
+        echo '{"total":0,"healthy":0,"warnings":0,"failed":0,"orphaned":0,"projects":[],"temp":0,"active_warnings":0,"active_failed":0}'
         return 0
     fi
 
@@ -192,12 +191,15 @@ run_project_registry_validation() {
     local all_projects
     all_projects=$(list_registered_projects)
 
-    local total healthy warnings failed orphaned
+    local total healthy warnings failed orphaned temp_count active_warnings active_failed
     total=$(echo "$all_projects" | jq 'length')
     healthy=0
     warnings=0
     failed=0
     orphaned=0
+    temp_count=0
+    active_warnings=0
+    active_failed=0
 
     # Get current CLI schema versions (single source of truth)
     local cli_todo_version cli_config_version cli_archive_version cli_log_version
@@ -217,12 +219,24 @@ run_project_registry_validation() {
         path=$(echo "$project" | jq -r '.path')
         name=$(echo "$project" | jq -r '.name // ""')
 
+        # Skip projects with null/empty paths (safety check)
+        if [[ -z "$path" || "$path" == "null" ]]; then
+            continue
+        fi
+
         local status="healthy"
         local issues=()
-        local path_exists="false"
-        local validation_passed="false"
+        local path_exists=false
+        local validation_passed=false
         local schemas_outdated=()
         local injection_outdated=()
+        local is_temp_project=false
+
+        # Check if this is a temporary project
+        if is_temp_project "$path"; then
+            is_temp_project=true
+            ((temp_count++))
+        fi
 
         # Check 1: Path exists
         if [[ ! -d "$path" ]]; then
@@ -230,66 +244,89 @@ run_project_registry_validation() {
             issues+=("Project path does not exist")
             ((orphaned++))
 
-            # Build result for orphaned project
-            project_results+=("$(jq -n \
-                --arg hash "$hash" \
-                --arg path "$path" \
-                --arg name "$name" \
-                --arg status "$status" \
-                --argjson issues "$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)" \
-                --argjson path_exists false \
-                --argjson validation_passed false \
-                --argjson schemas_outdated "[]" \
-                --argjson injection_outdated "[]" \
-                '{
-                    hash: $hash,
-                    path: $path,
-                    name: $name,
-                    status: $status,
-                    issues: $issues,
-                    details: {
-                        pathExists: $path_exists,
-                        validationPassed: $validation_passed,
-                        schemasOutdated: $schemas_outdated,
-                        injectionOutdated: $injection_outdated
-                    }
-                }')")
+            # For default view, only include orphaned projects in detailed mode
+            if [[ "$DETAIL_MODE" == true ]]; then
+                project_results+=("$(jq -n \
+                    --arg hash "$hash" \
+                    --arg path "$path" \
+                    --arg name "$name" \
+                    --arg status "$status" \
+                    --argjson issues "$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)" \
+                    --argjson path_exists false \
+                    --argjson validation_passed false \
+                    --argjson schemas_outdated "[]" \
+                    --argjson injection_outdated "[]" \
+                    --argjson is_temp false \
+                    '{
+                        hash: $hash,
+                        path: $path,
+                        name: $name,
+                        status: $status,
+                        issues: $issues,
+                        isTemp: $is_temp,
+                        details: {
+                            pathExists: $path_exists,
+                            validationPassed: $validation_passed,
+                            schemasOutdated: $schemas_outdated,
+                            injectionOutdated: $injection_outdated
+                        }
+                    }')")
+            fi
             continue
         fi
 
-        path_exists="true"
+        path_exists=true
 
-        # Check 2: Run validation (validate.sh in project directory)
-        if [[ -f "$path/.cleo/validate.sh" ]]; then
-            if (cd "$path" && bash .cleo/validate.sh >/dev/null 2>&1); then
-                validation_passed="true"
+        # Performance optimization: skip validation for temp projects in default mode
+        local skip_validation=false
+        if [[ "$DETAIL_MODE" == false ]] && [[ "$is_temp_project" == true ]]; then
+            skip_validation=true
+        fi
+
+        # Perform validation only if not cached
+        
+        # Check 2: Run validation (validate.sh in project directory) - skip if optimized
+        if [[ "$skip_validation" == false ]]; then
+            if [[ -f "$path/.cleo/validate.sh" ]]; then
+                if (cd "$path" && bash .cleo/validate.sh >/dev/null 2>&1); then
+                    validation_passed=true
+                else
+                    status="failed"
+                    validation_passed=false
+                    issues+=("Validation failed")
+                    if [[ "$is_temp_project" == false ]]; then
+                        ((active_failed++))
+                    fi
+                    ((failed++))
+                fi
+            elif [[ -f "${SCRIPT_DIR}/validate.sh" ]]; then
+                # Fallback: use CLI validate.sh if project doesn't have one
+                if (cd "$path" && bash "${SCRIPT_DIR}/validate.sh" >/dev/null 2>&1); then
+                    validation_passed=true
+                else
+                    status="failed"
+                    validation_passed=false
+                    issues+=("Validation failed")
+                    if [[ "$is_temp_project" == false ]]; then
+                        ((active_failed++))
+                    fi
+                    ((failed++))
+                fi
             else
-                status="failed"
-                validation_passed="false"
-                issues+=("Validation failed")
-                ((failed++))
-            fi
-        elif [[ -f "${SCRIPT_DIR}/validate.sh" ]]; then
-            # Fallback: use CLI validate.sh if project doesn't have one
-            if (cd "$path" && bash "${SCRIPT_DIR}/validate.sh" >/dev/null 2>&1); then
-                validation_passed="true"
-            else
-                status="failed"
-                validation_passed="false"
-                issues+=("Validation failed")
-                ((failed++))
-            fi
-        else
-            # No validation script available
-            if [[ "$status" != "failed" ]]; then
-                status="warning"
-                issues+=("No validation script found")
-                ((warnings++))
+                # No validation script available
+                if [[ "$status" != "failed" ]]; then
+                    status="warning"
+                    issues+=("No validation script found")
+                    if [[ "$is_temp_project" == false ]]; then
+                        ((active_warnings++))
+                    fi
+                    ((warnings++))
+                fi
             fi
         fi
 
         # Check 3: Schema versions (only if path exists and not already failed)
-        if [[ "$path_exists" == "true" && "$status" != "failed" ]]; then
+        if [[ "$path_exists" == true && "$status" != "failed" ]]; then
             local project_data
             project_data=$(get_project_data "$hash")
 
@@ -301,32 +338,36 @@ run_project_registry_validation() {
             proj_log_version=$(echo "$project_data" | jq -r '.schemaVersions.log // "unknown"')
 
             # Check each schema type
+            local outdated_schemas=()
             if [[ "$proj_todo_version" != "$cli_todo_version" && "$cli_todo_version" != "unknown" ]]; then
-                schemas_outdated+=("todo")
+                outdated_schemas+=("todo")
             fi
             if [[ "$proj_config_version" != "$cli_config_version" && "$cli_config_version" != "unknown" ]]; then
-                schemas_outdated+=("config")
+                outdated_schemas+=("config")
             fi
             if [[ "$proj_archive_version" != "$cli_archive_version" && "$cli_archive_version" != "unknown" ]]; then
-                schemas_outdated+=("archive")
+                outdated_schemas+=("archive")
             fi
             if [[ "$proj_log_version" != "$cli_log_version" && "$cli_log_version" != "unknown" ]]; then
-                schemas_outdated+=("log")
+                outdated_schemas+=("log")
             fi
 
-            if [[ ${#schemas_outdated[@]} -gt 0 ]]; then
+            if [[ ${#outdated_schemas[@]} -gt 0 ]]; then
                 if [[ "$status" == "healthy" ]]; then
                     status="warning"
+                    if [[ "$is_temp_project" == false ]]; then
+                        ((active_warnings++))
+                    fi
                     ((warnings++))
                 fi
-                issues+=("Outdated schemas: ${schemas_outdated[*]}")
+                issues+=("Outdated schemas: ${outdated_schemas[*]}")
+                schemas_outdated=$(printf '%s\n' "${outdated_schemas[@]}" | jq -R . | jq -s .)
             fi
         fi
 
-        # Check 4: Injection status (check all 3 agent files)
-        if [[ "$path_exists" == "true" && "$status" != "failed" ]]; then
+        # Check 4: Injection status (check all 3 agent files) - only in detailed mode for performance
+        if [[ "$DETAIL_MODE" == true ]] && [[ "$path_exists" == true && "$status" != "failed" ]]; then
             local agent_files=("CLAUDE.md" "AGENTS.md" "GEMINI.md")
-            local current_cli_version="${CLI_VERSION:-0.50.2}"
 
             for agent_file in "${agent_files[@]}"; do
                 local agent_path="$path/$agent_file"
@@ -348,6 +389,9 @@ run_project_registry_validation() {
             if [[ ${#injection_outdated[@]} -gt 0 ]]; then
                 if [[ "$status" == "healthy" ]]; then
                     status="warning"
+                    if [[ "$is_temp_project" == false ]]; then
+                        ((active_warnings++))
+                    fi
                     ((warnings++))
                 fi
                 issues+=("Outdated injections: ${injection_outdated[*]}")
@@ -359,6 +403,11 @@ run_project_registry_validation() {
             ((healthy++))
         fi
 
+        # For default view, skip healthy temp projects
+        if [[ "$DETAIL_MODE" == false ]] && [[ "$status" == "healthy" ]] && [[ "$is_temp_project" == true ]]; then
+            continue
+        fi
+
         # Build result for this project
         project_results+=("$(jq -n \
             --arg hash "$hash" \
@@ -368,14 +417,16 @@ run_project_registry_validation() {
             --argjson issues "$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)" \
             --argjson path_exists "$path_exists" \
             --argjson validation_passed "$validation_passed" \
-            --argjson schemas_outdated "$(printf '%s\n' "${schemas_outdated[@]}" | jq -R . | jq -s .)" \
+            --argjson schemas_outdated "$schemas_outdated" \
             --argjson injection_outdated "$(printf '%s\n' "${injection_outdated[@]}" | jq -R . | jq -s .)" \
+            --argjson is_temp "$is_temp_project" \
             '{
                 hash: $hash,
                 path: $path,
                 name: $name,
                 status: $status,
                 issues: $issues,
+                isTemp: $is_temp,
                 details: {
                     pathExists: $path_exists,
                     validationPassed: $validation_passed,
@@ -393,6 +444,9 @@ run_project_registry_validation() {
         --argjson warnings "$warnings" \
         --argjson failed "$failed" \
         --argjson orphaned "$orphaned" \
+        --argjson temp "$temp_count" \
+        --argjson active_warnings "$active_warnings" \
+        --argjson active_failed "$active_failed" \
         --argjson projects "$(printf '%s\n' "${project_results[@]}" | jq -s .)" \
         '{
             total: $total,
@@ -400,6 +454,9 @@ run_project_registry_validation() {
             warnings: $warnings,
             failed: $failed,
             orphaned: $orphaned,
+            temp: $temp,
+            activeWarnings: $active_warnings,
+            activeFailed: $active_failed,
             projects: $projects
         }'
 }
@@ -478,17 +535,22 @@ format_text_output() {
     warnings=$(echo "$json_output" | jq -r '.summary.warnings')
     failed=$(echo "$json_output" | jq -r '.summary.failed')
 
-    # Color codes
-    local RED='\033[0;31m'
-    local YELLOW='\033[1;33m'
-    local GREEN='\033[0;32m'
-    local BLUE='\033[0;34m'
-    local NC='\033[0m' # No Color
+    # Color codes - defined at function scope for use in helper functions
+    # These are exported via subshell or passed to helper functions
+    RED='\033[0;31m'
+    YELLOW='\033[1;33m'
+    GREEN='\033[0;32m'
+    BLUE='\033[0;34m'
+    GRAY='\033[0;90m'
+    NC='\033[0m' # No Color
 
     # Disable colors if not TTY
     if [[ ! -t 1 ]]; then
-        RED="" YELLOW="" GREEN="" BLUE="" NC=""
+        RED="" YELLOW="" GREEN="" BLUE="" GRAY="" NC=""
     fi
+
+    # Export colors for helper functions in doctor-utils.sh
+    export RED YELLOW GREEN BLUE GRAY NC
 
     # Header with journey-based guidance
     echo ""
@@ -561,15 +623,43 @@ format_text_output() {
         local orphaned=$(echo "$project_data" | jq -r '.details.orphaned')
         local active_failed=$(echo "$project_data" | jq -r '.details.active_failed // 0')
         local active_warnings=$(echo "$project_data" | jq -r '.details.active_warnings // 0')
+        local active_healthy=$(echo "$project_data" | jq -r '.details.healthy // 0')
         
-        format_project_health_summary "$total" "0" "$active_warnings" "$active_failed" "$orphaned" "$temp"
-        echo ""
+        # Show summary counts only in default mode
+        if [[ "$DETAIL_MODE" == false ]]; then
+            echo "  Total Projects: $total"
+            if [[ $active_healthy -gt 0 ]]; then
+                echo -e "  ${GREEN}✓ Healthy Projects: $active_healthy${NC}"
+            fi
+            if [[ $active_warnings -gt 0 ]]; then
+                echo -e "  ${YELLOW}⚠ Projects with Warnings: $active_warnings${NC}"
+            fi
+            if [[ $active_failed -gt 0 ]]; then
+                echo -e "  ${RED}✗ Failed Projects: $active_failed${NC}"
+            fi
+            if [[ $temp -gt 0 ]]; then
+                echo -e "  ${BLUE}ℹ Temporary Projects: $temp${NC} (test artifacts)"
+            fi
+            if [[ $orphaned -gt 0 ]]; then
+                echo -e "  ${GRAY}🗑️ Orphaned Projects: $orphaned${NC} (directories missing)"
+            fi
+        else
+            # Detailed view shows the full summary
+            format_project_health_summary "$total" "$active_healthy" "$active_warnings" "$active_failed" "$orphaned" "$temp"
+        fi
         
         # Show actionable guidance
         local guidance=$(get_project_guidance "$active_failed" "$active_warnings" "$temp" "$orphaned")
         if [[ -n "$guidance" ]]; then
+            echo ""
             echo "💡 SUGGESTED ACTIONS:"
             echo "$guidance"
+        fi
+        
+        # Show detail mode hint if there are hidden items
+        if [[ "$DETAIL_MODE" == false ]] && [[ $temp -gt 0 || $orphaned -gt 0 ]]; then
+            echo ""
+            echo "💡 Run 'cleo doctor --detail' to see all projects including temporary and orphaned ones"
         fi
     fi
 
@@ -582,15 +672,15 @@ format_text_output() {
         echo "----------------------"
         
         if [[ "$DETAIL_MODE" == true ]]; then
-            # Detailed view with issues
-            printf "%-30s %-10s %-50s %-40s\n" "PROJECT NAME" "STATUS" "PATH" "ISSUES"
-            printf "%-30s %-10s %-50s %-40s\n" "------------" "------" "----" "------"
+            # Detailed view with issues - canonical table format
+            printf "%-20s %-10s %-50s %-30s\n" "PROJECT NAME" "STATUS" "PATH" "ISSUES"
+            printf "%-20s %-10s %-50s %-30s\n" "------------" "------" "----" "------"
             
             echo "$json_output" | jq -r '.projects.projects[] |
                 (.name | @text) + "\t" + .status + "\t" + .path + "\t" + 
                 (if .issues and (.issues | length) > 0 then .issues | join(", ") else "none" end)' |
             while IFS=$'\t' read -r name status path issues; do
-                local icon="-"
+                local icon=" "
                 local color=""
                 case "$status" in
                     healthy) icon="✓"; color="${GREEN}" ;;
@@ -598,33 +688,85 @@ format_text_output() {
                     failed|orphaned) icon="✗"; color="${RED}" ;;
                 esac
                 
-                printf "${color}%-2s %-28s %-10s %-50s %-40s${NC}\n" "$icon" "$name" "$status" "$path" "$issues"
+                # Truncate long paths and issues for display
+                local display_path="$path"
+                local display_issues="$issues"
+                if [[ ${#display_path} -gt 48 ]]; then
+                    display_path="...${display_path: -45}"
+                fi
+                if [[ ${#display_issues} -gt 28 ]]; then
+                    display_issues="${display_issues:0:25}..."
+                fi
+                
+                printf "${color}%-2s %-18s %-10s %-50s %-30s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
             done
         else
-            # Compact view
-            printf "%-30s %-10s %-50s\n" "PROJECT NAME" "STATUS" "PATH"
-            printf "%-30s %-10s %-50s\n" "------------" "------" "----"
-            
-            echo "$json_output" | jq -r '.projects.projects[] |
-                if .status == "healthy" then
-                    "  ✓ " + (.name | @text) + "\t" + .status + "\t" + .path
-                elif .status == "warning" then
-                    "  ⚠ " + (.name | @text) + "\t" + .status + "\t" + .path
-                elif .status == "failed" or .status == "orphaned" then
-                    "  ✗ " + (.name | @text) + "\t" + .status + "\t" + .path
-                else
-                    "  - " + (.name | @text) + "\t" + .status + "\t" + .path
-                end'
+            # Clean default view - only show active (non-temp) projects that need attention
+            # Filter: show non-temp projects with issues (warning/failed/orphaned)
+            local show_count=0
+            local has_issues_to_show=false
+
+            # First check if there are any issues to show
+            local issues_json
+            issues_json=$(echo "$json_output" | jq -r '.projects.projects[] |
+                select(.isTemp == false and .status != "healthy") |
+                (.name | @text) + "\t" + .status + "\t" + .path + "\t" +
+                (if .issues and (.issues | length) > 0 then .issues | join(", ") else "none" end)')
+
+            if [[ -n "$issues_json" ]]; then
+                has_issues_to_show=true
+                # Print table header for default view
+                printf "%-20s %-10s %-50s %-30s\n" "PROJECT NAME" "STATUS" "PATH" "ISSUES"
+                printf "%-20s %-10s %-50s %-30s\n" "------------" "------" "----" "------"
+
+                echo "$issues_json" |
+                while IFS=$'\t' read -r name status path issues; do
+                    [[ -z "$name" ]] && continue
+                    local icon=" "
+                    local color=""
+                    case "$status" in
+                        healthy) icon="✓"; color="${GREEN}" ;;
+                        warning) icon="⚠"; color="${YELLOW}" ;;
+                        failed|orphaned) icon="✗"; color="${RED}" ;;
+                    esac
+
+                    # Truncate long paths and issues for display
+                    local display_path="$path"
+                    local display_issues="$issues"
+                    if [[ ${#display_path} -gt 48 ]]; then
+                        display_path="...${display_path: -45}"
+                    fi
+                    if [[ ${#display_issues} -gt 28 ]]; then
+                        display_issues="${display_issues:0:25}..."
+                    fi
+
+                    printf "${color}%-2s %-18s %-10s %-50s %-30s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
+                    ((show_count++)) || true
+                done
+            fi
+
+            # Show summary message
+            if [[ "$has_issues_to_show" == false ]]; then
+                echo -e "  ${GREEN}✓ All active projects are healthy${NC}"
+            fi
         fi
         
-        # Summary
+        # Summary with better categorization
         echo ""
         echo "Summary: $project_total projects registered"
+        
+        local temp_projects=$(echo "$json_output" | jq -r '.projects.temp // 0')
+        local orphaned_projects=$(echo "$json_output" | jq -r '.projects.orphaned // 0')
+        local active_projects=$((total - temp_projects - orphaned_projects))
+        
         echo "$json_output" | jq -r '.projects |
+            "  Active Projects: '"$active_projects"'",
+            "  Temporary Projects: '"$temp_projects"' (test artifacts)",
+            "  Orphaned Projects: '"$orphaned_projects"' (directories missing)",
+            "",
             "  Healthy: \(.healthy)",
             "  Warnings: \(.warnings)",
-            "  Failed: \(.failed)",
-            "  Orphaned: \(.orphaned)"'
+            "  Failed: \(.failed)"'
     fi
 
     # Show fix suggestions if issues detected

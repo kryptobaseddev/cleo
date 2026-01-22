@@ -6,7 +6,10 @@
 readonly _AGENT_CONFIG_LOADED=1
 
 # Dependencies (Layer 0)
-source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/injection-registry.sh"
+_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$_LIB_DIR/injection-registry.sh" ]]; then
+    source "$_LIB_DIR/injection-registry.sh"
+fi
 
 # ==============================================================================
 # AGENT CONFIG REGISTRY MANAGEMENT

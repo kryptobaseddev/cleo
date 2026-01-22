@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
-  "schemaVersion": "2.4.0",
+  "schemaVersion": "2.5.0",
   "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
@@ -1019,6 +1019,148 @@
               "type": "boolean",
               "default": false,
               "description": "Automatically rotate manifest when threshold is exceeded during operations."
+            }
+          }
+        }
+      }
+    },
+
+    "project": {
+      "type": "object",
+      "description": "Project-level metadata and status tracking for doctor command and health monitoring.",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "object",
+          "description": "Current project health status and diagnostic information.",
+          "additionalProperties": false,
+          "properties": {
+            "health": {
+              "type": "string",
+              "enum": ["healthy", "warning", "error", "unknown"],
+              "default": "unknown",
+              "description": "Overall project health: healthy=no issues, warning=minor issues, error=critical issues, unknown=not yet checked."
+            },
+            "lastCheck": {
+              "type": ["string", "null"],
+              "format": "date-time",
+              "default": null,
+              "description": "ISO 8601 timestamp of last health check (doctor command). Null if never checked."
+            },
+            "schemaVersions": {
+              "type": "object",
+              "description": "Schema versions for core CLEO data files in this project.",
+              "additionalProperties": false,
+              "properties": {
+                "todo": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for todo.json (semver)."
+                },
+                "config": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for config.json (semver)."
+                },
+                "archive": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for todo-archive.json (semver)."
+                },
+                "log": {
+                  "type": "string",
+                  "pattern": "^\\d+\\.\\d+\\.\\d+$",
+                  "description": "Schema version for todo-log.json (semver)."
+                }
+              }
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation status and results.",
+              "additionalProperties": false,
+              "properties": {
+                "lastValidated": {
+                  "type": ["string", "null"],
+                  "format": "date-time",
+                  "default": null,
+                  "description": "ISO 8601 timestamp of last validation run."
+                },
+                "passed": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Whether last validation passed."
+                },
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["code", "message"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "description": "Machine-readable error code."
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Human-readable error description."
+                      },
+                      "file": {
+                        "type": "string",
+                        "description": "File path related to the error."
+                      }
+                    }
+                  },
+                  "default": [],
+                  "description": "Validation errors from last check."
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["code", "message"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "description": "Machine-readable warning code."
+                      },
+                      "message": {
+                        "type": "string",
+                        "description": "Human-readable warning description."
+                      },
+                      "file": {
+                        "type": "string",
+                        "description": "File path related to the warning."
+                      }
+                    }
+                  },
+                  "default": [],
+                  "description": "Validation warnings from last check."
+                }
+              }
+            },
+            "injection": {
+              "type": "object",
+              "description": "Agent documentation injection status.",
+              "additionalProperties": false,
+              "properties": {
+                "CLAUDE.md": {
+                  "type": "string",
+                  "enum": ["injected", "missing", "outdated", "not_found"],
+                  "description": "Injection status for CLAUDE.md."
+                },
+                "AGENTS.md": {
+                  "type": "string",
+                  "enum": ["injected", "missing", "outdated", "not_found"],
+                  "description": "Injection status for AGENTS.md."
+                },
+                "GEMINI.md": {
+                  "type": "string",
+                  "enum": ["injected", "missing", "outdated", "not_found"],
+                  "description": "Injection status for GEMINI.md."
+                }
+              }
             }
           }
         }
