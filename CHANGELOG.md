@@ -13,6 +13,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session resolution uses 4-priority cascade: --session flag, CLEO_SESSION env, TTY binding, .current-session
 - Per-session context state files now written correctly
 
+## [0.62.0] - 2026-01-22
+
+### Added
+- **Doctor command enhancements**:
+  - New `lib/doctor-project-cache.sh` for validation result caching with 5-minute TTL
+  - Color-coded status indicators for improved visual feedback in project health reports
+  - Actionable guidance with specific remediation commands for detected issues
+  - Performance optimization: skip validation for temporary/orphaned projects
+  - `project.status` section in config schema (v2.5.0) for project-level health tracking
+
+### Changed
+- **Doctor default output**: Now shows only active projects with issues (summary counts for temp/orphaned projects)
+- **CI workflow improvements**: Added timeout configuration and concurrency control for more reliable test execution
+- **Test runner enhancements**: Improved timeout enforcement and test isolation
+
+### Fixed
+- **Critical bugs in `doctor` command**:
+  - Fixed undefined `GRAY` variable error (lines 544/553 in doctor.sh)
+  - Fixed color variable scoping - colors now properly exported for helper functions
+  - Fixed project table filter logic - changed from OR to AND logic for accurate issue reporting
+- **Migration system bug**: Fixed hardcoded schema versions in `migrate_config_to_2_5_0()` - now uses `get_schema_version_from_file()` for dynamic version reads
+- **JSON formatting consistency**: Fixed boolean string inconsistency - unquoted `true`/`false` for proper jq compatibility
+- **Code quality**: Removed extra blank line in `doctor-checks.sh`
+- **Agent config version checking**: Additional fix for proper VERSION file parsing with multi-line support
+
 ## [0.61.0] - 2026-01-21
 
 ### Added
