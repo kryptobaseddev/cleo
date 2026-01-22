@@ -129,5 +129,29 @@
     "manifestFile": "MANIFEST.jsonl",
     "archiveDir": "archive",
     "archiveDays": 30
+  },
+
+  "project": {
+    "status": {
+      "health": "unknown",
+      "lastCheck": null,
+      "schemaVersions": {
+        "todo": "{{SCHEMA_VERSION_TODO}}",
+        "config": "{{SCHEMA_VERSION_CONFIG}}",
+        "archive": "{{SCHEMA_VERSION_ARCHIVE}}",
+        "log": "{{SCHEMA_VERSION_LOG}}"
+      },
+      "validation": {
+        "lastValidated": null,
+        "passed": false,
+        "errors": [],
+        "warnings": []
+      },
+      "injection": {
+        "CLAUDE.md": "not_found",
+        "AGENTS.md": "not_found",
+        "GEMINI.md": "not_found"
+      }
+    }
   }
 }

@@ -650,7 +650,7 @@ EOF
 
 # Check 8: Project Registry Health
 # Validates all registered projects for path existence, validation status,
-# schema versions, and injection status
+# schema versions, and injection status with performance optimization
 # Returns: JSON check result
 check_registered_projects() {
     local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
@@ -667,7 +667,15 @@ check_registered_projects() {
   "message": "Project registry not found (no projects registered)",
   "details": {
     "path": "$registry",
-    "exists": false
+    "exists": false,
+    "total": 0,
+    "healthy": 0,
+    "warnings": 0,
+    "failed": 0,
+    "orphaned": 0,
+    "temp": 0,
+    "active_failed": 0,
+    "active_warnings": 0
   },
   "fix": null
 }
@@ -685,6 +693,9 @@ EOF
     local warnings=0
     local failed=0
     local orphaned=0
+    local temp_count=0
+    local active_warnings=0
+    local active_failed=0
     local project_details=()
     
     # Get all project hashes
@@ -705,7 +716,10 @@ EOF
     "healthy": 0,
     "warnings": 0,
     "failed": 0,
-    "orphaned": 0
+    "orphaned": 0,
+    "temp": 0,
+    "active_failed": 0,
+    "active_warnings": 0
   },
   "fix": null
 }
@@ -722,22 +736,57 @@ EOF
         project_path=$(jq -r ".projects[\"$hash\"].path" "$registry" 2>/dev/null || echo "")
         project_name=$(jq -r ".projects[\"$hash\"].name" "$registry" 2>/dev/null || echo "unknown")
         
-        # Check if project path exists (orphan detection)
-        if [[ ! -d "$project_path" ]]; then
-            ((orphaned++))
-            ((failed++))
-            project_details+=("{\"name\":\"$project_name\",\"path\":\"$project_path\",\"status\":\"orphaned\",\"reason\":\"path_missing\"}")
+        # Skip projects with null/empty paths (safety check)
+        if [[ -z "$project_path" || "$project_path" == "null" ]]; then
             continue
         fi
         
         local project_status="healthy"
         local issues=()
+        local is_temp_project="false"
         
-        # Check 1: Run validate.sh in project directory
-        if [[ -f "$project_path/.cleo/todo.json" ]]; then
-            if ! (cd "$project_path" && "$cleo_scripts_dir/validate.sh" --quiet >/dev/null 2>&1); then
-                project_status="failed"
-                issues+=("\"validation_failed\"")
+        # Check if this is a temporary project
+        if is_temp_project "$project_path"; then
+            is_temp_project="true"
+            ((temp_count++))
+        fi
+        
+        # Check if project path exists (orphan detection)
+        if [[ ! -d "$project_path" ]]; then
+            ((orphaned++))
+            ((failed++))
+            project_details+=("{\"name\":\"$project_name\",\"path\":\"$project_path\",\"status\":\"orphaned\",\"reason\":\"path_missing\",\"isTemp\":$is_temp_project}")
+            continue
+        fi
+        
+        # Performance optimization: skip validation for temp projects in default mode
+        local skip_validation="false"
+        if [[ "$DETAIL_MODE" == false ]] && [[ "$is_temp_project" == "true" ]]; then
+            skip_validation="true"
+        fi
+        
+        # Perform validation only if not skipped for performance
+        
+        # Check 1: Run validate.sh in project directory (heavily optimized)
+        if [[ "$skip_validation" == "false" ]]; then
+            if [[ -f "$project_path/.cleo/todo.json" ]]; then
+                # Quick pre-checks before expensive validation
+                # Only validate non-temp projects with potential issues
+                if [[ "$is_temp_project" == "false" ]] && [[ "$DETAIL_MODE" == true ]]; then
+                    # Only run full validation for non-temp projects in detail mode
+                    if ! (cd "$project_path" && "$cleo_scripts_dir/validate.sh" --quiet >/dev/null 2>&1); then
+                        project_status="failed"
+                        issues+=("\"validation_failed\"")
+                        ((active_failed++))
+                    fi
+                elif [[ "$is_temp_project" == "false" ]]; then
+                    # Default mode: just check JSON syntax (much faster)
+                    if ! jq empty "$project_path/.cleo/todo.json" >/dev/null 2>&1; then
+                        project_status="failed"
+                        issues+=("\"json_syntax_error\"")
+                        ((active_failed++))
+                    fi
+                fi
             fi
         fi
         
@@ -757,40 +806,32 @@ EOF
                         project_status="warning"
                     fi
                     issues+=("\"schema_outdated\"")
+                    if [[ "$is_temp_project" == "false" ]]; then
+                        ((active_warnings++))
+                    fi
                 fi
             fi
         fi
         
-        # Check 3: Injection status for all target files
-        local injection_missing=false
-        local injection_outdated=false
-        
-        for target in $INJECTION_TARGETS; do
-            local target_path="$project_path/$target"
-            
-            if [[ -f "$target_path" ]]; then
-                # Check if injection marker exists
-                if ! grep -q "$INJECTION_MARKER_START" "$target_path" 2>/dev/null; then
-                    injection_missing=true
-                    if [[ "$project_status" == "healthy" ]]; then
-                        project_status="warning"
-                    fi
-                    issues+=("\"injection_missing_${target%.md}\"")
-                else
-                    # Check version if marker exists
-                    local marker_version
-                    marker_version=$(grep "$INJECTION_MARKER_START" "$target_path" 2>/dev/null | sed -n 's/.*v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)
-                    
-                    if [[ -n "$marker_version" ]] && [[ "$marker_version" != "$cli_version" ]]; then
-                        injection_outdated=true
+        # Check 3: Injection status for all target files (only in detailed mode for performance)
+        if [[ "$DETAIL_MODE" == true ]]; then
+            for target in $INJECTION_TARGETS; do
+                local target_path="$project_path/$target"
+                
+                if [[ -f "$target_path" ]]; then
+                    # Check if injection marker exists
+                    if ! grep -q "$INJECTION_MARKER_START" "$target_path" 2>/dev/null; then
                         if [[ "$project_status" == "healthy" ]]; then
                             project_status="warning"
                         fi
-                        issues+=("\"injection_outdated_${target%.md}\"")
+                        issues+=("\"injection_missing_${target%.md}\"")
+                        if [[ "$is_temp_project" == "false" ]]; then
+                            ((active_warnings++))
+                        fi
                     fi
                 fi
-            fi
-        done
+            done
+        fi
         
         # Update counters
         case "$project_status" in
@@ -804,13 +845,13 @@ EOF
                 ((failed++))
                 ;;
         esac
-        
+
         # Build project detail (escape issues array properly)
         local issues_json="[]"
         if [[ ${#issues[@]} -gt 0 ]]; then
             issues_json="[$(IFS=,; echo "${issues[*]}")]"
         fi
-        project_details+=("{\"name\":\"$project_name\",\"path\":\"$project_path\",\"status\":\"$project_status\",\"issues\":$issues_json}")
+        project_details+=("{\"name\":\"$project_name\",\"path\":\"$project_path\",\"status\":\"$project_status\",\"issues\":$issues_json,\"isTemp\":$is_temp_project,\"isOrphaned\":false}")
     done <<< "$hashes"
     
     # Build details JSON
@@ -822,9 +863,6 @@ EOF
     # Categorize projects for better reporting
     local categorized_projects
     categorized_projects=$(categorize_projects "$projects_json")
-    local temp_count=$(echo "$categorized_projects" | jq '.temp | length')
-    local active_failed=$(echo "$categorized_projects" | jq '[.active[] | select(.status == "failed")] | length')
-    local active_warnings=$(echo "$categorized_projects" | jq '[.active[] | select(.status == "warning")] | length')
     
     # Determine overall status with better context
     local overall_status="passed"

@@ -6,10 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -40,12 +45,27 @@ jobs:
           chmod +x tests/*.sh
           chmod +x install.sh
 
+      - name: Cleanup before tests
+        run: rm -f .cleo/*.lock 2>/dev/null || true
+
       - name: Run test suite
         run: ./tests/run-all-tests.sh
+        timeout-minutes: 10
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: |
+            .cleo/*.log
+            tests/*.log
+          retention-days: 7
 
   lint:
     name: Shell Linting
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
@@ -69,6 +89,7 @@ jobs:
   validate-json:
     name: Validate JSON Files
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout code
@@ -94,6 +115,7 @@ jobs:
   install-test:
     name: Installation Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code

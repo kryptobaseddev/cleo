@@ -16,10 +16,66 @@
 #   --no-parallel      Disable parallel execution
 #   --jobs N, -j N     Number of parallel jobs (default: min(cores, 16))
 #   --fast             Use all available CPU cores for maximum speed
+#   --timeout N        Per-test-file timeout in seconds (default: 60)
+#   --suite-timeout N  Overall suite timeout in seconds (default: 600)
 #   --help, -h         Show this help message
 # =============================================================================
 
 set -euo pipefail
+
+# =============================================================================
+# Timeout and Cleanup Configuration
+# =============================================================================
+PER_FILE_TIMEOUT="${CLEO_TEST_TIMEOUT:-60}"       # 60 seconds per test file
+SUITE_TIMEOUT="${CLEO_SUITE_TIMEOUT:-600}"        # 10 minutes total
+TIMED_OUT_TESTS=""
+SUITE_START_TIME=""
+
+# =============================================================================
+# Cleanup Functions
+# =============================================================================
+
+# Cleanup test environment: kill orphan processes, remove stale locks, clear FDs
+cleanup_test_env() {
+    local exit_code=$?
+
+    # Kill any orphan background processes from this script
+    pkill -P $$ 2>/dev/null || true
+
+    # Remove stale lock files in test directories
+    find "${SCRIPT_DIR:-/tmp}" -name "*.lock" -type f -delete 2>/dev/null || true
+    find "${PROJECT_ROOT:-.}/.cleo" -name "*.lock" -type f -delete 2>/dev/null || true
+
+    # Close file descriptors 200-210 (used by flock in tests)
+    for fd in {200..210}; do
+        exec {fd}>&- 2>/dev/null || true
+    done
+
+    return $exit_code
+}
+
+# Pre-test cleanup: ensure clean state before running tests
+pre_test_cleanup() {
+    # Remove any existing lock files
+    find "${PROJECT_ROOT:-.}/.cleo" -name "*.lock" -type f -delete 2>/dev/null || true
+
+    # Kill any lingering test processes from previous runs
+    pkill -f "bats.*cleo" 2>/dev/null || true
+
+    # Small delay to ensure processes are terminated
+    sleep 0.1
+}
+
+# Handle timeout signal
+handle_timeout() {
+    echo -e "${RED}TIMEOUT: Test suite exceeded ${SUITE_TIMEOUT}s limit${NC}" >&2
+    cleanup_test_env
+    exit 124
+}
+
+# Register cleanup handlers
+trap cleanup_test_env EXIT
+trap handle_timeout SIGALRM
 
 # Colors (respect NO_COLOR)
 if [[ -z "${NO_COLOR:-}" ]]; then
@@ -98,6 +154,14 @@ while [[ $# -gt 0 ]]; do
             PARALLEL_ENABLED="true"
             shift
             ;;
+        --timeout)
+            PER_FILE_TIMEOUT="$2"
+            shift 2
+            ;;
+        --suite-timeout)
+            SUITE_TIMEOUT="$2"
+            shift 2
+            ;;
         --help|-h)
             echo "CLEO Test Suite Runner"
             echo ""
@@ -112,10 +176,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-parallel      Disable parallel execution"
             echo "  --jobs N, -j N     Number of parallel jobs (default: min(cores, 16) = $DEFAULT_JOBS)"
             echo "  --fast             Use all available CPU cores ($CPU_CORES) for maximum speed"
+            echo "  --timeout N        Per-test-file timeout in seconds (default: $PER_FILE_TIMEOUT)"
+            echo "  --suite-timeout N  Overall suite timeout in seconds (default: $SUITE_TIMEOUT)"
             echo "  --help, -h         Show this help message"
             echo ""
             echo "Environment Variables:"
             echo "  JOBS=N             Set number of parallel jobs"
+            echo "  CLEO_TEST_TIMEOUT  Per-test-file timeout in seconds"
+            echo "  CLEO_SUITE_TIMEOUT Overall suite timeout in seconds"
             echo "  NO_COLOR=1         Disable colored output"
             exit 0
             ;;
@@ -153,11 +221,20 @@ if command -v parallel &> /dev/null; then
     HAS_PARALLEL=true
 fi
 
+# Run pre-test cleanup
+pre_test_cleanup
+
+# Record suite start time for timeout tracking
+SUITE_START_TIME=$(date +%s)
+
 echo ""
 echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}      CLEO Test Suite${NC}"
 echo -e "${BLUE}============================================${NC}"
 echo ""
+
+# Show timeout settings
+echo -e "Timeouts: ${YELLOW}${PER_FILE_TIMEOUT}s/file${NC}, ${YELLOW}${SUITE_TIMEOUT}s/suite${NC}"
 
 # Show parallel execution status
 if [[ "$PARALLEL_ENABLED" == "false" ]]; then
@@ -179,9 +256,102 @@ TOTAL_FAILED=0
 TOTAL_SKIPPED=0
 FAILED_TESTS=""
 
+# Check if suite timeout has been exceeded
+check_suite_timeout() {
+    local current_time elapsed
+    current_time=$(date +%s)
+    elapsed=$((current_time - SUITE_START_TIME))
+    if [[ $elapsed -ge $SUITE_TIMEOUT ]]; then
+        echo -e "${RED}TIMEOUT: Test suite exceeded ${SUITE_TIMEOUT}s limit (${elapsed}s elapsed)${NC}" >&2
+        return 1
+    fi
+    return 0
+}
+
+# Run a single test file with timeout
+run_single_test_file() {
+    local test_file="$1"
+    local suite_name="$2"
+    local bats_args=("${@:3}")
+    local file_basename
+    file_basename=$(basename "$test_file")
+
+    # Check suite timeout before starting
+    if ! check_suite_timeout; then
+        TIMED_OUT_TESTS="${TIMED_OUT_TESTS}  [$suite_name] $file_basename (suite timeout)"$'\n'
+        return 124
+    fi
+
+    echo -e "  Running: ${BLUE}$file_basename${NC}"
+
+    local output status=0
+    local start_time end_time elapsed
+
+    start_time=$(date +%s)
+
+    # Run with timeout command
+    if output=$(timeout --signal=TERM --kill-after=10 "$PER_FILE_TIMEOUT" bats "${bats_args[@]}" "$test_file" 2>&1); then
+        status=0
+    else
+        status=$?
+    fi
+
+    end_time=$(date +%s)
+    elapsed=$((end_time - start_time))
+
+    # Handle timeout (exit code 124 from timeout command)
+    if [[ $status -eq 124 ]]; then
+        echo -e "    ${RED}TIMEOUT${NC}: $file_basename exceeded ${PER_FILE_TIMEOUT}s limit"
+        TIMED_OUT_TESTS="${TIMED_OUT_TESTS}  [$suite_name] $file_basename (${PER_FILE_TIMEOUT}s timeout)"$'\n'
+
+        # Cleanup after timeout: kill any orphan processes from this test
+        pkill -f "bats.*$file_basename" 2>/dev/null || true
+
+        # Count as 1 failure for the timed out file
+        TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        FAILED_TESTS="${FAILED_TESTS}  [$suite_name] $file_basename (TIMEOUT)"$'\n'
+        return $status
+    fi
+
+    # Parse results from bats output
+    local passed failed skipped
+    passed=$(echo "$output" | grep -c "^ok " 2>/dev/null) || passed=0
+    failed=$(echo "$output" | grep -c "^not ok " 2>/dev/null) || failed=0
+    skipped=$(echo "$output" | grep -c "# skip" 2>/dev/null) || skipped=0
+
+    # Print summary for this file
+    if [[ $status -eq 0 ]]; then
+        echo -e "    ${GREEN}✓${NC} $passed passed ($elapsed s)"
+    else
+        echo -e "    ${RED}✗${NC} $failed failed, $passed passed ($elapsed s)"
+    fi
+
+    # Capture failing test names for summary
+    local failed_lines
+    failed_lines=$(echo "$output" | grep "^not ok " 2>/dev/null) || true
+    if [[ -n "$failed_lines" ]]; then
+        while IFS= read -r line; do
+            local test_name="${line#not ok [0-9]* }"
+            FAILED_TESTS="${FAILED_TESTS}  [$suite_name] $test_name"$'\n'
+        done <<< "$failed_lines"
+    fi
+
+    TOTAL_PASSED=$((TOTAL_PASSED + passed))
+    TOTAL_FAILED=$((TOTAL_FAILED + failed))
+    TOTAL_SKIPPED=$((TOTAL_SKIPPED + skipped))
+
+    # Print verbose output if enabled
+    if [[ "$VERBOSE" == true ]]; then
+        echo "$output"
+    fi
+
+    return $status
+}
+
 run_test_suite() {
     local suite_name="$1"
     local suite_dir="$2"
+    local suite_failed=0
 
     if [[ ! -d "$suite_dir" ]]; then
         echo -e "${YELLOW}Directory not found: $suite_dir${NC}"
@@ -194,7 +364,8 @@ run_test_suite() {
         return
     fi
 
-    echo -e "${BLUE}Running $suite_name tests...${NC}"
+    local file_count=${#test_files[@]}
+    echo -e "${BLUE}Running $suite_name tests ($file_count files)...${NC}"
     echo ""
 
     local bats_args=()
@@ -207,52 +378,24 @@ run_test_suite() {
         bats_args+=(--filter "$FILTER")
     fi
 
-    # Add parallel execution flags
-    # Auto mode: enable if more than 1 core available, BATS supports it, and GNU parallel installed
-    if [[ "$PARALLEL_ENABLED" == "true" ]] || { [[ "$PARALLEL_ENABLED" == "auto" ]] && [[ "$CPU_CORES" -gt 1 ]]; }; then
-        # Check if BATS supports --jobs (BATS 1.5.0+) AND GNU parallel is installed
-        if bats --help 2>&1 | grep -q -- '--jobs' && [[ "$HAS_PARALLEL" == "true" ]]; then
-            bats_args+=(--jobs "$PARALLEL_JOBS")
+    # Note: We don't use --jobs here since we're running files individually with timeout
+    # This ensures proper timeout handling per file
+
+    # Run each test file individually with timeout
+    for test_file in "${test_files[@]}"; do
+        if ! run_single_test_file "$test_file" "$suite_name" "${bats_args[@]}"; then
+            suite_failed=1
         fi
-    fi
 
-    # Run bats and capture output
-    local output
-    local status=0
+        # Check suite timeout after each file
+        if ! check_suite_timeout; then
+            echo -e "${RED}Suite timeout reached. Skipping remaining tests.${NC}"
+            break
+        fi
+    done
 
-    if output=$(bats "${bats_args[@]}" "${test_files[@]}" 2>&1); then
-        status=0
-    else
-        status=$?
-    fi
-
-    echo "$output"
     echo ""
-
-    # Parse results from bats output
-    # bats outputs lines like: "1..N" at start, "ok N" or "not ok N" for each test
-    # Note: grep -c returns exit 1 if no matches, so we capture and default to 0
-    local passed failed skipped
-    passed=$(echo "$output" | grep -c "^ok " 2>/dev/null) || passed=0
-    failed=$(echo "$output" | grep -c "^not ok " 2>/dev/null) || failed=0
-    skipped=$(echo "$output" | grep -c "# skip" 2>/dev/null) || skipped=0
-
-    # Capture failing test names for summary
-    local failed_lines
-    failed_lines=$(echo "$output" | grep "^not ok " 2>/dev/null) || true
-    if [[ -n "$failed_lines" ]]; then
-        while IFS= read -r line; do
-            # Extract test name: "not ok 123 test name here" -> "test name here"
-            local test_name="${line#not ok [0-9]* }"
-            FAILED_TESTS="${FAILED_TESTS}  [$suite_name] $test_name"$'\n'
-        done <<< "$failed_lines"
-    fi
-
-    TOTAL_PASSED=$((TOTAL_PASSED + passed))
-    TOTAL_FAILED=$((TOTAL_FAILED + failed))
-    TOTAL_SKIPPED=$((TOTAL_SKIPPED + skipped))
-
-    if [[ $status -eq 0 ]]; then
+    if [[ $suite_failed -eq 0 ]]; then
         echo -e "${GREEN}✓ $suite_name tests passed${NC}"
     else
         echo -e "${RED}✗ $suite_name tests had failures${NC}"
@@ -269,6 +412,10 @@ if [[ "$RUN_INTEGRATION" == true ]]; then
     run_test_suite "Integration" "$SCRIPT_DIR/integration"
 fi
 
+# Calculate total elapsed time
+SUITE_END_TIME=$(date +%s)
+TOTAL_ELAPSED=$((SUITE_END_TIME - SUITE_START_TIME))
+
 # Summary
 echo -e "${BLUE}============================================${NC}"
 echo -e "${BLUE}                 Summary${NC}"
@@ -277,7 +424,17 @@ echo ""
 echo -e "Passed:  ${GREEN}$TOTAL_PASSED${NC}"
 echo -e "Failed:  ${RED}$TOTAL_FAILED${NC}"
 echo -e "Skipped: ${YELLOW}$TOTAL_SKIPPED${NC}"
+echo -e "Time:    ${BLUE}${TOTAL_ELAPSED}s${NC}"
 echo ""
+
+# Show timed-out tests if any
+if [[ -n "$TIMED_OUT_TESTS" ]]; then
+    echo -e "${YELLOW}============================================${NC}"
+    echo -e "${YELLOW}            TIMED OUT TESTS${NC}"
+    echo -e "${YELLOW}============================================${NC}"
+    echo ""
+    echo -e "${YELLOW}$TIMED_OUT_TESTS${NC}"
+fi
 
 if [[ $TOTAL_FAILED -eq 0 ]]; then
     echo -e "${GREEN}All tests passed!${NC}"

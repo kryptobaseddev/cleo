@@ -1112,6 +1112,51 @@ migrate_config_to_2_2_0() {
     update_version_field "$file" "$target_version"
 }
 
+# Migration from 2.4.0 to 2.5.0 for config.json
+# Adds comprehensive project.status section for doctor command integration
+# See DOCTOR_IMPROVEMENTS.md for details on project-level health tracking
+migrate_config_to_2_5_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+
+    # Read current schema versions dynamically (single source of truth)
+    local current_todo_version current_config_version current_archive_version current_log_version
+    current_todo_version=$(get_schema_version_from_file "todo")
+    current_config_version=$(get_schema_version_from_file "config")
+    current_archive_version=$(get_schema_version_from_file "archive")
+    current_log_version=$(get_schema_version_from_file "log")
+
+    echo "  Adding project status tracking for doctor command..."
+
+    # Add complete project.status section with all required fields
+    add_field_if_missing "$file" ".project" '{
+        "status": {
+            "health": "unknown",
+            "lastCheck": null,
+            "schemaVersions": {
+                "todo": "'"$current_todo_version"'",
+                "config": "'"$current_config_version"'",
+                "archive": "'"$current_archive_version"'",
+                "log": "'"$current_log_version"'"
+            },
+            "validation": {
+                "lastValidated": null,
+                "passed": false,
+                "errors": []
+            },
+            "injection": {
+                "CLAUDE.md": "",
+                "AGENTS.md": "",
+                "GEMINI.md": ""
+            }
+        }
+    }' || return 1
+
+    # Update version
+    update_version_field "$file" "$target_version"
+}
+
 
 # ============================================================================
 # ARCHIVE MIGRATIONS

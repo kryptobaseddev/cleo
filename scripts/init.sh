@@ -665,6 +665,9 @@ if [[ -f "$TEMPLATES_DIR/config.template.json" ]]; then
   # Process template and replace all placeholders
   sed -e "s/{{VERSION}}/$VERSION/g" \
       -e "s/{{SCHEMA_VERSION_CONFIG}}/$SCHEMA_VERSION_CONFIG/g" \
+      -e "s/{{SCHEMA_VERSION_TODO}}/$SCHEMA_VERSION_TODO/g" \
+      -e "s/{{SCHEMA_VERSION_ARCHIVE}}/$SCHEMA_VERSION_ARCHIVE/g" \
+      -e "s/{{SCHEMA_VERSION_LOG}}/$SCHEMA_VERSION_LOG/g" \
       -e "s/{{TIMESTAMP}}/$TIMESTAMP/g" \
       -e 's|"\$schema": "../schemas/config.schema.json"|"$schema": "./schemas/config.schema.json"|' \
       "$TEMPLATES_DIR/config.template.json" > "$TODO_DIR/config.json"

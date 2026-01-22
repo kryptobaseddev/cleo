@@ -44,33 +44,41 @@ get_project_category_name() {
 }
 
 # Format project health summary with better context
+# Note: Color variables (RED, YELLOW, GREEN, BLUE, GRAY, NC) should be exported
+# by the calling script (doctor.sh format_text_output) before calling this function.
 format_project_health_summary() {
     local total="$1"
-    local healthy="$2" 
+    local healthy="$2"
     local warnings="$3"
     local failed="$4"
     local orphaned="$5"
     local temp="$6"
-    
+
+    # Fallback color definitions if not already set
+    # These will be overridden if exported by calling script
+    : "${RED:=\033[0;31m}"
+    : "${YELLOW:=\033[1;33m}"
+    : "${GREEN:=\033[0;32m}"
+    : "${BLUE:=\033[0;34m}"
+    : "${GRAY:=\033[0;90m}"
+    : "${NC:=\033[0m}"
+
     echo "Project Health Summary:"
     echo "  Total Projects: $total"
-    if [[ "$temp" -gt 0 ]]; then
-        local active=$((total - temp - orphaned))
-        if [[ $active -lt 0 ]]; then active=0; fi
-        echo "  Active Projects: $active"
-        echo "  Temporary Projects: $temp (test artifacts)"
-    fi
-    if [[ "$orphaned" -gt 0 ]]; then
-        echo "  Orphaned Projects: $orphaned (directories missing)"
-    fi
     if [[ "$healthy" -gt 0 ]]; then
-        echo "  Healthy Projects: $healthy"
+        echo -e "  ${GREEN}✓ Healthy Projects: $healthy${NC}"
     fi
     if [[ "$warnings" -gt 0 ]]; then
-        echo "  Projects with Warnings: $warnings"
+        echo -e "  ${YELLOW}⚠ Projects with Warnings: $warnings${NC}"
     fi
     if [[ "$failed" -gt 0 ]]; then
-        echo "  Projects Failed Validation: $failed"
+        echo -e "  ${RED}✗ Failed Projects: $failed${NC}"
+    fi
+    if [[ "$temp" -gt 0 ]]; then
+        echo -e "  ${BLUE}ℹ Temporary Projects: $temp${NC} (test artifacts)"
+    fi
+    if [[ "$orphaned" -gt 0 ]]; then
+        echo -e "  ${GRAY}🗑️ Orphaned Projects: $orphaned${NC} (directories missing)"
     fi
 }
 
@@ -97,6 +105,10 @@ get_project_guidance() {
     
     if [[ "$orphaned_count" -gt 5 ]]; then
         guidance+=("🗑️ $orphaned_count orphaned projects - run 'cleo doctor --prune' to remove")
+    fi
+    
+    if [[ ${#guidance[@]} -eq 0 ]]; then
+        guidance+=("✅ All active projects are healthy")
     fi
     
     printf '%s\n' "${guidance[@]}"
