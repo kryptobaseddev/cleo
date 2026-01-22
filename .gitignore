@@ -182,3 +182,4 @@ docs/node_modules/
 .nml/
 __pycache__/
 *.pyc
+.fuse_hidden*
