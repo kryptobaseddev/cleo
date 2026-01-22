@@ -9,6 +9,7 @@
 #   cleo doctor                   # Full health check
 #   cleo doctor --global          # Skip project checks
 #   cleo doctor --prune           # Clean registry of missing projects
+#   cleo doctor --clean-temp      # Remove temporary/test projects
 #   cleo doctor --fix             # Auto-repair issues (with confirmation)
 #   cleo doctor --format json     # JSON output
 #
@@ -37,6 +38,7 @@ source "$LIB_DIR/flags.sh"
 source "$LIB_DIR/agent-config.sh"
 source "$LIB_DIR/validation.sh"
 source "$LIB_DIR/doctor-checks.sh"  # Global health check functions
+source "$LIB_DIR/doctor-utils.sh"   # Doctor utility functions
 source "$LIB_DIR/project-registry.sh"
 source "$LIB_DIR/migrate.sh"  # For get_schema_version_from_file()
 source "$LIB_DIR/backup.sh"  # For create_safety_backup() in --fix mode
@@ -49,7 +51,9 @@ COMMAND_NAME="doctor"
 # ============================================================================
 GLOBAL_ONLY=false
 PRUNE_REGISTRY=false
+CLEAN_TEMP_PROJECTS=false
 AUTO_FIX=false
+DETAIL_MODE=false
 
 # Exit code levels (graduated severity)
 readonly EXIT_DOCTOR_OK=0
@@ -84,8 +88,16 @@ parse_args() {
                 PRUNE_REGISTRY=true
                 shift
                 ;;
+            --clean-temp)
+                CLEAN_TEMP_PROJECTS=true
+                shift
+                ;;
             --fix)
                 AUTO_FIX=true
+                shift
+                ;;
+            --detail)
+                DETAIL_MODE=true
                 shift
                 ;;
             *)
@@ -112,7 +124,9 @@ Validates CLI installation, agent configs, documentation, and project state.
 OPTIONS:
     --global            Skip project-specific checks
     --prune             Clean registry of missing projects
+    --clean-temp        Remove temporary/test projects
     --fix               Auto-repair issues (with confirmation)
+    --detail            Show detailed project information in human output
     -f, --format FMT    Output format: text (default in TTY) or json
     --json              Shorthand for --format json
     --human             Shorthand for --format text
@@ -476,52 +490,137 @@ format_text_output() {
         RED="" YELLOW="" GREEN="" BLUE="" NC=""
     fi
 
-    # Header
+    # Header with journey-based guidance
     echo ""
     echo "CLEO Health Check"
     echo "================="
     echo ""
 
-    # Overall status
+    # Get user journey stage and provide guidance
+    local has_projects=$(echo "$json_output" | jq -r '.checks[] | select(.id == "registered_projects") | .details.total // 0')
+    local temp_projects=$(echo "$json_output" | jq -r '.checks[] | select(.id == "registered_projects") | .details.temp // 0')
+    local agent_configs_ok=$(echo "$json_output" | jq -r '.checks[] | select(.id == "agent_config_version") | .status == "passed"')
+    
+    local journey_stage=$(get_user_journey_stage "$has_projects" "$temp_projects" "$agent_configs_ok")
+    get_journey_guidance "$journey_stage"
+    echo ""
+
+    # Overall status with categorized issues
     case "$severity" in
         ok)
-            echo -e "${GREEN}✓ All checks passed${NC}"
+            echo -e "${GREEN}✓ System healthy${NC}"
             ;;
         warning)
-            echo -e "${YELLOW}⚠ Minor issues detected${NC}"
+            echo -e "${YELLOW}⚠ System operational with minor issues${NC}"
             ;;
         failed)
-            echo -e "${RED}✗ Critical issues detected${NC}"
+            echo -e "${RED}✗ System issues need attention${NC}"
             ;;
     esac
 
     echo ""
-    echo "Summary: $passed passed, $warnings warnings, $failed failed"
-    echo ""
-
-    # List check results
-    echo "Check Results:"
-    echo "-------------"
-    echo "$json_output" | jq -r '.checks[] |
+    
+    # Categorized check results
+    echo "🔧 SYSTEM COMPONENTS:"
+    echo "$json_output" | jq -r '.checks[] | select(.category == "installation") |
         if .status == "passed" then
             "  ✓ \(.message)"
         elif .status == "warning" then
             "  ⚠ \(.message)"
         elif .status == "failed" then
             "  ✗ \(.message)"
+        elif .status == "info" then
+            "  ℹ \(.message)"
         else
             "  - \(.message)"
         end'
+    
+    echo ""
+    echo "🤖 AI ASSISTANT INTEGRATION:"
+    echo "$json_output" | jq -r '.checks[] | select(.category == "configuration") |
+        if .status == "passed" then
+            "  ✓ \(.message)"
+        elif .status == "warning" then
+            "  ⚠ \(.message)"
+        elif .status == "failed" then
+            "  ✗ \(.message)"
+        elif .status == "info" then
+            "  ℹ \(.message)"
+        else
+            "  - \(.message)"
+        end'
+    
+    # Show categorized project summary
+    local project_data=$(echo "$json_output" | jq -r '.checks[] | select(.id == "registered_projects")')
+    if [[ -n "$project_data" ]]; then
+        echo ""
+        echo "📊 PROJECT REGISTRY:"
+        
+        local total=$(echo "$project_data" | jq -r '.details.total')
+        local temp=$(echo "$project_data" | jq -r '.details.temp // 0')
+        local orphaned=$(echo "$project_data" | jq -r '.details.orphaned')
+        local active_failed=$(echo "$project_data" | jq -r '.details.active_failed // 0')
+        local active_warnings=$(echo "$project_data" | jq -r '.details.active_warnings // 0')
+        
+        format_project_health_summary "$total" "0" "$active_warnings" "$active_failed" "$orphaned" "$temp"
+        echo ""
+        
+        # Show actionable guidance
+        local guidance=$(get_project_guidance "$active_failed" "$active_warnings" "$temp" "$orphaned")
+        if [[ -n "$guidance" ]]; then
+            echo "💡 SUGGESTED ACTIONS:"
+            echo "$guidance"
+        fi
+    fi
 
-    # Show project status if available
+    # Show detailed project table if available
     local project_total
     project_total=$(echo "$json_output" | jq -r '.projects.total // 0')
     if [[ $project_total -gt 0 ]]; then
         echo ""
-        echo "Registered Projects:"
-        echo "-------------------"
+        echo "📋 REGISTERED PROJECTS:"
+        echo "----------------------"
+        
+        if [[ "$DETAIL_MODE" == true ]]; then
+            # Detailed view with issues
+            printf "%-30s %-10s %-50s %-40s\n" "PROJECT NAME" "STATUS" "PATH" "ISSUES"
+            printf "%-30s %-10s %-50s %-40s\n" "------------" "------" "----" "------"
+            
+            echo "$json_output" | jq -r '.projects.projects[] |
+                (.name | @text) + "\t" + .status + "\t" + .path + "\t" + 
+                (if .issues and (.issues | length) > 0 then .issues | join(", ") else "none" end)' |
+            while IFS=$'\t' read -r name status path issues; do
+                local icon="-"
+                local color=""
+                case "$status" in
+                    healthy) icon="✓"; color="${GREEN}" ;;
+                    warning) icon="⚠"; color="${YELLOW}" ;;
+                    failed|orphaned) icon="✗"; color="${RED}" ;;
+                esac
+                
+                printf "${color}%-2s %-28s %-10s %-50s %-40s${NC}\n" "$icon" "$name" "$status" "$path" "$issues"
+            done
+        else
+            # Compact view
+            printf "%-30s %-10s %-50s\n" "PROJECT NAME" "STATUS" "PATH"
+            printf "%-30s %-10s %-50s\n" "------------" "------" "----"
+            
+            echo "$json_output" | jq -r '.projects.projects[] |
+                if .status == "healthy" then
+                    "  ✓ " + (.name | @text) + "\t" + .status + "\t" + .path
+                elif .status == "warning" then
+                    "  ⚠ " + (.name | @text) + "\t" + .status + "\t" + .path
+                elif .status == "failed" or .status == "orphaned" then
+                    "  ✗ " + (.name | @text) + "\t" + .status + "\t" + .path
+                else
+                    "  - " + (.name | @text) + "\t" + .status + "\t" + .path
+                end'
+        fi
+        
+        # Summary
+        echo ""
+        echo "Summary: $project_total projects registered"
         echo "$json_output" | jq -r '.projects |
-            "  Total: \(.total)",
             "  Healthy: \(.healthy)",
             "  Warnings: \(.warnings)",
             "  Failed: \(.failed)",
@@ -813,6 +912,41 @@ main() {
                 fi
             else
                 echo "No orphaned projects to prune" >&2
+            fi
+        fi
+    fi
+
+    # Phase 5b: Clean temporary projects if requested
+    if [[ "$CLEAN_TEMP_PROJECTS" == true ]]; then
+        local registry="$CLEO_HOME/projects-registry.json"
+        
+        if [[ ! -f "$registry" ]]; then
+            echo "No registry found at $registry" >&2
+        else
+            # Get all projects and filter for temp ones, handling null paths
+            local temp_projects
+            temp_projects=$(list_registered_projects | jq -r '.[] | select(.path != null) | select(.path | test("/.temp/|/bats-run-|/tmp/")) | .hash')
+            
+            local temp_count=$(echo "$temp_projects" | wc -l)
+            
+            if [[ "$temp_count" -gt 0 ]]; then
+                echo "Removing $temp_count temporary project(s)..." >&2
+                
+                # Remove each temp project from registry
+                local removed_count=0
+                while IFS= read -r hash; do
+                    if [[ -n "$hash" ]]; then
+                        remove_project_from_registry "$hash" >/dev/null 2>&1 && ((removed_count++))
+                    fi
+                done <<< "$temp_projects"
+                
+                if [[ "$removed_count" -gt 0 ]]; then
+                    echo "✓ Successfully removed $removed_count temporary projects" >&2
+                else
+                    echo "✗ Failed to remove temporary projects" >&2
+                fi
+            else
+                echo "No temporary projects to clean" >&2
             fi
         fi
     fi
