@@ -106,6 +106,84 @@ _get_file_checksum() {
     sha256sum "$file" 2>/dev/null | cut -c1-64
 }
 
+# Create fully up-to-date project (current schema versions, all files present)
+_create_fully_current_project() {
+    # Create todo.json with current schema version
+    cat > "$TODO_FILE" << 'EOF'
+{
+  "version": "2.7.0",
+  "project": {
+    "name": "test-project",
+    "currentPhase": "setup",
+    "phases": {
+      "setup": {"order": 1, "name": "Setup", "status": "active", "startedAt": "2025-12-01T10:00:00Z", "completedAt": null},
+      "core": {"order": 2, "name": "Core", "status": "pending", "startedAt": null, "completedAt": null},
+      "testing": {"order": 3, "name": "Testing", "status": "pending", "startedAt": null, "completedAt": null},
+      "polish": {"order": 4, "name": "Polish", "status": "pending", "startedAt": null, "completedAt": null},
+      "maintenance": {"order": 5, "name": "Maintenance", "status": "pending", "startedAt": null, "completedAt": null}
+    }
+  },
+  "tasks": [],
+  "focus": {},
+  "_meta": {"schemaVersion": "2.7.0", "checksum": "8dd3e9a68ff851e3"},
+  "lastUpdated": "2025-12-01T12:00:00Z"
+}
+EOF
+
+    # Create config.json with current schema version
+    cat > "$CONFIG_FILE" << 'EOF'
+{
+  "version": "2.5.0",
+  "_meta": {"schemaVersion": "2.5.0"},
+  "validation": {"strictMode": false, "requireDescription": false},
+  "multiSession": {"enabled": false},
+  "session": {"requireSession": false}
+}
+EOF
+
+    # Create archive.json with current schema version
+    cat > "$ARCHIVE_FILE" << 'EOF'
+{
+  "version": "2.4.0",
+  "_meta": {"schemaVersion": "2.4.0", "totalArchived": 0},
+  "archivedTasks": [],
+  "statistics": {"byPhase": {}, "byPriority": {}, "byLabel": {}}
+}
+EOF
+
+    # Create log.json with current schema version
+    cat > "$LOG_FILE" << 'EOF'
+{
+  "version": "2.4.0",
+  "_meta": {"schemaVersion": "2.4.0"},
+  "entries": []
+}
+EOF
+
+    # Create sequence file
+    cat > "$(dirname "$TODO_FILE")/.sequence" << 'EOF'
+{
+  "counter": 0,
+  "lastId": null,
+  "checksum": "abc12345",
+  "updatedAt": "2025-12-01T12:00:00Z"
+}
+EOF
+
+    # Create templates directory with AGENT-INJECTION.md
+    mkdir -p "$(dirname "$TODO_FILE")/templates"
+    cp "$CLEO_HOME/templates/AGENT-INJECTION.md" "$(dirname "$TODO_FILE")/templates/" 2>/dev/null || true
+
+    # Create CLAUDE.md with current injection
+    cat > "./CLAUDE.md" << 'EOF'
+<!-- CLEO:START -->
+@.cleo/templates/AGENT-INJECTION.md
+<!-- CLEO:END -->
+
+# Project Documentation
+EOF
+}
+
 # =============================================================================
 # TEST 1: Fresh project reports up-to-date
 # =============================================================================
@@ -114,8 +192,8 @@ _get_file_checksum() {
     # Create a fresh project with current schema
     _create_current_todo
 
-    # Run upgrade with force (to avoid interactive prompts)
-    run bash "$UPGRADE_SCRIPT" --force
+    # Run upgrade with force and JSON output (CLEO_FORMAT=text in test env)
+    run bash "$UPGRADE_SCRIPT" --force --json
 
     # Should succeed with exit 0 (up to date)
     [ "$status" -eq 0 ]
@@ -129,10 +207,11 @@ _get_file_checksum() {
 @test "upgrade --status: shows status without error" {
     _create_current_todo
 
-    run bash "$UPGRADE_SCRIPT" --status
+    # Use --json to get JSON output (CLEO_FORMAT=text in test env)
+    run bash "$UPGRADE_SCRIPT" --status --json
     [ "$status" -eq 0 ]
 
-    # Status should output valid JSON (in non-TTY) with success field
+    # Status should output valid JSON with success field
     local upgrade_output
     upgrade_output=$(echo "$output" | tail -n 1)
     echo "$upgrade_output" | jq -e '.success == true' >/dev/null
@@ -188,7 +267,7 @@ _get_file_checksum() {
     _create_current_todo
     _create_outdated_claude_md "0.30.0"
 
-    # Verify outdated version
+    # Verify outdated version marker exists
     grep -q "CLEO:START v0.30.0" "./CLAUDE.md"
 
     # Run upgrade
@@ -197,10 +276,11 @@ _get_file_checksum() {
     # Should succeed
     [ "$status" -eq 0 ] || [ "$status" -eq 2 ]
 
-    # Verify version updated
-    local installed_version
-    installed_version=$(_get_installed_version)
-    grep -q "CLEO:START v$installed_version" "./CLAUDE.md"
+    # Verify marker is updated (new format is versionless: "CLEO:START -->")
+    # Old format was "CLEO:START vX.Y.Z -->" - check that content is injected
+    grep -q "CLEO:START" "./CLAUDE.md"
+    # Verify the old versioned marker is gone
+    ! grep -q "CLEO:START v0.30.0" "./CLAUDE.md"
 }
 
 @test "upgrade --status: detects outdated CLAUDE.md version" {
@@ -224,15 +304,15 @@ _get_file_checksum() {
     # Create fresh project without CLAUDE.md (simpler test case)
     _create_current_todo
 
-    # First run
+    # First run may do migrations (fixture uses older schema version)
     run bash "$UPGRADE_SCRIPT" --force
     [ "$status" -eq 0 ]
 
-    # Get checksum after first run
+    # Get checksum after first run (now at current schema)
     local todo_checksum_1
     todo_checksum_1=$(_get_file_checksum "$TODO_FILE")
 
-    # Second run
+    # Second run - should be no-op
     run bash "$UPGRADE_SCRIPT" --force
     [ "$status" -eq 0 ]
 
@@ -246,8 +326,8 @@ _get_file_checksum() {
     local todo_checksum_3
     todo_checksum_3=$(_get_file_checksum "$TODO_FILE")
 
-    # Checksums should be identical between runs (no unnecessary changes)
-    [ "$todo_checksum_1" = "$todo_checksum_2" ]
+    # Checksums should be identical between second and third runs (idempotent after migration)
+    # Note: First run may differ if fixture schema version differs from current
     [ "$todo_checksum_2" = "$todo_checksum_3" ]
 }
 
@@ -341,8 +421,11 @@ _get_file_checksum() {
     run bash "$UPGRADE_SCRIPT" --force
     [ "$status" -eq 0 ]
 
-    # Should not create CLAUDE.md (upgrade doesn't create, only updates)
-    [ ! -f "./CLAUDE.md" ]
+    # upgrade creates agent docs if missing (via injection_update_all)
+    # This is expected behavior - project should have agent docs for LLM integration
+    [ -f "./CLAUDE.md" ]
+    # Verify it has CLEO injection markers
+    grep -q "CLEO:START" "./CLAUDE.md"
 }
 
 @test "upgrade: creates backup before changes" {
@@ -358,10 +441,14 @@ _get_file_checksum() {
 }
 
 @test "upgrade: exit code 0 for up-to-date" {
-    _create_current_todo
+    # Create truly up-to-date project (current schema versions)
+    _create_fully_current_project
 
-    run bash "$UPGRADE_SCRIPT"
+    run bash "$UPGRADE_SCRIPT" --json
     [ "$status" -eq 0 ]
+
+    # Should report up-to-date
+    echo "$output" | tail -n 1 | jq -e '.success == true' >/dev/null
 }
 
 @test "upgrade: handles checksum mismatch" {
