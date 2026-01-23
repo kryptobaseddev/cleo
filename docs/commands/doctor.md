@@ -2,7 +2,7 @@
 
 **Purpose**: Comprehensive health checks for CLEO installation and projects
 
-**Version**: 0.51.0+
+**Version**: 0.63.0+
 
 ---
 
@@ -22,6 +22,44 @@ cleo doctor [OPTIONS]
 | `--prune` | Clean orphaned projects | Removes missing |
 | `--format json` | JSON output | Structured data |
 | `--verbose, -v` | Detailed diagnostics | Extended info |
+| `--detail` | Show all projects | Include healthy |
+| `--clean-temp` | Remove temp projects | Cleanup registry |
+
+## Progress Indicators (v0.63.0+)
+
+When running in human format with a TTY, doctor displays progress:
+
+```
+Checking CLEO installation...
+  Checking CLI installation...
+  Checking CLI version...
+  Checking documentation...
+  Checking agent configs...
+Validating project registry...
+  Validating project 1/3: homeschool-base...
+  Validating project 2/3: claude-todo...
+  Validating project 3/3: svelte-saas-starter...
+
+CLEO Health Check
+=================
+...
+```
+
+Progress writes to stderr and is cleared before final output.
+
+## Project Display (v0.63.0+)
+
+All registered projects now appear in the table with status indicators:
+
+```
+📋 REGISTERED PROJECTS:
+PROJECT NAME         STATUS     PATH                          ISSUES
+⚠ homeschool-base    warning    /mnt/projects/homeschool-base Outdated schemas: todo
+✓ claude-todo        healthy    /mnt/projects/claude-todo     -
+⚠ svelte-saas-starter warning   /mnt/projects/svelte-saas     Outdated schemas: todo
+```
+
+Status symbols: `✓` healthy, `⚠` warning, `✗` failed/orphaned
 
 ## Exit Codes
 
