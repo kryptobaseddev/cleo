@@ -32,7 +32,7 @@ source "$LIB_DIR/flags.sh"
 # CONFIGURATION
 # ==============================================================================
 
-AGENT_CONFIGS_REGISTRY="$CLEO_HOME/agent-configs.json"
+# Note: AGENT_CONFIG_REGISTRY is defined in lib/agent-config.sh (sourced above)
 
 # Parse command-line flags
 DRY_RUN=false
@@ -104,6 +104,9 @@ fi
 
 # No template needed - we generate @ reference inline
 
+# Initialize agent config registry if it doesn't exist
+init_agent_config_registry
+
 # ==============================================================================
 # AGENT DISCOVERY AND CONFIGURATION
 # ==============================================================================
@@ -163,6 +166,8 @@ for agent_name in "${agent_types[@]}"; do
         # If block already exists and is correct, and no force/update flags, skip
         if [[ "$current_block" == "$expected_block" ]] && [[ "$FORCE" != true ]] && [[ "$UPDATE" != true ]]; then
             echo "✓ $agent_name/$config_file: Already configured (no changes needed)"
+            # Still update registry to ensure it tracks this config
+            update_agent_config_registry "$config_path" "1.0.0" || true
             : $((no_change_count++))
             continue
         else
@@ -256,6 +261,9 @@ for agent_name in "${agent_types[@]}"; do
         action="prepended"
         : $((configured_count++))
     fi
+
+    # Update agent config registry with success
+    update_agent_config_registry "$config_path" "1.0.0" || true
 
     echo "✅ $agent_name/$config_file: Done ($action)"
 done
