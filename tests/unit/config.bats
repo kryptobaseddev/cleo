@@ -46,7 +46,10 @@ teardown_file() {
 _create_test_config() {
     cat > "$CONFIG_FILE" << 'EOF'
 {
-  "version": "2.2.0",
+  "_meta": {
+    "schemaVersion": "2.5.0"
+  },
+  "version": "2.5.0",
   "output": {
     "defaultFormat": "text",
     "showColor": true,
@@ -104,10 +107,11 @@ _create_invalid_json_config() {
 EOF
 }
 
-# Create config missing version field
+# Create config missing _meta.schemaVersion field (required by schema)
 _create_config_missing_version() {
     cat > "$CONFIG_FILE" << 'EOF'
 {
+  "version": "2.5.0",
   "output": {
     "defaultFormat": "text"
   }
@@ -151,7 +155,7 @@ EOF
     assert_success
     # Verify JSON structure
     echo "$output" | jq -e '.success == true' > /dev/null
-    echo "$output" | jq -e '.config.version == "2.2.0"' > /dev/null
+    echo "$output" | jq -e '.config.version == "2.5.0"' > /dev/null
 }
 
 @test "config show: nested section displays correctly" {
@@ -331,12 +335,12 @@ EOF
     [[ "$output" == *"Invalid"* || "$output" == *"parse error"* ]]
 }
 
-@test "config validate: fails for missing version" {
+@test "config validate: fails for missing _meta.schemaVersion" {
     _create_config_missing_version
 
     run bash "$CONFIG_SCRIPT" validate
     assert_failure
-    assert_output --partial "Missing required field: version"
+    assert_output --partial "Missing required field: ._meta.schemaVersion"
 }
 
 @test "config validate: JSON output format for valid config" {
