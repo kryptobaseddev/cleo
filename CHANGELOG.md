@@ -7,8 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-01-23
+
+### Added
+- **Orchestrator Compliance & Metrics System**:
+  - `lib/compliance-check.sh` - Subagent compliance validation (manifest, links, return format)
+  - `lib/metrics-aggregation.sh` - Project compliance summary aggregation
+  - `lib/metrics-enums.sh` - Strict enum definitions for metrics fields
+  - `schemas/metrics.schema.json` - Schema for compliance metrics (v1.0.0)
+  - `scripts/compliance.sh` - CLI command for metrics reporting
+  - Integration tests for compliance and metrics aggregation
+- **Claude Code Hooks**:
+  - `.claude/hooks/subagent-compliance.sh` - SubagentStop hook for automatic compliance tracking
+  - `.claude/settings.json` - Hook configuration for compliance validation
+- **Schema v2.7.0**:
+  - `noAutoComplete` field - Prevents automatic parent completion when all children done
+  - Useful for permanent tracking epics or tasks requiring explicit manual completion
+  - `--no-auto-complete` flag added to `update-task.sh`
+- **Doctor Progress Indicators** (T1998):
+  - Shows "Checking CLEO installation...", "Validating project X/Y..." during execution
+  - Only displays for human format when stdout is TTY
+  - Progress writes to stderr, results to stdout
+- **Command Documentation**:
+  - `docs/commands/extract.md` - Data export documentation
+  - `docs/commands/generate-changelog.md` - Changelog generation
+  - `docs/commands/generate-features.md` - Feature list generation
+  - `docs/commands/inject.md` - Content injection
+  - `docs/commands/populate-hierarchy.md` - Hierarchy inference from naming conventions
+  - `docs/commands/tree.md` - Task tree visualization
+
+### Changed
+- **Doctor command now shows ALL projects** (T1997):
+  - Previously only showed projects with warnings/failures
+  - Now shows healthy projects with ✓ checkmark and "-" for issues
+  - All registered projects visible in table regardless of status
+
 ### Fixed
-- **VERSION parsing with multi-line files**: Fixed version string concatenation when VERSION files contain metadata lines (mode=, source=, installed=). All version consumers now use `head -n 1` to read only the semver line, preventing "version format issues" in `cleo doctor` and ensuring proper initialization in `cleo init` and `cleo focus` commands.
+- **Doctor schema version mismatch** (T1988):
+  - Doctor now reads actual project file versions instead of stale registry cache
+  - Doctor and `upgrade --status` now agree on which schemas are outdated
+- **Doctor performance** (T1985):
+  - Optimized from ~88s to ~11s (8x faster)
+  - Replaced per-task jq loop (4100 calls) with batched query in validate.sh
+  - Added `--quiet --human` flags for fastest validation path
+  - Fixed orphaned vs temp project double-counting logic
+- **VERSION parsing with multi-line files**: Fixed version string concatenation when VERSION files contain metadata lines (mode=, source=, installed=). All version consumers now use `head -n 1` to read only the semver line.
 - Multi-session isolation now works correctly with hybrid binding architecture (T1356)
 - Session resolution uses 4-priority cascade: --session flag, CLEO_SESSION env, TTY binding, .current-session
 - Per-session context state files now written correctly

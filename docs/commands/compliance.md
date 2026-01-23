@@ -2,6 +2,8 @@
 
 Monitor and report compliance metrics for orchestrator and agent outputs.
 
+**Version**: 0.63.0+
+
 ## Synopsis
 
 ```bash
@@ -104,8 +106,59 @@ Part of the Orchestrator Protocol. Works with:
 - Task verification system
 - Output schema validation
 
+## Automatic Compliance Tracking (v0.63.0+)
+
+The SubagentStop hook automatically validates compliance after each subagent:
+
+```json
+// .claude/settings.json
+{
+  "hooks": {
+    "SubagentStop": [{
+      "matcher": "*",
+      "hooks": [{
+        "type": "command",
+        "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/subagent-compliance.sh"
+      }]
+    }]
+  }
+}
+```
+
+### Programmatic Usage
+
+```bash
+source lib/compliance-check.sh
+
+# Score subagent compliance
+metrics=$(score_subagent_compliance "$task_id" "$agent_id" "$response")
+
+# Log metrics to COMPLIANCE.jsonl
+log_compliance_metrics "$metrics"
+
+# Log violation if needed
+log_violation "$epic_id" "$violation_json"
+```
+
+## Implementation
+
+| Component | Location |
+|-----------|----------|
+| Main script | `scripts/compliance.sh` |
+| Compliance checks | `lib/compliance-check.sh` |
+| Metrics aggregation | `lib/metrics-aggregation.sh` |
+| Enum definitions | `lib/metrics-enums.sh` |
+| Schema | `schemas/metrics.schema.json` |
+| Hook script | `.claude/hooks/subagent-compliance.sh` |
+
+## Metrics Storage
+
+- `claudedocs/research-outputs/COMPLIANCE.jsonl` - Per-subagent metrics
+- `claudedocs/research-outputs/VIOLATIONS.jsonl` - Violation log
+
 ## See Also
 
 - `cleo orchestrator` - Orchestrator commands
 - `cleo validate` - File validation
+- `cleo research` - Research manifest management
 - [Orchestrator Protocol Guide](../guides/ORCHESTRATOR-PROTOCOL.md)

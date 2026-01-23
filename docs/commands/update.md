@@ -39,6 +39,24 @@ Completed tasks (`status: done`) are immutable and cannot be updated.
 | `--phase PHASE` | `-P` | Update phase slug |
 | `--add-phase` | | Create new phase if it doesn't exist |
 | `--blocked-by REASON` | | Set blocked reason (status becomes blocked) |
+| `--no-auto-complete BOOL` | | Prevent auto-completion (v0.63.0+) |
+
+### Auto-Completion Control (v0.63.0+)
+
+The `--no-auto-complete` flag prevents a task/epic from auto-completing when all children are done:
+
+```bash
+# Prevent epic from auto-completing
+cleo update T001 --no-auto-complete true
+
+# Re-enable auto-completion
+cleo update T001 --no-auto-complete false
+```
+
+Useful for:
+- Permanent tracking epics
+- Tasks requiring explicit manual completion
+- Milestone tasks with ongoing monitoring
 
 ## Array Field Options
 
