@@ -153,15 +153,16 @@ fi
 
 ## Fix Modes
 
-### Auto-Fixable Issues
+### Auto-Fixable Issues (--fix)
+- **Outdated schemas**: Runs `cleo upgrade --force` in affected projects (v0.63.0+)
 - **Outdated agent configs**: Runs `cleo setup-agents --update`
 - **Orphaned projects**: Calls `prune_registry()` from lib
 - **Missing agent configs**: Runs `cleo setup-agents`
 
 ### Manual Fixes
 - Corrupted installations
-- Schema version mismatches (use `cleo upgrade`)
 - Permission issues
+- Projects in inaccessible paths
 
 ## Integration
 

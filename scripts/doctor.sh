@@ -969,11 +969,41 @@ apply_fixes() {
                     fi
                 fi
 
-                # Check for outdated schemas
-                local projects
-                projects=$(echo "$details" | jq -r '.projects[]? | select(.issues[]? | contains("schema_outdated"))')
-                if [[ -n "$projects" ]]; then
-                    echo "Note: Run 'cleo upgrade' in affected projects to update schemas" >&2
+                # Check for outdated schemas - auto-upgrade affected projects
+                local schema_projects_paths
+                schema_projects_paths=$(echo "$details" | jq -r '.projects[]? | select(.schemasOutdated != null and (.schemasOutdated | length) > 0) | .path')
+
+                if [[ -n "$schema_projects_paths" ]]; then
+                    echo "Upgrading projects with outdated schemas..." >&2
+                    local upgrade_script="${CLEO_HOME}/scripts/upgrade.sh"
+                    if [[ ! -f "$upgrade_script" ]]; then
+                        upgrade_script="${SCRIPT_DIR}/upgrade.sh"
+                    fi
+
+                    local upgraded=0
+                    local upgrade_failed=0
+                    while IFS= read -r project_path; do
+                        if [[ -n "$project_path" && -d "$project_path" ]]; then
+                            local project_name
+                            project_name=$(basename "$project_path")
+                            echo "  Upgrading: $project_name..." >&2
+                            if (cd "$project_path" && bash "$upgrade_script" --force >/dev/null 2>&1); then
+                                echo "  ✓ Upgraded: $project_name" >&2
+                                ((upgraded++))
+                            else
+                                echo "  ✗ Failed to upgrade: $project_name" >&2
+                                ((upgrade_failed++))
+                            fi
+                        fi
+                    done <<< "$schema_projects_paths"
+
+                    if [[ $upgraded -gt 0 ]]; then
+                        echo "✓ Fixed: Upgraded $upgraded project(s) with outdated schemas" >&2
+                        ((fixed++))
+                    fi
+                    if [[ $upgrade_failed -gt 0 ]]; then
+                        echo "⚠ $upgrade_failed project(s) failed to upgrade - run 'cleo upgrade' manually" >&2
+                    fi
                 fi
 
                 # Check for outdated injections
