@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-01-23
+
+### Fixed
+- **Epic T1342: CI Test Failure Resolution** (195 → 0 failures):
+  - `lib/config.sh`: Boolean false values now handled correctly in `read_config_file` (T2079)
+  - `lib/context-alert.sh`: Fixed function scoping and threshold constant exports (T2081, T1346)
+  - `tests/unit/analyze-size-weighting.bats`: Added missing helper functions (T2082)
+  - `tests/unit/config.bats`: Added `_meta.schemaVersion` to fixtures (T2083)
+  - `tests/unit/error-codes.bats`: Updated expected E_* count (T2084)
+  - `lib/research-manifest.sh`: Suppressed flock warnings in JSON output (T2085)
+  - `scripts/claude-migrate.sh`: Fixed text output format recognition (T2088)
+  - `tests/unit/phase-commands.bats`: Fixed multi-session mode mismatch (T1344)
+  - `tests/fixtures/`: Added multiSession config to todowrite-sync fixtures (T1347)
+  - `scripts/config.sh`: Added help subcommand handler (T1345)
+  - `scripts/upgrade.sh`: Fixed migration and idempotency tests (T1348)
+  - `tests/unit/edge-cases.bats`: Fixed backup path assertions (T1349)
+
+- **Doctor Registry Validation** (T1997):
+  - Fixed healthy project counting to match table output
+  - Temp project skip logic moved before counting for consistency
+
+- **Session Metrics Integration** (T1996, T2000):
+  - Added metrics-aggregation sourcing in sessions.sh
+  - Session start captures initial metrics
+
 ## [0.66.0] - 2026-01-23
 
 ### Added

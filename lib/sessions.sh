@@ -48,6 +48,11 @@ if [[ -f "$_LIB_DIR/error-json.sh" ]]; then
     source "$_LIB_DIR/error-json.sh"
 fi
 
+# Source metrics-aggregation for session metrics capture (T1996/T2000)
+if [[ -f "$_LIB_DIR/metrics-aggregation.sh" ]]; then
+    source "$_LIB_DIR/metrics-aggregation.sh"
+fi
+
 # ============================================================================
 # CONSTANTS
 # ============================================================================
@@ -532,6 +537,12 @@ start_session() {
     session_id=$(generate_session_id)
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+    # Capture session start metrics (T1996/T2000)
+    local start_metrics="{}"
+    if type -t capture_session_start_metrics &>/dev/null; then
+        start_metrics=$(capture_session_start_metrics "$session_id")
+    fi
+
     # Create session entry
     local session_entry
     session_entry=$(jq -nc \
@@ -542,6 +553,7 @@ start_session() {
         --argjson computedIds "$computed_ids" \
         --arg focus "$focus_task" \
         --arg ts "$timestamp" \
+        --argjson startMetrics "$start_metrics" \
         '{
             id: $id,
             status: "active",
@@ -568,7 +580,8 @@ start_session() {
                 focusChanges: 1,
                 suspendCount: 0,
                 resumeCount: 0
-            }
+            },
+            startMetrics: $startMetrics
         }')
 
     # Update sessions.json
@@ -926,6 +939,10 @@ end_session() {
     local focus_task
     focus_task=$(echo "$session_info" | jq -r '.focus.currentTask // ""')
 
+    # Extract start metrics for end metrics calculation (T1996/T2000)
+    local start_metrics
+    start_metrics=$(echo "$session_info" | jq -c '.startMetrics // {}')
+
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -988,6 +1005,13 @@ end_session() {
     unlock_file "$sessions_fd"
     trap - EXIT ERR
 
+    # Capture and log session end metrics (T1996/T2000)
+    if type -t capture_session_end_metrics &>/dev/null && type -t log_session_metrics &>/dev/null; then
+        local end_metrics
+        end_metrics=$(capture_session_end_metrics "$session_id" "$start_metrics")
+        log_session_metrics "$end_metrics" >/dev/null 2>&1 || true
+    fi
+
     # Cleanup context state file based on config
     cleanup_context_state_for_session "$session_id" "end"
 
@@ -1036,6 +1060,10 @@ close_session() {
         echo "Error: Session not found: $session_id" >&2
         return ${EXIT_SESSION_NOT_FOUND:-31}
     fi
+
+    # Extract start metrics for end metrics calculation (T1996/T2000)
+    local start_metrics
+    start_metrics=$(echo "$session_info" | jq -c '.startMetrics // {}')
 
     # Get scope task IDs
     local scope_task_ids
@@ -1143,6 +1171,13 @@ close_session() {
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"
     trap - EXIT ERR
+
+    # Capture and log session end metrics (T1996/T2000)
+    if type -t capture_session_end_metrics &>/dev/null && type -t log_session_metrics &>/dev/null; then
+        local end_metrics
+        end_metrics=$(capture_session_end_metrics "$session_id" "$start_metrics")
+        log_session_metrics "$end_metrics" >/dev/null 2>&1 || true
+    fi
 
     # Cleanup context state file based on config
     cleanup_context_state_for_session "$session_id" "close"

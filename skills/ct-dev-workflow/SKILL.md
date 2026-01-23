@@ -5,347 +5,474 @@ description: |
   Use when user says "commit", "release", "run the workflow", "prepare release",
   "atomic commit", "conventional commit", "version bump", "create release",
   "commit and push", "finalize changes", "ship it", "cut a release".
-version: 1.0.0
+version: 2.0.0
 ---
 
 # Development Workflow Skill
 
-You are a development workflow executor. Your role is to ensure proper atomic commits, conventional commit messages, and systematic release processes following gate-based validation.
+You are a development workflow executor. Your role is to ensure proper atomic commits with task traceability, conventional commit messages, and systematic release processes.
 
-## Capabilities
+## Core Principle: Task-Driven Development
 
-1. **Pre-flight Validation** - Verify clean state before operations
-2. **Change Classification** - Determine change type and version impact
-3. **Quality Gates** - Execute lint, test, and compliance checks
-4. **Atomic Commits** - Create focused, well-formed commits
-5. **Version Management** - Semantic versioning based on change type
-6. **Release Orchestration** - Tag and push with proper metadata
+> **CRITICAL**: NO code changes or commits without a tracked task.
 
----
-
-## Core Philosophy
-
-### Atomic Commits
-
-**MUST** follow atomic commit principles:
-
-| Principle | Description |
-|-----------|-------------|
-| **Single concern** | One logical change per commit |
-| **Self-contained** | Commit compiles/runs independently |
-| **Descriptive** | Message explains why, not just what |
-| **Reviewable** | Diff is small enough to review |
-
-**Anti-patterns to avoid:**
-- "WIP" commits with mixed changes
-- Combining unrelated fixes
-- Giant "update everything" commits
-- Commits that break the build
-
-### Conventional Commits
-
-**MUST** use format: `<type>(<scope>): <description>`
-
-```
-feat(auth): add JWT refresh token support
-fix(api): handle null response in user endpoint
-docs: update API reference for v2 endpoints
-refactor(db): extract connection pooling to module
-test(auth): add integration tests for login flow
-chore: update dependencies to latest versions
-perf(query): optimize user lookup with index
-security(auth): fix token validation bypass
-```
+Every commit MUST be traceable to a CLEO task. This ensures:
+- Work is planned and tracked
+- Changes are reviewable and reversible
+- Progress is measurable
+- Context is preserved for future agents
 
 ---
 
-## Gate System (G0-G7)
+## Immutable Constraints (WORKFLOW)
 
-Execute gates in order. **MUST NOT** skip gates unless classification allows.
+| ID | Rule | Enforcement |
+|----|------|-------------|
+| WF-001 | Task required | NO commits without CLEO task reference |
+| WF-002 | Branch discipline | NO commits to main/master |
+| WF-003 | Atomic commits | ONE logical change per commit |
+| WF-004 | Conventional format | `<type>(<scope>): <description>` |
+| WF-005 | Tests before push | Relevant tests MUST pass |
+
+---
+
+## Task Tracking Integration
+
+### Before Any Work
+
+```bash
+# 1. Verify you have a task
+cleo focus show
+
+# 2. If no task, find or create one
+cleo find "relevant query"
+cleo add "Task title" --description "What you're doing" --parent T001
+cleo focus set T123
+```
+
+### Commit Message Format
+
+**MUST** include task reference:
+
+```
+<type>(<scope>): <description>
+
+<body explaining why>
+
+Task: T123
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+**Example:**
+```
+fix(auth): prevent token expiry race condition
+
+The refresh token was being invalidated before the new access
+token was validated, causing intermittent auth failures.
+
+Task: T1456
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+---
+
+## Branch & Subagent Awareness
+
+### Single Branch Reality
+
+Subagents share the parent session's branch. This means:
+
+- All work happens on the same branch
+- No parallel feature branches from subagents
+- Commits are sequential, not parallel
+- Worktrees needed for true branch isolation
+
+### Branch Strategy
+
+```bash
+# Check current branch
+git branch --show-current
+
+# Feature work (typical pattern)
+main → feature/T123-description → PR → main
+
+# Branch naming
+feature/T123-auth-improvements     # Task-prefixed
+fix/T456-token-validation          # Bug fix
+```
+
+---
+
+## Gate System (Simplified)
+
+Not all gates apply to all changes. Follow the decision matrix.
 
 ### G0: Pre-Flight Check
 
-**Purpose**: Verify clean starting state
+**Always required.**
 
 ```bash
-# 1. Check working directory
-git status --porcelain
-# MUST be empty OR only intended changes
+# 1. Verify task context
+cleo focus show
+# MUST have a focused task
 
 # 2. Check branch
 git branch --show-current
 # MUST NOT be main/master
 
-# 3. Run tests (baseline)
-./tests/run-all-tests.sh  # or project test command
-# MUST pass
+# 3. Check for uncommitted work
+git status --porcelain
+# Review staged/unstaged changes
 ```
-
-**Failure action**: Fix issues before proceeding. Do NOT continue.
 
 ### G1: Classify Change
 
-**Purpose**: Determine change type and version impact
+| Type | Description | Tests Needed | Version Bump |
+|------|-------------|--------------|--------------|
+| `feat` | New feature | Related tests | MINOR |
+| `fix` | Bug fix | Regression test | PATCH |
+| `docs` | Documentation | None | None |
+| `refactor` | Code restructure | Affected tests | PATCH |
+| `test` | Test additions | The new tests | None |
+| `chore` | Maintenance | None | None |
+| `perf` | Performance | Perf tests | PATCH |
+| `security` | Security fix | Security tests | PATCH |
 
-| Type | Description | Version Bump | Tag? |
-|------|-------------|--------------|------|
-| `feat` | New feature/command | MINOR | Yes |
-| `fix` | Bug fix | PATCH | Yes |
-| `docs` | Documentation only | None | No |
-| `refactor` | Code restructure | PATCH | Yes |
-| `test` | Test additions | None | No |
-| `chore` | Maintenance | None | No |
-| `perf` | Performance | PATCH | Yes |
-| `security` | Security fix | PATCH | Yes |
-| `chore(dev)` | Dev tooling only | None | No |
+### G2: Testing (Smart Scope)
 
-**Record**: `CHANGE_TYPE`, `VERSION_BUMP`, `SCOPE`
+**NOT always full test suite.** CI runs full tests on push.
 
-### G2: Implementation Validation
+| Change Type | Test Scope | Command |
+|-------------|------------|---------|
+| `feat` | Related module tests | `bats tests/unit/feature.bats` |
+| `fix` | Regression + affected | `bats tests/unit/affected.bats` |
+| `docs` | None (CI validates) | Skip |
+| `refactor` | Affected modules | `bats tests/unit/module*.bats` |
+| `test` | The new tests only | `bats tests/unit/new.bats` |
+| `chore` | Syntax check only | `bash -n scripts/*.sh` |
 
-**Purpose**: Code quality verification
-
-```bash
-# Lint check (project-specific)
-shellcheck scripts/*.sh lib/*.sh  # bash projects
-eslint src/                       # js/ts projects
-ruff check .                      # python projects
-
-# Compliance check (if available)
-./dev/check-compliance.sh --threshold 95
-```
-
-**Failure action**: Fix lint errors, re-run.
-
-### G3: Testing
-
-**Purpose**: Verify all tests pass
+**When to run full suite locally:**
+- Before release (version bump)
+- Major refactoring
+- Cross-cutting changes
+- User explicitly requests
 
 ```bash
+# Full suite (when needed)
 ./tests/run-all-tests.sh
+
+# Targeted tests (typical)
+bats tests/unit/specific-feature.bats
+bats tests/integration/workflow.bats
+
+# Quick syntax check
+bash -n scripts/*.sh lib/*.sh
 ```
 
-**MUST pass**. If tests fail:
-1. Fix failing tests
-2. Re-run tests
-3. Do NOT proceed until all pass
-
-### G4: Documentation Update
-
-**Required for**: `feat`, `fix` (if behavior changed), `security`
-
-**Documentation Layers** (update in order):
-1. **Layer 3** (Reference): Full command/API docs - CREATE/UPDATE
-2. **Layer 4** (Index): Add link if NEW item
-3. **Layer 2** (Summary): Add/update syntax
-4. **Layer 1** (Injection): ONLY if essential (limit to 10 items)
-
-**CHANGELOG Update**:
-```markdown
-## [Unreleased]
-
-### Added/Fixed/Changed
-- Description of change
-```
-
-### G5: Version Bump
-
-**Skip if**: `VERSION_BUMP=none` (docs, test, chore)
+### G3: Commit
 
 ```bash
-# 1. Preview bump
-./dev/bump-version.sh --dry-run ${BUMP_TYPE}
+# 1. Get task info
+task_id=$(cleo focus show --quiet)
 
-# 2. Execute bump
-./dev/bump-version.sh ${BUMP_TYPE}
+# 2. Stage changes (be specific for atomic commits)
+git add scripts/specific-file.sh lib/related.sh
 
-# 3. Validate sync
-./dev/validate-version.sh
-
-# 4. Reinstall and verify
-./install.sh --force
-cleo version  # or project version command
-```
-
-**Record**: `PREVIOUS_VERSION`, `NEW_VERSION`
-
-### G6: Commit
-
-**Purpose**: Create atomic commit with conventional format
-
-```bash
-# 1. Stage changes
-git add -A  # or specific files for atomic commits
-
-# 2. Review staged changes
-git diff --staged --stat
-
-# 3. Create commit
+# 3. Create commit with task reference
 git commit -m "$(cat <<'EOF'
-${CHANGE_TYPE}(${SCOPE}): ${DESCRIPTION}
+fix(auth): prevent token expiry race condition
 
-${DETAILED_BODY}
+The refresh token was being invalidated before validation.
 
-Files changed:
-- file1.sh
-- file2.md
-
+Task: T1456
 Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
 
-### G7: Tag and Release
+### G4: Push (Triggers CI)
 
-**Skip if**: `VERSION_BUMP=none`
+```bash
+# Push branch (CI runs full tests)
+git push origin HEAD
+
+# CI will run:
+# - Full test suite
+# - ShellCheck linting
+# - JSON validation
+# - Documentation drift check
+# - Installation test
+```
+
+### G5: Version Bump (Release Only)
+
+**Only for releases**, not every commit.
+
+```bash
+# 1. Preview
+./dev/bump-version.sh --dry-run patch
+
+# 2. Execute
+./dev/bump-version.sh patch
+
+# 3. Validate
+./dev/validate-version.sh
+
+# 4. Reinstall locally
+./install.sh --force
+cleo version
+```
+
+### G6: Tag & Release
+
+**GitHub Actions handles release creation.**
 
 ```bash
 # 1. Create annotated tag
-git tag -a v${NEW_VERSION} -m "${CHANGE_TYPE}: ${SUMMARY}"
+git tag -a v${VERSION} -m "${TYPE}: ${SUMMARY}"
 
-# 2. Push tag
-git push origin v${NEW_VERSION}
+# 2. Push tag (triggers release workflow)
+git push origin v${VERSION}
 
 # 3. Push branch
 git push origin HEAD
+
+# GitHub Actions automatically:
+# - Builds release tarball
+# - Creates GitHub Release
+# - Generates release notes
+# - Uploads artifacts
 ```
 
 ---
 
-## Classification Matrix
+## Quick Decision Matrix
 
-| Type | Gates | Bump | Tag | Docs |
-|------|-------|------|-----|------|
-| `feat` | G0-G7 | minor | Yes | Full |
-| `fix` | G0-G7 | patch | Yes | If behavior changed |
-| `docs` | G0,G1,G4,G6 | - | No | N/A |
-| `refactor` | G0-G3,G6 | patch | Yes | No |
-| `test` | G0-G3,G6 | - | No | No |
-| `chore` | G0-G2,G6 | - | No | No |
-| `perf` | G0-G3,G5-G7 | patch | Yes | If behavior changed |
-| `security` | G0-G7 | patch | Yes | Full |
-| `chore(dev)` | G0-G2,G6 | - | No | dev/ only |
+### What Tests to Run?
+
+| Change | Local Tests | Rely on CI |
+|--------|-------------|------------|
+| Single file fix | Related unit test | ✓ |
+| New feature | Feature tests | ✓ |
+| Docs only | None | ✓ |
+| Schema change | Schema tests | ✓ |
+| Cross-cutting refactor | Full suite | ✓ |
+| Release prep | Full suite | ✓ |
+
+### Do I Need a Version Bump?
+
+| Change | Bump | Tag |
+|--------|------|-----|
+| `feat` | minor | Yes |
+| `fix` | patch | Yes |
+| `docs` | No | No |
+| `refactor` | patch | Yes |
+| `test` | No | No |
+| `chore` | No | No |
+| `perf` | patch | Yes |
+| `security` | patch | Yes |
+
+### Push Flow
+
+```
+Local commit → Push → CI tests → PR → Review → Merge to main
+                                                    ↓
+                                        CHANGELOG.md updated
+                                                    ↓
+                                    (Auto-PR for Mintlify docs)
+                                                    ↓
+                                        Version bump commit
+                                                    ↓
+                                        Tag push (v*.*.*)
+                                                    ↓
+                                    GitHub Release (automated)
+```
 
 ---
 
-## Workflow Execution
+## Automated CI/CD Pipelines
 
-### Trigger Phrases
+### What GitHub Actions Handles
 
-- "run the workflow"
-- "commit and release"
-- "prepare release"
-- "atomic commit"
-- "finalize changes"
-- "ship it"
+| Trigger | Workflow | Actions |
+|---------|----------|---------|
+| Push/PR to main | `ci.yml` | Tests, lint, JSON validation, docs drift, install test |
+| Push to main (CHANGELOG.md) | `docs-update.yml` | Auto-PR for Mintlify changelog regeneration |
+| Tag push (v*.*.*) | `release.yml` | Build tarball, create GitHub Release, upload artifacts |
+| Push to docs/ | `mintlify-deploy.yml` | Validate MDX, check required files |
 
-### Execution Sequence
+### What YOU Handle
 
-1. **G0**: Pre-flight check (clean state, not on main, tests pass)
-2. **G1**: Classify change (type, scope, version impact)
-3. **G2**: Lint and compliance validation
-4. **G3**: Run full test suite
-5. **G4**: Update documentation (if required)
-6. **G5**: Version bump (if required)
-7. **G6**: Create atomic commit
-8. **G7**: Tag and push (if required)
+| Action | When | How |
+|--------|------|-----|
+| Update CHANGELOG.md | Before release | Manual edit with release notes |
+| Version bump | When releasing | `./dev/bump-version.sh patch\|minor\|major` |
+| Create tag | After version bump | `git tag -a v0.X.Y -m "..."` |
+| Push tag | After tagging | `git push origin v0.X.Y` |
+| Merge auto-PRs | When changelog PR created | Review and merge the auto-generated PR |
+
+### Release Sequence
+
+```bash
+# 1. Ensure all changes are merged to main
+
+# 2. Update CHANGELOG.md with release notes
+# (edit CHANGELOG.md manually)
+
+# 3. Commit changelog
+git add CHANGELOG.md
+git commit -m "docs(changelog): Add v0.X.Y release notes"
+git push origin main
+
+# 4. (Auto) docs-update.yml creates PR for Mintlify
+# → Review and merge the auto-PR
+
+# 5. Version bump
+./dev/bump-version.sh minor  # or patch/major
+./dev/validate-version.sh
+
+# 6. Commit version bump
+git add -A
+git commit -m "chore: bump version to v0.X.Y"
+git push origin main
+
+# 7. Tag and push (triggers release.yml)
+git tag -a v0.X.Y -m "feat: Description of release"
+git push origin v0.X.Y
+
+# 8. (Auto) release.yml creates GitHub Release
+```
 
 ---
 
-## Parameters
+## Complete Workflow Examples
 
-| Parameter | Description | Required |
-|-----------|-------------|----------|
-| `{{CHANGE_TYPE}}` | Commit type (feat, fix, etc.) | Yes |
-| `{{SCOPE}}` | Component scope | No |
-| `{{DESCRIPTION}}` | Short description | Yes |
-| `{{DETAILED_BODY}}` | Expanded explanation | No |
-| `{{VERSION_BUMP}}` | patch, minor, major, none | Auto |
-| `{{NEW_VERSION}}` | Version after bump | Auto |
-| `{{PREVIOUS_VERSION}}` | Version before bump | Auto |
+### Example 1: Bug Fix (Typical)
 
----
+```bash
+# 1. Verify task
+cleo focus show
+# Output: T1456 - Fix token validation
 
-## Project Configuration
+# 2. Make changes
+# ... edit files ...
 
-This skill adapts to project-specific configuration when available:
+# 3. Run relevant test
+bats tests/unit/auth.bats
 
-### Config File: `.nml/config.yaml`
+# 4. Stage specific files
+git add lib/auth.sh scripts/login.sh
 
-```yaml
-commands:
-  test: ./tests/run-all-tests.sh
-  lint: shellcheck scripts/*.sh lib/*.sh
-  version_bump: ./dev/bump-version.sh
-  version_validate: ./dev/validate-version.sh
-  install: ./install.sh --force
+# 5. Commit with task
+git commit -m "$(cat <<'EOF'
+fix(auth): prevent token expiry race condition
 
-gates:
-  G0_preflight:
-    require_clean_workdir: true
-    require_tests_pass: true
-    protected_branches: [main, master]
-  G2_implementation:
-    require_lint: true
-  G3_testing:
-    command: ./tests/run-all-tests.sh
+Task: T1456
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+
+# 6. Push (CI handles full tests)
+git push origin HEAD
+
+# 7. Mark task complete
+cleo complete T1456
 ```
 
-### Fallback Commands
+### Example 2: New Feature
 
-When no config exists, use defaults:
+```bash
+# 1. Verify task
+cleo focus show  # T1500 - Add export command
 
-| Action | Default Command |
-|--------|-----------------|
-| Test | `npm test` or `pytest` or `./test.sh` |
-| Lint | `eslint .` or `shellcheck *.sh` |
-| Version | `npm version` or manual |
+# 2. Make changes
+# ... implement feature ...
 
----
+# 3. Run feature tests
+bats tests/unit/export.bats
+bats tests/integration/export.bats
 
-## Interactive Mode
+# 4. Stage changes
+git add scripts/export.sh lib/export-utils.sh tests/unit/export.bats
 
-When invoked interactively, gather required information:
+# 5. Commit
+git commit -m "$(cat <<'EOF'
+feat(export): add CSV export command
 
-### 1. Determine Change Type
+Enables exporting tasks to CSV format for external tools.
 
-```
-What type of change is this?
-1. feat - New feature
-2. fix - Bug fix
-3. docs - Documentation
-4. refactor - Code restructure
-5. test - Tests only
-6. chore - Maintenance
-7. perf - Performance
-8. security - Security fix
-```
+Task: T1500
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
 
-### 2. Define Scope (optional)
+# 6. Push
+git push origin HEAD
 
-```
-What component does this change affect?
-Examples: auth, api, db, cli, docs
-Leave blank for no scope.
+# 7. Complete task
+cleo complete T1500
 ```
 
-### 3. Write Description
+### Example 3: Release
 
+```bash
+# 1. Verify all tasks complete
+cleo list --status pending --parent T1400  # Should be empty
+
+# 2. Run full test suite (release prep)
+./tests/run-all-tests.sh
+
+# 3. Update CHANGELOG
+# ... edit CHANGELOG.md ...
+
+# 4. Version bump
+./dev/bump-version.sh minor
+./dev/validate-version.sh
+
+# 5. Commit version bump
+git add -A
+git commit -m "$(cat <<'EOF'
+chore: bump version to v0.63.0
+
+Task: T1400
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+
+# 6. Tag and push
+git tag -a v0.63.0 -m "feat: Add export command and improvements"
+git push origin v0.63.0
+git push origin HEAD
+
+# GitHub Actions creates the release automatically
 ```
-Write a short description (imperative mood):
-Example: "add user authentication endpoint"
-```
 
-### 4. Confirm Before Commit
+### Example 4: Documentation Only
 
-```
-About to create commit:
-  Type: feat
-  Scope: auth
-  Description: add JWT refresh token support
-  Version bump: minor (0.5.0 → 0.6.0)
+```bash
+# 1. Verify task
+cleo focus show  # T1550 - Update README
 
-Proceed? [y/N]
+# 2. Make doc changes
+# ... edit docs ...
+
+# 3. No tests needed (CI validates)
+
+# 4. Commit
+git add docs/ README.md
+git commit -m "$(cat <<'EOF'
+docs: update installation instructions
+
+Task: T1550
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+
+# 5. Push
+git push origin HEAD
+
+# 6. Complete
+cleo complete T1550
 ```
 
 ---
@@ -354,131 +481,58 @@ Proceed? [y/N]
 
 | Pattern | Problem | Solution |
 |---------|---------|----------|
-| Skipping G0 | Dirty state causes issues | Always verify clean state |
-| Wrong classification | Version mismatch | Review change type carefully |
-| Skipping tests | Broken builds | Tests MUST pass |
-| Giant commits | Hard to review/revert | Split into atomic commits |
-| Vague messages | Lost context | Use conventional format |
-| Force pushing | Lost history | Only on feature branches |
-| Committing to main | Bypass review | Always use branches |
+| No task reference | Untracked work | Create/find task first |
+| Committing to main | Bypass review | Use feature branches |
+| Running full tests always | Slow iteration | Use smart test scope |
+| Skipping CI | Missing validations | Always push, let CI run |
+| Manual release creation | Inconsistent releases | Use tag → GH Actions |
+| Giant commits | Hard to review/revert | Atomic commits |
+| Vague commit messages | Lost context | Conventional + task ref |
 
 ---
 
-## Critical Rules
-
-- **[HARDCODED]** Tests MUST pass before commit
-- **[HARDCODED]** Version bump MUST be validated
-- **[HARDCODED]** CHANGELOG MUST be updated for feat/fix/security
-- **[FORBIDDEN]** Committing to main/master directly
-- **[FORBIDDEN]** Pushing without tag for version bumps
-- **[FORBIDDEN]** Skipping documentation for new features
-
----
-
-## Quick Reference
-
-### Commit Message Templates
-
-**Feature:**
-```
-feat(component): add feature description
-
-Implements XYZ functionality for the ABC module.
-This enables users to perform specific action.
-
-Closes #123
-```
-
-**Bug Fix:**
-```
-fix(component): fix the specific issue
-
-The bug occurred because of X. This fix ensures Y
-by implementing Z approach.
-
-Fixes #456
-```
-
-**Breaking Change:**
-```
-feat(api)!: change endpoint response format
-
-BREAKING CHANGE: The /users endpoint now returns
-a paginated response instead of an array.
-
-Migration: Update client code to handle pagination.
-```
-
-### Commands Quick Reference
+## CLEO Integration Commands
 
 ```bash
-# Pre-flight
-git status --porcelain && ./tests/run-all-tests.sh
+# Task lifecycle
+cleo focus show              # Current task
+cleo focus set T123          # Set focus
+cleo complete T123           # Mark done
 
-# Lint
-shellcheck scripts/*.sh lib/*.sh
+# Find existing work
+cleo find "query"            # Search tasks
+cleo list --status pending   # Pending work
 
-# Test
-./tests/run-all-tests.sh
+# Create new work
+cleo add "Title" --parent T001 --description "..."
 
-# Version
-./dev/bump-version.sh patch|minor|major
-./dev/validate-version.sh
-
-# Commit
-git add -A && git commit -m "type(scope): description"
-
-# Tag & Push
-git tag -a v0.1.0 -m "feat: description"
-git push origin v0.1.0 && git push origin HEAD
+# Session management
+cleo session status          # Current session
+cleo session end --note "Completed X, Y, Z"
 ```
 
 ---
 
-## Example Full Workflow
+## Critical Rules Summary
 
-```bash
-# After implementing a bug fix...
+1. **Always have a task** before making changes
+2. **Always include task reference** in commit message
+3. **Never commit to main/master** directly
+4. **Run relevant tests** locally, not always full suite
+5. **Let CI validate** with full test suite on push
+6. **Use tags for releases** - GitHub Actions handles the rest
+7. **One logical change** per commit (atomic)
+8. **Conventional commit format** with task reference
 
-# G0: Pre-flight
-git status --porcelain     # Clean
-git branch --show-current  # fix/auth-token
-./tests/run-all-tests.sh   # Pass
+---
 
-# G1: Classify
-CHANGE_TYPE="fix"
-SCOPE="auth"
-VERSION_BUMP="patch"
+## Trigger Phrases
 
-# G2: Lint
-shellcheck scripts/*.sh lib/*.sh  # Pass
-
-# G3: Test
-./tests/run-all-tests.sh   # Pass
-
-# G4: Docs (behavior unchanged, skip)
-
-# G5: Version
-./dev/bump-version.sh patch
-./dev/validate-version.sh  # All synced
-./install.sh --force
-cleo version               # v0.43.1
-
-# G6: Commit
-git add -A
-git commit -m "$(cat <<'EOF'
-fix(auth): prevent token expiry race condition
-
-The refresh token was being invalidated before the
-new access token was fully validated, causing
-intermittent authentication failures.
-
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-
-# G7: Tag & Push
-git tag -a v0.43.1 -m "fix: prevent token expiry race condition"
-git push origin v0.43.1
-git push origin HEAD
-```
+This skill activates when user says:
+- "commit", "commit changes"
+- "release", "prepare release", "cut a release"
+- "run the workflow"
+- "atomic commit", "conventional commit"
+- "version bump"
+- "ship it", "finalize changes"
+- "push changes"
