@@ -26,7 +26,8 @@ timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
-# Log compliance event
+# Log compliance event in metrics schema format
+# Required format for cleo compliance command compatibility
 log_compliance() {
     local status="$1"
     local agent_id="$2"
@@ -36,9 +37,70 @@ log_compliance() {
 
     mkdir -p "$METRICS_DIR"
 
-    cat >> "$COMPLIANCE_LOG" <<EOF
-{"timestamp":"$(timestamp)","status":"$status","agent_id":"$agent_id","agent_type":"$agent_type","message":"$message","details":$details}
-EOF
+    # Extract values from details (with fallback defaults)
+    local violation_count input_tokens output_tokens context_utilization token_utilization_rate
+    violation_count=$(echo "$details" | jq -r 'if .violations then (.violations | length) else 0 end' 2>/dev/null)
+    [[ -z "$violation_count" || "$violation_count" == "null" ]] && violation_count=0
+    input_tokens=$(echo "$details" | jq -r '.input_tokens // 0' 2>/dev/null)
+    [[ -z "$input_tokens" || "$input_tokens" == "null" ]] && input_tokens=0
+    output_tokens=$(echo "$details" | jq -r '.output_tokens // 0' 2>/dev/null)
+    [[ -z "$output_tokens" || "$output_tokens" == "null" ]] && output_tokens=0
+    context_utilization=$(echo "$details" | jq -r '.context_utilization // 0' 2>/dev/null)
+    [[ -z "$context_utilization" || "$context_utilization" == "null" ]] && context_utilization=0
+    token_utilization_rate=$(echo "$details" | jq -r '.token_utilization_rate // 0' 2>/dev/null)
+    [[ -z "$token_utilization_rate" || "$token_utilization_rate" == "null" ]] && token_utilization_rate=0
+
+    # Calculate compliance scores
+    local compliance_pass_rate rule_adherence_score violation_severity
+    if [[ "$status" == "pass" ]]; then
+        compliance_pass_rate="1.0"
+        rule_adherence_score="1.0"
+        violation_severity="none"
+    elif [[ "$status" == "warn" ]]; then
+        compliance_pass_rate="0.5"
+        rule_adherence_score="0.7"
+        violation_severity="medium"
+    else
+        compliance_pass_rate="0.0"
+        rule_adherence_score="0.3"
+        violation_severity="high"
+    fi
+
+    # Write in metrics schema format (compatible with cleo compliance command)
+    jq -nc \
+        --arg ts "$(timestamp)" \
+        --arg source_id "$agent_id" \
+        --arg source_type "subagent" \
+        --arg agent_type "$agent_type" \
+        --argjson compliance_pass_rate "$compliance_pass_rate" \
+        --argjson rule_adherence_score "$rule_adherence_score" \
+        --argjson violation_count "$violation_count" \
+        --arg violation_severity "$violation_severity" \
+        --argjson input_tokens "$input_tokens" \
+        --argjson output_tokens "$output_tokens" \
+        --argjson context_utilization "$context_utilization" \
+        --argjson token_utilization_rate "$token_utilization_rate" \
+        '{
+            timestamp: $ts,
+            source_id: $source_id,
+            source_type: $source_type,
+            compliance: {
+                compliance_pass_rate: $compliance_pass_rate,
+                rule_adherence_score: $rule_adherence_score,
+                violation_count: $violation_count,
+                violation_severity: $violation_severity,
+                manifest_integrity: "valid"
+            },
+            efficiency: {
+                input_tokens: $input_tokens,
+                output_tokens: $output_tokens,
+                context_utilization: $context_utilization,
+                token_utilization_rate: $token_utilization_rate
+            },
+            _context: {
+                agent_type: $agent_type
+            }
+        }' >> "$COMPLIANCE_LOG"
 }
 
 # Check if agent type requires research manifest entry
