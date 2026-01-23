@@ -92,7 +92,7 @@ Removed artifacts:
 - `AGENTS.md.template`
 - `PROJECT-CONTEXT.md.template`
 
-Cleanup commit: TBD
+Cleanup commit: e2f58be
 
 Note: `claudedocs/` is git-ignored in this repo. The cleanup commit records the decision but does not retain these files. Restore from external backups or another clone if recovery is needed.
 
