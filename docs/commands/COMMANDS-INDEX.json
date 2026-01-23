@@ -1544,18 +1544,27 @@
       "script": "setup-claude-aliases.sh",
       "category": "maintenance",
       "doc": "setup-claude-aliases.md",
-      "synopsis": "Configure Claude Code aliases in system profile",
+      "synopsis": "Install optimized Claude Code CLI aliases with collision detection and legacy recognition",
       "flags": [
         "--dry-run",
         "--force",
-        "--shell"
+        "--shell",
+        "--remove",
+        "--format",
+        "--json",
+        "--quiet"
       ],
       "exitCodes": [
         0,
-        1
+        2,
+        5,
+        23,
+        100,
+        102
       ],
-      "jsonOutput": false,
-      "agentRelevance": "low"
+      "jsonOutput": true,
+      "agentRelevance": "medium",
+      "note": "Detects legacy Claude aliases and non-Claude collisions. Use --force to override."
     }
   ],
   "agentWorkflows": {

@@ -87,7 +87,13 @@ EXIT CODES:
     0    - Success
     2    - Invalid input
     5    - Dependency error (claude CLI not found)
+    23   - Collision detected (use --force to override)
     102  - No changes needed
+
+COLLISION HANDLING:
+    The command detects existing aliases that may conflict:
+    - Legacy Claude aliases (function-based): Safe to override with --force
+    - Non-Claude aliases (e.g., cc for C compiler): Review before using --force
 EOF
 }
 
@@ -253,6 +259,29 @@ EOF
                     else
                         output_msg "[DRY-RUN] Would update: $rc_file (v${version:-unknown} -> v$CLAUDE_ALIASES_VERSION)"
                     fi
+                elif [[ -f "$rc_file" ]]; then
+                    # Check for collisions in dry-run
+                    local legacy_check
+                    legacy_check=$(detect_legacy_claude_aliases "$rc_file")
+                    local is_legacy
+                    is_legacy=$(echo "$legacy_check" | jq -r '.detected' 2>/dev/null || echo "false")
+
+                    if [[ "$is_legacy" == "true" ]]; then
+                        output_msg "[DRY-RUN] ⚠ Legacy Claude aliases in: $rc_file (use --force)"
+                    else
+                        local collision_check
+                        collision_check=$(check_alias_collisions "$rc_file")
+                        local has_collision
+                        has_collision=$(echo "$collision_check" | jq -r '.hasCollisions' 2>/dev/null || echo "false")
+
+                        if [[ "$has_collision" == "true" ]]; then
+                            local collision_names
+                            collision_names=$(echo "$collision_check" | jq -r '[.collisions[].name] | join(", ")' 2>/dev/null || echo "unknown")
+                            output_msg "[DRY-RUN] ⚠ Collision in: $rc_file ($collision_names) - use --force"
+                        else
+                            output_msg "[DRY-RUN] Would install to: $rc_file"
+                        fi
+                    fi
                 else
                     output_msg "[DRY-RUN] Would install to: $rc_file"
                 fi
@@ -289,6 +318,7 @@ EOF
             [[ "$FLAG_FORCE" == true ]] && force_flag="--force"
 
             result=$(inject_aliases "$rc_file" "$shell_type" "$force_flag")
+            local inject_exit=$?
             local action
             action=$(echo "$result" | jq -r '.action' 2>/dev/null || echo "failed")
 
@@ -302,6 +332,25 @@ EOF
                     local reason
                     reason=$(echo "$result" | jq -r '.reason' 2>/dev/null || echo "unknown")
                     output_msg "Skipped: $rc_file ($reason)"
+                    ;;
+                blocked)
+                    ((++skipped))
+                    local reason message
+                    reason=$(echo "$result" | jq -r '.reason' 2>/dev/null || echo "unknown")
+                    message=$(echo "$result" | jq -r '.message' 2>/dev/null || echo "Collision detected")
+
+                    if [[ "$reason" == "legacy_claude_aliases" ]]; then
+                        output_error "⚠ Legacy Claude aliases found in: $rc_file"
+                        output_error "  These appear to be manually installed Claude aliases."
+                        output_error "  Use --force to replace them with CLEO-managed aliases."
+                    elif [[ "$reason" == "collision" ]]; then
+                        local collision_names
+                        collision_names=$(echo "$result" | jq -r '[.collisions[].name] | join(", ")' 2>/dev/null || echo "unknown")
+                        output_error "⚠ Existing aliases found in: $rc_file"
+                        output_error "  Conflicting aliases: $collision_names"
+                        output_error "  These may be for other purposes (not Claude-related)."
+                        output_error "  Use --force to override (will create duplicates)."
+                    fi
                     ;;
                 failed)
                     ((++failed))
