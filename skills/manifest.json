@@ -2,8 +2,8 @@
   "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
   "_meta": {
     "schemaVersion": "1.1.0",
-    "lastUpdated": "2026-01-20",
-    "totalSkills": 14
+    "lastUpdated": "2026-01-22",
+    "totalSkills": 15
   },
   "skills": [
     {
@@ -215,6 +215,21 @@
         "dependencies": [],
         "dispatch_triggers": ["validate", "verify", "check compliance", "audit", "compliance check", "verify conformance", "check requirements", "run validation", "validate schema", "check standards", "audit compliance", "verify rules", "validation report", "compliance audit", "check constraints"],
         "compatible_subagent_types": ["general-purpose", "Explore"]
+      }
+    },
+    {
+      "name": "ct-dev-workflow",
+      "version": "1.0.0",
+      "description": "Development workflow skill for atomic commits, conventional commits, and release management. Executes gate-based validation (G0-G7) for clean releases.",
+      "path": "skills/ct-dev-workflow",
+      "tags": ["workflow", "git", "commits", "release"],
+      "status": "active",
+      "capabilities": {
+        "inputs": ["CHANGE_TYPE", "SCOPE", "DESCRIPTION", "DETAILED_BODY", "VERSION_BUMP"],
+        "outputs": ["commit", "tag", "release"],
+        "dependencies": ["ct-validator", "ct-test-writer-bats"],
+        "dispatch_triggers": ["commit", "release", "run the workflow", "prepare release", "atomic commit", "conventional commit", "version bump", "create release", "commit and push", "finalize changes", "ship it", "cut a release"],
+        "compatible_subagent_types": ["general-purpose", "Code"]
       }
     }
   ]
