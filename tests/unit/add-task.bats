@@ -607,8 +607,8 @@ teardown_file() {
 
 @test "add-task warns on phase mismatch when warnPhaseContext enabled" {
     create_empty_todo
-    # Setup: Enable warnings, disable description requirement
-    echo '{"validation":{"requireDescription":false,"phaseValidation":{"warnPhaseContext":true}}}' > "$CONFIG_FILE"
+    # Setup: Enable warnings, disable description requirement, keep multiSession disabled for tests
+    echo '{"version":"2.2.0","validation":{"requireDescription":false,"phaseValidation":{"warnPhaseContext":true}},"multiSession":{"enabled":false},"session":{"requireSession":false}}' > "$CONFIG_FILE"
 
     # Set project phase to core
     jq '.project.currentPhase = "core"' "$TODO_FILE" > "${TODO_FILE}.tmp"
@@ -621,8 +621,8 @@ teardown_file() {
 
 @test "add-task silent on phase mismatch when warnPhaseContext disabled" {
     create_empty_todo
-    # Config with warnings disabled, disable description requirement
-    echo '{"validation":{"requireDescription":false,"phaseValidation":{"warnPhaseContext":false}}}' > "$CONFIG_FILE"
+    # Config with warnings disabled, disable description requirement, keep multiSession disabled for tests
+    echo '{"version":"2.2.0","validation":{"requireDescription":false,"phaseValidation":{"warnPhaseContext":false}},"multiSession":{"enabled":false},"session":{"requireSession":false}}' > "$CONFIG_FILE"
 
     # Set project phase to core
     jq '.project.currentPhase = "core"' "$TODO_FILE" > "${TODO_FILE}.tmp"
@@ -639,8 +639,8 @@ teardown_file() {
 
 @test "add-task never blocks on phase mismatch" {
     create_empty_todo
-    # Even with warnings enabled, creation should succeed
-    echo '{"validation":{"requireDescription":false,"phaseValidation":{"warnPhaseContext":true}}}' > "$CONFIG_FILE"
+    # Even with warnings enabled, creation should succeed (keep multiSession disabled for tests)
+    echo '{"version":"2.2.0","validation":{"requireDescription":false,"phaseValidation":{"warnPhaseContext":true}},"multiSession":{"enabled":false},"session":{"requireSession":false}}' > "$CONFIG_FILE"
 
     jq '.project.currentPhase = "core"' "$TODO_FILE" > "${TODO_FILE}.tmp"
     mv "${TODO_FILE}.tmp" "$TODO_FILE"

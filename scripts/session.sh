@@ -380,7 +380,7 @@ cmd_start() {
       --dry-run) DRY_RUN=true; shift ;;
       -f|--format) FORMAT="$2"; shift 2 ;;
       --json) FORMAT="json"; shift ;;
-      --human) FORMAT="human"; shift ;;
+      --human) FORMAT="text"; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
@@ -1300,7 +1300,7 @@ cmd_suspend() {
       --dry-run) DRY_RUN=true; shift ;;
       -f|--format) FORMAT="$2"; shift 2 ;;
       --json) FORMAT="json"; shift ;;
-      --human) FORMAT="human"; shift ;;
+      --human) FORMAT="text"; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac

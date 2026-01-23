@@ -261,7 +261,7 @@ while [[ $# -gt 0 ]]; do
     --reverse) SORT_REVERSE=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --json) FORMAT="json"; shift ;;
-    --human) FORMAT="human"; shift ;;
+    --human) FORMAT="text"; shift ;;
     --all|--include-archive) INCLUDE_ARCHIVE=true; shift ;;
     --archived|--archive-only) SHOW_ARCHIVED=true; shift ;;
     --cancelled) SHOW_CANCELLED=true; shift ;;

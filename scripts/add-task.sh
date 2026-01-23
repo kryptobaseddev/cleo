@@ -796,6 +796,15 @@ if [[ -z "$STATUS" ]]; then
   fi
 fi
 
+# Resolve size default if not provided via CLI (T2068: size enforcement)
+if [[ -z "$SIZE" ]]; then
+  if declare -f get_config_value >/dev/null 2>&1; then
+    SIZE=$(get_config_value "defaults.size" "medium")
+  else
+    SIZE="medium"
+  fi
+fi
+
 # Phase inheritance: If no --phase specified, inherit from project.currentPhase or config
 PHASE_SOURCE=""
 if [[ -z "$PHASE" ]]; then
@@ -1182,8 +1191,15 @@ if [[ -n "$duplicate_task" ]]; then
 fi
 
 # Generate task ID (lock is now held, preventing concurrent ID collisions)
-TASK_ID=$(generate_task_id)
-log_info "Generated task ID: $TASK_ID"
+# Reuse TEMP_TASK_ID if it was generated for circular dependency check
+# This prevents wasting IDs when dependencies are specified
+if [[ -n "${TEMP_TASK_ID:-}" ]]; then
+  TASK_ID="$TEMP_TASK_ID"
+  log_info "Reusing task ID: $TASK_ID (from circular dependency check)"
+else
+  TASK_ID=$(generate_task_id)
+  log_info "Generated task ID: $TASK_ID"
+fi
 
 # ============================================================================
 # ID UNIQUENESS CHECK (T1543 - Belt-and-suspenders protection)

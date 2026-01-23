@@ -215,7 +215,7 @@ while [[ $# -gt 0 ]]; do
       fi
       shift 2
       ;;
-    --human) FORMAT="human"; shift ;;
+    --human) FORMAT="text"; shift ;;
     --json) FORMAT="json"; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     --skip-notes) SKIP_NOTES=true; shift ;;
