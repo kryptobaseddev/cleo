@@ -969,15 +969,34 @@ run_all_global_checks() {
         "check_registered_projects"
     )
 
+    # Human-readable check names for progress display
+    local check_names=(
+        "CLI installation"
+        "CLI version"
+        "documentation"
+        "agent configs"
+        "agent config versions"
+        "agent registry"
+        "@ reference resolution"
+        "registered projects"
+    )
+
     echo "["
     local first=true
+    local i=0
     for check in "${checks[@]}"; do
+        # Show progress if function exists (defined in doctor.sh)
+        if declare -F show_progress >/dev/null 2>&1; then
+            show_progress "  Checking ${check_names[$i]}..."
+        fi
+
         if [[ "$first" == "true" ]]; then
             first=false
         else
             echo ","
         fi
         $check
+        ((i++))
     done
     echo "]"
 }
