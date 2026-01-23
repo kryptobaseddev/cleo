@@ -112,6 +112,26 @@ jobs:
             jq empty "$file"
           done
 
+  docs-drift:
+    name: Documentation Drift Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Make scripts executable
+        run: chmod +x dev/skills/ct-docs-sync/scripts/detect-drift.sh
+
+      - name: Run drift detection
+        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --full --strict
+        env:
+          CLEO_HOME: ${{ github.workspace }}
+
   install-test:
     name: Installation Test
     runs-on: ubuntu-latest

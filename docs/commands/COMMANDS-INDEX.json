@@ -1,9 +1,9 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
-    "version": "1.1.0",
-    "lastUpdated": "2026-01-21",
-    "totalCommands": 54,
+    "version": "1.2.0",
+    "lastUpdated": "2026-01-23",
+    "totalCommands": 60,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -19,6 +19,7 @@
       "reopen",
       "reorder",
       "reparent",
+      "safestop",
       "session",
       "unarchive",
       "uncancel",
@@ -27,8 +28,10 @@
     ],
     "read": [
       "analyze",
+      "archive-stats",
       "blockers",
       "commands",
+      "compliance",
       "context",
       "dash",
       "deps",
@@ -58,11 +61,14 @@
       "claude-migrate",
       "config",
       "doctor",
+      "generate-changelog",
+      "generate-features",
       "init",
       "migrate",
       "reorganize-backups",
       "restore",
       "self-update",
+      "setup-agents",
       "upgrade",
       "validate"
     ]
@@ -117,6 +123,28 @@
       "jsonOutput": true,
       "jsonDefault": true,
       "agentRelevance": "critical"
+    },
+    {
+      "name": "archive-stats",
+      "script": "archive-stats.sh",
+      "category": "read",
+      "doc": "archive-stats.md",
+      "synopsis": "Generate analytics and insights from archived tasks (counts, cycle times, trends)",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--json",
+        "--human",
+        "--by-phase",
+        "--by-label"
+      ],
+      "exitCodes": [
+        0,
+        3,
+        100
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium"
     },
     {
       "name": "archive",
@@ -227,6 +255,37 @@
       "jsonDefault": true,
       "agentRelevance": "high",
       "note": "Use instead of jq for command discovery"
+    },
+    {
+      "name": "compliance",
+      "script": "compliance.sh",
+      "category": "read",
+      "doc": "compliance.md",
+      "synopsis": "Monitor and report compliance metrics for orchestrator and agent outputs",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--json",
+        "--human",
+        "--days",
+        "--epic"
+      ],
+      "subcommands": [
+        "summary",
+        "violations",
+        "trend",
+        "audit",
+        "sync"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3,
+        4
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Orchestrator Protocol - tracks compliance with output standards"
     },
     {
       "name": "complete",
@@ -531,6 +590,36 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "critical"
+    },
+    {
+      "name": "generate-changelog",
+      "script": "generate-changelog.sh",
+      "category": "maintenance",
+      "doc": null,
+      "synopsis": "Generate Mintlify changelog from CHANGELOG.md (dev tool)",
+      "flags": [],
+      "exitCodes": [
+        0,
+        1
+      ],
+      "jsonOutput": false,
+      "agentRelevance": "low",
+      "note": "Internal development tool for documentation generation"
+    },
+    {
+      "name": "generate-features",
+      "script": "generate-features.sh",
+      "category": "maintenance",
+      "doc": null,
+      "synopsis": "Generate FEATURES.md from FEATURES.json (dev tool)",
+      "flags": [],
+      "exitCodes": [
+        0,
+        1
+      ],
+      "jsonOutput": false,
+      "agentRelevance": "low",
+      "note": "Internal development tool for documentation generation"
     },
     {
       "name": "history",
@@ -1071,6 +1160,32 @@
       "note": "Part of ID Integrity System - verify sequence before adding tasks"
     },
     {
+      "name": "safestop",
+      "script": "safestop.sh",
+      "category": "write",
+      "doc": "safestop.md",
+      "synopsis": "Graceful shutdown for agents approaching context limits with handoff support",
+      "flags": [
+        "--reason",
+        "--commit",
+        "--handoff",
+        "--no-session-end",
+        "--dry-run",
+        "--format",
+        "--json",
+        "--human",
+        "--quiet"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        3
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "critical",
+      "note": "Part of Context Safeguard System - use when approaching context limits"
+    },
+    {
       "name": "self-update",
       "script": "self-update.sh",
       "category": "maintenance",
@@ -1133,6 +1248,30 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "high"
+    },
+    {
+      "name": "setup-agents",
+      "script": "setup-agents.sh",
+      "category": "maintenance",
+      "doc": "setup-agents.md",
+      "synopsis": "Setup global agent configs (~/.claude/CLAUDE.md, AGENTS.md) with @ references",
+      "flags": [
+        "--dry-run",
+        "--force",
+        "--update",
+        "--format",
+        "--json",
+        "--human",
+        "--quiet"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "low",
+      "note": "Run once after installation or when updating global agent configuration"
     },
     {
       "name": "show",
@@ -1438,6 +1577,10 @@
     "multiAgentCoordination": "orchestrator",
     "spawnSubagent": "orchestrator spawn",
     "parallelTasks": "orchestrator ready",
-    "sessionCleanup": "session gc"
+    "sessionCleanup": "session gc",
+    "archiveAnalytics": "archive-stats",
+    "complianceMetrics": "compliance",
+    "gracefulShutdown": "safestop",
+    "globalAgentSetup": "setup-agents"
   }
 }
