@@ -172,14 +172,18 @@ check_commands_sync() {
         log_ok "All index entries have corresponding scripts"
     fi
 
-    # Count comparison
-    local script_count index_count
+    # Count comparison (accounting for aliases)
+    local script_count index_count alias_count
     script_count=$(echo "$scripts_cmds" | grep -c . || echo 0)
     index_count=$(echo "$index_cmds" | grep -c . || echo 0)
+    alias_count=$(jq '[.commands[] | select(.aliasFor)] | length' "$COMMANDS_INDEX" 2>/dev/null || echo 0)
 
-    echo "    Scripts: $script_count | Index entries: $index_count"
-    if [[ "$script_count" != "$index_count" ]]; then
-        log_warn "Count mismatch may indicate aliases or virtual commands"
+    echo "    Scripts: $script_count | Index entries: $index_count (including $alias_count aliases)"
+
+    # Only warn if mismatch isn't explained by aliases
+    local expected_with_aliases=$((script_count + alias_count))
+    if [[ "$expected_with_aliases" != "$index_count" ]]; then
+        log_warn "Unexpected count mismatch: expected $expected_with_aliases (scripts + aliases), got $index_count"
     fi
 }
 
@@ -319,7 +323,7 @@ check_agent_injection() {
         # Check for critical sections
         local -A required_sections=(
             ["Command Reference"]="^## Command Reference"
-            ["Session Management"]="^### Focus & Session\|^### Multi-Session\|^## Session Protocol"
+            ["Session Management"]="^### Focus & Session|^### Multi-Session|^## Session Protocol"
             ["Core Operations"]="^### Core Operations"
         )
         for section in "${!required_sections[@]}"; do
