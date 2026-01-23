@@ -1151,7 +1151,7 @@ is_json_output() {
     if [[ "$format" == "json" ]]; then
         return 0
     fi
-    if [[ "$format" == "human" ]]; then
+    if [[ "$format" == "human" || "$format" == "text" ]]; then
         return 1
     fi
 
