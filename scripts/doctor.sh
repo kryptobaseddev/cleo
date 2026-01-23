@@ -286,9 +286,10 @@ run_project_registry_validation() {
         # Perform validation only if not cached
         
         # Check 2: Run validation (validate.sh in project directory) - skip if optimized
+        # PERF (T1985): Use --quiet --human flags for fastest validation path
         if [[ "$skip_validation" == false ]]; then
             if [[ -f "$path/.cleo/validate.sh" ]]; then
-                if (cd "$path" && bash .cleo/validate.sh >/dev/null 2>&1); then
+                if (cd "$path" && bash .cleo/validate.sh --quiet --human >/dev/null 2>&1); then
                     validation_passed=true
                 else
                     status="failed"
@@ -301,7 +302,7 @@ run_project_registry_validation() {
                 fi
             elif [[ -f "${SCRIPT_DIR}/validate.sh" ]]; then
                 # Fallback: use CLI validate.sh if project doesn't have one
-                if (cd "$path" && bash "${SCRIPT_DIR}/validate.sh" >/dev/null 2>&1); then
+                if (cd "$path" && bash "${SCRIPT_DIR}/validate.sh" --quiet --human >/dev/null 2>&1); then
                     validation_passed=true
                 else
                     status="failed"
@@ -326,16 +327,15 @@ run_project_registry_validation() {
         fi
 
         # Check 3: Schema versions (only if path exists and not already failed)
+        # FIX (T1988): Read ACTUAL project file versions, not registry-cached values
+        # Registry may have stale data from when project was registered
         if [[ "$path_exists" == true && "$status" != "failed" ]]; then
-            local project_data
-            project_data=$(get_project_data "$hash")
-
-            # Compare schema versions
+            # Read schema versions directly from project files (not registry)
             local proj_todo_version proj_config_version proj_archive_version proj_log_version
-            proj_todo_version=$(echo "$project_data" | jq -r '.schemaVersions.todo // "unknown"')
-            proj_config_version=$(echo "$project_data" | jq -r '.schemaVersions.config // "unknown"')
-            proj_archive_version=$(echo "$project_data" | jq -r '.schemaVersions.archive // "unknown"')
-            proj_log_version=$(echo "$project_data" | jq -r '.schemaVersions.log // "unknown"')
+            proj_todo_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo.json" 2>/dev/null || echo "unknown")
+            proj_config_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/config.json" 2>/dev/null || echo "unknown")
+            proj_archive_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-archive.json" 2>/dev/null || echo "unknown")
+            proj_log_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-log.json" 2>/dev/null || echo "unknown")
 
             # Check each schema type
             local outdated_schemas=()
