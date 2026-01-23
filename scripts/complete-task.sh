@@ -928,10 +928,18 @@ handle_single_parent_auto_complete() {
   
   local parent_status
   parent_status=$(echo "$parent_task" | jq -r '.status')
-  
+
   # Return if parent is already completed
   [[ ! "$parent_status" =~ ^(pending|active|blocked)$ ]] && return 1
-  
+
+  # Check if parent has noAutoComplete flag set (T1984)
+  local no_auto_complete
+  no_auto_complete=$(echo "$parent_task" | jq -r '.noAutoComplete // false')
+  if [[ "$no_auto_complete" == "true" ]]; then
+    [[ "$format" != "json" ]] && log_info "Parent auto-complete blocked: noAutoComplete flag set ($parent_id)"
+    return 1
+  fi
+
   # Check if all siblings are completed
   if ! all_siblings_completed "$parent_id" "$completed_task_id" "$todo_file"; then
     return 1
