@@ -119,8 +119,9 @@ _disable_context_alerts() {
     rm -f "${TEST_TEMP_DIR}/.cleo/.current-session"
 
     # Create a fresh function that reads from test dir
+    # Note: Avoid 'local' at top level of bash -c script
     local test_func='
-        local session_file="${1:-.cleo}/.current-session"
+        session_file="${1:-.cleo}/.current-session"
         if [[ -f "$session_file" ]]; then
             cat "$session_file" 2>/dev/null | tr -d "\n"
         else
@@ -483,7 +484,8 @@ _disable_context_alerts() {
     # Should NOT trigger for 'list'
     run check_context_alert "list"
     assert_success
-    refute_file_exist "$ALERT_STATE_FILE"
+    # File should NOT exist (no refute_file_exists in bats-file, use shell test)
+    [[ ! -f "$ALERT_STATE_FILE" ]]
 }
 
 # =============================================================================
