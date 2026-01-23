@@ -132,6 +132,7 @@ NON_INTERACTIVE=false
 CHECK_ORPHANS=""  # Empty means use config, explicit true/false overrides
 FIX_ORPHANS=""    # Empty means no fix, "unlink" or "delete" for repair mode
 FIX_DUPLICATES=false  # T1542: Safe duplicate resolution (ID reassignment)
+FIX_MISSING_SIZES=false  # T2068: Set missing size fields to "medium"
 
 # Track validation results
 ERRORS=0
@@ -167,7 +168,11 @@ Options:
                       - Preserves full task hierarchy (NO DELETION)
                       - Creates backup before changes
                       Use with --dry-run to preview changes
-  --dry-run           Preview changes without applying (for --fix-duplicates)
+  --fix-missing-sizes Set all tasks without size field to "medium" (T2068)
+                      - Bulk repair for tasks created before size enforcement
+                      - Creates backup before changes
+                      Use with --dry-run to preview changes
+  --dry-run           Preview changes without applying
   --non-interactive   Use auto-selection for conflict resolution (with --fix)
   --format, -f        Output format: json (default) or human
   --json              Force JSON output (redundant, JSON is default)
@@ -681,9 +686,10 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --fix-duplicates) FIX_DUPLICATES=true; shift ;;
+    --fix-missing-sizes) FIX_MISSING_SIZES=true; shift ;;
     # Legacy flag support (handled by flags.sh but kept for explicit override)
     --json) FORMAT="json"; shift ;;
-    --human) FORMAT="human"; shift ;;
+    --human) FORMAT="text"; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     -q|--quiet) QUIET=true; shift ;;
     -h|--help) usage ;;
@@ -878,6 +884,63 @@ if [[ "$CHECK_ORPHANS" != false ]]; then
   else
     log_info "No orphaned tasks found" "orphans"
   fi
+fi
+
+# T2068: Missing Size Field Detection and Repair
+# Check for tasks without size field (or null/empty size)
+MISSING_SIZE_COUNT=$(jq '[.tasks[] | select(.size == null or .size == "")] | length' "$TODO_FILE")
+MISSING_SIZE_TASKS_JSON="[]"
+
+if [[ "$MISSING_SIZE_COUNT" -gt 0 ]]; then
+  MISSING_SIZE_TASKS_JSON=$(jq '[.tasks[] | select(.size == null or .size == "") | {id: .id, title: .title}]' "$TODO_FILE")
+
+  if [[ "$FIX_MISSING_SIZES" == true ]]; then
+    log_warn "Found $MISSING_SIZE_COUNT tasks without size field" "missing_sizes"
+  else
+    log_warn "$MISSING_SIZE_COUNT task(s) missing size field. Run with --fix-missing-sizes to set to 'medium'" "missing_sizes"
+  fi
+
+  # Show details in human-readable mode (limited to first 10)
+  if [[ "$JSON_OUTPUT" != true ]]; then
+    echo "$MISSING_SIZE_TASKS_JSON" | jq -r '.[0:10][] | "  - \(.id): \(.title)"'
+    if [[ "$MISSING_SIZE_COUNT" -gt 10 ]]; then
+      echo "  ... and $((MISSING_SIZE_COUNT - 10)) more"
+    fi
+  fi
+
+  if [[ "$FIX_MISSING_SIZES" == true ]]; then
+    if [[ "$DRY_RUN" == true ]]; then
+      # DRY-RUN MODE: Preview what would be updated
+      log_info "[DRY-RUN] Would set size='medium' for $MISSING_SIZE_COUNT tasks" "fix_missing_sizes_preview"
+      add_detail "fix_missing_sizes" "preview" "Would update $MISSING_SIZE_COUNT tasks (dry-run)"
+    else
+      # ACTUAL FIX MODE: Create backup and update sizes
+      if declare -f create_safety_backup >/dev/null 2>&1; then
+        SIZE_BACKUP=$(create_safety_backup "$TODO_FILE" "fix-missing-sizes" 2>/dev/null || echo "")
+        if [[ -n "$SIZE_BACKUP" ]] && [[ "$JSON_OUTPUT" != true ]]; then
+          log_info "Created safety backup before size repair" "backup"
+        fi
+      fi
+
+      # Set all null/empty sizes to "medium"
+      if safe_json_write "$TODO_FILE" '.tasks |= map(if .size == null or .size == "" then .size = "medium" else . end)'; then
+        log_info "Set size='medium' for $MISSING_SIZE_COUNT tasks" "fix_missing_sizes"
+        add_detail "fix_missing_sizes" "fixed" "Updated $MISSING_SIZE_COUNT tasks to size='medium'"
+
+        # Update checksum after size repair
+        new_checksum=$(jq -c '.tasks' "$TODO_FILE" | sha256sum | cut -c1-16)
+        if safe_json_write "$TODO_FILE" '._meta.checksum = $cs' --arg cs "$new_checksum"; then
+          log_info "Updated checksum after size repair" "checksum_updated"
+        else
+          log_warn "Failed to update checksum after size repair"
+        fi
+      else
+        log_error "Failed to update missing sizes" "fix_missing_sizes"
+      fi
+    fi
+  fi
+else
+  log_info "All tasks have size field" "missing_sizes"
 fi
 
 # 3. Check active task limit (configurable via validation.maxActiveTasks)

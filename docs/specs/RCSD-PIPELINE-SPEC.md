@@ -1088,7 +1088,7 @@ Every HITL decision MUST be logged with:
 
 ```json
 {
-  "$schema": "https://cleo.dev/schemas/v1/rcsd-hitl-resolution.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/rcsd-hitl-resolution.schema.json",
   "hitlResolutionId": "HR-001",
   "taskId": "T500",
   "shortName": "auth-system",
@@ -1428,7 +1428,7 @@ The following fields MUST be added to `todo.schema.json`:
 
 ```json
 {
-  "$schema": "https://cleo.dev/schemas/v1/rcsd-index.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/rcsd-index.schema.json",
   "version": "2.0.0",
   "lastUpdated": "2025-12-24T10:00:00Z",
   "workflows": [
@@ -1482,7 +1482,7 @@ The following fields MUST be added to `todo.schema.json`:
 
 ```json
 {
-  "$schema": "https://cleo.dev/schemas/v1/rcsd-manifest.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/rcsd-manifest.schema.json",
   "taskId": "T500",
   "shortName": "auth-system",
   "title": "Research: OAuth Authentication Flow",
@@ -1575,7 +1575,7 @@ The following fields MUST be added to `todo.schema.json`:
 
 ```json
 {
-  "$schema": "https://cleo.dev/schemas/v1/rcsd-research.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/rcsd-research-output.schema.json",
   "_meta": {
     "stage": "research",
     "version": "2.0.0",
@@ -1625,7 +1625,7 @@ The following fields MUST be added to `todo.schema.json`:
 
 ```json
 {
-  "$schema": "https://cleo.dev/schemas/v1/rcsd-consensus.schema.json",
+  "$schema": "https://cleo-dev.com/schemas/v1/rcsd-consensus-report.schema.json",
   "_meta": {
     "stage": "consensus",
     "version": "2.0.0",

@@ -171,7 +171,7 @@ while [[ $# -gt 0 ]]; do
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
     --update-docs) UPDATE_DOCS=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
-    --human) FORMAT="human"; shift ;;
+    --human) FORMAT="text"; shift ;;
     --json) FORMAT="json"; shift ;;
     -q|--quiet) QUIET=true; shift ;;
     -h|--help) usage ;;
