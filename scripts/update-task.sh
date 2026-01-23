@@ -147,6 +147,7 @@ NEW_BLOCKED_BY=""
 NEW_TYPE=""       # epic|task|subtask
 NEW_PARENT_ID=""  # Parent task ID for hierarchy
 NEW_SIZE=""       # small|medium|large - scope-based size
+NEW_NOAUTOCOMPLETE=""  # true|false - prevent auto-complete
 
 # Array operations: append (default) vs set (replace) vs clear
 LABELS_TO_ADD=""
@@ -198,6 +199,8 @@ Hierarchy Options (v0.20.0+):
       --parent ID           Set/change parent task ID (e.g., T001)
                             Use --parent "" to remove parent (make root task)
       --size SIZE           Set scope-based size: small|medium|large (NOT time)
+      --no-auto-complete BOOL  Prevent auto-completion: true|false
+                            When true, this task won't auto-complete when children done
 
 Completed Task Updates:
   Completed tasks allow metadata corrections only:
@@ -490,6 +493,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --size)
       NEW_SIZE="$2"
+      shift 2
+      ;;
+    --no-auto-complete)
+      NEW_NOAUTOCOMPLETE="$2"
       shift 2
       ;;
     # Labels
@@ -895,6 +902,7 @@ fi
 if [[ -z "$NEW_TITLE" && -z "$NEW_STATUS" && -z "$NEW_PRIORITY" && \
       -z "$NEW_DESCRIPTION" && -z "$NEW_PHASE" && -z "$NEW_BLOCKED_BY" && \
       -z "$NEW_TYPE" && -z "$NEW_PARENT_ID" && -z "$NEW_SIZE" && \
+      -z "$NEW_NOAUTOCOMPLETE" && \
       -z "$LABELS_TO_ADD" && -z "$LABELS_TO_SET" && "$CLEAR_LABELS" == false && \
       -z "$FILES_TO_ADD" && -z "$FILES_TO_SET" && "$CLEAR_FILES" == false && \
       -z "$ACCEPTANCE_TO_ADD" && -z "$ACCEPTANCE_TO_SET" && "$CLEAR_ACCEPTANCE" == false && \
@@ -1054,6 +1062,23 @@ if [[ -n "$NEW_SIZE" ]]; then
   JQ_UPDATES="$JQ_UPDATES | .size = \$new_size"
   CHANGES+=("size: $OLD_SIZE_DISPLAY → $NEW_SIZE")
   CHANGES_JSON=$(echo "$CHANGES_JSON" | jq --arg before "$OLD_SIZE" --arg after "$NEW_SIZE" '.size = {before: (if $before == "null" then null else $before end), after: $after}')
+fi
+
+# noAutoComplete field (T1984)
+if [[ -n "$NEW_NOAUTOCOMPLETE" ]]; then
+  OLD_NOAUTOCOMPLETE=$(echo "$TASK" | jq -r '.noAutoComplete // null')
+  OLD_NOAUTOCOMPLETE_DISPLAY="${OLD_NOAUTOCOMPLETE:-"(none)"}"
+  if [[ "$NEW_NOAUTOCOMPLETE" == "true" ]]; then
+    JQ_UPDATES="$JQ_UPDATES | .noAutoComplete = true"
+    CHANGES+=("noAutoComplete: $OLD_NOAUTOCOMPLETE_DISPLAY → true")
+  elif [[ "$NEW_NOAUTOCOMPLETE" == "false" ]]; then
+    JQ_UPDATES="$JQ_UPDATES | del(.noAutoComplete)"
+    CHANGES+=("noAutoComplete: $OLD_NOAUTOCOMPLETE_DISPLAY → (removed)")
+  else
+    log_error "Invalid --no-auto-complete value: $NEW_NOAUTOCOMPLETE (must be true|false)"
+    exit "$EXIT_INVALID_INPUT"
+  fi
+  CHANGES_JSON=$(echo "$CHANGES_JSON" | jq --arg before "$OLD_NOAUTOCOMPLETE" --arg after "$NEW_NOAUTOCOMPLETE" '.noAutoComplete = {before: (if $before == "null" then null else ($before | test("true")) end), after: ($after == "true")}')
 fi
 
 # Labels array
@@ -1224,6 +1249,17 @@ check_idempotent_no_change() {
         local current_size
         current_size=$(echo "$TASK" | jq -r '.size // ""')
         [[ "$current_size" != "$NEW_SIZE" ]] && has_actual_change=true
+    fi
+
+    if [[ -n "$NEW_NOAUTOCOMPLETE" ]]; then
+        local current_noautocomplete
+        current_noautocomplete=$(echo "$TASK" | jq -r '.noAutoComplete // "null"')
+        # Convert to comparable format
+        if [[ "$NEW_NOAUTOCOMPLETE" == "true" ]]; then
+            [[ "$current_noautocomplete" != "true" ]] && has_actual_change=true
+        elif [[ "$NEW_NOAUTOCOMPLETE" == "false" ]]; then
+            [[ "$current_noautocomplete" == "true" ]] && has_actual_change=true
+        fi
     fi
 
     # Array operations - clear and set always checked for actual effect

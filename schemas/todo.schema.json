@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
-  "schemaVersion": "2.6.1",
+  "schemaVersion": "2.7.0",
   "title": "CLEO Task Schema",
   "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
   "type": "object",
@@ -330,6 +330,11 @@
           "enum": ["backlog", "planning", "active", "review", "released", "archived", null],
           "default": null,
           "description": "Epic lifecycle state. Only applicable when type=epic. Null for tasks/subtasks."
+        },
+        "noAutoComplete": {
+          "type": ["boolean", "null"],
+          "default": null,
+          "description": "When true, this task/epic will NOT auto-complete even when all children are done. Use for permanent tracking epics or tasks that require explicit manual completion."
         },
         "blockedBy": {
           "type": "string",
