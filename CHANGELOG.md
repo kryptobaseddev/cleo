@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.65.0] - 2026-01-23
 
+> **Note**: v0.64.0 was skipped. During Epic T2058 implementation, the release automation
+> created v0.65.0 as a test release, and this version was kept for consistency.
+
 ### Added
 - **Schema v2.8.0 - Metadata & Roadmap Integration** (Epic T2058):
   - `updatedAt` field - Automatic timestamp on all task mutations for staleness detection
