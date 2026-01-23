@@ -273,6 +273,126 @@ EOF
 }
 
 # ============================================================================
+# COLLISION DETECTION AND LEGACY RECOGNITION
+# ============================================================================
+
+# Alias names we manage
+readonly CLAUDE_ALIAS_NAMES=("cc" "ccy" "ccr" "ccry" "cc-headless" "cc-headfull" "cc-headfull-stream")
+
+# detect_existing_aliases - Find existing aliases/functions with our names
+# Args: rc_file
+# Returns: JSON array of collisions
+# Example: [{"name":"cc","type":"alias","value":"echo test","isClaudeRelated":false}]
+detect_existing_aliases() {
+    local rc_file="$1"
+    local collisions=()
+
+    [[ ! -f "$rc_file" ]] && { echo "[]"; return 0; }
+
+    for alias_name in "${CLAUDE_ALIAS_NAMES[@]}"; do
+        # Check for alias definitions: alias cc='...' or alias cc="..."
+        local alias_match
+        alias_match=$(grep -E "^[[:space:]]*(alias[[:space:]]+${alias_name}=|${alias_name}\(\)[[:space:]]*\{)" "$rc_file" 2>/dev/null | head -1)
+
+        if [[ -n "$alias_match" ]]; then
+            # Determine type (alias or function)
+            local type="alias"
+            if [[ "$alias_match" =~ \(\) ]]; then
+                type="function"
+            fi
+
+            # Check if it's Claude-related (contains "claude" in the value)
+            local is_claude_related="false"
+            if echo "$alias_match" | grep -qi "claude"; then
+                is_claude_related="true"
+            fi
+
+            # Extract the value (simplified - just get the line)
+            local value
+            value=$(echo "$alias_match" | sed "s/'/\\\\\'/g" | tr -d '\n')
+
+            collisions+=("{\"name\":\"$alias_name\",\"type\":\"$type\",\"isClaudeRelated\":$is_claude_related}")
+        fi
+    done
+
+    if [[ ${#collisions[@]} -eq 0 ]]; then
+        echo "[]"
+    else
+        printf '[%s]' "$(IFS=,; echo "${collisions[*]}")"
+    fi
+}
+
+# detect_legacy_claude_aliases - Check for function-based Claude aliases
+# Args: rc_file
+# Returns: JSON object with detection result
+# Detects patterns like: _cc_env() function + cc() calling claude
+detect_legacy_claude_aliases() {
+    local rc_file="$1"
+
+    [[ ! -f "$rc_file" ]] && { echo '{"detected":false}'; return 0; }
+
+    local has_cc_env=false
+    local has_claude_functions=false
+    local has_claude_comment=false
+
+    # Check for _cc_env function (common pattern)
+    if grep -q "_cc_env()" "$rc_file" 2>/dev/null; then
+        has_cc_env=true
+    fi
+
+    # Check for functions calling claude
+    if grep -qE "^\s*(cc|ccy|ccr)\(\)" "$rc_file" 2>/dev/null; then
+        if grep -q "claude" "$rc_file" 2>/dev/null; then
+            has_claude_functions=true
+        fi
+    fi
+
+    # Check for "Claude Code Aliases" or similar comment
+    if grep -qi "claude.*aliases\|claude code" "$rc_file" 2>/dev/null; then
+        has_claude_comment=true
+    fi
+
+    # Determine if legacy aliases are present
+    local detected=false
+    if [[ "$has_cc_env" == true ]] || [[ "$has_claude_functions" == true && "$has_claude_comment" == true ]]; then
+        detected=true
+    fi
+
+    cat <<EOF
+{"detected":$detected,"hasCcEnv":$has_cc_env,"hasClaudeFunctions":$has_claude_functions,"hasClaudeComment":$has_claude_comment}
+EOF
+}
+
+# check_alias_collisions - Check for non-Claude alias collisions
+# Args: rc_file
+# Returns: JSON with collision info and recommendation
+check_alias_collisions() {
+    local rc_file="$1"
+
+    [[ ! -f "$rc_file" ]] && { echo '{"hasCollisions":false,"collisions":[]}'; return 0; }
+
+    # Skip if we already have CLEO block (our aliases are fine)
+    if aliases_has_block "$rc_file"; then
+        echo '{"hasCollisions":false,"collisions":[],"reason":"cleo_managed"}'
+        return 0
+    fi
+
+    local collisions_json
+    collisions_json=$(detect_existing_aliases "$rc_file")
+
+    # Check if any collisions are non-Claude related
+    local non_claude_count
+    non_claude_count=$(echo "$collisions_json" | jq '[.[] | select(.isClaudeRelated == false)] | length' 2>/dev/null || echo "0")
+
+    local has_collisions="false"
+    [[ "$non_claude_count" -gt 0 ]] && has_collisions="true"
+
+    cat <<EOF
+{"hasCollisions":$has_collisions,"nonClaudeCount":$non_claude_count,"collisions":$collisions_json}
+EOF
+}
+
+# ============================================================================
 # INJECTION AND REMOVAL OPERATIONS
 # ============================================================================
 
@@ -304,13 +424,44 @@ get_installed_aliases_version() {
 }
 
 # inject_aliases - Install aliases into RC file
-# Args: rc_file shell_type [--force]
+# Args: rc_file shell_type [--force] [--no-collision-check]
 # Returns: 0 on success, error code on failure
 # Output: JSON result object
+# Exit code 23: Collision detected (non-Claude aliases exist)
 inject_aliases() {
     local rc_file="$1"
     local shell_type="$2"
     local force="${3:-}"
+    local no_collision_check="${4:-}"
+
+    # Check for collisions unless --force or --no-collision-check
+    if [[ "$force" != "--force" ]] && [[ "$no_collision_check" != "--no-collision-check" ]] && [[ -f "$rc_file" ]]; then
+        # Skip collision check if we already manage this file
+        if ! aliases_has_block "$rc_file"; then
+            local collision_result
+            collision_result=$(check_alias_collisions "$rc_file")
+            local has_collisions
+            has_collisions=$(echo "$collision_result" | jq -r '.hasCollisions' 2>/dev/null || echo "false")
+
+            if [[ "$has_collisions" == "true" ]]; then
+                local collisions
+                collisions=$(echo "$collision_result" | jq -c '.collisions' 2>/dev/null || echo "[]")
+
+                # Check if these are legacy Claude aliases
+                local legacy_result
+                legacy_result=$(detect_legacy_claude_aliases "$rc_file")
+                local is_legacy
+                is_legacy=$(echo "$legacy_result" | jq -r '.detected' 2>/dev/null || echo "false")
+
+                if [[ "$is_legacy" == "true" ]]; then
+                    echo "{\"action\":\"blocked\",\"reason\":\"legacy_claude_aliases\",\"message\":\"Legacy Claude aliases detected. Use --force to replace them.\",\"collisions\":$collisions,\"legacy\":$legacy_result}"
+                else
+                    echo "{\"action\":\"blocked\",\"reason\":\"collision\",\"message\":\"Existing non-Claude aliases found. Use --force to override.\",\"collisions\":$collisions}"
+                fi
+                return 23  # E_COLLISION
+            fi
+        fi
+    fi
 
     local content
     content=$(get_alias_content "$shell_type") || return $?
@@ -426,6 +577,7 @@ remove_aliases() {
 
 # check_aliases_status - Check installation status for all shells
 # Returns: JSON object with status per shell
+# Statuses: current, outdated, not_installed, legacy (function-based), collision
 check_aliases_status() {
     local results=()
 
@@ -436,15 +588,41 @@ check_aliases_status() {
         local status="not_installed"
         local version=""
         local file_exists="false"
+        local has_legacy="false"
+        local has_collision="false"
 
         if [[ -f "$rc_file" ]]; then
             file_exists="true"
+
             if aliases_has_block "$rc_file"; then
+                # CLEO-managed aliases
                 version=$(get_installed_aliases_version "$rc_file")
                 if [[ "$version" == "$CLAUDE_ALIASES_VERSION" ]]; then
                     status="current"
                 else
                     status="outdated"
+                fi
+            else
+                # Check for legacy Claude aliases (function-based)
+                local legacy_result
+                legacy_result=$(detect_legacy_claude_aliases "$rc_file")
+                local is_legacy
+                is_legacy=$(echo "$legacy_result" | jq -r '.detected' 2>/dev/null || echo "false")
+
+                if [[ "$is_legacy" == "true" ]]; then
+                    status="legacy"
+                    has_legacy="true"
+                else
+                    # Check for non-Claude collisions
+                    local collision_result
+                    collision_result=$(check_alias_collisions "$rc_file")
+                    local collision_check
+                    collision_check=$(echo "$collision_result" | jq -r '.hasCollisions' 2>/dev/null || echo "false")
+
+                    if [[ "$collision_check" == "true" ]]; then
+                        status="collision"
+                        has_collision="true"
+                    fi
                 fi
             fi
         fi
@@ -453,7 +631,7 @@ check_aliases_status() {
         local version_json="null"
         [[ -n "$version" ]] && version_json="\"$version\""
 
-        results+=("{\"shell\":\"$shell_type\",\"rcFile\":\"$rc_file\",\"status\":\"$status\",\"version\":$version_json,\"fileExists\":$file_exists}")
+        results+=("{\"shell\":\"$shell_type\",\"rcFile\":\"$rc_file\",\"status\":\"$status\",\"version\":$version_json,\"fileExists\":$file_exists,\"hasLegacy\":$has_legacy,\"hasCollision\":$has_collision}")
     done
 
     # Build JSON array
@@ -480,6 +658,7 @@ export CLAUDE_ALIASES_MARKER_END
 export CLAUDE_ALIASES_VERSION
 export SUPPORTED_SHELLS
 export CLAUDE_ENV_VARS
+export CLAUDE_ALIAS_NAMES
 
 # Export shell detection functions
 export -f detect_available_shells
@@ -491,6 +670,11 @@ export -f get_alias_content
 export -f generate_bash_aliases
 export -f generate_powershell_aliases
 export -f generate_cmd_aliases
+
+# Export collision detection functions
+export -f detect_existing_aliases
+export -f detect_legacy_claude_aliases
+export -f check_alias_collisions
 
 # Export injection and removal operations
 export -f aliases_has_block

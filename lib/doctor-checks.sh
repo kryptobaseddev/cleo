@@ -983,6 +983,7 @@ EOF
     # Check each shell for alias installation
     local installed_count=0
     local outdated_count=0
+    local legacy_count=0
     local missing_count=0
     local shells_checked=0
     local shell_details=()
@@ -1010,8 +1011,19 @@ EOF
                 shell_details+=("{\"shell\":\"$shell_type\",\"status\":\"outdated\",\"version\":\"${version:-unknown}\"}")
             fi
         else
-            ((missing_count++))
-            shell_details+=("{\"shell\":\"$shell_type\",\"status\":\"missing\",\"version\":null}")
+            # Check for legacy Claude aliases (function-based, not CLEO-managed)
+            local legacy_check
+            legacy_check=$(detect_legacy_claude_aliases "$rc_file" 2>/dev/null || echo '{"detected":false}')
+            local is_legacy
+            is_legacy=$(echo "$legacy_check" | jq -r '.detected' 2>/dev/null || echo "false")
+
+            if [[ "$is_legacy" == "true" ]]; then
+                ((legacy_count++))
+                shell_details+=("{\"shell\":\"$shell_type\",\"status\":\"legacy\",\"version\":null,\"note\":\"Function-based aliases (not CLEO-managed)\"}")
+            else
+                ((missing_count++))
+                shell_details+=("{\"shell\":\"$shell_type\",\"status\":\"missing\",\"version\":null}")
+            fi
         fi
     done
 
@@ -1045,16 +1057,19 @@ EOF
     local message="Claude aliases installed and current"
     local fix="null"
 
-    if [[ $missing_count -gt 0 ]] || [[ $outdated_count -gt 0 ]]; then
+    if [[ $missing_count -gt 0 ]] || [[ $outdated_count -gt 0 ]] || [[ $legacy_count -gt 0 ]]; then
         status="warning"
-        if [[ $missing_count -gt 0 ]] && [[ $outdated_count -gt 0 ]]; then
-            message="Claude aliases missing ($missing_count) or outdated ($outdated_count)"
-        elif [[ $missing_count -gt 0 ]]; then
-            message="Claude aliases not installed ($missing_count shell(s))"
+        local issues=()
+        [[ $missing_count -gt 0 ]] && issues+=("missing: $missing_count")
+        [[ $outdated_count -gt 0 ]] && issues+=("outdated: $outdated_count")
+        [[ $legacy_count -gt 0 ]] && issues+=("legacy: $legacy_count")
+        message="Claude aliases issues ($(IFS=', '; echo "${issues[*]}"))"
+
+        if [[ $legacy_count -gt 0 ]]; then
+            fix="\"cleo setup-claude-aliases --force\""
         else
-            message="Claude aliases outdated ($outdated_count shell(s))"
+            fix="\"cleo setup-claude-aliases\""
         fi
-        fix="\"cleo setup-claude-aliases\""
     fi
 
     cat <<EOF
@@ -1068,6 +1083,7 @@ EOF
     "shellsChecked": $shells_checked,
     "installed": $installed_count,
     "outdated": $outdated_count,
+    "legacy": $legacy_count,
     "missing": $missing_count,
     "currentVersion": "$CLAUDE_ALIASES_VERSION",
     "shells": $details_json

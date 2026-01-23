@@ -1310,6 +1310,17 @@ main() {
   # Resolve format (TTY-aware auto-detection)
   FORMAT=$(resolve_format "${FORMAT:-}")
 
+  # Validate format (reject invalid formats instead of silent fallback)
+  local VALID_FORMATS="text json"
+  if ! echo "$VALID_FORMATS" | grep -qw "$FORMAT"; then
+    if declare -f output_error >/dev/null 2>&1; then
+      output_error "E_INPUT_INVALID" "Invalid format: $FORMAT" "${EXIT_INVALID_INPUT:-2}" true "Valid formats: $VALID_FORMATS"
+    else
+      echo "[ERROR] Invalid format: $FORMAT. Valid formats: $VALID_FORMATS" >&2
+    fi
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
   # Check if in a todo-enabled project
   if [[ ! -f "$TODO_FILE" ]]; then
     if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
