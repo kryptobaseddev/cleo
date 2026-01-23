@@ -105,7 +105,7 @@ create_corrupted_checksum_todo() {
     local dest="${1:-$TODO_FILE}"
     cat > "$dest" << 'EOF'
 {
-  "_meta": {"version": "2.1.0", "checksum": "invalid_checksum_12345"},
+  "_meta": {"schemaVersion": "2.8.0", "checksum": "invalid_checksum_12345"},
   "tasks": [
     {
       "id": "T001",
@@ -113,6 +113,7 @@ create_corrupted_checksum_todo() {
       "description": "Task with corrupted checksum",
       "status": "pending",
       "priority": "medium",
+      "size": "medium",
       "createdAt": "2025-12-01T10:00:00Z"
     }
   ],
