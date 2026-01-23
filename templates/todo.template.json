@@ -53,7 +53,8 @@
     "checksum": "{{CHECKSUM}}",
     "configVersion": "{{SCHEMA_VERSION_CONFIG}}",
     "lastSessionId": null,
-    "activeSession": null
+    "activeSession": null,
+    "generation": 0
   },
   "focus": {
     "currentTask": null,

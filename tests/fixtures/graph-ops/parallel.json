@@ -1,0 +1,56 @@
+{
+  "version": "2.3.0",
+  "project": {
+    "name": "parallel-tasks-test",
+    "currentPhase": "core",
+    "phases": {
+      "setup": {"order": 1, "name": "Setup", "description": "Initial setup", "status": "completed", "startedAt": "2025-12-01T10:00:00Z", "completedAt": "2025-12-10T10:00:00Z"},
+      "core": {"order": 2, "name": "Core", "description": "Core features", "status": "active", "startedAt": "2025-12-10T10:00:00Z", "completedAt": null},
+      "testing": {"order": 3, "name": "Testing", "description": "Testing and validation", "status": "pending", "startedAt": null, "completedAt": null},
+      "polish": {"order": 4, "name": "Polish", "description": "Polish and optimization", "status": "pending", "startedAt": null, "completedAt": null},
+      "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
+    }
+  },
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Independent Task A",
+      "description": "First independent task with no dependencies",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "depends": [],
+      "createdAt": "2025-12-01T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T002",
+      "title": "Independent Task B",
+      "description": "Second independent task with no dependencies",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "depends": [],
+      "createdAt": "2025-12-02T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T003",
+      "title": "Convergence Task",
+      "description": "Task that depends on both T001 and T002",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T001", "T002"],
+      "createdAt": "2025-12-03T10:00:00Z",
+      "notes": []
+    }
+  ],
+  "focus": {"currentPhase": "core"},
+  "labels": {},
+  "_meta": {"version": "2.3.0", "checksum": "paralleltest01", "lastModified": "2025-12-03T10:00:00Z"},
+  "lastUpdated": "2025-12-03T10:00:00Z"
+}

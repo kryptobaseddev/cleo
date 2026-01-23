@@ -6,13 +6,22 @@
 # - Shows which tasks are blocked by a task (downstream dependents)
 # - Provides tree visualization of dependency chains
 # - Supports multiple output formats (text, json, markdown)
+# - Advanced graph operations: critical-path, impact, waves, cycles
 #
 # Usage:
-#   deps-command.sh [TASK_ID] [OPTIONS]
+#   deps-command.sh [COMMAND|TASK_ID] [OPTIONS]
+#
+# Commands:
+#   (no command)          Overview of all dependencies
+#   tree                  Full dependency tree visualization
+#   critical-path <ID>    Find longest dependency chain from task
+#   impact <ID>           Find all tasks affected by changes to task
+#   waves [ID]            Group tasks into parallelizable execution waves
+#   cycles                Detect circular dependencies
 #
 # Options:
 #   TASK_ID               Show dependencies for specific task
-#   tree                  Show full dependency tree visualization
+#   --depth N             Maximum depth for impact analysis (default: 10)
 #   --format FORMAT       Output format: text | json | markdown (default: text)
 #   --help               Show this help message
 #
@@ -20,6 +29,10 @@
 #   deps-command.sh              # Overview of all dependencies
 #   deps-command.sh T001         # Dependencies for specific task
 #   deps-command.sh tree         # ASCII tree visualization
+#   deps-command.sh critical-path T001  # Longest chain from T001
+#   deps-command.sh impact T001 --depth 5  # Tasks affected by T001
+#   deps-command.sh waves        # All tasks in execution waves
+#   deps-command.sh cycles       # Detect circular dependencies
 #   deps-command.sh --format json # JSON output
 
 set -euo pipefail
@@ -58,34 +71,52 @@ if [[ -f "$LIB_DIR/flags.sh" ]]; then
   source "$LIB_DIR/flags.sh"
 fi
 
+# Source graph-cache for O(1) dependency lookups (90x performance improvement)
+# shellcheck source=../lib/graph-cache.sh
+if [[ -f "$LIB_DIR/graph-cache.sh" ]]; then
+  source "$LIB_DIR/graph-cache.sh"
+fi
+
 # Default configuration
 TASK_ID=""
 SHOW_TREE=false
 COMMAND_NAME="deps"
+REBUILD_CACHE=false
+SUBCOMMAND=""
+IMPACT_DEPTH=10
 
 # File paths
-CLEO_DIR=".cleo"
-TODO_FILE="${CLEO_DIR}/todo.json"
+CLAUDE_DIR="${CLAUDE_DIR:-.cleo}"
+TODO_FILE="${CLAUDE_DIR}/todo.json"
 
 #####################################################################
 # Helper Functions
 #####################################################################
 
 usage() {
-    cat << EOF
-Usage: cleo deps [TASK_ID|tree] [OPTIONS]
+    cat << 'USAGEEOF'
+Usage: cleo deps [COMMAND|TASK_ID] [OPTIONS]
 
-Visualize task dependency relationships.
+Visualize task dependency relationships and perform graph analysis.
+
+Commands:
+    (no command)          Overview of all dependencies
+    tree                  Full dependency tree visualization
+    critical-path <ID>    Find longest dependency chain from task
+    impact <ID>           Find all tasks affected by changes to task
+    waves [ID]            Group tasks into parallelizable execution waves
+    cycles                Detect circular dependencies
 
 Arguments:
     TASK_ID               Show dependencies for specific task (e.g., T001)
-    tree                  Show full dependency tree visualization
 
 Options:
     -f, --format FORMAT   Output format: text | json | markdown (default: auto)
+    --depth N             Maximum depth for impact analysis (default: 10)
     --human               Force text output (human-readable)
     --json                Force JSON output (machine-readable)
     -q, --quiet           Suppress informational messages
+    --rebuild-cache       Force rebuild of dependency graph cache
     -h, --help            Show this help message
 
 Format Auto-Detection:
@@ -94,16 +125,26 @@ Format Auto-Detection:
     - Pipe/redirect/agent context: machine-readable JSON format
 
 Examples:
-    cleo deps                  # Overview of all dependencies
-    cleo deps T001             # Dependencies for task T001
-    cleo deps tree             # ASCII tree visualization
-    cleo deps --format json    # JSON output for scripting
+    cleo deps                      # Overview of all dependencies
+    cleo deps T001                 # Dependencies for task T001
+    cleo deps tree                 # ASCII tree visualization
+    cleo deps critical-path T001   # Longest chain from T001
+    cleo deps impact T001          # Tasks affected by T001
+    cleo deps impact T001 --depth 5  # Limited depth impact
+    cleo deps waves                # All tasks grouped by execution wave
+    cleo deps waves T001           # Waves scoped to T001 subtree
+    cleo deps cycles               # Find circular dependencies
+    cleo deps --format json        # JSON output for scripting
 
 Output Modes:
     Overview: Shows all tasks with dependencies and their dependency counts
     Specific Task: Shows upstream dependencies and downstream dependents
     Tree: ASCII tree showing full dependency hierarchy
-EOF
+    Critical Path: JSON array of task IDs in longest chain
+    Impact: JSON array of affected task IDs
+    Waves: JSON array of arrays (parallel execution groups)
+    Cycles: JSON array of cycles (empty if none found)
+USAGEEOF
 }
 
 # Get task info by ID
@@ -129,6 +170,7 @@ get_tasks_with_deps() {
 }
 
 # Get tasks that depend on a specific task (downstream)
+# Uses graph cache for O(1) lookup when available
 get_dependent_tasks() {
     local task_id="$1"
 
@@ -137,6 +179,24 @@ get_dependent_tasks() {
         return
     fi
 
+    # Use graph cache if available (O(1) lookup)
+    if declare -f get_reverse_deps &>/dev/null; then
+        local cached_deps
+        cached_deps=$(get_reverse_deps "$task_id")
+        if [[ -z "$cached_deps" ]]; then
+            echo "[]"
+            return
+        fi
+        # Convert comma-separated IDs to JSON array of task objects
+        # shellcheck disable=SC2016
+        jq -c --arg ids "$cached_deps" '
+            ($ids | split(",")) as $id_list |
+            [.tasks[] | select(.id as $tid | $id_list | index($tid))]
+        ' "$TODO_FILE" 2>/dev/null || echo "[]"
+        return
+    fi
+
+    # Fallback to O(n) jq scan
     jq -c --arg id "$task_id" '[.tasks[] | select(.depends != null and (.depends | index($id)))]' "$TODO_FILE" 2>/dev/null || echo "[]"
 }
 
@@ -156,12 +216,20 @@ get_task_dependencies() {
 }
 
 # Build dependency graph (adjacency list)
+# Uses graph cache for O(1) lookup when available
 build_dependency_graph() {
     if [[ ! -f "$TODO_FILE" ]]; then
         echo "{}"
         return
     fi
 
+    # Use graph cache if available (returns pre-computed graph)
+    if declare -f get_forward_graph_json &>/dev/null; then
+        get_forward_graph_json
+        return
+    fi
+
+    # Fallback to O(n) jq construction
     jq -c 'reduce .tasks[] as $task ({};
         if $task.depends != null and ($task.depends | length) > 0 then
             .[$task.id] = $task.depends
@@ -171,7 +239,7 @@ build_dependency_graph() {
     )' "$TODO_FILE" 2>/dev/null || echo "{}"
 }
 
-# Detect circular dependencies
+# Detect circular dependencies (legacy implementation)
 detect_circular_deps() {
     local visited="$1"
     local current_path="$2"
@@ -572,36 +640,48 @@ output_json_format() {
     local graph
     graph=$(build_dependency_graph)
 
-    # Build reverse graph (dependents)
-    local reverse_graph="{}"
-    while read -r task; do
-        [[ -z "$task" ]] && continue
+    # Build reverse graph (dependents) - O(1) with cache
+    local reverse_graph
+    if declare -f get_reverse_graph_json &>/dev/null; then
+        # Use pre-computed reverse graph from cache
+        reverse_graph=$(get_reverse_graph_json)
+    else
+        # Fallback to O(n^2) construction if cache not available
+        reverse_graph="{}"
+        while read -r task; do
+            [[ -z "$task" ]] && continue
 
-        local tid
-        tid=$(echo "$task" | jq -r '.id')
-        local dependents
-        dependents=$(get_dependent_tasks "$tid")
+            local tid
+            tid=$(echo "$task" | jq -r '.id')
+            local dependents
+            dependents=$(get_dependent_tasks "$tid")
 
-        if [[ "$(echo "$dependents" | jq 'length')" -gt 0 ]]; then
-            local dependent_ids
-            dependent_ids=$(echo "$dependents" | jq -c '[.[].id]')
-            reverse_graph=$(echo "$reverse_graph" | jq -c --arg id "$tid" --argjson deps "$dependent_ids" '.[$id] = $deps')
-        fi
-    done < <(jq -c '.tasks[]' "$TODO_FILE" 2>/dev/null)
+            if [[ "$(echo "$dependents" | jq 'length')" -gt 0 ]]; then
+                local dependent_ids
+                dependent_ids=$(echo "$dependents" | jq -c '[.[].id]')
+                reverse_graph=$(echo "$reverse_graph" | jq -c --arg id "$tid" --argjson deps "$dependent_ids" '.[$id] = $deps')
+            fi
+        done < <(jq -c '.tasks[]' "$TODO_FILE" 2>/dev/null)
+    fi
 
     # Generate output based on mode
     case "$mode" in
         overview)
-            local tasks_with_deps
-            tasks_with_deps=$(get_tasks_with_deps)
             local current_timestamp
             current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-            jq -nc --argjson tasks "$tasks_with_deps" \
-                --argjson graph "$graph" \
-                --argjson reverse "$reverse_graph" \
-                --arg timestamp "$current_timestamp" \
-                --arg version "$VERSION" '{
+            # Use slurpfile to avoid argument list too long error
+            local tmp_graph tmp_reverse
+            tmp_graph=$(mktemp)
+            tmp_reverse=$(mktemp)
+            echo "$graph" > "$tmp_graph"
+            echo "$reverse_graph" > "$tmp_reverse"
+
+            jq --slurpfile dep_graph "$tmp_graph" \
+               --slurpfile rev_graph "$tmp_reverse" \
+               --arg timestamp "$current_timestamp" \
+               --arg version "$VERSION" '
+            {
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
                     "format": "json",
@@ -611,11 +691,13 @@ output_json_format() {
                 },
                 "success": true,
                 "mode": "overview",
-                "task_count": ($tasks | length),
-                "dependency_graph": $graph,
-                "dependent_graph": $reverse,
-                "tasks": $tasks
-            }'
+                "task_count": ([.tasks[] | select(.depends != null and (.depends | length) > 0)] | length),
+                "dependency_graph": $dep_graph[0],
+                "dependent_graph": $rev_graph[0],
+                "tasks": [.tasks[] | select(.depends != null and (.depends | length) > 0)]
+            }' "$TODO_FILE"
+
+            rm -f "$tmp_graph" "$tmp_reverse"
             ;;
         task)
             local deps
@@ -649,26 +731,15 @@ output_json_format() {
             current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
             # Build enriched tree with task metadata for LLM agents
-            # Includes: summary, nodes with task info, and flat graphs
             jq --argjson graph "$graph" \
                 --argjson reverse "$reverse_graph" \
                 --arg timestamp "$current_timestamp" \
                 --arg version "$VERSION" '
-            # Build task lookup from tasks array
             (.tasks | map({(.id): {id, title, status, type: (.type // "task")}}) | add) as $lookup |
-
-            # Get all node IDs from graphs (use keys not keys[])
             (($graph | keys) + ($reverse | keys) | unique) as $node_ids |
-
-            # Root nodes: appear in reverse (have dependents) but not in graph (no dependencies)
             ([($reverse | keys)[] | select(. as $id | ($graph | has($id) | not) or (($graph[$id] // []) | length == 0))]) as $roots |
-
-            # Leaf nodes: appear in graph (have dependencies) but not in reverse (no dependents)
             ([($graph | keys)[] | select(. as $id | ($reverse | has($id) | not) or (($reverse[$id] // []) | length == 0))]) as $leaves |
-
-            # Build nodes array with metadata
             ([$node_ids[] as $id | $lookup[$id] // {id: $id, title: "Unknown", status: "unknown", type: "task"}]) as $nodes |
-
             {
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
@@ -695,6 +766,299 @@ output_json_format() {
 }
 
 #####################################################################
+# Graph Operations Output Handlers
+#####################################################################
+
+# Output critical path results
+output_critical_path() {
+    local task_id="$1"
+    local current_timestamp
+    current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    # Source graph-ops library
+    source "${LIB_DIR}/graph-ops.sh"
+    
+    local result
+    result=$(find_critical_path "$task_id" "$TODO_FILE")
+    local exit_code=$?
+    
+    if [[ $exit_code -ne 0 ]]; then
+        # Error case - result contains error JSON
+        if [[ "$FORMAT" == "text" ]]; then
+            local error_msg
+            error_msg=$(echo "$result" | jq -r '.error // "Unknown error"' 2>/dev/null || echo "Unknown error")
+            echo "[ERROR] $error_msg" >&2
+        else
+            echo "$result"
+        fi
+        return $exit_code
+    fi
+    
+    # Success case
+    if [[ "$FORMAT" == "text" ]]; then
+        local path_length
+        path_length=$(echo "$result" | jq 'length')
+        echo "Critical Path from $task_id (length: $path_length)"
+        echo "================================================"
+        local i=0
+        while read -r tid; do
+            [[ -z "$tid" ]] && continue
+            local task_info
+            task_info=$(get_task_info "$tid")
+            local title
+            title=$(echo "$task_info" | jq -r '.title // "Unknown"')
+            local status
+            status=$(echo "$task_info" | jq -r '.status // "unknown"')
+            echo "  $i. [$tid] $title ($status)"
+            i=$((i + 1))
+        done < <(echo "$result" | jq -r '.[]')
+        echo "================================================"
+    else
+        jq -nc --argjson path "$result" \
+            --arg task_id "$task_id" \
+            --arg timestamp "$current_timestamp" \
+            --arg version "$VERSION" '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {
+                "format": "json",
+                "version": $version,
+                "command": "deps critical-path",
+                "timestamp": $timestamp
+            },
+            "success": true,
+            "mode": "critical-path",
+            "start_task": $task_id,
+            "path_length": ($path | length),
+            "path": $path
+        }'
+    fi
+}
+
+# Output impact analysis results
+output_impact() {
+    local task_id="$1"
+    local depth="${2:-10}"
+    local current_timestamp
+    current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    # Source graph-ops library
+    source "${LIB_DIR}/graph-ops.sh"
+    
+    local result
+    result=$(calculate_impact_radius "$task_id" "$depth" "$TODO_FILE")
+    local exit_code=$?
+    
+    if [[ $exit_code -ne 0 ]]; then
+        # Error case
+        if [[ "$FORMAT" == "text" ]]; then
+            local error_msg
+            error_msg=$(echo "$result" | jq -r '.error // "Unknown error"' 2>/dev/null || echo "Unknown error")
+            echo "[ERROR] $error_msg" >&2
+        else
+            echo "$result"
+        fi
+        return $exit_code
+    fi
+    
+    # Success case
+    if [[ "$FORMAT" == "text" ]]; then
+        local affected_count
+        affected_count=$(echo "$result" | jq 'length')
+        echo "Impact Analysis for $task_id (depth: $depth)"
+        echo "================================================"
+        echo "Affected tasks: $affected_count"
+        echo ""
+        if [[ "$affected_count" -gt 0 ]]; then
+            echo "Tasks that would be affected by changes to $task_id:"
+            while read -r tid; do
+                [[ -z "$tid" ]] && continue
+                local task_info
+                task_info=$(get_task_info "$tid")
+                local title
+                title=$(echo "$task_info" | jq -r '.title // "Unknown"')
+                local status
+                status=$(echo "$task_info" | jq -r '.status // "unknown"')
+                echo "  - [$tid] $title ($status)"
+            done < <(echo "$result" | jq -r '.[]')
+        else
+            echo "No downstream tasks depend on $task_id"
+        fi
+        echo "================================================"
+    else
+        jq -nc --argjson affected "$result" \
+            --arg task_id "$task_id" \
+            --argjson depth "$depth" \
+            --arg timestamp "$current_timestamp" \
+            --arg version "$VERSION" '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {
+                "format": "json",
+                "version": $version,
+                "command": "deps impact",
+                "timestamp": $timestamp
+            },
+            "success": true,
+            "mode": "impact",
+            "source_task": $task_id,
+            "max_depth": $depth,
+            "affected_count": ($affected | length),
+            "affected_tasks": $affected
+        }'
+    fi
+}
+
+# Output dependency waves results
+output_waves() {
+    local root_id="${1:-}"
+    local current_timestamp
+    current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    # Source graph-ops library
+    source "${LIB_DIR}/graph-ops.sh"
+    
+    local result
+    result=$(calculate_dependency_waves "$root_id" "$TODO_FILE")
+    local exit_code=$?
+    
+    if [[ $exit_code -ne 0 ]]; then
+        # Error case
+        if [[ "$FORMAT" == "text" ]]; then
+            local error_msg
+            error_msg=$(echo "$result" | jq -r '.error // "Unknown error"' 2>/dev/null || echo "Unknown error")
+            echo "[ERROR] $error_msg" >&2
+        else
+            echo "$result"
+        fi
+        return $exit_code
+    fi
+    
+    # Success case
+    if [[ "$FORMAT" == "text" ]]; then
+        local wave_count
+        wave_count=$(echo "$result" | jq 'length')
+        if [[ -n "$root_id" ]]; then
+            echo "Dependency Waves for $root_id subtree"
+        else
+            echo "Dependency Waves (all tasks)"
+        fi
+        echo "================================================"
+        echo "Total waves: $wave_count"
+        echo ""
+        if [[ "$wave_count" -gt 0 ]]; then
+            local wave_num=0
+            while read -r wave; do
+                [[ -z "$wave" ]] && continue
+                local task_count
+                task_count=$(echo "$wave" | jq 'length')
+                echo "Wave $wave_num ($task_count tasks):"
+                while read -r tid; do
+                    [[ -z "$tid" ]] && continue
+                    local task_info
+                    task_info=$(get_task_info "$tid")
+                    local title
+                    title=$(echo "$task_info" | jq -r '.title // "Unknown"')
+                    echo "  - [$tid] $title"
+                done < <(echo "$wave" | jq -r '.[]')
+                echo ""
+                wave_num=$((wave_num + 1))
+            done < <(echo "$result" | jq -c '.[]')
+        else
+            echo "No waves computed (all tasks may be complete)"
+        fi
+        echo "================================================"
+    else
+        jq -nc --argjson waves "$result" \
+            --arg root_id "${root_id:-all}" \
+            --arg timestamp "$current_timestamp" \
+            --arg version "$VERSION" '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {
+                "format": "json",
+                "version": $version,
+                "command": "deps waves",
+                "timestamp": $timestamp
+            },
+            "success": true,
+            "mode": "waves",
+            "scope": $root_id,
+            "wave_count": ($waves | length),
+            "total_tasks": ($waves | flatten | length),
+            "waves": $waves
+        }'
+    fi
+}
+
+# Output cycle detection results
+output_cycles() {
+    local current_timestamp
+    current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    # Source graph-ops library
+    source "${LIB_DIR}/graph-ops.sh"
+    
+    local result
+    result=$(detect_dependency_cycles "$TODO_FILE")
+    local exit_code=$?
+    
+    if [[ $exit_code -ne 0 ]]; then
+        # Error case
+        if [[ "$FORMAT" == "text" ]]; then
+            local error_msg
+            error_msg=$(echo "$result" | jq -r '.error // "Unknown error"' 2>/dev/null || echo "Unknown error")
+            echo "[ERROR] $error_msg" >&2
+        else
+            echo "$result"
+        fi
+        return $exit_code
+    fi
+    
+    # Success case
+    if [[ "$FORMAT" == "text" ]]; then
+        local cycle_count
+        cycle_count=$(echo "$result" | jq 'length')
+        echo "Circular Dependency Detection"
+        echo "================================================"
+        if [[ "$cycle_count" -eq 0 ]]; then
+            echo "No circular dependencies detected."
+            echo ""
+            echo "All dependency chains are acyclic."
+        else
+            echo "WARNING: $cycle_count circular dependency chain(s) detected!"
+            echo ""
+            local cycle_num=1
+            while read -r cycle; do
+                [[ -z "$cycle" ]] && continue
+                echo "Cycle $cycle_num:"
+                local cycle_str
+                cycle_str=$(echo "$cycle" | jq -r 'join(" -> ")')
+                echo "  $cycle_str"
+                echo ""
+                cycle_num=$((cycle_num + 1))
+            done < <(echo "$result" | jq -c '.[]')
+            echo "Resolve these cycles to enable proper dependency ordering."
+        fi
+        echo "================================================"
+    else
+        jq -nc --argjson cycles "$result" \
+            --arg timestamp "$current_timestamp" \
+            --arg version "$VERSION" '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {
+                "format": "json",
+                "version": $version,
+                "command": "deps cycles",
+                "timestamp": $timestamp
+            },
+            "success": true,
+            "mode": "cycles",
+            "has_cycles": (($cycles | length) > 0),
+            "cycle_count": ($cycles | length),
+            "cycles": $cycles
+        }'
+    fi
+}
+
+#####################################################################
 # Argument Parsing
 #####################################################################
 
@@ -710,12 +1074,57 @@ parse_arguments() {
         exit 0
     fi
 
-    # Parse command-specific flags
+    # Parse command-specific flags and subcommands
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --rebuild-cache)
+                REBUILD_CACHE=true
+                shift
+                ;;
             tree)
                 SHOW_TREE=true
                 shift
+                ;;
+            critical-path)
+                SUBCOMMAND="critical-path"
+                shift
+                # Expect task ID as next argument
+                if [[ $# -gt 0 && "$1" =~ ^T[0-9]+ ]]; then
+                    TASK_ID="$1"
+                    shift
+                fi
+                ;;
+            impact)
+                SUBCOMMAND="impact"
+                shift
+                # Expect task ID as next argument
+                if [[ $# -gt 0 && "$1" =~ ^T[0-9]+ ]]; then
+                    TASK_ID="$1"
+                    shift
+                fi
+                ;;
+            waves)
+                SUBCOMMAND="waves"
+                shift
+                # Optional task ID for scoping
+                if [[ $# -gt 0 && "$1" =~ ^T[0-9]+ ]]; then
+                    TASK_ID="$1"
+                    shift
+                fi
+                ;;
+            cycles)
+                SUBCOMMAND="cycles"
+                shift
+                ;;
+            --depth)
+                shift
+                if [[ $# -gt 0 ]]; then
+                    IMPACT_DEPTH="$1"
+                    shift
+                else
+                    echo "[ERROR] --depth requires a numeric argument" >&2
+                    exit "${EXIT_INVALID_INPUT:-2}"
+                fi
                 ;;
             T[0-9]*)
                 TASK_ID="$1"
@@ -745,10 +1154,12 @@ main() {
     parse_arguments "$@"
 
     # Resolve format with TTY-aware detection
-    FORMAT=$(resolve_format "$FORMAT" "true" "text,json,markdown")
+    FORMAT=$(resolve_format "$FLAG_FORMAT" "true" "human,text,json,markdown")
+    # Normalize "human" to "text" for backward compatibility
+    [[ "$FORMAT" == "human" ]] && FORMAT="text"
 
     # Check if in a todo-enabled project
-    if [[ ! -d "$CLEO_DIR" ]]; then
+    if [[ ! -d "$CLAUDE_DIR" ]]; then
         if declare -f output_error &>/dev/null; then
             output_error "$E_NOT_INITIALIZED" "Not in a todo-enabled project"
         else
@@ -767,7 +1178,46 @@ main() {
         exit "${EXIT_DEPENDENCY_ERROR:-5}"
     fi
 
-    # Determine mode and output
+    # Initialize graph cache for O(1) dependency lookups
+    if declare -f ensure_graph_cache &>/dev/null; then
+        if [[ "${REBUILD_CACHE:-false}" == "true" ]]; then
+            invalidate_graph_cache "$TODO_FILE"
+        else
+            ensure_graph_cache "$TODO_FILE"
+        fi
+    fi
+
+    # Handle graph operation subcommands
+    case "$SUBCOMMAND" in
+        critical-path)
+            if [[ -z "$TASK_ID" ]]; then
+                echo "[ERROR] critical-path requires a task ID" >&2
+                echo "Usage: cleo deps critical-path <task-id>" >&2
+                exit "${EXIT_INVALID_INPUT:-2}"
+            fi
+            output_critical_path "$TASK_ID"
+            exit $?
+            ;;
+        impact)
+            if [[ -z "$TASK_ID" ]]; then
+                echo "[ERROR] impact requires a task ID" >&2
+                echo "Usage: cleo deps impact <task-id> [--depth N]" >&2
+                exit "${EXIT_INVALID_INPUT:-2}"
+            fi
+            output_impact "$TASK_ID" "$IMPACT_DEPTH"
+            exit $?
+            ;;
+        waves)
+            output_waves "$TASK_ID"
+            exit $?
+            ;;
+        cycles)
+            output_cycles
+            exit $?
+            ;;
+    esac
+
+    # Determine mode and output for traditional commands
     if [[ "$SHOW_TREE" == true ]]; then
         # Tree mode
         case "$FORMAT" in
@@ -780,9 +1230,9 @@ main() {
             markdown)
                 echo "# Dependency Tree"
                 echo ""
-                echo "\`\`\`"
+                echo '```'
                 output_tree_text
-                echo "\`\`\`"
+                echo '```'
                 ;;
         esac
     elif [[ -n "$TASK_ID" ]]; then

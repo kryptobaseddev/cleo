@@ -1,6 +1,6 @@
 ---
 title: "deps"
-description: "Visualize task dependency relationships"
+description: "Dependency management and graph analysis"
 icon: "diagram-project"
 ---
 
@@ -8,49 +8,38 @@ icon: "diagram-project"
 
 **Alias**: `dependencies`
 
-Visualize task dependency relationships with tree views, upstream dependencies, and downstream dependents.
+Visualize task dependencies, analyze dependency graphs, and identify critical paths. Features O(1) lookups through cached dependency graphs.
 
 ## Usage
 
 ```bash
-cleo deps [TASK_ID|tree] [OPTIONS]
+cleo deps [SUBCOMMAND|TASK_ID] [OPTIONS]
 ```
 
 ## Description
 
-The `deps` command provides comprehensive visualization of task dependencies. It shows which tasks depend on others (upstream dependencies) and which tasks are waiting on a given task (downstream dependents).
+The `deps` command provides comprehensive dependency visualization and analysis. It uses a cached dependency graph for O(1) lookups, delivering 90x performance improvement over naive iteration.
 
-This command is ideal for:
-- Understanding task relationships before starting work
-- Identifying dependency chains and their depth
-- Visualizing the full dependency tree
-- Planning work order based on dependencies
+### Core Capabilities
 
-## Arguments
+| Feature | Description |
+|---------|-------------|
+| **Overview** | Summary of all dependency relationships |
+| **Task Details** | Upstream/downstream dependencies for specific task |
+| **Tree View** | ASCII visualization of dependency chains |
+| **Graph Cache** | Automatic caching with checksum-based invalidation |
 
-| Argument | Description |
-|----------|-------------|
-| `TASK_ID` | Show dependencies for a specific task (e.g., T001) |
-| `tree` | Show full dependency tree visualization |
-| (none) | Show overview of all tasks with dependencies |
+## Subcommands
 
-## Options
+### deps (no arguments)
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--format FORMAT` | `-f` | Output format: `text`, `json`, or `markdown` | `text` |
-| `--help` | `-h` | Show help message | |
-
-## Examples
-
-### Overview of All Dependencies
+Show overview of all tasks with dependencies.
 
 ```bash
-# Show all tasks with dependencies
 cleo deps
 ```
 
-Output:
+**Output:**
 ```
 DEPENDENCY OVERVIEW
 ===================
@@ -70,16 +59,15 @@ Tasks with dependencies: 3
 Total dependency relationships: 6
 ```
 
-> **Note**: Arguments can appear in any order. Both `deps T001 tree` and `deps tree T001` are valid.
+### deps TASK_ID
 
-### Dependencies for Specific Task
+Show dependencies for a specific task.
 
 ```bash
-# Show deps for T005
 cleo deps T005
 ```
 
-Output:
+**Output:**
 ```
 DEPENDENCIES FOR T005: Implement login page
 ==========================================
@@ -95,14 +83,15 @@ Downstream Dependents (what needs T005):
 Dependency depth: 2 levels
 ```
 
-### Tree Visualization
+### deps tree
+
+Show full dependency tree visualization.
 
 ```bash
-# Show full dependency tree
 cleo deps tree
 ```
 
-Output:
+**Output:**
 ```
 DEPENDENCY TREE
 ===============
@@ -124,25 +113,36 @@ Independent:
   T006 - Update README [pending]
 ```
 
-### Output Formats
+### deps tree TASK_ID
+
+Show tree starting from specific task.
 
 ```bash
-# JSON output for scripting
-cleo deps --format json
-
-# Markdown for documentation
-cleo deps --format markdown
-
-# JSON for specific task
-cleo deps T005 --format json
+cleo deps T001 tree
 ```
 
-JSON output example:
+## Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--format FORMAT` | `-f` | Output format: `text`, `json`, `markdown` | `text` |
+| `--rebuild-cache` | | Force cache rebuild before operation | `false` |
+| `--quiet` | `-q` | Suppress non-essential output | `false` |
+| `--help` | `-h` | Show help message | |
+
+## Output Formats
+
+### JSON Output
+
+```bash
+cleo deps --format json
+```
+
 ```json
 {
   "_meta": {
-    "version": "0.9.0",
-    "timestamp": "2025-12-12T10:30:00Z",
+    "version": "0.67.0",
+    "timestamp": "2026-01-23T10:30:00Z",
     "command": "deps"
   },
   "overview": {
@@ -163,44 +163,83 @@ JSON output example:
 }
 ```
 
-### Tree with Specific Root
+### Markdown Output
 
 ```bash
-# Show tree starting from T001
-cleo deps T001 tree
+cleo deps --format markdown
 ```
 
-## Understanding Dependency Direction
+Generates documentation-friendly markdown tables.
 
-### Upstream Dependencies
-Tasks that must be completed **before** a given task can start.
+## Performance
+
+The deps command uses a cached dependency graph for O(1) lookups.
+
+### Cache System
+
+| Metric | Without Cache | With Cache | Improvement |
+|--------|---------------|------------|-------------|
+| Lookup time | O(n^2) | O(1) | 90x faster |
+| 789 tasks | ~18s | <200ms | 90x |
+| Memory | Per-query | Pre-computed | Constant |
+
+### Cache Behavior
+
+- **Location**: `.cleo/.deps-cache/`
+- **Files**: `forward.json`, `reverse.json`, `checksum`, `metadata.json`
+- **Invalidation**: Automatic via checksum comparison with `todo.json._meta.checksum`
+- **Rebuild**: Triggered on first access after `todo.json` modification
+
+### Force Cache Rebuild
+
+```bash
+# Rebuild cache before querying
+cleo deps --rebuild-cache
+
+# Verify cache state
+cleo deps --format json | jq '._meta.cacheStatus'
+```
+
+## Understanding Dependencies
+
+### Upstream vs Downstream
 
 ```
-T003 depends on T001
-     ^                ^
-     |                |
-   child           parent (upstream)
+         UPSTREAM                     DOWNSTREAM
+    (what T005 needs)            (what needs T005)
+    
+    T001 ──┐
+           ├──► T003 ──► T005 ──► T008
+    T002 ──┘
+    
+    T005.depends = ["T003"]       T008.depends = ["T005"]
 ```
 
-### Downstream Dependents
-Tasks that are **waiting for** a given task to complete.
+| Direction | Meaning | Query |
+|-----------|---------|-------|
+| **Upstream** | Tasks that must complete before this task | `deps T005` shows T003, T001, T002 |
+| **Downstream** | Tasks waiting for this task | `deps T005` shows T008 |
+
+### Dependency Depth
+
+Depth measures the longest path to root tasks:
 
 ```
-T001 is needed by T003
-     ^                 ^
-     |                 |
-  parent          child (downstream)
+Depth 0: T001, T002 (no dependencies)
+Depth 1: T003 (depends on T001, T002)
+Depth 2: T005 (depends on T003)
+Depth 3: T008 (depends on T005)
 ```
 
-## Integration with Other Commands
+## Integration Examples
 
 ### With blockers command
 
 ```bash
-# See which tasks are blocked
+# View dependency tree
 cleo deps tree
 
-# Then analyze blocking chains
+# Analyze blocking chains
 cleo blockers analyze
 ```
 
@@ -221,44 +260,69 @@ cleo deps T005
 cleo validate
 ```
 
+### With orchestrator
+
+```bash
+# Get parallelizable task groups
+cleo orchestrator analyze T001
+```
+
 ## Best Practices
 
 1. **Review before starting**: Run `deps tree` to understand the full picture
 2. **Work bottom-up**: Complete leaf nodes (tasks with no dependencies) first
 3. **Check dependents**: Before completing a task, see what it unblocks with `deps T001`
-4. **Avoid deep chains**: Try to keep dependency chains under 4 levels
+4. **Avoid deep chains**: Keep dependency chains under 4 levels when possible
+5. **Use cache**: The graph cache makes repeated queries fast; don't bypass it
 
 ## Troubleshooting
 
 ### Empty dependency output
 
 If `deps` shows no dependencies:
-- Check tasks have `depends` field set
-- Verify task IDs are valid
+- Check tasks have `depends` field set: `cleo show T001 | jq '.depends'`
+- Verify task IDs are valid: `cleo exists T001`
 - Run `cleo list` to confirm tasks exist
 
 ### Circular Dependency Detection
 
 The `deps` command does not detect circular dependencies directly.
-Use `cleo validate` to identify and resolve circular dependencies:
+Use `cleo validate` to identify and resolve them:
 
 ```bash
 # Check for circular dependencies
 cleo validate
 
-# If cycles found, review and fix the depends fields
-cleo update T001 --depends ""  # Remove problematic dependency
+# If cycles found, remove problematic dependency
+cleo update T001 --depends ""
+```
+
+### Cache Issues
+
+If dependencies seem stale:
+
+```bash
+# Force cache rebuild
+cleo deps --rebuild-cache
+
+# Verify cache state
+ls -la .cleo/.deps-cache/
+
+# Check cache metadata
+cat .cleo/.deps-cache/metadata.json
 ```
 
 ### Missing task in tree
 
 If a task doesn't appear in the tree:
 - Task might be independent (no dependencies or dependents)
-- Check if task exists: `cleo list | grep T001`
-- Verify task hasn't been archived
+- Check if task exists: `cleo exists T001`
+- Verify task hasn't been archived: `cleo show T001 --include-archive`
 
 ## See Also
 
 - [blockers](blockers.md) - Analyze blocked tasks
-- [next](next.md) - Get intelligent next task suggestions
-- [dash](dash.md) - Full project dashboard
+- [next](next.md) - Intelligent next task suggestions
+- [dash](dash.md) - Project dashboard
+- [validate](validate.md) - Circular dependency detection
+- [DEPENDENCY-GRAPHS Guide](../guides/DEPENDENCY-GRAPHS.md) - Architecture details

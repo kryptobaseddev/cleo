@@ -1,0 +1,219 @@
+{
+  "version": "2.3.0",
+  "project": {
+    "name": "graph-cache-test",
+    "currentPhase": "core",
+    "phases": {
+      "setup": {"order": 1, "name": "Setup", "description": "Initial setup", "status": "completed", "startedAt": "2025-12-01T10:00:00Z", "completedAt": "2025-12-15T10:00:00Z"},
+      "core": {"order": 2, "name": "Core", "description": "Core features", "status": "active", "startedAt": "2025-12-15T10:00:00Z", "completedAt": null},
+      "testing": {"order": 3, "name": "Testing", "description": "Testing and validation", "status": "pending", "startedAt": null, "completedAt": null},
+      "polish": {"order": 4, "name": "Polish", "description": "Polish and optimization", "status": "pending", "startedAt": null, "completedAt": null},
+      "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
+    }
+  },
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Epic: Authentication System",
+      "description": "Implement complete authentication system with OAuth support",
+      "status": "active",
+      "priority": "high",
+      "type": "epic",
+      "phase": "core",
+      "createdAt": "2025-12-01T10:00:00Z",
+      "depends": [],
+      "notes": []
+    },
+    {
+      "id": "T002",
+      "title": "Design auth database schema",
+      "description": "Create database schema for users, sessions, and tokens",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "phase": "setup",
+      "parentId": "T001",
+      "createdAt": "2025-12-02T10:00:00Z",
+      "depends": [],
+      "notes": []
+    },
+    {
+      "id": "T003",
+      "title": "Implement user registration",
+      "description": "Create user registration endpoint with validation",
+      "status": "active",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "parentId": "T001",
+      "createdAt": "2025-12-03T10:00:00Z",
+      "depends": ["T002"],
+      "notes": []
+    },
+    {
+      "id": "T004",
+      "title": "Implement login endpoint",
+      "description": "Create login endpoint with JWT token generation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "parentId": "T001",
+      "createdAt": "2025-12-04T10:00:00Z",
+      "depends": ["T002", "T003"],
+      "notes": []
+    },
+    {
+      "id": "T005",
+      "title": "Add password hashing",
+      "description": "Implement bcrypt password hashing for registration",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "phase": "core",
+      "parentId": "T003",
+      "createdAt": "2025-12-05T10:00:00Z",
+      "depends": [],
+      "notes": []
+    },
+    {
+      "id": "T006",
+      "title": "Epic: API Gateway",
+      "description": "Implement API gateway with rate limiting and routing",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "phase": "core",
+      "createdAt": "2025-12-06T10:00:00Z",
+      "depends": ["T001"],
+      "notes": []
+    },
+    {
+      "id": "T007",
+      "title": "Implement rate limiter",
+      "description": "Create token bucket rate limiter for API endpoints",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "core",
+      "parentId": "T006",
+      "createdAt": "2025-12-07T10:00:00Z",
+      "depends": [],
+      "notes": []
+    },
+    {
+      "id": "T008",
+      "title": "Configure API routes",
+      "description": "Set up routing configuration for all endpoints",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "core",
+      "parentId": "T006",
+      "createdAt": "2025-12-08T10:00:00Z",
+      "depends": ["T007"],
+      "notes": []
+    },
+    {
+      "id": "T009",
+      "title": "Session management",
+      "description": "Implement session storage and validation",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "core",
+      "parentId": "T001",
+      "createdAt": "2025-12-09T10:00:00Z",
+      "depends": ["T004"],
+      "relates": [
+        {"taskId": "T007", "type": "blocks", "description": "Rate limiter needs session info"}
+      ],
+      "notes": []
+    },
+    {
+      "id": "T010",
+      "title": "OAuth integration",
+      "description": "Add OAuth2 provider integration (Google, GitHub)",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "phase": "core",
+      "parentId": "T001",
+      "createdAt": "2025-12-10T10:00:00Z",
+      "depends": ["T003", "T009"],
+      "relates": [
+        {"taskId": "T004", "type": "related", "description": "Alternative login method"}
+      ],
+      "notes": []
+    },
+    {
+      "id": "T011",
+      "title": "Write auth unit tests",
+      "description": "Create comprehensive unit tests for auth module",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "testing",
+      "createdAt": "2025-12-11T10:00:00Z",
+      "depends": ["T003", "T004", "T009"],
+      "notes": []
+    },
+    {
+      "id": "T012",
+      "title": "Standalone utility task",
+      "description": "A task with no dependencies and no dependents",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "phase": "polish",
+      "createdAt": "2025-12-12T10:00:00Z",
+      "depends": [],
+      "notes": []
+    },
+    {
+      "id": "T013",
+      "title": "Integration tests",
+      "description": "End-to-end integration tests for full auth flow",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "testing",
+      "createdAt": "2025-12-13T10:00:00Z",
+      "depends": ["T011"],
+      "notes": []
+    },
+    {
+      "id": "T014",
+      "title": "Deep subtask level 1",
+      "description": "First level subtask under T007",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "phase": "core",
+      "parentId": "T007",
+      "createdAt": "2025-12-14T10:00:00Z",
+      "depends": [],
+      "notes": []
+    },
+    {
+      "id": "T015",
+      "title": "Multi-dependency task",
+      "description": "Task that depends on many other tasks",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "testing",
+      "createdAt": "2025-12-15T10:00:00Z",
+      "depends": ["T002", "T003", "T004", "T007", "T008"],
+      "notes": []
+    }
+  ],
+  "focus": {"currentPhase": "core", "currentTask": "T003"},
+  "labels": {
+    "auth": ["T001", "T002", "T003", "T004", "T005", "T009", "T010"],
+    "api": ["T006", "T007", "T008"],
+    "testing": ["T011", "T013"]
+  },
+  "_meta": {"version": "2.3.0", "checksum": "abc123def456gh78", "lastModified": "2025-12-15T12:00:00Z"},
+  "lastUpdated": "2025-12-15T12:00:00Z"
+}
