@@ -53,7 +53,9 @@ get_config_value() {
     fi
 
     local value
-    value=$(jq -r ".$path // \"$default\"" "$CONFIG_FILE" 2>/dev/null)
+    # Use explicit null check to preserve boolean false values
+    # (jq's // operator treats false as falsy, returning the default instead)
+    value=$(jq -r "if .$path == null then \"$default\" else .$path end" "$CONFIG_FILE" 2>/dev/null)
     echo "$value"
 }
 
