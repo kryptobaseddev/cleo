@@ -34,6 +34,29 @@ fi
 # set -euo pipefail conflicts. The checks use basic bash only.
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+# Get schema version from schema file (simplified version for doctor-checks)
+# This avoids sourcing migrate.sh which has set -euo pipefail
+# Args: file_type (todo|config|archive|log)
+# Returns: version string or "unknown"
+get_schema_version_from_file() {
+    local file_type="$1"
+    local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
+    local schema_file="$cleo_home/schemas/${file_type}.schema.json"
+
+    if [[ ! -f "$schema_file" ]]; then
+        echo "unknown"
+        return 1
+    fi
+
+    local version
+    version=$(jq -r '.schemaVersion // "unknown"' "$schema_file" 2>/dev/null)
+    echo "${version:-unknown}"
+}
+
+# ============================================================================
 # GLOBAL HEALTH CHECK FUNCTIONS
 # ============================================================================
 
@@ -683,9 +706,12 @@ EOF
         return
     fi
     
-    # Get CLI version for comparison
-    local cli_version
-    cli_version=$(head -n 1 "$cleo_home/VERSION" 2>/dev/null | tr -d '[:space:]')
+    # Get expected schema versions for comparison (single source of truth)
+    # NOTE: We compare project schema versions against expected schema versions from schema files,
+    # NOT against CLI version (which is a different versioning system: 0.x.x vs 2.x.x)
+    local expected_todo_version expected_config_version
+    expected_todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+    expected_config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
     
     # Track metrics
     local total=0
@@ -744,19 +770,20 @@ EOF
         local project_status="healthy"
         local issues=()
         local is_temp_project="false"
-        
-        # Check if this is a temporary project
-        if is_temp_project "$project_path"; then
-            is_temp_project="true"
-            ((temp_count++))
-        fi
-        
-        # Check if project path exists (orphan detection)
+
+        # Check if project path exists (MUST be checked FIRST to avoid double counting orphaned as temp)
         if [[ ! -d "$project_path" ]]; then
             ((orphaned++))
             ((failed++))
-            project_details+=("{\"name\":\"$project_name\",\"path\":\"$project_path\",\"status\":\"orphaned\",\"reason\":\"path_missing\",\"isTemp\":$is_temp_project}")
+            # NOTE: Do NOT count orphaned projects as temp even if path matches temp pattern
+            project_details+=("{\"name\":\"$project_name\",\"path\":\"$project_path\",\"status\":\"orphaned\",\"reason\":\"path_missing\",\"isTemp\":false}")
             continue
+        fi
+
+        # Check if this is a temporary project (only for existing paths - avoids double counting)
+        if is_temp_project "$project_path"; then
+            is_temp_project="true"
+            ((temp_count++))
         fi
         
         # Performance optimization: skip validation for temp projects in default mode
@@ -768,13 +795,14 @@ EOF
         # Perform validation only if not skipped for performance
         
         # Check 1: Run validate.sh in project directory (heavily optimized)
+        # PERF (T1985): Use --quiet --human for fastest validation path
         if [[ "$skip_validation" == "false" ]]; then
             if [[ -f "$project_path/.cleo/todo.json" ]]; then
                 # Quick pre-checks before expensive validation
                 # Only validate non-temp projects with potential issues
                 if [[ "$is_temp_project" == "false" ]] && [[ "$DETAIL_MODE" == true ]]; then
                     # Only run full validation for non-temp projects in detail mode
-                    if ! (cd "$project_path" && "$cleo_scripts_dir/validate.sh" --quiet >/dev/null 2>&1); then
+                    if ! (cd "$project_path" && "$cleo_scripts_dir/validate.sh" --quiet --human >/dev/null 2>&1); then
                         project_status="failed"
                         issues+=("\"validation_failed\"")
                         ((active_failed++))
@@ -790,22 +818,23 @@ EOF
             fi
         fi
         
-        # Check 2: Schema versions current
+        # Check 2: Schema versions current (compare against expected schema versions, not CLI version)
         if [[ -f "$project_path/.cleo/todo.json" ]]; then
-            local schema_version
-            schema_version=$(jq -r '._meta.schemaVersion // .version // "unknown"' "$project_path/.cleo/todo.json" 2>/dev/null)
-            
-            # Compare major version (simplified check)
-            if [[ "$schema_version" != "unknown" ]]; then
-                local schema_major cli_major
-                schema_major=$(echo "$schema_version" | cut -d. -f1)
-                cli_major=$(echo "$cli_version" | cut -d. -f1)
-                
-                if [[ "$schema_major" != "$cli_major" ]]; then
+            local project_schema_version
+            project_schema_version=$(jq -r '._meta.schemaVersion // .version // "unknown"' "$project_path/.cleo/todo.json" 2>/dev/null)
+
+            # Compare against expected schema version from schema files
+            if [[ "$project_schema_version" != "unknown" && "$expected_todo_version" != "unknown" ]]; then
+                # Compare major.minor version (patch differences are OK)
+                local project_major_minor expected_major_minor
+                project_major_minor=$(echo "$project_schema_version" | cut -d. -f1,2)
+                expected_major_minor=$(echo "$expected_todo_version" | cut -d. -f1,2)
+
+                if [[ "$project_major_minor" != "$expected_major_minor" ]]; then
                     if [[ "$project_status" == "healthy" ]]; then
                         project_status="warning"
                     fi
-                    issues+=("\"schema_outdated\"")
+                    issues+=("\"schema_outdated_todo\"")
                     if [[ "$is_temp_project" == "false" ]]; then
                         ((active_warnings++))
                     fi
