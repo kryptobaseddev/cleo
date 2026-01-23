@@ -1,0 +1,28 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/drift-config.schema.json",
+  "_meta": {
+    "version": "1.0.0",
+    "description": "Configuration for documentation drift detection. Edit this file to customize checks."
+  },
+  "criticalCommands": [
+    "list",
+    "add",
+    "complete",
+    "find",
+    "show",
+    "analyze",
+    "session",
+    "focus",
+    "dash"
+  ],
+  "requiredSections": {
+    "Command Reference": "^## Command Reference",
+    "Session Management": "^### Focus & Session|^### Multi-Session|^## Session Protocol",
+    "Core Operations": "^### Core Operations"
+  },
+  "visionDocs": [
+    "docs/CLEO-UNIFIED-VISION.md",
+    "docs/ORCHESTRATOR-VISION.md"
+  ],
+  "agentInjectionDoc": "TODO_Task_Management.md"
+}
