@@ -34,10 +34,10 @@ Master epic for Python-based RCSD Pipeline implementation using Anthropic Agent 
 | Decompose | requirements-analyst |
 
 ## Exit Codes (30-39 reserved)
-EXIT_RESEARCH_FAILED=30, EXIT_INSUFFICIENT_SOURCES=31, EXIT_CONSENSUS_FAILED=32, EXIT_HITL_REQUIRED=33, EXIT_SPEC_INVALID=34, EXIT_ATOMICITY_FAILED=35
+See RCSD-PIPELINE-SPEC.md for the authoritative exit code list.
 
 ## Key Specs
-- RCSD-PIPELINE-SPEC.md (v1.0.0 authoritative)
+- RCSD-PIPELINE-SPEC.md (v2.0.0 authoritative)
 - LLM-AGENT-FIRST-SPEC.md (JSON output)
 - CONSENSUS-FRAMEWORK-SPEC.md (consensus protocol)
 - TASK-DECOMPOSITION-SPEC.md (decompose stage)
