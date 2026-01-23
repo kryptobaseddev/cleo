@@ -51,9 +51,11 @@ teardown_file() {
 
 create_sync_test_fixture() {
     # Create config with phase definitions
+    # IMPORTANT: Must disable multiSession and session enforcement for tests
+    # Otherwise write operations (complete, update, add) require active sessions
     cat > "$CONFIG_FILE" << 'CONFIGEOF'
 {
-  "version": "2.0.0",
+  "version": "2.2.0",
   "validation": {
     "strictMode": false,
     "requireDescription": false
@@ -78,6 +80,12 @@ create_sync_test_fixture() {
       "name": "Polish",
       "description": "Final polish phase"
     }
+  },
+  "multiSession": {
+    "enabled": false
+  },
+  "session": {
+    "requireSession": false
   }
 }
 CONFIGEOF
