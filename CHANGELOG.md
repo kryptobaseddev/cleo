@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All registered projects visible in table regardless of status
 
 ### Fixed
+- **Doctor --fix now auto-upgrades projects with outdated schemas**:
+  - Previously only printed a note to run `cleo upgrade` manually
+  - Now automatically runs `cleo upgrade --force` in each affected project
+  - Shows progress: "Upgrading: project-name..." with success/failure indicators
 - **Doctor schema version mismatch** (T1988):
   - Doctor now reads actual project file versions instead of stale registry cache
   - Doctor and `upgrade --status` now agree on which schemas are outdated
