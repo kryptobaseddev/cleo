@@ -1029,6 +1029,9 @@ main() {
         validate)
             cmd_validate "${subcommand_args[@]+"${subcommand_args[@]}"}"
             ;;
+        help)
+            usage
+            ;;
         *)
             echo "Unknown subcommand: $subcommand"
             echo ""
