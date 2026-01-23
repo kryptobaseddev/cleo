@@ -30,6 +30,11 @@ if [[ -f "$_LIB_DIR/doctor-utils.sh" ]]; then
     source "$_LIB_DIR/doctor-utils.sh"
 fi
 
+# Source claude-aliases library for alias health checks
+if [[ -f "$_LIB_DIR/claude-aliases.sh" ]]; then
+    source "$_LIB_DIR/claude-aliases.sh"
+fi
+
 # validation.sh and file-ops.sh are NOT sourced here to avoid
 # set -euo pipefail conflicts. The checks use basic bash only.
 
@@ -951,6 +956,127 @@ EOF
 EOF
 }
 
+# Check 9: Claude Aliases Installation
+# Verifies Claude Code CLI aliases are installed and current
+# Returns: JSON check result
+check_claude_aliases() {
+    local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
+
+    # First check if claude CLI is installed
+    if ! command -v claude >/dev/null 2>&1; then
+        cat <<EOF
+{
+  "id": "claude_aliases",
+  "category": "configuration",
+  "status": "info",
+  "message": "Claude CLI not installed (aliases N/A)",
+  "details": {
+    "claudeInstalled": false,
+    "aliasesApplicable": false
+  },
+  "fix": null
+}
+EOF
+        return
+    fi
+
+    # Check each shell for alias installation
+    local installed_count=0
+    local outdated_count=0
+    local missing_count=0
+    local shells_checked=0
+    local shell_details=()
+
+    for shell_type in bash zsh; do
+        local rc_file
+        rc_file=$(get_rc_file_path "$shell_type" 2>/dev/null) || continue
+
+        # Only check if shell is actually used (rc file exists)
+        if [[ ! -f "$rc_file" ]]; then
+            continue
+        fi
+
+        ((shells_checked++))
+
+        if aliases_has_block "$rc_file" 2>/dev/null; then
+            local version
+            version=$(get_installed_aliases_version "$rc_file")
+
+            if [[ "$version" == "$CLAUDE_ALIASES_VERSION" ]]; then
+                ((installed_count++))
+                shell_details+=("{\"shell\":\"$shell_type\",\"status\":\"current\",\"version\":\"$version\"}")
+            else
+                ((outdated_count++))
+                shell_details+=("{\"shell\":\"$shell_type\",\"status\":\"outdated\",\"version\":\"${version:-unknown}\"}")
+            fi
+        else
+            ((missing_count++))
+            shell_details+=("{\"shell\":\"$shell_type\",\"status\":\"missing\",\"version\":null}")
+        fi
+    done
+
+    # Build details JSON array
+    local details_json="[]"
+    if [[ ${#shell_details[@]} -gt 0 ]]; then
+        details_json="[$(IFS=,; echo "${shell_details[*]}")]"
+    fi
+
+    # No shells to check
+    if [[ $shells_checked -eq 0 ]]; then
+        cat <<EOF
+{
+  "id": "claude_aliases",
+  "category": "configuration",
+  "status": "info",
+  "message": "No shell RC files found to check",
+  "details": {
+    "claudeInstalled": true,
+    "shellsChecked": 0,
+    "shells": []
+  },
+  "fix": null
+}
+EOF
+        return
+    fi
+
+    # Determine status
+    local status="passed"
+    local message="Claude aliases installed and current"
+    local fix="null"
+
+    if [[ $missing_count -gt 0 ]] || [[ $outdated_count -gt 0 ]]; then
+        status="warning"
+        if [[ $missing_count -gt 0 ]] && [[ $outdated_count -gt 0 ]]; then
+            message="Claude aliases missing ($missing_count) or outdated ($outdated_count)"
+        elif [[ $missing_count -gt 0 ]]; then
+            message="Claude aliases not installed ($missing_count shell(s))"
+        else
+            message="Claude aliases outdated ($outdated_count shell(s))"
+        fi
+        fix="\"cleo setup-claude-aliases\""
+    fi
+
+    cat <<EOF
+{
+  "id": "claude_aliases",
+  "category": "configuration",
+  "status": "$status",
+  "message": "$message",
+  "details": {
+    "claudeInstalled": true,
+    "shellsChecked": $shells_checked,
+    "installed": $installed_count,
+    "outdated": $outdated_count,
+    "missing": $missing_count,
+    "currentVersion": "$CLAUDE_ALIASES_VERSION",
+    "shells": $details_json
+  },
+  "fix": $fix
+}
+EOF
+}
+
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
@@ -967,6 +1093,7 @@ run_all_global_checks() {
         "check_agent_config_registry"
         "check_at_reference_resolution"
         "check_registered_projects"
+        "check_claude_aliases"
     )
 
     # Human-readable check names for progress display
@@ -979,6 +1106,7 @@ run_all_global_checks() {
         "agent registry"
         "@ reference resolution"
         "registered projects"
+        "Claude aliases"
     )
 
     echo "["

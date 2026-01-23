@@ -169,6 +169,7 @@ if [[ -n "$SWAP_ID" ]]; then
     SWAP_POSITION=$(echo "$SWAP_JSON" | jq -r '.position // 0')
 
     # Perform swap
+    # Note: updatedAt is set on swapped tasks for data integrity (T2071)
     TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     UPDATED_CONTENT=$(jq --arg id1 "$TASK_ID" --arg id2 "$SWAP_ID" \
         --argjson pos1 "$CURRENT_POSITION" --argjson pos2 "$SWAP_POSITION" \
@@ -176,10 +177,12 @@ if [[ -n "$SWAP_ID" ]]; then
         .tasks = [.tasks[] |
             if .id == $id1 then
                 .position = $pos2 |
-                .positionVersion = ((.positionVersion // 0) + 1)
+                .positionVersion = ((.positionVersion // 0) + 1) |
+                .updatedAt = $ts
             elif .id == $id2 then
                 .position = $pos1 |
-                .positionVersion = ((.positionVersion // 0) + 1)
+                .positionVersion = ((.positionVersion // 0) + 1) |
+                .updatedAt = $ts
             else .
             end
         ] |
@@ -282,6 +285,7 @@ if [[ "$CURRENT_POSITION" -eq "$TARGET_POSITION" ]]; then
 fi
 
 # Build shuffle expression based on direction
+# Note: updatedAt is set on all affected tasks for data integrity (T2071)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 if [[ "$TARGET_POSITION" -lt "$CURRENT_POSITION" ]]; then
@@ -295,11 +299,13 @@ if [[ "$TARGET_POSITION" -lt "$CURRENT_POSITION" ]]; then
             .tasks = [.tasks[] |
                 if .id == $id then
                     .position = $target |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 elif (.parentId == null or .parentId == "null") and
                      (.position // 0) >= $target and (.position // 0) < $current then
                     .position = (.position + 1) |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 else .
                 end
             ] |
@@ -313,11 +319,13 @@ if [[ "$TARGET_POSITION" -lt "$CURRENT_POSITION" ]]; then
             .tasks = [.tasks[] |
                 if .id == $id then
                     .position = $target |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 elif .parentId == $pid and
                      (.position // 0) >= $target and (.position // 0) < $current then
                     .position = (.position + 1) |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 else .
                 end
             ] |
@@ -335,11 +343,13 @@ else
             .tasks = [.tasks[] |
                 if .id == $id then
                     .position = $target |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 elif (.parentId == null or .parentId == "null") and
                      (.position // 0) > $current and (.position // 0) <= $target then
                     .position = (.position - 1) |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 else .
                 end
             ] |
@@ -353,11 +363,13 @@ else
             .tasks = [.tasks[] |
                 if .id == $id then
                     .position = $target |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 elif .parentId == $pid and
                      (.position // 0) > $current and (.position // 0) <= $target then
                     .position = (.position - 1) |
-                    .positionVersion = ((.positionVersion // 0) + 1)
+                    .positionVersion = ((.positionVersion // 0) + 1) |
+                    .updatedAt = $ts
                 else .
                 end
             ] |

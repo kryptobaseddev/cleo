@@ -88,6 +88,24 @@ if [[ -f "$LIB_DIR/jq-helpers.sh" ]]; then
   source "$LIB_DIR/jq-helpers.sh"
 fi
 
+# Source files-detect library for auto-detecting files from notes (v0.64.0+)
+if [[ -f "$LIB_DIR/files-detect.sh" ]]; then
+  # shellcheck source=../lib/files-detect.sh
+  source "$LIB_DIR/files-detect.sh"
+fi
+
+# Source crossref-extract library for auto-detecting task references from notes (v0.65.0+)
+if [[ -f "$LIB_DIR/crossref-extract.sh" ]]; then
+  # shellcheck source=../lib/crossref-extract.sh
+  source "$LIB_DIR/crossref-extract.sh"
+fi
+
+# Source task-mutate library for centralized mutations with updatedAt (T2067)
+if [[ -f "$LIB_DIR/task-mutate.sh" ]]; then
+  # shellcheck source=../lib/task-mutate.sh
+  source "$LIB_DIR/task-mutate.sh"
+fi
+
 # Source centralized flag parsing
 source "$LIB_DIR/flags.sh"
 
@@ -1176,10 +1194,61 @@ if [[ -n "$NOTE_TO_ADD" ]]; then
   JQ_UPDATES="$JQ_UPDATES | .notes = ((.notes // []) + [\"$timestamp_note\"])"
   CHANGES+=("notes: added entry")
   CHANGES_JSON=$(echo "$CHANGES_JSON" | jq --arg note "$timestamp_note" --argjson before_count "$OLD_NOTES_COUNT" '.notes = {added: $note, beforeCount: $before_count, action: "appended"}')
+
+  # Auto-detect files from note content (v0.64.0+)
+  # Only if files-detect library is available and no explicit file operations requested
+  if declare -f detect_files_from_text >/dev/null 2>&1; then
+    if [[ -z "$FILES_TO_ADD" && -z "$FILES_TO_SET" && "$CLEAR_FILES" != true ]]; then
+      DETECTED_FILES=$(detect_files_from_text "$NOTE_TO_ADD")
+      DETECTED_COUNT=$(echo "$DETECTED_FILES" | jq 'length')
+
+      if [[ "$DETECTED_COUNT" -gt 0 ]]; then
+        OLD_FILES=$(echo "$TASK" | jq -c '.files // []')
+        # Merge detected files with existing files
+        MERGED_FILES=$(merge_files_arrays "$OLD_FILES" "$DETECTED_FILES")
+        ADDED_FILES_COUNT=$(echo "$MERGED_FILES" | jq --argjson old "$OLD_FILES" '. - $old | length')
+
+        if [[ "$ADDED_FILES_COUNT" -gt 0 ]]; then
+          JQ_UPDATES="$JQ_UPDATES | .files = $MERGED_FILES"
+          CHANGES+=("files: auto-detected $ADDED_FILES_COUNT from notes")
+          CHANGES_JSON=$(echo "$CHANGES_JSON" | jq --argjson before "$OLD_FILES" --argjson detected "$DETECTED_FILES" --argjson after "$MERGED_FILES" '.filesAutoDetected = {before: $before, detected: $detected, after: $after, action: "auto-merged"}')
+        fi
+      fi
+    fi
+  fi
+
+  # Auto-extract cross-references from note content (v0.65.0+)
+  # Detects task IDs mentioned in notes and adds to relates array
+  if declare -f extract_task_refs >/dev/null 2>&1; then
+    DETECTED_REFS=$(extract_task_refs "$NOTE_TO_ADD" "$TASK_ID")
+    DETECTED_REFS_COUNT=$(echo "$DETECTED_REFS" | jq 'length')
+
+    if [[ "$DETECTED_REFS_COUNT" -gt 0 ]]; then
+      # Create relates entries for detected task refs (type: relates-to, auto-detected)
+      DETECTED_RELATES=$(create_relates_entries "$DETECTED_REFS" "relates-to")
+      OLD_RELATES=$(echo "$TASK" | jq -c '.relates // []')
+
+      # Merge with existing relates entries (existing take precedence)
+      MERGED_RELATES=$(merge_relates_arrays "$OLD_RELATES" "$DETECTED_RELATES")
+      ADDED_RELATES_COUNT=$(echo "$MERGED_RELATES" | jq --argjson old "$OLD_RELATES" '. | length - ($old | length)')
+
+      if [[ "$ADDED_RELATES_COUNT" -gt 0 ]]; then
+        JQ_UPDATES="$JQ_UPDATES | .relates = $MERGED_RELATES"
+        CHANGES+=("relates: auto-detected $ADDED_RELATES_COUNT from notes")
+        CHANGES_JSON=$(echo "$CHANGES_JSON" | jq --argjson before "$OLD_RELATES" --argjson detected "$DETECTED_RELATES" --argjson after "$MERGED_RELATES" '.relatesAutoDetected = {before: $before, detected: $detected, after: $after, action: "auto-merged"}')
+      fi
+    fi
+  fi
 fi
 
 # Strip leading pipe if present
 JQ_UPDATES="${JQ_UPDATES# | }"
+
+# Add updatedAt timestamp to all mutations (T2067 - centralized mutation support)
+# This ensures every task update sets the updatedAt field per schema v2.8.0+
+if [[ -n "$JQ_UPDATES" ]]; then
+  JQ_UPDATES="$JQ_UPDATES | .updatedAt = \$ts"
+fi
 
 # ============================================================================
 # IDEMPOTENCY CHECK: Detect if any actual changes would be made

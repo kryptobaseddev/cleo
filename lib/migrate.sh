@@ -1734,6 +1734,165 @@ migrate_todo_to_2_6_1() {
     bump_version_only "$file" "$target_version"
 }
 
+# Migrate todo.json to v2.7.0 (noAutoComplete field)
+# Args: $1 = file path
+# Returns: 0 on success, 1 on failure
+migrate_todo_to_2_7_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+
+    echo "  Migrating to v2.7.0: Adding noAutoComplete field..."
+
+    # Add noAutoComplete field (null by default) to tasks
+    local updated_content
+    updated_content=$(jq --arg ver "$target_version" '
+        # Add noAutoComplete field to tasks if missing
+        .tasks = [.tasks[] |
+            if has("noAutoComplete") | not then
+                . + {noAutoComplete: null}
+            else . end
+        ] |
+
+        # Update schema version
+        .version = $ver |
+        ._meta.schemaVersion = $ver
+    ' "$file") || {
+        echo "ERROR: Failed to add noAutoComplete field" >&2
+        return 1
+    }
+
+    # Validate the result
+    if ! echo "$updated_content" | jq empty 2>/dev/null; then
+        echo "ERROR: Migration produced invalid JSON" >&2
+        return 1
+    fi
+
+    # Atomic save using save_json
+    save_json "$file" "$updated_content" || {
+        echo "ERROR: Failed to update file" >&2
+        return 1
+    }
+
+    local task_count
+    task_count=$(echo "$updated_content" | jq '[.tasks[] | select(has("noAutoComplete"))] | length')
+    echo "  Added noAutoComplete field to $task_count tasks"
+    echo "  Schema version updated to $target_version"
+
+    # Log migration if log_migration is available
+    if declare -f log_migration >/dev/null 2>&1; then
+        local from_version="2.6.1"
+        log_migration "$file" "todo" "$from_version" "$target_version"
+    fi
+
+    return 0
+}
+
+# Migrate todo.json to v2.8.0 (updatedAt, relates, origin, releases, sessionNotes)
+# Args: $1 = file path
+# Returns: 0 on success, 1 on failure
+migrate_todo_to_2_8_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+
+    echo "  Migrating to v2.8.0: Adding metadata and roadmap integration fields..."
+
+    local updated_content
+    updated_content=$(jq --arg ver "$target_version" '
+        # 1. Backfill updatedAt with createdAt for tasks
+        .tasks = [.tasks[] |
+            if (.updatedAt == null) then
+                .updatedAt = .createdAt
+            else . end
+        ] |
+
+        # 2. Initialize empty relates arrays for tasks
+        .tasks = [.tasks[] |
+            if (.relates == null) then
+                .relates = []
+            else . end
+        ] |
+
+        # 3. Initialize origin as null for tasks without it
+        .tasks = [.tasks[] |
+            if (has("origin") | not) then
+                . + {origin: null}
+            else . end
+        ] |
+
+        # 4. Initialize releases array at project level if missing
+        .project = (
+            if (.project.releases == null) then
+                .project + {releases: []}
+            else .project end
+        ) |
+
+        # 5. Convert sessionNote to sessionNotes array
+        .focus = (
+            if (.focus.sessionNote != null and .focus.sessionNote != "") then
+                .focus + {
+                    sessionNotes: [{
+                        note: .focus.sessionNote,
+                        timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+                        conversationId: null,
+                        agent: "migration"
+                    }]
+                }
+            elif (.focus.sessionNotes == null) then
+                .focus + {sessionNotes: []}
+            else .focus end
+        ) |
+
+        # Update schema version
+        .version = $ver |
+        ._meta.schemaVersion = $ver
+    ' "$file") || {
+        echo "ERROR: Failed to migrate to v2.8.0" >&2
+        return 1
+    }
+
+    # Validate the result
+    if ! echo "$updated_content" | jq empty 2>/dev/null; then
+        echo "ERROR: Migration produced invalid JSON" >&2
+        return 1
+    fi
+
+    # Atomic save using save_json
+    save_json "$file" "$updated_content" || {
+        echo "ERROR: Failed to update file" >&2
+        return 1
+    }
+
+    # Report migration results
+    local task_count updated_count relates_count origin_count
+    task_count=$(echo "$updated_content" | jq '.tasks | length')
+    updated_count=$(echo "$updated_content" | jq '[.tasks[] | select(.updatedAt != null)] | length')
+    relates_count=$(echo "$updated_content" | jq '[.tasks[] | select(.relates != null)] | length')
+    origin_count=$(echo "$updated_content" | jq '[.tasks[] | select(has("origin"))] | length')
+
+    echo "  Backfilled updatedAt for $updated_count tasks"
+    echo "  Initialized relates arrays for $relates_count tasks"
+    echo "  Added origin field to $origin_count tasks"
+    echo "  Initialized project.releases array"
+    local notes_count
+    notes_count=$(echo "$updated_content" | jq '.focus.sessionNotes | length')
+    if [[ "$notes_count" -gt 0 ]]; then
+        echo "  Converted sessionNote to sessionNotes array ($notes_count entries)"
+    else
+        echo "  Initialized empty sessionNotes array"
+    fi
+    echo "  Schema version updated to $target_version"
+
+    # Log migration if log_migration is available
+    if declare -f log_migration >/dev/null 2>&1; then
+        local from_version="2.7.0"
+        log_migration "$file" "todo" "$from_version" "$target_version"
+    fi
+
+    return 0
+}
+
 # ============================================================================
 # BACKWARD COMPATIBILITY CHECKS
 # ============================================================================

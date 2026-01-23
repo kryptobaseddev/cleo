@@ -183,6 +183,7 @@ fi
 # Build the jq update that:
 # 1. Closes gap in old parent (shift siblings with pos > old_pos down by 1)
 # 2. Sets new parent and position on the moved task
+# Note: updatedAt is set on moved task for data integrity (T2071)
 if [[ -n "$OLD_PARENT" ]]; then
     # Moving from a parent (non-root)
     UPDATED_JSON=$(jq --arg id "$TASK_ID" --arg parent "$NEW_PARENT" --arg ts "$TIMESTAMP" \
@@ -193,11 +194,13 @@ if [[ -n "$OLD_PARENT" ]]; then
                 # Move the task
                 (if $parent == "" then del(.parentId) else .parentId = $parent end) |
                 .position = $new_pos |
-                .positionVersion = ((.positionVersion // 0) + 1)
+                .positionVersion = ((.positionVersion // 0) + 1) |
+                .updatedAt = $ts
             elif .parentId == $old_parent and (.position // 0) > $old_pos then
                 # Close gap in old parent
                 .position = (.position - 1) |
-                .positionVersion = ((.positionVersion // 0) + 1)
+                .positionVersion = ((.positionVersion // 0) + 1) |
+                .updatedAt = $ts
             else .
             end
         ] |
@@ -212,11 +215,13 @@ else
                 # Move the task
                 (if $parent == "" then del(.parentId) else .parentId = $parent end) |
                 .position = $new_pos |
-                .positionVersion = ((.positionVersion // 0) + 1)
+                .positionVersion = ((.positionVersion // 0) + 1) |
+                .updatedAt = $ts
             elif (.parentId == null or .parentId == "null") and (.position // 0) > $old_pos then
                 # Close gap in old parent (root level)
                 .position = (.position - 1) |
-                .positionVersion = ((.positionVersion // 0) + 1)
+                .positionVersion = ((.positionVersion // 0) + 1) |
+                .updatedAt = $ts
             else .
             end
         ] |

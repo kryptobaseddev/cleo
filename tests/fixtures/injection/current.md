@@ -1,7 +1,5 @@
 <!-- CLEO:START -->
-## Task Management (cleo)
-
-Use `ct` for task operations.
+@.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
 
 # Project Documentation

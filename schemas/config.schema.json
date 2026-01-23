@@ -1251,6 +1251,108 @@
           "description": "Maximum orphaned context state files to retain. Oldest are deleted first. 0 = delete immediately."
         }
       }
+    },
+
+    "enforcement": {
+      "type": "object",
+      "description": "Enforcement configuration for task metadata fields. Controls validation and warning behavior for size, acceptance criteria, and auto-extraction features.",
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "type": "object",
+          "description": "Size field enforcement settings.",
+          "additionalProperties": false,
+          "properties": {
+            "requireOnCreate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Require size field on task creation. When true, tasks cannot be created without specifying size."
+            },
+            "warnMissing": {
+              "type": "boolean",
+              "default": true,
+              "description": "Warn when size is not specified during task creation."
+            },
+            "defaultValue": {
+              "type": ["string", "null"],
+              "enum": ["small", "medium", "large", null],
+              "default": null,
+              "description": "Default size value when not specified. Null means no default (field remains unset)."
+            }
+          }
+        },
+        "acceptance": {
+          "type": "object",
+          "description": "Acceptance criteria enforcement settings.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["off", "warn", "block"],
+              "default": "warn",
+              "description": "Enforcement mode: off=no enforcement, warn=warn when missing, block=require on creation."
+            },
+            "requiredForPriorities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["critical", "high", "medium", "low"]
+              },
+              "default": ["critical", "high"],
+              "description": "Priority levels that require acceptance criteria when mode is 'warn' or 'block'."
+            }
+          }
+        },
+        "files": {
+          "type": "object",
+          "description": "File path extraction settings.",
+          "additionalProperties": false,
+          "properties": {
+            "autoExtract": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically extract file paths from task notes and add to files array."
+            },
+            "patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": ["*.ts", "*.js", "*.sh", "*.json", "*.md"],
+              "description": "File patterns to recognize during extraction. Uses glob-style patterns."
+            }
+          }
+        },
+        "relates": {
+          "type": "object",
+          "description": "Task cross-reference extraction settings.",
+          "additionalProperties": false,
+          "properties": {
+            "autoExtract": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically extract task cross-references (T####) from notes and add to relates array."
+            },
+            "bidirectional": {
+              "type": "boolean",
+              "default": false,
+              "description": "When adding a reference, also add reverse reference to the target task."
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "description": "Verification gate auto-set settings.",
+          "additionalProperties": false,
+          "properties": {
+            "autoSetImplemented": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically set verification.gates.implemented = true when task is completed."
+            }
+          }
+        }
+      }
     }
   }
 }

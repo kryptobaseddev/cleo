@@ -307,7 +307,7 @@ _disable_context_alerts() {
 
 @test "check_context_alert returns 0 when no active session" {
     _enable_context_alerts
-    rm -f "${CLEO_PROJECT_DIR}/.current-session"
+    rm -f "${TEST_TEMP_DIR}/.cleo/.current-session"
 
     run check_context_alert
     assert_success
