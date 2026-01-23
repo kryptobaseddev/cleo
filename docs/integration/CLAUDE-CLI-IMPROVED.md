@@ -4,6 +4,40 @@ Optimized shell functions and aliases for autonomous Claude Code usage. These co
 
 ## Installation
 
+### Option 1: CLEO Installation (Recommended)
+
+The CLEO task management system provides a convenient command to install all optimized Claude Code aliases automatically:
+
+```bash
+# Install aliases for all detected shells
+cleo setup-claude-aliases
+
+# Install for specific shell only
+cleo setup-claude-aliases --shell bash
+
+# Preview changes without installing
+cleo setup-claude-aliases --dry-run
+
+# Remove installed aliases
+cleo setup-claude-aliases --remove
+```
+
+This is the recommended method for CLEO users as it:
+- Automatically detects available shells (bash, zsh, powershell, cmd)
+- Uses marker-based injection for clean updates and removal
+- Integrates with `cleo doctor` for health checks
+- Supports idempotent installation (safe to re-run)
+- Tracks version for automatic upgrades
+
+After installation, restart your terminal or run:
+```bash
+source ~/.bashrc  # or source ~/.zshrc
+```
+
+For more details, see the [setup-claude-aliases command documentation](../commands/setup-claude-aliases.md).
+
+### Option 2: Manual Installation
+
 Add the following to your `~/.bashrc` or `~/.zshrc`:
 
 ```bash
@@ -466,6 +500,7 @@ cc-headless "Do specific thing" --allowedTools "Read,Edit,Bash(npm test:*)"
 
 | Date | Change |
 |------|--------|
+| 2025-01-22 | Added CLEO installation method (cleo setup-claude-aliases) |
 | 2024-12-31 | Initial documentation |
 
 ---

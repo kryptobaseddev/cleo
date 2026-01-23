@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.2.0",
     "lastUpdated": "2026-01-23",
-    "totalCommands": 60,
+    "totalCommands": 62,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -24,7 +24,8 @@
       "unarchive",
       "uncancel",
       "update",
-      "verify"
+      "verify",
+      "release"
     ],
     "read": [
       "analyze",
@@ -70,7 +71,8 @@
       "self-update",
       "setup-agents",
       "upgrade",
-      "validate"
+      "validate",
+      "setup-claude-aliases"
     ]
   },
   "commands": [
@@ -1514,6 +1516,46 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "high"
+    },
+    {
+      "name": "release",
+      "script": "release.sh",
+      "category": "write",
+      "doc": "release.md",
+      "synopsis": "Manage releases (create, plan, ship, list, show, changelog)",
+      "flags": [
+        "--target-date",
+        "--tasks",
+        "--notes",
+        "--status",
+        "--format"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        6,
+        101
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high"
+    },
+    {
+      "name": "setup-claude-aliases",
+      "script": "setup-claude-aliases.sh",
+      "category": "maintenance",
+      "doc": "setup-claude-aliases.md",
+      "synopsis": "Configure Claude Code aliases in system profile",
+      "flags": [
+        "--dry-run",
+        "--force",
+        "--shell"
+      ],
+      "exitCodes": [
+        0,
+        1
+      ],
+      "jsonOutput": false,
+      "agentRelevance": "low"
     }
   ],
   "agentWorkflows": {

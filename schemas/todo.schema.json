@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
-  "schemaVersion": "2.7.0",
+  "schemaVersion": "2.8.0",
   "title": "CLEO Task Schema",
   "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
   "type": "object",
@@ -76,6 +76,53 @@
                 "type": "string",
                 "maxLength": 500,
                 "description": "Optional context for transition (user note, automation trigger)."
+              }
+            }
+          }
+        },
+        "releases": {
+          "type": "array",
+          "default": [],
+          "description": "Release tracking for roadmap management. Each release tracks version, status, and associated tasks.",
+          "items": {
+            "type": "object",
+            "required": ["version", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "type": "string",
+                "pattern": "^v?[0-9]+\\.[0-9]+\\.[0-9]+",
+                "description": "Semantic version (e.g., v0.65.0 or 0.65.0)."
+              },
+              "status": {
+                "type": "string",
+                "enum": ["planned", "active", "released"],
+                "description": "Release lifecycle: planned=future, active=current development, released=shipped."
+              },
+              "targetDate": {
+                "type": ["string", "null"],
+                "format": "date",
+                "description": "Planned release date (YYYY-MM-DD). Null if not scheduled."
+              },
+              "releasedAt": {
+                "type": ["string", "null"],
+                "format": "date-time",
+                "description": "Actual release timestamp (ISO 8601). Null until released."
+              },
+              "tasks": {
+                "type": "array",
+                "default": [],
+                "items": {
+                  "type": "string",
+                  "pattern": "^T[0-9]+$"
+                },
+                "uniqueItems": true,
+                "description": "Task IDs included in this release."
+              },
+              "notes": {
+                "type": ["string", "null"],
+                "maxLength": 5000,
+                "description": "Release notes or changelog summary."
               }
             }
           }
@@ -161,7 +208,37 @@
         "sessionNote": {
           "type": ["string", "null"],
           "maxLength": 2500,
-          "description": "Context from last session (single-session mode). In multi-session mode, notes are per-session in sessions.json."
+          "description": "Context from last session (single-session mode). In multi-session mode, notes are per-session in sessions.json. DEPRECATED: Use sessionNotes array for append-only history."
+        },
+        "sessionNotes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "note": {
+                "type": "string",
+                "description": "Session progress note content"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the note was added"
+              },
+              "conversationId": {
+                "type": ["string", "null"],
+                "description": "Claude conversation ID for context"
+              },
+              "agent": {
+                "type": ["string", "null"],
+                "description": "Agent identifier (opus-1, sonnet-2, etc.)"
+              }
+            },
+            "required": ["note", "timestamp"],
+            "additionalProperties": false
+          },
+          "maxItems": 50,
+          "default": [],
+          "description": "Append-only session notes preserving conversation context"
         },
         "nextAction": {
           "type": ["string", "null"],
@@ -352,10 +429,21 @@
           "uniqueItems": true,
           "description": "Tags for filtering (bug, feature, security, v0.5.0)."
         },
+        "origin": {
+          "type": ["string", "null"],
+          "enum": ["internal", "bug-report", "feature-request", "security", "technical-debt", "dependency", "regression", null],
+          "default": null,
+          "description": "Task provenance classification for tracking source of work items."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
           "description": "ISO 8601 creation timestamp."
+        },
+        "updatedAt": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Timestamp of last task modification, auto-set on mutations."
         },
         "completedAt": {
           "type": "string",
@@ -453,6 +541,33 @@
                 }
               },
               "description": "Log of verification failures for debugging."
+            }
+          }
+        },
+        "relates": {
+          "type": "array",
+          "default": [],
+          "description": "Non-blocking relationships to other tasks. Use for cross-references, provenance tracking, and semantic connections.",
+          "items": {
+            "type": "object",
+            "required": ["taskId", "type"],
+            "additionalProperties": false,
+            "properties": {
+              "taskId": {
+                "type": "string",
+                "pattern": "^T\\d{3,}$",
+                "description": "Related task ID."
+              },
+              "type": {
+                "type": "string",
+                "enum": ["relates-to", "spawned-from", "deferred-to", "supersedes", "duplicates"],
+                "description": "Relationship type: relates-to (general), spawned-from (derived from), deferred-to (postponed to), supersedes (replaces), duplicates (same as)."
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Optional explanation for the relationship."
+              }
             }
           }
         }

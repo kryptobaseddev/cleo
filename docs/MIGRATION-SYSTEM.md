@@ -524,6 +524,8 @@ cleo migrate rollback
 
 | Version | File Type | Changes |
 |---------|-----------|---------|
+| 2.8.0 | todo | Added `updatedAt`, `relates`, `origin` (task); `releases` (project); `sessionNotes` (focus) |
+| 2.7.0 | todo | Added verification gates and noAutoComplete fields |
 | 2.6.0 | todo | Added position and positionVersion fields |
 | 2.5.0 | todo | Added position field (deprecated in favor of 2.6.0) |
 | 2.4.0 | todo, config, archive, log | Notes maxLength increased to 5000 |
@@ -535,4 +537,6 @@ cleo migrate rollback
 
 - [docs/commands/migrate.md](commands/migrate.md) - Migration command reference
 - [docs/commands/upgrade.md](commands/upgrade.md) - Upgrade command reference
+- [docs/migration/v2.8.0-migration-guide.md](migration/v2.8.0-migration-guide.md) - Schema 2.8.0 migration guide
+- [docs/schema/todo-schema-v2.8.0.md](schema/todo-schema-v2.8.0.md) - Schema 2.8.0 field reference
 - [CLAUDE.md](../CLAUDE.md) - Repository guidelines including version management section

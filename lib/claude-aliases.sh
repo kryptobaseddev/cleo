@@ -1,0 +1,503 @@
+#!/usr/bin/env bash
+# lib/claude-aliases.sh - Claude Code CLI alias management
+#
+# LAYER: 1 (Core Infrastructure)
+# DEPENDENCIES: platform-compat.sh, exit-codes.sh
+# PROVIDES: detect_available_shells, get_rc_file_path, get_current_shell,
+#           get_alias_content, generate_bash_aliases, generate_powershell_aliases,
+#           generate_cmd_aliases, aliases_has_block, get_installed_aliases_version,
+#           inject_aliases, remove_aliases, check_aliases_status, is_claude_cli_installed
+
+#=== SOURCE GUARD ================================================
+[[ -n "${_CLAUDE_ALIASES_LOADED:-}" ]] && return 0
+declare -r _CLAUDE_ALIASES_LOADED=1
+
+set -euo pipefail
+
+# ============================================================================
+# DEPENDENCY LOADING
+# ============================================================================
+
+# Determine library directory
+_CLAUDE_ALIASES_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source dependencies if not already loaded
+if [[ -z "${_PLATFORM_COMPAT_LOADED:-}" ]]; then
+    source "${_CLAUDE_ALIASES_SCRIPT_DIR}/platform-compat.sh"
+fi
+
+if [[ -z "${_EXIT_CODES_SH_LOADED:-}" ]]; then
+    source "${_CLAUDE_ALIASES_SCRIPT_DIR}/exit-codes.sh"
+fi
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+# Marker constants for idempotent injection
+readonly CLAUDE_ALIASES_MARKER_START="# CLEO-CLAUDE-ALIASES:START"
+readonly CLAUDE_ALIASES_MARKER_END="# CLEO-CLAUDE-ALIASES:END"
+
+# Current alias version (for upgrade detection)
+readonly CLAUDE_ALIASES_VERSION="1.0.0"
+
+# Supported shells
+readonly SUPPORTED_SHELLS=("bash" "zsh" "powershell" "cmd")
+
+# Environment variables for all aliases
+readonly CLAUDE_ENV_VARS=(
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true"
+    "ENABLE_BACKGROUND_TASKS=true"
+    "FORCE_AUTO_BACKGROUND_TASKS=true"
+    "CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true"
+)
+
+# ============================================================================
+# SHELL DETECTION FUNCTIONS
+# ============================================================================
+
+# detect_available_shells - Find all installed shells
+# Returns: JSON array of shell objects with name, path, rc_file
+# Example: [{"name":"bash","path":"/bin/bash","rcFile":"~/.bashrc"}]
+detect_available_shells() {
+    local shells=()
+
+    # Check bash
+    if command_exists bash; then
+        local bashrc
+        bashrc=$(get_rc_file_path "bash")
+        shells+=("{\"name\":\"bash\",\"path\":\"$(command -v bash)\",\"rcFile\":\"$bashrc\"}")
+    fi
+
+    # Check zsh
+    if command_exists zsh; then
+        local zshrc
+        zshrc=$(get_rc_file_path "zsh")
+        shells+=("{\"name\":\"zsh\",\"path\":\"$(command -v zsh)\",\"rcFile\":\"$zshrc\"}")
+    fi
+
+    # Check PowerShell (Windows/cross-platform)
+    if command_exists pwsh || command_exists powershell; then
+        local ps_profile
+        ps_profile=$(get_rc_file_path "powershell")
+        local ps_path
+        ps_path=$(command -v pwsh 2>/dev/null || command -v powershell 2>/dev/null)
+        shells+=("{\"name\":\"powershell\",\"path\":\"$ps_path\",\"rcFile\":\"$ps_profile\"}")
+    fi
+
+    # Check CMD (Windows only)
+    if [[ "$PLATFORM" == "windows" ]]; then
+        local userprofile="${USERPROFILE:-$HOME}"
+        shells+=("{\"name\":\"cmd\",\"path\":\"cmd.exe\",\"rcFile\":\"${userprofile//\\/\\\\}\\\\cleo-aliases.cmd\"}")
+    fi
+
+    # Build JSON array
+    if [[ ${#shells[@]} -eq 0 ]]; then
+        echo "[]"
+    else
+        printf '[%s]' "$(IFS=,; echo "${shells[*]}")"
+    fi
+}
+
+# get_rc_file_path - Get RC file path for shell type
+# Args: shell_type (bash|zsh|powershell|cmd)
+# Returns: RC file path
+get_rc_file_path() {
+    local shell_type="$1"
+
+    case "$shell_type" in
+        bash)
+            # Prefer .bashrc, fall back to .bash_profile
+            if [[ -f "$HOME/.bashrc" ]]; then
+                echo "$HOME/.bashrc"
+            elif [[ -f "$HOME/.bash_profile" ]]; then
+                echo "$HOME/.bash_profile"
+            else
+                echo "$HOME/.bashrc"
+            fi
+            ;;
+        zsh)
+            echo "${ZDOTDIR:-$HOME}/.zshrc"
+            ;;
+        powershell)
+            # Cross-platform PowerShell profile detection
+            if [[ "$PLATFORM" == "windows" ]]; then
+                echo "$HOME/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"
+            else
+                echo "$HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
+            fi
+            ;;
+        cmd)
+            # Windows CMD autorun (requires registry, we use batch file)
+            echo "$HOME/cleo-aliases.cmd"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# get_current_shell - Detect user's current shell
+# Returns: shell name (bash|zsh|powershell|cmd|unknown)
+get_current_shell() {
+    local shell_path="${SHELL:-}"
+    local shell_name
+
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        shell_name="zsh"
+    elif [[ -n "${BASH_VERSION:-}" ]]; then
+        shell_name="bash"
+    elif [[ -n "${PSVersionTable:-}" ]]; then
+        shell_name="powershell"
+    elif [[ -n "$shell_path" ]]; then
+        shell_name=$(basename "$shell_path")
+    else
+        shell_name="unknown"
+    fi
+
+    echo "$shell_name"
+}
+
+# ============================================================================
+# ALIAS CONTENT GENERATION FUNCTIONS
+# ============================================================================
+
+# get_alias_content - Generate alias definitions for shell type
+# Args: shell_type
+# Returns: Complete alias block with markers
+get_alias_content() {
+    local shell_type="$1"
+    local content=""
+
+    case "$shell_type" in
+        bash|zsh)
+            content=$(generate_bash_aliases)
+            ;;
+        powershell)
+            content=$(generate_powershell_aliases)
+            ;;
+        cmd)
+            content=$(generate_cmd_aliases)
+            ;;
+        *)
+            echo "Error: Unsupported shell type: $shell_type" >&2
+            return 1
+            ;;
+    esac
+
+    echo "$content"
+}
+
+# generate_bash_aliases - Generate bash/zsh alias definitions
+# Returns: Alias definitions wrapped in markers
+generate_bash_aliases() {
+    local env_prefix
+    env_prefix=$(IFS=' '; echo "${CLAUDE_ENV_VARS[*]}")
+
+    cat <<EOF
+$CLAUDE_ALIASES_MARKER_START v$CLAUDE_ALIASES_VERSION
+# Claude Code CLI Aliases - Installed by CLEO
+# https://github.com/kryptobaseddev/cleo
+
+# Interactive mode with optimized environment
+alias cc='$env_prefix claude'
+
+# Interactive + skip permissions (for trusted projects)
+alias ccy='$env_prefix claude --dangerously-skip-permissions'
+
+# Resume previous session
+alias ccr='$env_prefix claude --resume'
+
+# Resume + skip permissions
+alias ccry='$env_prefix claude --resume --dangerously-skip-permissions'
+
+# Headless mode with controlled tools
+alias cc-headless='$env_prefix claude --print --allowedTools'
+
+# Headless + skip permissions (full autonomy)
+alias cc-headfull='$env_prefix claude --print --dangerously-skip-permissions'
+
+# Headless + streaming JSON output
+alias cc-headfull-stream='$env_prefix claude --print --dangerously-skip-permissions --output-format stream-json'
+
+$CLAUDE_ALIASES_MARKER_END
+EOF
+}
+
+# generate_powershell_aliases - Generate PowerShell function definitions
+# Returns: Function definitions wrapped in markers
+generate_powershell_aliases() {
+    cat <<EOF
+$CLAUDE_ALIASES_MARKER_START v$CLAUDE_ALIASES_VERSION
+# Claude Code CLI Aliases - Installed by CLEO
+# https://github.com/kryptobaseddev/cleo
+
+function Set-ClaudeEnv {
+    \$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "true"
+    \$env:ENABLE_BACKGROUND_TASKS = "true"
+    \$env:FORCE_AUTO_BACKGROUND_TASKS = "true"
+    \$env:CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL = "true"
+}
+
+function cc { Set-ClaudeEnv; & claude @args }
+function ccy { Set-ClaudeEnv; & claude --dangerously-skip-permissions @args }
+function ccr { Set-ClaudeEnv; & claude --resume @args }
+function ccry { Set-ClaudeEnv; & claude --resume --dangerously-skip-permissions @args }
+function cc-headless { Set-ClaudeEnv; & claude --print --allowedTools @args }
+function cc-headfull { Set-ClaudeEnv; & claude --print --dangerously-skip-permissions @args }
+function cc-headfull-stream { Set-ClaudeEnv; & claude --print --dangerously-skip-permissions --output-format stream-json @args }
+
+$CLAUDE_ALIASES_MARKER_END
+EOF
+}
+
+# generate_cmd_aliases - Generate CMD DOSKEY definitions
+# Returns: DOSKEY macros
+generate_cmd_aliases() {
+    cat <<'EOF'
+@echo off
+REM CLEO-CLAUDE-ALIASES:START v1.0.0
+REM Claude Code CLI Aliases - Installed by CLEO
+REM https://github.com/kryptobaseddev/cleo
+
+doskey cc=set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true $T set ENABLE_BACKGROUND_TASKS=true $T set FORCE_AUTO_BACKGROUND_TASKS=true $T set CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true $T claude $*
+doskey ccy=set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true $T set ENABLE_BACKGROUND_TASKS=true $T set FORCE_AUTO_BACKGROUND_TASKS=true $T set CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true $T claude --dangerously-skip-permissions $*
+doskey ccr=set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true $T set ENABLE_BACKGROUND_TASKS=true $T set FORCE_AUTO_BACKGROUND_TASKS=true $T set CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true $T claude --resume $*
+doskey ccry=set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true $T set ENABLE_BACKGROUND_TASKS=true $T set FORCE_AUTO_BACKGROUND_TASKS=true $T set CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true $T claude --resume --dangerously-skip-permissions $*
+doskey cc-headless=set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true $T set ENABLE_BACKGROUND_TASKS=true $T set FORCE_AUTO_BACKGROUND_TASKS=true $T set CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true $T claude --print --allowedTools $*
+doskey cc-headfull=set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true $T set ENABLE_BACKGROUND_TASKS=true $T set FORCE_AUTO_BACKGROUND_TASKS=true $T set CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true $T claude --print --dangerously-skip-permissions $*
+doskey cc-headfull-stream=set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true $T set ENABLE_BACKGROUND_TASKS=true $T set FORCE_AUTO_BACKGROUND_TASKS=true $T set CLAUDE_CODE_ENABLE_UNIFIED_READ_TOOL=true $T claude --print --dangerously-skip-permissions --output-format stream-json $*
+
+REM CLEO-CLAUDE-ALIASES:END
+EOF
+}
+
+# ============================================================================
+# INJECTION AND REMOVAL OPERATIONS
+# ============================================================================
+
+# aliases_has_block - Check if RC file has alias block
+# Args: rc_file
+# Returns: 0 if present, 1 if absent
+aliases_has_block() {
+    local rc_file="$1"
+    [[ -f "$rc_file" ]] && grep -q "$CLAUDE_ALIASES_MARKER_START" "$rc_file" 2>/dev/null
+}
+
+# get_installed_aliases_version - Get version from installed block
+# Args: rc_file
+# Returns: version string or empty
+get_installed_aliases_version() {
+    local rc_file="$1"
+
+    [[ ! -f "$rc_file" ]] && return 1
+
+    # Extract version from marker line
+    # Format: # CLEO-CLAUDE-ALIASES:START v1.0.0
+    local version_line
+    version_line=$(grep "$CLAUDE_ALIASES_MARKER_START" "$rc_file" 2>/dev/null | head -1)
+
+    if [[ -n "$version_line" ]]; then
+        # Extract version number (e.g., "1.0.0" from "v1.0.0")
+        echo "$version_line" | sed -n 's/.*v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p'
+    fi
+}
+
+# inject_aliases - Install aliases into RC file
+# Args: rc_file shell_type [--force]
+# Returns: 0 on success, error code on failure
+# Output: JSON result object
+inject_aliases() {
+    local rc_file="$1"
+    local shell_type="$2"
+    local force="${3:-}"
+
+    local content
+    content=$(get_alias_content "$shell_type") || return $?
+
+    # Create directory if needed
+    local rc_dir
+    rc_dir=$(dirname "$rc_file")
+    if [[ ! -d "$rc_dir" ]]; then
+        mkdir -p "$rc_dir" || {
+            echo "{\"action\":\"failed\",\"reason\":\"cannot_create_directory\",\"path\":\"$rc_dir\"}"
+            return "$EXIT_FILE_ERROR"
+        }
+    fi
+
+    local action
+    if [[ ! -f "$rc_file" ]]; then
+        action="created"
+        echo "$content" > "$rc_file" || {
+            echo "{\"action\":\"failed\",\"reason\":\"cannot_write_file\",\"path\":\"$rc_file\"}"
+            return "$EXIT_FILE_ERROR"
+        }
+    elif aliases_has_block "$rc_file"; then
+        # Check if update needed
+        local installed_version
+        installed_version=$(get_installed_aliases_version "$rc_file")
+
+        if [[ "$installed_version" == "$CLAUDE_ALIASES_VERSION" ]] && [[ "$force" != "--force" ]]; then
+            echo "{\"action\":\"skipped\",\"reason\":\"already_current\",\"version\":\"$installed_version\"}"
+            return 0
+        fi
+
+        action="updated"
+        # Replace existing block using temp file pattern
+        local temp_file
+        temp_file=$(mktemp) || {
+            echo "{\"action\":\"failed\",\"reason\":\"cannot_create_temp_file\"}"
+            return "$EXIT_FILE_ERROR"
+        }
+
+        # Remove existing block
+        awk -v start="$CLAUDE_ALIASES_MARKER_START" -v end="$CLAUDE_ALIASES_MARKER_END" '
+            $0 ~ start { skip = 1; next }
+            $0 ~ end { skip = 0; next }
+            !skip { print }
+        ' "$rc_file" > "$temp_file"
+
+        # Append new content
+        echo "" >> "$temp_file"
+        echo "$content" >> "$temp_file"
+
+        mv "$temp_file" "$rc_file" || {
+            rm -f "$temp_file"
+            echo "{\"action\":\"failed\",\"reason\":\"cannot_update_file\",\"path\":\"$rc_file\"}"
+            return "$EXIT_FILE_ERROR"
+        }
+    else
+        action="added"
+        # Append to existing file
+        {
+            echo ""
+            echo "$content"
+        } >> "$rc_file" || {
+            echo "{\"action\":\"failed\",\"reason\":\"cannot_append_file\",\"path\":\"$rc_file\"}"
+            return "$EXIT_FILE_ERROR"
+        }
+    fi
+
+    echo "{\"action\":\"$action\",\"file\":\"$rc_file\",\"version\":\"$CLAUDE_ALIASES_VERSION\"}"
+}
+
+# remove_aliases - Remove alias block from RC file
+# Args: rc_file
+# Returns: 0 on success
+# Output: JSON result object
+remove_aliases() {
+    local rc_file="$1"
+
+    if [[ ! -f "$rc_file" ]]; then
+        echo "{\"action\":\"skipped\",\"reason\":\"file_not_found\",\"file\":\"$rc_file\"}"
+        return 0
+    fi
+
+    if ! aliases_has_block "$rc_file"; then
+        echo "{\"action\":\"skipped\",\"reason\":\"not_installed\",\"file\":\"$rc_file\"}"
+        return 0
+    fi
+
+    local temp_file
+    temp_file=$(mktemp) || {
+        echo "{\"action\":\"failed\",\"reason\":\"cannot_create_temp_file\"}"
+        return "$EXIT_FILE_ERROR"
+    }
+
+    # Remove block
+    awk -v start="$CLAUDE_ALIASES_MARKER_START" -v end="$CLAUDE_ALIASES_MARKER_END" '
+        $0 ~ start { skip = 1; next }
+        $0 ~ end { skip = 0; next }
+        !skip { print }
+    ' "$rc_file" > "$temp_file"
+
+    mv "$temp_file" "$rc_file" || {
+        rm -f "$temp_file"
+        echo "{\"action\":\"failed\",\"reason\":\"cannot_update_file\",\"path\":\"$rc_file\"}"
+        return "$EXIT_FILE_ERROR"
+    }
+
+    echo "{\"action\":\"removed\",\"file\":\"$rc_file\"}"
+}
+
+# ============================================================================
+# STATUS FUNCTIONS
+# ============================================================================
+
+# check_aliases_status - Check installation status for all shells
+# Returns: JSON object with status per shell
+check_aliases_status() {
+    local results=()
+
+    for shell_type in "${SUPPORTED_SHELLS[@]}"; do
+        local rc_file
+        rc_file=$(get_rc_file_path "$shell_type" 2>/dev/null) || continue
+
+        local status="not_installed"
+        local version=""
+        local file_exists="false"
+
+        if [[ -f "$rc_file" ]]; then
+            file_exists="true"
+            if aliases_has_block "$rc_file"; then
+                version=$(get_installed_aliases_version "$rc_file")
+                if [[ "$version" == "$CLAUDE_ALIASES_VERSION" ]]; then
+                    status="current"
+                else
+                    status="outdated"
+                fi
+            fi
+        fi
+
+        # Build JSON object for this shell
+        local version_json="null"
+        [[ -n "$version" ]] && version_json="\"$version\""
+
+        results+=("{\"shell\":\"$shell_type\",\"rcFile\":\"$rc_file\",\"status\":\"$status\",\"version\":$version_json,\"fileExists\":$file_exists}")
+    done
+
+    # Build JSON array
+    if [[ ${#results[@]} -eq 0 ]]; then
+        echo "[]"
+    else
+        printf '[%s]' "$(IFS=,; echo "${results[*]}")"
+    fi
+}
+
+# is_claude_cli_installed - Check if claude CLI is available
+# Returns: 0 if installed, 1 if not
+is_claude_cli_installed() {
+    command_exists claude
+}
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
+
+# Export constants
+export CLAUDE_ALIASES_MARKER_START
+export CLAUDE_ALIASES_MARKER_END
+export CLAUDE_ALIASES_VERSION
+export SUPPORTED_SHELLS
+export CLAUDE_ENV_VARS
+
+# Export shell detection functions
+export -f detect_available_shells
+export -f get_rc_file_path
+export -f get_current_shell
+
+# Export alias content generation functions
+export -f get_alias_content
+export -f generate_bash_aliases
+export -f generate_powershell_aliases
+export -f generate_cmd_aliases
+
+# Export injection and removal operations
+export -f aliases_has_block
+export -f get_installed_aliases_version
+export -f inject_aliases
+export -f remove_aliases
+
+# Export status functions
+export -f check_aliases_status
+export -f is_claude_cli_installed

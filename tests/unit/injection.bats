@@ -149,28 +149,27 @@ EOF
     [ "$file_exists" = "true" ]
 }
 
-@test "injection_check reports 'current' status for versionless marker" {
-    # Versionless markers are now the standard - block presence = current
+@test "injection_check reports 'outdated' for legacy content without @-reference" {
+    # Legacy content (not @-reference format) is considered outdated
     local result status
     result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "${FIXTURES_DIR}/injection/legacy-unversioned.md")
 
     status=$(echo "$result" | jq -r '.status')
 
-    # Block exists = current (no version tracking)
-    [ "$status" = "current" ]
+    # Legacy content = outdated (doesn't match @-reference format)
+    [ "$status" = "outdated" ]
 }
 
-@test "injection_check reports 'current' status for any existing block" {
-    # No version tracking - any block is considered current
+@test "injection_check reports 'current' for @-reference content" {
+    # Current format: @-reference to external template
     local result status
 
-    # Create a temp file with versionless marker (new format)
+    # Create a temp file with @-reference content (new format)
     local temp_file
     temp_file="${TEST_TEMP_DIR}/current-test.md"
     cat > "$temp_file" <<EOF
 <!-- CLEO:START -->
-## Task Management
-Content here
+@.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
 EOF
 
@@ -178,13 +177,12 @@ EOF
 
     status=$(echo "$result" | jq -r '.status')
 
-    # Block exists = current
+    # @-reference content = current
     [ "$status" = "current" ]
 }
 
-@test "injection_check reports 'current' for legacy versioned markers" {
-    # Even legacy versioned markers are considered current (no version comparison)
-    # Create a temp file with legacy versioned marker
+@test "injection_check reports 'outdated' for legacy versioned markers with inline content" {
+    # Legacy versioned markers with inline content are outdated (not @-reference format)
     local temp_file
     temp_file="${TEST_TEMP_DIR}/legacy-test.md"
     cat > "$temp_file" <<EOF
@@ -198,8 +196,8 @@ EOF
 
     status=$(echo "$result" | jq -r '.status')
 
-    # Block exists = current (version is irrelevant)
-    [ "$status" = "current" ]
+    # Legacy inline content = outdated (doesn't match @-reference format)
+    [ "$status" = "outdated" ]
 }
 
 @test "injection_check returns valid JSON" {

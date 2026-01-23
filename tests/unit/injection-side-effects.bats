@@ -407,30 +407,30 @@ EOF
 # =============================================================================
 
 @test "injection_update_all skips files with existing blocks" {
-    # Block presence = current (no version tracking)
+    # Only @-reference content is considered current; other content is outdated
     # Mock injection_get_targets to return test targets
     injection_get_targets() {
         REPLY=("CLAUDE.md" "AGENTS.md")
     }
     export -f injection_get_targets
 
-    # Create files with existing injections (any format is considered current)
+    # Create files with current @-reference format (will be skipped)
     cat > "CLAUDE.md" <<'EOF'
-<!-- CLEO:START v0.40.0 -->
-Old
+<!-- CLEO:START -->
+@.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
 EOF
 
     cat > "AGENTS.md" <<'EOF'
 <!-- CLEO:START -->
-Current
+@.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
 EOF
 
     run injection_update_all "."
     assert_success
 
-    # Both files have blocks, so both should be skipped (block = current)
+    # Both files have @-reference content, so both should be skipped
     echo "$output" | grep -q '"skipped":2'
 }
 
@@ -440,10 +440,10 @@ EOF
     }
     export -f injection_get_targets
 
-    # Create one file with block (will be skipped - block = current)
+    # Create one file with current @-reference block (will be skipped)
     cat > "CLAUDE.md" <<'EOF'
 <!-- CLEO:START -->
-Current
+@.cleo/templates/AGENT-INJECTION.md
 <!-- CLEO:END -->
 EOF
 
@@ -455,7 +455,7 @@ EOF
     run injection_update_all "."
     assert_success
 
-    # Should skip file with block, update file without
+    # Should skip file with @-reference block, update file without
     echo "$output" | grep -q '"updated":1'
     echo "$output" | grep -q '"skipped":1'
 }

@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-01-23
+
+### Added
+- **Schema v2.8.0 - Metadata & Roadmap Integration** (Epic T2058):
+  - `updatedAt` field - Automatic timestamp on all task mutations for staleness detection
+  - `relates` array - Non-blocking task relationships (relates-to, spawned-from, deferred-to, supersedes, duplicates)
+  - `origin` enum - Task provenance classification (internal, bug-report, feature-request, security, technical-debt, dependency, regression)
+  - `releases` array - Project-level release tracking with version, status, targetDate, tasks, notes
+  - `sessionNotes` array - Append-only session notes with timestamp, conversationId, agent (max 50 entries)
+  - `acceptance` field - Acceptance criteria for task completion validation
+
+- **Centralized Mutation System**:
+  - `lib/task-mutate.sh` - All task mutations flow through centralized library
+  - `set_task_updated()` - Automatic updatedAt timestamp setting
+  - `apply_task_mutation()` - Wrapper ensuring consistent mutation behavior
+  - All 15 mutation scripts integrated with automatic updatedAt enforcement
+
+- **Release Management Commands** (T1165 Integration):
+  - `cleo release create <version>` - Create planned release with target date
+  - `cleo release plan <version> --tasks` - Add tasks to release
+  - `cleo release ship <version>` - Mark release as shipped with timestamp
+  - `cleo release list` - List all releases with status
+  - `cleo release show <version>` - Show release details
+  - `cleo release changelog <version>` - Generate changelog from tasks
+
+- **Changelog Generation**:
+  - `lib/changelog.sh` - Task-based changelog generation
+  - `generate_changelog()` - Categorizes by labels (feature→Added, bug→Fixed)
+  - `get_release_tasks()` - Retrieves tasks for a release
+
+- **Auto-Detection & Extraction**:
+  - `lib/files-detect.sh` - File path auto-detection from notes
+  - `lib/crossref-extract.sh` - Task cross-reference extraction (T1234 patterns)
+  - Auto-populate `files` array from notes content
+  - Auto-populate `relates` array from task mentions
+
+- **Enforcement System**:
+  - Size field enforcement - Defaults to "medium" when not specified
+  - Acceptance criteria warnings on task completion
+  - Verification gate auto-set (`implemented`) on completion
+  - Configuration options in `config.schema.json` for enforcement behavior
+
+- **Testing**:
+  - `tests/unit/schema-280.bats` - 51 comprehensive tests for schema 2.8.0
+  - Tests cover all new fields, relationships, backward compatibility
+  - Integration tests for mutation system
+
+- **Documentation**:
+  - `docs/migration/v2.8.0-migration-guide.md` - Migration guide
+  - `docs/schema/` - Schema field documentation
+  - Updated MIGRATION-SYSTEM.md with 2.8.0 migration details
+
+### Changed
+- **Schema version**: 2.7.0 → 2.8.0
+- **Migration function**: `migrate_todo_to_2_8_0()` added to `lib/migrate.sh`
+  - Backfills `updatedAt` with `createdAt` for existing tasks
+  - Initializes empty `relates`, `origin`, `releases` arrays
+  - Converts `sessionNote` string to `sessionNotes` array
+- **Task completion**: Now auto-sets `verification.gates.implemented = true`
+
+### Fixed
+- Consistent timestamp handling across all mutation operations
+- Session notes now preserve conversation context (no longer overwritten)
+
+### Deprecated
+- `focus.sessionNote` (string) - Use `focus.sessionNotes` (array) instead
+  - Migration preserves existing sessionNote as first array entry
+
 ## [0.63.0] - 2026-01-23
 
 ### Added
