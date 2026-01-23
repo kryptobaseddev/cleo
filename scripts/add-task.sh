@@ -1237,6 +1237,7 @@ unset _ID_IN_TODO _ID_IN_ARCHIVE _COLLISION_LOCATION
 CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Build task object with hierarchy fields (v0.17.0)
+# Note: updatedAt is set equal to createdAt on task creation (T2071)
 TASK_JSON=$(jq -nc \
   --arg id "$TASK_ID" \
   --arg title "$TITLE" \
@@ -1251,7 +1252,8 @@ TASK_JSON=$(jq -nc \
     priority: $priority,
     type: $taskType,
     parentId: null,
-    createdAt: $created
+    createdAt: $created,
+    updatedAt: $created
   }')
 
 # Add parentId if specified (hierarchy)
@@ -1488,15 +1490,32 @@ if declare -f check_context_alert >/dev/null 2>&1; then
   check_context_alert || true
 fi
 
+# Warn if acceptance criteria not provided (T2114)
+ACCEPTANCE_WARNING=""
+if [[ -z "$ACCEPTANCE" ]]; then
+  ACCEPTANCE_WARNING="Task created without acceptance criteria. Consider adding with: cleo update $TASK_ID --acceptance \"criterion1,criterion2\""
+  # Emit to stderr for visibility (only in non-quiet, non-JSON modes)
+  if [[ "$QUIET" != "true" && "$FORMAT" != "json" ]]; then
+    echo -e "${YELLOW}[WARN]${NC} $ACCEPTANCE_WARNING" >&2
+  fi
+fi
+
 # Success output
 if [[ "$FORMAT" == "json" ]]; then
   # Get the full created task as JSON
   TASK_JSON_OUTPUT=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id)' "$TODO_FILE")
 
+  # Build warnings array if any
+  WARNINGS_JSON="[]"
+  if [[ -n "$ACCEPTANCE_WARNING" ]]; then
+    WARNINGS_JSON=$(jq -nc --arg w "$ACCEPTANCE_WARNING" '[$w]')
+  fi
+
   jq -nc \
     --arg version "${CLEO_VERSION:-$(get_version)}" \
     --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --argjson task "$TASK_JSON_OUTPUT" \
+    --argjson warnings "$WARNINGS_JSON" \
     '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
@@ -1507,7 +1526,7 @@ if [[ "$FORMAT" == "json" ]]; then
       },
       "success": true,
       "task": $task
-    }'
+    } + (if ($warnings | length) > 0 then {warnings: $warnings} else {} end)'
 elif [[ "$QUIET" == true ]]; then
   echo "$TASK_ID"
 else

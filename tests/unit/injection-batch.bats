@@ -43,17 +43,33 @@ teardown_file() {
 # Helper Functions
 # =============================================================================
 
-# Create test file with injection block at specific version
+# Create test file with injection block
+# Args: file [version]
+# If version matches TEMPLATE_VERSION (or "current"), creates current @-reference format
+# Otherwise creates outdated format (legacy versioned markers with inline content)
 create_injected_file() {
     local file="$1"
-    local version="$2"
-    cat > "$file" << EOF
+    local version="${2:-}"
+
+    if [[ "$version" == "$TEMPLATE_VERSION" ]] || [[ "$version" == "current" ]]; then
+        # Current format: no version in marker, @-reference content
+        cat > "$file" << 'EOF'
+<!-- CLEO:START -->
+@.cleo/templates/AGENT-INJECTION.md
+<!-- CLEO:END -->
+
+# Original content
+EOF
+    else
+        # Outdated format: versioned marker with inline content
+        cat > "$file" << EOF
 <!-- CLEO:START v${version} -->
 Test injection content
 <!-- CLEO:END -->
 
 # Original content
 EOF
+    fi
 }
 
 # Create file without injection
@@ -76,18 +92,23 @@ get_json_field() {
 # injection_check_all() Tests
 # =============================================================================
 
-@test "injection_check_all returns empty array when no files exist" {
-    # No files created - all targets missing
+@test "injection_check_all returns all targets when no files exist" {
+    # No files created - all targets should be reported as missing
     run injection_check_all
     assert_success
 
     # Should return valid JSON array
     [[ $(echo "$output" | jq 'type') == '"array"' ]]
 
-    # Should be empty (no existing files to check)
+    # Should have entries for all targets (3)
     local length
     length=$(echo "$output" | jq 'length')
-    [[ "$length" -eq 0 ]]
+    [[ "$length" -eq 3 ]]
+
+    # All should have status "missing"
+    local missing_count
+    missing_count=$(echo "$output" | jq '[.[] | select(.status == "missing")] | length')
+    [[ "$missing_count" -eq 3 ]]
 }
 
 @test "injection_check_all returns array of statuses for existing files" {
@@ -169,21 +190,24 @@ get_json_field() {
     [[ "$gemini_status" == "none" ]]
 }
 
-@test "injection_check_all includes version information" {
+@test "injection_check_all returns required fields for each target" {
     create_injected_file "CLAUDE.md" "0.40.0"
 
     run injection_check_all
     assert_success
 
-    # Check version fields present
-    local has_versions
-    has_versions=$(echo "$output" | jq '.[0] | has("currentVersion") and has("installedVersion")')
-    [[ "$has_versions" == "true" ]]
+    # Check required fields present (target, status, fileExists)
+    # Note: New versionless format does not include currentVersion/installedVersion
+    local has_required
+    has_required=$(echo "$output" | jq '.[0] | has("target") and has("status") and has("fileExists")')
+    [[ "$has_required" == "true" ]]
 
-    # Verify current version extracted correctly
-    local current_version
-    current_version=$(echo "$output" | jq -r '.[0].currentVersion')
-    [[ "$current_version" == "0.40.0" ]]
+    # Verify target and status are correct
+    local target status
+    target=$(echo "$output" | jq -r '.[] | select(.target == "CLAUDE.md") | .target')
+    status=$(echo "$output" | jq -r '.[] | select(.target == "CLAUDE.md") | .status')
+    [[ "$target" == "CLAUDE.md" ]]
+    [[ "$status" == "outdated" ]]  # Old versioned format is considered outdated
 }
 
 # =============================================================================
@@ -513,25 +537,34 @@ get_json_field() {
     assert_success
     local check_result="$output"
 
-    # Verify check found 2 files (CLAUDE.md, AGENTS.md)
+    # Verify check returns all 3 targets (including missing)
     local file_count
     file_count=$(echo "$check_result" | jq 'length')
-    [[ "$file_count" -eq 2 ]]
+    [[ "$file_count" -eq 3 ]]
+
+    # Verify statuses: CLAUDE.md=outdated, AGENTS.md=none, GEMINI.md=missing
+    local claude_status agents_status gemini_status
+    claude_status=$(echo "$check_result" | jq -r '.[] | select(.target == "CLAUDE.md") | .status')
+    agents_status=$(echo "$check_result" | jq -r '.[] | select(.target == "AGENTS.md") | .status')
+    gemini_status=$(echo "$check_result" | jq -r '.[] | select(.target == "GEMINI.md") | .status')
+    [[ "$claude_status" == "outdated" ]]
+    [[ "$agents_status" == "none" ]]
+    [[ "$gemini_status" == "missing" ]]
 
     # Step 2: Update all
     run injection_update_all "."
     assert_success
 
-    # Should have updated files
+    # Should have updated all 3 files (created GEMINI.md, updated others)
     local updated
     updated=$(echo "$output" | jq -r '.updated')
-    [[ "$updated" -ge 2 ]]
+    [[ "$updated" -eq 3 ]]
 
     # Step 3: Get summary
     run injection_get_summary
     assert_success
 
-    # All existing files should now be current
+    # All files should now be current
     local current
     current=$(echo "$output" | jq -r '.current')
     [[ "$current" -eq 3 ]]

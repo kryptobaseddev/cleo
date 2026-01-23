@@ -934,6 +934,7 @@ fi
 
 # Update task(s) to cancelled status AND clear focus/phase if needed (single atomic operation)
 # NOTE: Session note (.focus.sessionNote) is intentionally preserved for context continuity
+# NOTE: updatedAt is set on cancelled tasks for data integrity (T2071)
 UPDATED_TODO=$(jq --argjson ids "$DELETED_TASKS" \
     --arg ts "$TIMESTAMP" \
     --arg reason "$REASON" \
@@ -945,6 +946,7 @@ UPDATED_TODO=$(jq --argjson ids "$DELETED_TASKS" \
             .status = "cancelled" |
             .cancelledAt = $ts |
             .cancelReason = $reason |
+            .updatedAt = $ts |
             .notes = ((.notes // []) + [$note])
         else . end
     ) |

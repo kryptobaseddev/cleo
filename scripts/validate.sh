@@ -667,6 +667,11 @@ if declare -f init_flag_defaults >/dev/null 2>&1; then
   apply_flags_to_globals
   # Use REMAINING_ARGS for command-specific parsing
   set -- "${REMAINING_ARGS[@]}"
+
+  # Handle help flag (must be checked before file existence check)
+  if [[ "$FLAG_HELP" == true ]]; then
+    usage
+  fi
 fi
 
 # Parse command-specific flags from REMAINING_ARGS

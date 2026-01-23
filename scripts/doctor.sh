@@ -1054,6 +1054,24 @@ apply_fixes() {
                 fi
                 ;;
 
+            claude_aliases)
+                # Fix: Run setup-claude-aliases to install/update Claude CLI aliases
+                local setup_script="${CLEO_HOME}/scripts/setup-claude-aliases.sh"
+                if [[ ! -f "$setup_script" ]]; then
+                    # Fallback to local script directory for development
+                    setup_script="${SCRIPT_DIR}/setup-claude-aliases.sh"
+                fi
+
+                echo "Running setup-claude-aliases..." >&2
+                if bash "$setup_script" >&2; then
+                    echo "✓ Fixed: $check_id" >&2
+                    ((fixed++))
+                else
+                    echo "✗ Failed to install Claude aliases" >&2
+                    ((failed++))
+                fi
+                ;;
+
             *)
                 # For other issues, suggest the fix command without auto-execution
                 echo "Note: Manual fix required: $fix_command" >&2

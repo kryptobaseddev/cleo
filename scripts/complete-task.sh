@@ -94,6 +94,12 @@ if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   source "$LIB_DIR/context-alert.sh"
 fi
 
+# Source task-mutate library for centralized mutations with updatedAt (T2067)
+if [[ -f "$LIB_DIR/task-mutate.sh" ]]; then
+  # shellcheck source=../lib/task-mutate.sh
+  source "$LIB_DIR/task-mutate.sh"
+fi
+
 # Source centralized flag parsing
 if [[ -f "$LIB_DIR/flags.sh" ]]; then
   # shellcheck source=../lib/flags.sh
@@ -493,7 +499,8 @@ BEFORE_STATE=$(echo "$TASK" | jq '{status, completedAt}')
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SESSION_ID=$(jq -r '._meta.activeSession // "system"' "$TODO_FILE")
 
-# Update task: set status=done, add completedAt, clear blockedBy, and add completion note
+# Update task: set status=done, add completedAt, clear blockedBy, set updatedAt, and add completion note
+# T2067: updatedAt is set on all mutations per centralized mutation library
 if [[ -n "$NOTES" ]]; then
   COMPLETION_NOTE="[COMPLETED $TIMESTAMP] $NOTES"
   UPDATED_TASKS=$(jq --arg id "$TASK_ID" --arg ts "$TIMESTAMP" --arg note "$COMPLETION_NOTE" '
@@ -501,6 +508,7 @@ if [[ -n "$NOTES" ]]; then
       if .id == $id then
         .status = "done" |
         .completedAt = $ts |
+        .updatedAt = $ts |
         del(.blockedBy) |
         .notes = ((.notes // []) + [$note])
       else . end
@@ -515,6 +523,7 @@ else
       if .id == $id then
         .status = "done" |
         .completedAt = $ts |
+        .updatedAt = $ts |
         del(.blockedBy)
       else . end
     )
@@ -841,12 +850,14 @@ complete_parent_task() {
   local format="$5"
   
   # Update parent task
+  # T2067: updatedAt is set on all mutations per centralized mutation library
   local updated_tasks
   updated_tasks=$(jq --arg id "$parent_id" --arg ts "$timestamp" --arg note "$completion_note" '
     .tasks |= map(
       if .id == $id then
         .status = "done" |
         .completedAt = $ts |
+        .updatedAt = $ts |
         del(.blockedBy) |
         .notes = ((.notes // []) + [$note])
       else . end
