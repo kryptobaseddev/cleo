@@ -219,16 +219,16 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "1.0.0",
-      "description": "Development workflow skill for atomic commits, conventional commits, and release management. Executes gate-based validation (G0-G7) for clean releases.",
+      "version": "2.0.0",
+      "description": "Task-driven development workflow for atomic commits with CLEO task traceability. Enforces WF-001 (task required), smart test scoping, and GitHub Actions release automation.",
       "path": "skills/ct-dev-workflow",
-      "tags": ["workflow", "git", "commits", "release"],
+      "tags": ["workflow", "git", "commits", "release", "task-tracking"],
       "status": "active",
       "capabilities": {
-        "inputs": ["CHANGE_TYPE", "SCOPE", "DESCRIPTION", "DETAILED_BODY", "VERSION_BUMP"],
-        "outputs": ["commit", "tag", "release"],
-        "dependencies": ["ct-validator", "ct-test-writer-bats"],
-        "dispatch_triggers": ["commit", "release", "run the workflow", "prepare release", "atomic commit", "conventional commit", "version bump", "create release", "commit and push", "finalize changes", "ship it", "cut a release"],
+        "inputs": ["TASK_ID", "CHANGE_TYPE", "SCOPE", "DESCRIPTION"],
+        "outputs": ["commit", "tag", "push"],
+        "dependencies": [],
+        "dispatch_triggers": ["commit", "release", "run the workflow", "prepare release", "atomic commit", "conventional commit", "version bump", "create release", "commit and push", "finalize changes", "ship it", "cut a release", "push changes"],
         "compatible_subagent_types": ["general-purpose", "Code"]
       }
     }

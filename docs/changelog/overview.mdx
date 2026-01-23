@@ -17,6 +17,217 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.66.0" tags={["Fix", "Feature", "Installer"]}>
+## Collision Detection System
+
+
+**Added**
+- **Claude CLI Aliases Integration** (Epic T2089):
+  - `cleo setup-claude-aliases` - Cross-platform installation of optimized Claude Code CLI aliases
+  - Support for bash, zsh, PowerShell, and CMD shells
+  - Marker-based idempotent installation (`# CLEO-CLAUDE-ALIASES:START/END`)
+  - 7 aliases: `cc`, `ccy`, `ccr`, `ccry`, `cc-headless`, `cc-headfull`, `cc-headfull-stream`
+  - Pre-configured environment variables for performance optimization
+
+- **Collision Detection System**:
+  - `detect_existing_aliases()` - Finds conflicting alias/function definitions
+  - `detect_legacy_claude_aliases()` - Recognizes function-based Claude aliases (e.g., `_cc_env()` pattern)
+  - `check_alias_collisions()` - Distinguishes Claude-related vs non-Claude collisions
+  - Exit code 23 (`E_COLLISION`) when conflicts detected
+  - Dry-run collision preview with `--dry-run`
+
+- **Doctor Integration for Aliases**:
+  - `check_claude_aliases()` - New doctor check for alias installation status
+  - Recognizes three states: `current`, `legacy`, `missing`
+  - Auto-fix support via `cleo doctor --fix`
+  - Suggests `--force` flag when legacy aliases detected
+
+- **Library: lib/claude-aliases.sh**:
+  - Shell detection functions (`detect_available_shells`, `get_rc_file_path`, `get_current_shell`)
+  - Alias content generation for all supported shells
+  - Injection/removal operations with atomic file handling
+  - Status checking and version tracking
+  - Full test coverage (56 unit tests, 38 integration tests)
+
+**Changed**
+- **COMMANDS-INDEX.json**: Updated `setup-claude-aliases` entry with complete exit codes and flags
+- **Documentation**: Comprehensive command reference at `docs/commands/setup-claude-aliases.md`
+
+**Fixed**
+- CLI script output suppression in JSON/quiet modes
+- Arithmetic increment issue with `set -e` (`((x++))` → `((++x))`)
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.66.0)
+</Update>
+
+<Update label="January 2026" description="v0.65.0" tags={["Fix", "Feature", "Sessions"]}>
+## Note
+
+
+> **Note**: v0.64.0 was skipped. During Epic T2058 implementation, the release automation
+> created v0.65.0 as a test release, and this version was kept for consistency.
+
+**Added**
+- **Schema v2.8.0 - Metadata & Roadmap Integration** (Epic T2058):
+  - `updatedAt` field - Automatic timestamp on all task mutations for staleness detection
+  - `relates` array - Non-blocking task relationships (relates-to, spawned-from, deferred-to, supersedes, duplicates)
+  - `origin` enum - Task provenance classification (internal, bug-report, feature-request, security, technical-debt, dependency, regression)
+  - `releases` array - Project-level release tracking with version, status, targetDate, tasks, notes
+  - `sessionNotes` array - Append-only session notes with timestamp, conversationId, agent (max 50 entries)
+  - `acceptance` field - Acceptance criteria for task completion validation
+
+- **Centralized Mutation System**:
+  - `lib/task-mutate.sh` - All task mutations flow through centralized library
+  - `set_task_updated()` - Automatic updatedAt timestamp setting
+  - `apply_task_mutation()` - Wrapper ensuring consistent mutation behavior
+  - All 15 mutation scripts integrated with automatic updatedAt enforcement
+
+- **Release Management Commands** (T1165 Integration):
+  - `cleo release create <version>` - Create planned release with target date
+  - `cleo release plan <version> --tasks` - Add tasks to release
+  - `cleo release ship <version>` - Mark release as shipped with timestamp
+  - `cleo release list` - List all releases with status
+  - `cleo release show <version>` - Show release details
+  - `cleo release changelog <version>` - Generate changelog from tasks
+
+- **Changelog Generation**:
+  - `lib/changelog.sh` - Task-based changelog generation
+  - `generate_changelog()` - Categorizes by labels (feature→Added, bug→Fixed)
+  - `get_release_tasks()` - Retrieves tasks for a release
+
+- **Auto-Detection & Extraction**:
+  - `lib/files-detect.sh` - File path auto-detection from notes
+  - `lib/crossref-extract.sh` - Task cross-reference extraction (T1234 patterns)
+  - Auto-populate `files` array from notes content
+  - Auto-populate `relates` array from task mentions
+
+- **Enforcement System**:
+  - Size field enforcement - Defaults to "medium" when not specified
+  - Acceptance criteria warnings on task completion
+  - Verification gate auto-set (`implemented`) on completion
+  - Configuration options in `config.schema.json` for enforcement behavior
+
+- **Testing**:
+  - `tests/unit/schema-280.bats` - 51 comprehensive tests for schema 2.8.0
+  - Tests cover all new fields, relationships, backward compatibility
+  - Integration tests for mutation system
+
+- **Documentation**:
+  - `docs/migration/v2.8.0-migration-guide.md` - Migration guide
+  - `docs/schema/` - Schema field documentation
+  - Updated MIGRATION-SYSTEM.md with 2.8.0 migration details
+
+**Changed**
+- **Schema version**: 2.7.0 → 2.8.0
+- **Migration function**: `migrate_todo_to_2_8_0()` added to `lib/migrate.sh`
+  - Backfills `updatedAt` with `createdAt` for existing tasks
+  - Initializes empty `relates`, `origin`, `releases` arrays
+  - Converts `sessionNote` string to `sessionNotes` array
+- **Task completion**: Now auto-sets `verification.gates.implemented = true`
+
+**Fixed**
+- Consistent timestamp handling across all mutation operations
+- Session notes now preserve conversation context (no longer overwritten)
+
+**Deprecated**
+- `focus.sessionNote` (string) - Use `focus.sessionNotes` (array) instead
+  - Migration preserves existing sessionNote as first array entry
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.65.0)
+</Update>
+
+<Update label="January 2026" description="v0.63.0" tags={["Fix", "Feature", "Installer"]}>
+## Orchestrator Compliance & Metrics System
+
+
+**Added**
+- **Orchestrator Compliance & Metrics System**:
+  - `lib/compliance-check.sh` - Subagent compliance validation (manifest, links, return format)
+  - `lib/metrics-aggregation.sh` - Project compliance summary aggregation
+  - `lib/metrics-enums.sh` - Strict enum definitions for metrics fields
+  - `schemas/metrics.schema.json` - Schema for compliance metrics (v1.0.0)
+  - `scripts/compliance.sh` - CLI command for metrics reporting
+  - Integration tests for compliance and metrics aggregation
+- **Claude Code Hooks**:
+  - `.claude/hooks/subagent-compliance.sh` - SubagentStop hook for automatic compliance tracking
+  - `.claude/settings.json` - Hook configuration for compliance validation
+- **Schema v2.7.0**:
+  - `noAutoComplete` field - Prevents automatic parent completion when all children done
+  - Useful for permanent tracking epics or tasks requiring explicit manual completion
+  - `--no-auto-complete` flag added to `update-task.sh`
+- **Doctor Progress Indicators** (T1998):
+  - Shows "Checking CLEO installation...", "Validating project X/Y..." during execution
+  - Only displays for human format when stdout is TTY
+  - Progress writes to stderr, results to stdout
+- **Command Documentation**:
+  - `docs/commands/extract.md` - Data export documentation
+  - `docs/commands/generate-changelog.md` - Changelog generation
+  - `docs/commands/generate-features.md` - Feature list generation
+  - `docs/commands/inject.md` - Content injection
+  - `docs/commands/populate-hierarchy.md` - Hierarchy inference from naming conventions
+  - `docs/commands/tree.md` - Task tree visualization
+
+**Changed**
+- **Doctor command now shows ALL projects** (T1997):
+  - Previously only showed projects with warnings/failures
+  - Now shows healthy projects with ✓ checkmark and "-" for issues
+  - All registered projects visible in table regardless of status
+
+**Fixed**
+- **Doctor --fix now auto-upgrades projects with outdated schemas**:
+  - Previously only printed a note to run `cleo upgrade` manually
+  - Now automatically runs `cleo upgrade --force` in each affected project
+  - Shows progress: "Upgrading: project-name..." with success/failure indicators
+- **Doctor schema version mismatch** (T1988):
+  - Doctor now reads actual project file versions instead of stale registry cache
+  - Doctor and `upgrade --status` now agree on which schemas are outdated
+- **Doctor performance** (T1985):
+  - Optimized from ~88s to ~11s (8x faster)
+  - Replaced per-task jq loop (4100 calls) with batched query in validate.sh
+  - Added `--quiet --human` flags for fastest validation path
+  - Fixed orphaned vs temp project double-counting logic
+- **VERSION parsing with multi-line files**: Fixed version string concatenation when VERSION files contain metadata lines (mode=, source=, installed=). All version consumers now use `head -n 1` to read only the semver line.
+- Multi-session isolation now works correctly with hybrid binding architecture (T1356)
+- Session resolution uses 4-priority cascade: --session flag, CLEO_SESSION env, TTY binding, .current-session
+- Per-session context state files now written correctly
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.63.0)
+</Update>
+
+<Update label="January 2026" description="v0.62.0" tags={["Fix", "Feature", "Documentation"]}>
+## Doctor command enhancements
+
+
+**Added**
+- **Doctor command enhancements**:
+  - New `lib/doctor-project-cache.sh` for validation result caching with 5-minute TTL
+  - Color-coded status indicators for improved visual feedback in project health reports
+  - Actionable guidance with specific remediation commands for detected issues
+  - Performance optimization: skip validation for temporary/orphaned projects
+  - `project.status` section in config schema (v2.5.0) for project-level health tracking
+
+**Changed**
+- **Doctor default output**: Now shows only active projects with issues (summary counts for temp/orphaned projects)
+- **CI workflow improvements**: Added timeout configuration and concurrency control for more reliable test execution
+- **Test runner enhancements**: Improved timeout enforcement and test isolation
+
+**Fixed**
+- **Critical bugs in `doctor` command**:
+  - Fixed undefined `GRAY` variable error (lines 544/553 in doctor.sh)
+  - Fixed color variable scoping - colors now properly exported for helper functions
+  - Fixed project table filter logic - changed from OR to AND logic for accurate issue reporting
+- **Migration system bug**: Fixed hardcoded schema versions in `migrate_config_to_2_5_0()` - now uses `get_schema_version_from_file()` for dynamic version reads
+- **JSON formatting consistency**: Fixed boolean string inconsistency - unquoted `true`/`false` for proper jq compatibility
+- **Code quality**: Removed extra blank line in `doctor-checks.sh`
+- **Agent config version checking**: Additional fix for proper VERSION file parsing with multi-line support
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.62.0)
+</Update>
+
 <Update label="January 2026" description="v0.61.0" tags={["Feature", "Skills", "Orchestrator"]}>
 ## v0.61.0 Release
 
@@ -42,362 +253,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.61.0)
-</Update>
-
-<Update label="January 2026" description="v0.60.2" tags={["Fix", "Feature", "Installer"]}>
-## Installer auto-install dependencies
-
-
-**Added**
-- **Installer auto-install dependencies**: Both `install.sh` and `installer/install.sh` now offer to automatically install missing dependencies (jq, flock, etc.) using detected package manager (apt, dnf, brew, pacman, apk)
-- **Bash 4+ auto-detection on macOS**: Installer detects system Bash < 4 and automatically re-executes with Homebrew Bash if available at `/opt/homebrew/bin/bash` or `/usr/local/bin/bash`
-
-**Fixed**
-- **Mintlify MDX parsing errors**: Converted HTML comments (`<!-- -->`) to JSX comments (`{/* */}`) in all 53 command documentation files
-- **MDX frontmatter placement**: Comments now placed AFTER frontmatter closing `---` as required by MDX spec
-- **Generator script**: `dev/generate-command-docs.sh` now outputs JSX comments for future regenerations
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.60.2)
-</Update>
-
-<Update label="January 2026" description="v0.60.1" tags={["Fix", "Feature", "Documentation"]}>
-## `init --update-docs` flag
-
-
-**Added**
-- **`init --update-docs` flag**: Safe operation to create/update agent documentation files (CLAUDE.md, AGENTS.md, GEMINI.md) on existing projects without touching task data
-  - Exit codes: 0 (updated), 102 (no changes needed), 1 (failed)
-  - Useful alternative to full `upgrade` when only agent docs need updating
-
-**Fixed**
-- **Agent docs not created on existing projects**: `injection_check_all()` was silently skipping missing files due to `if [[ -f "$target" ]]` guard
-  - Now reports ALL targets including missing ones with status "missing"
-  - Enables `upgrade` to properly detect and create missing CLAUDE.md/AGENTS.md/GEMINI.md
-- **Block content validation**: `injection_check()` now validates block content matches expected `@.cleo/templates/AGENT-INJECTION.md` reference
-  - Returns "outdated" status if content doesn't match, triggering update
-  - Previously returned "current" for any existing block without content validation
-
-**Changed**
-- `upgrade` now properly handles all agent doc scenarios:
-  - Missing files → Creates them
-  - Outdated content → Updates them
-  - No block present → Prepends block
-  - Current → Skips (no change)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.60.1)
-</Update>
-
-<Update label="January 2026" description="v0.60.0" tags={["Fix", "Feature", "Skills"]}>
-## v0.60.0 Release
-
-
-**Added**
-- **Orchestrator Protocol Production Readiness** (Epic T1666)
-  - Token injection system with `ti_set_task_context()` fully integrated
-  - Manifest archival functions: `manifest_check_size`, `manifest_archive_old`, `manifest_rotate`
-  - `skills/_shared/placeholders.json` canonical token registry
-  - `lib/skill-dispatch.sh` for automatic skill selection based on intent
-  - `lib/skill-validate.sh` for skill validation and discovery
-  - `lib/orchestrator-spawn.sh` for subagent prompt generation
-  - `lib/subagent-inject.sh` for protocol injection into subagent prompts
-
-**Fixed**
-- Token injection now properly resolves `TASK_TITLE`, `TASK_DESCRIPTION`, `TOPICS_JSON`, `DEPENDS_LIST` placeholders
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.60.0)
-</Update>
-
-<Update label="January 2026" description="v0.59.0" tags={["Fix", "Feature", "Skills"]}>
-## v0.59.0 Release
-
-
-**Added**
-- **Token Pipeline Completion** (Epic T1756)
-  - Four new token extraction functions in `lib/token-inject.sh`:
-    - `TI_ACCEPTANCE_CRITERIA` - Extract acceptance criteria from tasks
-    - `TI_DELIVERABLES_LIST` - Extract deliverables/files from tasks
-    - `TI_MANIFEST_SUMMARIES` - Extract key findings from manifest entries
-    - `TI_NEXT_TASK_IDS` - Extract dependent task IDs via dependency analysis
-  - `ti_set_task_context()` integration in both orchestrator and skill-dispatch paths
-  - Skill name mapping configuration for legacy/new name support
-
-**Changed**
-- **Orchestrator Architecture**
-  - Consolidated duplicate `orchestrator_spawn()` functions - single canonical location
-  - Renamed skill-based variant to `orchestrator_spawn_skill()` for clarity
-  - Fixed template path resolution to use `skills/ct-{name}/SKILL.md` pattern
-  - Integrated `token-inject.sh` into `orchestrator_build_prompt()` for consistent `{{TOKEN}}` handling
-  - Both orchestrator-spawn.sh and skill-dispatch.sh now use unified token injection
-
-**Documentation**
-- **Orchestrator Reference** (`docs/commands/orchestrator.md`)
-  - Complete subcommand reference with examples
-  - Skill dispatch matrix
-  - Token injection workflow documentation
-- **Orchestrator Skill** (`skills/ct-orchestrator/SKILL.md`)
-  - Validated spawning workflow examples
-  - Corrected token placeholder references
-- **Quickstart Guide** (`docs/guides/orchestrator-quickstart.md`)
-  - Step-by-step tutorial for orchestrator usage
-  - Copy-paste ready commands
-- **Architecture Documentation**
-  - Documented lib/ files: token-inject.sh, orchestrator-startup.sh, orchestrator-spawn.sh, skill-dispatch.sh, subagent-inject.sh
-  - Function purposes and call graph relationships
-
-**Validated**
-- ORC-001 through ORC-005 constraints verified with real subagent spawning
-  - ORC-001: Orchestrator stays high-level (no direct implementation)
-  - ORC-002: All work delegated via Task tool
-  - ORC-003: Manifest summaries only (no full file reads)
-  - ORC-004: Sequential wave execution (dependency order)
-  - ORC-005: Context budget maintained via manifest-based handoff
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.59.0)
-</Update>
-
-<Update label="January 2026" description="v0.58.7" tags={["Fix", "Installer", "Sessions"]}>
-## Injection Markers
-
-
-**Fixed**
-- **Injection Markers**: Remove version tracking from CLEO markers
-  - Markers now versionless: `<!-- CLEO:START -->` (no version number)
-  - Since markers use `@-references` to external files, version was meaningless
-  - Block presence = configured (no version comparison needed)
-  - Prevents unnecessary repeated updates and potential duplication
-  - Legacy versioned markers still recognized for backward compatibility
-  - Simplified `injection_check()` to verify block existence only
-  - Updated `setup-agents.sh`, installer, `session.sh`, `doctor.sh`
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.7)
-</Update>
-
-<Update label="January 2026" description="v0.58.6" tags={["Fix", "Installer", "Skills"]}>
-## Skills Installation
-
-
-**Fixed**
-- **Skills Installation**: Create individual `ct-*` symlinks instead of umbrella symlink
-  - Each skill directory now symlinked directly: `~/.claude/skills/ct-orchestrator -> ~/.cleo/skills/ct-orchestrator`
-  - Fixes nesting issue where skills were at `~/.claude/skills/cleo/ct-*` instead of root
-  - Skills now installed to all three agent directories:
-    - `~/.claude/skills/ct-*`
-    - `~/.gemini/skills/ct-*`
-    - `~/.codex/skills/ct-*`
-  - Mode switching (`--to-release`, `--to-dev`) updates all directories
-  - Cleanup removes old umbrella `cleo` symlink if present
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.6)
-</Update>
-
-<Update label="January 2026" description="v0.58.5" tags={["Fix", "Installer"]}>
-## Self-update
-
-
-**Fixed**
-- **Self-update**: Fix dev mode detection to read VERSION file
-  - Was checking symlinks instead of `mode=` field in VERSION file
-  - Now correctly detects release mode after `--to-release` switch
-  - Fallback to symlink detection for legacy installs without mode field
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.5)
-</Update>
-
-<Update label="January 2026" description="v0.58.4" tags={["Fix", "Installer"]}>
-## Self-update
-
-
-**Fixed**
-- **Self-update**: Find installer in both root and `installer/` directory
-  - Tarball structure has installer at `cleo-X.Y.Z/installer/install.sh`
-  - Now checks both locations before failing
-  - Also ensures installer is executable before running
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.4)
-</Update>
-
-<Update label="January 2026" description="v0.58.3" tags={["Fix"]}>
-## Self-update
-
-
-**Fixed**
-- **Self-update**: Download correct release tarball instead of GitHub source archive
-  - Was downloading `.tarball_url` (source code without execute permissions)
-  - Now downloads from `/releases/download/` (our packaged tarball with permissions)
-  - Fixes "Permission denied" error during `--to-release` mode switch
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.3)
-</Update>
-
-<Update label="January 2026" description="v0.58.2" tags={["Fix", "Feature", "Installer"]}>
-## Release Workflow
-
-
-**Fixed**
-- **Release Workflow**: Set execute permissions on shell scripts in tarball
-  - `cleo self-update --to-release` was failing with "Permission denied"
-  - Added `chmod +x` for all `.sh` files before creating tarball
-  - Ensures installer and scripts are executable after extraction
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.2)
-</Update>
-
-<Update label="January 2026" description="v0.58.1" tags={["Fix", "Installer", "Skills"]}>
-## Skills Installation
-
-
-**Fixed**
-- **Skills Installation**: Clean up stale individual `ct-*` symlinks during installation
-  - Installer now removes old `ct-*` symlinks before creating umbrella `cleo` symlink
-  - Prevents conflicts between old individual symlinks and new umbrella approach
-  - Logs cleanup progress: "Cleaned up N old ct-* skill symlinks"
-- **Mode Switching**: Update skills symlinks during `--to-release` and `--to-dev` operations
-  - Self-update now calls `update_skills_for_mode_switch()` after mode transitions
-  - Removes stale symlinks pointing to old dev locations
-  - Ensures `~/.claude/skills/cleo` umbrella symlink is always valid
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.1)
-</Update>
-
-<Update label="January 2026" description="v0.58.0" tags={["Feature", "Installer", "Documentation"]}>
-## Installer
-
-
-**Added**
-- **Installer**: Add `--release` flag for explicit release mode installation
-  - Symmetric with existing `--dev` flag
-  - `./install.sh --release --force` downloads latest release and copies files
-  - Conflict detection: `--dev` and `--release` together produces clear error
-- **Self-update**: Add mode switching capabilities
-  - `--to-release` switches from dev mode to release mode
-  - `--to-dev PATH` switches from release mode to dev mode
-  - Dev mode now shows helpful suggestions including switch option
-- **Documentation**: New Installation Modes guide (`docs/guides/INSTALLATION-MODES.md`)
-  - Comprehensive explanation of dev vs release modes
-  - Step-by-step switching instructions
-  - Use cases for each mode
-
-**Changed**
-- **Self-update**: Improved dev mode output with actionable suggestions
-  - JSON output includes `suggestions.switch_to_release` field
-  - Human output shows both `git pull` and `--to-release` options
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.58.0)
-</Update>
-
-<Update label="January 2026" description="v0.57.11" tags={["Fix", "Feature", "Installer"]}>
-## Installer
-
-
-**Fixed**
-- **Installer**: Add user-friendly progress output for all installation scenarios
-  - Added `[INFO]` and `[STEP]` prefixes for progress visibility
-  - Added informative message when installation already complete (no longer silent)
-  - `--force` flag now shows "Clearing previous installation state" message
-- **Self-update**: Improve dev mode feedback and progress indicators
-  - Clear `[INFO]` message explaining dev mode behavior
-  - Added `[STEP N/4]` progress indicators for update process
-  - Improved both JSON and human-readable output formats
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.11)
-</Update>
-
-<Update label="January 2026" description="v0.57.10" tags={["Fix", "Documentation"]}>
-## GitHub Release
-
-
-**Fixed**
-- **GitHub Release**: Actually commit the release.yml fix (was uncommitted in v0.57.8-v0.57.9)
-  - Release tarball now includes `completions/` and `docs/` directories
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.10)
-</Update>
-
-<Update label="January 2026" description="v0.57.9" tags={["Fix", "Documentation"]}>
-## GitHub Release
-
-
-**Fixed**
-- **GitHub Release**: Fix tarball packaging to include `completions/` and `docs/` directories
-  - Previous release built before workflow changes took effect
-  - This release ensures all directories are properly packaged
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.9)
-</Update>
-
-<Update label="January 2026" description="v0.57.8" tags={["Fix", "Feature", "Installer"]}>
-## Installer
-
-
-**Fixed**
-- **Installer**: Fix missing `completions/` and `docs/` directory installation
-  - Added `completions` to `SOURCE_INSTALLABLE_DIRS` in `source.sh`
-  - Tab completion scripts now properly install to `~/.cleo/completions/`
-  - Documentation now properly installs to `~/.cleo/docs/`
-- **CLI wrapper**: Register 17 missing commands in `link.sh` `_get_cmd_script()`
-  - Added: `self-update`, `archive-stats`, `claude-migrate`, `orchestrator`, `safestop`
-  - Added: `sequence`, `reorder`, `setup-agents`, `unarchive`, `roadmap`
-  - Added: `export-tasks`, `import-tasks`, `populate-hierarchy`, `reorganize-backups`
-- **COMMANDS-INDEX.json**: Added 6 missing command entries
-  - `delete`, `reopen`, `roadmap`, `sequence`, `uncancel`, `upgrade`
-  - Updated `meta.totalCommands` to 53
-
-**Documentation**
-- **TODO_Task_Management.md**: Added Installation & Updates section
-- **TODO_Task_Management.md**: Documented 9 previously missing commands
-- **CHANGELOG.md**: Synced with git history (added v0.57.2-v0.57.7 entries)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.8)
-</Update>
-
-<Update label="January 2026" description="v0.57.7" tags={["Fix", "Feature", "CLI"]}>
-## CLI dispatcher
-
-
-**Fixed**
-- **CLI dispatcher**: Add `self-update` and `setup-agents` to command map in `link.sh`
-  - Commands now properly route to their respective scripts
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.7)
-</Update>
-
-<Update label="January 2026" description="v0.57.6" tags={["Fix", "Feature", "Installer"]}>
-## Installer
-
-
-**Fixed**
-- **Installer**: Add global agent config setup during installation
-- **Version migration**: Fix bug in version migration logic
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.6)
-</Update>
-
-<Update label="January 2026" description="v0.57.5" tags={["Core"]}>
-## v0.57.5 Release
-
-
-No changes - tag only release for CI testing.
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.57.5)
 </Update>
 
 ## Earlier Releases

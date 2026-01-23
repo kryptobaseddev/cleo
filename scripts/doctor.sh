@@ -439,14 +439,15 @@ run_project_registry_validation() {
             fi
         fi
 
-        # Final status accounting
-        if [[ "$status" == "healthy" ]]; then
-            ((healthy++))
-        fi
-
-        # For default view, skip healthy temp projects
+        # For default view, skip healthy temp projects (FIX T1997)
+        # Do this BEFORE counting to ensure summary matches table
         if [[ "$DETAIL_MODE" == false ]] && [[ "$status" == "healthy" ]] && [[ "$is_temp_project" == true ]]; then
             continue
+        fi
+
+        # Final status accounting (after skip check for consistency)
+        if [[ "$status" == "healthy" ]]; then
+            ((healthy++))
         fi
 
         # Build result for this project
@@ -664,17 +665,18 @@ format_text_output() {
         end'
     
     # Show categorized project summary
-    local project_data=$(echo "$json_output" | jq -r '.checks[] | select(.id == "registered_projects")')
-    if [[ -n "$project_data" ]]; then
+    # Use .projects data for consistency with table output (FIX T1997)
+    local project_data=$(echo "$json_output" | jq -r '.projects // empty')
+    if [[ -n "$project_data" && "$project_data" != "null" ]]; then
         echo ""
         echo "📊 PROJECT REGISTRY:"
-        
-        local total=$(echo "$project_data" | jq -r '.details.total')
-        local temp=$(echo "$project_data" | jq -r '.details.temp // 0')
-        local orphaned=$(echo "$project_data" | jq -r '.details.orphaned')
-        local active_failed=$(echo "$project_data" | jq -r '.details.active_failed // 0')
-        local active_warnings=$(echo "$project_data" | jq -r '.details.active_warnings // 0')
-        local active_healthy=$(echo "$project_data" | jq -r '.details.healthy // 0')
+
+        local total=$(echo "$project_data" | jq -r '.total // 0')
+        local temp=$(echo "$project_data" | jq -r '.temp // 0')
+        local orphaned=$(echo "$project_data" | jq -r '.orphaned // 0')
+        local active_failed=$(echo "$project_data" | jq -r '.activeFailed // 0')
+        local active_warnings=$(echo "$project_data" | jq -r '.activeWarnings // 0')
+        local active_healthy=$(echo "$project_data" | jq -r '.healthy // 0')
         
         # Show summary counts only in default mode
         if [[ "$DETAIL_MODE" == false ]]; then
