@@ -17,9 +17,10 @@ declare -r _MIGRATE_SH_LOADED=1
 set -euo pipefail
 
 # Source dependencies
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# NOTE: Use _MIGRATE_LIB_DIR to avoid overwriting caller's SCRIPT_DIR
+_MIGRATE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/logging.sh
-source "$SCRIPT_DIR/logging.sh"
+source "$_MIGRATE_LIB_DIR/logging.sh"
 
 # ============================================================================
 # CONSTANTS
