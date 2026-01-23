@@ -27,10 +27,12 @@ ALERT_STATE_FILE="${CLEO_PROJECT_DIR:-.cleo}/.context-alert-state.json"
 CONFIG_FILE="${CLEO_PROJECT_DIR:-.cleo}/config.json"
 
 # Thresholds (percentage of context window)
-declare -r THRESHOLD_WARNING=70
-declare -r THRESHOLD_CAUTION=85
-declare -r THRESHOLD_CRITICAL=90
-declare -r THRESHOLD_EMERGENCY=95
+# Note: Using export + readonly for subshell access (BATS run, etc.)
+export THRESHOLD_WARNING=70
+export THRESHOLD_CAUTION=85
+export THRESHOLD_CRITICAL=90
+export THRESHOLD_EMERGENCY=95
+readonly THRESHOLD_WARNING THRESHOLD_CAUTION THRESHOLD_CRITICAL THRESHOLD_EMERGENCY
 
 # ============================================================================
 # HELPER FUNCTIONS
