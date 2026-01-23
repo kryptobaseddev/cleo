@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.67.0] - 2026-01-23
+## [0.68.0] - 2026-01-23
 
 ### Added
 - **Epic T1955: CLEO Self-Improvement and Compliance Tracking** (26/26 tasks complete):
