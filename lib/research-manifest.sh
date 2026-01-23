@@ -840,7 +840,7 @@ append_manifest() {
     # Uses subshell to scope the lock; exit code propagates
     local lock_result
     lock_result=$(
-        flock -x 200
+        flock -x 200 2>/dev/null
 
         # Duplicate check (inside lock to prevent TOCTOU race)
         if [[ -f "$manifest_path" ]] && grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
@@ -1132,7 +1132,7 @@ archive_entry() {
     # Atomic read-modify-write within exclusive flock
     local lock_result
     lock_result=$(
-        flock -x 200
+        flock -x 200 2>/dev/null
 
         # Check if entry exists (inside lock)
         if ! grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
@@ -1496,7 +1496,7 @@ update_entry() {
     # Atomic read-modify-write within exclusive flock
     local lock_result
     lock_result=$(
-        flock -x 200
+        flock -x 200 2>/dev/null
 
         # Check if entry exists (inside lock)
         if ! grep -q "\"id\":\"${entry_id}\"" "$manifest_path" 2>/dev/null; then
@@ -1623,7 +1623,7 @@ link_research_to_task() {
     # Atomic read-modify-write within exclusive flock
     local lock_result
     lock_result=$(
-        flock -x 200
+        flock -x 200 2>/dev/null
 
         # Verify research entry exists (inside lock)
         if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
@@ -1776,7 +1776,7 @@ unlink_research_from_task() {
     # Atomic read-modify-write within exclusive flock
     local lock_result
     lock_result=$(
-        flock -x 200
+        flock -x 200 2>/dev/null
 
         # Verify research entry exists (inside lock)
         if ! grep -q "\"id\":\"${research_id}\"" "$manifest_path" 2>/dev/null; then
