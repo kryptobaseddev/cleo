@@ -653,6 +653,7 @@ UPDATES_APPLIED=0
 ERRORS=()
 
 # 1. Fix legacy structure (top-level phases, string project)
+LEGACY_TODO_FIXED=false
 if [[ -n "${UPDATES_NEEDED[todo]:-}" ]] && [[ "${UPDATES_NEEDED[todo]}" == *"legacy"* ]]; then
     if ! is_json_output; then
         echo "Repairing legacy structure..."
@@ -668,6 +669,7 @@ if [[ -n "${UPDATES_NEEDED[todo]:-}" ]] && [[ "${UPDATES_NEEDED[todo]}" == *"leg
         jq 'del(.checksum)' "$UPG_TODO_FILE" > "$UPG_TODO_FILE.tmp" && mv "$UPG_TODO_FILE.tmp" "$UPG_TODO_FILE"
     fi
 
+    LEGACY_TODO_FIXED=true
     (( ++UPDATES_APPLIED ))
 fi
 
@@ -677,7 +679,20 @@ if type ensure_compatible_version &>/dev/null; then
         IFS=':' read -r file_type file_path <<< "$file_spec"
         [[ ! -f "$file_path" ]] && continue
 
-        if [[ -n "${UPDATES_NEEDED[$file_type]:-}" ]] && [[ "${UPDATES_NEEDED[$file_type]}" != *"legacy"* ]]; then
+        # Run migration if:
+        # 1. Updates are needed for this file type, OR
+        # 2. This is todo.json and we just fixed legacy structure (needs schema version field)
+        needs_migration=false
+        if [[ -n "${UPDATES_NEEDED[$file_type]:-}" ]]; then
+            # Has updates needed (could be legacy or schema version)
+            needs_migration=true
+        fi
+        if [[ "$file_type" == "todo" ]] && [[ "$LEGACY_TODO_FIXED" == "true" ]]; then
+            # Legacy structure was fixed, need to run migration to add _meta.schemaVersion
+            needs_migration=true
+        fi
+
+        if [[ "$needs_migration" == "true" ]]; then
             if ! is_json_output; then
                 echo "Migrating $file_type..."
             fi
