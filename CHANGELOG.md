@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.67.0] - 2026-01-23
 
+### Added
+- **Epic T1955: CLEO Self-Improvement and Compliance Tracking** (26/26 tasks complete):
+  - **SubagentStop Hook** - Automatic compliance tracking for all subagents:
+    - Captures: agent_id, compliance scores, token metrics
+    - Writes to: `.cleo/metrics/COMPLIANCE.jsonl`
+  - **Compliance Command** - `cleo compliance` with subcommands:
+    - `summary` - Aggregate compliance stats
+    - `violations` - List violations
+    - `trend` - Compliance over time
+    - `audit` - Check specific epic
+    - `sync` - Sync to global metrics
+    - `skills` - Agent reliability stats
+  - **Metrics Aggregation** - Two-tier storage:
+    - Project: `.cleo/metrics/COMPLIANCE.jsonl`
+    - Global: `~/.cleo/metrics/GLOBAL.jsonl`
+  - **Session Metrics Integration** - Token tracking per session:
+    - Captures start/end token counts
+    - Writes to: `.cleo/metrics/SESSIONS.jsonl`
+  - **noAutoComplete Field** - Epic pinning:
+    - Prevents epics from auto-completing
+    - Used for persistent tracking epics
+
 ### Fixed
 - **Epic T1342: CI Test Failure Resolution** (195 → 0 failures):
   - `lib/config.sh`: Boolean false values now handled correctly in `read_config_file` (T2079)
