@@ -1437,12 +1437,13 @@ if declare -f validate_research_manifest >/dev/null 2>&1; then
     # Validate manifest content
     validation_result=$(validate_research_manifest 2>/dev/null || echo '{"valid":false}')
     is_valid=$(echo "$validation_result" | jq -r '.valid // false')
-    invalid_count=$(echo "$validation_result" | jq -r '.result.invalidEntries // 0')
+    # Sanitize invalid_count: extract first numeric value, default to 0
+    invalid_count=$(echo "$validation_result" | jq -r '.result.invalidEntries // 0' | tr -d '\n' | grep -oE '^[0-9]+' || echo "0")
 
     if [[ "$is_valid" == "true" ]]; then
       log_info "Research manifest valid" "research_outputs"
     else
-      if [[ "$invalid_count" -gt 0 ]]; then
+      if [[ -n "$invalid_count" && "$invalid_count" -gt 0 ]] 2>/dev/null; then
         log_warn "Research manifest has $invalid_count invalid entries"
       else
         log_info "Research manifest valid (empty)" "research_outputs"

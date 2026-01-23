@@ -228,7 +228,7 @@ run_project_registry_validation() {
         local issues=()
         local path_exists=false
         local validation_passed=false
-        local schemas_outdated=()
+        local schemas_outdated="[]"  # JSON string for jq output (default empty)
         local injection_outdated=()
         local is_temp_project=false
 
@@ -688,17 +688,15 @@ format_text_output() {
                     failed|orphaned) icon="✗"; color="${RED}" ;;
                 esac
                 
-                # Truncate long paths and issues for display
+                # Truncate long paths for display, but show full issues
                 local display_path="$path"
                 local display_issues="$issues"
                 if [[ ${#display_path} -gt 48 ]]; then
                     display_path="...${display_path: -45}"
                 fi
-                if [[ ${#display_issues} -gt 28 ]]; then
-                    display_issues="${display_issues:0:25}..."
-                fi
-                
-                printf "${color}%-2s %-18s %-10s %-50s %-30s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
+                # Show full issues text (no truncation) - users need to see what's wrong
+
+                printf "${color}%-2s %-18s %-10s %-50s %s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
             done
         else
             # Clean default view - only show active (non-temp) projects that need attention
@@ -716,8 +714,8 @@ format_text_output() {
             if [[ -n "$issues_json" ]]; then
                 has_issues_to_show=true
                 # Print table header for default view
-                printf "%-20s %-10s %-50s %-30s\n" "PROJECT NAME" "STATUS" "PATH" "ISSUES"
-                printf "%-20s %-10s %-50s %-30s\n" "------------" "------" "----" "------"
+                printf "%-20s %-10s %-50s %s\n" "PROJECT NAME" "STATUS" "PATH" "ISSUES"
+                printf "%-20s %-10s %-50s %s\n" "------------" "------" "----" "------"
 
                 echo "$issues_json" |
                 while IFS=$'\t' read -r name status path issues; do
@@ -730,17 +728,15 @@ format_text_output() {
                         failed|orphaned) icon="✗"; color="${RED}" ;;
                     esac
 
-                    # Truncate long paths and issues for display
+                    # Truncate long paths for display, but show full issues
                     local display_path="$path"
                     local display_issues="$issues"
                     if [[ ${#display_path} -gt 48 ]]; then
                         display_path="...${display_path: -45}"
                     fi
-                    if [[ ${#display_issues} -gt 28 ]]; then
-                        display_issues="${display_issues:0:25}..."
-                    fi
+                    # Show full issues text (no truncation) - users need to see what's wrong
 
-                    printf "${color}%-2s %-18s %-10s %-50s %-30s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
+                    printf "${color}%-2s %-18s %-10s %-50s %s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
                     ((show_count++)) || true
                 done
             fi
@@ -1075,13 +1071,17 @@ main() {
                 echo "Removing $temp_count temporary project(s)..." >&2
                 
                 # Remove each temp project from registry
+                # Note: Use subshell with set +e to prevent errexit from aborting on removal failures
                 local removed_count=0
                 while IFS= read -r hash; do
                     if [[ -n "$hash" ]]; then
-                        remove_project_from_registry "$hash" >/dev/null 2>&1 && ((removed_count++))
+                        # Use || true to prevent set -e from exiting on failure
+                        if remove_project_from_registry "$hash" >/dev/null 2>&1; then
+                            ((removed_count++)) || true
+                        fi
                     fi
                 done <<< "$temp_projects"
-                
+
                 if [[ "$removed_count" -gt 0 ]]; then
                     echo "✓ Successfully removed $removed_count temporary projects" >&2
                 else
