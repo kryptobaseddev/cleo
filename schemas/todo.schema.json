@@ -1,13 +1,18 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
-  "schemaVersion": "2.8.0",
+  "schemaVersion": "2.9.0",
   "title": "CLEO Task Schema",
   "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
   "type": "object",
-  "required": ["version", "project", "lastUpdated", "tasks", "_meta"],
+  "required": [
+    "version",
+    "project",
+    "lastUpdated",
+    "tasks",
+    "_meta"
+  ],
   "additionalProperties": false,
-
   "properties": {
     "version": {
       "type": "string",
@@ -16,7 +21,10 @@
     },
     "project": {
       "type": "object",
-      "required": ["name", "phases"],
+      "required": [
+        "name",
+        "phases"
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -25,7 +33,10 @@
           "description": "Project identifier for cross-session context."
         },
         "currentPhase": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-z][a-z0-9-]*$",
           "description": "Slug of currently active phase. Must match a phase with status=active."
         },
@@ -44,7 +55,12 @@
           "description": "Chronological phase transition log for audit trail and progress analysis.",
           "items": {
             "type": "object",
-            "required": ["phase", "transitionType", "timestamp", "taskCount"],
+            "required": [
+              "phase",
+              "transitionType",
+              "timestamp",
+              "taskCount"
+            ],
             "additionalProperties": false,
             "properties": {
               "phase": {
@@ -54,7 +70,11 @@
               },
               "transitionType": {
                 "type": "string",
-                "enum": ["started", "completed", "rollback"],
+                "enum": [
+                  "started",
+                  "completed",
+                  "rollback"
+                ],
                 "description": "started=phase became active, completed=phase finished, rollback=reverted to previous phase."
               },
               "timestamp": {
@@ -68,7 +88,10 @@
                 "description": "Number of tasks in this phase at transition time."
               },
               "fromPhase": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "pattern": "^[a-z][a-z0-9-]*$",
                 "description": "Previous phase slug for rollback tracking. Null for initial phase start."
               },
@@ -86,7 +109,10 @@
           "description": "Release tracking for roadmap management. Each release tracks version, status, and associated tasks.",
           "items": {
             "type": "object",
-            "required": ["version", "status"],
+            "required": [
+              "version",
+              "status"
+            ],
             "additionalProperties": false,
             "properties": {
               "version": {
@@ -96,16 +122,26 @@
               },
               "status": {
                 "type": "string",
-                "enum": ["planned", "active", "released"],
+                "enum": [
+                  "planned",
+                  "active",
+                  "released"
+                ],
                 "description": "Release lifecycle: planned=future, active=current development, released=shipped."
               },
               "targetDate": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "format": "date",
                 "description": "Planned release date (YYYY-MM-DD). Null if not scheduled."
               },
               "releasedAt": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "format": "date-time",
                 "description": "Actual release timestamp (ISO 8601). Null until released."
               },
@@ -120,7 +156,10 @@
                 "description": "Task IDs included in this release."
               },
               "notes": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "maxLength": 5000,
                 "description": "Release notes or changelog summary."
               }
@@ -137,7 +176,11 @@
     "_meta": {
       "type": "object",
       "description": "System metadata for integrity and session tracking. CRITICAL for anti-hallucination.",
-      "required": ["schemaVersion", "checksum", "configVersion"],
+      "required": [
+        "schemaVersion",
+        "checksum",
+        "configVersion"
+      ],
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
@@ -161,11 +204,17 @@
           "description": "Version of todo-config.json used. Ensures config compatibility."
         },
         "lastSessionId": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Session ID that last modified this file. Format: session_YYYYMMDD_HHMMSS_random"
         },
         "activeSession": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Currently active session (single-session mode). Null if no session active or in multi-session mode."
         },
         "multiSessionEnabled": {
@@ -180,9 +229,18 @@
           "description": "Number of active sessions (multi-session mode). Quick check without reading sessions.json."
         },
         "sessionsFile": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": "sessions.json",
           "description": "Relative path to sessions registry file. Null if multi-session disabled."
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Generation counter for cache invalidation. Incremented on each write to enable dependency graph cache freshness checks."
         }
       }
     },
@@ -192,21 +250,33 @@
       "additionalProperties": false,
       "properties": {
         "currentTask": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^T\\d{3,}$",
           "description": "Task ID being worked on (single-session mode). MUST match the only task with status='active'. Null if no active task or in multi-session mode."
         },
         "currentPhase": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-z][a-z0-9-]*$",
           "description": "Phase of currently focused task. Cached for quick reference."
         },
         "blockedUntil": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Global blocker if entire project is blocked."
         },
         "sessionNote": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 2500,
           "description": "Context from last session (single-session mode). In multi-session mode, notes are per-session in sessions.json. DEPRECATED: Use sessionNotes array for append-only history."
         },
@@ -225,15 +295,24 @@
                 "description": "When the note was added"
               },
               "conversationId": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "description": "Claude conversation ID for context"
               },
               "agent": {
-                "type": ["string", "null"],
+                "type": [
+                  "string",
+                  "null"
+                ],
                 "description": "Agent identifier (opus-1, sonnet-2, etc.)"
               }
             },
-            "required": ["note", "timestamp"],
+            "required": [
+              "note",
+              "timestamp"
+            ],
             "additionalProperties": false
           },
           "maxItems": 50,
@@ -241,12 +320,18 @@
           "description": "Append-only session notes preserving conversation context"
         },
         "nextAction": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 500,
           "description": "Specific next step when resuming (e.g., 'Add validation to auth.ts:45')."
         },
         "primarySession": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^session_\\d{8}_\\d{6}_[a-f0-9]{6}$",
           "description": "In multi-session mode: the 'default' session for CLI commands without explicit --session. Null in single-session mode."
         }
@@ -255,7 +340,9 @@
     "tasks": {
       "type": "array",
       "description": "Flat array of all active tasks. Completed tasks archived via archive-todo.sh.",
-      "items": { "$ref": "#/definitions/task" }
+      "items": {
+        "$ref": "#/definitions/task"
+      }
     },
     "labels": {
       "type": "object",
@@ -263,17 +350,23 @@
       "patternProperties": {
         "^[a-z][a-z0-9.-]*$": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^T\\d{3,}$" }
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          }
         }
       },
       "additionalProperties": false
     }
   },
-
   "definitions": {
     "phaseDefinition": {
       "type": "object",
-      "required": ["order", "name", "status"],
+      "required": [
+        "order",
+        "name",
+        "status"
+      ],
       "additionalProperties": false,
       "properties": {
         "order": {
@@ -294,34 +387,73 @@
         },
         "status": {
           "type": "string",
-          "enum": ["pending", "active", "completed"],
+          "enum": [
+            "pending",
+            "active",
+            "completed"
+          ],
           "description": "Phase lifecycle state. Only one phase can be active."
         },
         "startedAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "When phase became active."
         },
         "completedAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "When phase was completed."
         }
       },
       "allOf": [
         {
-          "if": { "properties": { "status": { "enum": ["active", "completed"] } } },
-          "then": { "required": ["startedAt"] }
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "active",
+                  "completed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "startedAt"
+            ]
+          }
         },
         {
-          "if": { "properties": { "status": { "const": "completed" } } },
-          "then": { "required": ["completedAt"] }
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "completedAt"
+            ]
+          }
         }
       ]
     },
     "task": {
       "type": "object",
-      "required": ["id", "title", "status", "priority", "createdAt"],
+      "required": [
+        "id",
+        "title",
+        "status",
+        "priority",
+        "createdAt"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -337,28 +469,49 @@
         },
         "status": {
           "type": "string",
-          "enum": ["pending", "active", "blocked", "done", "cancelled"],
+          "enum": [
+            "pending",
+            "active",
+            "blocked",
+            "done",
+            "cancelled"
+          ],
           "description": "pending=ready, active=working (ONE ONLY), blocked=stuck, done=completed, cancelled=soft-deleted."
         },
         "priority": {
           "type": "string",
-          "enum": ["critical", "high", "medium", "low"],
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
           "description": "Task priority. critical > high > medium > low."
         },
         "type": {
           "type": "string",
-          "enum": ["epic", "task", "subtask"],
+          "enum": [
+            "epic",
+            "task",
+            "subtask"
+          ],
           "default": "task",
           "description": "Task classification in hierarchy. epic: strategic initiative requiring decomposition. task: primary work unit. subtask: atomic operation. See HIERARCHY-ENHANCEMENT-SPEC.md."
         },
         "parentId": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^T\\d{3,}$",
           "default": null,
           "description": "Parent task ID for hierarchy. Null for root-level tasks. Must reference existing task. Max depth 3 (epic→task→subtask). Max 7 siblings per parent."
         },
         "position": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1,
           "default": null,
           "description": "Display order within parent scope. 1-indexed, continuous sequence per parent. Null = not yet assigned (will be auto-assigned on next operation). See T805 for positional ordering system."
@@ -370,8 +523,16 @@
           "description": "Optimistic locking version for position changes. Incremented on each position modification."
         },
         "size": {
-          "type": ["string", "null"],
-          "enum": ["small", "medium", "large", null],
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "small",
+            "medium",
+            "large",
+            null
+          ],
           "default": null,
           "description": "Scope-based size (NOT time). small: 1-2 files. medium: 3-7 files. large: 8+ files (should decompose). NO TIME ESTIMATES."
         },
@@ -387,29 +548,51 @@
         },
         "files": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Files to create/modify. Relative paths from project root."
         },
         "acceptance": {
           "type": "array",
-          "items": { "type": "string", "maxLength": 200 },
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          },
           "minItems": 1,
           "description": "Testable completion criteria. Task is done when ALL are met."
         },
         "depends": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^T\\d{3,}$" },
+          "items": {
+            "type": "string",
+            "pattern": "^T\\d{3,}$"
+          },
           "uniqueItems": true,
           "description": "Task IDs that must be 'done' before this can start. Validates on activation."
         },
         "epicLifecycle": {
-          "type": ["string", "null"],
-          "enum": ["backlog", "planning", "active", "review", "released", "archived", null],
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "backlog",
+            "planning",
+            "active",
+            "review",
+            "released",
+            "archived",
+            null
+          ],
           "default": null,
           "description": "Epic lifecycle state. Only applicable when type=epic. Null for tasks/subtasks."
         },
         "noAutoComplete": {
-          "type": ["boolean", "null"],
+          "type": [
+            "boolean",
+            "null"
+          ],
           "default": null,
           "description": "When true, this task/epic will NOT auto-complete even when all children are done. Use for permanent tracking epics or tasks that require explicit manual completion."
         },
@@ -420,18 +603,36 @@
         },
         "notes": {
           "type": "array",
-          "items": { "type": "string", "maxLength": 5000 },
+          "items": {
+            "type": "string",
+            "maxLength": 5000
+          },
           "description": "Append-only implementation log. NEVER delete entries. Timestamp recommended."
         },
         "labels": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*$" },
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9.-]*$"
+          },
           "uniqueItems": true,
           "description": "Tags for filtering (bug, feature, security, v0.5.0)."
         },
         "origin": {
-          "type": ["string", "null"],
-          "enum": ["internal", "bug-report", "feature-request", "security", "technical-debt", "dependency", "regression", null],
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "internal",
+            "bug-report",
+            "feature-request",
+            "security",
+            "technical-debt",
+            "dependency",
+            "regression",
+            null
+          ],
           "default": null,
           "description": "Task provenance classification for tracking source of work items."
         },
@@ -441,7 +642,10 @@
           "description": "ISO 8601 creation timestamp."
         },
         "updatedAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Timestamp of last task modification, auto-set on mutations."
         },
@@ -463,7 +667,10 @@
           "description": "Reason for cancellation. REQUIRED when status='cancelled'. 5-300 chars, no shell metacharacters."
         },
         "verification": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "default": null,
           "description": "Implementation verification state. Tracks pass/fail status across validation gates.",
           "additionalProperties": false,
@@ -484,45 +691,78 @@
               "additionalProperties": false,
               "properties": {
                 "implemented": {
-                  "type": ["boolean", "null"],
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
                   "default": null,
                   "description": "Coder Agent completed implementation."
                 },
                 "testsPassed": {
-                  "type": ["boolean", "null"],
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
                   "default": null,
                   "description": "Testing Agent verified all tests pass."
                 },
                 "qaPassed": {
-                  "type": ["boolean", "null"],
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
                   "default": null,
                   "description": "QA Agent verified acceptance criteria."
                 },
                 "cleanupDone": {
-                  "type": ["boolean", "null"],
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
                   "default": null,
                   "description": "Cleanup Agent completed refactoring."
                 },
                 "securityPassed": {
-                  "type": ["boolean", "null"],
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
                   "default": null,
                   "description": "Security Agent found no critical issues."
                 },
                 "documented": {
-                  "type": ["boolean", "null"],
+                  "type": [
+                    "boolean",
+                    "null"
+                  ],
                   "default": null,
                   "description": "Docs Agent completed documentation."
                 }
               }
             },
             "lastAgent": {
-              "type": ["string", "null"],
-              "enum": ["planner", "coder", "testing", "qa", "cleanup", "security", "docs", null],
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "planner",
+                "coder",
+                "testing",
+                "qa",
+                "cleanup",
+                "security",
+                "docs",
+                null
+              ],
               "default": null,
               "description": "Last agent to work on this task."
             },
             "lastUpdated": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "format": "date-time",
               "description": "Timestamp of last verification update."
             },
@@ -531,13 +771,29 @@
               "default": [],
               "items": {
                 "type": "object",
-                "required": ["round", "agent", "reason", "timestamp"],
+                "required": [
+                  "round",
+                  "agent",
+                  "reason",
+                  "timestamp"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "round": { "type": "integer", "minimum": 1 },
-                  "agent": { "type": "string" },
-                  "reason": { "type": "string", "maxLength": 500 },
-                  "timestamp": { "type": "string", "format": "date-time" }
+                  "round": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "agent": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
                 }
               },
               "description": "Log of verification failures for debugging."
@@ -550,7 +806,10 @@
           "description": "Non-blocking relationships to other tasks. Use for cross-references, provenance tracking, and semantic connections.",
           "items": {
             "type": "object",
-            "required": ["taskId", "type"],
+            "required": [
+              "taskId",
+              "type"
+            ],
             "additionalProperties": false,
             "properties": {
               "taskId": {
@@ -560,7 +819,13 @@
               },
               "type": {
                 "type": "string",
-                "enum": ["relates-to", "spawned-from", "deferred-to", "supersedes", "duplicates"],
+                "enum": [
+                  "relates-to",
+                  "spawned-from",
+                  "deferred-to",
+                  "supersedes",
+                  "duplicates"
+                ],
                 "description": "Relationship type: relates-to (general), spawned-from (derived from), deferred-to (postponed to), supersedes (replaces), duplicates (same as)."
               },
               "reason": {
@@ -574,16 +839,47 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "status": { "const": "blocked" } } },
-          "then": { "required": ["blockedBy"] }
+          "if": {
+            "properties": {
+              "status": {
+                "const": "blocked"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "blockedBy"
+            ]
+          }
         },
         {
-          "if": { "properties": { "status": { "const": "done" } } },
-          "then": { "required": ["completedAt"] }
+          "if": {
+            "properties": {
+              "status": {
+                "const": "done"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "completedAt"
+            ]
+          }
         },
         {
-          "if": { "properties": { "status": { "const": "cancelled" } } },
-          "then": { "required": ["cancelledAt", "cancellationReason"] }
+          "if": {
+            "properties": {
+              "status": {
+                "const": "cancelled"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "cancelledAt",
+              "cancellationReason"
+            ]
+          }
         }
       ]
     }

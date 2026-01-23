@@ -31,6 +31,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Prevents epics from auto-completing
     - Used for persistent tracking epics
 
+- **Dependency Graph System** (Epic T2122):
+  - **Graph Cache** (`lib/graph-cache.sh`):
+    - 90x performance improvement for dependency queries (18s → <200ms for 789 tasks)
+    - O(1) lookups via pre-computed forward/reverse adjacency lists
+    - Checksum-based automatic cache invalidation
+    - Single-pass jq construction for O(n) cache building
+    - Cache location: `.cleo/.deps-cache/`
+  - **Semantic Relationship Discovery** (`lib/graph-rag.sh`):
+    - `discover_related_tasks()` - Find related tasks by labels, description, files
+    - `suggest_relates()` - Threshold-filtered suggestions with scoring
+    - `add_relates_entry()` - Add non-blocking relationships
+    - Jaccard similarity for label and description matching
+    - Stopword removal for text tokenization
+  - **Enhanced deps Command**:
+    - `--rebuild-cache` flag to force cache rebuild
+    - Improved tree visualization
+    - Cache status in JSON output
+  - **relates Command** (`cleo relates`):
+    - `suggest` - Get AI-powered relationship suggestions
+    - `add` - Add relationships between tasks
+    - `discover` - Find related tasks by method
+    - `list` - List relationships for a task
+  - **Documentation**:
+    - Updated `docs/commands/deps.md` with cache documentation
+    - New `docs/commands/relates.md` for relationship management
+    - New `docs/guides/DEPENDENCY-GRAPHS.md` architecture guide
+  - **Performance Benchmarks**:
+    - Cold cache build: <100ms for 500 tasks
+    - Warm cache lookup: <80ms
+    - 250x improvement over previous O(n²) implementation
+  - **Edge Case Behavior**:
+    - Empty dependency graphs return valid JSON with empty arrays
+    - Tasks with no dependencies show appropriate message
+    - Cache gracefully handles concurrent access
+
+### Migration Notes
+- **Cache Directory**: Graph cache now stored in `.cleo/.cache/` (was `.cleo/.deps-cache/`)
+- **Automatic Migration**: Cache auto-rebuilds on first use, no manual action required
+- **Force Rebuild**: Use `cleo deps --rebuild-cache` if issues occur
+
 ### Fixed
 - **Epic T1342: CI Test Failure Resolution** (195 → 0 failures):
   - `lib/config.sh`: Boolean false values now handled correctly in `read_config_file` (T2079)

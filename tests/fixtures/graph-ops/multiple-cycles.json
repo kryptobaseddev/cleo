@@ -1,0 +1,83 @@
+{
+  "version": "2.3.0",
+  "project": {
+    "name": "multiple-cycles-test",
+    "currentPhase": "core",
+    "phases": {
+      "setup": {"order": 1, "name": "Setup", "description": "Initial setup", "status": "completed", "startedAt": "2025-12-01T10:00:00Z", "completedAt": "2025-12-10T10:00:00Z"},
+      "core": {"order": 2, "name": "Core", "description": "Core features", "status": "active", "startedAt": "2025-12-10T10:00:00Z", "completedAt": null},
+      "testing": {"order": 3, "name": "Testing", "description": "Testing and validation", "status": "pending", "startedAt": null, "completedAt": null},
+      "polish": {"order": 4, "name": "Polish", "description": "Polish and optimization", "status": "pending", "startedAt": null, "completedAt": null},
+      "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
+    }
+  },
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Cycle 1 - Node A",
+      "description": "First node of first cycle",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T002"],
+      "createdAt": "2025-12-01T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T002",
+      "title": "Cycle 1 - Node B",
+      "description": "Second node of first cycle - creates cycle with T001",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T001"],
+      "createdAt": "2025-12-02T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T003",
+      "title": "Cycle 2 - Node X",
+      "description": "First node of second cycle",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T005"],
+      "createdAt": "2025-12-03T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T004",
+      "title": "Cycle 2 - Node Y",
+      "description": "Second node of second cycle",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T003"],
+      "createdAt": "2025-12-04T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T005",
+      "title": "Cycle 2 - Node Z",
+      "description": "Third node of second cycle - creates cycle with T003",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T004"],
+      "createdAt": "2025-12-05T10:00:00Z",
+      "notes": []
+    }
+  ],
+  "focus": {"currentPhase": "core"},
+  "labels": {
+    "cycle-1": ["T001", "T002"],
+    "cycle-2": ["T003", "T004", "T005"]
+  },
+  "_meta": {"version": "2.3.0", "checksum": "multicycle0001", "lastModified": "2025-12-05T10:00:00Z"},
+  "lastUpdated": "2025-12-05T10:00:00Z"
+}

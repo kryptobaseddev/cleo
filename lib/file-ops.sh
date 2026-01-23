@@ -44,6 +44,14 @@ if [[ -f "$_LIB_DIR/config.sh" ]]; then
     source "$_LIB_DIR/config.sh"
 fi
 
+# Source graph-cache library for dependency graph cache invalidation (v0.68.0+)
+# Optional - provides cache invalidation on todo.json writes
+# Loaded conditionally to avoid circular dependency and allow gradual rollout
+if [[ -f "$_LIB_DIR/graph-cache.sh" ]]; then
+    # shellcheck source=lib/graph-cache.sh
+    source "$_LIB_DIR/graph-cache.sh"
+fi
+
 # Configuration
 # BACKUP_DIR: Unified backup directory per BACKUP-SYSTEM-SPEC.md Part 3.1
 # Tier 1 (Operational) backups go to backups/operational/ with numbered rotation
@@ -549,7 +557,6 @@ load_json() {
     cat "$file"
     return $FO_SUCCESS
 }
-
 #######################################
 # Save JSON with pretty-printing and atomic write
 # Arguments:
@@ -560,6 +567,7 @@ load_json() {
 # Notes:
 #   Locking is handled by atomic_write, so this function
 #   does not need to acquire additional locks
+#   For todo.json: increments generation counter and invalidates graph cache
 #######################################
 save_json() {
     local file="$1"
@@ -581,12 +589,29 @@ save_json() {
         return $FO_JSON_PARSE_FAILED
     fi
 
+    # For todo.json: increment generation counter before write
+    # This enables cache staleness detection without file hashing
+    if [[ "$file" == *"/todo.json" ]] || [[ "$file" == *".cleo/todo.json" ]]; then
+        local gen
+        gen=$(echo "$json" | jq -r '._meta.generation // 0')
+        local new_gen=$((gen + 1))
+        json=$(echo "$json" | jq --argjson g "$new_gen" '._meta.generation = $g')
+    fi
+
     # Pretty-print JSON and write atomically (with locking)
     local pretty_json
     pretty_json=$(echo "$json" | jq '.')
     if ! atomic_write "$file" "$pretty_json"; then
         echo "Error: Failed to save JSON to: $file" >&2
         return $FO_WRITE_FAILED
+    fi
+
+    # For todo.json: invalidate graph cache after successful write
+    # Graph cache uses generation counter to detect staleness
+    if [[ "$file" == *"/todo.json" ]] || [[ "$file" == *".cleo/todo.json" ]]; then
+        if declare -f invalidate_graph_cache >/dev/null 2>&1; then
+            invalidate_graph_cache 2>/dev/null || true
+        fi
     fi
 
     return $FO_SUCCESS

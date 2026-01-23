@@ -1894,6 +1894,54 @@ migrate_todo_to_2_8_0() {
 }
 
 # ============================================================================
+
+migrate_todo_to_2_9_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+
+    echo "  Migrating to v2.9.0: Adding generation counter for cache invalidation..."
+
+    local updated_content
+    updated_content=$(jq --arg ver "$target_version" '
+        # Initialize generation counter in _meta if missing
+        ._meta.generation = (._meta.generation // 0) |
+
+        # Update schema version
+        .version = $ver |
+        ._meta.schemaVersion = $ver
+    ' "$file") || {
+        echo "ERROR: Failed to migrate to v2.9.0" >&2
+        return 1
+    }
+
+    # Validate the result
+    if ! echo "$updated_content" | jq empty 2>/dev/null; then
+        echo "ERROR: Migration produced invalid JSON" >&2
+        return 1
+    fi
+
+    # Atomic save using save_json
+    save_json "$file" "$updated_content" || {
+        echo "ERROR: Failed to update file" >&2
+        return 1
+    }
+
+    # Report migration results
+    local generation_value
+    generation_value=$(echo "$updated_content" | jq '._meta.generation')
+    echo "  Initialized _meta.generation to $generation_value"
+    echo "  Schema version updated to $target_version"
+
+    # Log migration if log_migration is available
+    if declare -f log_migration >/dev/null 2>&1; then
+        local from_version="2.8.0"
+        log_migration "$file" "todo" "$from_version" "$target_version"
+    fi
+
+    return 0
+}
+
 # BACKWARD COMPATIBILITY CHECKS
 # ============================================================================
 

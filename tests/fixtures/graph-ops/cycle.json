@@ -1,0 +1,56 @@
+{
+  "version": "2.3.0",
+  "project": {
+    "name": "cycle-detection-test",
+    "currentPhase": "core",
+    "phases": {
+      "setup": {"order": 1, "name": "Setup", "description": "Initial setup", "status": "completed", "startedAt": "2025-12-01T10:00:00Z", "completedAt": "2025-12-10T10:00:00Z"},
+      "core": {"order": 2, "name": "Core", "description": "Core features", "status": "active", "startedAt": "2025-12-10T10:00:00Z", "completedAt": null},
+      "testing": {"order": 3, "name": "Testing", "description": "Testing and validation", "status": "pending", "startedAt": null, "completedAt": null},
+      "polish": {"order": 4, "name": "Polish", "description": "Polish and optimization", "status": "pending", "startedAt": null, "completedAt": null},
+      "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
+    }
+  },
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Cycle Node A",
+      "description": "First node in cycle - depends on T003 (creates cycle)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T003"],
+      "createdAt": "2025-12-01T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T002",
+      "title": "Cycle Node B",
+      "description": "Second node in cycle - depends on T001",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T001"],
+      "createdAt": "2025-12-02T10:00:00Z",
+      "notes": []
+    },
+    {
+      "id": "T003",
+      "title": "Cycle Node C",
+      "description": "Third node in cycle - depends on T002 (completes the cycle)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "phase": "core",
+      "depends": ["T002"],
+      "createdAt": "2025-12-03T10:00:00Z",
+      "notes": []
+    }
+  ],
+  "focus": {"currentPhase": "core"},
+  "labels": {},
+  "_meta": {"version": "2.3.0", "checksum": "cycletest00001", "lastModified": "2025-12-03T10:00:00Z"},
+  "lastUpdated": "2025-12-03T10:00:00Z"
+}
