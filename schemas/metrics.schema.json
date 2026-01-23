@@ -1,0 +1,328 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cleo.dev/schemas/v1/metrics.schema.json",
+  "schemaVersion": "1.0.0",
+  "title": "CLEO Metrics Schema",
+  "description": "Self-auditing metrics system for compliance, efficiency, session, and self-improvement tracking. ALL fields use STRICT ENUMS - NO freetext allowed.",
+  "type": "object",
+  "additionalProperties": false,
+
+  "definitions": {
+    "severityEnum": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Violation severity level"
+    },
+    "manifestIntegrityEnum": {
+      "type": "string",
+      "enum": ["valid", "partial", "invalid", "missing"],
+      "description": "Manifest file integrity state"
+    },
+    "instructionStabilityEnum": {
+      "type": "string",
+      "enum": ["stable", "clarified", "revised", "unstable"],
+      "description": "User instruction consistency within session"
+    },
+    "sessionDegradationEnum": {
+      "type": "string",
+      "enum": ["none", "mild", "moderate", "severe"],
+      "description": "Performance degradation over session lifetime"
+    },
+    "agentReliabilityEnum": {
+      "type": "string",
+      "enum": ["high", "medium", "low", "unreliable"],
+      "description": "Agent task completion reliability rating"
+    },
+    "metricCategoryEnum": {
+      "type": "string",
+      "enum": ["compliance", "efficiency", "session", "improvement"],
+      "description": "Metric category classification"
+    },
+    "metricSourceEnum": {
+      "type": "string",
+      "enum": ["task", "session", "agent", "system", "orchestrator"],
+      "description": "Entity that generated this metric"
+    },
+    "aggregationPeriodEnum": {
+      "type": "string",
+      "enum": ["instant", "hourly", "daily", "weekly", "monthly"],
+      "description": "Time aggregation period for metric"
+    },
+
+    "complianceMetric": {
+      "type": "object",
+      "description": "Compliance-related metrics for rule adherence tracking",
+      "additionalProperties": false,
+      "properties": {
+        "compliance_pass_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percent tasks with zero violations (0.0-1.0)"
+        },
+        "rule_adherence_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Required rules satisfied / total rules (0.0-1.0)"
+        },
+        "violation_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total violations per task/agent/session"
+        },
+        "violation_severity": {
+          "$ref": "#/definitions/severityEnum"
+        },
+        "critical_breach_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percent tasks with >=1 critical violation (0.0-1.0)"
+        },
+        "policy_drift_indicator": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "description": "Violation increase over time (-1.0 to 1.0, positive = worsening)"
+        },
+        "compliance_latency_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Time to verdict after task completion (milliseconds)"
+        },
+        "manifest_integrity": {
+          "$ref": "#/definitions/manifestIntegrityEnum"
+        }
+      }
+    },
+
+    "efficiencyMetric": {
+      "type": "object",
+      "description": "Efficiency-related metrics for resource utilization tracking",
+      "additionalProperties": false,
+      "properties": {
+        "token_utilization_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Tokens used / tokens allocated (0.0-2.0, >1 means over budget)"
+        },
+        "context_retention_efficiency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Relevant tokens / total tokens (0.0-1.0)"
+        },
+        "token_waste_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Tokens in failed/discarded tasks / total tokens (0.0-1.0)"
+        },
+        "cost_per_successful_task": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Cost / compliant tasks (USD cents)"
+        },
+        "task_completion_time_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Start to return time (milliseconds)"
+        },
+        "agent_turn_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Back-and-forth interactions required"
+        },
+        "retry_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Re-executions due to failure / total executions (0.0-1.0)"
+        },
+        "sub_agent_yield": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Useful outputs / agents invoked (0.0-1.0)"
+        },
+        "orchestration_overhead": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Orchestrator tokens / subagent tokens ratio"
+        }
+      }
+    },
+
+    "sessionMetric": {
+      "type": "object",
+      "description": "Session-related metrics for work session tracking",
+      "additionalProperties": false,
+      "properties": {
+        "session_efficiency_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Composite session score (0.0-1.0)"
+        },
+        "human_intervention_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percent tasks needing correction (0.0-1.0)"
+        },
+        "instruction_stability": {
+          "$ref": "#/definitions/instructionStabilityEnum"
+        },
+        "session_degradation": {
+          "$ref": "#/definitions/sessionDegradationEnum"
+        }
+      }
+    },
+
+    "improvementMetric": {
+      "type": "object",
+      "description": "Self-improvement metrics for agent learning tracking",
+      "additionalProperties": false,
+      "properties": {
+        "improvement_delta": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1,
+          "description": "Change vs last N sessions (-1.0 to 1.0)"
+        },
+        "rule_friction_score": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Violations per rule (lower = better)"
+        },
+        "agent_reliability": {
+          "$ref": "#/definitions/agentReliabilityEnum"
+        },
+        "prompt_effectiveness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Pass rate per prompt version (0.0-1.0)"
+        },
+        "regression_signal": {
+          "type": "boolean",
+          "description": "True if sudden metric drop detected"
+        }
+      }
+    },
+
+    "metricEntry": {
+      "type": "object",
+      "description": "Single metrics JSONL line format",
+      "required": ["timestamp", "category", "source", "source_id"],
+      "additionalProperties": false,
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when metric was recorded"
+        },
+        "category": {
+          "$ref": "#/definitions/metricCategoryEnum"
+        },
+        "source": {
+          "$ref": "#/definitions/metricSourceEnum"
+        },
+        "source_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "ID of source entity (task ID, session ID, agent name)"
+        },
+        "period": {
+          "$ref": "#/definitions/aggregationPeriodEnum"
+        },
+        "compliance": {
+          "$ref": "#/definitions/complianceMetric"
+        },
+        "efficiency": {
+          "$ref": "#/definitions/efficiencyMetric"
+        },
+        "session": {
+          "$ref": "#/definitions/sessionMetric"
+        },
+        "improvement": {
+          "$ref": "#/definitions/improvementMetric"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Project name (for global metrics file)"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "maxItems": 10,
+          "uniqueItems": true,
+          "description": "Classification tags for filtering"
+        }
+      }
+    },
+
+    "metricsFile": {
+      "type": "object",
+      "description": "Full metrics JSON file format (alternative to JSONL)",
+      "required": ["version", "_meta", "entries"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Schema version"
+        },
+        "_meta": {
+          "type": "object",
+          "required": ["schemaVersion", "lastModified", "entryCount"],
+          "additionalProperties": false,
+          "properties": {
+            "schemaVersion": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$"
+            },
+            "lastModified": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "entryCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "oldestEntry": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "newestEntry": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/metricEntry"
+          }
+        }
+      }
+    }
+  },
+
+  "oneOf": [
+    { "$ref": "#/definitions/metricEntry" },
+    { "$ref": "#/definitions/metricsFile" }
+  ]
+}
