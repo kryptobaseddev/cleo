@@ -55,6 +55,40 @@ CLEAN_TEMP_PROJECTS=false
 AUTO_FIX=false
 DETAIL_MODE=false
 
+# ============================================================================
+# PROGRESS INDICATORS
+# ============================================================================
+# Show progress messages only for human format when stdout is a TTY
+
+# Track if progress is currently displayed (for proper clearing)
+export _PROGRESS_DISPLAYED=false
+
+# Cache TTY state for use in subshells (command substitutions can't check -t 1)
+export _STDOUT_IS_TTY=false
+[[ -t 1 ]] && _STDOUT_IS_TTY=true
+
+# Show progress message (clears previous line, writes to stderr)
+# Args: message
+show_progress() {
+    # Only show progress if stdout is a TTY and format is human
+    # Use cached _STDOUT_IS_TTY since subshells can't check parent's stdout
+    if [[ "$FORMAT" == "human" || "$FORMAT" == "text" ]] && [[ "$_STDOUT_IS_TTY" == true ]]; then
+        # Clear the current line and show new message
+        printf '\r\033[K%s' "$1" >&2
+        _PROGRESS_DISPLAYED=true
+    fi
+}
+# Export for use in subshells (command substitution)
+export -f show_progress
+
+# Clear any displayed progress before final output
+clear_progress() {
+    if [[ "$_PROGRESS_DISPLAYED" == true ]] && [[ -t 1 ]]; then
+        printf '\r\033[K' >&2
+        _PROGRESS_DISPLAYED=false
+    fi
+}
+
 # Exit code levels (graduated severity)
 readonly EXIT_DOCTOR_OK=0
 readonly EXIT_DOCTOR_WARNING=50
@@ -111,6 +145,7 @@ parse_args() {
     # Apply common flags to globals
     apply_flags_to_globals
     FORMAT=$(resolve_format "$FORMAT")
+    export FORMAT  # Export for subshells (progress indicator checks)
     VERBOSE="${FLAG_VERBOSE:-false}"
 }
 
@@ -210,6 +245,7 @@ run_project_registry_validation() {
 
     # Build project results array
     local project_results=()
+    local current_project=0
 
     while IFS= read -r project; do
         [[ -z "$project" || "$project" == "null" ]] && continue
@@ -218,6 +254,11 @@ run_project_registry_validation() {
         hash=$(echo "$project" | jq -r '.hash')
         path=$(echo "$project" | jq -r '.path')
         name=$(echo "$project" | jq -r '.name // ""')
+
+        # Show per-project progress
+        ((current_project++))
+        local display_name="${name:-$(basename "$path" 2>/dev/null || echo "$hash")}"
+        show_progress "  Validating project $current_project/$total: $display_name..."
 
         # Skip projects with null/empty paths (safety check)
         if [[ -z "$path" || "$path" == "null" ]]; then
@@ -409,16 +450,26 @@ run_project_registry_validation() {
         fi
 
         # Build result for this project
+        # Handle empty arrays properly (avoid [""] from empty printf)
+        local issues_json="[]"
+        if [[ ${#issues[@]} -gt 0 ]]; then
+            issues_json=$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)
+        fi
+        local injection_json="[]"
+        if [[ ${#injection_outdated[@]} -gt 0 ]]; then
+            injection_json=$(printf '%s\n' "${injection_outdated[@]}" | jq -R . | jq -s .)
+        fi
+
         project_results+=("$(jq -n \
             --arg hash "$hash" \
             --arg path "$path" \
             --arg name "$name" \
             --arg status "$status" \
-            --argjson issues "$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)" \
+            --argjson issues "$issues_json" \
             --argjson path_exists "$path_exists" \
             --argjson validation_passed "$validation_passed" \
             --argjson schemas_outdated "$schemas_outdated" \
-            --argjson injection_outdated "$(printf '%s\n' "${injection_outdated[@]}" | jq -R . | jq -s .)" \
+            --argjson injection_outdated "$injection_json" \
             --argjson is_temp "$is_temp_project" \
             '{
                 hash: $hash,
@@ -699,25 +750,25 @@ format_text_output() {
                 printf "${color}%-2s %-18s %-10s %-50s %s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
             done
         else
-            # Clean default view - only show active (non-temp) projects that need attention
-            # Filter: show non-temp projects with issues (warning/failed/orphaned)
+            # Clean default view - show all active (non-temp) projects
+            # Filter: show non-temp projects (healthy, warning, failed, orphaned)
             local show_count=0
-            local has_issues_to_show=false
+            local has_projects_to_show=false
 
-            # First check if there are any issues to show
-            local issues_json
-            issues_json=$(echo "$json_output" | jq -r '.projects.projects[] |
-                select(.isTemp == false and .status != "healthy") |
+            # Get all non-temp projects for the table
+            local projects_json
+            projects_json=$(echo "$json_output" | jq -r '.projects.projects[] |
+                select(.isTemp == false) |
                 (.name | @text) + "\t" + .status + "\t" + .path + "\t" +
-                (if .issues and (.issues | length) > 0 then .issues | join(", ") else "none" end)')
+                (if .issues and (.issues | length) > 0 then .issues | join(", ") else "-" end)')
 
-            if [[ -n "$issues_json" ]]; then
-                has_issues_to_show=true
+            if [[ -n "$projects_json" ]]; then
+                has_projects_to_show=true
                 # Print table header for default view
                 printf "%-20s %-10s %-50s %s\n" "PROJECT NAME" "STATUS" "PATH" "ISSUES"
                 printf "%-20s %-10s %-50s %s\n" "------------" "------" "----" "------"
 
-                echo "$issues_json" |
+                echo "$projects_json" |
                 while IFS=$'\t' read -r name status path issues; do
                     [[ -z "$name" ]] && continue
                     local icon=" "
@@ -741,9 +792,9 @@ format_text_output() {
                 done
             fi
 
-            # Show summary message
-            if [[ "$has_issues_to_show" == false ]]; then
-                echo -e "  ${GREEN}✓ All active projects are healthy${NC}"
+            # Show summary message only if no projects at all
+            if [[ "$has_projects_to_show" == false ]]; then
+                echo -e "  ${GRAY}No active projects registered${NC}"
             fi
         fi
         
@@ -1010,14 +1061,19 @@ main() {
     parse_args "$@"
 
     # Phase 1: Run global health checks (T1507)
+    show_progress "Checking CLEO installation..."
     local global_checks
     global_checks=$(run_global_health_checks)
 
     # Phase 2: Run project registry validation (T1508)
     local project_status='{}'
     if [[ "$GLOBAL_ONLY" != true ]]; then
+        show_progress "Validating project registry..."
         project_status=$(run_project_registry_validation)
     fi
+
+    # Clear progress before aggregation and output
+    clear_progress
 
     # Phase 3: Aggregate results
     local final_output
