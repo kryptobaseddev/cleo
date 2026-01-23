@@ -33,7 +33,9 @@ setup() {
     local epic_id=$(create_epic "Test Epic")
     local task_id=$(create_child_task "Only Child" "$epic_id" "task")
 
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     run bash "$COMPLETE_SCRIPT" "$task_id" --skip-notes --format json
     assert_success
@@ -69,7 +71,9 @@ setup() {
     local task2_id=$(create_child_task "Child 2" "$epic_id" "task")
     local task3_id=$(create_child_task "Child 3" "$epic_id" "task")
 
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     # Complete first two children - parent should NOT auto-complete
     run bash "$COMPLETE_SCRIPT" "$task1_id" --skip-notes
@@ -96,7 +100,9 @@ setup() {
     local task=$(create_child_task "Task" "$epic" "task")
     local subtask=$(create_child_task "Subtask" "$task" "subtask")
 
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     # Complete subtask - should auto-complete task, then epic
     run bash "$COMPLETE_SCRIPT" "$subtask" --skip-notes
@@ -132,7 +138,9 @@ setup() {
     local epic_id=$(create_epic "Test Epic")
     local task_id=$(create_child_task "Only Child" "$epic_id" "task")
 
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     run bash "$COMPLETE_SCRIPT" "$task_id" --skip-notes
     assert_success
@@ -149,7 +157,9 @@ setup() {
     local epic_id=$(create_epic "Test Epic")
     local task_id=$(create_child_task "Only Child" "$epic_id" "task")
 
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     run bash "$COMPLETE_SCRIPT" "$task_id" --skip-notes --format json
     assert_success
@@ -1142,8 +1152,9 @@ create_hierarchy_fixture() {
     local task1_id=$(create_child_task "Child 1" "$epic_id" "task")
     local task2_id=$(create_child_task "Child 2" "$epic_id" "task")
 
-    # Enable auto-complete in config
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     # Complete first child - parent should NOT auto-complete
     run bash "$COMPLETE_SCRIPT" "$task1_id" --skip-notes
@@ -1182,7 +1193,9 @@ create_hierarchy_fixture() {
     local epic_id=$(create_epic "Test Epic")
     local task_id=$(create_child_task "Only Child" "$epic_id" "task")
 
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     run bash "$COMPLETE_SCRIPT" "$task_id" --skip-notes
     assert_success
@@ -1214,7 +1227,9 @@ create_hierarchy_fixture() {
     local epic_id=$(create_epic "Test Epic")
     local task_id=$(create_child_task "Only Child" "$epic_id" "task")
 
-    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    # Enable auto-complete and disable verification requirement (T1160)
+    # This test focuses on hierarchy auto-complete, not verification gates
+    jq '.hierarchy.autoCompleteParent = true | .hierarchy.autoCompleteMode = "auto" | .verification.requireForParentAutoComplete = false' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 
     local before_checksum=$(jq -r '._meta.checksum' "$TODO_FILE")
 

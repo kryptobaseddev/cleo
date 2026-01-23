@@ -2,7 +2,7 @@
 # context-alert.sh - Context window threshold crossing alerts
 #
 # LAYER: 2 (Command Infrastructure)
-# DEPENDENCIES: lib/output-format.sh
+# DEPENDENCIES: lib/output-format.sh, lib/config.sh
 # PROVIDES: check_context_alert, format_alert_box, should_alert, update_alert_state
 
 #=== SOURCE GUARD ================================================
@@ -15,6 +15,10 @@ declare -r _CONTEXT_ALERT_LOADED=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/output-format.sh"
+# Source config library for get_config_value (unified config access)
+if [[ -f "${SCRIPT_DIR}/config.sh" ]]; then
+    source "${SCRIPT_DIR}/config.sh"
+fi
 
 # ============================================================================
 # CONFIGURATION
@@ -23,8 +27,8 @@ source "${SCRIPT_DIR}/output-format.sh"
 # Alert state file
 ALERT_STATE_FILE="${CLEO_PROJECT_DIR:-.cleo}/.context-alert-state.json"
 
-# Config file
-CONFIG_FILE="${CLEO_PROJECT_DIR:-.cleo}/config.json"
+# Config file (preserve existing value if set, for test environments)
+CONFIG_FILE="${CONFIG_FILE:-${CLEO_PROJECT_DIR:-.cleo}/config.json}"
 
 # Thresholds (percentage of context window)
 # Note: Using export + readonly for subshell access (BATS run, etc.)
@@ -38,28 +42,8 @@ readonly THRESHOLD_WARNING THRESHOLD_CAUTION THRESHOLD_CRITICAL THRESHOLD_EMERGE
 # HELPER FUNCTIONS
 # ============================================================================
 
-# get_config_value - Read a configuration value
-#
-# Args:
-#   $1 - JSON path (e.g., "contextAlerts.enabled")
-#   $2 - Default value if not found
-#
-# Returns: Configuration value or default
-get_config_value() {
-    local path="$1"
-    local default="$2"
-
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        echo "$default"
-        return 0
-    fi
-
-    local value
-    # Use explicit null check to preserve boolean false values
-    # (jq's // operator treats false as falsy, returning the default instead)
-    value=$(jq -r "if .$path == null then \"$default\" else .$path end" "$CONFIG_FILE" 2>/dev/null)
-    echo "$value"
-}
+# Note: get_config_value is provided by config.sh (sourced above)
+# It handles complex config paths, arrays, and defaults properly.
 
 # get_current_session_id - Get the current active session ID
 #
