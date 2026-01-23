@@ -272,14 +272,15 @@ EOF
     local task_id
     task_id=$(jq -r '.tasks[0].id' "$TODO_FILE")
 
-    # Clear any existing backups
-    rm -f "$BACKUPS_DIR"/todo.json.*
+    # Clear any existing safety backups
+    rm -rf "$SAFETY_BACKUPS_DIR"/*
 
     run bash "$COMPLETE_SCRIPT" "$task_id" --skip-notes
     assert_success
 
-    # Verify backup exists
-    run ls "$BACKUPS_DIR"/todo.json.*
+    # Verify safety backup directory exists (complete creates safety backups)
+    # Safety backups are directories containing the actual files
+    run ls -d "$SAFETY_BACKUPS_DIR"/safety_*_complete_todo.json 2>/dev/null
     assert_success
 }
 
@@ -290,14 +291,21 @@ EOF
     local original_tasks
     original_tasks=$(jq '.tasks' "$TODO_FILE")
 
+    # Clear existing safety backups
+    rm -rf "$SAFETY_BACKUPS_DIR"/*
+
     # Make a change
     local task_id
     task_id=$(jq -r '.tasks[0].id' "$TODO_FILE")
     bash "$COMPLETE_SCRIPT" "$task_id" --skip-notes
 
-    # Find most recent backup
-    local backup_file
-    backup_file=$(ls -t "$BACKUPS_DIR"/todo.json.* | head -1)
+    # Find most recent safety backup directory (created by complete command)
+    # Safety backups are directories containing the actual todo.json file
+    local backup_dir
+    backup_dir=$(ls -td "$SAFETY_BACKUPS_DIR"/safety_*_complete_todo.json 2>/dev/null | head -1)
+
+    # The actual backup file is inside the directory
+    local backup_file="${backup_dir}/todo.json"
 
     # Verify backup has original data
     local backup_tasks
