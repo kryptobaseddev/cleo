@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-01-23
+
+### Added
+- **Claude CLI Aliases Integration** (Epic T2089):
+  - `cleo setup-claude-aliases` - Cross-platform installation of optimized Claude Code CLI aliases
+  - Support for bash, zsh, PowerShell, and CMD shells
+  - Marker-based idempotent installation (`# CLEO-CLAUDE-ALIASES:START/END`)
+  - 7 aliases: `cc`, `ccy`, `ccr`, `ccry`, `cc-headless`, `cc-headfull`, `cc-headfull-stream`
+  - Pre-configured environment variables for performance optimization
+
+- **Collision Detection System**:
+  - `detect_existing_aliases()` - Finds conflicting alias/function definitions
+  - `detect_legacy_claude_aliases()` - Recognizes function-based Claude aliases (e.g., `_cc_env()` pattern)
+  - `check_alias_collisions()` - Distinguishes Claude-related vs non-Claude collisions
+  - Exit code 23 (`E_COLLISION`) when conflicts detected
+  - Dry-run collision preview with `--dry-run`
+
+- **Doctor Integration for Aliases**:
+  - `check_claude_aliases()` - New doctor check for alias installation status
+  - Recognizes three states: `current`, `legacy`, `missing`
+  - Auto-fix support via `cleo doctor --fix`
+  - Suggests `--force` flag when legacy aliases detected
+
+- **Library: lib/claude-aliases.sh**:
+  - Shell detection functions (`detect_available_shells`, `get_rc_file_path`, `get_current_shell`)
+  - Alias content generation for all supported shells
+  - Injection/removal operations with atomic file handling
+  - Status checking and version tracking
+  - Full test coverage (56 unit tests, 38 integration tests)
+
+### Changed
+- **COMMANDS-INDEX.json**: Updated `setup-claude-aliases` entry with complete exit codes and flags
+- **Documentation**: Comprehensive command reference at `docs/commands/setup-claude-aliases.md`
+
+### Fixed
+- CLI script output suppression in JSON/quiet modes
+- Arithmetic increment issue with `set -e` (`((x++))` → `((++x))`)
+
 ## [0.65.0] - 2026-01-23
 
 > **Note**: v0.64.0 was skipped. During Epic T2058 implementation, the release automation

@@ -146,7 +146,53 @@ cc-headfull-stream "Run full test suite"
 | 0 | Success | Aliases installed/removed successfully |
 | 2 | `E_INVALID_INPUT` | Invalid option or shell type |
 | 5 | `E_DEPENDENCY_ERROR` | Claude CLI not installed |
+| 23 | `E_COLLISION` | Existing aliases detected (use `--force` to override) |
+| 100 | `E_NO_DATA` | No shells available to configure |
 | 102 | `E_NO_CHANGE` | No changes needed (aliases already current) |
+
+## Collision Detection
+
+The command detects existing aliases that may conflict with CLEO-managed aliases:
+
+### Legacy Claude Aliases
+
+Function-based Claude aliases (e.g., `_cc_env()` helper pattern) are detected and reported:
+
+```bash
+$ cleo setup-claude-aliases
+⚠ Legacy Claude aliases found in: /home/user/.bashrc
+  These appear to be manually installed Claude aliases.
+  Use --force to replace them with CLEO-managed aliases.
+```
+
+### Non-Claude Collisions
+
+If `cc`, `ccy`, or other alias names are used for unrelated purposes:
+
+```bash
+$ cleo setup-claude-aliases
+⚠ Existing aliases found in: /home/user/.bashrc
+  Conflicting aliases: cc
+  These may be for other purposes (not Claude-related).
+  Use --force to override (will create duplicates).
+```
+
+### Handling Collisions
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Legacy Claude aliases | Safe to use `--force` - replaces with CLEO-managed version |
+| Non-Claude aliases (e.g., `cc` for C compiler) | Review first - `--force` will create duplicates |
+
+### Dry-Run Detection
+
+Use `--dry-run` to preview collision detection:
+
+```bash
+$ cleo setup-claude-aliases --dry-run
+[DRY-RUN] ⚠ Legacy Claude aliases in: /home/user/.bashrc (use --force)
+[DRY-RUN] Would install to: /home/user/.zshrc
+```
 
 ## Output Structure (JSON)
 
@@ -248,6 +294,7 @@ cc-headless "Run tests" --allowedTools "Bash(npm test:*),Read"
 
 | Version | Changes |
 |---------|---------|
+| 1.1.0 | Added collision detection, legacy alias recognition, doctor integration improvements |
 | 1.0.0 | Initial release |
 
 ---
