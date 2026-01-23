@@ -21,14 +21,34 @@ NC='\033[0m' # No Color
 
 # Configuration
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+DRIFT_CONFIG="$SCRIPT_DIR/../drift-config.json"
 COMMANDS_INDEX="$PROJECT_ROOT/docs/commands/COMMANDS-INDEX.json"
 SCRIPTS_DIR="$PROJECT_ROOT/scripts"
 README="$PROJECT_ROOT/README.md"
-VISION_DOC="$PROJECT_ROOT/docs/CLEO-UNIFIED-VISION.md"
-ORCH_VISION="$PROJECT_ROOT/docs/ORCHESTRATOR-VISION.md"
-TODO_MGMT="$CLEO_HOME/docs/TODO_Task_Management.md"
 VERSION_FILE="$PROJECT_ROOT/VERSION"
+
+# Config helper functions
+get_config_array() {
+    local key="$1"
+    if [[ -f "$DRIFT_CONFIG" ]]; then
+        jq -r "$key[]" "$DRIFT_CONFIG" 2>/dev/null
+    fi
+}
+
+get_config() {
+    local key="$1"
+    local default="${2:-}"
+    if [[ -f "$DRIFT_CONFIG" ]]; then
+        jq -r "$key // \"$default\"" "$DRIFT_CONFIG" 2>/dev/null || echo "$default"
+    else
+        echo "$default"
+    fi
+}
+
+# Paths from config
+TODO_MGMT="$CLEO_HOME/docs/$(get_config '.agentInjectionDoc' 'TODO_Task_Management.md')"
 
 # Options
 MODE="full"
@@ -230,9 +250,11 @@ check_version_sync() {
         readme_ver=$(grep -oE 'version-[0-9]+\.[0-9]+\.[0-9]+' "$README" | head -1 | sed 's/version-//')
     fi
 
-    # Get version from VISION doc
-    if [[ -f "$VISION_DOC" ]]; then
-        vision_ver=$(grep -oE 'Version [0-9]+\.[0-9]+\.[0-9]+' "$VISION_DOC" | head -1 | sed 's/Version //')
+    # Get version from primary VISION doc (first in config)
+    local primary_vision
+    primary_vision=$(get_config_array '.visionDocs' | head -1)
+    if [[ -n "$primary_vision" && -f "$PROJECT_ROOT/$primary_vision" ]]; then
+        vision_ver=$(grep -oE 'Version [0-9]+\.[0-9]+\.[0-9]+' "$PROJECT_ROOT/$primary_vision" | head -1 | sed 's/Version //')
     fi
 
     echo "    VERSION file: ${version_file_ver:-'(not found)'}"
@@ -279,37 +301,48 @@ check_readme_commands() {
 check_vision_docs() {
     log_header "VISION" "Checking vision document currency"
 
-    # Check CLEO-UNIFIED-VISION.md
-    if [[ -f "$VISION_DOC" ]]; then
-        local vision_date
-        vision_date=$(stat -c %Y "$VISION_DOC" 2>/dev/null || stat -f %m "$VISION_DOC" 2>/dev/null)
-        local now
-        now=$(date +%s)
-        local age_days=$(( (now - vision_date) / 86400 ))
+    # Get vision docs from config
+    local vision_doc
+    local first_doc=true
 
-        if [[ $age_days -gt 30 ]]; then
-            log_warn "CLEO-UNIFIED-VISION.md is $age_days days old"
-            log_recommend "Review and update docs/CLEO-UNIFIED-VISION.md"
+    while IFS= read -r vision_doc; do
+        [[ -z "$vision_doc" ]] && continue
+        local full_path="$PROJECT_ROOT/$vision_doc"
+        local doc_name=$(basename "$vision_doc")
+
+        if [[ -f "$full_path" ]]; then
+            # Only check age/sections for primary vision doc
+            if [[ "$first_doc" == "true" ]]; then
+                local vision_date
+                vision_date=$(stat -c %Y "$full_path" 2>/dev/null || stat -f %m "$full_path" 2>/dev/null)
+                local now=$(date +%s)
+                local age_days=$(( (now - vision_date) / 86400 ))
+
+                if [[ $age_days -gt 30 ]]; then
+                    log_warn "$doc_name is $age_days days old"
+                    log_recommend "Review and update $vision_doc"
+                else
+                    log_ok "$doc_name updated within last 30 days"
+                fi
+
+                if grep -q "## Command System Architecture" "$full_path"; then
+                    log_ok "Command System Architecture section present"
+                else
+                    log_warn "Missing Command System Architecture section"
+                    log_recommend "Add Command System Architecture section to VISION doc"
+                fi
+                first_doc=false
+            else
+                log_ok "$doc_name exists"
+            fi
         else
-            log_ok "CLEO-UNIFIED-VISION.md updated within last 30 days"
+            log_warn "$doc_name not found"
         fi
+    done < <(get_config_array '.visionDocs')
 
-        # Check if Command System Architecture section exists
-        if grep -q "## Command System Architecture" "$VISION_DOC"; then
-            log_ok "Command System Architecture section present"
-        else
-            log_warn "Missing Command System Architecture section"
-            log_recommend "Add Command System Architecture section to VISION doc"
-        fi
-    else
-        log_error "CLEO-UNIFIED-VISION.md not found"
-    fi
-
-    # Check ORCHESTRATOR-VISION.md
-    if [[ -f "$ORCH_VISION" ]]; then
-        log_ok "ORCHESTRATOR-VISION.md exists"
-    else
-        log_warn "ORCHESTRATOR-VISION.md not found"
+    # Fallback if no config
+    if [[ "$first_doc" == "true" ]]; then
+        log_warn "No vision docs configured in drift-config.json"
     fi
 }
 
@@ -320,19 +353,38 @@ check_agent_injection() {
     if [[ -f "$TODO_MGMT" ]]; then
         log_ok "TODO_Task_Management.md exists at $TODO_MGMT"
 
-        # Check for critical sections
-        local -A required_sections=(
-            ["Command Reference"]="^## Command Reference"
-            ["Session Management"]="^### Focus & Session|^### Multi-Session|^## Session Protocol"
-            ["Core Operations"]="^### Core Operations"
-        )
-        for section in "${!required_sections[@]}"; do
-            if grep -qE "${required_sections[$section]}" "$TODO_MGMT"; then
-                log_ok "Section '$section' present"
-            else
-                log_warn "Section '$section' missing"
+        # Check for critical sections from config
+        local section pattern
+        local sections_checked=0
+
+        while IFS= read -r section; do
+            [[ -z "$section" ]] && continue
+            pattern=$(jq -r ".requiredSections[\"$section\"]" "$DRIFT_CONFIG" 2>/dev/null)
+            if [[ -n "$pattern" && "$pattern" != "null" ]]; then
+                ((sections_checked++))
+                if grep -qE "$pattern" "$TODO_MGMT"; then
+                    log_ok "Section '$section' present"
+                else
+                    log_warn "Section '$section' missing"
+                fi
             fi
-        done
+        done < <(jq -r '.requiredSections | keys[]' "$DRIFT_CONFIG" 2>/dev/null)
+
+        # Fallback to defaults if no config
+        if [[ $sections_checked -eq 0 ]]; then
+            local -A fallback_sections=(
+                ["Command Reference"]="^## Command Reference"
+                ["Session Management"]="^### Focus & Session|^### Multi-Session|^## Session Protocol"
+                ["Core Operations"]="^### Core Operations"
+            )
+            for section in "${!fallback_sections[@]}"; do
+                if grep -qE "${fallback_sections[$section]}" "$TODO_MGMT"; then
+                    log_ok "Section '$section' present"
+                else
+                    log_warn "Section '$section' missing"
+                fi
+            done
+        fi
     else
         log_error "TODO_Task_Management.md not found at $TODO_MGMT"
         log_recommend "Run cleo upgrade to regenerate agent injection docs"
