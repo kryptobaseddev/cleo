@@ -23,6 +23,7 @@ The `compliance` command tracks and reports on output compliance metrics across 
 | `trend [N]` | Show compliance trend over N days (default: 7) |
 | `audit <EPIC_ID>` | Check compliance for specific epic's tasks |
 | `sync` | Sync project metrics to global aggregation |
+| `skills` | Agent reliability statistics |
 
 ## Options
 
@@ -53,6 +54,9 @@ cleo compliance audit T1975
 
 # Sync metrics to global store
 cleo compliance sync
+
+# Agent reliability stats
+cleo compliance skills
 
 # JSON output
 cleo compliance summary --json
@@ -153,8 +157,9 @@ log_violation "$epic_id" "$violation_json"
 
 ## Metrics Storage
 
-- `claudedocs/research-outputs/COMPLIANCE.jsonl` - Per-subagent metrics
-- `claudedocs/research-outputs/VIOLATIONS.jsonl` - Violation log
+- `.cleo/metrics/COMPLIANCE.jsonl` - Per-subagent metrics (project)
+- `.cleo/metrics/SESSIONS.jsonl` - Session token tracking (project)
+- `~/.cleo/metrics/GLOBAL.jsonl` - Global aggregated metrics
 
 ## See Also
 
