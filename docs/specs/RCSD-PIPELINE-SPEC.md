@@ -74,6 +74,28 @@ This specification **DEFERS TO**:
 
 This specification supersedes v1.0.0 and the plugin-based bash approach explored in T204 and T215-T221. The RCSD Pipeline v2.0.0 implements the 9-agent architecture using Python and the Anthropic Agent SDK for proper agent orchestration.
 
+### Legacy Cleanup (2026-01-23)
+
+To reduce competing sources, the exploratory RCSD v1.1 research bundle in `claudedocs/RCSD-Pipeline-v1-1/` was removed on 2026-01-23. This specification remains the canonical reference for RCSD.
+
+Removed artifacts:
+- `RCSD-PIPELINE-SPEC-v1.1.md`
+- `RCSD-Pipeline-v1-1-Improvements.md`
+- `RCSD-PIPELINE-v1.1-CHANGELOG.md`
+- `RCSD-OpenSpec-Research.md`
+- `ct-research.md`
+- `ct-consensus.md`
+- `ct-spec.md`
+- `ct-decompose.md`
+- `OPENSPEC-ACTION-ITEMS.md`
+- `PROMPT-RCSD-Pipeline-Design.txt`
+- `AGENTS.md.template`
+- `PROJECT-CONTEXT.md.template`
+
+Cleanup commit: TBD
+
+Note: `claudedocs/` is git-ignored in this repo. The cleanup commit records the decision but does not retain these files. Restore from external backups or another clone if recovery is needed.
+
 ---
 
 ## Part 1: Executive Summary
