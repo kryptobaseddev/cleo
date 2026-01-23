@@ -51,6 +51,7 @@ teardown_file() {
 
 create_phased_project_fixture() {
     # Create config with phase definitions
+    # CRITICAL: multiSession.enabled must be false for single-session focus tests
     cat > "$CONFIG_FILE" << 'CONFIGEOF'
 {
   "version": "2.0.0",
@@ -61,6 +62,9 @@ create_phased_project_fixture() {
   "defaults": {
     "priority": "medium",
     "phase": "core"
+  },
+  "multiSession": {
+    "enabled": false
   },
   "phases": {
     "setup": {
@@ -118,8 +122,7 @@ CONFIGEOF
   },
   "_meta": {
     "version": "2.2.0",
-    "checksum": "placeholder",
-    "activeSession": "session_phase_test_001"
+    "checksum": "placeholder"
   },
   "lastUpdated": "2025-12-15T10:00:00Z",
   "tasks": [
