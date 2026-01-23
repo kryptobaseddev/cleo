@@ -202,11 +202,11 @@ teardown_file() {
 # Part 2: Error Code Count Verification
 # =============================================================================
 
-@test "exactly 47 E_* error codes are defined" {
-    # Count all E_* exports (29 base + 8 hierarchy/cancel/checksum + 10 session codes)
+@test "exactly 49 E_* error codes are defined" {
+    # Count all E_* exports (29 base + 8 hierarchy/cancel/checksum + 12 session codes)
     local count
     count=$(grep -c '^readonly E_' "${LIB_DIR}/error-json.sh")
-    [[ "$count" -eq 47 ]]
+    [[ "$count" -eq 49 ]]
 }
 
 # =============================================================================
