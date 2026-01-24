@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.1] - 2026-01-24
+
+### Added
+- **Agent Contract Specification** (T2267): Comprehensive RFC 2119 conformant specification for orchestrator-subagent contracts
+  - Defines deterministic agent behavior rules
+  - Output requirements and handoff protocols
+  - Located at `docs/specs/AGENT-CONTRACT-SPEC.md`
+
+### Documentation
+- **Cross-project repair backlog** (T2264): Created epic with subtasks for future improvements:
+  - T2265: BATS test registry cleanup
+  - T2266: Research manifest invalid entries cleanup
+
 ## [0.69.0] - 2026-01-24
 
 ### Added
