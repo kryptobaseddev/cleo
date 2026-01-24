@@ -189,6 +189,9 @@ cleo deps <id>                      # Dependencies for task
 cleo deps tree                      # Full dependency tree
 cleo blockers                       # Show blocked tasks
 cleo blockers analyze               # Critical path analysis
+cleo relates suggest <id>           # Find semantically related tasks
+cleo relates add <id> <related-id>  # Link related tasks
+cleo relates list <id>              # Show task's relationships
 ```
 
 ### Research & Discovery (v0.23.0+)

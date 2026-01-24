@@ -302,6 +302,7 @@ _get_cmd_script() {
         doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
         # Installation and setup
         self-update) echo "self-update.sh" ;; setup-agents) echo "setup-agents.sh" ;;
+        setup-claude-aliases) echo "setup-claude-aliases.sh" ;;
         # Import/export tasks
         export-tasks) echo "export-tasks.sh" ;; import-tasks) echo "import-tasks.sh" ;;
         # Archive management
@@ -309,6 +310,8 @@ _get_cmd_script() {
         reorganize-backups) echo "reorganize-backups.sh" ;;
         # Orchestration and automation
         orchestrator) echo "orchestrator.sh" ;; safestop) echo "safestop.sh" ;; sequence) echo "sequence.sh" ;;
+        # Metrics and compliance
+        compliance) echo "compliance.sh" ;;
         # Other tools
         roadmap) echo "roadmap.sh" ;; claude-migrate) echo "claude-migrate.sh" ;;
         release) echo "release.sh" ;;
@@ -333,7 +336,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence roadmap claude-migrate release"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance roadmap claude-migrate release"
 }
 
 cmd="${1:-help}"
