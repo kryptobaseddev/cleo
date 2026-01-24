@@ -177,7 +177,15 @@ docs/node_modules/
 # !tests/
 .cleo/research/
 
-# Tool configuration directories
+# Project registry (user data, stored in ~/.cleo/, NOT in repo)
+projects-registry.json
+projects-registry.json.lock
+
+# Operational backups (runtime data, not source code)
+backups/operational/
+
+# Tool configuration directories (user-specific, not project config)
+.claude/
 .serena/
 .nml/
 __pycache__/

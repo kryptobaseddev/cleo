@@ -178,6 +178,59 @@ cleo validate         # Project-level validation
 cleo doctor          # System-level validation
 ```
 
+## Hybrid Registry Architecture (v0.68.0+)
+
+Doctor uses the **hybrid registry model** for efficient project health tracking:
+
+### Data Sources
+
+| Source | Location | Content | Purpose |
+|--------|----------|---------|---------|
+| Global Registry | `~/.cleo/projects-registry.json` | Minimal (hash, path, status) | System-wide project discovery |
+| Per-Project Info | `.cleo/project-info.json` | Detailed (schemas, issues, injections) | Project-specific metadata |
+
+### Read Behavior
+
+1. **If per-project file exists**: Read schema versions and health from `.cleo/project-info.json` (faster, cached)
+2. **Legacy fallback**: Read directly from project files (`todo.json`, `config.json`, etc.)
+
+### Write Behavior
+
+Doctor updates health status in **both** locations:
+
+| Field | Global Registry | Per-Project File |
+|-------|-----------------|------------------|
+| `health.status` | ✅ Updated | ✅ Updated |
+| `health.lastCheck` | ✅ Updated | ✅ Updated |
+| `health.issues` | ❌ Not stored | ✅ Full array |
+| `lastUpdated` | ✅ Updated | ✅ Updated |
+
+### Backward Compatibility
+
+- **Legacy projects** (no `project-info.json`): Doctor reads directly from project files
+- **First upgrade**: `cleo upgrade` creates `project-info.json` automatically
+- **No user action required**: Migration is automatic and transparent
+
+### Example Per-Project File
+
+```json
+{
+  "schemaVersion": "1.0.0",
+  "projectHash": "a3f5b2c8d1e9",
+  "schemas": {
+    "todo": "2.8.0",
+    "config": "1.5.0",
+    "archive": "2.8.0",
+    "log": "1.2.0"
+  },
+  "health": {
+    "status": "healthy",
+    "lastCheck": "2026-01-24T00:00:00Z",
+    "issues": []
+  }
+}
+```
+
 ## Implementation
 
 | Component | Location |
@@ -186,9 +239,10 @@ cleo doctor          # System-level validation
 | Global checks | `lib/doctor-checks.sh` |
 | Registry utils | `lib/project-registry.sh` |
 | Output schema | `schemas/doctor-output.schema.json` |
+| Per-project schema | `schemas/project-info.schema.json` |
 
 ---
 
 **Schema**: `schemas/doctor-output.schema.json`
-**Epic**: T1429
-**See also**: `validate`, `upgrade`, `setup-agents`
+**Epic**: T1429, T2180
+**See also**: `validate`, `upgrade`, `setup-agents`, [Project Registry Guide](../guides/project-registry.md)

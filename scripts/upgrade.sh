@@ -320,148 +320,196 @@ check_skills_version_status() {
 SKILL_UPDATES_JSON="[]"
 
 # ============================================================================
-# PROJECT REGISTRY UPDATE
+# PROJECT REGISTRY UPDATE (HYBRID MODEL)
 # ============================================================================
-# Update project registration after successful migrations
-# Refreshes metadata: lastSeen, schema versions, injection status, health
+# Update project registration after successful migrations using hybrid architecture:
+# - MINIMAL data to global registry (hash, path, name, healthStatus)
+# - DETAILED data to per-project .cleo/project-info.json
 update_project_registration() {
     # Skip if registry functions not available
     if ! type generate_project_hash &>/dev/null; then
         return 0
     fi
 
-    local project_hash registry
+    local project_hash registry project_path project_name timestamp
+    local todo_version config_version archive_version log_version
 
-    project_hash=$(generate_project_hash "$PWD") || return 0
+    project_path="$PWD"
+    project_name="$(basename "$project_path")"
+    project_hash=$(generate_project_hash "$project_path") || return 0
     registry="$(get_cleo_home)/projects-registry.json"
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     # Create registry if missing
     if [[ ! -f "$registry" ]]; then
         create_empty_registry "$registry" || return 0
     fi
 
-    # If project not registered, perform initial registration (fixes existing projects)
-    if ! is_project_registered "$project_hash"; then
-        local project_path project_name timestamp
-        local todo_version config_version archive_version log_version
+    # Extract current schema versions
+    todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+    config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
+    archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
+    log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
 
-        project_path="$PWD"
-        project_name="$(basename "$project_path")"
-        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    # Get injection status for all agent files
+    local injection_status injection_obj
+    injection_status=$(injection_check_all 2>/dev/null || echo "[]")
+    injection_obj=$(echo "$injection_status" | jq --arg ts "$timestamp" '
+        reduce .[] as $item ({};
+            .[$item.target] = {
+                status: $item.status,
+                version: ($item.currentVersion // null),
+                lastUpdated: (if $item.status == "current" then $ts else null end)
+            }
+        )
+    ')
 
-        # Get schema versions
-        todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
-        config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
-        archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
-        log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
+    # ============================================================================
+    # 1. Update/Create per-project info file (DETAILED)
+    # ============================================================================
+    local project_info_file="${project_path}/.cleo/project-info.json"
+    local temp_info
+    temp_info=$(mktemp)
+    trap 'rm -f "${temp_info:-}"' RETURN
 
-        # Get injection status
-        local injection_status injection_obj
-        injection_status=$(injection_check_all 2>/dev/null || echo "[]")
-        injection_obj=$(echo "$injection_status" | jq 'reduce .[] as $item ({}; .[$item.target] = {version: $item.currentVersion, status: $item.status})')
-
-        # Register project with atomic write
-        local reg_temp
-        reg_temp=$(mktemp)
-        trap "rm -f $reg_temp" RETURN
-
-        jq --arg hash "$project_hash" \
-           --arg path "$project_path" \
-           --arg name "$project_name" \
-           --arg version "$VERSION" \
-           --arg timestamp "$timestamp" \
+    if [[ -f "$project_info_file" ]]; then
+        # Update existing per-project file
+        jq --arg last_updated "$timestamp" \
+           --arg cleo_version "$VERSION" \
            --arg todo_v "$todo_version" \
            --arg config_v "$config_version" \
            --arg archive_v "$archive_version" \
            --arg log_v "$log_version" \
            --argjson injection "$injection_obj" \
+           '.lastUpdated = $last_updated |
+            .cleoVersion = $cleo_version |
+            .schemas.todo.version = $todo_v |
+            .schemas.todo.lastMigrated = $last_updated |
+            .schemas.config.version = $config_v |
+            .schemas.config.lastMigrated = $last_updated |
+            .schemas.archive.version = $archive_v |
+            .schemas.archive.lastMigrated = $last_updated |
+            .schemas.log.version = $log_v |
+            .schemas.log.lastMigrated = $last_updated |
+            .injection = $injection |
+            .health.status = "healthy" |
+            .health.lastCheck = $last_updated' \
+            "$project_info_file" > "$temp_info"
+
+        if save_json "$project_info_file" < "$temp_info"; then
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Updated per-project info file"
+            fi
+        else
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Warning: Failed to update per-project info file" >&2
+            fi
+        fi
+    else
+        # Create new per-project file for legacy projects
+        local registered_at
+        # Try to get registration date from global registry, fallback to now
+        registered_at=$(jq -r ".projects[\"$project_hash\"].registeredAt // \"$timestamp\"" "$registry" 2>/dev/null || echo "$timestamp")
+
+        jq -nc \
+            --arg schema_version "1.0.0" \
+            --arg hash "$project_hash" \
+            --arg name "$project_name" \
+            --arg registered_at "$registered_at" \
+            --arg last_updated "$timestamp" \
+            --arg cleo_version "$VERSION" \
+            --arg todo_v "$todo_version" \
+            --arg config_v "$config_version" \
+            --arg archive_v "$archive_version" \
+            --arg log_v "$log_version" \
+            --argjson injection "$injection_obj" \
+            '{
+                "$schema": "./schemas/project-info.schema.json",
+                "schemaVersion": $schema_version,
+                "projectHash": $hash,
+                "name": $name,
+                "registeredAt": $registered_at,
+                "lastUpdated": $last_updated,
+                "cleoVersion": $cleo_version,
+                "schemas": {
+                    "todo": { "version": $todo_v, "lastMigrated": $last_updated },
+                    "config": { "version": $config_v, "lastMigrated": $last_updated },
+                    "archive": { "version": $archive_v, "lastMigrated": $last_updated },
+                    "log": { "version": $log_v, "lastMigrated": $last_updated }
+                },
+                "injection": $injection,
+                "health": {
+                    "status": "healthy",
+                    "lastCheck": $last_updated,
+                    "issues": [],
+                    "history": []
+                },
+                "features": {
+                    "multiSession": false,
+                    "verification": false,
+                    "contextAlerts": false
+                }
+            }' > "$temp_info"
+
+        if save_json "$project_info_file" < "$temp_info"; then
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Created per-project info file (legacy project upgrade)"
+            fi
+        else
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Warning: Failed to create per-project info file" >&2
+            fi
+        fi
+    fi
+
+    # ============================================================================
+    # 2. Update global registry (MINIMAL)
+    # ============================================================================
+    local temp_registry
+    temp_registry=$(mktemp)
+    trap 'rm -f "${temp_registry:-}" "${temp_info:-}"' RETURN
+
+    # Check if project is already registered
+    if is_project_registered "$project_hash"; then
+        # Update existing entry with minimal data
+        jq --arg hash "$project_hash" \
+           --arg timestamp "$timestamp" \
+           '.projects[$hash].lastSeen = $timestamp |
+            .projects[$hash].healthStatus = "healthy" |
+            .projects[$hash].healthLastCheck = $timestamp |
+            .lastUpdated = $timestamp' \
+            "$registry" > "$temp_registry"
+    else
+        # Create new minimal entry for unregistered project
+        jq --arg hash "$project_hash" \
+           --arg path "$project_path" \
+           --arg name "$project_name" \
+           --arg timestamp "$timestamp" \
            '.projects[$hash] = {
                hash: $hash,
                path: $path,
                name: $name,
                registeredAt: $timestamp,
                lastSeen: $timestamp,
-               cleoVersion: $version,
-               schemas: {
-                   todo: $todo_v,
-                   config: $config_v,
-                   archive: $archive_v,
-                   log: $log_v
-               },
-               injection: $injection,
-               health: {
-                   status: "healthy",
-                   lastCheck: $timestamp,
-                   issues: []
-               }
-           } | .lastUpdated = $timestamp' "$registry" > "$reg_temp"
+               healthStatus: "healthy",
+               healthLastCheck: $timestamp
+           } | .lastUpdated = $timestamp' "$registry" > "$temp_registry"
 
-        if ! save_json "$registry" < "$reg_temp"; then
-            # Non-fatal - continue to update attempt
-            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
-                echo "  Warning: Failed to register project in registry" >&2
-            fi
-        else
-            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
-                echo "  Registered project in global registry"
-            fi
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            echo "  Registered project in global registry"
         fi
-
-        # Continue to update section below
     fi
 
-    # Extract current schema versions
-    local todo_version config_version archive_version log_version
-    todo_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
-    config_version=$(get_schema_version_from_file "config" 2>/dev/null || echo "unknown")
-    archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
-    log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
-
-    # Extract injection versions for all three agent files
-    local claude_version agents_version gemini_version
-    claude_version=$(injection_extract_version "CLAUDE.md" 2>/dev/null || echo "none")
-    agents_version=$(injection_extract_version "AGENTS.md" 2>/dev/null || echo "none")
-    gemini_version=$(injection_extract_version "GEMINI.md" 2>/dev/null || echo "none")
-
-    # Update registry with fresh metadata
-    local upd_temp
-    upd_temp=$(mktemp)
-    trap "rm -f $upd_temp" RETURN
-
-    jq --arg hash "$project_hash" \
-       --arg todo_ver "$todo_version" \
-       --arg config_ver "$config_version" \
-       --arg archive_ver "$archive_version" \
-       --arg log_ver "$log_version" \
-       --arg claude_ver "$claude_version" \
-       --arg agents_ver "$agents_version" \
-       --arg gemini_ver "$gemini_version" \
-       '.projects[$hash].lastSeen = (now | todate) |
-        .projects[$hash].schemas = {
-            todo: $todo_ver,
-            config: $config_ver,
-            archive: $archive_ver,
-            log: $log_ver
-        } |
-        .projects[$hash].injection = {
-            "CLAUDE.md": $claude_ver,
-            "AGENTS.md": $agents_ver,
-            "GEMINI.md": $gemini_ver
-        } |
-        .projects[$hash].health.status = "healthy" |
-        .projects[$hash].health.lastCheck = (now | todate)' \
-        "$registry" > "$upd_temp"
-
     # Save atomically
-    if save_json "$registry" < "$upd_temp"; then
+    if save_json "$registry" < "$temp_registry"; then
         if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
-            echo "  Updated project registry metadata"
+            echo "  Updated global registry metadata"
         fi
         return 0
     else
         # Non-fatal error - registry update is optional
         if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
-            echo "  Warning: Failed to update project registry" >&2
+            echo "  Warning: Failed to update global registry" >&2
         fi
         return 1
     fi
@@ -604,6 +652,9 @@ fi
 # CONFIRMATION
 # ============================================================================
 if [[ $TOTAL_UPDATES -eq 0 ]]; then
+    # Even if no schema updates needed, ensure project-info.json exists (legacy project upgrade)
+    update_project_registration || true
+
     if ! is_json_output; then
         echo "✓ Project is up to date (cleo v$INSTALLED_VERSION)"
     fi
@@ -815,10 +866,11 @@ if [[ "$agent_docs_updated" == true ]]; then
     else
         ERRORS+=("Injection library not available")
     fi
-
-    # Update project registry with fresh metadata
-    update_project_registration || true
 fi
+
+# Update project registry with fresh metadata (always run, even if no migrations needed)
+# This ensures project-info.json is created for legacy projects
+update_project_registration || true
 
 # 5. Sync templates if needed (T1595)
 if [[ "$TEMPLATE_SYNC_NEEDED" == "true" ]]; then
