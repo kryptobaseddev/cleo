@@ -207,6 +207,63 @@ check_commands_sync() {
     fi
 }
 
+# Check wrapper template sync with COMMANDS-INDEX
+check_wrapper_template_sync() {
+    log_header "WRAPPER" "Checking installer/lib/link.sh vs COMMANDS-INDEX.json"
+
+    local wrapper_template="$PROJECT_ROOT/installer/lib/link.sh"
+
+    if [[ ! -f "$wrapper_template" ]]; then
+        log_warn "Wrapper template not found at $wrapper_template"
+        return
+    fi
+
+    # Extract commands from wrapper template's _get_all_commands function
+    local wrapper_cmds
+    wrapper_cmds=$(grep "_get_all_commands()" -A1 "$wrapper_template" 2>/dev/null | tail -1 | tr -d '"' | tr ' ' '\n' | grep -v '^echo$' | grep -v '^$' | sort -u)
+
+    # Get commands from COMMANDS-INDEX (excluding aliases and documented subcommands/dev tools)
+    # Filter out entries with notes containing: "Usually called via", "Internal development", "dev tool"
+    local index_cmds
+    index_cmds=$(jq -r '.commands[] | select(.aliasFor == null) | select(.note == null or (.note | test("Usually called via|Internal development|dev tool"; "i") | not)) | .name' "$COMMANDS_INDEX" 2>/dev/null | sort -u)
+
+    # Find commands in index but not in wrapper template
+    local missing_from_wrapper
+    missing_from_wrapper=$(comm -13 <(echo "$wrapper_cmds") <(echo "$index_cmds"))
+
+    if [[ -n "$missing_from_wrapper" ]]; then
+        log_error "Commands in COMMANDS-INDEX but NOT in wrapper template:"
+        while IFS= read -r cmd; do
+            [[ -z "$cmd" ]] && continue
+            echo "    - $cmd"
+            log_recommend "Add '$cmd) echo \"${cmd}.sh\" ;;' to installer/lib/link.sh"
+        done <<< "$missing_from_wrapper"
+    else
+        log_ok "Wrapper template has all commands from COMMANDS-INDEX"
+    fi
+
+    # Find commands in wrapper but not in index (excluding known internal commands)
+    local extra_in_wrapper
+    extra_in_wrapper=$(comm -23 <(echo "$wrapper_cmds") <(echo "$index_cmds") | grep -vE '^(echo|init|validate|list|add|complete|update)$')
+
+    if [[ -n "$extra_in_wrapper" ]]; then
+        local count=0
+        while IFS= read -r cmd; do
+            [[ -z "$cmd" ]] && continue
+            ((count++))
+        done <<< "$extra_in_wrapper"
+
+        if [[ $count -gt 0 ]]; then
+            log_warn "Commands in wrapper template but NOT in COMMANDS-INDEX:"
+            while IFS= read -r cmd; do
+                [[ -z "$cmd" ]] && continue
+                echo "    - $cmd"
+                log_recommend "Add entry for '$cmd' to docs/commands/COMMANDS-INDEX.json"
+            done <<< "$extra_in_wrapper"
+        fi
+    fi
+}
+
 # Check command documentation files
 check_command_docs() {
     log_header "DOCS" "Checking docs/commands/*.md coverage"
@@ -405,6 +462,9 @@ main() {
 
     # Always check commands sync
     check_commands_sync
+
+    # Always check wrapper template sync
+    check_wrapper_template_sync
 
     if [[ "$MODE" == "full" ]]; then
         check_command_docs
