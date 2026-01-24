@@ -107,6 +107,28 @@
           }
         }
       }
+    },
+    "features": {
+      "type": "object",
+      "description": "Optional CLEO features enabled for this project.",
+      "additionalProperties": false,
+      "properties": {
+        "multiSession": {
+          "type": "boolean",
+          "description": "Multi-agent concurrent session support.",
+          "default": false
+        },
+        "verification": {
+          "type": "boolean",
+          "description": "Verification gates for task quality.",
+          "default": false
+        },
+        "contextAlerts": {
+          "type": "boolean",
+          "description": "Context window threshold alerts.",
+          "default": false
+        }
+      }
     }
   },
 

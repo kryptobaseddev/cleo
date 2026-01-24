@@ -45,7 +45,7 @@ is_json_output() {
 # ============================================================================
 # DEFAULTS
 # ============================================================================
-VERSION=$(cat "$CLEO_HOME/VERSION" 2>/dev/null || echo "0.50.2")
+VERSION=$(head -n 1 "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.50.2")
 DRY_RUN=false
 QUIET=false
 FORCE=false
@@ -176,7 +176,7 @@ fi
 # ============================================================================
 # STATUS CHECK FUNCTIONS
 # ============================================================================
-INSTALLED_VERSION=$(cat "$CLEO_HOME/VERSION" 2>/dev/null || echo "unknown")
+INSTALLED_VERSION=$(head -n 1 "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
 
 declare -A UPDATES_NEEDED=()
 TOTAL_UPDATES=0
@@ -340,6 +340,22 @@ update_project_registration() {
     registry="$(get_cleo_home)/projects-registry.json"
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+    # Extract feature settings from config.json (sync to project-info.json)
+    local config_file="${project_path}/.cleo/config.json"
+    local feature_multi_session=false
+    local feature_verification=false
+    local feature_context_alerts=false
+
+    if [[ -f "$config_file" ]]; then
+        feature_multi_session=$(jq -r '.multiSession.enabled // false' "$config_file" 2>/dev/null)
+        feature_verification=$(jq -r '.verification.enabled // false' "$config_file" 2>/dev/null)
+        feature_context_alerts=$(jq -r '.contextAlerts.enabled // false' "$config_file" 2>/dev/null)
+        # Normalize "null" to "false"
+        [[ "$feature_multi_session" == "null" ]] && feature_multi_session=false
+        [[ "$feature_verification" == "null" ]] && feature_verification=false
+        [[ "$feature_context_alerts" == "null" ]] && feature_context_alerts=false
+    fi
+
     # Create registry if missing
     if [[ ! -f "$registry" ]]; then
         create_empty_registry "$registry" || return 0
@@ -358,7 +374,6 @@ update_project_registration() {
         reduce .[] as $item ({};
             .[$item.target] = {
                 status: $item.status,
-                version: ($item.currentVersion // null),
                 lastUpdated: (if $item.status == "current" then $ts else null end)
             }
         )
@@ -381,6 +396,9 @@ update_project_registration() {
            --arg archive_v "$archive_version" \
            --arg log_v "$log_version" \
            --argjson injection "$injection_obj" \
+           --argjson feat_multi "$feature_multi_session" \
+           --argjson feat_verif "$feature_verification" \
+           --argjson feat_ctx "$feature_context_alerts" \
            '.lastUpdated = $last_updated |
             .cleoVersion = $cleo_version |
             .schemas.todo.version = $todo_v |
@@ -393,7 +411,10 @@ update_project_registration() {
             .schemas.log.lastMigrated = $last_updated |
             .injection = $injection |
             .health.status = "healthy" |
-            .health.lastCheck = $last_updated' \
+            .health.lastCheck = $last_updated |
+            .features.multiSession = $feat_multi |
+            .features.verification = $feat_verif |
+            .features.contextAlerts = $feat_ctx' \
             "$project_info_file" > "$temp_info"
 
         if save_json "$project_info_file" < "$temp_info"; then
@@ -423,6 +444,9 @@ update_project_registration() {
             --arg archive_v "$archive_version" \
             --arg log_v "$log_version" \
             --argjson injection "$injection_obj" \
+            --argjson feat_multi "$feature_multi_session" \
+            --argjson feat_verif "$feature_verification" \
+            --argjson feat_ctx "$feature_context_alerts" \
             '{
                 "$schema": "./schemas/project-info.schema.json",
                 "schemaVersion": $schema_version,
@@ -445,9 +469,9 @@ update_project_registration() {
                     "history": []
                 },
                 "features": {
-                    "multiSession": false,
-                    "verification": false,
-                    "contextAlerts": false
+                    "multiSession": $feat_multi,
+                    "verification": $feat_verif,
+                    "contextAlerts": $feat_ctx
                 }
             }' > "$temp_info"
 

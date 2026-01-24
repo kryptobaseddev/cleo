@@ -3,7 +3,7 @@
 # injection.bats - Unit tests for lib/injection.sh core (pure) functions
 # =============================================================================
 # Tests injection operations for agent documentation files.
-# Focuses on PURE functions: extract_version, validate_markers, check_status.
+# Focuses on PURE functions: has_block, validate_markers, check_status.
 # =============================================================================
 
 setup_file() {
@@ -31,63 +31,6 @@ teardown() {
 
 teardown_file() {
     common_teardown_file
-}
-
-# =============================================================================
-# injection_extract_version() Tests
-# =============================================================================
-
-@test "injection_extract_version returns empty for versionless markers" {
-    # New format: markers don't include version (content is external)
-    local version
-    version=$(injection_extract_version "${FIXTURES_DIR}/injection/current.md")
-    [ -z "$version" ]
-}
-
-@test "injection_extract_version extracts version from legacy versioned file" {
-    # Create a temp file with legacy versioned marker
-    local temp_file
-    temp_file="${TEST_TEMP_DIR}/legacy-versioned.md"
-    cat > "$temp_file" <<EOF
-<!-- CLEO:START v0.48.0 -->
-Old content
-<!-- CLEO:END -->
-EOF
-    local version
-    version=$(injection_extract_version "$temp_file")
-    [ "$version" = "0.48.0" ]
-}
-
-@test "injection_extract_version returns empty for unversioned marker" {
-    local version
-    version=$(injection_extract_version "${FIXTURES_DIR}/injection/legacy-unversioned.md")
-    [ -z "$version" ]
-}
-
-@test "injection_extract_version returns empty for missing markers" {
-    local version
-    version=$(injection_extract_version "${FIXTURES_DIR}/injection/clean.md")
-    [ -z "$version" ]
-}
-
-@test "injection_extract_version returns empty for nonexistent file" {
-    local version
-    version=$(injection_extract_version "${FIXTURES_DIR}/injection/nonexistent.md")
-    [ -z "$version" ]
-}
-
-@test "injection_extract_version extracts first version from nested markers" {
-    local version
-    version=$(injection_extract_version "${FIXTURES_DIR}/injection/malformed-nested.md")
-    [ "$version" = "0.50.2" ]
-}
-
-@test "injection_extract_version handles template file (no version in template)" {
-    local version template_path
-    template_path=$(injection_get_template_path)
-    version=$(injection_extract_version "$template_path")
-    # Template should NOT have version marker (added by setup-agents.sh)
-    [ -z "$version" ]
 }
 
 # =============================================================================

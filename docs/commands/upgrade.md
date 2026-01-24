@@ -300,19 +300,15 @@ Checks Claude Code integration:
 6. Validate result
 ```
 
-### Version Comparison Logic
+### Status Comparison Logic
 
 ```bash
-# Get installed version
-template_path=$(injection_get_template_path)
-installed=$(injection_extract_version "$template_path")
+# Check injection status (versionless - content-based comparison)
+status=$(injection_check "CLAUDE.md" | jq -r '.status')
 
-# Get file version
-current=$(injection_extract_version "CLAUDE.md")
-
-# Compare
-if [[ "$current" != "$installed" ]]; then
-    echo "Update needed: $current → $installed"
+# Status values: current, outdated, none, missing
+if [[ "$status" != "current" ]]; then
+    echo "Update needed: status is $status"
 fi
 ```
 

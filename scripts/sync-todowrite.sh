@@ -24,9 +24,9 @@ CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Load VERSION from central location
 if [[ -f "${SCRIPT_DIR}/../VERSION" ]]; then
-    VERSION=$(cat "${SCRIPT_DIR}/../VERSION")
+    VERSION=$(head -n 1 "${SCRIPT_DIR}/../VERSION" | tr -d '[:space:]')
 elif [[ -f "${CLEO_HOME}/VERSION" ]]; then
-    VERSION=$(cat "${CLEO_HOME}/VERSION")
+    VERSION=$(head -n 1 "${CLEO_HOME}/VERSION" | tr -d '[:space:]')
 else
     VERSION="0.36.0"
 fi

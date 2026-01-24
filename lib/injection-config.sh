@@ -48,21 +48,6 @@ injection_get_validation_key() {
     echo "${INJECTION_VALIDATION_KEYS[$target]:-}"
 }
 
-# Extract version from injection block (legacy support)
-# Args: file_path
-# Returns: version string or empty (empty for new versionless markers)
-# Note: New markers don't have versions - returns empty which is fine
-injection_extract_version() {
-    local file="$1"
-    local match
-    # Try to extract version from legacy versioned markers
-    match=$(grep -oP 'CLEO:START v([0-9]+\.[0-9]+\.[0-9]+)' "$file" 2>/dev/null | head -1 || true)
-    if [[ -n "$match" ]]; then
-        echo "$match" | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || true
-    fi
-    # Returns empty for new versionless markers (which is expected)
-}
-
 # Check if file has injection block (any version)
 injection_has_block() {
     local file="$1"

@@ -14,7 +14,7 @@ elif [[ -f "$SCRIPT_DIR/../lib/paths.sh" ]]; then
 fi
 
 # Source version - use central VERSION file
-VERSION=$(cat "$CLEO_HOME/VERSION" 2>/dev/null || cat "$SCRIPT_DIR/../VERSION" 2>/dev/null || echo "0.36.0")
+VERSION=$(head -n 1 "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || head -n 1 "$SCRIPT_DIR/../VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.36.0")
 
 # Source version library for proper version management
 if [[ -f "$CLEO_HOME/lib/version.sh" ]]; then

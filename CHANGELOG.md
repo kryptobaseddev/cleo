@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-01-24
+
+### Added
+- **Feature Consistency Health Check**: Doctor now validates that `project-info.json` features match `config.json` settings
+- **Features Schema Definition**: Added `features` field to `project-info.schema.json` with `multiSession`, `verification`, and `contextAlerts` properties
+
+### Fixed
+- **Doctor Validation Details** (T2224): Doctor now shows actual validation error messages instead of generic "Validation failed"
+  - `--detail` flag shows full validation output for failed projects
+  - Issues column shows first error line (e.g., "Validation: [ERROR] Found 26 orphaned tasks...")
+- **cleoVersion in dev mode** (T2217): Fixed VERSION file reading to use `head -n 1` instead of `cat`, preventing multiline version values
+  - Affected files: `upgrade.sh`, `session.sh`, `sync-todowrite.sh`, `version-check.sh`
+- **Global Registry Format** (T2216, T2218, T2222): Cleaned up hybrid registry architecture
+  - Removed `injection`, `cleoVersion`, `schemas`, `health` nested objects from global registry
+  - Global registry now uses flat `healthStatus` and `healthLastCheck` fields only
+  - Doctor updates global registry with correct flat field names
+- **Injection Version Field** (T2225, T2226): Removed unused `version` field from injection objects
+  - Injection checks are marker-based, not version-based
+  - `project-info.json` injection entries now only have `status` and `lastUpdated`
+- **Feature Sync** (T2229): `cleo upgrade` now syncs features from `config.json` to `project-info.json`
+  - Eliminates hardcoded feature defaults
+  - Reads actual config settings: `multiSession.enabled`, `verification.enabled`, `contextAlerts.enabled`
+
+### Removed
+- **Dead Code Cleanup** (T2227): Deleted unused `injection_extract_version()` function from `lib/injection-config.sh`
+  - Removed legacy version extraction tests from `tests/unit/injection.bats`
+  - Updated documentation to reflect versionless injection system
+
+### Changed
+- **Migration Script Location**: Moved `migrate-registry-cleanup.sh` to `dev/migrations/` per architecture guidelines
+
 ## [0.68.2] - 2026-01-24
 
 ### Changed

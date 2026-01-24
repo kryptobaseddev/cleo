@@ -1396,8 +1396,9 @@ if [[ "$STALE_COUNT" -gt 0 ]]; then
   log_warn "$STALE_COUNT task(s) pending for >$STALE_DAYS days"
 fi
 
-# 11-12. Check injection versions for all agent documentation files
+# 11-12. Check injection status for all agent documentation files
 # Uses injection library for registry-based validation (CLAUDE.md, AGENTS.md, GEMINI.md)
+# Note: Injections are now versionless (@-reference format), status is content-based
 if command -v injection_get_targets &>/dev/null && command -v injection_check &>/dev/null; then
   injection_get_targets
   for target in "${REPLY[@]}"; do
@@ -1409,8 +1410,6 @@ if command -v injection_get_targets &>/dev/null && command -v injection_check &>
     # Get status from injection library
     status_json=$(injection_check "$target")
     status=$(echo "$status_json" | jq -r '.status')
-    current_ver=$(echo "$status_json" | jq -r '.currentVersion // ""')
-    installed_ver=$(echo "$status_json" | jq -r '.installedVersion // ""')
 
     # Convert target to log key (CLAUDE.md → claude_md)
     log_key="${target//./_}"
@@ -1418,27 +1417,14 @@ if command -v injection_get_targets &>/dev/null && command -v injection_check &>
 
     case "$status" in
       current)
-        log_info "${target} injection current (v${current_ver})" "$log_key"
-        ;;
-      legacy)
-        if [[ "$FIX" == true ]]; then
-          injection_update "$target" 2>/dev/null
-          if injection_has_block "$target" && [[ "$(injection_extract_version "$target")" == "$installed_ver" ]]; then
-            echo "  Fixed: Updated legacy ${target} injection (unversioned → v${installed_ver})"
-            log_info "${target} injection current (v${installed_ver})" "$log_key"
-          else
-            log_warn "${target} has legacy (unversioned) injection. Run: cleo init"
-          fi
-        else
-          log_warn "${target} has legacy (unversioned) injection. Run with --fix or: cleo init"
-        fi
+        log_info "${target} injection current" "$log_key"
         ;;
       none)
         if [[ "$FIX" == true ]]; then
           injection_update "$target" 2>/dev/null
           if injection_has_block "$target"; then
-            echo "  Fixed: Added ${target} injection (v${installed_ver})"
-            log_info "${target} injection current (v${installed_ver})" "$log_key"
+            echo "  Fixed: Added ${target} injection"
+            log_info "${target} injection current" "$log_key"
           else
             log_warn "No cleo injection found in ${target}. Run: cleo init"
           fi
@@ -1449,15 +1435,17 @@ if command -v injection_get_targets &>/dev/null && command -v injection_check &>
       outdated)
         if [[ "$FIX" == true ]]; then
           injection_update "$target" 2>/dev/null
-          new_ver=$(injection_extract_version "$target")
-          if [[ "$new_ver" == "$installed_ver" ]]; then
-            echo "  Fixed: Updated ${target} injection (${current_ver} → ${installed_ver})"
-            log_info "${target} injection current (v${installed_ver})" "$log_key"
+          # Re-check status after update
+          local new_status
+          new_status=$(injection_check "$target" | jq -r '.status')
+          if [[ "$new_status" == "current" ]]; then
+            echo "  Fixed: Updated ${target} injection"
+            log_info "${target} injection current" "$log_key"
           else
-            log_warn "${target} injection outdated (${current_ver} → ${installed_ver}). Run: cleo init"
+            log_warn "${target} injection outdated. Run: cleo init"
           fi
         else
-          log_warn "${target} injection outdated (${current_ver} → ${installed_ver}). Run with --fix or: cleo init"
+          log_warn "${target} injection outdated. Run with --fix or: cleo init"
         fi
         ;;
     esac
