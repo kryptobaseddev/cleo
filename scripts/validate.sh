@@ -1492,10 +1492,18 @@ if declare -f validate_research_manifest >/dev/null 2>&1; then
     fi
   else
     # Validate manifest content
-    validation_result=$(validate_research_manifest 2>/dev/null || echo '{"valid":false}')
-    is_valid=$(echo "$validation_result" | jq -r '.valid // false')
-    # Sanitize invalid_count: extract first numeric value, default to 0
-    invalid_count=$(echo "$validation_result" | jq -r '.result.invalidEntries // 0' | tr -d '\n' | grep -oE '^[0-9]+' || echo "0")
+    # Note: validate_research_manifest returns exit code 6 when there are invalid entries,
+    # but still outputs valid JSON. Don't use || fallback or we get two JSON objects.
+    validation_result=$(validate_research_manifest 2>/dev/null) || true
+
+    # Use first line only and validate it's JSON before extracting
+    if echo "$validation_result" | head -1 | jq empty 2>/dev/null; then
+      is_valid=$(echo "$validation_result" | head -1 | jq -r '.valid // false')
+      invalid_count=$(echo "$validation_result" | head -1 | jq -r '.result.invalidEntries // 0')
+    else
+      is_valid="false"
+      invalid_count="0"
+    fi
 
     if [[ "$is_valid" == "true" ]]; then
       log_info "Research manifest valid" "research_outputs"

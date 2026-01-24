@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.2] - 2026-01-24
+
+### Fixed
+- **BATS Test Registry Cleanup** (T2265): Tests now clean up project registry entries on teardown
+  - Added `_cleanup_test_registry_entries()` helper to `tests/test_helper/common_setup.bash`
+  - Updated `common_teardown()`, `common_teardown_per_test()`, `common_teardown_file()` to call cleanup
+  - Prevents orphaned test project entries in `~/.cleo/projects-registry.json`
+- **Manifest Validation Count Bug** (T2266): Fixed incorrect "1350" invalid entries display
+  - Was actually 135 entries; bug caused by jq output concatenation in `scripts/validate.sh`
+  - Fixed by extracting only first JSON line and using `|| true` instead of fallback JSON
+  - Cleaned up 135 legacy manifest entries missing required fields
+
+### Changed
+- **Epic T2264 Complete**: Cross-project repair foundation work complete
+  - Future `--fix-all` feature deferred to separate epic
+
 ## [0.69.1] - 2026-01-24
 
 ### Added
