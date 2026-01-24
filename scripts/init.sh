@@ -863,7 +863,8 @@ else
   log_warn "lib/injection.sh not found - agent docs not updated"
 fi
 
-# Register project in global registry
+# Register project in global registry using HYBRID MODEL
+# Creates: 1) Minimal entry in global registry, 2) Detailed per-project file
 register_project() {
     # Source required libraries
     [[ -f "$CLEO_HOME/lib/project-registry.sh" ]] && source "$CLEO_HOME/lib/project-registry.sh"
@@ -893,47 +894,93 @@ register_project() {
     local injection_status
     injection_status=$(injection_check_all 2>/dev/null || echo "[]")
 
-    # Build injection object from status array
+    # Build detailed injection object from status array
     local injection_obj
-    injection_obj=$(echo "$injection_status" | jq 'reduce .[] as $item ({}; .[$item.target] = {version: $item.currentVersion, status: $item.status})')
+    injection_obj=$(echo "$injection_status" | jq --arg ts "$timestamp" '
+        reduce .[] as $item ({};
+            .[$item.target] = {
+                status: $item.status,
+                version: ($item.currentVersion // null),
+                lastUpdated: (if $item.status == "current" then $ts else null end)
+            }
+        )
+    ')
 
-    # Add project to registry with atomic write
-    local temp_file
-    temp_file=$(mktemp)
-    trap 'rm -f "${temp_file:-}"' RETURN
+    # ============================================================================
+    # 1. Create per-project info file (DETAILED)
+    # ============================================================================
+    local project_info_file="${project_path}/.cleo/project-info.json"
+    local temp_info
+    temp_info=$(mktemp)
+    trap 'rm -f "${temp_info:-}"' RETURN
+
+    jq -nc \
+        --arg schema_version "1.0.0" \
+        --arg hash "$project_hash" \
+        --arg name "$project_name" \
+        --arg registered_at "$timestamp" \
+        --arg last_updated "$timestamp" \
+        --arg cleo_version "$VERSION" \
+        --arg todo_v "$todo_version" \
+        --arg config_v "$config_version" \
+        --arg archive_v "$archive_version" \
+        --arg log_v "$log_version" \
+        --argjson injection "$injection_obj" \
+        '{
+            "$schema": "./schemas/project-info.schema.json",
+            "schemaVersion": $schema_version,
+            "projectHash": $hash,
+            "name": $name,
+            "registeredAt": $registered_at,
+            "lastUpdated": $last_updated,
+            "cleoVersion": $cleo_version,
+            "schemas": {
+                "todo": { "version": $todo_v, "lastMigrated": null },
+                "config": { "version": $config_v, "lastMigrated": null },
+                "archive": { "version": $archive_v, "lastMigrated": null },
+                "log": { "version": $log_v, "lastMigrated": null }
+            },
+            "injection": $injection,
+            "health": {
+                "status": "healthy",
+                "lastCheck": $last_updated,
+                "issues": [],
+                "history": []
+            },
+            "features": {
+                "multiSession": false,
+                "verification": false,
+                "contextAlerts": false
+            }
+        }' > "$temp_info"
+
+    if ! save_json "$project_info_file" < "$temp_info"; then
+        log_error "Failed to create per-project info file"
+        return 1
+    fi
+
+    # ============================================================================
+    # 2. Register in global registry (MINIMAL)
+    # ============================================================================
+    local temp_registry
+    temp_registry=$(mktemp)
+    trap 'rm -f "${temp_registry:-}" "${temp_info:-}"' RETURN
 
     jq --arg hash "$project_hash" \
        --arg path "$project_path" \
        --arg name "$project_name" \
-       --arg version "$VERSION" \
        --arg timestamp "$timestamp" \
-       --arg todo_v "$todo_version" \
-       --arg config_v "$config_version" \
-       --arg archive_v "$archive_version" \
-       --arg log_v "$log_version" \
-       --argjson injection "$injection_obj" \
        '.projects[$hash] = {
            hash: $hash,
            path: $path,
            name: $name,
            registeredAt: $timestamp,
            lastSeen: $timestamp,
-           cleoVersion: $version,
-           schemas: {
-               todo: $todo_v,
-               config: $config_v,
-               archive: $archive_v,
-               log: $log_v
-           },
-           injection: $injection,
-           health: {
-               status: "healthy",
-               lastCheck: $timestamp,
-               issues: []
-           }
-       } | .lastUpdated = $timestamp' "$registry" > "$temp_file"
+           healthStatus: "healthy",
+           healthLastCheck: $timestamp
+       } | .lastUpdated = $timestamp' "$registry" > "$temp_registry"
 
-    if ! save_json "$registry" < "$temp_file"; then
+    if ! save_json "$registry" < "$temp_registry"; then
         log_error "Failed to register project in global registry"
         return 1
     fi

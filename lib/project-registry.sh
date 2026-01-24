@@ -4,11 +4,21 @@
 # LAYER: 1 (Utilities)
 # DEPENDENCIES: file-ops.sh
 # PROVIDES: generate_project_hash, is_project_registered, get_project_data,
-#           create_empty_registry, list_registered_projects, prune_registry
+#           get_project_data_global, create_empty_registry, list_registered_projects,
+#           prune_registry, get_project_info_path, get_project_info, save_project_info,
+#           has_project_info
 #
 # PURPOSE:
-#   Pure functions for managing the global project registry.
-#   No side effects - all functions are read-only except create_empty_registry.
+#   Functions for managing the hybrid project registry architecture:
+#   - Global registry (~/.cleo/projects-registry.json): Minimal info, system-wide
+#   - Per-project info (.cleo/project-info.json): Detailed metadata, project-local
+#
+# HYBRID MODEL:
+#   The registry uses a two-tier approach:
+#   1. Global registry: Contains minimal project info (hash, path, name, lastAccess)
+#   2. Per-project file: Contains detailed metadata (description, aliases, custom fields)
+#
+#   get_project_data() merges both sources, with per-project info taking precedence.
 #
 # DESIGN PRINCIPLES:
 #   - Pure functions with no global state pollution
@@ -16,6 +26,7 @@
 #   - Minimal dependencies (only file-ops.sh)
 #   - Returns data via stdout, errors via stderr
 #   - Exit codes follow exit-codes.sh conventions
+#   - Backward compatible: works with or without per-project info
 #
 # USAGE:
 #   source lib/project-registry.sh
@@ -85,6 +96,152 @@ generate_project_hash() {
     echo -n "$path" | sha256sum | cut -c1-12
 }
 
+#=== PER-PROJECT INFO FUNCTIONS ======================================
+# These functions manage the per-project .cleo/project-info.json file
+# which stores detailed project metadata locally within each project.
+
+#######################################
+# Get per-project info file path
+#
+# Returns the path to the project-info.json file for a given project.
+# The file is stored at .cleo/project-info.json within the project directory.
+#
+# Arguments:
+#   $1 - Project path (optional, defaults to PWD)
+#
+# Returns:
+#   Full path to project-info.json on stdout
+#
+# Exit Status:
+#   0 - Always succeeds
+#
+# Example:
+#   path=$(get_project_info_path "/home/user/myproject")
+#   # Returns: "/home/user/myproject/.cleo/project-info.json"
+#######################################
+get_project_info_path() {
+    local project_path="${1:-$PWD}"
+    echo "${project_path}/.cleo/project-info.json"
+}
+
+#######################################
+# Check if project has per-project info file
+#
+# Tests whether a project has a local project-info.json file.
+#
+# Arguments:
+#   $1 - Project path (optional, defaults to PWD)
+#
+# Returns:
+#   Nothing on stdout
+#
+# Exit Status:
+#   0 - Project has project-info.json
+#   1 - Project does not have project-info.json
+#
+# Example:
+#   if has_project_info "/home/user/myproject"; then
+#       echo "Project has local info file"
+#   fi
+#######################################
+has_project_info() {
+    local project_path="${1:-$PWD}"
+    [[ -f "$(get_project_info_path "$project_path")" ]]
+}
+
+#######################################
+# Read per-project info
+#
+# Retrieves the complete project info from the local .cleo/project-info.json file.
+# Returns empty object if the file doesn't exist.
+#
+# Arguments:
+#   $1 - Project path (optional, defaults to PWD)
+#
+# Returns:
+#   JSON object on stdout (empty object {} if file doesn't exist)
+#
+# Exit Status:
+#   0 - Success (returns empty object if file doesn't exist)
+#   1 - File exists but is not valid JSON
+#
+# Example:
+#   info=$(get_project_info "/home/user/myproject")
+#   description=$(echo "$info" | jq -r '.description')
+#######################################
+get_project_info() {
+    local project_path="${1:-$PWD}"
+    local info_file
+    info_file=$(get_project_info_path "$project_path")
+
+    # Return empty object if file doesn't exist
+    if [[ ! -f "$info_file" ]]; then
+        echo "{}"
+        return 0
+    fi
+
+    # Validate JSON and return
+    if ! jq -e . "$info_file" >/dev/null 2>&1; then
+        echo "ERROR: Invalid JSON in $info_file" >&2
+        return 1
+    fi
+
+    cat "$info_file"
+}
+
+#######################################
+# Save per-project info
+#
+# Writes project info to the local .cleo/project-info.json file.
+# Creates the .cleo directory if it doesn't exist.
+# Uses atomic write for data safety.
+#
+# Arguments:
+#   $1 - Project path (optional, defaults to PWD)
+#   stdin - JSON content to save
+#
+# Returns:
+#   Nothing on stdout
+#
+# Exit Status:
+#   0 - Success
+#   1 - Invalid JSON input or save failed
+#
+# Example:
+#   echo '{"description": "My project", "aliases": ["mp"]}' | save_project_info "/home/user/myproject"
+#######################################
+save_project_info() {
+    local project_path="${1:-$PWD}"
+    local info_file
+    info_file=$(get_project_info_path "$project_path")
+
+    # Read content from stdin
+    local content
+    content=$(cat)
+
+    # Validate JSON input
+    if ! echo "$content" | jq -e . >/dev/null 2>&1; then
+        echo "ERROR: Invalid JSON content" >&2
+        return 1
+    fi
+
+    # Ensure .cleo directory exists
+    local cleo_dir
+    cleo_dir=$(dirname "$info_file")
+    if [[ ! -d "$cleo_dir" ]]; then
+        mkdir -p "$cleo_dir" || {
+            echo "ERROR: Failed to create directory $cleo_dir" >&2
+            return 1
+        }
+    fi
+
+    # Use atomic write via save_json
+    if ! echo "$content" | save_json "$info_file"; then
+        echo "ERROR: Failed to save project info to $info_file" >&2
+        return 1
+    fi
+}
+
 #######################################
 # Check if project is registered
 #
@@ -121,10 +278,91 @@ is_project_registered() {
 }
 
 #######################################
-# Get project data from registry
+# Get project data from registry (hybrid model)
 #
-# Retrieves the complete project data object for a given hash.
-# Returns empty object if project not found or registry doesn't exist.
+# Retrieves project data by merging global registry with per-project info.
+# The function implements the hybrid registry model:
+#   1. First retrieves minimal info from global registry
+#   2. If project has a local project-info.json, merges detailed info
+#   3. Per-project info takes precedence over global registry
+#
+# Arguments:
+#   $1 - Project hash (required, 12-char hex string)
+#
+# Returns:
+#   JSON object on stdout (empty object {} if not found)
+#   The merged object contains fields from both sources.
+#
+# Exit Status:
+#   0 - Always succeeds (returns empty object if not found)
+#
+# Example:
+#   data=$(get_project_data "a3f5b2c8d1e9")
+#   path=$(echo "$data" | jq -r '.path')
+#   description=$(echo "$data" | jq -r '.description')  # from per-project
+#######################################
+get_project_data() {
+    local project_hash="${1:-}"
+    local registry
+    local global_data
+    local project_path
+    local local_data
+
+    if [[ -z "$project_hash" ]]; then
+        echo "{}"
+        return 0
+    fi
+
+    registry="$(get_cleo_home)/projects-registry.json"
+
+    # Get global registry data
+    if [[ ! -f "$registry" ]]; then
+        echo "{}"
+        return 0
+    fi
+
+    global_data=$(jq -r ".projects[\"$project_hash\"] // {}" "$registry")
+
+    # If global data is empty, return it
+    if [[ "$global_data" == "{}" ]]; then
+        echo "{}"
+        return 0
+    fi
+
+    # Extract project path from global data
+    project_path=$(echo "$global_data" | jq -r '.path // empty')
+
+    # If no path or path doesn't exist, return just global data
+    if [[ -z "$project_path" || ! -d "$project_path" ]]; then
+        echo "$global_data"
+        return 0
+    fi
+
+    # Check for per-project info file
+    if ! has_project_info "$project_path"; then
+        echo "$global_data"
+        return 0
+    fi
+
+    # Get per-project info
+    local_data=$(get_project_info "$project_path")
+
+    # If local data retrieval failed, return just global data
+    if [[ $? -ne 0 || "$local_data" == "{}" ]]; then
+        echo "$global_data"
+        return 0
+    fi
+
+    # Merge: global_data as base, local_data takes precedence
+    # Using jq's * operator for recursive merge
+    echo "$global_data" | jq --argjson local "$local_data" '. * $local'
+}
+
+#######################################
+# Get project data from global registry only (no merge)
+#
+# Retrieves only the global registry data without merging per-project info.
+# Useful when you only need the minimal registration data.
 #
 # Arguments:
 #   $1 - Project hash (required, 12-char hex string)
@@ -136,10 +374,10 @@ is_project_registered() {
 #   0 - Always succeeds (returns empty object if not found)
 #
 # Example:
-#   data=$(get_project_data "a3f5b2c8d1e9")
-#   path=$(echo "$data" | jq -r '.path')
+#   data=$(get_project_data_global "a3f5b2c8d1e9")
+#   lastAccess=$(echo "$data" | jq -r '.lastAccess')
 #######################################
-get_project_data() {
+get_project_data_global() {
     local project_hash="${1:-}"
     local registry
 

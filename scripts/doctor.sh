@@ -47,6 +47,82 @@ source "$LIB_DIR/backup.sh"  # For create_safety_backup() in --fix mode
 COMMAND_NAME="doctor"
 
 # ============================================================================
+# HYBRID REGISTRY HEALTH UPDATE (T2182)
+# ============================================================================
+# Updates health status in both global registry and per-project file.
+# Global registry gets minimal status; per-project file gets full details.
+
+# Update project health status in hybrid architecture
+# Args:
+#   $1 - project hash
+#   $2 - project path
+#   $3 - health status (healthy|warning|failed|orphaned)
+#   $4 - issues JSON array
+# Returns: 0 on success, 1 on failure (non-fatal - logged only)
+update_project_health_status() {
+    local hash="$1"
+    local path="$2"
+    local status="$3"
+    local issues_json="$4"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    local registry
+    registry="$(get_cleo_home)/projects-registry.json"
+
+    # Map status to schema enum (failed -> error for schema compatibility)
+    local schema_status="$status"
+    [[ "$status" == "failed" ]] && schema_status="error"
+    [[ "$status" == "orphaned" ]] && schema_status="error"
+
+    # Update global registry (minimal: just status and lastCheck)
+    if [[ -f "$registry" ]]; then
+        local temp_registry
+        temp_registry=$(mktemp)
+        trap "rm -f '$temp_registry'" RETURN
+
+        if jq --arg hash "$hash" \
+              --arg status "$schema_status" \
+              --arg timestamp "$timestamp" \
+              '.projects[$hash].health.status = $status |
+               .projects[$hash].health.lastCheck = $timestamp |
+               .lastUpdated = $timestamp' "$registry" > "$temp_registry" 2>/dev/null; then
+            # Use save_json for atomic write (if available)
+            if type save_json &>/dev/null; then
+                save_json "$registry" < "$temp_registry" 2>/dev/null || true
+            else
+                mv "$temp_registry" "$registry" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # Update per-project file (detailed: status, lastCheck, full issues array)
+    local project_info_file="${path}/.cleo/project-info.json"
+    if [[ -f "$project_info_file" ]]; then
+        local temp_info
+        temp_info=$(mktemp)
+        trap "rm -f '$temp_info'" RETURN
+
+        if jq --arg status "$schema_status" \
+              --arg timestamp "$timestamp" \
+              --argjson issues "$issues_json" \
+              '.health.status = $status |
+               .health.lastCheck = $timestamp |
+               .health.issues = $issues |
+               .lastUpdated = $timestamp' "$project_info_file" > "$temp_info" 2>/dev/null; then
+            # Use save_json for atomic write (if available)
+            if type save_json &>/dev/null; then
+                save_json "$project_info_file" < "$temp_info" 2>/dev/null || true
+            else
+                mv "$temp_info" "$project_info_file" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # DEFAULTS
 # ============================================================================
 GLOBAL_ONLY=false
@@ -318,6 +394,15 @@ run_project_registry_validation() {
 
         path_exists=true
 
+        # Check for per-project info file (hybrid registry architecture)
+        local project_info_file="${path}/.cleo/project-info.json"
+        local has_project_info=false
+        local project_info_data=""
+        if [[ -f "$project_info_file" ]]; then
+            has_project_info=true
+            project_info_data=$(cat "$project_info_file" 2>/dev/null || echo "{}")
+        fi
+
         # Performance optimization: skip validation for temp projects in default mode
         local skip_validation=false
         if [[ "$DETAIL_MODE" == false ]] && [[ "$is_temp_project" == true ]]; then
@@ -325,7 +410,7 @@ run_project_registry_validation() {
         fi
 
         # Perform validation only if not cached
-        
+
         # Check 2: Run validation (validate.sh in project directory) - skip if optimized
         # PERF (T1985): Use --quiet --human flags for fastest validation path
         if [[ "$skip_validation" == false ]]; then
@@ -370,13 +455,23 @@ run_project_registry_validation() {
         # Check 3: Schema versions (only if path exists and not already failed)
         # FIX (T1988): Read ACTUAL project file versions, not registry-cached values
         # Registry may have stale data from when project was registered
+        # HYBRID (T2182): Prefer per-project info file if available for performance
         if [[ "$path_exists" == true && "$status" != "failed" ]]; then
-            # Read schema versions directly from project files (not registry)
+            # Read schema versions - prefer per-project info file, fall back to direct file reads
             local proj_todo_version proj_config_version proj_archive_version proj_log_version
-            proj_todo_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo.json" 2>/dev/null || echo "unknown")
-            proj_config_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/config.json" 2>/dev/null || echo "unknown")
-            proj_archive_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-archive.json" 2>/dev/null || echo "unknown")
-            proj_log_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-log.json" 2>/dev/null || echo "unknown")
+            if [[ "$has_project_info" == true ]]; then
+                # Read from per-project info file (more efficient, cached)
+                proj_todo_version=$(echo "$project_info_data" | jq -r '.schemas.todo // "unknown"')
+                proj_config_version=$(echo "$project_info_data" | jq -r '.schemas.config // "unknown"')
+                proj_archive_version=$(echo "$project_info_data" | jq -r '.schemas.archive // "unknown"')
+                proj_log_version=$(echo "$project_info_data" | jq -r '.schemas.log // "unknown"')
+            else
+                # Fall back to reading directly from project files (legacy projects)
+                proj_todo_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo.json" 2>/dev/null || echo "unknown")
+                proj_config_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/config.json" 2>/dev/null || echo "unknown")
+                proj_archive_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-archive.json" 2>/dev/null || echo "unknown")
+                proj_log_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo-log.json" 2>/dev/null || echo "unknown")
+            fi
 
             # Check each schema type
             local outdated_schemas=()
@@ -486,6 +581,24 @@ run_project_registry_validation() {
                     injectionOutdated: $injection_outdated
                 }
             }')")
+
+        # HYBRID (T2182): Update health status in both global registry and per-project file
+        # Build structured issues array for per-project file (with severity, code, message)
+        local health_issues_json="[]"
+        if [[ ${#issues[@]} -gt 0 ]]; then
+            # Convert simple string issues to structured format for schema compliance
+            health_issues_json=$(printf '%s\n' "${issues[@]}" | jq -R '
+                . as $msg |
+                {
+                    severity: (if ($msg | test("failed|error|critical"; "i")) then "error" else "warning" end),
+                    code: (if ($msg | test("schema"; "i")) then "SCHEMA_OUTDATED"
+                           elif ($msg | test("injection"; "i")) then "INJECTION_OUTDATED"
+                           elif ($msg | test("validation"; "i")) then "VALIDATION_FAILED"
+                           else "GENERAL_ISSUE" end),
+                    message: $msg
+                }' | jq -s '.')
+        fi
+        update_project_health_status "$hash" "$path" "$status" "$health_issues_json"
 
     done < <(echo "$all_projects" | jq -c '.[]')
 
