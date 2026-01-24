@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.68.1] - 2026-01-24
+
+### Fixed
+- **Wrapper Template Sync** (Epic T2209): Fresh installations now include `setup-claude-aliases` and `compliance` commands
+- **COMMANDS-INDEX.json**: Added missing `relates` command entry
+- **Drift Detection**: Added wrapper template sync validation to prevent future mismatches
+
 ## [0.68.0] - 2026-01-23
 
 ### Added
