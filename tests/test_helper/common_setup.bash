@@ -165,6 +165,8 @@ common_setup() {
 
 # Optional: common teardown
 common_teardown() {
+    # Clean up any test project registry entries
+    _cleanup_test_registry_entries "${TEST_TEMP_DIR:-}"
     # Return to original directory
     cd "${PROJECT_ROOT}" 2>/dev/null || true
 }
@@ -198,10 +200,87 @@ common_setup_per_test() {
 
 # Per-test teardown
 common_teardown_per_test() {
+    # Clean up any test project registry entries from per-test temp dir
+    _cleanup_test_registry_entries "${BATS_TEST_TMPDIR:-}"
     cd "${PROJECT_ROOT}" 2>/dev/null || true
 }
 
 # File-level teardown
 common_teardown_file() {
-    :  # BATS auto-cleans BATS_FILE_TMPDIR
+    # Clean up any test project registry entries from file-level temp dir
+    _cleanup_test_registry_entries "${BATS_FILE_TMPDIR:-}"
+}
+
+# =============================================================================
+# Registry Cleanup Functions
+# =============================================================================
+# Clean up orphaned registry entries created by test projects.
+# Tests that call init.sh register the test project in ~/.cleo/projects-registry.json
+# but the entry persists after BATS cleans up the temp directory.
+# =============================================================================
+
+# Generate project hash (same algorithm as lib/project-registry.sh)
+# Duplicated here to avoid sourcing full library in teardown
+_generate_test_project_hash() {
+    local path="${1:-}"
+    [[ -z "$path" ]] && return 1
+    echo -n "$path" | sha256sum | cut -c1-12
+}
+
+# Remove a test project from the global registry
+# Args: $1 - project path (used to calculate hash)
+# Returns: 0 on success or if entry doesn't exist, 1 on error
+_remove_test_project_from_registry() {
+    local project_path="${1:-}"
+    local registry="${HOME}/.cleo/projects-registry.json"
+
+    # Skip if no path provided or registry doesn't exist
+    [[ -z "$project_path" ]] && return 0
+    [[ ! -f "$registry" ]] && return 0
+
+    # Calculate project hash
+    local hash
+    hash=$(_generate_test_project_hash "$project_path")
+    [[ -z "$hash" ]] && return 0
+
+    # Check if project exists in registry
+    if ! jq -e ".projects[\"$hash\"]" "$registry" >/dev/null 2>&1; then
+        return 0  # Not in registry, nothing to do
+    fi
+
+    # Remove project from registry atomically
+    local temp_file
+    temp_file=$(mktemp)
+
+    if jq "del(.projects[\"$hash\"])" "$registry" > "$temp_file" 2>/dev/null; then
+        mv "$temp_file" "$registry" 2>/dev/null || rm -f "$temp_file"
+    else
+        rm -f "$temp_file"
+    fi
+
+    return 0
+}
+
+# Clean up registry entries for a test directory and its subdirectories
+# Scans for any .cleo directories and removes their registry entries
+# Args: $1 - base directory to scan
+_cleanup_test_registry_entries() {
+    local base_dir="${1:-}"
+
+    # Skip if no directory provided or it doesn't look like a temp path
+    [[ -z "$base_dir" ]] && return 0
+    [[ ! "$base_dir" =~ /tmp/ && ! "$base_dir" =~ bats ]] && return 0
+
+    # Remove entry for the base directory itself
+    _remove_test_project_from_registry "$base_dir"
+
+    # Find and clean up any subdirectory projects (some tests create multiple)
+    if [[ -d "$base_dir" ]]; then
+        local subdir
+        for subdir in "$base_dir"/*/; do
+            [[ -d "${subdir}.cleo" ]] && _remove_test_project_from_registry "${subdir%/}"
+        done
+    fi
+
+    return 0
 }
