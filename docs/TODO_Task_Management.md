@@ -871,6 +871,37 @@ ct-done         # cleo complete
 ct-focus        # cleo focus
 ```
 
+## Claude CLI Aliases (v0.67.0+)
+
+Optimized aliases for Claude Code CLI with pre-configured environment variables:
+
+```bash
+cleo setup-claude-aliases           # Install to current shell's RC file
+cleo setup-claude-aliases --force   # Replace existing/legacy aliases
+cleo setup-claude-aliases --remove  # Uninstall aliases
+cleo setup-claude-aliases --dry-run # Preview changes
+```
+
+**Installed Aliases:**
+| Alias | Purpose |
+|-------|---------|
+| `cc` | Interactive mode with optimized environment |
+| `ccy` | Interactive + skip permissions (trusted projects) |
+| `ccr` | Resume previous session |
+| `ccry` | Resume + skip permissions |
+| `cc-headless` | Headless mode with controlled tools |
+| `cc-headfull` | Headless + skip permissions (full autonomy) |
+| `cc-headfull-stream` | Headless + streaming JSON output |
+
+**Doctor Integration:**
+- `cleo doctor` checks alias installation status (current/legacy/missing)
+- `cleo doctor --fix` auto-installs if missing
+
+**Collision Detection:**
+- Detects existing non-Claude aliases with same names
+- Recognizes legacy function-based Claude aliases (`_cc_env()` pattern)
+- Use `--force` to replace legacy or conflicting aliases
+
 ## Tab Completion (v0.28.0+)
 
 Enable shell completion for faster command entry:

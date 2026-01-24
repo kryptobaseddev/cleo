@@ -237,3 +237,13 @@ ct import-tasks task.json                          # Import into current project
 ct import-tasks task.json --dry-run                # Preview import
 ct import-tasks task.json --parent T050            # Import as children of T050
 ```
+
+### Claude CLI Aliases (v0.67.0+)
+```bash
+cleo setup-claude-aliases         # Install optimized Claude Code CLI aliases
+cleo setup-claude-aliases --force # Replace existing/legacy aliases
+```
+
+**Aliases:** `cc`, `ccy`, `ccr`, `ccry`, `cc-headless`, `cc-headfull`, `cc-headfull-stream`
+
+**Doctor integration:** `cleo doctor` checks status, `cleo doctor --fix` auto-installs.
