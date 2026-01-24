@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.2.0",
     "lastUpdated": "2026-01-23",
-    "totalCommands": 62,
+    "totalCommands": 63,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -46,6 +46,7 @@
       "next",
       "orchestrator",
       "phases",
+      "relates",
       "research",
       "show",
       "stats"
@@ -1041,6 +1042,27 @@
         12,
         13,
         14
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium"
+    },
+    {
+      "name": "relates",
+      "script": "relates-command.sh",
+      "category": "read",
+      "doc": "relates.md",
+      "synopsis": "Semantic relationship discovery and management between tasks (suggest, add, remove, list)",
+      "flags": [
+        "--format",
+        "--quiet",
+        "--json",
+        "--threshold"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        4,
+        100
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
