@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.68.2] - 2026-01-24
+
+### Changed
+- **Agent Injection Template**: Added Claude CLI aliases documentation to `AGENT-INJECTION.md`
+  - Documents `setup-claude-aliases` command in injected content
+  - Lists all 7 aliases: `cc`, `ccy`, `ccr`, `ccry`, `cc-headless`, `cc-headfull`, `cc-headfull-stream`
+  - Includes doctor integration note
+  - Affects `cleo init` and `cleo upgrade` output
+
+### Documentation
+- **TODO_Task_Management.md**: Full Claude CLI aliases section with alias table, doctor integration, and collision detection info
+
 ## [0.68.1] - 2026-01-24
 
 ### Fixed
