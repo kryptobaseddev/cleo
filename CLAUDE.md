@@ -22,7 +22,7 @@
 ## Project Structure & Module Organization
 
 ```
-scripts/          # CLI command entrypoints (user-facing operational scripts)
+scripts/          # CLI command entrypoints (user-facing commands ONLY)
 lib/              # Shared Bash helpers (validation, logging, file ops, config)
 schemas/          # JSON Schema definitions for validation
 templates/        # Starter templates for new projects
@@ -31,10 +31,12 @@ docs/             # User-facing documentation
 claudedocs/       # Internal research and specifications
 archive/          # Historical data and early designs
 dev/              # Development scripts (bump-version, benchmark, validation)
+dev/migrations/   # Internal one-time migration scripts (NOT user commands)
 ```
 
 ### Key Architecture Principles
-- **Scripts/** contains only user-facing operational commands
+- **Scripts/** contains ONLY user-facing commands (checked by drift detection)
+- **Dev/migrations/** contains internal one-time scripts (NOT user commands)
 - **Lib/** contains all shared functions used by multiple scripts
 - **Atomic file operations** are mandatory for all write operations
 - **JSON Schema validation** runs on every data modification
@@ -287,7 +289,7 @@ Templates use dynamic placeholders replaced during initialization:
 ## Project Structure & Module Organization
 
 ```
-scripts/          # CLI command entrypoints (user-facing operational scripts)
+scripts/          # CLI command entrypoints (user-facing commands ONLY)
 lib/              # Shared Bash helpers (validation, logging, file ops, config)
 schemas/          # JSON Schema definitions for validation
 templates/        # Starter templates for new projects
@@ -296,10 +298,12 @@ docs/             # User-facing documentation
 claudedocs/       # Internal research and specifications
 archive/          # Historical data and early designs
 dev/              # Development scripts (bump-version, benchmark, validation)
+dev/migrations/   # Internal one-time migration scripts (NOT user commands)
 ```
 
 ### Key Architecture Principles
-- **Scripts/** contains only user-facing operational commands
+- **Scripts/** contains ONLY user-facing commands (checked by drift detection)
+- **Dev/migrations/** contains internal one-time scripts (NOT user commands)
 - **Lib/** contains all shared functions used by multiple scripts
 - **Atomic file operations** are mandatory for all write operations
 - **JSON Schema validation** runs on every data modification
