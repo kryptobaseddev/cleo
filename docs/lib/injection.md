@@ -195,27 +195,6 @@ key=$(injection_get_validation_key "CLAUDE.md")
 echo "{\"$key\": \"valid\"}"
 ```
 
-### `injection_extract_version()`
-
-Extract version number from injection block.
-
-**Signature:**
-```bash
-injection_extract_version <file>
-```
-
-**Parameters:**
-- `file` - Path to file containing injection block
-
-**Returns:**
-- Prints version string (e.g., "0.50.2"), or empty if no version found
-
-**Example:**
-```bash
-version=$(injection_extract_version "CLAUDE.md")
-echo "Current version: $version"
-```
-
 ### `injection_has_block()`
 
 Check if file contains an injection block.
@@ -546,19 +525,14 @@ Version is embedded in template markers:
 <!-- CLEO:END -->
 ```
 
-### Version Extraction
+### Status Checking
 
 ```bash
-# Get installed version
-template=$(injection_get_template_path)
-installed=$(injection_extract_version "$template")
+# Check injection status (versionless - content-based comparison)
+status=$(injection_check "CLAUDE.md" | jq -r '.status')
 
-# Get file version
-current=$(injection_extract_version "CLAUDE.md")
-
-# Compare
-if [[ "$current" != "$installed" ]]; then
-    echo "Update needed: $current → $installed"
+if [[ "$status" != "current" ]]; then
+    echo "Update needed: status is $status"
 fi
 ```
 
@@ -672,14 +646,6 @@ Injection operations use `awk` for content manipulation:
 **Cause:** Global `IFS` modified by other libraries (e.g., `lib/backup.sh`)
 
 **Solution:** Function sets local `IFS=' '` to force space-based splitting
-
-### Issue: Version Not Detected
-
-**Symptom:** `injection_extract_version` returns empty string
-
-**Cause:** Marker format changed or file not using standard markers
-
-**Solution:** Verify markers match `INJECTION_MARKER_START` + version pattern
 
 ### Issue: Update Fails Silently
 

@@ -84,8 +84,8 @@ update_project_health_status() {
         if jq --arg hash "$hash" \
               --arg status "$schema_status" \
               --arg timestamp "$timestamp" \
-              '.projects[$hash].health.status = $status |
-               .projects[$hash].health.lastCheck = $timestamp |
+              '.projects[$hash].healthStatus = $status |
+               .projects[$hash].healthLastCheck = $timestamp |
                .lastUpdated = $timestamp' "$registry" > "$temp_registry" 2>/dev/null; then
             # Use save_json for atomic write (if available)
             if type save_json &>/dev/null; then
@@ -413,14 +413,26 @@ run_project_registry_validation() {
 
         # Check 2: Run validation (validate.sh in project directory) - skip if optimized
         # PERF (T1985): Use --quiet --human flags for fastest validation path
+        # FIX (T2224): Capture validation output instead of discarding
+        local validation_output=""
         if [[ "$skip_validation" == false ]]; then
             if [[ -f "$path/.cleo/validate.sh" ]]; then
-                if (cd "$path" && bash .cleo/validate.sh --quiet --human >/dev/null 2>&1); then
+                if validation_output=$(cd "$path" && bash .cleo/validate.sh --quiet --human 2>&1); then
                     validation_passed=true
                 else
                     status="failed"
                     validation_passed=false
-                    issues+=("Validation failed")
+                    # Extract first meaningful error line for summary
+                    local first_error
+                    first_error=$(echo "$validation_output" | grep -E '^\[ERROR\]|^ERROR:|^✗|FAIL' | head -1)
+                    if [[ -n "$first_error" ]]; then
+                        # Escape quotes and truncate for JSON compatibility
+                        first_error="${first_error//\"/\\\"}"
+                        [[ ${#first_error} -gt 100 ]] && first_error="${first_error:0:100}..."
+                        issues+=("Validation: ${first_error}")
+                    else
+                        issues+=("Validation failed (run 'cleo validate' in project for details)")
+                    fi
                     if [[ "$is_temp_project" == false ]]; then
                         ((active_failed++))
                     fi
@@ -428,12 +440,22 @@ run_project_registry_validation() {
                 fi
             elif [[ -f "${SCRIPT_DIR}/validate.sh" ]]; then
                 # Fallback: use CLI validate.sh if project doesn't have one
-                if (cd "$path" && bash "${SCRIPT_DIR}/validate.sh" --quiet --human >/dev/null 2>&1); then
+                if validation_output=$(cd "$path" && bash "${SCRIPT_DIR}/validate.sh" --quiet --human 2>&1); then
                     validation_passed=true
                 else
                     status="failed"
                     validation_passed=false
-                    issues+=("Validation failed")
+                    # Extract first meaningful error line for summary
+                    local first_error
+                    first_error=$(echo "$validation_output" | grep -E '^\[ERROR\]|^ERROR:|^✗|FAIL' | head -1)
+                    if [[ -n "$first_error" ]]; then
+                        # Escape quotes and truncate for JSON compatibility
+                        first_error="${first_error//\"/\\\"}"
+                        [[ ${#first_error} -gt 100 ]] && first_error="${first_error:0:100}..."
+                        issues+=("Validation: ${first_error}")
+                    else
+                        issues+=("Validation failed (run 'cleo validate' in project for details)")
+                    fi
                     if [[ "$is_temp_project" == false ]]; then
                         ((active_failed++))
                     fi
@@ -501,7 +523,54 @@ run_project_registry_validation() {
             fi
         fi
 
-        # Check 4: Injection status (check all 3 agent files) - only in detailed mode for performance
+        # Check 4: Feature consistency (T2230) - compare project-info.json features with config.json
+        # This catches stale feature data that can lead to incorrect behavior
+        if [[ "$path_exists" == true && "$has_project_info" == true && "$status" != "failed" ]]; then
+            local config_file="${path}/.cleo/config.json"
+            if [[ -f "$config_file" ]]; then
+                # Extract config features (use defaults matching schema if not present)
+                local config_multi config_verif config_alerts
+                config_multi=$(jq -r '.multiSession.enabled // false' "$config_file" 2>/dev/null || echo "false")
+                config_verif=$(jq -r '.verification.enabled // true' "$config_file" 2>/dev/null || echo "true")
+                config_alerts=$(jq -r '.contextAlerts.enabled // true' "$config_file" 2>/dev/null || echo "true")
+
+                # Extract project-info features
+                local info_multi info_verif info_alerts
+                info_multi=$(echo "$project_info_data" | jq -r '.features.multiSession // false')
+                info_verif=$(echo "$project_info_data" | jq -r '.features.verification // false')
+                info_alerts=$(echo "$project_info_data" | jq -r '.features.contextAlerts // false')
+
+                # Compare features - flag if any mismatch
+                local features_mismatch=false
+                local mismatch_details=()
+
+                if [[ "$config_multi" != "$info_multi" ]]; then
+                    features_mismatch=true
+                    mismatch_details+=("multiSession:config=$config_multi,info=$info_multi")
+                fi
+                if [[ "$config_verif" != "$info_verif" ]]; then
+                    features_mismatch=true
+                    mismatch_details+=("verification:config=$config_verif,info=$info_verif")
+                fi
+                if [[ "$config_alerts" != "$info_alerts" ]]; then
+                    features_mismatch=true
+                    mismatch_details+=("contextAlerts:config=$config_alerts,info=$info_alerts")
+                fi
+
+                if [[ "$features_mismatch" == true ]]; then
+                    if [[ "$status" == "healthy" ]]; then
+                        status="warning"
+                        if [[ "$is_temp_project" == false ]]; then
+                            ((active_warnings++))
+                        fi
+                        ((warnings++))
+                    fi
+                    issues+=("Features out of sync (run 'cleo upgrade' to fix)")
+                fi
+            fi
+        fi
+
+        # Check 5: Injection status (check all 3 agent files) - only in detailed mode for performance
         if [[ "$DETAIL_MODE" == true ]] && [[ "$path_exists" == true && "$status" != "failed" ]]; then
             local agent_files=("CLAUDE.md" "AGENTS.md" "GEMINI.md")
 
@@ -556,6 +625,18 @@ run_project_registry_validation() {
             injection_json=$(printf '%s\n' "${injection_outdated[@]}" | jq -R . | jq -s .)
         fi
 
+        # FIX (T2224): Include validation output for --detail mode
+        # Only include if validation failed (for context efficiency)
+        local validation_output_json="null"
+        if [[ "$validation_passed" == false && -n "$validation_output" ]]; then
+            # Escape for JSON and limit length to prevent huge outputs
+            local truncated_output="$validation_output"
+            if [[ ${#truncated_output} -gt 2000 ]]; then
+                truncated_output="${truncated_output:0:2000}... (truncated)"
+            fi
+            validation_output_json=$(jq -n --arg v "$truncated_output" '$v')
+        fi
+
         project_results+=("$(jq -n \
             --arg hash "$hash" \
             --arg path "$path" \
@@ -567,6 +648,7 @@ run_project_registry_validation() {
             --argjson schemas_outdated "$schemas_outdated" \
             --argjson injection_outdated "$injection_json" \
             --argjson is_temp "$is_temp_project" \
+            --argjson validation_output "$validation_output_json" \
             '{
                 hash: $hash,
                 path: $path,
@@ -578,7 +660,8 @@ run_project_registry_validation() {
                     pathExists: $path_exists,
                     validationPassed: $validation_passed,
                     schemasOutdated: $schemas_outdated,
-                    injectionOutdated: $injection_outdated
+                    injectionOutdated: $injection_outdated,
+                    validationOutput: $validation_output
                 }
             }')")
 
@@ -864,6 +947,36 @@ format_text_output() {
 
                 printf "${color}%-2s %-18s %-10s %-50s %s${NC}\n" "$icon" "$name" "$status" "$display_path" "$display_issues"
             done
+
+            # FIX (T2224): Show full validation output for failed projects in --detail mode
+            local failed_count
+            failed_count=$(echo "$json_output" | jq '[.projects.projects[] |
+                select(.status == "failed") | select(.details.validationOutput)] | length')
+
+            if [[ "$failed_count" -gt 0 ]]; then
+                echo ""
+                echo "📝 VALIDATION DETAILS:"
+                echo "---------------------"
+                # Process each failed project separately to handle multi-line output
+                local i=0
+                while [[ $i -lt $failed_count ]]; do
+                    local proj_name val_output
+                    proj_name=$(echo "$json_output" | jq -r --argjson idx "$i" '
+                        [.projects.projects[] | select(.status == "failed") | select(.details.validationOutput)][$idx].name')
+                    val_output=$(echo "$json_output" | jq -r --argjson idx "$i" '
+                        [.projects.projects[] | select(.status == "failed") | select(.details.validationOutput)][$idx].details.validationOutput')
+
+                    echo ""
+                    echo -e "${RED}Project: ${proj_name}${NC}"
+                    echo "$val_output" | head -20
+                    local line_count
+                    line_count=$(echo "$val_output" | wc -l)
+                    if [[ "$line_count" -gt 20 ]]; then
+                        echo "... ($((line_count - 20)) more lines, run 'cleo validate' in project for full output)"
+                    fi
+                    ((i++)) || true  # Prevent set -e from exiting when i starts at 0
+                done
+            fi
         else
             # Clean default view - show all active (non-temp) projects
             # Filter: show non-temp projects (healthy, warning, failed, orphaned)

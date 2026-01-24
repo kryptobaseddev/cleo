@@ -73,7 +73,7 @@ check_project_needs_update() {
         injection_version=$(grep -oP 'CLEO:START v\K[0-9.]+' "$claude_md" 2>/dev/null || echo "")
 
         local installed_version
-        installed_version=$(cat "${CLEO_HOME:-$HOME/.cleo}/VERSION" 2>/dev/null || echo "unknown")
+        installed_version=$(head -n 1 "${CLEO_HOME:-$HOME/.cleo}/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "unknown")
 
         if [[ -n "$injection_version" ]] && [[ "$injection_version" != "$installed_version" ]]; then
             _VERSION_WARNINGS+=("CLAUDE.md outdated ($injection_version → $installed_version). Run: cleo upgrade")

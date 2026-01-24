@@ -890,6 +890,22 @@ register_project() {
     archive_version=$(get_schema_version_from_file "archive" 2>/dev/null || echo "unknown")
     log_version=$(get_schema_version_from_file "log" 2>/dev/null || echo "unknown")
 
+    # Extract feature settings from config.json (sync to project-info.json)
+    local config_file="${project_path}/.cleo/config.json"
+    local feature_multi_session=false
+    local feature_verification=false
+    local feature_context_alerts=false
+
+    if [[ -f "$config_file" ]]; then
+        feature_multi_session=$(jq -r '.multiSession.enabled // false' "$config_file" 2>/dev/null)
+        feature_verification=$(jq -r '.verification.enabled // false' "$config_file" 2>/dev/null)
+        feature_context_alerts=$(jq -r '.contextAlerts.enabled // false' "$config_file" 2>/dev/null)
+        # Normalize "null" to "false"
+        [[ "$feature_multi_session" == "null" ]] && feature_multi_session=false
+        [[ "$feature_verification" == "null" ]] && feature_verification=false
+        [[ "$feature_context_alerts" == "null" ]] && feature_context_alerts=false
+    fi
+
     # Get injection status for all agent files
     local injection_status
     injection_status=$(injection_check_all 2>/dev/null || echo "[]")
@@ -900,7 +916,6 @@ register_project() {
         reduce .[] as $item ({};
             .[$item.target] = {
                 status: $item.status,
-                version: ($item.currentVersion // null),
                 lastUpdated: (if $item.status == "current" then $ts else null end)
             }
         )
@@ -926,6 +941,9 @@ register_project() {
         --arg archive_v "$archive_version" \
         --arg log_v "$log_version" \
         --argjson injection "$injection_obj" \
+        --argjson feat_multi "$feature_multi_session" \
+        --argjson feat_verif "$feature_verification" \
+        --argjson feat_ctx "$feature_context_alerts" \
         '{
             "$schema": "./schemas/project-info.schema.json",
             "schemaVersion": $schema_version,
@@ -948,9 +966,9 @@ register_project() {
                 "history": []
             },
             "features": {
-                "multiSession": false,
-                "verification": false,
-                "contextAlerts": false
+                "multiSession": $feat_multi,
+                "verification": $feat_verif,
+                "contextAlerts": $feat_ctx
             }
         }' > "$temp_info"
 
