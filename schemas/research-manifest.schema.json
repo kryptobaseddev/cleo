@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/research-manifest.schema.json",
-  "title": "Research Manifest Entry",
-  "description": "Schema for MANIFEST.jsonl entries in the Orchestrator Protocol",
+  "title": "Agent Output Manifest Entry",
+  "description": "Schema for MANIFEST.jsonl entries tracking outputs from all agent types (research, implementation, validation, documentation) in the Orchestrator Protocol",
   "type": "object",
   "required": [
     "id",
@@ -22,12 +22,12 @@
     },
     "file": {
       "type": "string",
-      "description": "Output filename in research-outputs directory",
+      "description": "Output filename in agent-outputs directory (relative path)",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}_[a-z0-9-]+\\.md$"
     },
     "title": {
       "type": "string",
-      "description": "Human-readable title for the research entry",
+      "description": "Human-readable title for the agent output entry",
       "minLength": 5,
       "maxLength": 200
     },
@@ -43,7 +43,7 @@
     },
     "status": {
       "type": "string",
-      "description": "Progress status of the research",
+      "description": "Progress status of the agent output",
       "enum": ["complete", "partial", "blocked", "archived"]
     },
     "topics": {
@@ -65,7 +65,7 @@
     },
     "actionable": {
       "type": "boolean",
-      "description": "Whether this research requires action"
+      "description": "Whether this agent output requires follow-up action"
     },
     "needs_followup": {
       "type": "array",
@@ -78,7 +78,7 @@
     },
     "linked_tasks": {
       "type": "array",
-      "description": "CLEO task IDs this research relates to",
+      "description": "CLEO task IDs this agent output relates to",
       "items": {
         "type": "string",
         "pattern": "^T[0-9]+$"
@@ -86,7 +86,9 @@
     },
     "agent_type": {
       "type": "string",
-      "description": "Subagent role that created this entry"
+      "description": "Type of agent that created this output entry",
+      "enum": ["research", "implementation", "validation", "documentation"],
+      "default": "research"
     },
     "source": {
       "type": "string",
@@ -94,7 +96,43 @@
     },
     "output_file": {
       "type": "string",
-      "description": "Path to output file (alternative to file field)"
+      "description": "Relative path to output file in agent-outputs directory (alternative to file field)"
+    },
+    "files_modified": {
+      "type": "array",
+      "description": "Files modified by implementation agents (relative paths from project root)",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tests_run": {
+      "type": "array",
+      "description": "Test results from validation agents",
+      "items": {
+        "type": "object",
+        "properties": {
+          "test": {
+            "type": "string",
+            "description": "Test name or file path"
+          },
+          "result": {
+            "type": "string",
+            "enum": ["pass", "fail", "skip", "error"]
+          },
+          "details": {
+            "type": "string",
+            "description": "Optional failure details or notes"
+          }
+        },
+        "required": ["test", "result"]
+      }
+    },
+    "documentation_artifacts": {
+      "type": "array",
+      "description": "Documentation files created or updated by documentation agents",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "additionalProperties": true

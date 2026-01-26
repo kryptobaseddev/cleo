@@ -5,7 +5,7 @@
 set -euo pipefail
 
 TARGET="${1:-}"
-DEFAULT_DIR="claudedocs/research-outputs"
+DEFAULT_DIR="claudedocs/agent-outputs"
 
 if [[ -z "$TARGET" ]]; then
     echo "Usage: ./install.sh /path/to/project"

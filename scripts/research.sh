@@ -2514,7 +2514,7 @@ run_archive_list() {
     if [[ "$returned" -eq 0 ]]; then
       echo "No archived entries found."
       echo ""
-      echo "Archive file location: claudedocs/research-outputs/MANIFEST-ARCHIVE.jsonl"
+      echo "Archive file location: claudedocs/agent-outputs/MANIFEST-ARCHIVE.jsonl"
     else
       # Print table header
       printf "%-30s %-12s %-20s %s\n" "ID" "STATUS" "ARCHIVED AT" "TITLE"

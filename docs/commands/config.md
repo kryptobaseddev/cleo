@@ -234,7 +234,7 @@ Session behavior.
 | `requireSessionNote` | boolean | `true` | Require session notes |
 | `warnOnNoFocus` | boolean | `true` | Warn if no focus set |
 | `autoStartSession` | boolean | `true` | Auto-start sessions |
-| `sessionTimeoutHours` | integer | `24` | Session timeout |
+| `sessionTimeoutHours` | integer | `72` | Session timeout |
 
 ### defaults
 

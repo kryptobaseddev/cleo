@@ -190,8 +190,8 @@ _ti_set_fallback_defaults() {
         ["TASK_LIST_CMD"]="cleo list"
         ["TASK_FIND_CMD"]="cleo find"
         ["TASK_ADD_CMD"]="cleo add"
-        ["OUTPUT_DIR"]="claudedocs/research-outputs"
-        ["MANIFEST_PATH"]="claudedocs/research-outputs/MANIFEST.jsonl"
+        ["OUTPUT_DIR"]="claudedocs/agent-outputs"
+        ["MANIFEST_PATH"]="claudedocs/agent-outputs/MANIFEST.jsonl"
         ["EPIC_ID"]=""
         ["SESSION_ID"]=""
         ["RESEARCH_ID"]=""
@@ -285,7 +285,7 @@ _ti_load_validation_rules() {
 #
 # Examples:
 #   validate_token_value "MANIFEST_STATUS" "complete" "enum" "complete,partial,blocked"
-#   validate_token_value "OUTPUT_DIR" "claudedocs/research-outputs" "path" "dir"
+#   validate_token_value "OUTPUT_DIR" "claudedocs/agent-outputs" "path" "dir"
 #   validate_token_value "TOPICS_JSON" '["auth","api"]' "array"
 #   validate_token_value "TASK_ID" "T1234"  # Auto-detects type from placeholders.json
 validate_token_value() {
@@ -817,7 +817,7 @@ ti_set_context() {
 # to provide context for subagent spawning.
 ti_extract_manifest_summaries() {
     local limit="${1:-5}"
-    local manifest_path="${TI_MANIFEST_PATH:-claudedocs/research-outputs/MANIFEST.jsonl}"
+    local manifest_path="${TI_MANIFEST_PATH:-claudedocs/agent-outputs/MANIFEST.jsonl}"
 
     # Check if manifest exists
     if [[ ! -f "$manifest_path" ]]; then

@@ -217,7 +217,8 @@ list_sessions() {
             local session_id=$(echo "$state" | jq -r '.sessionId // ""')
             sessions=$(echo "$sessions" | jq --arg fn "$filename" --argjson state "$state" '. + [($state + {file: $fn})]')
         done
-        jq -nc --argjson sessions "$sessions" '{success: true, sessions: $sessions}'
+        # Use --slurpfile with process substitution to avoid ARG_MAX limits
+        jq -nc --slurpfile sessions <(echo "$sessions") '{success: true, sessions: $sessions[0]}'
     else
         echo "Context state files:"
         for f in "${files[@]}"; do

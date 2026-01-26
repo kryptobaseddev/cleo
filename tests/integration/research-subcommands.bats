@@ -21,7 +21,7 @@ setup() {
     create_empty_todo
 
     # Set up research directories
-    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/research-outputs"
+    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/agent-outputs"
 }
 
 teardown() {

@@ -28,7 +28,7 @@ setup() {
     export ORCH_FIXTURES="${FIXTURES_DIR}/orchestrator"
 
     # Set up research directories (needed for some skill workflows)
-    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/research-outputs"
+    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/agent-outputs"
     mkdir -p "$RESEARCH_OUTPUT_DIR"
 
     # Source the library under test within test context
