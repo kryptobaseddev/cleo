@@ -1283,6 +1283,70 @@ archive_session() {
 }
 
 
+# Auto-end stale active sessions beyond retention period
+# Uses retention.autoEndActiveAfterDays config (default: 7)
+# Only targets 'active' sessions with lastActivity older than threshold
+# Args: $1 - dry_run (optional, default: false)
+# Returns: Number of sessions ended (or would end if dry_run)
+session_auto_end_stale() {
+    local dry_run="${1:-false}"
+
+    local sessions_file
+    sessions_file=$(get_sessions_file)
+
+    if [[ ! -f "$sessions_file" ]]; then
+        echo "0"
+        return 0
+    fi
+
+    # Get config value for auto-end days (default 7)
+    local auto_end_days
+    auto_end_days=$(get_config_value "retention.autoEndActiveAfterDays" "7")
+
+    # Calculate cutoff timestamp (sessions older than this will be auto-ended)
+    local cutoff_timestamp
+    cutoff_timestamp=$(date -u -d "$auto_end_days days ago" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                      date -u -v-${auto_end_days}d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+
+    if [[ -z "$cutoff_timestamp" ]]; then
+        echo "Error: Failed to calculate cutoff timestamp" >&2
+        return 1
+    fi
+
+    # Find active sessions with lastActivity older than cutoff
+    local eligible_sessions
+    eligible_sessions=$(jq -r --arg cutoff "$cutoff_timestamp" '
+        .sessions[] |
+        select(
+            .status == "active" and
+            (.lastActivity < $cutoff)
+        ) | .id
+    ' "$sessions_file" 2>/dev/null)
+
+    local ended_count=0
+    local session_id
+
+    while IFS= read -r session_id; do
+        if [[ -z "$session_id" ]]; then
+            continue
+        fi
+
+        if [[ "$dry_run" == "true" ]]; then
+            echo "Would auto-end session: $session_id"
+            ((ended_count++)) || true
+        else
+            # End session with reason indicating automatic ending due to inactivity
+            if end_session "$session_id" "Auto-ended after ${auto_end_days} days of inactivity" >/dev/null 2>&1; then
+                ((ended_count++)) || true
+            fi
+        fi
+    done <<< "$eligible_sessions"
+
+    echo "$ended_count"
+    return 0
+}
+
+
 # Auto-archive sessions inactive beyond retention period
 # Uses retention.autoArchiveEndedAfterDays config (default: 30)
 # Only archives 'ended' or 'suspended' sessions (never 'active')
@@ -2940,6 +3004,7 @@ export -f cleanup_orphaned_context_states
 export -f cleanup_stale_context_states
 export -f session_cleanup_context_files
 export -f session_cleanup_orphans
+export -f session_auto_end_stale
 export -f validate_context_state_owner
 export -f migrate_context_state_singleton
 export -f init_context_states_dir

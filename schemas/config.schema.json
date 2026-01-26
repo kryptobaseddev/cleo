@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
-  "schemaVersion": "2.5.0",
+  "schemaVersion": "2.6.0",
   "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
@@ -391,8 +391,8 @@
         "sessionTimeoutHours": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 72,
-          "default": 24,
+          "maximum": 168,
+          "default": 72,
           "description": "Hours before orphaned session warning."
         }
       }
@@ -897,7 +897,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 168,
-          "default": 24,
+          "default": 72,
           "description": "Hours before a session is considered orphaned/stale."
         },
         "autoSuspendOnTimeout": {
@@ -1209,6 +1209,20 @@
           "type": "boolean",
           "default": true,
           "description": "Default to dry-run mode for cleanup operations. Prevents accidental data loss."
+        },
+        "maxSessionsInMemory": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum sessions to keep in sessions.json before triggering garbage collection. When exceeded, session gc will auto-archive oldest ended sessions."
+        },
+        "autoEndActiveAfterDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 7,
+          "description": "Automatically end active sessions with no activity for this many days. Prevents stale sessions from accumulating."
         }
       }
     },

@@ -90,7 +90,7 @@ Configuration values are resolved in this order (later overrides earlier):
     "requireSessionNote": true,
     "warnOnNoFocus": true,
     "autoStartSession": true,
-    "sessionTimeoutHours": 24
+    "sessionTimeoutHours": 72
   },
   "display": {
     "showArchiveCount": true,
@@ -322,7 +322,7 @@ Controls session behavior and warnings.
 | `requireSessionNote` | boolean | `true` | Warn if session ends without updating sessionNote |
 | `warnOnNoFocus` | boolean | `true` | Warn if no task is active at session start |
 | `autoStartSession` | boolean | `true` | Automatically log session_start on first read |
-| `sessionTimeoutHours` | integer | `24` | Hours before orphaned session warning (1-72) |
+| `sessionTimeoutHours` | integer | `72` | Hours before orphaned session warning (1-168) |
 
 **Examples:**
 ```json
@@ -352,7 +352,7 @@ Controls session behavior and warnings.
     "requireSessionNote": false,
     "warnOnNoFocus": false,
     "autoStartSession": false,
-    "sessionTimeoutHours": 24
+    "sessionTimeoutHours": 72
   }
 }
 ```
@@ -593,6 +593,70 @@ With defaults (10 snapshots, 5 safety, 10 incremental, 3 archive):
 - Safety backups use BOTH time and count retention (whichever triggers first)
 - Backup directory can be absolute or relative to `.cleo/`
 
+### Retention Settings (v0.70.0+)
+
+Controls session lifecycle management and garbage collection for sessions.json.
+
+| Field | Type | Default | Range | Description |
+|-------|------|---------|-------|-------------|
+| `maxSessionsInMemory` | integer | `100` | 10-1000 | Maximum sessions in sessions.json before auto-archiving |
+| `maxArchivedSessions` | integer | `100` | 10-1000 | Maximum archived sessions before permanent deletion |
+| `autoArchiveEndedAfterDays` | integer | `30` | 1-365 | Days before ended sessions are auto-archived |
+| `autoDeleteArchivedAfterDays` | integer | `90` | 0-730 | Days before archived sessions are deleted (0 disables) |
+| `autoEndActiveAfterDays` | integer | `7` | 1-365 | Days before stale active sessions are auto-ended |
+| `contextStateRetentionDays` | integer | `7` | 1-90 | Days to retain orphaned context state files |
+| `cleanupOnSessionEnd` | boolean | `true` | - | Run cleanup when sessions end |
+| `dryRunByDefault` | boolean | `true` | - | Default to dry-run mode for cleanup operations |
+
+**Session Lifecycle:**
+1. **Active** - Session in use
+2. **Ended** - Session completed but retained in sessions.json
+3. **Archived** - Moved to archive (read-only, audit trail)
+4. **Deleted** - Permanently removed
+
+**Retention Triggers:**
+- After `autoEndActiveAfterDays` without activity, active sessions are automatically ended
+- When session count exceeds `maxSessionsInMemory`, `session gc` auto-archives oldest ended sessions
+- After `autoArchiveEndedAfterDays`, ended sessions become archive candidates
+- After `autoDeleteArchivedAfterDays`, archived sessions are permanently deleted
+- Archived sessions beyond `maxArchivedSessions` are deleted (oldest first)
+
+**Examples:**
+```json
+// Default: Balance between retention and performance
+{
+  "retention": {
+    "maxSessionsInMemory": 100,
+    "maxArchivedSessions": 100,
+    "autoEndActiveAfterDays": 7,
+    "autoArchiveEndedAfterDays": 30,
+    "autoDeleteArchivedAfterDays": 90
+  }
+}
+
+// Aggressive cleanup: Minimal session retention
+{
+  "retention": {
+    "maxSessionsInMemory": 20,
+    "maxArchivedSessions": 50,
+    "autoEndActiveAfterDays": 3,
+    "autoArchiveEndedAfterDays": 7,
+    "autoDeleteArchivedAfterDays": 30
+  }
+}
+
+// Long retention: Keep session history
+{
+  "retention": {
+    "maxSessionsInMemory": 500,
+    "maxArchivedSessions": 500,
+    "autoEndActiveAfterDays": 14,
+    "autoArchiveEndedAfterDays": 90,
+    "autoDeleteArchivedAfterDays": 365
+  }
+}
+```
+
 ## Environment Variables
 
 Override configuration using environment variables with `CLEO_` prefix:
@@ -800,7 +864,7 @@ Configuration files are validated against `config.schema.json` during:
 | `maxActiveTasks` | 1-1 | Enforces single-task focus (by design) |
 | `priority` | `critical`, `high`, `medium`, `low` | Task priority levels |
 | `phase` | Pattern: `^[a-z][a-z0-9-]*$` | Lowercase with hyphens |
-| `sessionTimeoutHours` | 1-72 | Reasonable session duration |
+| `sessionTimeoutHours` | 1-168 | Reasonable session duration |
 | `warnStaleDays` | 1-999 | Task staleness threshold |
 | `maxSnapshots` | 0-100 | Snapshot backup retention count |
 | `maxSafetyBackups` | 0-50 | Safety backup retention count |
