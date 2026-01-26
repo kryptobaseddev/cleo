@@ -147,21 +147,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-01-26T23:13:28Z",
+  "lastUpdated": "2026-01-26T23:16:59Z",
   "_meta": {
-    "checksum": "df968bb09ab38cb9",
+    "checksum": "0ca32bc4363cee32",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-01-26T23:13:26Z",
+    "lastModified": "2026-01-26T23:16:27Z",
     "version": "2.7.0",
     "schemaVersion": "2.9.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 1,
-    "generation": 616
+    "activeSessionCount": 2,
+    "generation": 624
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T2421",
     "blockedUntil": null,
     "sessionNote": "Wave 0 COMPLETE. All 4 research tasks done. Ready for Wave 1 (Spec/Design). T2398 depends on T2394+T2396 (both complete). Key findings inform spec.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -9475,12 +9475,12 @@
     {
       "id": "T2198",
       "title": "Update/create docs/commands/graph-rag.md documentation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2190",
       "createdAt": "2026-01-24T01:23:43Z",
-      "updatedAt": "2026-01-24T01:23:43Z",
+      "updatedAt": "2026-01-26T23:14:42Z",
       "size": "small",
       "position": 8,
       "positionVersion": 0,
@@ -9493,7 +9493,26 @@
       ],
       "depends": [
         "T2196"
-      ]
+      ],
+      "completedAt": "2026-01-26T23:14:42Z",
+      "notes": [
+        "[COMPLETED 2026-01-26T23:14:42Z] Created docs/commands/graph-rag.md with hierarchy discovery documentation, configuration options, and API reference."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-26T23:14:43Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2199",
@@ -16687,7 +16706,7 @@
     {
       "id": "T2415",
       "title": "Deprecate old skill-as-agent references",
-      "status": "active",
+      "status": "pending",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2392",
@@ -16750,12 +16769,12 @@
     {
       "id": "T2417",
       "title": "Add graphRag configuration section to config schema",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2190",
       "createdAt": "2026-01-26T22:11:34Z",
-      "updatedAt": "2026-01-26T22:11:34Z",
+      "updatedAt": "2026-01-26T23:16:05Z",
       "size": "small",
       "position": 9,
       "positionVersion": 0,
@@ -16767,17 +16786,36 @@
       ],
       "depends": [
         "T2196"
-      ]
+      ],
+      "completedAt": "2026-01-26T23:16:05Z",
+      "notes": [
+        "[COMPLETED 2026-01-26T23:16:05Z] Added graphRag section to schemas/config.schema.json: hierarchyBoost (enabled, sibling, cousin, ancestor, requireContentMatch), contextPropagation (enabled, maxDepth, decayFactor), minScore."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-26T23:16:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2418",
       "title": "Benchmark hierarchy discovery performance",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2190",
       "createdAt": "2026-01-26T22:11:41Z",
-      "updatedAt": "2026-01-26T22:11:41Z",
+      "updatedAt": "2026-01-26T23:16:58Z",
       "size": "small",
       "position": 10,
       "positionVersion": 0,
@@ -16789,6 +16827,173 @@
       ],
       "depends": [
         "T2197"
+      ],
+      "completedAt": "2026-01-26T23:16:58Z",
+      "notes": [
+        "[COMPLETED 2026-01-26T23:16:58Z] Benchmark results (563 tasks): _find_lca 80ms/call, _tree_distance 105ms/call, _discover_by_hierarchy 60ms/call. Exceeds 50ms target but acceptable for interactive use. Performance dominated by jq file parsing. Could optimize with caching if needed."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-26T23:16:59Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2419",
+      "title": "EPIC: Backup System Assessment & Consolidation",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-01-26T23:15:09Z",
+      "updatedAt": "2026-01-26T23:15:09Z",
+      "size": "medium",
+      "position": 151,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Comprehensive analysis of all backup mechanisms in CLEO codebase. Goal: identify redundancy, conflicts, and create unified strategy combining git-controlled versioning with internal backup systems. Subagents will analyze: (1) lib/backup.sh Tier 2 system, (2) lib/file-ops.sh atomic operations, (3) git integration points, (4) schema validation safety nets, (5) session/focus persistence mechanisms.",
+      "labels": [
+        "architecture",
+        "backup",
+        "data-integrity",
+        "research"
+      ]
+    },
+    {
+      "id": "T2420",
+      "title": "Research: Tier 1 Atomic Operations (file-ops.sh)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2419",
+      "createdAt": "2026-01-26T23:15:27Z",
+      "updatedAt": "2026-01-26T23:16:26Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Analyze lib/file-ops.sh for atomic write patterns, backup_file() function, numbered backup rotation in .cleo/.backups/. Document: trigger conditions, retention policy, rollback mechanisms, interaction with other systems.",
+      "labels": [
+        "atomic-ops",
+        "backup",
+        "research"
+      ]
+    },
+    {
+      "id": "T2421",
+      "title": "Research: Tier 2 Recovery Backups (backup.sh)",
+      "status": "active",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2419",
+      "createdAt": "2026-01-26T23:15:29Z",
+      "updatedAt": "2026-01-26T23:16:27Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Analyze lib/backup.sh for snapshot/safety/archive/migration backup types. Document: create_snapshot_backup(), create_safety_backup(), rotate_backups(), list_typed_backups(), restore_typed_backup(). Map directory structure .cleo/backups/{type}/.",
+      "labels": [
+        "backup",
+        "recovery",
+        "research"
+      ]
+    },
+    {
+      "id": "T2422",
+      "title": "Research: Git Integration Points for Data Integrity",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2419",
+      "createdAt": "2026-01-26T23:15:30Z",
+      "updatedAt": "2026-01-26T23:16:25Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Identify all git-related backup/safety patterns in codebase. Search for: git add, git commit, git stash patterns. Document how git versioning could complement internal backup system. Find any .gitignore patterns for backup exclusion.",
+      "labels": [
+        "backup",
+        "git",
+        "research"
+      ]
+    },
+    {
+      "id": "T2423",
+      "title": "Research: Schema Validation Safety Nets",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2419",
+      "createdAt": "2026-01-26T23:15:32Z",
+      "updatedAt": "2026-01-26T23:16:27Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Analyze lib/validation.sh and schema validation as data integrity mechanism. Document: pre-write validation, post-write verification, error recovery paths, schema version migrations as safety mechanism.",
+      "labels": [
+        "backup",
+        "research",
+        "validation"
+      ]
+    },
+    {
+      "id": "T2424",
+      "title": "Research: Session/Focus Persistence Mechanisms",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2419",
+      "createdAt": "2026-01-26T23:15:34Z",
+      "updatedAt": "2026-01-26T23:16:26Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Analyze session.sh, focus.sh persistence patterns. Document: session state files, focus state files, recovery from corrupted state, multi-session conflict handling.",
+      "labels": [
+        "backup",
+        "research",
+        "session"
+      ]
+    },
+    {
+      "id": "T2425",
+      "title": "Synthesis: Backup System Redundancy Assessment",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2419",
+      "createdAt": "2026-01-26T23:15:37Z",
+      "updatedAt": "2026-01-26T23:15:37Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Synthesize findings from research tasks T2420-T2424. Identify: overlapping mechanisms, gaps in coverage, conflicting approaches, recommendations for unified backup strategy combining git + internal systems.",
+      "labels": [
+        "analysis",
+        "architecture",
+        "backup"
+      ],
+      "depends": [
+        "T2420",
+        "T2421",
+        "T2422",
+        "T2423",
+        "T2424"
       ]
     }
   ],
