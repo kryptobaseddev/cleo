@@ -1480,6 +1480,85 @@
           }
         }
       }
+    },
+
+    "graphRag": {
+      "type": "object",
+      "description": "Graph-RAG semantic relationship discovery configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "hierarchyBoost": {
+          "type": "object",
+          "description": "Hierarchy-based similarity boost for related task discovery.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable hierarchy boosting in 'auto' discovery method."
+            },
+            "sibling": {
+              "type": "number",
+              "default": 0.15,
+              "minimum": 0,
+              "maximum": 0.5,
+              "description": "Boost for tasks sharing the same parent."
+            },
+            "cousin": {
+              "type": "number",
+              "default": 0.08,
+              "minimum": 0,
+              "maximum": 0.3,
+              "description": "Boost for tasks sharing the same grandparent."
+            },
+            "ancestor": {
+              "type": "number",
+              "default": 0.04,
+              "minimum": 0,
+              "maximum": 0.2,
+              "description": "Boost for tasks sharing any common ancestor."
+            },
+            "requireContentMatch": {
+              "type": "boolean",
+              "default": true,
+              "description": "Only apply boost if base similarity > 0."
+            }
+          }
+        },
+        "contextPropagation": {
+          "type": "object",
+          "description": "Parent context propagation for description similarity.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Include parent context in description comparison."
+            },
+            "maxDepth": {
+              "type": "integer",
+              "default": 2,
+              "minimum": 0,
+              "maximum": 3,
+              "description": "Maximum ancestor depth to include (0=self only)."
+            },
+            "decayFactor": {
+              "type": "number",
+              "default": 0.5,
+              "minimum": 0.1,
+              "maximum": 1.0,
+              "description": "Exponential decay per level (0.5 = halve each level)."
+            }
+          }
+        },
+        "minScore": {
+          "type": "number",
+          "default": 0.1,
+          "minimum": 0,
+          "maximum": 1.0,
+          "description": "Minimum score threshold for including in results."
+        }
+      }
     }
   }
 }
