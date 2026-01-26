@@ -1097,7 +1097,7 @@ See [LICENSE](LICENSE) for details.
 
 ## Licensing FAQ
 
-See [LICENSE_FAQ.md](LICENSE_FAQ.md) for details.
+See [LICENSING_FAQ.md](LICENSING_FAQ.md) for details.
 
 ---
 
