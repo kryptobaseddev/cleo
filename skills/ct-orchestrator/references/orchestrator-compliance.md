@@ -37,7 +37,7 @@ research_id="${topic_slug}-${date}"  # e.g., "auth-research-2026-01-21"
 # 2. Verify manifest entry exists
 cleo research show "$research_id"
 # OR
-jq -s '.[] | select(.id == "'$research_id'")' claudedocs/research-outputs/MANIFEST.jsonl
+jq -s '.[] | select(.id == "'$research_id'")' "{{MANIFEST_PATH}}"
 
 # 3. Block on missing manifest - DO NOT spawn next agent until confirmed
 if ! cleo research show "$research_id" &>/dev/null; then

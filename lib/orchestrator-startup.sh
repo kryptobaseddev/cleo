@@ -46,8 +46,55 @@ source "${_OS_LIB_DIR}/token-inject.sh"
 # Orchestrator context budget (tokens)
 readonly ORCHESTRATOR_CONTEXT_BUDGET=10000
 
-# Context warning threshold (percentage)
-readonly ORCHESTRATOR_CONTEXT_WARNING=70
+# Context thresholds (read from config, with fallback defaults)
+# These are initialized lazily via _os_init_thresholds() to ensure config.sh is loaded
+ORCHESTRATOR_CONTEXT_WARNING=""
+ORCHESTRATOR_CONTEXT_CRITICAL=""
+
+# Initialize thresholds from config (called on first use)
+# Validates that warning < critical and uses sensible defaults
+_os_init_thresholds() {
+    # Only initialize once
+    if [[ -n "$ORCHESTRATOR_CONTEXT_WARNING" && -n "$ORCHESTRATOR_CONTEXT_CRITICAL" ]]; then
+        return 0
+    fi
+
+    # Read from config with fallback defaults
+    local warning_threshold critical_threshold
+    warning_threshold=$(get_config_value 'orchestrator.contextThresholds.warning' 70)
+    critical_threshold=$(get_config_value 'orchestrator.contextThresholds.critical' 80)
+
+    # Validate thresholds are numeric
+    if ! [[ "$warning_threshold" =~ ^[0-9]+$ ]]; then
+        warning_threshold=70
+    fi
+    if ! [[ "$critical_threshold" =~ ^[0-9]+$ ]]; then
+        critical_threshold=80
+    fi
+
+    # Validate warning < critical (swap if needed, with fallback to defaults)
+    if [[ "$warning_threshold" -ge "$critical_threshold" ]]; then
+        # Invalid configuration - use defaults
+        warning_threshold=70
+        critical_threshold=80
+    fi
+
+    # Set global variables
+    ORCHESTRATOR_CONTEXT_WARNING="$warning_threshold"
+    ORCHESTRATOR_CONTEXT_CRITICAL="$critical_threshold"
+}
+
+# Get warning threshold (initializes if needed)
+get_orchestrator_warning_threshold() {
+    _os_init_thresholds
+    echo "$ORCHESTRATOR_CONTEXT_WARNING"
+}
+
+# Get critical threshold (initializes if needed)
+get_orchestrator_critical_threshold() {
+    _os_init_thresholds
+    echo "$ORCHESTRATOR_CONTEXT_CRITICAL"
+}
 
 # ============================================================================
 # SKILL NAME MAPPING
@@ -593,6 +640,11 @@ orchestrator_get_ready_tasks() {
 orchestrator_context_check() {
     local current_tokens="${1:-0}"
 
+    # Initialize thresholds from config
+    _os_init_thresholds
+    local warning_threshold="$ORCHESTRATOR_CONTEXT_WARNING"
+    local critical_threshold="$ORCHESTRATOR_CONTEXT_CRITICAL"
+
     # If not provided, try to get from context state file
     if [[ "$current_tokens" -eq 0 ]]; then
         local context_file
@@ -609,10 +661,10 @@ orchestrator_context_check() {
         usage_percent=0
     fi
 
-    if [[ "$usage_percent" -ge 90 ]]; then
+    if [[ "$usage_percent" -ge "$critical_threshold" ]]; then
         status="critical"
         recommendation="STOP - Delegate immediately. Context near limit."
-    elif [[ "$usage_percent" -ge "$ORCHESTRATOR_CONTEXT_WARNING" ]]; then
+    elif [[ "$usage_percent" -ge "$warning_threshold" ]]; then
         status="warning"
         recommendation="Delegate current work. Avoid reading large files."
     else
@@ -624,6 +676,8 @@ orchestrator_context_check() {
         --argjson current "$current_tokens" \
         --argjson budget "$ORCHESTRATOR_CONTEXT_BUDGET" \
         --argjson percent "$usage_percent" \
+        --argjson warning_threshold "$warning_threshold" \
+        --argjson critical_threshold "$critical_threshold" \
         --arg status "$status" \
         --arg recommendation "$recommendation" \
         '{
@@ -636,6 +690,8 @@ orchestrator_context_check() {
                 "currentTokens": $current,
                 "budgetTokens": $budget,
                 "usagePercent": $percent,
+                "warningThreshold": $warning_threshold,
+                "criticalThreshold": $critical_threshold,
                 "status": $status,
                 "recommendation": $recommendation
             }
@@ -745,11 +801,10 @@ _os_resolve_template_path() {
     return 1
 }
 
-# Get research output directory
-_os_get_research_output_dir() {
-    local dir
-    dir=$(get_config_value "research.outputDir" "claudedocs/agent-outputs" 2>/dev/null || echo "claudedocs/agent-outputs")
-    echo "$dir"
+# Get agent output directory (for subagent outputs, research results, etc.)
+# Uses canonical get_agent_outputs_directory() from lib/config.sh
+_os_get_agent_output_dir() {
+    get_agent_outputs_directory
 }
 
 # orchestrator_analyze_dependencies - Build dependency graph and return topological sort
@@ -1087,7 +1142,7 @@ orchestrator_build_prompt() {
     # Prepare context values
     local date_today output_dir topic_slug
     date_today=$(date +%Y-%m-%d)
-    output_dir=$(_os_get_research_output_dir)
+    output_dir=$(_os_get_agent_output_dir)
     topic_slug=$(echo "$task" | jq -r '.title | gsub("[^a-zA-Z0-9]+"; "-") | ascii_downcase | ltrimstr("-") | rtrimstr("-")')
 
     # Set required context tokens via ti_set_context
@@ -1401,3 +1456,5 @@ export -f orchestrator_build_prompt
 export -f orchestrator_spawn
 export -f orchestrator_can_parallelize
 export -f orchestrator_get_parallel_waves
+export -f get_orchestrator_warning_threshold
+export -f get_orchestrator_critical_threshold

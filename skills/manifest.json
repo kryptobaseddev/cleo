@@ -30,7 +30,7 @@
   "skills": [
     {
       "name": "ct-orchestrator",
-      "version": "1.2.0",
+      "version": "2.0.0",
       "description": "Orchestrator protocol for coordinating complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-008 constraints.",
       "path": "skills/ct-orchestrator",
       "tags": ["workflow", "multi-agent", "coordination"],
@@ -39,6 +39,10 @@
       "token_budget": 8000,
       "references": [
         "skills/ct-orchestrator/SKILL.md",
+        "skills/ct-orchestrator/references/orchestrator-spawning.md",
+        "skills/ct-orchestrator/references/orchestrator-compliance.md",
+        "skills/ct-orchestrator/references/orchestrator-tokens.md",
+        "skills/ct-orchestrator/references/orchestrator-recovery.md",
         "docs/guides/ORCHESTRATOR-PROTOCOL.md"
       ],
       "capabilities": {
@@ -61,16 +65,18 @@
     },
     {
       "name": "ct-epic-architect",
-      "version": "2.2.0",
-      "description": "Epic architecture agent for creating comprehensive epics with full task decomposition. Use for epic planning, task breakdown, dependency analysis, wave planning.",
+      "version": "2.3.0",
+      "description": "Epic architecture agent for creating comprehensive epics with full task decomposition, file attachments, and research linking. Use for epic planning, task breakdown, dependency analysis, wave planning.",
       "path": "skills/ct-epic-architect",
       "model": "sonnet",
       "tags": ["planning", "architecture", "task-management"],
       "status": "active",
       "tier": 1,
-      "token_budget": 10000,
+      "token_budget": 8000,
       "references": [
         "skills/ct-epic-architect/SKILL.md",
+        "skills/ct-epic-architect/references/commands.md",
+        "skills/ct-epic-architect/references/patterns.md",
         "skills/ct-epic-architect/references/shell-escaping.md"
       ],
       "capabilities": {

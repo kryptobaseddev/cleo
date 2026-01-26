@@ -70,8 +70,8 @@ template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 
 | Token | Default Value |
 |-------|---------------|
-| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` |
-| `{{MANIFEST_PATH}}` | `claudedocs/research-outputs/MANIFEST.jsonl` |
+| `{{OUTPUT_DIR}}` | `claudedocs/agent-outputs` |
+| `{{MANIFEST_PATH}}` | `claudedocs/agent-outputs/MANIFEST.jsonl` |
 
 ### Task Context Tokens (populated from CLEO task data)
 
@@ -155,8 +155,8 @@ echo "$template" | grep -c '{{' && echo "WARNING: Uninjected tokens remain"
 ## Subagent Protocol Tokens
 
 Token defaults (from `skills/_shared/placeholders.json`):
-- `{{OUTPUT_DIR}}` -> `claudedocs/research-outputs`
-- `{{MANIFEST_PATH}}` -> `claudedocs/research-outputs/MANIFEST.jsonl`
+- `{{OUTPUT_DIR}}` -> `claudedocs/agent-outputs`
+- `{{MANIFEST_PATH}}` -> `claudedocs/agent-outputs/MANIFEST.jsonl`
 
 ### Inline Protocol Block (when CLI unavailable)
 

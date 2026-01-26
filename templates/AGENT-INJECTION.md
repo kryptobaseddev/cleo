@@ -230,7 +230,7 @@ ct research inject --clipboard    # Copy to clipboard
 **Subagent Workflow**:
 1. Use `ct research inject` to get the protocol injection block
 2. Inject into subagent prompts via Task tool
-3. Subagents write to `claudedocs/research-outputs/` + append to `MANIFEST.jsonl`
+3. Subagents write to `claudedocs/agent-outputs/` + append to `MANIFEST.jsonl`
 4. Query via `ct research list/show` instead of reading full files (context-efficient)
 
 ### Research Linking

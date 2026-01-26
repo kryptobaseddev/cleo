@@ -166,7 +166,7 @@ When tokens are not explicitly configured, assume CLEO defaults:
 | `{{TASK_LIST_CMD}}` | `cleo list` |
 | `{{TASK_FIND_CMD}}` | `cleo find` |
 | `{{TASK_ADD_CMD}}` | `cleo add` |
-| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` |
+| `{{OUTPUT_DIR}}` | `claudedocs/agent-outputs` |
 | `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` |
 
 ---

@@ -326,6 +326,41 @@ _create_sample_manifest() {
     assert_output --partial "actionable must be a boolean"
 }
 
+@test "append_manifest validates agent_type enum" {
+    local entry='{"id":"test","file":"t.md","title":"T","date":"2025-01-17","status":"complete","agent_type":"invalid","topics":["t"],"key_findings":["f"],"actionable":true}'
+    run append_manifest "$entry"
+    assert_failure
+    [[ "$status" -eq 6 ]]
+
+    assert_output --partial "Invalid agent_type"
+}
+
+@test "append_manifest accepts valid agent_type values" {
+    local types=("research" "implementation" "validation" "documentation" "analysis")
+    for agent_type in "${types[@]}"; do
+        local entry
+        entry=$(jq -n --arg id "test-$agent_type" --arg type "$agent_type" '{
+            id: $id,
+            file: "t.md",
+            title: "T",
+            date: "2025-01-17",
+            status: "complete",
+            agent_type: $type,
+            topics: ["t"],
+            key_findings: ["f"],
+            actionable: true
+        }')
+        run append_manifest "$entry"
+        assert_success
+    done
+}
+
+@test "append_manifest defaults agent_type to research when missing" {
+    local entry='{"id":"test-no-type","file":"t.md","title":"T","date":"2025-01-17","status":"complete","topics":["t"],"key_findings":["f"],"actionable":true}'
+    run append_manifest "$entry"
+    assert_success
+}
+
 # =============================================================================
 # find_entry Tests
 # =============================================================================
