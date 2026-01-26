@@ -605,6 +605,113 @@ export -f get_phase_boost_config
 export -f get_analyze_config
 
 # ============================================================================
+# DEPRECATED CONFIG PATH MAPPINGS
+# ============================================================================
+
+# Map of deprecated config paths to their new equivalents
+# Used for backward compatibility when reading old configs
+declare -A DEPRECATED_CONFIG_PATHS=(
+    ["research.outputDir"]="agentOutputs.directory"
+    ["research.manifestFile"]="agentOutputs.manifestFile"
+    ["research.archiveDir"]="agentOutputs.archiveDir"
+    ["research.archiveDays"]="agentOutputs.archiveDays"
+    ["research.manifest.maxEntries"]="agentOutputs.manifest.maxEntries"
+    ["research.manifest.thresholdBytes"]="agentOutputs.manifest.thresholdBytes"
+    ["research.manifest.archivePercent"]="agentOutputs.manifest.archivePercent"
+    ["research.manifest.autoRotate"]="agentOutputs.manifest.autoRotate"
+)
+
+# Get config value with deprecated path fallback
+# Checks new path first, then falls back to deprecated path if exists
+# Args: $1 = config path (new), $2 = default value (optional)
+# Returns: resolved value
+get_config_value_with_fallback() {
+    local config_path="$1"
+    local default_value="${2:-}"
+
+    # Try new path first
+    local value
+    value=$(get_config_value "$config_path" "")
+
+    if [[ -n "$value" ]]; then
+        echo "$value"
+        return 0
+    fi
+
+    # Check if there's a deprecated path that maps to this new path
+    local deprecated_path=""
+    for dep_path in "${!DEPRECATED_CONFIG_PATHS[@]}"; do
+        if [[ "${DEPRECATED_CONFIG_PATHS[$dep_path]}" == "$config_path" ]]; then
+            deprecated_path="$dep_path"
+            break
+        fi
+    done
+
+    # Try deprecated path
+    if [[ -n "$deprecated_path" ]]; then
+        value=$(get_config_value "$deprecated_path" "")
+        if [[ -n "$value" ]]; then
+            echo "$value"
+            return 0
+        fi
+    fi
+
+    # Return default
+    echo "$default_value"
+}
+
+export -f get_config_value_with_fallback
+
+# ============================================================================
+# AGENT OUTPUTS CONFIGURATION GETTERS
+# ============================================================================
+
+# Get agent outputs directory
+# Returns: string (default: claudedocs/agent-outputs)
+# Supports backward compatibility with research.outputDir
+# Usage: dir=$(get_agent_outputs_directory)
+get_agent_outputs_directory() {
+    get_config_value_with_fallback "agentOutputs.directory" "claudedocs/agent-outputs"
+}
+
+# Get agent outputs manifest filename
+# Returns: string (default: MANIFEST.jsonl)
+# Supports backward compatibility with research.manifestFile
+# Usage: file=$(get_agent_outputs_manifest_file)
+get_agent_outputs_manifest_file() {
+    get_config_value_with_fallback "agentOutputs.manifestFile" "MANIFEST.jsonl"
+}
+
+# Get agent outputs archive directory (relative to agent outputs directory)
+# Returns: string (default: archive)
+# Supports backward compatibility with research.archiveDir
+# Usage: dir=$(get_agent_outputs_archive_dir)
+get_agent_outputs_archive_dir() {
+    get_config_value_with_fallback "agentOutputs.archiveDir" "archive"
+}
+
+# Get days until agent outputs are archived
+# Returns: integer (default: 30)
+# Supports backward compatibility with research.archiveDays
+# Usage: days=$(get_agent_outputs_archive_days)
+get_agent_outputs_archive_days() {
+    get_config_value_with_fallback "agentOutputs.archiveDays" "30"
+}
+
+# Get entire agentOutputs config section as JSON
+# Returns: JSON object with all agentOutputs settings
+# Usage: config_json=$(get_agent_outputs_config)
+get_agent_outputs_config() {
+    get_config_section "agentOutputs" "effective"
+}
+
+export -f get_agent_outputs_directory
+export -f get_agent_outputs_manifest_file
+export -f get_agent_outputs_archive_dir
+export -f get_agent_outputs_archive_days
+export -f get_agent_outputs_config
+
+# ============================================================================
 # STALE DETECTION CONFIGURATION GETTERS
 # ============================================================================
 

@@ -508,7 +508,7 @@ subagent_list_required_tokens() {
     echo ""
     echo "Optional tokens (have defaults):"
     echo "  TI_EPIC_ID       - Parent epic identifier"
-    echo "  TI_OUTPUT_DIR    - Output directory (default: claudedocs/research-outputs)"
+    echo "  TI_OUTPUT_DIR    - Output directory (default: claudedocs/agent-outputs)"
     echo "  TI_MANIFEST_PATH - Manifest file path"
     echo ""
     echo "Use 'ti_list_tokens' for full token list with current values."

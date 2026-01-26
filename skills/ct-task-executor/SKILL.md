@@ -170,6 +170,7 @@ Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
 - [ ] Output file written to `{{OUTPUT_DIR}}/`
 - [ ] Manifest entry appended (single line, valid JSON)
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
+- [ ] Session ended with summary note (if executor owns session)
 - [ ] Response is ONLY the summary message
 
 ---
@@ -206,6 +207,52 @@ If deliverables don't pass acceptance criteria:
 3. Add remediation suggestions to `needs_followup`
 4. Complete task only if failure is documented and understood
 5. Return appropriate status message
+
+---
+
+## Session Management
+
+### Session Lifecycle
+
+Task executor sessions support long-running work with a **72-hour timeout**. Sessions persist across Claude conversations, allowing work to resume seamlessly.
+
+**MUST** end sessions properly when completing work:
+
+```bash
+# After completing task work
+cleo session end --note "Task {{TASK_ID}} completed: {{summary}}"
+```
+
+### Session Cleanup
+
+If session accumulation occurs (stale sessions from crashed agents or incomplete work):
+
+```bash
+# List all sessions including stale ones
+cleo session list --all
+
+# Clean up stale sessions (72h+ inactive)
+cleo session gc
+
+# Force cleanup including active sessions (use cautiously)
+cleo session gc --include-active
+```
+
+### Best Practices
+
+| Practice | Rationale |
+|----------|-----------|
+| Always end sessions | Prevents accumulation, maintains clean state |
+| Use descriptive end notes | Provides context for future sessions |
+| Check session status on startup | Resume existing session if applicable |
+| Report session issues | Blocked sessions need orchestrator attention |
+
+### Session Protocol for Executors
+
+1. **Startup**: Check if session already exists via `cleo session status`
+2. **Work**: Focus already set by orchestrator (or set if standalone)
+3. **Completion**: End session with summary note
+4. **Error**: If blocked, leave session open for orchestrator to handle
 
 ---
 

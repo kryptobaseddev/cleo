@@ -124,8 +124,17 @@
     "suppressDuration": 0
   },
 
-  "research": {
-    "outputDir": "claudedocs/research-outputs",
+  "orchestrator": {
+    "contextThresholds": {
+      "warning": 70,
+      "critical": 80
+    },
+    "autoStopOnCritical": true,
+    "hitlSummaryOnPause": true
+  },
+
+  "agentOutputs": {
+    "directory": "claudedocs/agent-outputs",
     "manifestFile": "MANIFEST.jsonl",
     "archiveDir": "archive",
     "archiveDays": 30

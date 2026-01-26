@@ -964,35 +964,109 @@
       }
     },
 
-    "research": {
+    "agentOutputs": {
       "type": "object",
-      "description": "Subagent research output configuration. Controls where research outputs are stored and how they are managed.",
+      "description": "Cross-agent output configuration. Controls where agent outputs (research, contributions, artifacts) are stored and managed.",
       "additionalProperties": false,
       "properties": {
-        "outputDir": {
+        "directory": {
           "type": "string",
-          "default": "claudedocs/research-outputs",
-          "description": "Directory for subagent research outputs relative to project root."
+          "default": "claudedocs/agent-outputs",
+          "description": "Directory for agent outputs relative to project root.",
+          "x-deprecated-alias": "research.outputDir"
         },
         "manifestFile": {
           "type": "string",
           "default": "MANIFEST.jsonl",
-          "description": "Manifest filename (JSONL format) within outputDir."
+          "description": "Manifest filename (JSONL format) within directory."
         },
         "archiveDir": {
           "type": "string",
           "default": "archive",
-          "description": "Subdirectory within outputDir for archived research."
+          "description": "Subdirectory within directory for archived outputs."
         },
         "archiveDays": {
           "type": "integer",
           "default": 30,
           "minimum": 1,
-          "description": "Days until non-actionable research is archived."
+          "description": "Days until non-actionable outputs are archived."
         },
         "manifest": {
           "type": "object",
           "description": "Manifest rotation and archival configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 10,
+              "maximum": 1000,
+              "description": "Maximum number of entries to keep in active manifest before rotation."
+            },
+            "thresholdBytes": {
+              "type": "integer",
+              "default": 200000,
+              "minimum": 10000,
+              "description": "Size threshold in bytes (~50K tokens at 200KB) before suggesting archival."
+            },
+            "archivePercent": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 10,
+              "maximum": 90,
+              "description": "Percentage of oldest entries to archive when threshold is exceeded."
+            },
+            "autoRotate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically rotate manifest when threshold is exceeded during operations."
+            }
+          }
+        }
+      }
+    },
+
+    "research": {
+      "type": "object",
+      "description": "DEPRECATED: Use agentOutputs instead. Legacy research output configuration kept for backward compatibility.",
+      "x-deprecated": true,
+      "x-deprecated-by": "agentOutputs",
+      "additionalProperties": false,
+      "properties": {
+        "outputDir": {
+          "type": "string",
+          "default": "claudedocs/agent-outputs",
+          "description": "DEPRECATED: Use agentOutputs.directory instead. Directory for research outputs relative to project root.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.directory"
+        },
+        "manifestFile": {
+          "type": "string",
+          "default": "MANIFEST.jsonl",
+          "description": "DEPRECATED: Use agentOutputs.manifestFile instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.manifestFile"
+        },
+        "archiveDir": {
+          "type": "string",
+          "default": "archive",
+          "description": "DEPRECATED: Use agentOutputs.archiveDir instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.archiveDir"
+        },
+        "archiveDays": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 1,
+          "description": "DEPRECATED: Use agentOutputs.archiveDays instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.archiveDays"
+        },
+        "manifest": {
+          "type": "object",
+          "description": "DEPRECATED: Use agentOutputs.manifest instead.",
+          "x-deprecated": true,
+          "x-deprecated-by": "agentOutputs.manifest",
           "additionalProperties": false,
           "properties": {
             "maxEntries": {
@@ -1263,6 +1337,45 @@
           "maximum": 100,
           "default": 10,
           "description": "Maximum orphaned context state files to retain. Oldest are deleted first. 0 = delete immediately."
+        }
+      }
+    },
+
+    "orchestrator": {
+      "type": "object",
+      "description": "Orchestrator agent configuration. Controls context thresholds for automatic session management and HITL (human-in-the-loop) handoff behavior.",
+      "additionalProperties": false,
+      "properties": {
+        "contextThresholds": {
+          "type": "object",
+          "description": "Context window usage thresholds that trigger orchestrator actions. Values are percentages of context window capacity.",
+          "additionalProperties": false,
+          "properties": {
+            "warning": {
+              "type": "integer",
+              "minimum": 50,
+              "maximum": 95,
+              "default": 70,
+              "description": "Warning threshold (%). At this level, orchestrator should plan to wrap up current work and delegate remaining tasks to subagents."
+            },
+            "critical": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 100,
+              "default": 80,
+              "description": "Critical threshold (%). At this level, orchestrator must STOP immediately, pause session, and generate HITL summary for human handoff."
+            }
+          }
+        },
+        "autoStopOnCritical": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically trigger session pause when context usage reaches critical threshold. When false, orchestrator continues but emits warnings."
+        },
+        "hitlSummaryOnPause": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate a human-in-the-loop summary document when session is paused due to context limits. Summary includes progress, remaining work, and handoff notes."
         }
       }
     },

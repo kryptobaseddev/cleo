@@ -601,6 +601,17 @@ elif [[ -f "$CLEO_HOME/templates/AGENT-INJECTION.md" ]]; then
     (( ++TOTAL_UPDATES ))
 fi
 
+# Check agent-outputs directory migration (T2363)
+# Part of Cross-Agent Communication Protocol Unification (T2348)
+AGENT_OUTPUTS_MIGRATION_NEEDED=false
+if type check_agent_outputs_migration_needed &>/dev/null; then
+    if check_agent_outputs_migration_needed "."; then
+        AGENT_OUTPUTS_MIGRATION_NEEDED=true
+        UPDATES_NEEDED["agent-outputs"]="research-outputs/ → agent-outputs/"
+        (( ++TOTAL_UPDATES ))
+    fi
+fi
+
 # ============================================================================
 # STATUS OUTPUT
 # ============================================================================
@@ -952,6 +963,35 @@ if [[ -n "${UPDATES_NEEDED[skills]:-}" ]] && type apply_skill_updates &>/dev/nul
             echo "All skills up to date"
         fi
     fi
+fi
+
+# 7. Migrate agent-outputs directory (T2363)
+# Part of Cross-Agent Communication Protocol Unification (T2348)
+if [[ "$AGENT_OUTPUTS_MIGRATION_NEEDED" == "true" ]] && type migrate_agent_outputs_dir &>/dev/null; then
+    if ! is_json_output; then
+        echo "Migrating agent outputs directory..."
+    fi
+
+    migration_result=0
+    migrate_agent_outputs_dir "." || migration_result=$?
+
+    case $migration_result in
+        0)
+            (( ++UPDATES_APPLIED ))
+            if ! is_json_output; then
+                echo "  Migrated research-outputs/ → agent-outputs/"
+            fi
+            ;;
+        100)
+            # Already migrated or nothing to do - not an error
+            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                echo "  Agent outputs directory already migrated"
+            fi
+            ;;
+        *)
+            ERRORS+=("Agent outputs migration failed")
+            ;;
+    esac
 fi
 
 # ============================================================================

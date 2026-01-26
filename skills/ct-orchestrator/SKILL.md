@@ -106,6 +106,66 @@ jq -s '[.[] | select(.needs_followup | length > 0)]' {{MANIFEST_PATH}}
 | No session + manifest has followup | Create session; spawn for followup |
 | No session + no followup | Ask user for direction |
 
+## Session Lifecycle Management
+
+Orchestrator sessions may span multiple Claude conversations. This is expected and supported by design.
+
+### Session Timeout and Retention
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Session timeout | 72 hours | Active sessions auto-end after 72h inactivity |
+| Auto-end threshold | 7 days | `retention.autoEndActiveAfterDays` config |
+| Stale session cleanup | Manual | Use `cleo session gc` for cleanup |
+
+**Key points:**
+- Sessions can legitimately span multiple days of work
+- Long-running orchestration work is expected
+- Sessions persist across Claude conversation boundaries
+
+### Cleanup Commands
+
+```bash
+# Standard garbage collection (ended/suspended sessions only)
+cleo session gc
+
+# Include stale active sessions (>7 days old by default)
+cleo session gc --include-active
+
+# Preview what would be cleaned
+cleo session gc --dry-run
+cleo session gc --include-active --dry-run
+```
+
+### Configuration
+
+```bash
+# View current retention settings
+cleo config get retention
+
+# Adjust auto-end threshold for active sessions
+cleo config set retention.autoEndActiveAfterDays 14  # Extend to 2 weeks
+```
+
+### Best Practices
+
+1. **Session end on completion**: Always end sessions when work completes
+   ```bash
+   cleo session end --note "Epic T1575 phase 1 complete"
+   ```
+
+2. **Session suspend for long waits**: Suspend when blocked on external factors
+   ```bash
+   cleo session suspend --note "Awaiting code review"
+   ```
+
+3. **Periodic cleanup**: Run garbage collection periodically to remove stale sessions
+   ```bash
+   cleo session gc --include-active
+   ```
+
+4. **Multi-day work**: No need to restart sessions daily - orchestrator sessions are designed for extended work periods
+
 ## Subagent Spawning
 
 ### Quick Spawn Workflow

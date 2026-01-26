@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# research-manifest.sh - MANIFEST.jsonl CRUD Operations for Research Outputs
+# research-manifest.sh - MANIFEST.jsonl CRUD Operations for Agent Outputs
 #
 # LAYER: 2 (Core Services)
 # DEPENDENCIES: exit-codes.sh, config.sh
@@ -9,6 +9,9 @@
 # Implements atomic append-only operations for JSONL manifest file.
 # JSONL chosen for O(1) append, race-condition free concurrent writes,
 # and isolated corruption (single-line vs whole-file).
+#
+# NOTE: This library manages the agent outputs manifest (claudedocs/agent-outputs/MANIFEST.jsonl).
+# Configuration paths use agentOutputs.* with backward compatibility for research.* paths.
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_RESEARCH_MANIFEST_LOADED:-}" ]] && return 0
@@ -30,18 +33,18 @@ source "${_RM_LIB_DIR}/config.sh"
 # CONFIGURATION
 # ============================================================================
 
-# Get research output directory from config (project-agnostic)
+# Get agent outputs directory from config (project-agnostic)
+# Uses get_agent_outputs_directory() which handles fallback from deprecated research.outputDir
+# Default: claudedocs/agent-outputs
 _rm_get_output_dir() {
-    local dir
-    dir=$(get_config_value "research.outputDir" "claudedocs/research-outputs")
-    echo "$dir"
+    get_agent_outputs_directory
 }
 
 # Get manifest filename from config
+# Uses get_agent_outputs_manifest_file() which handles fallback from deprecated research.manifestFile
+# Default: MANIFEST.jsonl
 _rm_get_manifest_file() {
-    local file
-    file=$(get_config_value "research.manifestFile" "MANIFEST.jsonl")
-    echo "$file"
+    get_agent_outputs_manifest_file
 }
 
 # Get full manifest path
@@ -139,8 +142,9 @@ _rm_manifest_exists() {
 # INITIALIZATION & VALIDATION
 # ============================================================================
 
-# ensure_research_outputs - Create research-outputs directory and MANIFEST.jsonl if missing
+# ensure_research_outputs - Create agent-outputs directory and MANIFEST.jsonl if missing
 # This is idempotent - safe to call multiple times
+# Default directory: claudedocs/agent-outputs (configurable via agentOutputs.directory)
 # Args: none
 # Returns: 0 on success (created or already exists), 3 on write error
 # Output: JSON with created items list
@@ -249,7 +253,7 @@ validate_research_manifest() {
             "valid": false,
             "error": {
                 "code": "E_FILE_NOT_FOUND",
-                "message": ("Research outputs directory not found: " + $dir),
+                "message": ("Agent outputs directory not found: " + $dir),
                 "fixCommand": "cleo research init"
             }
         }'
@@ -2122,7 +2126,7 @@ _RM_ARCHIVE_THRESHOLD_BYTES=200000
 _RM_ARCHIVE_PERCENTAGE=50
 
 # Get archive file path
-# Returns path to MANIFEST-ARCHIVE.jsonl
+# Returns path to MANIFEST-ARCHIVE.jsonl in agent outputs directory
 _rm_get_archive_path() {
     local output_dir
     output_dir=$(_rm_get_output_dir)

@@ -1,17 +1,17 @@
 ---
 name: ct-epic-architect
 description: |
-  Epic architecture agent for creating comprehensive epics with full task decomposition.
-  Use when user says "create epic", "plan epic", "decompose into tasks",
-  "architect the work", "break down this project", "epic planning",
-  "task breakdown", "dependency analysis", "wave planning", "sprint planning".
-version: 2.1.0
+  Creates comprehensive epics with full task decomposition, dependency analysis, and wave planning.
+  Use when user says "create epic", "plan epic", "decompose into tasks", "architect the work",
+  "break down this project", "epic planning", "task breakdown", "wave planning", "sprint planning".
+version: 2.2.0
 model: sonnet
+allowed-tools: Bash(cleo:*) Read Write
 ---
 
 # Epic Architect Skill
 
-You are an epic architect. Your role is to create comprehensive epics with fully decomposed tasks, proper dependencies, and clear execution order.
+Creates comprehensive epics with fully decomposed tasks, proper dependencies, and clear execution order using CLEO task management.
 
 ## Capabilities
 
@@ -61,17 +61,14 @@ You are an epic architect. Your role is to create comprehensive epics with fully
 
 ```bash
 # Check for related existing work
-{{TASK_FIND_CMD}} "{{KEYWORDS}}" --status pending
-{{TASK_LIST_CMD}} --type epic --status pending | jq '.tasks[] | {id, title}'
-
-# Check for potential parent epics
-{{TASK_LIST_CMD}} --type epic | jq '.tasks[] | select(.title | test("{{RELATED}}"; "i"))'
+cleo find "auth" --status pending
+cleo list --type epic --status pending | jq '.tasks[] | {id, title}'
 
 # Verify current project phase
-{{TASK_PHASE_CMD}}
+cleo phase show
 
 # Check hierarchy before adding children
-{{TASK_TREE_CMD}} --parent {{POTENTIAL_PARENT_ID}}
+cleo tree --parent T001
 ```
 
 ### Brownfield Considerations
@@ -142,16 +139,17 @@ Before creating anything:
 ### Step 2: Create the Epic
 
 ```bash
-{{TASK_ADD_CMD}} "Epic Title" \
+# CLEO command (substitute placeholders with actual values)
+cleo add "Epic Title" \
   --type epic \
   --size large \
   --priority high \
-  --phase {{setup|core|testing|polish|maintenance}} \
-  --labels "feature,{{domain}},v{{VERSION}}" \
+  --phase core \
+  --labels "feature,auth,v1.0" \
   --description "Comprehensive description of what this epic delivers" \
   --acceptance "All child tasks completed" \
   --acceptance "Integration tests pass" \
-  --notes "Initial planning: {{RATIONALE}}"
+  --notes "Initial planning: Rationale for approach"
 ```
 
 **Required Fields (Schema-Enforced):**
@@ -166,54 +164,38 @@ Before creating anything:
 ### Step 3: Create Tasks with Dependencies
 
 ```bash
-# First task (no dependencies - Wave 0)
-{{TASK_ADD_CMD}} "Task 1: Foundation Setup" \
-  --type task \
-  --size medium \
-  --priority high \
-  --parent {{EPIC_ID}} \
-  --phase setup \
-  --labels "foundation,{{domain}}" \
+# Wave 0: First task (no dependencies - can start immediately)
+cleo add "Task 1: Foundation Setup" \
+  --type task --size medium --priority high \
+  --parent T001 --phase setup \
+  --labels "foundation,auth" \
   --description "Detailed requirements and context" \
   --acceptance "Schema created and validated" \
-  --acceptance "Base types exported" \
   --files "src/schema.ts,src/types.ts"
 
-# Dependent task (Wave 1)
-{{TASK_ADD_CMD}} "Task 2: Core Implementation" \
-  --type task \
-  --size medium \
-  --priority high \
-  --parent {{EPIC_ID}} \
-  --phase core \
-  --depends {{TASK_1_ID}} \
+# Wave 1: Dependent tasks (depend only on Wave 0)
+cleo add "Task 2: Core Implementation" \
+  --type task --size medium --priority high \
+  --parent T001 --phase core \
+  --depends T002 \
   --description "Build on foundation from Task 1" \
-  --acceptance "All functions implemented" \
-  --acceptance "Unit tests pass"
+  --acceptance "All functions implemented"
 
-# Parallel task (also Wave 1 - no dependency on Task 2)
-{{TASK_ADD_CMD}} "Task 3: API Layer" \
-  --type task \
-  --size medium \
-  --priority medium \
-  --parent {{EPIC_ID}} \
-  --phase core \
-  --depends {{TASK_1_ID}} \
+# Wave 1: Parallel task (also depends on T002, runs parallel to Task 2)
+cleo add "Task 3: API Layer" \
+  --type task --size medium --priority medium \
+  --parent T001 --phase core \
+  --depends T002 \
   --description "API endpoints using foundation" \
-  --acceptance "Endpoints documented" \
-  --acceptance "Integration tests pass"
+  --acceptance "Endpoints documented"
 
-# Convergence task (Wave 2 - depends on both parallel tasks)
-{{TASK_ADD_CMD}} "Task 4: Integration" \
-  --type task \
-  --size medium \
-  --priority high \
-  --parent {{EPIC_ID}} \
-  --phase testing \
-  --depends {{TASK_2_ID}},{{TASK_3_ID}} \
+# Wave 2: Convergence (depends on both parallel tasks)
+cleo add "Task 4: Integration" \
+  --type task --size medium --priority high \
+  --parent T001 --phase testing \
+  --depends T003,T004 \
   --description "Integrate core and API components" \
-  --acceptance "E2E tests pass" \
-  --acceptance "Performance benchmarks met"
+  --acceptance "E2E tests pass"
 ```
 
 ### Step 4: Handle Blocked Tasks
@@ -231,9 +213,10 @@ Before creating anything:
 ### Step 5: Start Session
 
 ```bash
-{{TASK_SESSION_START_CMD}} \
-  --scope epic:{{EPIC_ID}} \
-  --name "{{FEATURE_NAME}} - Development" \
+# Start session scoped to the epic (replace T001 with actual epic ID)
+cleo session start \
+  --scope epic:T001 \
+  --name "Feature Name - Development" \
   --agent ct-epic-architect \
   --auto-focus
 ```
@@ -426,18 +409,14 @@ See [references/skill-aware-execution.md](references/skill-aware-execution.md) f
 
 ## Anti-Patterns to Avoid
 
-| Anti-Pattern | Problem | Solution |
-|--------------|---------|----------|
-| **Too large tasks** | Cannot complete in one session | Break into smaller atomic tasks |
-| **Missing dependencies** | Tasks execute out of order | Analyze data/structural dependencies |
-| **Circular dependencies** | Deadlock, nothing can start | Review dependency graph for cycles |
-| **No clear first task** | Nothing can start | Ensure at least one task has no deps |
-| **Overly deep nesting** | Exceeds 3-level limit | Keep to epic->task->subtask max |
-| **Overly flat structure** | No organization | Group related tasks under parent |
-| **Duplicate work** | Wasted effort | Check existing tasks before creating |
-| **Missing acceptance** | Unclear completion criteria | Add `--acceptance` to every task |
-| **Implicit phase** | Wrong phase assignment | Always use explicit `--phase` flag |
-| **Time estimates** | False precision | Use size (small/medium/large) only |
+| Anti-Pattern | Solution |
+|--------------|----------|
+| Too large tasks | Break into atomic tasks (one session each) |
+| Missing/circular dependencies | Analyze data flow; ensure Wave 0 exists |
+| Overly deep nesting | Max 3 levels: epic->task->subtask |
+| Duplicate work | Check existing tasks first via `cleo find` |
+| Missing acceptance | Add `--acceptance` to every task |
+| Time estimates | Use size (small/medium/large) only |
 
 ---
 
@@ -445,21 +424,14 @@ See [references/skill-aware-execution.md](references/skill-aware-execution.md) f
 
 Before returning, verify:
 
-- [ ] Requirements analyzed (checked for existing related work)
-- [ ] Phase context verified (`{{TASK_PHASE_CMD}}`)
-- [ ] Epic created with all required fields (priority, phase, description)
-- [ ] All tasks created with dependencies
-- [ ] No circular dependencies
-- [ ] At least one Wave 0 task (no dependencies)
-- [ ] Wave analysis documented
-- [ ] Critical path identified
-- [ ] Acceptance criteria on every task
-- [ ] Hierarchy constraints respected (depth <= 3, siblings <= 7)
-- [ ] Session started and scoped to epic
-- [ ] Output file written to `{{OUTPUT_DIR}}/`
-- [ ] First ready task identified in `needs_followup`
-- [ ] Manifest entry appended (single line)
-- [ ] Archive workflow documented for post-epic completion
+- [ ] Checked for existing related work (`cleo find`, `cleo list --type epic`)
+- [ ] Phase context verified (`cleo phase show`)
+- [ ] Epic created with required fields (priority, phase, description, acceptance)
+- [ ] All tasks created with dependencies; no circular deps
+- [ ] At least one Wave 0 task (no dependencies); critical path identified
+- [ ] Hierarchy constraints: depth <= 3, siblings <= 7
+- [ ] Session started scoped to epic; output file written
+- [ ] Manifest entry appended (single line JSON)
 - [ ] Return summary message only
 
 ---
@@ -496,25 +468,9 @@ If epic creation fails:
 
 ### Shell Escaping for Notes
 
-**CRITICAL**: Always escape `$` as `\$` in `--notes` and `--description` to prevent shell interpolation:
+**CRITICAL**: Always escape `$` as `\$` in `--notes` and `--description` to prevent shell interpolation.
 
-```bash
-# CORRECT - escaped dollar sign
-{{TASK_ADD_CMD}} "Task" --notes "Cost estimate: \$500 per user"
-{{TASK_ADD_CMD}} "Task" --description "Process \$DATA variable"
-
-# WRONG - $500 and $DATA interpreted as shell variables (will be empty or wrong)
-{{TASK_ADD_CMD}} "Task" --notes "Cost estimate: $500 per user"
-{{TASK_ADD_CMD}} "Task" --description "Process $DATA variable"
-```
-
-**Common characters requiring escaping:**
-| Character | Escape | Example |
-|-----------|--------|---------|
-| `$` | `\$` | `\$100`, `\$HOME` |
-| `` ` `` | `` \` `` | backticks for code |
-| `"` | `\"` | nested quotes |
-| `!` | `\!` | in bash with histexpand |
+See [references/shell-escaping.md](references/shell-escaping.md) for complete escaping guide.
 
 ### Partial State Cleanup
 

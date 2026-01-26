@@ -91,7 +91,7 @@ if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
   source "$LIB_DIR/hierarchy.sh"
 fi
 
-# Source research-manifest library for research-outputs validation (T1947)
+# Source research-manifest library for agent-outputs validation (T1947, T2370)
 if [[ -f "$LIB_DIR/research-manifest.sh" ]]; then
   # shellcheck source=../lib/research-manifest.sh
   source "$LIB_DIR/research-manifest.sh"
@@ -1452,9 +1452,9 @@ if command -v injection_get_targets &>/dev/null && command -v injection_check &>
   done
 fi
 
-# 13. Check research-outputs structure (T1947)
+# 13. Check agent-outputs structure (T1947, T2370)
 if declare -f validate_research_manifest >/dev/null 2>&1; then
-  RESEARCH_OUTPUT_DIR="claudedocs/research-outputs"
+  RESEARCH_OUTPUT_DIR="claudedocs/agent-outputs"
   RESEARCH_MANIFEST="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
 
   if [[ ! -d "$RESEARCH_OUTPUT_DIR" ]]; then
@@ -1464,13 +1464,13 @@ if declare -f validate_research_manifest >/dev/null 2>&1; then
         if [[ $? -eq 0 ]]; then
           created=$(echo "$ensure_result" | jq -r '.result.created | length')
           if [[ "$created" -gt 0 ]]; then
-            echo "  Fixed: Created research-outputs directory structure"
+            echo "  Fixed: Created agent-outputs directory structure"
             log_info "Research outputs structure valid (after fix)" "research_outputs"
           else
             log_info "Research outputs structure valid" "research_outputs"
           fi
         else
-          log_error "Failed to create research-outputs directory" "research_outputs"
+          log_error "Failed to create agent-outputs directory" "research_outputs"
         fi
       fi
     else

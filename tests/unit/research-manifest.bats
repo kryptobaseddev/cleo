@@ -31,8 +31,8 @@ setup() {
     # Source the library under test
     source "${LIB_DIR}/research-manifest.sh"
 
-    # Create research output directory
-    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/research-outputs"
+    # Create agent output directory (new default path, replacing research-outputs)
+    export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/agent-outputs"
     mkdir -p "$RESEARCH_OUTPUT_DIR"
     export MANIFEST_FILE="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
 }

@@ -544,10 +544,10 @@ else
     log_warn "AGENT-INJECTION.md template not found at $TEMPLATES_DIR/AGENT-INJECTION.md"
 fi
 
-# Create research-outputs directory structure
+# Create agent-outputs directory structure
 # This enables research subcommands without requiring `cleo research init`
-log_info "Creating research outputs directory structure..."
-RESEARCH_OUTPUT_DIR="claudedocs/research-outputs"
+log_info "Creating agent outputs directory structure..."
+RESEARCH_OUTPUT_DIR="claudedocs/agent-outputs"
 mkdir -p "$RESEARCH_OUTPUT_DIR"
 mkdir -p "$RESEARCH_OUTPUT_DIR/archive"
 # Create empty MANIFEST.jsonl (JSONL format - one JSON object per line)

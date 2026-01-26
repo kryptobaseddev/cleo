@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Epic T2308: Contribution Protocol System v2 - JSON-First Multi-Agent Consensus**
+  - **JSON Contribution Format Spec** (T2309): `docs/specs/CONTRIBUTION-FORMAT-SPEC.md`
+    - Complete JSON structure for contributions with confidence scores
+    - Evidence reference format for traceability
+    - Conflict structure for machine detection
+  - **JSONL Manifest Spec** (T2310): Append-only manifest at `.cleo/contributions/CONTRIBUTIONS.jsonl`
+    - Entry structure with status tracking
+    - Query patterns for conflict aggregation
+  - **Schema v2.0.0** (T2311): Updated `schemas/contribution.schema.json`
+    - `decisions[].confidence`: Float 0.0-1.0 for weighted voting
+    - `decisions[].evidence[]`: Structured evidence objects
+    - `conflicts[].severity`: Enum (low|medium|high|critical)
+    - `conflicts[].resolution`: Resolution workflow object
+    - `_meta.consensusReady`: Boolean flag
+  - **Usage Guide** (T2312): `docs/guides/CONTRIBUTION-PROTOCOL-GUIDE.md`
+    - Step-by-step workflow documentation
+    - Library function reference
+    - Troubleshooting patterns
+  - **Contribution Protocol Skill** (T2313): `skills/contribution-protocol/SKILL.md`
+    - `/contribution start` - Initialize protocol for epic
+    - `/contribution submit` - Validate and submit contribution
+    - `/contribution conflicts` - Detect conflicts
+    - `/contribution status` - Show progress
+  - **Conflict Detection** (T2314): Added to `lib/contribution-protocol.sh`
+    - `contribution_detect_conflicts()` - Compare two contributions
+    - `contribution_compare_decisions()` - Compare individual decisions
+    - `contribution_aggregate_conflicts()` - Epic-wide conflict matrix
+    - Severity classification based on confidence scores
+  - **Consensus Aggregation** (T2315): Added to `lib/contribution-protocol.sh`
+    - `contribution_weighted_vote()` - Confidence-weighted voting
+    - `contribution_compute_consensus()` - Aggregate decisions
+    - `contribution_generate_synthesis()` - Generate Markdown synthesis
+    - HITL flagging for split votes
+  - **RCSD Pipeline Integration** (T2316): Updated `docs/specs/RCSD-PIPELINE-SPEC.md` to v2.2.0
+    - JSON-first contribution workflow
+    - Consensus stage integration
+    - HITL gates for unresolved conflicts
+  - **BATS Tests** (T2317): `tests/unit/contribution-json.bats` (42 tests)
+    - JSON format validation
+    - Conflict detection tests
+    - Consensus aggregation tests
+    - Integration workflow tests
+
+### Documentation
+- **Mintlify Guide**: `docs/guides/contribution-protocol.mdx`
+  - Workflow diagrams with Mermaid
+  - JSON format examples
+  - RCSD pipeline integration docs
+- Updated `docs/docs.json` navigation with contribution-protocol page
+
 ## [0.69.3] - 2026-01-26
 
 ### Added

@@ -136,16 +136,16 @@ teardown_file() {
 }
 
 # =============================================================================
-# T1947: Init creates research-outputs structure
+# T1947: Init creates agent-outputs structure
 # =============================================================================
 
-@test "T1947: init creates research-outputs directory" {
+@test "T1947: init creates agent-outputs directory" {
     rm -rf "$TEST_TEMP_DIR/.cleo"
     rm -rf "$TEST_TEMP_DIR/claudedocs"
     cd "$TEST_TEMP_DIR"
     bash "$INIT_SCRIPT" test-project
 
-    [[ -d "claudedocs/research-outputs" ]]
+    [[ -d "claudedocs/agent-outputs" ]]
 }
 
 @test "T1947: init creates MANIFEST.jsonl file" {
@@ -154,7 +154,7 @@ teardown_file() {
     cd "$TEST_TEMP_DIR"
     bash "$INIT_SCRIPT" test-project
 
-    [[ -f "claudedocs/research-outputs/MANIFEST.jsonl" ]]
+    [[ -f "claudedocs/agent-outputs/MANIFEST.jsonl" ]]
 }
 
 @test "T1947: init creates archive subdirectory" {
@@ -163,10 +163,10 @@ teardown_file() {
     cd "$TEST_TEMP_DIR"
     bash "$INIT_SCRIPT" test-project
 
-    [[ -d "claudedocs/research-outputs/archive" ]]
+    [[ -d "claudedocs/agent-outputs/archive" ]]
 }
 
-@test "T1947: init is idempotent for research-outputs" {
+@test "T1947: init is idempotent for agent-outputs" {
     rm -rf "$TEST_TEMP_DIR/.cleo"
     rm -rf "$TEST_TEMP_DIR/claudedocs"
     cd "$TEST_TEMP_DIR"
@@ -175,15 +175,15 @@ teardown_file() {
     bash "$INIT_SCRIPT" test-project
 
     # Add content to MANIFEST.jsonl to verify it's not wiped
-    echo '{"id":"test","file":"t.md","title":"T","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' >> "claudedocs/research-outputs/MANIFEST.jsonl"
+    echo '{"id":"test","file":"t.md","title":"T","date":"2025-01-17","status":"complete","topics":[],"key_findings":[],"actionable":true}' >> "claudedocs/agent-outputs/MANIFEST.jsonl"
 
     # Second init with force (simulating reinit)
     run bash "$INIT_SCRIPT" --force --confirm-wipe test-project-2
     assert_success
 
     # Verify directory still exists (reinit doesn't delete it)
-    [[ -d "claudedocs/research-outputs" ]]
-    [[ -f "claudedocs/research-outputs/MANIFEST.jsonl" ]]
+    [[ -d "claudedocs/agent-outputs" ]]
+    [[ -f "claudedocs/agent-outputs/MANIFEST.jsonl" ]]
 
     # Note: Content may or may not be preserved depending on reinit behavior
     # The key is that the structure exists after reinit
