@@ -1083,7 +1083,7 @@ migrate_config_to_2_1_0() {
     target_version=$(get_target_version_from_funcname)
 
     # Add new config sections if missing
-    add_field_if_missing "$file" ".session" '{"requireSessionNote":true,"warnOnNoFocus":true,"autoStartSession":true,"sessionTimeoutHours":24}' || return 1
+    add_field_if_missing "$file" ".session" '{"requireSessionNote":true,"warnOnNoFocus":true,"autoStartSession":true,"sessionTimeoutHours":72}' || return 1
 
     # Migrate field names for consistency (idempotent)
     migrate_config_field_naming "$file" || return 1
@@ -1153,6 +1153,37 @@ migrate_config_to_2_5_0() {
             }
         }
     }' || return 1
+
+    # Update version
+    update_version_field "$file" "$target_version"
+}
+
+# Migration from 2.5.0 to 2.6.0 for config.json
+# Adds retention section with session lifecycle management options
+# - maxSessionsInMemory: for session garbage collection (T2321)
+# - autoEndActiveAfterDays: automatically end stale active sessions (T2320)
+migrate_config_to_2_6_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+
+    echo "  Adding retention section with session lifecycle management..."
+
+    # Add retention section with all fields including new options
+    add_field_if_missing "$file" ".retention" '{
+        "maxArchivedSessions": 100,
+        "autoArchiveEndedAfterDays": 30,
+        "autoDeleteArchivedAfterDays": 90,
+        "contextStateRetentionDays": 7,
+        "cleanupOnSessionEnd": true,
+        "dryRunByDefault": true,
+        "maxSessionsInMemory": 100,
+        "autoEndActiveAfterDays": 7
+    }' || return 1
+
+    # Add autoEndActiveAfterDays if retention section exists but field is missing
+    # This handles incremental upgrades where retention was added before this field
+    add_field_if_missing "$file" ".retention.autoEndActiveAfterDays" "7" || return 1
 
     # Update version
     update_version_field "$file" "$target_version"

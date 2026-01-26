@@ -48,7 +48,7 @@
     "allowParallelAgents": true,
     "autoStartSession": true,
     "autoDiscoveryOnStart": true,
-    "sessionTimeoutHours": 24
+    "sessionTimeoutHours": 72
   },
 
   "multiSession": {
@@ -129,6 +129,17 @@
     "manifestFile": "MANIFEST.jsonl",
     "archiveDir": "archive",
     "archiveDays": 30
+  },
+
+  "retention": {
+    "maxArchivedSessions": 100,
+    "autoArchiveEndedAfterDays": 30,
+    "autoDeleteArchivedAfterDays": 90,
+    "contextStateRetentionDays": 7,
+    "cleanupOnSessionEnd": true,
+    "dryRunByDefault": true,
+    "maxSessionsInMemory": 100,
+    "autoEndActiveAfterDays": 7
   },
 
   "project": {

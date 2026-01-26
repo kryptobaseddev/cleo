@@ -181,7 +181,7 @@ _create_v047_config() {
     "requireSessionNote": false,
     "warnOnNoFocus": false,
     "autoStartSession": false,
-    "sessionTimeoutHours": 24
+    "sessionTimeoutHours": 72
   },
   "complete": {
     "requireNotes": false

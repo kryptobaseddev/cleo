@@ -363,9 +363,24 @@ In `.cleo/config.json`:
     "maxActiveTasksPerScope": 1,
     "allowScopeOverlap": false,
     "allowNestedScopes": true
+  },
+  "retention": {
+    "maxSessionsInMemory": 100,
+    "maxArchivedSessions": 100,
+    "autoArchiveEndedAfterDays": 30,
+    "autoDeleteArchivedAfterDays": 90
   }
 }
 ```
+
+### Retention Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `retention.maxSessionsInMemory` | 100 | Maximum sessions in sessions.json before auto-archiving oldest ended sessions |
+| `retention.maxArchivedSessions` | 100 | Maximum archived sessions before permanent deletion |
+| `retention.autoArchiveEndedAfterDays` | 30 | Days before ended sessions are auto-archived |
+| `retention.autoDeleteArchivedAfterDays` | 90 | Days before archived sessions are deleted (0 disables) |
 
 ## Common Misconceptions
 
@@ -394,12 +409,26 @@ cleo session gc --verbose
 cleo session gc --json
 ```
 
+### gc --include-active
+
+By default, `session gc` only archives ended/suspended sessions. Use `--include-active` to also auto-end stale active sessions:
+
+```bash
+cleo session gc --include-active           # End stale active + archive ended
+cleo session gc --include-active --dry-run # Preview changes
+```
+
+Active sessions are considered stale after `retention.autoEndActiveAfterDays` (default: 7) of inactivity. The flag will:
+1. Auto-end active sessions that exceed the inactivity threshold
+2. Then proceed with normal gc (archiving ended sessions, cleaning bindings, etc.)
+
 **What gets cleaned:**
 
 | Artifact | Criteria |
 |----------|----------|
-| Archived sessions | Older than `retention.sessions.archivedRetentionDays` (default: 90) |
-| Excess archived | More than `retention.sessions.maxArchivedSessions` (default: 100) |
+| Stale active sessions | No activity for `retention.autoEndActiveAfterDays` (default: 7) - **requires `--include-active`** |
+| Archived sessions | Older than `retention.autoDeleteArchivedAfterDays` (default: 90) |
+| Excess archived | More than `retention.maxArchivedSessions` (default: 100) |
 | Stale TTY bindings | Older than `multiSession.ttyBinding.maxAgeHours` (default: 168) |
 | Orphan bindings | Session no longer exists in sessions.json |
 | Orphaned context states | Session no longer exists |

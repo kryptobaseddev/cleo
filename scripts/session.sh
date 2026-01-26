@@ -474,17 +474,18 @@ cmd_start() {
     fi
 
     # Build context JSON
+    # Use --slurpfile with process substitution to avoid ARG_MAX limits
     local context_json
     context_json=$(jq -nc \
-      --argjson sessions "$existing_sessions" \
-      --argjson epics "$available_epics" \
+      --slurpfile sessions <(echo "$existing_sessions") \
+      --slurpfile epics <(echo "$available_epics") \
       --argjson activeCount "$active_count" \
       --argjson epicCount "$epic_count" \
       '{
         "activeSessions": $activeCount,
         "availableEpics": $epicCount,
-        "sessions": $sessions,
-        "epics": $epics
+        "sessions": $sessions[0],
+        "epics": $epics[0]
       }')
 
     # Output structured error using LLM-agent-first format
@@ -853,11 +854,14 @@ cmd_start_multi_session() {
 # End current session
 cmd_end() {
   local note=""
+  local session_id=""
 
   # Parse options
   while [[ $# -gt 0 ]]; do
     case $1 in
       --note) note="$2"; shift 2 ;;
+      -*) shift ;;  # Skip unknown flags
+      session_*) session_id="$1"; shift ;;  # Accept session ID positional arg
       *) shift ;;
     esac
   done
@@ -865,7 +869,13 @@ cmd_end() {
   check_todo_exists
 
   local current_session
-  current_session=$(get_current_session)
+  if [[ -n "$session_id" ]]; then
+    # Use provided session ID
+    current_session="$session_id"
+  else
+    # Fall back to resolved session
+    current_session=$(get_current_session)
+  fi
 
   if [[ -z "$current_session" ]]; then
     log_warn "No active session to end"
@@ -882,7 +892,7 @@ cmd_end() {
 
   # Check session.sessionTimeoutHours for warning
   local timeout_hours
-  timeout_hours=$(get_config_value "session.sessionTimeoutHours" "8")
+  timeout_hours=$(get_config_value "session.sessionTimeoutHours" "72")
   if [[ "$timeout_hours" =~ ^[0-9]+$ ]] && [[ "$timeout_hours" -gt 0 ]]; then
     # Extract session start time from session ID (format: session_YYYYMMDD_HHMMSS_hex)
     local session_date_part
@@ -1768,10 +1778,12 @@ cmd_list() {
   if [[ "$output_format" == "json" ]]; then
     local timestamp
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    # Use --slurpfile with process substitution to avoid ARG_MAX limits
+    # when sessions.json is large (>130KB can hit "Argument list too long")
     jq -nc \
       --arg ts "$timestamp" \
       --arg version "${CLEO_VERSION:-$(get_version)}" \
-      --argjson sessions "$sessions" \
+      --slurpfile sessions <(echo "$sessions") \
       --arg filter "$status_filter" \
       '{
         "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -1783,8 +1795,8 @@ cmd_list() {
         },
         "success": true,
         "filter": $filter,
-        "count": ($sessions | length),
-        "sessions": $sessions
+        "count": ($sessions[0] | length),
+        "sessions": $sessions[0]
       }'
   else
     local count
@@ -2064,13 +2076,14 @@ cmd_cleanup() {
 
 # Garbage collection - comprehensive cleanup of session artifacts
 # Handles: archived sessions, stale TTY bindings, orphaned context states
-# Usage: cleo session gc [--dry-run] [--force] [--verbose] [--orphans] [--stale]
+# Usage: cleo session gc [--dry-run] [--force] [--verbose] [--orphans] [--stale] [--include-active]
 # Options:
-#   --dry-run   Preview what would be cleaned without making changes
-#   --force     Skip confirmation prompt
-#   --orphans   Clean orphaned context files only (skip session auto-archive)
-#   --stale     Archive old sessions only (skip orphan cleanup)
-#   --verbose   Show detailed output of items removed
+#   --dry-run        Preview what would be cleaned without making changes
+#   --force          Skip confirmation prompt
+#   --orphans        Clean orphaned context files only (skip session auto-archive)
+#   --stale          Archive old sessions only (skip orphan cleanup)
+#   --include-active Also auto-end stale active sessions (inactive > N days)
+#   --verbose        Show detailed output of items removed
 # Default: Both auto-archive stale sessions AND cleanup orphaned files
 cmd_gc() {
   local format_arg=""
@@ -2079,6 +2092,7 @@ cmd_gc() {
   local verbose=false
   local orphans_only=false
   local stale_only=false
+  local include_active=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -2090,6 +2104,7 @@ cmd_gc() {
       --verbose|-v) verbose=true; shift ;;
       --orphans) orphans_only=true; shift ;;
       --stale) stale_only=true; shift ;;
+      --include-active) include_active=true; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
@@ -2124,12 +2139,25 @@ cmd_gc() {
   local orphaned_context_removed=0
   local total_bytes_freed=0
   local removed_items=()
+  local active_sessions_ended=0
 
   # Get retention settings from config
   local retention_days
   retention_days=$(get_config_value "retention.sessions.archivedRetentionDays" "90" 2>/dev/null || echo "90")
   local max_archived
   max_archived=$(get_config_value "retention.sessions.maxArchivedSessions" "100" 2>/dev/null || echo "100")
+
+  # -1. Auto-end stale active sessions (only when --include-active is set, skip if --orphans only)
+  if [[ "$include_active" == "true" ]] && [[ "$orphans_only" != "true" ]] && declare -f session_auto_end_stale >/dev/null 2>&1; then
+    local auto_end_result
+    if [[ "$dry_run" == "true" ]]; then
+      auto_end_result=$(session_auto_end_stale "true" 2>/dev/null)
+      # Parse count from output (last line is the count)
+      active_sessions_ended=$(echo "$auto_end_result" | grep -E '^[0-9]+$' | tail -1 || echo "0")
+    else
+      active_sessions_ended=$(session_auto_end_stale "false" 2>/dev/null || echo "0")
+    fi
+  fi
 
   # 0. Auto-archive inactive ended/suspended sessions (skip if --orphans only)
   local auto_archived=0
@@ -2266,7 +2294,7 @@ cmd_gc() {
   fi
 
   # Build output
-  local total_removed=$((auto_archived + archived_removed + stale_bindings_removed + orphaned_context_removed + stale_context_removed))
+  local total_removed=$((active_sessions_ended + auto_archived + archived_removed + stale_bindings_removed + orphaned_context_removed + stale_context_removed))
 
   # Determine mode for output
   local gc_mode="both"
@@ -2285,6 +2313,8 @@ cmd_gc() {
       --arg version "$version" \
       --arg mode "$gc_mode" \
       --argjson dryRun "$dry_run" \
+      --argjson includeActive "$include_active" \
+      --argjson activeEnded "$active_sessions_ended" \
       --argjson autoArchived "$auto_archived" \
       --argjson archived "$archived_removed" \
       --argjson bindings "$stale_bindings_removed" \
@@ -2304,7 +2334,9 @@ cmd_gc() {
         "success": true,
         "mode": $mode,
         "dryRun": $dryRun,
+        "includeActive": $includeActive,
         "summary": {
+          "activeSessionsEnded": $activeEnded,
           "sessionsAutoArchived": $autoArchived,
           "archivedSessionsRemoved": $archived,
           "staleBindingsRemoved": $bindings,
@@ -2331,6 +2363,9 @@ cmd_gc() {
       echo "==================="
     fi
     echo ""
+    if [[ "$include_active" == "true" ]] && [[ "$gc_mode" != "orphans" ]]; then
+      echo "Stale active sessions ended: $active_sessions_ended"
+    fi
     if [[ "$gc_mode" != "orphans" ]]; then
       echo "Sessions auto-archived (30+ days inactive): $auto_archived"
       echo "Archived sessions removed: $archived_removed"
@@ -2490,6 +2525,51 @@ cmd_doctor() {
     done
   fi
 
+  # Check for stale active sessions (inactive > autoEndActiveAfterDays)
+  local stale_active_count=0
+  local stale_active_sessions=()
+  local stale_active_ages=()
+  local auto_end_days
+  auto_end_days=$(get_config_value "retention.autoEndActiveAfterDays" "7" 2>/dev/null || echo "7")
+
+  if [[ -f "$sessions_file" ]]; then
+    local cutoff_timestamp
+    cutoff_timestamp=$(date -u -d "$auto_end_days days ago" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                      date -u -v-${auto_end_days}d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null)
+
+    if [[ -n "$cutoff_timestamp" ]]; then
+      # Get stale active sessions with their lastActivity
+      local stale_data
+      stale_data=$(jq -r --arg cutoff "$cutoff_timestamp" '
+        .sessions[] |
+        select(
+          .status == "active" and
+          (.lastActivity < $cutoff)
+        ) | "\(.id)|\(.lastActivity)"
+      ' "$sessions_file" 2>/dev/null)
+
+      local now_epoch
+      now_epoch=$(date +%s)
+
+      while IFS='|' read -r session_id last_activity; do
+        [[ -z "$session_id" ]] && continue
+        ((stale_active_count++)) || true
+
+        # Calculate days since last activity
+        local last_epoch days_ago
+        last_epoch=$(date -d "${last_activity}" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "${last_activity}" +%s 2>/dev/null || echo "0")
+        if [[ "$last_epoch" -gt 0 ]]; then
+          days_ago=$(( (now_epoch - last_epoch) / 86400 ))
+        else
+          days_ago="?"
+        fi
+
+        stale_active_sessions+=("$session_id")
+        stale_active_ages+=("$days_ago")
+      done <<< "$stale_data"
+    fi
+  fi
+
   # Check for conflicts
   local warnings=()
   local conflict_detected=false
@@ -2528,12 +2608,27 @@ cmd_doctor() {
     warnings+=("$stale_binding_count stale TTY binding(s) found")
   fi
 
+  # Stale active sessions warning
+  if [[ "$stale_active_count" -gt 0 ]]; then
+    warnings+=("$stale_active_count stale active session(s) (inactive > $auto_end_days days)")
+  fi
+
   if [[ "$output_format" == "json" ]]; then
     local version
     version="${CLEO_VERSION:-$(get_version 2>/dev/null || echo 'unknown')}"
 
     local warnings_json
     warnings_json=$(printf '%s\n' "${warnings[@]}" 2>/dev/null | jq -R . | jq -s . 2>/dev/null || echo '[]')
+
+    # Build stale active sessions JSON array
+    local stale_sessions_json="[]"
+    if [[ "$stale_active_count" -gt 0 ]]; then
+      local json_items=()
+      for i in "${!stale_active_sessions[@]}"; do
+        json_items+=("{\"id\":\"${stale_active_sessions[$i]}\",\"daysInactive\":${stale_active_ages[$i]}}")
+      done
+      stale_sessions_json=$(printf '%s\n' "${json_items[@]}" | jq -s '.' 2>/dev/null || echo '[]')
+    fi
 
     jq -nc \
       --arg ts "$timestamp" \
@@ -2553,6 +2648,9 @@ cmd_doctor() {
       --argjson orphanedContexts "$orphaned_context_count" \
       --argjson ttyBindings "$tty_binding_count" \
       --argjson staleBindings "$stale_binding_count" \
+      --argjson staleActiveCount "$stale_active_count" \
+      --argjson staleActiveSessions "$stale_sessions_json" \
+      --argjson autoEndDays "$auto_end_days" \
       --argjson conflict "$conflict_detected" \
       --argjson warnings "$warnings_json" \
       '{
@@ -2586,6 +2684,11 @@ cmd_doctor() {
         "ttyBindings": {
           "total": $ttyBindings,
           "stale": $staleBindings
+        },
+        "staleActiveSessions": {
+          "count": $staleActiveCount,
+          "thresholdDays": $autoEndDays,
+          "sessions": $staleActiveSessions
         },
         "conflict": $conflict,
         "warnings": $warnings
@@ -2646,6 +2749,26 @@ cmd_doctor() {
     echo "  Total:  $tty_binding_count"
     echo "  Stale:  $stale_binding_count"
     echo ""
+
+    # Stale active sessions detailed warning
+    if [[ "$stale_active_count" -gt 0 ]]; then
+      echo "WARNING: Found $stale_active_count stale active session(s) (inactive > $auto_end_days days):"
+      local display_count=$stale_active_count
+      local max_display=5
+      if [[ "$display_count" -gt "$max_display" ]]; then
+        display_count=$max_display
+      fi
+      for ((i=0; i<display_count; i++)); do
+        echo "  - ${stale_active_sessions[$i]} (last active ${stale_active_ages[$i]} days ago)"
+      done
+      if [[ "$stale_active_count" -gt "$max_display" ]]; then
+        local remaining=$((stale_active_count - max_display))
+        echo "  ... and $remaining more"
+      fi
+      echo ""
+      echo "  Run 'cleo session gc --include-active' to clean up"
+      echo ""
+    fi
 
     if [[ ${#warnings[@]} -gt 0 ]]; then
       echo "Warnings:"

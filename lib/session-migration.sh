@@ -133,12 +133,13 @@ migrate_to_epic_sessions() {
     fi
 
     # Step 4: Create sessions.json
+    # Use --slurpfile with process substitution to avoid ARG_MAX limits
     local sessions_content
     sessions_content=$(jq -nc \
         --arg version "1.0.0" \
         --arg project "$project_name" \
         --arg ts "$timestamp" \
-        --argjson sessions "$initial_sessions" \
+        --slurpfile sessions <(echo "$initial_sessions") \
         '{
             "$schema": "./schemas/sessions.schema.json",
             "version": $version,
@@ -146,7 +147,7 @@ migrate_to_epic_sessions() {
             "_meta": {
                 "checksum": "",
                 "lastModified": $ts,
-                "totalSessionsCreated": (if ($sessions | length) > 0 then 1 else 0 end)
+                "totalSessionsCreated": (if ($sessions[0] | length) > 0 then 1 else 0 end)
             },
             "config": {
                 "maxConcurrentSessions": 5,
@@ -155,7 +156,7 @@ migrate_to_epic_sessions() {
                 "allowNestedScopes": true,
                 "allowScopeOverlap": false
             },
-            "sessions": $sessions,
+            "sessions": $sessions[0],
             "sessionHistory": []
         }')
 

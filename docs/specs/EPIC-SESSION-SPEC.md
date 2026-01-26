@@ -1,6 +1,6 @@
 # Epic-Bound Session Architecture Specification
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: DRAFT
 **Created**: 2025-12-28
 **Supersedes**: MULTI-SESSION-SPEC.md (partial)
@@ -620,8 +620,11 @@ For projects with existing `.cleo/` directory:
     "warnOnNoFocus": true,
     "allowNestedSessions": true,
     "allowParallelAgents": true,
-    "sessionTimeout": 3600,
+    "sessionTimeoutHours": 72,
     "autoDiscoveryOnStart": true
+  },
+  "retention": {
+    "autoEndActiveAfterDays": 7
   },
   "hierarchy": {
     "autoCompleteParent": false,
@@ -638,8 +641,87 @@ For projects with existing `.cleo/` directory:
 | `warnOnNoFocus` | `true` | Warn if session started without focus |
 | `allowNestedSessions` | `true` | Child epics can have sub-sessions |
 | `allowParallelAgents` | `true` | Multiple agents in same session |
-| `sessionTimeout` | `3600` | Seconds before stale session warning |
+| `sessionTimeoutHours` | `72` | Hours before stale session warning (was 24h, now 72h) |
 | `autoDiscoveryOnStart` | `true` | Show available sessions on `session start` |
+
+**Retention Settings**
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `autoEndActiveAfterDays` | `7` | Auto-end active sessions after N days of inactivity |
+
+### 10.1 Stale Session Handling
+
+Sessions can legitimately run for extended periods (72+ hours) when agents work across multiple Claude conversations or during long-running development work. The stale session handling system balances this flexibility with automatic cleanup.
+
+**Session Timeout Warning (72 hours)**
+
+After `sessionTimeoutHours` (default: 72) of inactivity:
+- Session remains **active** but displays warning on status checks
+- Agent can continue working normally
+- No automatic state change occurs
+- Warning helps identify potentially abandoned sessions
+
+```bash
+cleo session status
+→ ⚠️ Session session_20251228_... has been inactive for 3d 5h
+  Last activity: 2025-12-25T10:00:00Z
+  Consider: session end --note "..." or session suspend
+```
+
+**Stale Session Auto-End (7 days)**
+
+After `retention.autoEndActiveAfterDays` (default: 7) of inactivity:
+- Active sessions are automatically transitioned to **ended** state
+- A system note is added documenting the auto-end
+- Focus locks are released
+- Session remains **resumable** (not closed)
+- Epic is NOT auto-completed
+
+```json
+{
+  "sessionId": "session_20251228_...",
+  "status": "ended",
+  "notes": [
+    {
+      "timestamp": "2026-01-04T10:00:00Z",
+      "type": "system",
+      "content": "Session auto-ended after 7 days of inactivity"
+    }
+  ]
+}
+```
+
+**Behavior Matrix**
+
+| Inactivity | Status | Warning | Auto-Action | Resumable |
+|------------|--------|---------|-------------|-----------|
+| < 72h | Active | None | None | N/A |
+| 72h - 7d | Active | Yes | None | N/A |
+| > 7d | Ended | N/A | Auto-end | Yes |
+
+**Why 72 hours (not 24)?**
+
+Sessions often span multiple Claude conversations as agents:
+- Work on complex epics over multiple days
+- Wait for external dependencies (reviews, deployments)
+- Hand off between agent sessions
+- Resume after weekends or breaks
+
+The 72-hour timeout provides flexibility for legitimate long-running work while still identifying potentially abandoned sessions.
+
+**Configuration Examples**
+
+```bash
+# Increase timeout for long-running projects
+cleo config set session.sessionTimeoutHours 168  # 7 days warning
+
+# Disable auto-end (not recommended)
+cleo config set retention.autoEndActiveAfterDays 0
+
+# More aggressive cleanup
+cleo config set retention.autoEndActiveAfterDays 3
+```
 
 ---
 
@@ -822,3 +904,4 @@ To focus an available task: cleo focus set <task-id>
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0.0 | 2025-12-28 | Claude/User | Initial specification |
+| 1.1.0 | 2026-01-26 | Claude/User | Session timeout increased from 24h to 72h; added stale session handling (autoEndActiveAfterDays); added Part 10.1 |
