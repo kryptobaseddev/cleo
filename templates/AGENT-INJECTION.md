@@ -94,6 +94,14 @@ ct context                 # Check context window usage
 ct context check           # Exit code for scripting (0=OK, 50+=warning)
 ```
 
+### File Attachment
+```bash
+ct add "Task" --files "path1.md,path2.md"   # Attach files on creation
+ct update T001 --files "path.md"            # Append files to task
+ct show T001                                # View attached files in .files[]
+```
+**Note**: Agents do NOT auto-read attached files. Explicitly read them when working on a task.
+
 ### Command Discovery
 ```bash
 cleo commands -r critical    # Show critical commands (no jq needed)
@@ -217,7 +225,6 @@ ct research show <id>             # Show research entry details
 ct research show <id> --full      # Include full file content
 ct research inject                # Output subagent injection template
 ct research inject --clipboard    # Copy to clipboard
-ct research link T001 <research-id>  # Link research to task
 ```
 
 **Subagent Workflow**:
@@ -225,6 +232,18 @@ ct research link T001 <research-id>  # Link research to task
 2. Inject into subagent prompts via Task tool
 3. Subagents write to `claudedocs/research-outputs/` + append to `MANIFEST.jsonl`
 4. Query via `ct research list/show` instead of reading full files (context-efficient)
+
+### Research Linking
+```bash
+ct research link T001 <research-id>  # Link research to task (bidirectional)
+ct show T001                         # Shows linkedResearch[] array
+```
+
+**--files vs research link:**
+| Method | Use Case | Direction |
+|--------|----------|-----------|
+| `--files` | Input context (docs, code to work on) | Task → Files |
+| `research link` | Output artifacts (research findings) | Research ↔ Task |
 
 ### Export/Import (Cross-Project)
 ```bash
