@@ -1,0 +1,26 @@
+{
+  "version": "2.6.0",
+  "_meta": {
+    "schemaVersion": "2.6.0"
+  },
+  "validation": {
+    "strictMode": false,
+    "requireDescription": false
+  },
+  "multiSession": {
+    "enabled": true,
+    "maxConcurrentSessions": 10,
+    "maxActiveTasksPerScope": 1,
+    "scopeValidation": "strict"
+  },
+  "retention": {
+    "maxArchivedSessions": 100,
+    "autoArchiveEndedAfterDays": 30,
+    "autoDeleteArchivedAfterDays": 90,
+    "maxSessionsInMemory": 100,
+    "autoEndActiveAfterDays": 7
+  },
+  "session": {
+    "requireSession": false
+  }
+}
