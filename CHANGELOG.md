@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.3] - 2026-01-26
+
+### Added
+- **Epic T2247: Research-Task Linking and Documentation Injection Improvements**
+  - **File Attachment Documentation** (T2254): Added `--files` flag documentation to AGENT-INJECTION.md
+    - Explains file attachment on task creation and update
+    - Documents that agents do NOT auto-read attached files
+  - **Research Linking Documentation** (T2254): Added research linking section to AGENT-INJECTION.md
+    - `--files` vs `research link` comparison table
+    - Bidirectional linking visibility via `cleo show`
+  - **Subagent Protocol Updates** (T2253): Enhanced `skills/_shared/subagent-protocol-base.md`
+    - Added Research Linking section with bidirectional discovery docs
+    - RFC 2119 SHOULD/MAY for optional behaviors
+  - **Task System Integration Updates** (T2253): Enhanced `skills/_shared/task-system-integration.md`
+    - Added File Attachment section with `--files` flag usage
+    - Distinguished `--files` (input context) from `research link` (output artifacts)
+  - **Orchestrator Compliance Verification** (T2255): Enhanced `skills/ct-orchestrator/SKILL.md`
+    - Added research link verification step to enforcement sequence
+    - Orchestrator fallback linking when subagent fails to link
+    - Updated compliance checks table with research link status
+
+### Research Tasks (T2247 Epic)
+- T2249: CLEO --files flag on tasks
+- T2250: Research linking bidirectional behavior
+- T2251: CLEO documentation injection system
+- T2252: Subagent knowledge sources and gaps
+- T2263: --files flag validation testing
+- T2292: CLEO usage instruction sources and plugin integration audit
+
 ## [0.69.2] - 2026-01-24
 
 ### Fixed

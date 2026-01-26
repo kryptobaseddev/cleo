@@ -77,6 +77,41 @@ Skills and templates SHOULD reference this file instead of hardcoding CLEO comma
 
 ---
 
+## File Attachment
+
+### Attach Files to Task
+
+```bash
+{{TASK_ADD_CMD}} "Title" --files "path1,path2"
+```
+
+Or update existing task:
+
+```bash
+cleo update {{TASK_ID}} --files "path1,path2"
+```
+
+**Purpose**: Attach context files for agent reference.
+
+**CLEO Default**: `cleo add/update --files "paths"`
+
+**Storage**: `.files` array in task JSON
+
+### When to Use --files vs Research Link
+
+| Method | Use Case | Storage |
+|--------|----------|---------|
+| `--files` | Reference existing docs, code files | Task `.files` array |
+| `research link` | Connect subagent research outputs | Task `.linkedResearch` array |
+
+### Guidelines
+
+- **SHOULD** use `--files` for input context (specs, designs, code files)
+- **SHOULD** use `research link` for output artifacts (research findings)
+- **MAY** combine both for comprehensive task context
+
+---
+
 ## CLEO-Specific Extensions
 
 When the task system is CLEO, these additional commands are available:

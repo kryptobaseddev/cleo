@@ -113,6 +113,40 @@ Reference: @skills/_shared/task-system-integration.md
 
 ---
 
+## Research Linking
+
+### Link Research to Task
+
+```bash
+{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}
+```
+
+**Purpose**: Associate research output with originating task for bidirectional discovery.
+
+**CLEO Default**: `cleo research link {{TASK_ID}} {{RESEARCH_ID}}`
+
+**When to Link**:
+- SHOULD link after writing research output to manifest
+- SHOULD link when research directly supports task objectives
+- MAY skip if research is exploratory/tangential
+
+### Verify Link
+
+```bash
+{{TASK_SHOW_CMD}} {{TASK_ID}}
+# Check: linkedResearch array contains research ID
+```
+
+### Benefits
+
+| Benefit | Description |
+|---------|-------------|
+| Bidirectional discovery | Task → Research and Research → Task |
+| Context preservation | Future agents can find prior research |
+| Audit trail | Complete record of work artifacts |
+
+---
+
 ## Completion Checklist
 
 Before returning, verify:
