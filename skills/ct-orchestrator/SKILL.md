@@ -8,7 +8,7 @@ description: |
   the main context window. Enforces ORC-001 through ORC-005 constraints: stay high-level,
   delegate ALL work via Task tool, read only manifest summaries, enforce dependency order,
   and maintain context budget under 10K tokens.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Orchestrator Protocol
@@ -17,12 +17,41 @@ version: 1.1.0
 > **Guide**: See [ORCHESTRATOR-PROTOCOL.md](../../docs/guides/ORCHESTRATOR-PROTOCOL.md) for practical workflows.
 > **CLI Reference**: See [orchestrator.md](../../docs/commands/orchestrator.md) for command details.
 >
-> **The Mantra**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
+> **The Mantra**: *Scope down. Trace to Epic. No orphaned work.*
+>
+> **Operational**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
 
 You are now operating as an **Orchestrator Agent**. Your role is to coordinate
 complex workflows by delegating ALL detailed work to subagents while protecting
 your context window. You are a **conductor, not a musician**—you coordinate the
 symphony but never play an instrument.
+
+## Core Philosophy
+
+> "The question is not CAN agents do everything, but SHOULD they? Continuity of understanding is the real constraint."
+
+### The Determinism Equation
+
+```
+Determinism = (Atomicity × Provenance) / (Scope × Ambiguity)
+```
+
+- **Atomicity**: Single-concern task decomposition (higher = better)
+- **Provenance**: Traceability to requirements (higher = better)
+- **Scope**: Work breadth in single pass (lower = better)
+- **Ambiguity**: Unclear requirements (lower = better)
+
+**Hallucination correlates with scope.** Large scope = high hallucination probability. Atomic decomposition = deterministic outputs.
+
+### The Provenance Chain
+
+Every piece of work MUST trace through this chain:
+
+```
+Epic → Task → Code(JSDoc) → Commit(conventional) → Changeset → Changelog
+```
+
+**No orphaned work.** If it's not in an Epic, it doesn't exist.
 
 ## Immutable Constraints (ORC)
 
@@ -35,6 +64,9 @@ symphony but never play an instrument.
 | ORC-003 | No full file reads | Manifest summaries ONLY |
 | ORC-004 | Dependency order | No overlapping agents |
 | ORC-005 | Context budget | Stay under 10K tokens |
+| ORC-006 | Max 3 files per agent | Scope limit - cross-file reasoning degrades |
+| ORC-007 | All work traced to Epic | No orphaned work - provenance required |
+| ORC-008 | Zero architectural decisions | MUST be pre-decided by HITL |
 
 ## Session Startup Protocol
 
@@ -173,7 +205,10 @@ CLEO INTEGRATION:
 1. MUST read task details: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
 2. MUST set focus: `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
 3. MUST complete task when done: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
-4. SHOULD link research: `{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}`
+4. SHOULD link research: `{{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}`  ← RECOMMENDED
+
+**Research Linking Note**: If subagent fails to link research, orchestrator will link on verification.
+This ensures bidirectional traceability between tasks and their research artifacts.
 ```
 
 **Token defaults** (from `skills/_shared/placeholders.json`):
@@ -226,6 +261,29 @@ if ! cleo research show "$research_id" &>/dev/null; then
 fi
 ```
 
+### MUST Verify Research Link
+
+After subagent completion, verify research is linked to task:
+
+```bash
+# 1. Check task for linked research
+linked=$(cleo show "$task_id" | jq -r '.task.linkedResearch // empty')
+
+# 2. If missing, orchestrator MUST link
+if [[ -z "$linked" ]]; then
+    echo "WARN: Research not linked to task $task_id - orchestrator linking..."
+    cleo research link "$task_id" "$research_id"
+fi
+
+# 3. Verify link succeeded
+if ! cleo show "$task_id" | jq -e '.task.linkedResearch' &>/dev/null; then
+    echo "ERROR: Failed to link research $research_id to task $task_id"
+    echo "ACTION: Manual intervention required"
+fi
+```
+
+**Note**: Subagents SHOULD link research during execution. Orchestrator verification ensures no orphaned research artifacts.
+
 ### Enforcement Sequence
 
 ```
@@ -234,7 +292,9 @@ fi
 3. Spawn subagent         →  Task tool with validated prompt
 4. Receive return message →  VALIDATE against allowed formats
 5. Verify manifest entry  →  cleo research show <id> BEFORE proceeding
-6. Continue or escalate   →  Only spawn next if manifest confirmed
+6. Verify research link   →  cleo show <task> | check linkedResearch
+7. Link if missing        →  cleo research link <task> <research-id>
+8. Continue or escalate   →  Only spawn next if manifest AND link confirmed
 ```
 
 ### Anti-Patterns (Protocol Violations)
@@ -244,7 +304,39 @@ fi
 | Missing protocol block | `grep -q "SUBAGENT PROTOCOL"` fails | Re-inject via `cleo research inject` |
 | Invalid return message | Not in allowed format list | Mark as violation, re-spawn |
 | No manifest entry | `cleo research show` returns error | Re-spawn with explicit manifest requirement |
+| No research link | `jq '.task.linkedResearch'` empty | Orchestrator links via `cleo research link` |
 | Spawning before verification | Multiple agents, missing entries | Stop, verify all, then resume |
+
+## JSDoc Provenance Requirements
+
+All code changes MUST include provenance tags:
+
+```javascript
+/**
+ * @task T1234
+ * @epic T1200
+ * @why Business rationale (1 sentence)
+ * @what Technical summary (1 sentence)
+ */
+function implementFeature() { ... }
+```
+
+### Tag Requirements
+
+| Tag | RFC Level | Content |
+|-----|-----------|---------|
+| `@task` | MUST | Task ID (TXXX format) |
+| `@epic` | SHOULD | Epic ID (TXXX format) |
+| `@why` | MUST | 1 sentence business rationale |
+| `@what` | MUST | 1 sentence technical summary |
+
+### Commit Format
+
+```
+{type}({phase}-{task}): {description}
+
+Example: feat(core-T1234): Implement JWT auth middleware
+```
 
 ## Workflow Phases
 
