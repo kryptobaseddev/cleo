@@ -258,9 +258,10 @@ orchestrator_check_pending() {
     task_count=$(echo "$cleo_followup_tasks" | jq -r '.result.count // 0')
 
     # Build response
+    # Use --slurpfile with process substitution to avoid ARG_MAX limits
     jq -n \
-        --argjson manifest_pending "$manifest_pending" \
-        --argjson followup_tasks "$cleo_followup_tasks" \
+        --slurpfile manifest_pending <(echo "$manifest_pending") \
+        --slurpfile followup_tasks <(echo "$cleo_followup_tasks") \
         --argjson manifest_count "$manifest_count" \
         --argjson task_count "$task_count" \
         '{
@@ -271,9 +272,9 @@ orchestrator_check_pending() {
             "success": true,
             "result": {
                 "hasPending": ($manifest_count > 0 or $task_count > 0),
-                "manifestEntries": $manifest_pending.result.entries,
+                "manifestEntries": $manifest_pending[0].result.entries,
                 "manifestCount": $manifest_count,
-                "followupTaskIds": $followup_tasks.result.taskIds,
+                "followupTaskIds": $followup_tasks[0].result.taskIds,
                 "followupTaskCount": $task_count
             }
         }'
@@ -338,6 +339,7 @@ orchestrator_session_init() {
         reason="No session, no pending work - await user direction"
     fi
 
+    # Use --slurpfile with process substitution to avoid ARG_MAX limits
     jq -n \
         --argjson active_sessions "$active_sessions" \
         --arg active_session_id "$active_session_id" \
@@ -345,7 +347,7 @@ orchestrator_session_init() {
         --argjson has_focus "$has_focus" \
         --arg focused_task "$focused_task" \
         --argjson has_pending "$has_pending" \
-        --argjson pending "$pending_result" \
+        --slurpfile pending <(echo "$pending_result") \
         --arg action "$action" \
         --arg reason "$reason" \
         --arg epic_id "$epic_id" \
@@ -363,8 +365,8 @@ orchestrator_session_init() {
                 "focusedTask": (if $focused_task != "" then $focused_task else null end),
                 "hasPending": $has_pending,
                 "pendingSummary": {
-                    "manifestCount": $pending.result.manifestCount,
-                    "followupTaskIds": $pending.result.followupTaskIds
+                    "manifestCount": $pending[0].result.manifestCount,
+                    "followupTaskIds": $pending[0].result.followupTaskIds
                 },
                 "recommendedAction": $action,
                 "actionReason": $reason,
@@ -746,7 +748,7 @@ _os_resolve_template_path() {
 # Get research output directory
 _os_get_research_output_dir() {
     local dir
-    dir=$(get_config_value "research.outputDir" "claudedocs/research-outputs" 2>/dev/null || echo "claudedocs/research-outputs")
+    dir=$(get_config_value "research.outputDir" "claudedocs/agent-outputs" 2>/dev/null || echo "claudedocs/agent-outputs")
     echo "$dir"
 }
 

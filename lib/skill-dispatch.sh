@@ -3,8 +3,20 @@
 #
 # LAYER: 2 (Services - depends on Layer 1)
 # DEPENDENCIES: exit-codes.sh, skill-validate.sh, token-inject.sh
-# PROVIDES: skill_select_for_task, skill_dispatch_validate, skill_inject,
-#           skill_get_dispatch_triggers, skill_matches_labels, skill_matches_keywords
+# PROVIDES:
+#   # Spec-compliant API (CLEO-SKILLS-SYSTEM-SPEC.md)
+#   skill_dispatch_by_keywords   - Match task to skill by keyword patterns
+#   skill_dispatch_by_type       - Match by task type
+#   skill_get_metadata           - Get full skill metadata
+#   skill_get_references         - Get reference files for progressive loading
+#   skill_check_compatibility    - Check subagent type compatibility
+#   skill_list_by_tier           - List skills at tier level
+#   skill_auto_dispatch          - Auto-select skill for CLEO task
+#   skill_prepare_spawn          - Generate spawn context JSON
+#
+#   # Original API
+#   skill_select_for_task, skill_dispatch_validate, skill_inject,
+#   skill_get_dispatch_triggers, skill_matches_labels, skill_matches_keywords
 #
 # Enables orchestrator to automatically select skills based on task type/labels/keywords.
 # Uses three matching strategies in priority order:
@@ -15,7 +27,12 @@
 # USAGE:
 #   source lib/skill-dispatch.sh
 #
-#   # Select skill for a task
+#   # Spec-compliant API (recommended)
+#   skill=$(skill_auto_dispatch "T1234")
+#   skill=$(skill_dispatch_by_keywords "implement auth middleware")
+#   context=$(skill_prepare_spawn "$skill" "T1234")
+#
+#   # Original API
 #   skill=$(skill_select_for_task "$task_json")
 #
 #   # Validate skill for use
@@ -531,9 +548,406 @@ skill_find_by_trigger() {
 }
 
 # ============================================================================
+# SPEC-COMPLIANT API (from CLEO-SKILLS-SYSTEM-SPEC.md)
+# These 8 functions implement the programmatic dispatch interface
+# ============================================================================
+
+# skill_dispatch_by_keywords - Match task description to skill by keyword patterns
+# Usage: skill_dispatch_by_keywords "implement auth middleware"
+# Returns: skill name or empty if no match
+# Uses dispatch_matrix.by_keyword if available, otherwise searches dispatch_triggers
+skill_dispatch_by_keywords() {
+    local query="$1"
+    local query_lower
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    query_lower=$(echo "$query" | tr '[:upper:]' '[:lower:]')
+
+    # First try dispatch_matrix.by_keyword if it exists in manifest
+    local matrix_result
+    matrix_result=$(jq -r --arg query "$query_lower" '
+        .dispatch_matrix.by_keyword // {} |
+        to_entries[] |
+        select(.key | split("|") | any(. as $p | $query | test($p; "i"))) |
+        .value
+    ' "$_SD_MANIFEST_JSON" 2>/dev/null | head -1)
+
+    if [[ -n "$matrix_result" ]]; then
+        echo "$matrix_result"
+        return 0
+    fi
+
+    # Fallback: search dispatch_triggers in each skill
+    local skills
+    skills=$(jq -r '.skills[] | select(.status == "active") | .name' "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+    while IFS= read -r skill; do
+        [[ -z "$skill" ]] && continue
+
+        # Check both legacy and new format triggers
+        local triggers
+        triggers=$(jq -r --arg name "$skill" '
+            .skills[] | select(.name == $name) |
+            (.capabilities.dispatch_triggers // []) +
+            (.dispatch_triggers.keywords // []) |
+            .[]
+        ' "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+        while IFS= read -r trigger; do
+            [[ -z "$trigger" ]] && continue
+            local trigger_lower
+            trigger_lower=$(echo "$trigger" | tr '[:upper:]' '[:lower:]')
+            if [[ "$query_lower" == *"$trigger_lower"* ]]; then
+                _sd_debug "Keyword dispatch: '$trigger' matched -> $skill"
+                echo "$skill"
+                return 0
+            fi
+        done <<< "$triggers"
+    done <<< "$skills"
+
+    # No match
+    return 0
+}
+
+# skill_dispatch_by_type - Match task to skill by task type
+# Usage: skill_dispatch_by_type "research"
+# Returns: skill name or empty if no match
+# Uses dispatch_matrix.by_task_type if available
+skill_dispatch_by_type() {
+    local task_type="$1"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    # Try dispatch_matrix.by_task_type first
+    local result
+    result=$(jq -r --arg type "$task_type" \
+        '.dispatch_matrix.by_task_type[$type] // empty' \
+        "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+    if [[ -n "$result" ]]; then
+        echo "$result"
+        return 0
+    fi
+
+    # Fallback: infer from skill tags
+    local mapping
+    case "$task_type" in
+        research|investigation|explore)
+            mapping="research"
+            ;;
+        planning|architecture|epic)
+            mapping="planning"
+            ;;
+        implementation|build|execute)
+            mapping="execution"
+            ;;
+        testing|test|bats)
+            mapping="testing"
+            ;;
+        documentation|docs|doc)
+            mapping="documentation"
+            ;;
+        specification|spec|rfc)
+            mapping="specification"
+            ;;
+        validation|verify|audit)
+            mapping="validation"
+            ;;
+        bash|shell|library)
+            mapping="bash"
+            ;;
+        *)
+            mapping=""
+            ;;
+    esac
+
+    if [[ -n "$mapping" ]]; then
+        # Find skill with matching tag
+        result=$(jq -r --arg tag "$mapping" \
+            '.skills[] | select(.status == "active") | select(.tags[]? == $tag) | .name' \
+            "$_SD_MANIFEST_JSON" 2>/dev/null | head -1)
+
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
+    fi
+
+    return 0
+}
+
+# skill_get_metadata - Get full skill metadata from manifest
+# Usage: skill_get_metadata "ct-research-agent"
+# Returns: JSON object with all skill fields
+skill_get_metadata() {
+    local skill_name="$1"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    local metadata
+    metadata=$(jq -r --arg name "$skill_name" \
+        '.skills[] | select(.name == $name)' \
+        "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+    if [[ -z "$metadata" || "$metadata" == "null" ]]; then
+        _sd_error "Skill not found: $skill_name"
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    echo "$metadata"
+    return 0
+}
+
+# skill_get_references - Get reference files for progressive loading
+# Usage: skill_get_references "ct-orchestrator"
+# Returns: One reference path per line (relative to skill path)
+skill_get_references() {
+    local skill_name="$1"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    local metadata
+    metadata=$(skill_get_metadata "$skill_name") || return $?
+
+    # Get references array from metadata
+    local refs
+    refs=$(echo "$metadata" | jq -r '.references[]? // empty' 2>/dev/null)
+
+    if [[ -n "$refs" ]]; then
+        echo "$refs"
+        return 0
+    fi
+
+    # Fallback: check for references/ directory in skill path
+    local skill_path
+    skill_path=$(echo "$metadata" | jq -r '.path // ""')
+
+    if [[ -n "$skill_path" && -d "${_SD_PROJECT_ROOT}/${skill_path}/references" ]]; then
+        # List markdown files in references directory
+        find "${_SD_PROJECT_ROOT}/${skill_path}/references" -name "*.md" -type f 2>/dev/null | \
+            sed "s|${_SD_PROJECT_ROOT}/${skill_path}/||"
+    fi
+
+    return 0
+}
+
+# skill_check_compatibility - Check subagent type compatibility
+# Usage: skill_check_compatibility "ct-research-agent" "general-purpose"
+# Returns: 0 if compatible, 1 if not compatible
+skill_check_compatibility() {
+    local skill_name="$1"
+    local subagent_type="$2"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    local metadata
+    metadata=$(skill_get_metadata "$skill_name") || return 1
+
+    # Get compatible_subagent_types array
+    local compatible
+    compatible=$(echo "$metadata" | jq -r --arg type "$subagent_type" \
+        '.capabilities.compatible_subagent_types // [] | index($type) != null' \
+        2>/dev/null)
+
+    if [[ "$compatible" == "true" ]]; then
+        return 0
+    fi
+
+    # If no types specified, assume compatible with general-purpose
+    local types_count
+    types_count=$(echo "$metadata" | jq -r '.capabilities.compatible_subagent_types | length // 0' 2>/dev/null)
+
+    if [[ "$types_count" == "0" && "$subagent_type" == "general-purpose" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# skill_list_by_tier - List skills at specific tier level
+# Usage: skill_list_by_tier 2
+# Returns: One skill name per line
+skill_list_by_tier() {
+    local tier="$1"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    # Check if tier field exists in manifest
+    local has_tier
+    has_tier=$(jq '.skills[0].tier // null' "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+    if [[ "$has_tier" != "null" ]]; then
+        jq -r --argjson tier "$tier" \
+            '.skills[] | select(.tier == $tier) | .name' \
+            "$_SD_MANIFEST_JSON" 2>/dev/null
+    else
+        # Fallback: infer tier from skill characteristics
+        # Tier 0: orchestrator
+        # Tier 1: planning/architecture (ct-epic-architect)
+        # Tier 2: execution skills (ct-task-executor, ct-research-agent, etc.)
+        # Tier 3: domain/chaining skills (ct-documentor, ct-skill-*)
+        case "$tier" in
+            0)
+                jq -r '.skills[] | select(.name | test("orchestrator")) | .name' \
+                    "$_SD_MANIFEST_JSON" 2>/dev/null
+                ;;
+            1)
+                jq -r '.skills[] | select(.name | test("epic-architect|planner")) | .name' \
+                    "$_SD_MANIFEST_JSON" 2>/dev/null
+                ;;
+            2)
+                jq -r '.skills[] | select(.name | test("executor|research|test-writer|spec-writer|library-impl|validator|dev-workflow")) | .name' \
+                    "$_SD_MANIFEST_JSON" 2>/dev/null
+                ;;
+            3)
+                jq -r '.skills[] | select(.name | test("documentor|skill-|docs-")) | .name' \
+                    "$_SD_MANIFEST_JSON" 2>/dev/null
+                ;;
+            *)
+                _sd_warn "Unknown tier: $tier"
+                return 0
+                ;;
+        esac
+    fi
+
+    return 0
+}
+
+# skill_auto_dispatch - Auto-select skill for a CLEO task
+# Usage: skill_auto_dispatch "T1234"
+# Returns: skill name (defaults to ct-task-executor if no match)
+skill_auto_dispatch() {
+    local task_id="$1"
+
+    _sd_require_jq || return $?
+
+    # Get task details from cleo
+    local task_json
+    task_json=$(cleo show "$task_id" --format json 2>/dev/null)
+
+    if [[ -z "$task_json" || "$task_json" == "null" ]]; then
+        _sd_error "Task $task_id not found"
+        echo "$_SD_DEFAULT_SKILL"
+        return 1
+    fi
+
+    # Extract task metadata
+    local title description labels
+    title=$(echo "$task_json" | jq -r '.task.title // ""')
+    description=$(echo "$task_json" | jq -r '.task.description // ""')
+    labels=$(echo "$task_json" | jq -r '.task.labels[]? // empty' 2>/dev/null | tr '\n' ' ')
+
+    # Combine text for matching
+    local full_text="$title $description $labels"
+
+    _sd_debug "Auto-dispatch for $task_id: '$full_text'"
+
+    # Strategy 1: Try keyword-based dispatch
+    local skill
+    skill=$(skill_dispatch_by_keywords "$full_text")
+
+    if [[ -n "$skill" ]]; then
+        _sd_log_dispatch "$skill" "keyword match for $task_id"
+        echo "$skill"
+        return 0
+    fi
+
+    # Strategy 2: Try label-based type dispatch
+    for label in $labels; do
+        skill=$(skill_dispatch_by_type "$label")
+        if [[ -n "$skill" ]]; then
+            _sd_log_dispatch "$skill" "type match ($label) for $task_id"
+            echo "$skill"
+            return 0
+        fi
+    done
+
+    # Strategy 3: Use existing skill_select_for_task for label/keyword matching
+    skill=$(skill_select_for_task "$task_json")
+
+    if [[ -n "$skill" && "$skill" != "$_SD_DEFAULT_SKILL" ]]; then
+        _sd_log_dispatch "$skill" "task metadata match for $task_id"
+        echo "$skill"
+        return 0
+    fi
+
+    # Default fallback
+    _sd_log_dispatch "$_SD_DEFAULT_SKILL" "fallback for $task_id"
+    echo "$_SD_DEFAULT_SKILL"
+    return 0
+}
+
+# skill_prepare_spawn - Generate spawn context JSON for a skill and task
+# Usage: skill_prepare_spawn "ct-research-agent" "T1234"
+# Returns: JSON object with spawn configuration
+skill_prepare_spawn() {
+    local skill_name="$1"
+    local task_id="$2"
+
+    _sd_require_jq || return $?
+
+    local metadata
+    metadata=$(skill_get_metadata "$skill_name")
+
+    if [[ -z "$metadata" || "$metadata" == "null" ]]; then
+        _sd_error "Could not get metadata for skill: $skill_name"
+        return "$EXIT_NOT_FOUND"
+    fi
+
+    # Extract fields from metadata
+    local skill_path token_budget model tier
+    skill_path=$(echo "$metadata" | jq -r '.path // ""')
+    token_budget=$(echo "$metadata" | jq -r '.token_budget // 10000')
+    model=$(echo "$metadata" | jq -r '.model // "auto"')
+    tier=$(echo "$metadata" | jq -r '.tier // 2')
+
+    # Handle null model
+    [[ "$model" == "null" ]] && model="auto"
+
+    # Get skill file path
+    local skill_file="${skill_path}/SKILL.md"
+
+    # Get references
+    local references
+    references=$(skill_get_references "$skill_name" | jq -R -s -c 'split("\n") | map(select(. != ""))' 2>/dev/null)
+    [[ -z "$references" ]] && references="[]"
+
+    # Build spawn context JSON
+    jq -n \
+        --arg skill "$skill_name" \
+        --arg path "$skill_path" \
+        --arg task "$task_id" \
+        --argjson budget "$token_budget" \
+        --arg model "$model" \
+        --argjson tier "$tier" \
+        --argjson refs "$references" \
+        --arg skillFile "$skill_file" \
+        '{
+            skill: $skill,
+            path: $path,
+            taskId: $task,
+            tokenBudget: $budget,
+            model: $model,
+            tier: $tier,
+            references: $refs,
+            skillFile: $skillFile
+        }'
+
+    return 0
+}
+
+# ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
 
+# Original functions
 export -f skill_select_for_task
 export -f skill_dispatch_validate
 export -f skill_inject
@@ -544,3 +958,13 @@ export -f skill_matches_keywords
 export -f skill_matches_type
 export -f skill_list_with_triggers
 export -f skill_find_by_trigger
+
+# Spec-compliant API functions
+export -f skill_dispatch_by_keywords
+export -f skill_dispatch_by_type
+export -f skill_get_metadata
+export -f skill_get_references
+export -f skill_check_compatibility
+export -f skill_list_by_tier
+export -f skill_auto_dispatch
+export -f skill_prepare_spawn

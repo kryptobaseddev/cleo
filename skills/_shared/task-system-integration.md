@@ -125,6 +125,32 @@ When the task system is CLEO, these additional commands are available:
 | `cleo deps {{TASK_ID}}` | Check task dependencies |
 | `cleo tree --parent {{EPIC_ID}}` | Visualize hierarchy |
 
+### Session Lifecycle
+
+Sessions persist across Claude conversations and support long-running work.
+
+**Key Behaviors**:
+- Sessions timeout after **72 hours** of inactivity (session warning threshold)
+- Sessions are auto-ended after `retention.autoEndActiveAfterDays` (default: **7 days**) of inactivity
+- Use `cleo session gc --include-active` to clean up stale active sessions
+
+**Session Commands**:
+
+| Command | Purpose |
+|---------|---------|
+| `cleo session start --scope epic:{{EPIC_ID}}` | Begin scoped session |
+| `cleo session end --note "summary"` | End session properly |
+| `cleo session list` | Check existing sessions |
+| `cleo session resume <id>` | Resume previous session |
+| `cleo session gc` | Clean up ended/suspended sessions |
+| `cleo session gc --include-active` | Also clean stale active sessions |
+
+**Best Practices**:
+- **MUST** check `cleo session list` before starting new sessions
+- **SHOULD** end sessions properly to avoid accumulation
+- **MAY** use `session gc --include-active` to recover from abandoned sessions
+- Long-running sessions are expected for complex multi-day work
+
 ---
 
 ## Token Defaults

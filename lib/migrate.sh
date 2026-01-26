@@ -2616,6 +2616,164 @@ show_migration_status() {
 }
 
 # ============================================================================
+# DIRECTORY MIGRATIONS
+# ============================================================================
+
+# Migrate research-outputs directory to agent-outputs
+# Part of Cross-Agent Communication Protocol Unification (T2348)
+#
+# This function renames the legacy directory structure:
+#   claudedocs/research-outputs/ → claudedocs/agent-outputs/
+#
+# Also updates paths in MANIFEST.jsonl to reflect the new location.
+#
+# Args: $1 = project directory (default: current directory)
+# Returns:
+#   0   = Migration completed successfully
+#   100 = Already migrated (skip)
+#   1   = Error during migration
+migrate_agent_outputs_dir() {
+    local project_dir="${1:-.}"
+    local old_dir="${project_dir}/claudedocs/research-outputs"
+    local new_dir="${project_dir}/claudedocs/agent-outputs"
+    local cleo_dir="${project_dir}/.cleo"
+    local migration_log="${cleo_dir}/.migration.log"
+    local manifest_file
+
+    # =========================================================================
+    # 1. Check if migration is needed
+    # =========================================================================
+
+    # If old dir doesn't exist, nothing to migrate
+    if [[ ! -d "$old_dir" ]]; then
+        # Check if new dir exists (already migrated)
+        if [[ -d "$new_dir" ]]; then
+            echo "INFO: Already migrated to agent-outputs/" >&2
+            return 100  # EXIT_ALREADY_EXISTS - skip
+        fi
+        # Neither exists - nothing to do
+        echo "INFO: No research-outputs directory found to migrate" >&2
+        return 100
+    fi
+
+    # If new dir already exists, handle collision
+    if [[ -d "$new_dir" ]]; then
+        echo "WARNING: Both research-outputs/ and agent-outputs/ exist" >&2
+        echo "  Old: $old_dir" >&2
+        echo "  New: $new_dir" >&2
+        echo "  Manual intervention required to resolve" >&2
+        return 1
+    fi
+
+    echo "Migrating research-outputs/ to agent-outputs/..."
+
+    # =========================================================================
+    # 2. Create safety backup
+    # =========================================================================
+
+    local backup_dir="${cleo_dir}/backups/migration"
+    local backup_name="research-outputs_$(date +%Y%m%d_%H%M%S)"
+    local backup_path="${backup_dir}/${backup_name}"
+
+    mkdir -p "$backup_dir" || {
+        echo "ERROR: Failed to create backup directory: $backup_dir" >&2
+        return 1
+    }
+
+    # Copy the directory for backup (not move, to be safe)
+    if ! cp -r "$old_dir" "$backup_path"; then
+        echo "ERROR: Failed to create backup at: $backup_path" >&2
+        return 1
+    fi
+    echo "  Backup created: $backup_path"
+
+    # =========================================================================
+    # 3. Atomic rename (mv is atomic on same filesystem)
+    # =========================================================================
+
+    if ! mv "$old_dir" "$new_dir"; then
+        echo "ERROR: Failed to rename directory" >&2
+        echo "  Source: $old_dir" >&2
+        echo "  Target: $new_dir" >&2
+        return 1
+    fi
+    echo "  Renamed: research-outputs/ → agent-outputs/"
+
+    # =========================================================================
+    # 4. Update MANIFEST.jsonl file paths
+    # =========================================================================
+
+    manifest_file="${new_dir}/MANIFEST.jsonl"
+    if [[ -f "$manifest_file" ]]; then
+        local temp_manifest
+        temp_manifest=$(mktemp)
+
+        # Update file paths from research-outputs to agent-outputs
+        # The 'file' field in manifest entries may contain the directory path
+        if sed 's|research-outputs/|agent-outputs/|g' "$manifest_file" > "$temp_manifest"; then
+            if mv "$temp_manifest" "$manifest_file"; then
+                echo "  Updated MANIFEST.jsonl paths"
+            else
+                echo "WARNING: Failed to update MANIFEST.jsonl" >&2
+                rm -f "$temp_manifest"
+            fi
+        else
+            echo "WARNING: Failed to process MANIFEST.jsonl" >&2
+            rm -f "$temp_manifest"
+        fi
+    fi
+
+    # =========================================================================
+    # 5. Update .gitignore if present
+    # =========================================================================
+
+    local gitignore="${project_dir}/.gitignore"
+    if [[ -f "$gitignore" ]]; then
+        local temp_gitignore
+        temp_gitignore=$(mktemp)
+
+        # Update any references to research-outputs
+        if sed 's|claudedocs/research-outputs|claudedocs/agent-outputs|g' "$gitignore" > "$temp_gitignore"; then
+            if ! diff -q "$gitignore" "$temp_gitignore" &>/dev/null; then
+                if mv "$temp_gitignore" "$gitignore"; then
+                    echo "  Updated .gitignore references"
+                else
+                    rm -f "$temp_gitignore"
+                fi
+            else
+                rm -f "$temp_gitignore"
+            fi
+        else
+            rm -f "$temp_gitignore"
+        fi
+    fi
+
+    # =========================================================================
+    # 6. Log migration
+    # =========================================================================
+
+    mkdir -p "$(dirname "$migration_log")" 2>/dev/null || true
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") DIRECTORY_MIGRATION: research-outputs → agent-outputs (backup: $backup_path)" >> "$migration_log"
+
+    echo "✓ Migration complete: research-outputs/ → agent-outputs/"
+    return 0
+}
+
+# Check if agent-outputs migration is needed
+# Args: $1 = project directory (default: current directory)
+# Returns:
+#   0 = Migration needed
+#   1 = Already migrated or nothing to migrate
+check_agent_outputs_migration_needed() {
+    local project_dir="${1:-.}"
+    local old_dir="${project_dir}/claudedocs/research-outputs"
+    local new_dir="${project_dir}/claudedocs/agent-outputs"
+
+    # Migration needed if old dir exists and new dir doesn't
+    [[ -d "$old_dir" && ! -d "$new_dir" ]]
+}
+
+# ============================================================================
 # MAIN (for testing)
 # ============================================================================
 

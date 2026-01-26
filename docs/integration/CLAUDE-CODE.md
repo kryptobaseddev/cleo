@@ -363,7 +363,7 @@ log.sh --action session_end --session-id "session_20251205_..."
     "requireSessionNote": true,
     "warnOnNoFocus": true,
     "autoStartSession": true,
-    "sessionTimeoutHours": 24
+    "sessionTimeoutHours": 72
   },
   "archive": {
     "archiveOnSessionEnd": true,

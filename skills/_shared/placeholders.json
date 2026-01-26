@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.0.0",
     "description": "Canonical registry of all template placeholders used in orchestrator protocol and skill templates",
-    "lastUpdated": "2026-01-20",
+    "lastUpdated": "2026-01-26",
     "tokenFormat": "{{TOKEN_NAME}}"
   },
   "required": [
@@ -153,6 +153,31 @@
         "token": "RESEARCH_PENDING_CMD",
         "default": "cleo research pending",
         "description": "Command to show pending research followups"
+      },
+      {
+        "token": "RESEARCH_INJECT_CMD",
+        "default": "cleo research inject",
+        "description": "Command to inject subagent protocol block (supports --clipboard flag)"
+      },
+      {
+        "token": "SESSION_GC_CMD",
+        "default": "cleo session gc",
+        "description": "Command for session garbage collection (supports --include-active flag)"
+      },
+      {
+        "token": "TASK_EXISTS_CMD",
+        "default": "cleo exists",
+        "description": "Command to check if task ID exists (exit code 0/1)"
+      },
+      {
+        "token": "TASK_PHASE_CMD",
+        "default": "cleo phase show",
+        "description": "Command to show current project phase"
+      },
+      {
+        "token": "TASK_TREE_CMD",
+        "default": "cleo list --tree",
+        "description": "Command to show task hierarchy tree (use --parent for subtree)"
       }
     ]
   },

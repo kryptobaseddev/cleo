@@ -309,7 +309,8 @@ Computed during archive operations:
 
 ## Config Schema (config.schema.json)
 
-**Schema ID**: `cleo-config-schema-v2.2`
+**Schema ID**: `cleo-config-schema-v2.6`
+**Current Version**: `2.6.0`
 
 ### Root Object
 
@@ -377,10 +378,15 @@ Default values for new tasks:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `requireSession` | boolean | true | Require an active session for task operations |
 | `requireSessionNote` | boolean | true | Warn if session ends without sessionNote |
+| `requireNotesOnComplete` | boolean | true | Require notes when completing tasks |
 | `warnOnNoFocus` | boolean | true | Warn if no task active at start |
+| `allowNestedSessions` | boolean | true | Allow nested session scopes |
+| `allowParallelAgents` | boolean | true | Allow multiple agents to work concurrently |
 | `autoStartSession` | boolean | true | Auto-log session_start on first read |
-| `sessionTimeoutHours` | integer | 24 | Hours before orphaned session warning (1-72) |
+| `autoDiscoveryOnStart` | boolean | true | Auto-discover existing sessions on start |
+| `sessionTimeoutHours` | integer | 72 | Hours before orphaned session warning (1-168) |
 
 ### Display Settings (display)
 
@@ -456,6 +462,50 @@ Debug and validation settings for CLI operations.
 - `cli.debug.enabled: true` in config
 - `CLEO_DEBUG=1` environment variable
 - `--debug` CLI flag (if implemented)
+
+### Multi-Session Settings (multiSession)
+
+Configuration for concurrent agent sessions. Enables multiple LLM agents to work on different task groups simultaneously.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | true | Enable multi-session mode |
+| `maxConcurrentSessions` | integer | 5 | Maximum active sessions (1-10) |
+| `maxActiveTasksPerScope` | integer | 1 | Maximum active tasks per session scope (1-3) |
+| `scopeValidation` | string | strict | Scope overlap validation: strict, warn, none |
+| `allowNestedScopes` | boolean | true | Allow session scopes that are subsets of others |
+| `allowScopeOverlap` | boolean | false | Allow partially overlapping session scopes |
+| `requireScopeOnStart` | boolean | true | Require explicit scope when starting session |
+| `sessionTimeoutHours` | integer | 72 | Hours before session is considered stale (1-168) |
+| `autoSuspendOnTimeout` | boolean | true | Auto-suspend sessions that exceed timeout |
+| `historyRetentionDays` | integer | 30 | Days to retain ended sessions (1-365) |
+| `autoResumeLastSession` | boolean | false | Auto-resume most recent suspended session |
+| `trackSessionStats` | boolean | true | Track session statistics |
+| `backupOnSessionEvents` | boolean | true | Create backup on session lifecycle events |
+
+**Scope Validation Modes**:
+- `strict` - Error on scope overlap
+- `warn` - Allow with warning
+- `none` - No validation
+
+### Retention Settings (retention)
+
+Retention policies for session archival and cleanup. Added in schema v2.6.0.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maxArchivedSessions` | integer | 100 | Maximum archived sessions to retain (10-1000) |
+| `autoArchiveEndedAfterDays` | integer | 30 | Days before ended sessions are archived (1-365) |
+| `autoDeleteArchivedAfterDays` | integer | 90 | Days before archived sessions are deleted (0-730, 0=disabled) |
+| `contextStateRetentionDays` | integer | 7 | Days to retain orphaned context state files (1-90) |
+| `cleanupOnSessionEnd` | boolean | true | Run retention cleanup when sessions end |
+| `dryRunByDefault` | boolean | true | Default to dry-run mode for cleanup operations |
+| `maxSessionsInMemory` | integer | 100 | Max sessions in sessions.json before GC (10-1000) |
+| `autoEndActiveAfterDays` | integer | 7 | Auto-end active sessions with no activity (1-365) |
+
+**Key Retention Fields (v2.6.0)**:
+- `maxSessionsInMemory` - Controls when garbage collection triggers to archive old sessions
+- `autoEndActiveAfterDays` - Prevents stale active sessions from accumulating
 
 ---
 
@@ -967,5 +1017,5 @@ When schema changes:
 
 ---
 
-**Last Updated**: 2025-12-16
-**Schema Version**: 2.2.0
+**Last Updated**: 2026-01-26
+**Schema Version**: 2.6.0

@@ -108,7 +108,7 @@ validate_return_message() {
 # Get research output directory
 _ov_get_output_dir() {
     local dir
-    dir=$(get_config_value "research.outputDir" "claudedocs/research-outputs" 2>/dev/null || echo "claudedocs/research-outputs")
+    dir=$(get_config_value "research.outputDir" "claudedocs/agent-outputs" 2>/dev/null || echo "claudedocs/agent-outputs")
     echo "$dir"
 }
 

@@ -546,7 +546,7 @@ orchestrator_validate_return_message() {
 #
 # Args:
 #   $1 = research_id (required) - Expected manifest entry ID
-#   $2 = manifest_path (optional) - Defaults to claudedocs/research-outputs/MANIFEST.jsonl
+#   $2 = manifest_path (optional) - Defaults to claudedocs/agent-outputs/MANIFEST.jsonl
 #
 # Returns:
 #   0 if entry found, 1 if missing
@@ -557,7 +557,7 @@ orchestrator_validate_return_message() {
 #
 orchestrator_verify_manifest_entry() {
     local research_id="${1:-}"
-    local manifest_path="${2:-claudedocs/research-outputs/MANIFEST.jsonl}"
+    local manifest_path="${2:-claudedocs/agent-outputs/MANIFEST.jsonl}"
 
     if [[ -z "$research_id" ]]; then
         _osp_error "research_id is required"
@@ -653,8 +653,8 @@ orchestrator_get_protocol_block() {
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 

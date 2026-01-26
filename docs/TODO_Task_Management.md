@@ -154,6 +154,10 @@ cleo focus set T005 --session <id>   # Focus within specific session
     "maxConcurrentSessions": 5,
     "maxActiveTasksPerScope": 1,
     "scopeValidation": "strict"
+  },
+  "retention": {
+    "autoEndActiveAfterDays": 7,
+    "sessionTimeoutWarningHours": 72
   }
 }
 ```
@@ -327,6 +331,8 @@ cleo exists <id>                    # Check if task ID exists (exit code 0/1)
 cleo exists <id> --quiet            # Silent check for scripting
 cleo exists <id> --include-archive  # Search archive too
 cleo archive                        # Archive completed tasks
+cleo session gc                     # Clean up old sessions
+cleo session gc --include-active    # Also clean stale active sessions (72h+ inactive)
 cleo unarchive <id>                 # Restore archived task to active
 cleo unarchive <id> --status pending  # Restore with specific status
 cleo archive-stats                  # Summary statistics from archive
@@ -528,11 +534,26 @@ cleo list | jq '.tasks[] | select(.type != "epic")'
 
 ### Core Concepts
 
-**Sessions persist across Claude conversations.** When you end a Claude terminal session, cleo sessions remain. Resume them in your next conversation.
+**Sessions persist across Claude conversations.** When you end a Claude terminal session, cleo sessions remain. Resume them in your next conversation. A single cleo session can span multiple Claude Code conversations over days or weeks.
 
 **Sessions are scoped to epics/tasks.** Each session defines what you're working on (an epic or task group) and tracks your progress within that scope.
 
 **Sessions coexist.** You do NOT need to suspend one session to start another. Multiple sessions can be active simultaneously on different scopes.
+
+### Session Lifecycle & Retention
+
+**Timeout Warning**: Sessions inactive for **72 hours** receive a warning during `session list` and `session status`.
+
+**Auto-End**: Active sessions are automatically ended after **7 days** of inactivity (configurable via `retention.autoEndActiveAfterDays`).
+
+**Best Practice**: Always end sessions explicitly with `cleo session end --note "..."` when stopping work to prevent session accumulation and ensure clean state.
+
+**Garbage Collection**:
+```bash
+cleo session gc                     # Clean up old ended/suspended sessions
+cleo session gc --include-active    # Also clean up stale active sessions
+cleo session gc --dry-run           # Preview what would be cleaned
+```
 
 ### Workflow
 
@@ -849,6 +870,7 @@ fi
 | Corrupted JSON | `cleo restore` or `backup --list` then restore |
 | Session already active | `cleo session status` then `session end` |
 | Schema outdated | `cleo upgrade` |
+| Too many stale sessions | `cleo session gc --include-active` |
 
 ## Command Aliases (v0.6.0+)
 
