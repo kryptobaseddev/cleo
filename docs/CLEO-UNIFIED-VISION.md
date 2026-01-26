@@ -483,7 +483,7 @@ All writes backed up to:  .cleo/.backups/
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│              claudedocs/research-outputs/               │
+│              claudedocs/agent-outputs/               │
 │                                                         │
 │  2026-01-20_topic-slug.md  <── Full content            │
 │  MANIFEST.jsonl            <── Key findings only       │

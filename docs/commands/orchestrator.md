@@ -487,8 +487,8 @@ The orchestrator uses `lib/token-inject.sh` to populate skill templates with tas
 
 | Token | Default Value |
 |-------|---------------|
-| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` |
-| `{{MANIFEST_PATH}}` | `claudedocs/research-outputs/MANIFEST.jsonl` |
+| `{{OUTPUT_DIR}}` | `claudedocs/agent-outputs` |
+| `{{MANIFEST_PATH}}` | `claudedocs/agent-outputs/MANIFEST.jsonl` |
 
 ### Token Injection Workflow
 
@@ -516,7 +516,7 @@ The orchestrator commands use these configuration values:
 
 | Config Key | Default | Description |
 |------------|---------|-------------|
-| `research.outputDir` | `claudedocs/research-outputs` | Research output directory |
+| `research.outputDir` | `claudedocs/agent-outputs` | Research output directory |
 | `research.manifestFile` | `MANIFEST.jsonl` | Manifest filename |
 
 ## Related Commands

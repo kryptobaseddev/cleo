@@ -241,8 +241,8 @@ Every subagent MUST follow this protocol (RFC 2119):
 ```markdown
 ## OUTPUT REQUIREMENTS (MANDATORY)
 
-1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Task complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return detailed content in response.
 
@@ -268,7 +268,7 @@ The orchestrator executes this startup protocol:
 
 ```bash
 # 1. Check for pending work
-cat claudedocs/research-outputs/MANIFEST.jsonl | \
+cat claudedocs/agent-outputs/MANIFEST.jsonl | \
   jq -s '[.[] | select(.needs_followup | length > 0)]'
 
 # 2. Check active sessions

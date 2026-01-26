@@ -153,7 +153,7 @@ Execute this sequence at conversation start:
 cleo session list --status active
 
 # 2. Check manifest for pending work
-cat claudedocs/research-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
+cat claudedocs/agent-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 
 # 3. Check focused task
 cleo focus show
@@ -177,8 +177,8 @@ Every subagent MUST follow this protocol:
 
 ### Output Requirements
 
-1. **MUST** write findings to: `claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md`
-2. **MUST** append ONE line to: `claudedocs/research-outputs/MANIFEST.jsonl`
+1. **MUST** write findings to: `claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md`
+2. **MUST** append ONE line to: `claudedocs/agent-outputs/MANIFEST.jsonl`
 3. **MUST** return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. **MUST NOT** return research content in response
 
@@ -197,8 +197,8 @@ Include this in every spawn prompt:
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 

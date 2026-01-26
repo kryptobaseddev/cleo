@@ -6,7 +6,9 @@
 # PROVIDES: orchestrator_check_pending, orchestrator_session_init,
 #           orchestrator_get_next_task, orchestrator_context_check,
 #           orchestrator_get_startup_state, orchestrator_get_ready_tasks,
-#           orchestrator_spawn, orchestrator_build_prompt
+#           orchestrator_spawn, orchestrator_build_prompt,
+#           orchestrator_should_pause, orchestrator_pre_spawn_check,
+#           generate_hitl_summary, orchestrator_auto_stop, orchestrator_check_and_stop
 #
 # Implements the session startup sequence for the Orchestrator Protocol.
 # Ensures consistent bootstrapping across conversations.
@@ -632,9 +634,682 @@ orchestrator_get_ready_tasks() {
     return 0
 }
 
+# _os_get_context_state - Read current context state from session-aware files
+# Args:
+#   $1 - Session ID (optional, uses current session if not provided)
+# Output: JSON object with percentage, currentTokens, maxTokens, status
+# Returns: 0 if state found and valid, 1 if stale/missing
+_os_get_context_state() {
+    local session_id="${1:-}"
+    local cleo_dir
+    cleo_dir=$(get_cleo_dir)
+
+    # If no session specified, try to get current session
+    if [[ -z "$session_id" ]]; then
+        local session_file="${cleo_dir}/.current-session"
+        if [[ -f "$session_file" ]]; then
+            session_id=$(cat "$session_file" 2>/dev/null | tr -d '\n')
+        fi
+    fi
+
+    # Get context state path (uses config-based directory)
+    local context_dir filename_pattern state_file project_root
+    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+    filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
+    project_root="${cleo_dir%/.cleo}"
+
+    # Initialize state_file to empty string (will be set below)
+    state_file=""
+
+    if [[ -n "$session_id" ]]; then
+        local filename="${filename_pattern//\{sessionId\}/$session_id}"
+        state_file="${project_root}/${context_dir}/${filename}"
+
+        # Fallback to legacy flat file pattern
+        if [[ ! -f "$state_file" ]]; then
+            state_file="${cleo_dir}/.context-state-${session_id}.json"
+        fi
+    fi
+
+    # Final fallback to singleton
+    if [[ -z "$state_file" ]] || [[ ! -f "$state_file" ]]; then
+        state_file="${cleo_dir}/.context-state.json"
+    fi
+
+    if [[ ! -f "$state_file" ]]; then
+        # Return empty state
+        echo '{"percentage": 0, "currentTokens": 0, "maxTokens": 200000, "status": "unknown", "stale": true}'
+        return 1
+    fi
+
+    # Read and validate state file
+    local timestamp stale_after_ms now_epoch file_epoch age_ms is_stale
+    timestamp=$(jq -r '.timestamp // ""' "$state_file" 2>/dev/null)
+    stale_after_ms=$(jq -r '.staleAfterMs // 5000' "$state_file" 2>/dev/null)
+
+    is_stale="false"
+    if [[ -n "$timestamp" ]]; then
+        now_epoch=$(date +%s)
+        file_epoch=$(date -d "$timestamp" +%s 2>/dev/null || echo "0")
+        age_ms=$(( (now_epoch - file_epoch) * 1000 ))
+        if [[ "$age_ms" -gt "$stale_after_ms" ]]; then
+            is_stale="true"
+        fi
+    fi
+
+    # Extract context values
+    jq --argjson stale "$is_stale" '{
+        percentage: (.contextWindow.percentage // 0),
+        currentTokens: (.contextWindow.currentTokens // 0),
+        maxTokens: (.contextWindow.maxTokens // 200000),
+        status: (if $stale then "stale" else (.status // "unknown") end),
+        stale: $stale
+    }' "$state_file" 2>/dev/null || echo '{"percentage": 0, "currentTokens": 0, "maxTokens": 200000, "status": "unknown", "stale": true}'
+
+    [[ "$is_stale" == "true" ]] && return 1
+    return 0
+}
+
+# orchestrator_should_pause - Check if orchestrator should pause based on context usage
+# Args: none (reads from context state file)
+# Output: JSON with pause recommendation
+# Returns:
+#   0 - Continue: Context is healthy, safe to proceed
+#   1 - Warning: Approaching threshold, wrap up current work
+#   2 - Critical: At or above critical threshold, stop immediately
+orchestrator_should_pause() {
+    # Initialize thresholds from config
+    _os_init_thresholds
+    local warning_threshold="$ORCHESTRATOR_CONTEXT_WARNING"
+    local critical_threshold="$ORCHESTRATOR_CONTEXT_CRITICAL"
+
+    # Get current context state
+    local context_state
+    context_state=$(_os_get_context_state)
+    local state_valid=$?
+
+    # Extract values
+    local percentage status is_stale
+    percentage=$(echo "$context_state" | jq -r '.percentage // 0')
+    status=$(echo "$context_state" | jq -r '.status // "unknown"')
+    is_stale=$(echo "$context_state" | jq -r '.stale // false')
+
+    # Determine pause status
+    local pause_status pause_code recommendation
+    if [[ "$percentage" -ge "$critical_threshold" ]]; then
+        pause_status="critical"
+        pause_code=2
+        recommendation="STOP immediately. Delegate all remaining work to subagents."
+    elif [[ "$percentage" -ge "$warning_threshold" ]]; then
+        pause_status="warning"
+        pause_code=1
+        recommendation="Wrap up current work. Spawn final subagents and prepare handoff."
+    else
+        pause_status="ok"
+        pause_code=0
+        recommendation="Continue orchestration. Context usage is healthy."
+    fi
+
+    # Check config for auto-stop behavior
+    local auto_stop_on_critical
+    auto_stop_on_critical=$(get_config_value "orchestrator.autoStopOnCritical" "true")
+
+    jq -n \
+        --arg pause_status "$pause_status" \
+        --argjson pause_code "$pause_code" \
+        --argjson percentage "$percentage" \
+        --argjson warning_threshold "$warning_threshold" \
+        --argjson critical_threshold "$critical_threshold" \
+        --arg recommendation "$recommendation" \
+        --argjson is_stale "$is_stale" \
+        --arg context_status "$status" \
+        --arg auto_stop "$auto_stop_on_critical" \
+        '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "should_pause"
+            },
+            "success": true,
+            "result": {
+                "pauseStatus": $pause_status,
+                "pauseCode": $pause_code,
+                "shouldPause": ($pause_code >= 2),
+                "shouldWrapUp": ($pause_code >= 1),
+                "contextPercentage": $percentage,
+                "warningThreshold": $warning_threshold,
+                "criticalThreshold": $critical_threshold,
+                "recommendation": $recommendation,
+                "contextStale": $is_stale,
+                "contextStatus": $context_status,
+                "autoStopOnCritical": ($auto_stop == "true")
+            }
+        }'
+
+    return "$pause_code"
+}
+
+# orchestrator_pre_spawn_check - Validate conditions before spawning a new agent
+# Args:
+#   $1 - Task ID to spawn (optional, for task-specific validation)
+#   $2 - Epic ID (optional, for scope validation)
+#   $3 - Previous task ID (optional, to verify previous agent compliance)
+#   $4 - Previous research ID (optional, for explicit compliance check)
+# Output: JSON with spawn recommendation and detailed status
+# Returns: 0 if can spawn, non-zero if should not spawn
+orchestrator_pre_spawn_check() {
+    local task_id="${1:-}"
+    local epic_id="${2:-}"
+    local previous_task_id="${3:-}"
+    local previous_research_id="${4:-}"
+
+    # Initialize thresholds from config
+    _os_init_thresholds
+    local warning_threshold="$ORCHESTRATOR_CONTEXT_WARNING"
+    local critical_threshold="$ORCHESTRATOR_CONTEXT_CRITICAL"
+
+    # Get current context state
+    local context_state
+    context_state=$(_os_get_context_state)
+
+    # Extract context values
+    local percentage current_tokens max_tokens context_status is_stale
+    percentage=$(echo "$context_state" | jq -r '.percentage // 0')
+    current_tokens=$(echo "$context_state" | jq -r '.currentTokens // 0')
+    max_tokens=$(echo "$context_state" | jq -r '.maxTokens // 200000')
+    context_status=$(echo "$context_state" | jq -r '.status // "unknown"')
+    is_stale=$(echo "$context_state" | jq -r '.stale // false')
+
+    # Determine spawn decision
+    local can_spawn recommendation spawn_status reasons
+    reasons="[]"
+
+    if [[ "$percentage" -ge "$critical_threshold" ]]; then
+        can_spawn="false"
+        spawn_status="blocked"
+        recommendation="stop"
+        reasons=$(jq -n --argjson pct "$percentage" --argjson thresh "$critical_threshold" \
+            '[{"code": "CONTEXT_CRITICAL", "message": ("Context at " + ($pct|tostring) + "% exceeds critical threshold " + ($thresh|tostring) + "%")}]')
+    elif [[ "$percentage" -ge "$warning_threshold" ]]; then
+        can_spawn="true"
+        spawn_status="warning"
+        recommendation="wrap_up"
+        reasons=$(jq -n --argjson pct "$percentage" --argjson thresh "$warning_threshold" \
+            '[{"code": "CONTEXT_WARNING", "message": ("Context at " + ($pct|tostring) + "% exceeds warning threshold " + ($thresh|tostring) + "%")}]')
+    elif [[ "$is_stale" == "true" ]]; then
+        can_spawn="true"
+        spawn_status="stale"
+        recommendation="continue"
+        reasons=$(jq -n '[{"code": "CONTEXT_STALE", "message": "Context state is stale. Status line may not be running."}]')
+    else
+        can_spawn="true"
+        spawn_status="ok"
+        recommendation="continue"
+        reasons="[]"
+    fi
+
+    # If task_id provided, validate task exists and is spawnable
+    local task_validation='null'
+    if [[ -n "$task_id" ]]; then
+        local todo_file
+        todo_file=$(_os_get_todo_file)
+        if [[ -f "$todo_file" ]]; then
+            local task_exists task_status task_title
+            task_exists=$(jq --arg tid "$task_id" '[.tasks[] | select(.id == $tid)] | length > 0' "$todo_file" 2>/dev/null || echo "false")
+            if [[ "$task_exists" == "true" ]]; then
+                task_status=$(jq -r --arg tid "$task_id" '.tasks[] | select(.id == $tid) | .status' "$todo_file" 2>/dev/null)
+                task_title=$(jq -r --arg tid "$task_id" '.tasks[] | select(.id == $tid) | .title' "$todo_file" 2>/dev/null)
+                task_validation=$(jq -n \
+                    --arg tid "$task_id" \
+                    --arg status "$task_status" \
+                    --arg title "$task_title" \
+                    '{
+                        "exists": true,
+                        "taskId": $tid,
+                        "status": $status,
+                        "title": $title,
+                        "spawnable": ($status == "pending")
+                    }')
+                if [[ "$task_status" != "pending" ]]; then
+                    can_spawn="false"
+                    spawn_status="blocked"
+                    reasons=$(echo "$reasons" | jq --arg tid "$task_id" --arg status "$task_status" \
+                        '. + [{"code": "TASK_NOT_PENDING", "message": ("Task " + $tid + " has status " + $status + ", expected pending")}]')
+                fi
+            else
+                can_spawn="false"
+                spawn_status="blocked"
+                task_validation=$(jq -n --arg tid "$task_id" '{"exists": false, "taskId": $tid, "spawnable": false}')
+                reasons=$(echo "$reasons" | jq --arg tid "$task_id" \
+                    '. + [{"code": "TASK_NOT_FOUND", "message": ("Task " + $tid + " not found")}]')
+            fi
+        fi
+    fi
+
+    # If previous_task_id provided, verify previous agent compliance
+    local compliance_validation='null'
+    if [[ -n "$previous_task_id" && "$can_spawn" == "true" ]]; then
+        # Source orchestrator-validator if not already loaded
+        if ! declare -f orchestrator_verify_compliance >/dev/null 2>&1; then
+            local lib_dir="${BASH_SOURCE[0]%/*}"
+            if [[ -f "$lib_dir/orchestrator-validator.sh" ]]; then
+                source "$lib_dir/orchestrator-validator.sh"
+            fi
+        fi
+
+        if declare -f orchestrator_verify_compliance >/dev/null 2>&1; then
+            local compliance_result
+            compliance_result=$(orchestrator_verify_compliance "$previous_task_id" "$previous_research_id" 2>/dev/null) || true
+
+            if [[ -n "$compliance_result" ]]; then
+                local compliance_passed
+                compliance_passed=$(echo "$compliance_result" | jq -r '.result.canSpawnNext // false')
+                compliance_validation=$(echo "$compliance_result" | jq '.result')
+
+                if [[ "$compliance_passed" != "true" ]]; then
+                    can_spawn="false"
+                    spawn_status="blocked"
+                    recommendation="verify_compliance"
+
+                    # Extract violations from compliance check
+                    local compliance_violations
+                    compliance_violations=$(echo "$compliance_result" | jq -c '.result.violations // []')
+                    reasons=$(echo "$reasons" | jq --argjson cv "$compliance_violations" \
+                        '. + [{"code": "PREVIOUS_AGENT_VIOLATION", "message": "Previous agent failed protocol compliance", "violations": $cv}]')
+                fi
+            fi
+        fi
+    fi
+
+    # Build response
+    jq -n \
+        --argjson can_spawn "$can_spawn" \
+        --arg spawn_status "$spawn_status" \
+        --arg recommendation "$recommendation" \
+        --argjson percentage "$percentage" \
+        --argjson current_tokens "$current_tokens" \
+        --argjson max_tokens "$max_tokens" \
+        --argjson warning_threshold "$warning_threshold" \
+        --argjson critical_threshold "$critical_threshold" \
+        --argjson is_stale "$is_stale" \
+        --arg context_status "$context_status" \
+        --argjson reasons "$reasons" \
+        --argjson task_validation "$task_validation" \
+        --argjson compliance_validation "$compliance_validation" \
+        --arg task_id "$task_id" \
+        --arg epic_id "$epic_id" \
+        --arg previous_task_id "$previous_task_id" \
+        '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "pre_spawn_check"
+            },
+            "success": true,
+            "result": {
+                "canSpawn": $can_spawn,
+                "spawnStatus": $spawn_status,
+                "recommendation": $recommendation,
+                "context": {
+                    "percentage": $percentage,
+                    "currentTokens": $current_tokens,
+                    "maxTokens": $max_tokens,
+                    "warningThreshold": $warning_threshold,
+                    "criticalThreshold": $critical_threshold,
+                    "status": $context_status,
+                    "stale": $is_stale
+                },
+                "taskValidation": $task_validation,
+                "complianceValidation": $compliance_validation,
+                "reasons": $reasons,
+                "requestedTaskId": (if $task_id != "" then $task_id else null end),
+                "requestedEpicId": (if $epic_id != "" then $epic_id else null end),
+                "previousTaskId": (if $previous_task_id != "" then $previous_task_id else null end)
+            }
+        }'
+
+    [[ "$can_spawn" == "true" ]] && return 0
+    return 1
+}
+
+# generate_hitl_summary - Generate Human-in-the-Loop summary for session handoff
+# Creates a structured summary for human review when orchestrator pauses
+# Args:
+#   $1 - Epic ID (optional, uses current session scope if not provided)
+#   $2 - Stop reason (optional, default: "context-limit")
+# Output: JSON with HITL summary including progress, remaining work, resume instructions
+# Returns: 0 on success
+generate_hitl_summary() {
+    local epic_id="${1:-}"
+    local stop_reason="${2:-context-limit}"
+    local todo_file sessions_file focus_file
+    todo_file=$(_os_get_todo_file)
+    sessions_file=$(_os_get_sessions_file)
+    focus_file=$(_os_get_focus_file)
+
+    # Get current session info
+    local session_id=""
+    local session_info='null'
+
+    if [[ -f "$sessions_file" ]]; then
+        # Try to get current session
+        local current_session_file
+        current_session_file="$(get_cleo_dir)/.current-session"
+        if [[ -f "$current_session_file" ]]; then
+            session_id=$(cat "$current_session_file" 2>/dev/null | tr -d '[:space:]')
+        fi
+        if [[ -n "$session_id" ]]; then
+            session_info=$(jq -c --arg id "$session_id" '.sessions[] | select(.id == $id)' "$sessions_file" 2>/dev/null || echo 'null')
+            if [[ "$session_info" != "null" && -z "$epic_id" ]]; then
+                epic_id=$(echo "$session_info" | jq -r '.scope.rootId // ""')
+            fi
+        fi
+    fi
+
+    # Get current focus
+    local focused_task=""
+    local focus_note=""
+    if [[ -f "$focus_file" ]]; then
+        focused_task=$(jq -r '.focusedTaskId // ""' "$focus_file" 2>/dev/null || echo "")
+        focus_note=$(jq -r '.sessionNote // ""' "$focus_file" 2>/dev/null || echo "")
+    fi
+
+    # Get task statistics for epic
+    local completed_tasks=0
+    local pending_tasks=0
+    local active_tasks=0
+    local blocked_tasks=0
+    local completed_this_session='[]'
+    local remaining_tasks='[]'
+
+    if [[ -f "$todo_file" && -n "$epic_id" ]]; then
+        local task_stats
+        task_stats=$(jq --arg epic_id "$epic_id" '
+            [.tasks[] | select(.parentId == $epic_id)] as $epic_tasks |
+            {
+                completed: ([$epic_tasks[] | select(.status == "done")] | length),
+                pending: ([$epic_tasks[] | select(.status == "pending")] | length),
+                active: ([$epic_tasks[] | select(.status == "active")] | length),
+                blocked: ([$epic_tasks[] | select(.status == "blocked")] | length),
+                completedTasks: [$epic_tasks[] | select(.status == "done") | {id, title}],
+                remainingTasks: [$epic_tasks[] | select(.status != "done") | {id, title, status, priority}]
+            }
+        ' "$todo_file" 2>/dev/null || echo '{}')
+
+        completed_tasks=$(echo "$task_stats" | jq -r '.completed // 0')
+        pending_tasks=$(echo "$task_stats" | jq -r '.pending // 0')
+        active_tasks=$(echo "$task_stats" | jq -r '.active // 0')
+        blocked_tasks=$(echo "$task_stats" | jq -r '.blocked // 0')
+        completed_this_session=$(echo "$task_stats" | jq -c '.completedTasks // []')
+        remaining_tasks=$(echo "$task_stats" | jq -c '.remainingTasks // []')
+    fi
+
+    # Get next ready tasks
+    local ready_tasks='[]'
+    if [[ -n "$epic_id" ]]; then
+        local ready_result
+        ready_result=$(orchestrator_get_ready_tasks "$epic_id" 2>/dev/null || echo '{"result":{"tasks":[]}}')
+        ready_tasks=$(echo "$ready_result" | jq -c '.result.tasks // []')
+    fi
+
+    # Build resume command
+    local resume_command=""
+    if [[ -n "$session_id" ]]; then
+        resume_command="cleo session resume ${session_id}"
+    elif [[ -n "$epic_id" ]]; then
+        resume_command="cleo session start --scope epic:${epic_id} --auto-focus"
+    else
+        resume_command="cleo session list  # Resume appropriate session"
+    fi
+
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Calculate total and percentage
+    local total_tasks percent_complete
+    total_tasks=$((completed_tasks + pending_tasks + active_tasks + blocked_tasks))
+    if [[ "$total_tasks" -gt 0 ]]; then
+        percent_complete=$((completed_tasks * 100 / total_tasks))
+    else
+        percent_complete=0
+    fi
+
+    jq -n \
+        --arg session_id "$session_id" \
+        --arg epic_id "$epic_id" \
+        --arg focused_task "$focused_task" \
+        --arg focus_note "$focus_note" \
+        --arg stop_reason "$stop_reason" \
+        --arg resume_command "$resume_command" \
+        --arg timestamp "$timestamp" \
+        --argjson completed "$completed_tasks" \
+        --argjson pending "$pending_tasks" \
+        --argjson active "$active_tasks" \
+        --argjson blocked "$blocked_tasks" \
+        --argjson total "$total_tasks" \
+        --argjson percent "$percent_complete" \
+        --argjson completed_tasks "$completed_this_session" \
+        --argjson remaining_tasks "$remaining_tasks" \
+        --argjson ready_tasks "$ready_tasks" \
+        '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "hitl_summary"
+            },
+            "success": true,
+            "result": {
+                "timestamp": $timestamp,
+                "stopReason": $stop_reason,
+                "session": {
+                    "id": (if $session_id != "" then $session_id else null end),
+                    "epicId": (if $epic_id != "" then $epic_id else null end),
+                    "focusedTask": (if $focused_task != "" then $focused_task else null end),
+                    "progressNote": (if $focus_note != "" then $focus_note else null end)
+                },
+                "progress": {
+                    "completed": $completed,
+                    "pending": $pending,
+                    "active": $active,
+                    "blocked": $blocked,
+                    "total": $total,
+                    "percentComplete": $percent
+                },
+                "completedTasks": $completed_tasks,
+                "remainingTasks": ($remaining_tasks | sort_by(
+                    (if .priority == "critical" then 0
+                     elif .priority == "high" then 1
+                     elif .priority == "medium" then 2
+                     else 3 end)
+                )),
+                "readyToSpawn": $ready_tasks,
+                "handoff": {
+                    "resumeCommand": $resume_command,
+                    "nextSteps": [
+                        ("Run: " + $resume_command),
+                        ("Check progress: cleo list --parent " + (if $epic_id != "" then $epic_id else "<epic-id>" end)),
+                        "Review dashboard: cleo dash"
+                    ]
+                }
+            }
+        }'
+
+    return 0
+}
+
+# orchestrator_auto_stop - Execute automatic stop procedure when context limit reached
+# Ends session cleanly and generates HITL summary for human handoff
+# Args:
+#   $1 - Epic ID (optional)
+#   $2 - Stop reason (optional, default: "context-limit")
+# Output: JSON with auto-stop result and HITL summary
+# Returns: 0 on success
+orchestrator_auto_stop() {
+    local epic_id="${1:-}"
+    local stop_reason="${2:-context-limit}"
+
+    # Check if autoStopOnCritical is enabled
+    local auto_stop_enabled
+    auto_stop_enabled=$(get_config_value 'orchestrator.autoStopOnCritical' true)
+
+    if [[ "$auto_stop_enabled" != "true" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "auto_stop"
+            },
+            "success": false,
+            "result": {
+                "stopped": false,
+                "reason": "autoStopOnCritical is disabled in config"
+            }
+        }'
+        return 0
+    fi
+
+    # Check if HITL summary should be generated
+    local hitl_enabled
+    hitl_enabled=$(get_config_value 'orchestrator.hitlSummaryOnPause' true)
+
+    # Get current session ID
+    local session_id=""
+    local current_session_file
+    current_session_file="$(get_cleo_dir)/.current-session"
+    if [[ -f "$current_session_file" ]]; then
+        session_id=$(cat "$current_session_file" 2>/dev/null | tr -d '[:space:]')
+    fi
+
+    # Generate HITL summary if enabled
+    local hitl_summary='null'
+    if [[ "$hitl_enabled" == "true" ]]; then
+        local hitl_result
+        hitl_result=$(generate_hitl_summary "$epic_id" "$stop_reason")
+        hitl_summary=$(echo "$hitl_result" | jq '.result')
+    fi
+
+    # End session with summary note (if session exists)
+    local session_ended=false
+    local session_note="Auto-stopped: ${stop_reason}"
+    if [[ -n "$session_id" ]]; then
+        # Source sessions library if not already loaded
+        if ! declare -f end_session >/dev/null 2>&1; then
+            local lib_dir="${BASH_SOURCE[0]%/*}"
+            if [[ -f "$lib_dir/sessions.sh" ]]; then
+                source "$lib_dir/sessions.sh"
+            fi
+        fi
+
+        # End session with note
+        if declare -f end_session >/dev/null 2>&1; then
+            if end_session "$session_id" "$session_note" >/dev/null 2>&1; then
+                session_ended=true
+            fi
+        fi
+    fi
+
+    # Build resume command
+    local resume_command=""
+    if [[ -n "$session_id" ]]; then
+        resume_command="cleo session resume ${session_id}"
+    elif [[ -n "$epic_id" ]]; then
+        resume_command="cleo session start --scope epic:${epic_id} --auto-focus"
+    fi
+
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Convert hitl_enabled to proper boolean for jq
+    local hitl_enabled_bool
+    [[ "$hitl_enabled" == "true" ]] && hitl_enabled_bool="true" || hitl_enabled_bool="false"
+
+    jq -n \
+        --arg stop_reason "$stop_reason" \
+        --arg session_id "$session_id" \
+        --arg resume_command "$resume_command" \
+        --arg timestamp "$timestamp" \
+        --argjson session_ended "$session_ended" \
+        --argjson hitl_enabled "$hitl_enabled_bool" \
+        --argjson hitl_summary "$hitl_summary" \
+        '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "auto_stop"
+            },
+            "success": true,
+            "result": {
+                "stopped": true,
+                "timestamp": $timestamp,
+                "stopReason": $stop_reason,
+                "sessionId": (if $session_id != "" then $session_id else null end),
+                "sessionEnded": $session_ended,
+                "hitlSummaryGenerated": $hitl_enabled,
+                "hitlSummary": $hitl_summary,
+                "resumeCommand": $resume_command,
+                "message": ("Orchestrator auto-stopped due to " + $stop_reason + ". Resume with: " + $resume_command)
+            }
+        }'
+
+    return 0
+}
+
+# orchestrator_check_and_stop - Combined check and auto-stop in one call
+# Primary function for orchestrator workflow to check context before spawn decisions
+# Args:
+#   $1 - Epic ID (optional)
+# Output: JSON with decision and actions taken
+# Returns: 0 if should continue, 2 if stopped (critical threshold)
+orchestrator_check_and_stop() {
+    local epic_id="${1:-}"
+
+    # Use orchestrator_should_pause for context check
+    local pause_result
+    pause_result=$(orchestrator_should_pause)
+    local pause_code=$?
+
+    local should_stop
+    should_stop=$(echo "$pause_result" | jq -r '.result.shouldPause')
+
+    if [[ "$should_stop" == "true" ]]; then
+        # Execute auto-stop
+        local auto_stop_result
+        auto_stop_result=$(orchestrator_auto_stop "$epic_id" "context-limit")
+
+        # Combine results
+        jq -n \
+            --argjson check "$pause_result" \
+            --argjson stop "$auto_stop_result" \
+            '{
+                "_meta": {
+                    "command": "orchestrator",
+                    "operation": "check_and_stop"
+                },
+                "success": true,
+                "result": {
+                    "action": "stopped",
+                    "pauseCheck": $check.result,
+                    "autoStop": $stop.result
+                }
+            }'
+        return 2
+    fi
+
+    # Continue - return check result with continue action
+    jq -n \
+        --argjson check "$pause_result" \
+        '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "check_and_stop"
+            },
+            "success": true,
+            "result": {
+                "action": "continue",
+                "pauseCheck": $check.result
+            }
+        }'
+    return 0
+}
+
 # orchestrator_context_check - Validate orchestrator context limits
 # Args:
-#   $1 - Current context usage in tokens (optional, uses estimate if not provided)
+#   $1 - Current context usage in tokens (optional, uses context state file if not provided)
 # Output: JSON with context status and recommendations
 # Returns: 0 if OK, 52 if critical
 orchestrator_context_check() {
@@ -645,13 +1320,11 @@ orchestrator_context_check() {
     local warning_threshold="$ORCHESTRATOR_CONTEXT_WARNING"
     local critical_threshold="$ORCHESTRATOR_CONTEXT_CRITICAL"
 
-    # If not provided, try to get from context state file
+    # If not provided, try to get from context state file using session-aware helper
     if [[ "$current_tokens" -eq 0 ]]; then
-        local context_file
-        context_file="$(get_cleo_dir)/.context-state.json"
-        if [[ -f "$context_file" ]]; then
-            current_tokens=$(jq -r '.usedTokens // 0' "$context_file" 2>/dev/null || echo 0)
-        fi
+        local context_state
+        context_state=$(_os_get_context_state)
+        current_tokens=$(echo "$context_state" | jq -r '.currentTokens // 0')
     fi
 
     local usage_percent status recommendation
@@ -1456,5 +2129,10 @@ export -f orchestrator_build_prompt
 export -f orchestrator_spawn
 export -f orchestrator_can_parallelize
 export -f orchestrator_get_parallel_waves
+export -f orchestrator_should_pause
+export -f orchestrator_pre_spawn_check
+export -f generate_hitl_summary
+export -f orchestrator_auto_stop
+export -f orchestrator_check_and_stop
 export -f get_orchestrator_warning_threshold
 export -f get_orchestrator_critical_threshold

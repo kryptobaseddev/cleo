@@ -864,3 +864,315 @@ EOF
     safe_to_spawn=$(echo "$result" | jq '.result.safeToSpawn')
     [[ $(echo "$safe_to_spawn" | jq 'length') -eq 2 ]]
 }
+
+# =============================================================================
+# PROTOCOL INJECTION VALIDATION TESTS
+# =============================================================================
+
+@test "protocol validation: passes for prompt with SUBAGENT PROTOCOL marker" {
+    source "${LIB_DIR}/orchestrator-spawn.sh"
+
+    local prompt='You are a research subagent.
+
+## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
+
+OUTPUT REQUIREMENTS:
+1. MUST write findings to: claudedocs/agent-outputs/2026-01-26_test.md
+2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
+3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+
+Your task: Research authentication patterns.'
+
+    # Should pass validation (exit 0)
+    run orchestrator_verify_protocol_injection "$prompt"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "protocol validation: passes for prompt with lowercase marker" {
+    source "${LIB_DIR}/orchestrator-spawn.sh"
+
+    local prompt='You are a task executor.
+
+## subagent protocol (rfc 2119)
+
+Some protocol content here.
+
+Your task: Implement feature X.'
+
+    # Should pass validation (case-insensitive)
+    run orchestrator_verify_protocol_injection "$prompt"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "protocol validation: fails for prompt without marker" {
+    source "${LIB_DIR}/orchestrator-spawn.sh"
+
+    local prompt='You are a research subagent.
+
+Your task: Research authentication patterns.
+
+Please write your findings to a file.'
+
+    # Should fail validation (exit 60 = EXIT_PROTOCOL_MISSING)
+    run orchestrator_verify_protocol_injection "$prompt"
+    [[ "$status" -eq 60 ]]
+}
+
+@test "protocol validation: fails for empty prompt" {
+    source "${LIB_DIR}/orchestrator-spawn.sh"
+
+    # Should fail validation (exit 2 = EXIT_INVALID_INPUT)
+    run orchestrator_verify_protocol_injection ""
+    [[ "$status" -eq 2 ]]
+}
+
+@test "protocol validation: JSON output contains fix instructions on failure" {
+    source "${LIB_DIR}/orchestrator-spawn.sh"
+
+    local prompt='No protocol block here.'
+
+    local result
+    result=$(orchestrator_verify_protocol_injection "$prompt" "true" 2>/dev/null || true)
+
+    # Should have error code
+    local error_code
+    error_code=$(echo "$result" | jq -r '.error.code')
+    [[ "$error_code" == "E_PROTOCOL_MISSING" ]]
+
+    # Should have fix command
+    local fix
+    fix=$(echo "$result" | jq -r '.error.fix')
+    [[ "$fix" == "cleo research inject" ]]
+
+    # Should have alternatives
+    local alt_count
+    alt_count=$(echo "$result" | jq '.error.alternatives | length')
+    [[ "$alt_count" -ge 1 ]]
+}
+
+@test "protocol validation: JSON output indicates success on valid prompt" {
+    source "${LIB_DIR}/orchestrator-spawn.sh"
+
+    local prompt='## SUBAGENT PROTOCOL
+Some content.'
+
+    local result
+    result=$(orchestrator_verify_protocol_injection "$prompt" "true")
+
+    # Should have success true
+    local success
+    success=$(echo "$result" | jq -r '.success')
+    [[ "$success" == "true" ]]
+
+    # Should have valid true
+    local valid
+    valid=$(echo "$result" | jq -r '.valid')
+    [[ "$valid" == "true" ]]
+}
+
+# =============================================================================
+# COMPLIANCE VERIFICATION TESTS (Pre-Spawn)
+# =============================================================================
+
+@test "compliance: orchestrator_verify_compliance returns error for missing task_id" {
+    local result
+    result=$(orchestrator_verify_compliance "" 2>/dev/null || true)
+
+    local success
+    success=$(echo "$result" | jq -r '.success')
+    [[ "$success" == "false" ]]
+
+    local error_code
+    error_code=$(echo "$result" | jq -r '.error.code')
+    [[ "$error_code" == "E_INVALID_INPUT" ]]
+}
+
+@test "compliance: orchestrator_verify_compliance detects missing manifest entry" {
+    # Create test structure but no manifest entries linked to task
+    create_test_epic_structure
+
+    local result
+    set +e
+    result=$(orchestrator_verify_compliance "T002")
+    local exit_code=$?
+    set -e
+
+    # Should return EXIT_MANIFEST_ENTRY_MISSING (62)
+    [[ "$exit_code" -eq 62 ]]
+
+    local can_spawn
+    can_spawn=$(echo "$result" | jq -r '.result.canSpawnNext')
+    [[ "$can_spawn" == "false" ]]
+
+    local manifest_exists
+    manifest_exists=$(echo "$result" | jq -r '.result.checks.manifestEntryExists')
+    [[ "$manifest_exists" == "false" ]]
+}
+
+@test "compliance: orchestrator_verify_compliance passes with valid manifest entry" {
+    create_test_epic_structure
+    create_valid_manifest
+
+    # Create a manifest entry linked to T002
+    local manifest_file="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
+    cat >> "$manifest_file" << EOF
+{"id":"t002-research","file":"t002-research.md","title":"Research for T002","date":"2026-01-26","status":"complete","topics":["test"],"key_findings":["F1"],"actionable":true,"needs_followup":[],"linked_tasks":["T002"]}
+EOF
+    touch "${RESEARCH_OUTPUT_DIR}/t002-research.md"
+
+    local result
+    result=$(orchestrator_verify_compliance "T002" "t002-research")
+
+    local can_spawn
+    can_spawn=$(echo "$result" | jq -r '.result.canSpawnNext')
+    [[ "$can_spawn" == "true" ]]
+
+    local manifest_exists
+    manifest_exists=$(echo "$result" | jq -r '.result.checks.manifestEntryExists')
+    [[ "$manifest_exists" == "true" ]]
+
+    local research_linked
+    research_linked=$(echo "$result" | jq -r '.result.checks.researchLinkedToTask')
+    [[ "$research_linked" == "true" ]]
+}
+
+@test "compliance: orchestrator_verify_compliance auto-discovers research by task link" {
+    create_test_epic_structure
+    create_valid_manifest
+
+    # Create a manifest entry linked to T003 (will be auto-discovered)
+    local manifest_file="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
+    cat >> "$manifest_file" << EOF
+{"id":"auto-discovered","file":"auto-discovered.md","title":"Auto Research","date":"2026-01-26","status":"complete","topics":["test"],"key_findings":["F1"],"actionable":true,"needs_followup":[],"linked_tasks":["T003"]}
+EOF
+    touch "${RESEARCH_OUTPUT_DIR}/auto-discovered.md"
+
+    # Call without explicit research ID - should auto-discover
+    local result
+    result=$(orchestrator_verify_compliance "T003")
+
+    local can_spawn
+    can_spawn=$(echo "$result" | jq -r '.result.canSpawnNext')
+    [[ "$can_spawn" == "true" ]]
+
+    local discovered_id
+    discovered_id=$(echo "$result" | jq -r '.result.researchId')
+    [[ "$discovered_id" == "auto-discovered" ]]
+}
+
+@test "compliance: orchestrator_verify_compliance detects invalid manifest status" {
+    create_test_epic_structure
+    create_valid_manifest
+
+    # Create a manifest entry with invalid status
+    local manifest_file="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
+    cat >> "$manifest_file" << EOF
+{"id":"invalid-status","file":"invalid-status.md","title":"Invalid Status","date":"2026-01-26","status":"invalid_status","topics":["test"],"key_findings":["F1"],"actionable":true,"needs_followup":[],"linked_tasks":["T004"]}
+EOF
+    touch "${RESEARCH_OUTPUT_DIR}/invalid-status.md"
+
+    local result
+    set +e
+    result=$(orchestrator_verify_compliance "T004" "invalid-status")
+    local exit_code=$?
+    set -e
+
+    # Should fail validation (exit 6)
+    [[ "$exit_code" -eq 6 ]]
+
+    local can_spawn
+    can_spawn=$(echo "$result" | jq -r '.result.canSpawnNext')
+    [[ "$can_spawn" == "false" ]]
+
+    local return_valid
+    return_valid=$(echo "$result" | jq -r '.result.checks.returnStatusValid')
+    [[ "$return_valid" == "false" ]]
+}
+
+@test "compliance: orchestrator_verify_compliance warns when research not linked to task" {
+    create_test_epic_structure
+    create_valid_manifest
+
+    # Create a manifest entry NOT linked to T005
+    local manifest_file="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
+    cat >> "$manifest_file" << EOF
+{"id":"unlinked-research","file":"unlinked-research.md","title":"Unlinked Research","date":"2026-01-26","status":"complete","topics":["test"],"key_findings":["F1"],"actionable":true,"needs_followup":[],"linked_tasks":[]}
+EOF
+    touch "${RESEARCH_OUTPUT_DIR}/unlinked-research.md"
+
+    local result
+    result=$(orchestrator_verify_compliance "T005" "unlinked-research")
+
+    # Should still pass (linking is a warning, not blocking)
+    local can_spawn
+    can_spawn=$(echo "$result" | jq -r '.result.canSpawnNext')
+    [[ "$can_spawn" == "true" ]]
+
+    # But should have warning
+    local warning_count
+    warning_count=$(echo "$result" | jq -r '.result.warningCount')
+    [[ "$warning_count" -gt 0 ]]
+
+    local research_linked
+    research_linked=$(echo "$result" | jq -r '.result.checks.researchLinkedToTask')
+    [[ "$research_linked" == "false" ]]
+}
+
+@test "compliance: orchestrator_pre_spawn_check integrates compliance verification" {
+    create_test_epic_structure
+    create_valid_manifest
+
+    # Create a compliant manifest entry for T002
+    local manifest_file="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
+    cat >> "$manifest_file" << EOF
+{"id":"t002-compliant","file":"t002-compliant.md","title":"T002 Compliant","date":"2026-01-26","status":"complete","topics":["test"],"key_findings":["F1"],"actionable":true,"needs_followup":[],"linked_tasks":["T002"]}
+EOF
+    touch "${RESEARCH_OUTPUT_DIR}/t002-compliant.md"
+
+    # Call pre_spawn_check with previous_task_id
+    local result
+    result=$(orchestrator_pre_spawn_check "T003" "T001" "T002" "t002-compliant")
+
+    # Should have compliance validation in result
+    local compliance_validation
+    compliance_validation=$(echo "$result" | jq -r '.result.complianceValidation')
+    [[ "$compliance_validation" != "null" ]]
+
+    # Should show previous agent passed compliance
+    local prev_can_spawn
+    prev_can_spawn=$(echo "$result" | jq -r '.result.complianceValidation.canSpawnNext')
+    [[ "$prev_can_spawn" == "true" ]]
+}
+
+@test "compliance: orchestrator_pre_spawn_check blocks spawn on compliance failure" {
+    create_test_epic_structure
+
+    # Ensure manifest directory exists but no entries linked to T002
+    mkdir -p "$RESEARCH_OUTPUT_DIR"
+    touch "${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
+
+    # Mark T002 as done so it looks like previous agent completed
+    local todo_file="${TEST_TEMP_DIR}/.cleo/todo.json"
+    jq '.tasks = [.tasks[] | if .id == "T002" then .status = "done" else . end]' "$todo_file" > "${todo_file}.tmp"
+    mv "${todo_file}.tmp" "$todo_file"
+
+    # Call pre_spawn_check with T003 (valid pending task) and previous_task_id T002 (no manifest)
+    # The function returns non-zero when canSpawn=false, so we need set +e
+    local result
+    set +e
+    result=$(orchestrator_pre_spawn_check "T003" "T001" "T002")
+    set -e
+
+    local can_spawn
+    can_spawn=$(echo "$result" | jq -r '.result.canSpawn')
+    [[ "$can_spawn" == "false" ]]
+
+    local recommendation
+    recommendation=$(echo "$result" | jq -r '.result.recommendation')
+    [[ "$recommendation" == "verify_compliance" ]]
+
+    # Should have reason about previous agent violation
+    local has_violation_reason
+    has_violation_reason=$(echo "$result" | jq '[.result.reasons[] | select(.code == "PREVIOUS_AGENT_VIOLATION")] | length')
+    [[ "$has_violation_reason" -gt 0 ]]
+}

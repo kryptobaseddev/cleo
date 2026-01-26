@@ -262,7 +262,7 @@ Always provided by orchestrator:
 |-------|---------|-------------|
 | `{{EPIC_ID}}` | `""` | Parent epic ID |
 | `{{SESSION_ID}}` | `""` | Session identifier |
-| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` | Output directory |
+| `{{OUTPUT_DIR}}` | `claudedocs/agent-outputs` | Output directory |
 | `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` | Manifest location |
 
 ### Task Command Tokens
@@ -384,10 +384,10 @@ Check output file and manifest:
 
 ```bash
 # Check output file created
-ls -la claudedocs/research-outputs/
+ls -la claudedocs/agent-outputs/
 
 # Verify manifest entry
-tail -1 claudedocs/research-outputs/MANIFEST.jsonl | jq .
+tail -1 claudedocs/agent-outputs/MANIFEST.jsonl | jq .
 ```
 
 ---

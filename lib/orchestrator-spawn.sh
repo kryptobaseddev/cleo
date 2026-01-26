@@ -266,6 +266,49 @@ orchestrator_spawn_for_task() {
         return "$inject_rc"
     fi
 
+    # Step 7: MANDATORY protocol validation - fail loudly if missing
+    # This check ensures ALL spawned subagents have the protocol block
+    _osp_debug "Validating protocol injection in generated prompt..."
+    if ! orchestrator_verify_protocol_injection "$prompt_content"; then
+        _osp_error "SPAWN BLOCKED: Protocol injection validation failed"
+        jq -n \
+            --arg task_id "$task_id" \
+            --arg skill "$skill_name" \
+            '{
+                "_meta": {
+                    "command": "orchestrator",
+                    "operation": "spawn_for_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_PROTOCOL_MISSING",
+                    "message": "SPAWN BLOCKED: Generated prompt missing SUBAGENT PROTOCOL marker. The skill template may be missing protocol injection.",
+                    "fix": "cleo orchestrator spawn --force-inject",
+                    "alternatives": [
+                        {
+                            "action": "Manually append protocol block",
+                            "command": "protocol=$(cleo research inject); prompt=\"${prompt}\\n\\n${protocol}\""
+                        },
+                        {
+                            "action": "Check skill template includes protocol",
+                            "command": "cat skills/" + $skill + "/SKILL.md | grep -i \"subagent protocol\""
+                        },
+                        {
+                            "action": "Use a different skill with protocol support",
+                            "command": "cleo orchestrator spawn " + $task_id + " --skill ct-task-executor"
+                        }
+                    ],
+                    "context": {
+                        "taskId": $task_id,
+                        "skill": $skill,
+                        "reason": "All subagents MUST include SUBAGENT PROTOCOL block to ensure manifest compliance"
+                    }
+                }
+            }'
+        return "${EXIT_PROTOCOL_MISSING:-60}"
+    fi
+    _osp_debug "Protocol validation passed"
+
     # Build enhanced prompt with task context
     local output_file="${date_today}_${topic_slug}.md"
     local spawn_timestamp
@@ -432,32 +475,108 @@ orchestrator_spawn_preview() {
 
 # orchestrator_verify_protocol_injection - Verify prompt contains protocol block
 #
+# MANDATORY validation before spawning any subagent via Task tool.
+# Fails loudly with actionable fix instructions if protocol block is missing.
+#
 # Args:
 #   $1 = prompt content (required)
+#   $2 = output_json (optional) - if "true", output JSON error object
 #
 # Returns:
-#   0 if protocol block found, 1 if missing
+#   0 if protocol block found
+#   EXIT_PROTOCOL_MISSING (60) if missing
+#
+# Output:
+#   On failure with output_json=true: JSON error object with fix instructions
+#   On failure without output_json: Error message to stderr
 #
 # Example:
-#   if orchestrator_verify_protocol_injection "$prompt"; then
-#       echo "Protocol block present"
+#   if ! orchestrator_verify_protocol_injection "$prompt" "true"; then
+#       echo "Protocol injection required"
 #   fi
 #
 orchestrator_verify_protocol_injection() {
     local prompt="${1:-}"
+    local output_json="${2:-false}"
 
+    # Validate input
     if [[ -z "$prompt" ]]; then
-        _osp_error "Prompt content is required"
-        return 1
+        _osp_error "Prompt content is required for protocol validation"
+        if [[ "$output_json" == "true" ]]; then
+            jq -n '{
+                "_meta": {
+                    "command": "orchestrator",
+                    "operation": "verify_protocol_injection"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_INVALID_INPUT",
+                    "message": "Prompt content is required for protocol validation",
+                    "fix": "Pass prompt content as first argument to validation function"
+                }
+            }'
+        fi
+        return "${EXIT_INVALID_INPUT:-2}"
     fi
 
-    if echo "$prompt" | grep -q "SUBAGENT PROTOCOL"; then
+    # Check for SUBAGENT PROTOCOL marker (case-insensitive header check)
+    # Accepts: "## SUBAGENT PROTOCOL", "# SUBAGENT PROTOCOL", "SUBAGENT PROTOCOL"
+    if echo "$prompt" | grep -qi "SUBAGENT PROTOCOL"; then
         _osp_debug "Protocol block found in prompt"
+        if [[ "$output_json" == "true" ]]; then
+            jq -n '{
+                "_meta": {
+                    "command": "orchestrator",
+                    "operation": "verify_protocol_injection"
+                },
+                "success": true,
+                "valid": true,
+                "message": "Protocol block present in prompt"
+            }'
+        fi
         return 0
-    else
-        _osp_error "PROTOCOL VIOLATION: Missing protocol block in spawn prompt"
-        return 1
     fi
+
+    # PROTOCOL VIOLATION - fail loudly with fix instructions
+    _osp_error "PROTOCOL VIOLATION: Missing 'SUBAGENT PROTOCOL' marker in spawn prompt"
+    _osp_error "FIX: Use 'cleo research inject' to get the protocol block and inject it into your prompt"
+
+    if [[ "$output_json" == "true" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "verify_protocol_injection"
+            },
+            "success": false,
+            "valid": false,
+            "error": {
+                "code": "E_PROTOCOL_MISSING",
+                "message": "PROTOCOL VIOLATION: Missing SUBAGENT PROTOCOL marker in spawn prompt. All subagents MUST include the protocol injection block.",
+                "fix": "cleo research inject",
+                "alternatives": [
+                    {
+                        "action": "Get protocol block via CLI",
+                        "command": "cleo research inject"
+                    },
+                    {
+                        "action": "Copy protocol to clipboard",
+                        "command": "cleo research inject --clipboard"
+                    },
+                    {
+                        "action": "Use orchestrator spawn command (auto-injects)",
+                        "command": "cleo orchestrator spawn <task-id>"
+                    }
+                ],
+                "context": {
+                    "required_marker": "SUBAGENT PROTOCOL",
+                    "documentation": "skills/ct-orchestrator/references/SUBAGENT-PROTOCOL-BLOCK.md",
+                    "reason": "Protocol block ensures subagents write to manifest and return standardized messages"
+                }
+            }
+        }'
+    fi
+
+    return "${EXIT_PROTOCOL_MISSING:-60}"
 }
 
 # orchestrator_validate_return_message - Validate subagent return message format

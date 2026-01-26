@@ -248,6 +248,27 @@ readonly EXIT_CONTEXT_EMERGENCY=53
 readonly EXIT_CONTEXT_STALE=54
 
 # ============================================================================
+# ORCHESTRATOR ERROR CODES (60-69)
+# Multi-agent orchestration protocol errors
+# ============================================================================
+
+# Protocol injection block missing from spawn prompt
+# Examples: spawning subagent without SUBAGENT PROTOCOL marker
+readonly EXIT_PROTOCOL_MISSING=60
+
+# Invalid subagent return message format
+# Examples: subagent returned prose instead of standard completion message
+readonly EXIT_INVALID_RETURN_MESSAGE=61
+
+# Manifest entry not found after spawn
+# Examples: subagent did not append to MANIFEST.jsonl
+readonly EXIT_MANIFEST_ENTRY_MISSING=62
+
+# Spawn validation failed
+# Examples: skill validation failed, task not ready for spawn
+readonly EXIT_SPAWN_VALIDATION_FAILED=63
+
+# ============================================================================
 # SPECIAL CODES (100+)
 # These indicate notable states but are NOT errors
 # ============================================================================
@@ -362,6 +383,11 @@ get_exit_code_name() {
         52)  echo "CONTEXT_CRITICAL" ;;
         53)  echo "CONTEXT_EMERGENCY" ;;
         54)  echo "CONTEXT_STALE" ;;
+        # Orchestrator (60-69)
+        60)  echo "PROTOCOL_MISSING" ;;
+        61)  echo "INVALID_RETURN_MESSAGE" ;;
+        62)  echo "MANIFEST_ENTRY_MISSING" ;;
+        63)  echo "SPAWN_VALIDATION_FAILED" ;;
         # Special (100+)
         100) echo "NO_DATA" ;;
         101) echo "ALREADY_EXISTS" ;;
@@ -406,6 +432,8 @@ is_recoverable_code() {
         # Context safeguard - these are informational, not really errors
         # Agent should respond to them by running safestop, not retry
         50|51|52|53|54) return 1 ;;
+        # Orchestrator errors - recoverable by fixing prompt and respawning
+        60|61|62|63) return 0 ;;
         # Special codes are not errors, so "recoverable" doesn't apply
         *)    return 1 ;;
     esac
@@ -511,6 +539,12 @@ export EXIT_CONTEXT_CAUTION
 export EXIT_CONTEXT_CRITICAL
 export EXIT_CONTEXT_EMERGENCY
 export EXIT_CONTEXT_STALE
+
+# Export constants - Orchestrator (60-69)
+export EXIT_PROTOCOL_MISSING
+export EXIT_INVALID_RETURN_MESSAGE
+export EXIT_MANIFEST_ENTRY_MISSING
+export EXIT_SPAWN_VALIDATION_FAILED
 
 # Export constants - Special (100+)
 export EXIT_NO_DATA

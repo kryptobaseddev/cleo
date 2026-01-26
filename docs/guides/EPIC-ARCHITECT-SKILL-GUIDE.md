@@ -131,14 +131,14 @@ See `references/skill-aware-execution.md` for:
 
 ct-epic-architect writes to:
 ```
-claudedocs/research-outputs/YYYY-MM-DD_epic-{slug}.md
+claudedocs/agent-outputs/YYYY-MM-DD_epic-{slug}.md
 ```
 
 ### Manifest Entry
 
 Appends to:
 ```
-claudedocs/research-outputs/MANIFEST.jsonl
+claudedocs/agent-outputs/MANIFEST.jsonl
 ```
 
 ### What's in the Manifest
