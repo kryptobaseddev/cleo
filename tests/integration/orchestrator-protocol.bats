@@ -193,6 +193,41 @@ EOF
     [[ "$count" -eq 2 ]]
 }
 
+@test "manifest: filter_entries respects agent_type filter" {
+    # Create entries with different agent_types
+    cat >> "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl" << 'EOF'
+{"id":"research-entry","file":"research-entry.md","title":"Research Entry","date":"2026-01-18","status":"complete","agent_type":"research","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[],"linked_tasks":[]}
+{"id":"impl-entry","file":"impl-entry.md","title":"Implementation Entry","date":"2026-01-18","status":"complete","agent_type":"implementation","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[],"linked_tasks":[]}
+{"id":"validation-entry","file":"validation-entry.md","title":"Validation Entry","date":"2026-01-18","status":"complete","agent_type":"validation","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[],"linked_tasks":[]}
+{"id":"no-type-entry","file":"no-type-entry.md","title":"No Type Entry (defaults to research)","date":"2026-01-18","status":"complete","topics":["test"],"key_findings":["F1","F2","F3"],"actionable":true,"needs_followup":[],"linked_tasks":[]}
+EOF
+    echo "# Test" > "${RESEARCH_OUTPUT_DIR}/research-entry.md"
+    echo "# Test" > "${RESEARCH_OUTPUT_DIR}/impl-entry.md"
+    echo "# Test" > "${RESEARCH_OUTPUT_DIR}/validation-entry.md"
+    echo "# Test" > "${RESEARCH_OUTPUT_DIR}/no-type-entry.md"
+
+    # Filter by research type (should include entries without agent_type)
+    local result
+    result=$(filter_entries --type research)
+    local count
+    count=$(echo "$result" | jq -r '.result.filtered')
+    [[ "$count" -eq 2 ]]  # research-entry + no-type-entry
+
+    # All returned entries should have agent_type research or missing (default)
+    local ids
+    ids=$(echo "$result" | jq -r '.result.entries[].id' | sort)
+    [[ "$ids" == *"research-entry"* ]]
+    [[ "$ids" == *"no-type-entry"* ]]
+
+    # Filter by implementation type
+    result=$(filter_entries --type implementation)
+    count=$(echo "$result" | jq -r '.result.filtered')
+    [[ "$count" -eq 1 ]]
+    local impl_id
+    impl_id=$(echo "$result" | jq -r '.result.entries[0].id')
+    [[ "$impl_id" == "impl-entry" ]]
+}
+
 @test "manifest: read_manifest returns all entries" {
     create_valid_manifest
 

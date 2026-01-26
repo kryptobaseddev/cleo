@@ -544,6 +544,30 @@ else
     log_warn "AGENT-INJECTION.md template not found at $TEMPLATES_DIR/AGENT-INJECTION.md"
 fi
 
+# Migrate research-outputs to agent-outputs if needed (T2366)
+# Part of Cross-Agent Communication Protocol Unification (T2348)
+# This must happen BEFORE creating agent-outputs to preserve existing data
+if type check_agent_outputs_migration_needed &>/dev/null; then
+    if check_agent_outputs_migration_needed "."; then
+        log_info "Detected existing research-outputs directory, migrating to agent-outputs..."
+        migration_result=0
+        migrate_agent_outputs_dir "." || migration_result=$?
+        case $migration_result in
+            0)
+                log_info "Successfully migrated research-outputs/ to agent-outputs/"
+                ;;
+            100)
+                # Already migrated or nothing to do - not an error
+                log_info "Agent outputs directory already in correct location"
+                ;;
+            *)
+                log_warn "Agent outputs migration failed (exit code: $migration_result)"
+                log_warn "Manual migration may be required: mv claudedocs/research-outputs claudedocs/agent-outputs"
+                ;;
+        esac
+    fi
+fi
+
 # Create agent-outputs directory structure
 # This enables research subcommands without requiring `cleo research init`
 log_info "Creating agent outputs directory structure..."

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **ct-epic-architect skill bash histexpand error** (T2347): Fixed skill loading failure caused by `!` character in shell escaping documentation table triggering bash history expansion
+  - Moved shell escaping documentation to `references/shell-escaping.md`
+  - Condensed SKILL.md from 525 to 288 lines (under 500 line best practice)
+  - Updated to third-person description format per Agent Skills spec
+  - Added concrete CLEO command examples alongside abstract tokens
+  - Version bumped to v2.3.0
+
+### Changed
+- **ct-orchestrator skill major condensation** (v2.0.0): Reduced from ~1000 lines to ~300 lines
+  - Moved detailed content to reference files
+  - Improved progressive disclosure pattern
+  - Added tier designation for subagent protocol
+- **Skill system improvements**: Updated shared templates and protocols
+  - `skills/_shared/subagent-protocol-base.md`: Minor refinements
+  - `skills/_shared/task-system-integration.md`: Consistent formatting
+  - Various template updates for consistency
+
 ### Added
 - **Epic T2308: Contribution Protocol System v2 - JSON-First Multi-Agent Consensus**
   - **JSON Contribution Format Spec** (T2309): `docs/specs/CONTRIBUTION-FORMAT-SPEC.md`

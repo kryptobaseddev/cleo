@@ -64,16 +64,16 @@
     {
       "token": "OUTPUT_DIR",
       "type": "path",
-      "example": "claudedocs/research-outputs",
-      "description": "Output directory path",
-      "default": "claudedocs/research-outputs"
+      "example": "claudedocs/agent-outputs",
+      "description": "Output directory path for agent artifacts",
+      "default": "claudedocs/agent-outputs"
     },
     {
       "token": "MANIFEST_PATH",
       "type": "path",
-      "example": "claudedocs/research-outputs/MANIFEST.jsonl",
+      "example": "claudedocs/agent-outputs/MANIFEST.jsonl",
       "description": "Path to MANIFEST.jsonl file",
-      "default": "claudedocs/research-outputs/MANIFEST.jsonl"
+      "default": "claudedocs/agent-outputs/MANIFEST.jsonl"
     }
   ],
   "taskCommands": {

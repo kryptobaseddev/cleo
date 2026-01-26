@@ -12,7 +12,7 @@ OUTPUT REQUIREMENTS (RFC 2119):
 4. MUST NOT return research content in response.
 
 Manifest entry format (single line):
-{"id":"topic-YYYY-MM-DD","file":"YYYY-MM-DD_topic.md","title":"Title","date":"YYYY-MM-DD","status":"complete|partial|blocked","topics":["t1"],"key_findings":["Finding 1","Finding 2"],"actionable":true,"needs_followup":[]}
+{"id":"topic-YYYY-MM-DD","file":"YYYY-MM-DD_topic.md","title":"Title","date":"YYYY-MM-DD","status":"complete|partial|blocked","agent_type":"research|implementation|validation|documentation|analysis","topics":["t1"],"key_findings":["Finding 1","Finding 2"],"actionable":true,"needs_followup":[]}
 
 Output file format:
 # {Title}

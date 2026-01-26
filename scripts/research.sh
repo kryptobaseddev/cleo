@@ -78,6 +78,7 @@ LIST_TOPIC=""
 LIST_SINCE=""
 LIST_ACTIONABLE="false"
 LIST_LIMIT="20"
+LIST_TYPE=""
 
 # Inject subcommand options
 INJECT_RAW="false"
@@ -156,6 +157,7 @@ VALIDATE OPTIONS
 
 LIST OPTIONS
   --status STATUS  Filter by status (complete|partial|blocked|archived)
+  --type TYPE      Filter by agent type (research|implementation|validation|documentation|analysis)
   --topic TOPIC    Filter by topic tag
   --since DATE     Filter entries since date (ISO 8601: YYYY-MM-DD)
   --limit N        Max entries to return (default: 20)
@@ -344,6 +346,10 @@ while [[ $# -gt 0 ]]; do
           --actionable)
             LIST_ACTIONABLE="true"
             shift
+            ;;
+          --type)
+            LIST_TYPE="$2"
+            shift 2
             ;;
           *)
             break
@@ -710,6 +716,16 @@ validate_inputs() {
             ;;
         esac
       fi
+      # Validate agent_type if provided
+      if [[ -n "$LIST_TYPE" ]]; then
+        case "$LIST_TYPE" in
+          research|implementation|validation|documentation|analysis) ;;
+          *)
+            echo '{"error": "Invalid type. Use: research, implementation, validation, documentation, or analysis"}' >&2
+            exit 2
+            ;;
+        esac
+      fi
       # Validate since date format if provided
       if [[ -n "$LIST_SINCE" ]]; then
         if ! [[ "$LIST_SINCE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
@@ -904,6 +920,9 @@ run_init() {
 # ============================================================================
 
 run_list() {
+  # Validate inputs first
+  validate_inputs
+
   # Build filter_entries arguments
   local filter_args=()
 
@@ -925,6 +944,10 @@ run_list() {
 
   if [[ -n "$LIST_LIMIT" ]]; then
     filter_args+=(--limit "$LIST_LIMIT")
+  fi
+
+  if [[ -n "$LIST_TYPE" ]]; then
+    filter_args+=(--type "$LIST_TYPE")
   fi
 
   # Call filter_entries from research-manifest.sh

@@ -128,6 +128,17 @@ _rm_validate_entry() {
         return "$EXIT_VALIDATION_ERROR"
     fi
 
+    # Validate agent_type if present (optional field with default)
+    local agent_type
+    agent_type=$(echo "$json" | jq -r '.agent_type // "research"')
+    case "$agent_type" in
+        research|implementation|validation|documentation|analysis) ;;
+        *)
+            echo "Invalid agent_type: $agent_type (must be research|implementation|validation|documentation|analysis)" >&2
+            return "$EXIT_VALIDATION_ERROR"
+            ;;
+    esac
+
     return 0
 }
 
@@ -986,17 +997,18 @@ find_entry() {
     return 0
 }
 
-# filter_entries - Filter entries by status, topic, date, actionable
+# filter_entries - Filter entries by status, topic, date, actionable, agent_type
 # Args:
 #   --status STATUS    Filter by status (complete|partial|blocked|archived)
 #   --topic TOPIC      Filter by topic tag (substring match in topics array)
 #   --since DATE       Filter entries on or after date (ISO 8601)
 #   --actionable       Only actionable entries
 #   --limit N          Max entries (default: all)
+#   --type TYPE        Filter by agent_type (research|implementation|validation|documentation|analysis)
 # Output: JSON array of matching entries wrapped in CLEO envelope
 # Returns: 0 on success
 filter_entries() {
-    local status="" topic="" since="" actionable="" limit=""
+    local status="" topic="" since="" actionable="" limit="" agent_type=""
 
     # Parse arguments
     while [[ $# -gt 0 ]]; do
@@ -1019,6 +1031,10 @@ filter_entries() {
                 ;;
             --limit)
                 limit="$2"
+                shift 2
+                ;;
+            --type)
+                agent_type="$2"
                 shift 2
                 ;;
             *)
@@ -1064,6 +1080,11 @@ filter_entries() {
 
     if [[ -n "$actionable" ]]; then
         jq_filter+=" | select(.actionable == true)"
+    fi
+
+    if [[ -n "$agent_type" ]]; then
+        # Filter by agent_type, treating missing/null as "research" (default)
+        jq_filter+=" | select((.agent_type // \"research\") == \"$agent_type\")"
     fi
 
     # Get total count first
