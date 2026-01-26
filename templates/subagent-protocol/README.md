@@ -22,15 +22,15 @@ Persistent research output management for Claude Code orchestrator/subagent work
 
 ```bash
 # From this template directory
-mkdir -p /path/to/project/claudedocs/research-outputs
-cp SUBAGENT_PROTOCOL.md INJECT.md MANIFEST.jsonl /path/to/project/claudedocs/research-outputs/
+mkdir -p /path/to/project/claudedocs/agent-outputs
+cp SUBAGENT_PROTOCOL.md INJECT.md MANIFEST.jsonl /path/to/project/claudedocs/agent-outputs/
 ```
 
 Or with a one-liner:
 
 ```bash
 # Set your target project
-TARGET=/path/to/project/claudedocs/research-outputs
+TARGET=/path/to/project/claudedocs/agent-outputs
 mkdir -p "$TARGET" && cp SUBAGENT_PROTOCOL.md INJECT.md MANIFEST.jsonl "$TARGET/"
 ```
 
@@ -39,9 +39,9 @@ mkdir -p "$TARGET" && cp SUBAGENT_PROTOCOL.md INJECT.md MANIFEST.jsonl "$TARGET/
 Edit the config block in `SUBAGENT_PROTOCOL.md` for your project:
 
 ```yaml
-output_dir: claudedocs/research-outputs  # Change this
+output_dir: claudedocs/agent-outputs  # Change this
 manifest_file: MANIFEST.jsonl
-archive_dir: claudedocs/research-outputs/archive
+archive_dir: claudedocs/agent-outputs/archive
 ```
 
 ## Usage

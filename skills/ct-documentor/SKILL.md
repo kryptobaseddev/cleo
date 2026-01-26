@@ -152,7 +152,7 @@ cleo research link {TASK_ID} {RESEARCH_ID}
 
 ### Output File Format
 
-Write to `claudedocs/research-outputs/`:
+Write to `{{OUTPUT_DIR}}/`:
 
 ```markdown
 # Documentation Update: {TITLE}
@@ -186,7 +186,7 @@ Write to `claudedocs/research-outputs/`:
 
 ### Manifest Entry
 
-Append ONE line to `claudedocs/research-outputs/MANIFEST.jsonl`:
+Append ONE line to `{{MANIFEST_PATH}}`:
 
 ```json
 {

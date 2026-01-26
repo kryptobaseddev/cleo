@@ -175,7 +175,7 @@ Before returning, verify:
 |-------|---------|-------------|
 | `{{EPIC_ID}}` | `""` | Parent epic ID |
 | `{{SESSION_ID}}` | `""` | Session identifier |
-| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` | Output directory |
+| `{{OUTPUT_DIR}}` | `claudedocs/agent-outputs` | Output directory |
 | `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` | Manifest location |
 
 ### Task System Tokens (CLEO defaults)

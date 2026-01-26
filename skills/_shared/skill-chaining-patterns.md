@@ -179,7 +179,7 @@ Subagent MUST NOT return research content in response.
 ### Rule 3: File-Based Details (MUST)
 
 Detailed findings go to output files, not manifest or response:
-- Full analysis → `claudedocs/research-outputs/YYYY-MM-DD_topic.md`
+- Full analysis → `{{OUTPUT_DIR}}/YYYY-MM-DD_topic.md`
 - Summary only → `MANIFEST.jsonl` key_findings array
 
 ### Rule 4: Token Injection (SHOULD)

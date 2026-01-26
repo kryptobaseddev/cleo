@@ -7,9 +7,9 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHOULD", "SHOULD NOT", "
 ## Configuration
 
 ```yaml
-output_dir: claudedocs/research-outputs
+output_dir: claudedocs/agent-outputs
 manifest_file: MANIFEST.jsonl
-archive_dir: claudedocs/research-outputs/archive
+archive_dir: claudedocs/agent-outputs/archive
 ```
 
 Projects MUST set `output_dir` to their preferred location. All paths below reference this configuration.
@@ -54,7 +54,7 @@ File format:
 Subagents MUST append ONE line to `{output_dir}/{manifest_file}`:
 
 ```json
-{"id":"topic-slug-YYYY-MM-DD","file":"YYYY-MM-DD_topic-slug.md","title":"Human Title","date":"YYYY-MM-DD","status":"complete","topics":["tag1","tag2"],"key_findings":["Finding 1","Finding 2"],"actionable":true,"needs_followup":[]}
+{"id":"topic-slug-YYYY-MM-DD","file":"YYYY-MM-DD_topic-slug.md","title":"Human Title","date":"YYYY-MM-DD","status":"complete","agent_type":"research","topics":["tag1","tag2"],"key_findings":["Finding 1","Finding 2"],"actionable":true,"needs_followup":[]}
 ```
 
 Field requirements:
@@ -65,6 +65,7 @@ Field requirements:
 | title | MUST | Human-readable |
 | date | MUST | ISO 8601 date |
 | status | MUST | `complete`, `partial`, or `blocked` |
+| agent_type | SHOULD | `research`, `implementation`, `validation`, `documentation`, or `analysis` (default: `research`) |
 | topics | MUST | Array, 1+ items |
 | key_findings | MUST | Array, 3-7 items, one sentence each |
 | actionable | MUST | Boolean |

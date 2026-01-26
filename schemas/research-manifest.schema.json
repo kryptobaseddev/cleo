@@ -87,7 +87,7 @@
     "agent_type": {
       "type": "string",
       "description": "Type of agent that created this output entry",
-      "enum": ["research", "implementation", "validation", "documentation"],
+      "enum": ["research", "implementation", "validation", "documentation", "analysis"],
       "default": "research"
     },
     "source": {

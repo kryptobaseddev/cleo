@@ -69,7 +69,7 @@ Replace `{{TOKENS}}` with actual values before injection.
 |-------|---------|
 | `{{EPIC_ID}}` | Parent epic ID (optional) |
 | `{{SESSION_ID}}` | Session ID (optional) |
-| `{{OUTPUT_DIR}}` | `claudedocs/research-outputs` |
+| `{{OUTPUT_DIR}}` | `claudedocs/agent-outputs` |
 | `{{MANIFEST_PATH}}` | `{{OUTPUT_DIR}}/MANIFEST.jsonl` |
 
 ### Task System Tokens (CLEO Defaults)
