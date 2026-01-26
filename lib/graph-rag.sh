@@ -468,6 +468,323 @@ _discover_by_files() {
 }
 
 # ============================================================================
+# HIERARCHY DISCOVERY FUNCTIONS (T2190)
+# ============================================================================
+
+# Source hierarchy.sh for get_parent_chain (if not already loaded)
+if [[ -f "$_GRAPH_RAG_LIB_DIR/hierarchy.sh" ]]; then
+    # shellcheck source=lib/hierarchy.sh
+    source "$_GRAPH_RAG_LIB_DIR/hierarchy.sh" 2>/dev/null || true
+fi
+
+#######################################
+# Find the lowest common ancestor of two tasks
+# Arguments:
+#   $1 - First task ID
+#   $2 - Second task ID
+# Outputs:
+#   LCA task ID to stdout (empty if no common ancestor)
+# Returns:
+#   0 if LCA found, 1 if no common ancestor
+#######################################
+_find_lca() {
+    local task_a="$1"
+    local task_b="$2"
+    local todo_file="${GRAPH_RAG_TODO_FILE}"
+
+    # Validate inputs
+    if [[ -z "$task_a" || -z "$task_b" ]]; then
+        echo ""
+        return 1
+    fi
+
+    # Edge case: same task (LCA is self)
+    if [[ "$task_a" == "$task_b" ]]; then
+        if _graph_rag_task_exists "$task_a"; then
+            echo "$task_a"
+            return 0
+        else
+            echo ""
+            return 1
+        fi
+    fi
+
+    # Verify both tasks exist
+    if ! _graph_rag_task_exists "$task_a" || ! _graph_rag_task_exists "$task_b"; then
+        echo ""
+        return 1
+    fi
+
+    # Build ancestor path for task_a (including self)
+    local parent_chain_a=""
+    if declare -f get_parent_chain >/dev/null 2>&1; then
+        parent_chain_a=$(get_parent_chain "$task_a" "$todo_file")
+    else
+        # Fallback: inline parent chain construction
+        local current="$task_a"
+        while [[ -n "$current" ]]; do
+            local parent
+            parent=$(jq -r --arg id "$current" \
+                '.tasks[] | select(.id == $id) | .parentId // empty' \
+                "$todo_file" 2>/dev/null)
+            [[ -z "$parent" || "$parent" == "null" ]] && break
+            parent_chain_a="$parent_chain_a $parent"
+            current="$parent"
+        done
+    fi
+    local ancestors_a="$task_a $parent_chain_a"
+
+    # Build ancestor path for task_b
+    local parent_chain_b=""
+    if declare -f get_parent_chain >/dev/null 2>&1; then
+        parent_chain_b=$(get_parent_chain "$task_b" "$todo_file")
+    else
+        local current="$task_b"
+        while [[ -n "$current" ]]; do
+            local parent
+            parent=$(jq -r --arg id "$current" \
+                '.tasks[] | select(.id == $id) | .parentId // empty' \
+                "$todo_file" 2>/dev/null)
+            [[ -z "$parent" || "$parent" == "null" ]] && break
+            parent_chain_b="$parent_chain_b $parent"
+            current="$parent"
+        done
+    fi
+
+    # Check if task_b itself is ancestor of task_a
+    if [[ " $ancestors_a " == *" $task_b "* ]]; then
+        echo "$task_b"
+        return 0
+    fi
+
+    # Check each ancestor of B against ancestors_a
+    for ancestor in $parent_chain_b; do
+        if [[ " $ancestors_a " == *" $ancestor "* ]]; then
+            echo "$ancestor"
+            return 0
+        fi
+    done
+
+    # No common ancestor
+    echo ""
+    return 1
+}
+
+#######################################
+# Calculate tree distance between two tasks
+# Distance = sum of edges from each task to their LCA
+# Arguments:
+#   $1 - First task ID
+#   $2 - Second task ID
+# Outputs:
+#   Integer distance (0=same, 1=parent/child, 2=siblings, -1=no relation)
+# Returns:
+#   0 on success, 1 on error
+#######################################
+_tree_distance() {
+    local task_a="$1"
+    local task_b="$2"
+    local todo_file="${GRAPH_RAG_TODO_FILE}"
+
+    # Same task = distance 0
+    if [[ "$task_a" == "$task_b" ]]; then
+        echo "0"
+        return 0
+    fi
+
+    # Find LCA
+    local lca
+    lca=$(_find_lca "$task_a" "$task_b")
+
+    if [[ -z "$lca" ]]; then
+        echo "-1"
+        return 1
+    fi
+
+    # Calculate depth of task_a to LCA
+    local depth_a=0
+    local current="$task_a"
+    while [[ "$current" != "$lca" && -n "$current" ]]; do
+        current=$(jq -r --arg id "$current" \
+            '.tasks[] | select(.id == $id) | .parentId // empty' \
+            "$todo_file" 2>/dev/null)
+        ((depth_a++)) || true
+    done
+
+    # Calculate depth of task_b to LCA
+    local depth_b=0
+    current="$task_b"
+    while [[ "$current" != "$lca" && -n "$current" ]]; do
+        current=$(jq -r --arg id "$current" \
+            '.tasks[] | select(.id == $id) | .parentId // empty' \
+            "$todo_file" 2>/dev/null)
+        ((depth_b++)) || true
+    done
+
+    echo "$((depth_a + depth_b))"
+    return 0
+}
+
+#######################################
+# Get hierarchical context for a task (description + parent context with decay)
+# Arguments:
+#   $1 - Task ID
+#   $2 - Max depth (default: 2)
+# Outputs:
+#   Augmented text with parent context
+# Returns:
+#   0 on success, 1 on error
+#######################################
+_get_hierarchical_context() {
+    local task_id="$1"
+    local max_depth="${2:-2}"
+    local todo_file="${GRAPH_RAG_TODO_FILE}"
+
+    # Get task's own description
+    local context
+    context=$(jq -r --arg id "$task_id" \
+        '.tasks[] | select(.id == $id) | .description // .title // ""' \
+        "$todo_file" 2>/dev/null)
+
+    if [[ -z "$context" ]]; then
+        echo ""
+        return 1
+    fi
+
+    # Propagate parent context with decay
+    local parent_id
+    parent_id=$(jq -r --arg id "$task_id" \
+        '.tasks[] | select(.id == $id) | .parentId // empty' \
+        "$todo_file" 2>/dev/null)
+
+    local depth=0
+    # Decay weights: parent=0.5, grandparent=0.25
+    local -a decay_weights=(0.5 0.25)
+
+    while [[ -n "$parent_id" && "$parent_id" != "null" && $depth -lt $max_depth ]]; do
+        local parent_desc
+        parent_desc=$(jq -r --arg id "$parent_id" \
+            '.tasks[] | select(.id == $id) | .description // .title // ""' \
+            "$todo_file" 2>/dev/null)
+
+        if [[ -n "$parent_desc" && "$parent_desc" != "null" ]]; then
+            # Add parent context with weight marker
+            context+=" [PARENT:${decay_weights[$depth]}] $parent_desc"
+        fi
+
+        # Move to next ancestor
+        parent_id=$(jq -r --arg id "$parent_id" \
+            '.tasks[] | select(.id == $id) | .parentId // empty' \
+            "$todo_file" 2>/dev/null)
+        ((depth++)) || true
+    done
+
+    echo "$context"
+    return 0
+}
+
+#######################################
+# Discover related tasks by hierarchical proximity
+# Finds siblings (same parent) and cousins (same grandparent)
+# Arguments:
+#   $1 - Task ID to find relations for
+# Outputs:
+#   JSON array of {taskId, type, reason, score}
+# Returns:
+#   0 on success, 1 on error
+#######################################
+_discover_by_hierarchy() {
+    local task_id="$1"
+    local todo_file="${GRAPH_RAG_TODO_FILE}"
+
+    if ! _graph_rag_valid_task_id "$task_id"; then
+        echo '{"error": "Invalid task ID format"}' >&2
+        return 1
+    fi
+
+    if [[ ! -f "$todo_file" ]]; then
+        echo '[]'
+        return 0
+    fi
+
+    # Get boost values from config (with defaults from research)
+    local sibling_boost cousin_boost
+    if declare -f get_config_value >/dev/null 2>&1; then
+        sibling_boost=$(get_config_value "graphRag.hierarchyBoost.sibling" "0.15")
+        cousin_boost=$(get_config_value "graphRag.hierarchyBoost.cousin" "0.08")
+    else
+        sibling_boost="0.15"
+        cousin_boost="0.08"
+    fi
+
+    # Get source task's parent
+    local parent_id
+    parent_id=$(jq -r --arg id "$task_id" \
+        '.tasks[] | select(.id == $id) | .parentId // empty' \
+        "$todo_file" 2>/dev/null)
+
+    local results="[]"
+
+    # Find siblings (same parent, excluding self)
+    if [[ -n "$parent_id" && "$parent_id" != "null" ]]; then
+        local siblings_json
+        siblings_json=$(jq --arg parent "$parent_id" --arg self "$task_id" \
+            --arg boost "$sibling_boost" '
+            [.tasks[] | select(.parentId == $parent and .id != $self) |
+                {
+                    taskId: .id,
+                    type: "relates-to",
+                    reason: "sibling (shared parent \($parent))",
+                    score: ($boost | tonumber),
+                    _hierarchyBoost: ($boost | tonumber),
+                    _relationship: "sibling"
+                }
+            ]
+        ' "$todo_file" 2>/dev/null)
+
+        if [[ -n "$siblings_json" && "$siblings_json" != "[]" ]]; then
+            results="$siblings_json"
+        fi
+    fi
+
+    # Find cousins (same grandparent, different parent)
+    local grandparent_id=""
+    if [[ -n "$parent_id" && "$parent_id" != "null" ]]; then
+        grandparent_id=$(jq -r --arg id "$parent_id" \
+            '.tasks[] | select(.id == $id) | .parentId // empty' \
+            "$todo_file" 2>/dev/null)
+    fi
+
+    if [[ -n "$grandparent_id" && "$grandparent_id" != "null" ]]; then
+        # Get aunts/uncles (grandparent's other children, excluding source's parent)
+        local cousins_json
+        cousins_json=$(jq --arg gp "$grandparent_id" --arg parent "$parent_id" \
+            --arg boost "$cousin_boost" '
+            # Find aunts/uncles (siblings of source parent)
+            [.tasks[] | select(.parentId == $gp and .id != $parent)] as $aunts |
+            # Find cousins (children of aunts/uncles)
+            [.tasks[] | select(.parentId as $pid | $aunts | map(.id) | index($pid))] |
+            map({
+                taskId: .id,
+                type: "relates-to",
+                reason: "cousin (shared grandparent \($gp))",
+                score: ($boost | tonumber),
+                _hierarchyBoost: ($boost | tonumber),
+                _relationship: "cousin"
+            })
+        ' "$todo_file" 2>/dev/null)
+
+        if [[ -n "$cousins_json" && "$cousins_json" != "[]" ]]; then
+            # Merge cousins into results
+            results=$(echo "$results" "$cousins_json" | jq -s 'add')
+        fi
+    fi
+
+    # Sort by score descending
+    echo "$results" | jq 'sort_by(-.score)'
+}
+
+# ============================================================================
 # PUBLIC API FUNCTIONS
 # ============================================================================
 
@@ -510,19 +827,48 @@ discover_related_tasks() {
         files)
             _discover_by_files "$task_id"
             ;;
+        hierarchy)
+            _discover_by_hierarchy "$task_id"
+            ;;
         auto|all)
-            # Combine all discovery methods and deduplicate
-            local labels_result description_result files_result
+            # Combine all discovery methods including hierarchy
+            local labels_result description_result files_result hierarchy_result
             labels_result=$(_discover_by_labels "$task_id")
             description_result=$(_discover_by_description "$task_id")
             files_result=$(_discover_by_files "$task_id")
-            
-            # Merge results, keeping highest score per task
-            echo "$labels_result" "$description_result" "$files_result" | \
-                jq -s 'add | group_by(.taskId) | map(max_by(.score)) | sort_by(-.score)'
+            hierarchy_result=$(_discover_by_hierarchy "$task_id")
+
+            # Merge results with hierarchy boosting applied
+            # For tasks found in hierarchy_result, add their boost to the base score
+            echo "$labels_result" "$description_result" "$files_result" "$hierarchy_result" | \
+                jq -s '
+                    # Flatten all arrays
+                    add |
+                    # Group by taskId to combine scores
+                    group_by(.taskId) |
+                    map(
+                        # For each task group, find max base score and hierarchy boost
+                        . as $matches |
+                        ($matches | map(select(._relationship == null)) | max_by(.score) // {score: 0}) as $base |
+                        ($matches | map(select(._relationship != null)) | .[0] // {_hierarchyBoost: 0}) as $hier |
+                        # Combine: apply hierarchy boost to base score, cap at 1.0
+                        if $base.taskId then
+                            $base + {
+                                score: ([($base.score + ($hier._hierarchyBoost // 0)), 1.0] | min),
+                                _hierarchyBoost: ($hier._hierarchyBoost // 0),
+                                _relationship: ($hier._relationship // null)
+                            }
+                        else
+                            # Task only found via hierarchy (no content match)
+                            $hier | del(._hierarchyBoost) | del(._relationship)
+                        end
+                    ) |
+                    # Sort by score descending
+                    sort_by(-.score)
+                '
             ;;
         *)
-            echo '{"error": "Invalid method. Use: labels, description, files, auto"}' >&2
+            echo '{"error": "Invalid method. Use: labels, description, files, hierarchy, auto"}' >&2
             return 1
             ;;
     esac
@@ -742,7 +1088,7 @@ Usage:
   
 Functions:
   discover_related_tasks <task_id> [method]
-    Find related tasks. Methods: labels, description, files, auto (default)
+    Find related tasks. Methods: labels, description, files, hierarchy, auto (default)
     
   suggest_relates <task_id> [threshold]
     Get suggestions filtered by similarity threshold (0.0-1.0, default: 0.5)
