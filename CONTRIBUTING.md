@@ -5,6 +5,7 @@ Thank you for your interest in contributing to CLEO! This document provides guid
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
+- [License and Contributions](#license-and-contributions)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [Making Changes](#making-changes)
@@ -17,6 +18,25 @@ Thank you for your interest in contributing to CLEO! This document provides guid
 ## Code of Conduct
 
 This project follows a simple code of conduct: be respectful, be constructive, and be helpful. We welcome contributors of all experience levels.
+
+## License and Contributions
+
+By contributing to CLEO, you agree that your contributions will be licensed under
+the same license as the project:
+
+- **Business Source License 1.1 (BSL 1.1)** during the commercial period
+- Automatically converting to **Apache License 2.0** on January 26, 2029
+
+This means:
+
+- You grant CodLuv LLC the right to use, modify, and redistribute your contribution
+  as part of CLEO
+- CodLuv LLC may offer CLEO under a commercial license during the BSL period
+- Your contribution will eventually be available under Apache 2.0 when the
+  Change Date is reached
+
+If you do not agree to these terms, please do not submit a contribution.
+
 
 ## Getting Started
 
@@ -247,6 +267,8 @@ bash -n scripts/*.sh lib/*.sh
 - [ ] Documentation updated (if applicable)
 - [ ] Commit messages are clear
 - [ ] No merge conflicts with `main`
+- [ ] Contributor agrees to license their contribution under BSL 1.1 (see License and Contributions)
+
 
 ### Review Process
 
