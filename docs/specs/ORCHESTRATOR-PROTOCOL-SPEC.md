@@ -1,8 +1,9 @@
 # Orchestrator Protocol Specification
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: ACTIVE
 **Created**: 2026-01-18
+**Updated**: 2026-01-26
 **Author**: Protocol Specification Subagent
 **Epic**: T1575
 **Session**: session_20260118_132917_801b75
@@ -43,7 +44,7 @@ This specification **DEFERS TO**:
 - [ORCHESTRATOR-SPEC.md](ORCHESTRATOR-SPEC.md) for tmux-based multi-agent orchestration
 - [IMPLEMENTATION-ORCHESTRATION-SPEC.md](IMPLEMENTATION-ORCHESTRATION-SPEC.md) for 7-agent pipeline
 - [MULTI-SESSION-SPEC.md](MULTI-SESSION-SPEC.md) for session scope binding
-- [SUBAGENT_PROTOCOL.md](../claudedocs/research-outputs/SUBAGENT_PROTOCOL.md) for research output format
+- [SUBAGENT_PROTOCOL.md](../claudedocs/agent-outputs/SUBAGENT_PROTOCOL.md) for research output format
 
 ### 1.3 Scope
 
@@ -68,6 +69,10 @@ The orchestrator agent is the conversation-level coordinator. It MUST adhere to 
 | ORC-003 | MUST NOT read full research files into context | Token efficiency; context window protection |
 | ORC-004 | MUST spawn agents in dependency order | Correctness; avoid wasted work |
 | ORC-005 | MUST use manifest for research summaries | O(1) lookup vs O(n) file reading |
+| ORC-006 | MUST verify protocol injection before spawn | Ensures subagent compliance |
+| ORC-007 | MUST check context thresholds before spawn | Prevents context overflow |
+| ORC-008 | MUST verify previous agent compliance before next spawn | Maintains protocol chain integrity |
+| ORC-009 | MUST auto-stop when context reaches critical threshold | Graceful session handoff |
 
 ### 2.2 Delegation Decision Tree
 
@@ -137,8 +142,8 @@ Every research subagent prompt MUST include this instruction block:
 ## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
 
 OUTPUT REQUIREMENTS:
-1. MUST write findings to: claudedocs/research-outputs/YYYY-MM-DD_{topic-slug}.md
-2. MUST append ONE line to: claudedocs/research-outputs/MANIFEST.jsonl
+1. MUST write findings to: claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
 3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return research content in response.
 
@@ -214,7 +219,7 @@ When a new conversation starts, the orchestrator MUST execute this startup seque
 cleo session list --status active
 
 # Step 2: Check manifest for pending work
-cat claudedocs/research-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
+cat claudedocs/agent-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
 
 # Step 3: Check focused task
 cleo focus show
@@ -299,8 +304,33 @@ CONVERSATION STARTS
 |-------|------|---------|
 | `timestamp` | string | ISO 8601 datetime for precise ordering |
 | `linked_tasks` | array | CLEO task IDs this research relates to |
-| `agent_type` | string | Subagent role identifier |
+| `agent_type` | string | Subagent role identifier (see 5.2.1) |
 | `tokens_spent` | number | Token usage estimate (informational only) |
+
+### 5.2.1 agent_type Field
+
+The `agent_type` field categorizes subagent output by role, enabling filtering and analysis of research by agent specialization.
+
+| Value | Description | Use Case |
+|-------|-------------|----------|
+| `research` | Default. Investigative/exploratory work | Topic research, competitive analysis |
+| `implementation` | Code implementation tasks | Feature development, bug fixes |
+| `validation` | Testing and verification | Test writing, compliance checks |
+| `documentation` | Documentation creation | Docs writing, README updates |
+| `analysis` | Technical analysis | Architecture review, code review |
+
+**Validation Rule**: When present, `agent_type` MUST be one of the above values. If not present, defaults to `"research"`.
+
+**Filtering by agent_type**:
+```bash
+# CLI filter
+cleo research list --type implementation
+
+# jq pattern
+jq -s '[.[] | select((.agent_type // "research") == "implementation")]' MANIFEST.jsonl
+```
+
+**Subagent Integration**: Subagents SHOULD set `agent_type` in their manifest entries to enable orchestrators and users to filter research by work type.
 
 ### 5.3 needs_followup Semantics
 
@@ -449,7 +479,7 @@ def should_spawn(task_id, completed_tasks):
 
 ```bash
 # Rebuild manifest from files (disaster recovery)
-for f in claudedocs/research-outputs/*.md; do
+for f in claudedocs/agent-outputs/*.md; do
   # Extract metadata and append to manifest
   cleo research show --file "$f" --format jsonl >> MANIFEST.jsonl.new
 done
@@ -492,6 +522,146 @@ cleo session close <session-id> --force
 | CTX-004 | Subagent MUST NOT return content in response message |
 | CTX-005 | Manifest key_findings MUST be 3-7 items, one sentence each |
 
+### 9.3 Context-Driven Pause Protocol
+
+The orchestrator MUST implement context-driven pausing to prevent context overflow and ensure graceful session handoffs.
+
+#### 9.3.1 Context Thresholds
+
+| Threshold | Percentage | Status | Action |
+|-----------|------------|--------|--------|
+| OK | 0-69% | `ok` | Continue orchestration |
+| Warning | 70-79% | `warning` | Wrap up current work, spawn final subagents |
+| Critical | 80-100% | `critical` | STOP immediately, generate HITL summary |
+
+**Configuration** (config.json):
+```json
+{
+  "orchestrator": {
+    "contextThresholds": {
+      "warning": 70,
+      "critical": 80
+    },
+    "autoStopOnCritical": true,
+    "hitlSummaryOnPause": true
+  }
+}
+```
+
+#### 9.3.2 Pre-Spawn Context Check
+
+Before spawning any subagent, orchestrator MUST call `orchestrator_should_pause()`:
+
+```bash
+# Check if should pause before spawning
+result=$(cleo orchestrator should-pause)
+pause_status=$(echo "$result" | jq -r '.result.pauseStatus')
+
+case "$pause_status" in
+    ok)
+        # Safe to spawn
+        ;;
+    warning)
+        # Spawn final agents, prepare to wrap up
+        ;;
+    critical)
+        # STOP - do not spawn, generate HITL summary
+        ;;
+esac
+```
+
+#### 9.3.3 Pre-Spawn Compliance Check
+
+Before spawning the next agent, orchestrator MUST verify the previous agent's compliance:
+
+```bash
+# Verify previous agent before spawning next
+result=$(cleo orchestrator pre-spawn-check --task T1235 --previous T1234)
+can_spawn=$(echo "$result" | jq -r '.result.canSpawn')
+
+if [[ "$can_spawn" != "true" ]]; then
+    # Block spawn, handle violations
+    echo "$result" | jq '.result.reasons'
+fi
+```
+
+The pre-spawn check validates:
+1. **Context threshold**: Not at critical level
+2. **Task status**: Target task is pending
+3. **Previous compliance**: Previous agent created manifest entry (if previous_task_id provided)
+
+#### 9.3.4 Protocol Injection Validation
+
+All spawn prompts MUST contain the SUBAGENT PROTOCOL injection block. The orchestrator validates this via `orchestrator_verify_protocol_injection()`:
+
+```bash
+# Validation function used by spawn commands
+if ! orchestrator_verify_protocol_injection "$prompt"; then
+    echo "PROTOCOL VIOLATION: Missing SUBAGENT PROTOCOL marker"
+    echo "FIX: cleo research inject"
+    return 60  # EXIT_PROTOCOL_MISSING
+fi
+```
+
+**Enforcement Rules**:
+- ORC-006: MUST verify protocol injection before spawn
+- E_PROTOCOL_MISSING (exit 60): Returned when marker not found
+- Auto-fix available: `cleo research inject` provides the protocol block
+
+#### 9.3.5 Auto-Stop Procedure
+
+When context reaches critical threshold with `autoStopOnCritical: true`:
+
+1. **Generate HITL Summary**: Progress, remaining tasks, resume command
+2. **End Session**: Clean session end with summary note
+3. **Return Handoff**: JSON with complete resume instructions
+
+```bash
+# Auto-stop function
+result=$(cleo orchestrator check-and-stop --epic T1575)
+action=$(echo "$result" | jq -r '.result.action')
+
+if [[ "$action" == "stopped" ]]; then
+    echo "Orchestrator auto-stopped. Resume with:"
+    echo "$result" | jq -r '.result.autoStop.resumeCommand'
+fi
+```
+
+#### 9.3.6 HITL Summary Format
+
+Human-in-the-Loop summary provides complete context for resumption:
+
+```json
+{
+  "timestamp": "2026-01-26T12:00:00Z",
+  "stopReason": "context-limit",
+  "session": {
+    "id": "session_20260126_...",
+    "epicId": "T1575",
+    "focusedTask": "T1580",
+    "progressNote": "Completed wave 1 tasks"
+  },
+  "progress": {
+    "completed": 5,
+    "pending": 8,
+    "active": 1,
+    "blocked": 0,
+    "percentComplete": 36
+  },
+  "readyToSpawn": [
+    {"id": "T1582", "title": "...", "priority": "high"}
+  ],
+  "handoff": {
+    "resumeCommand": "cleo session resume session_20260126_...",
+    "nextSteps": [
+      "Run: cleo session resume session_20260126_...",
+      "Check progress: cleo list --parent T1575",
+      "Review dashboard: cleo dash"
+    ]
+  }
+}
+```
+
 ---
 
 ## Part 10: Integration Points
@@ -507,15 +677,20 @@ cleo session close <session-id> --force
 | `cleo analyze --parent <epic>` | Find next work | Orchestrator planning |
 | `cleo deps <id>` | Check dependencies | Before spawn decision |
 | `cleo research list` | List research entries (context-efficient) | Manifest query |
+| `cleo research list --type <type>` | Filter by agent_type | Find specific research types |
 | `cleo research show <id>` | Get research entry details | Deep-dive on specific research |
 | `cleo research pending` | Get entries with needs_followup | Find next agent work |
 | `cleo research links <task-id>` | Get research linked to task | Traceability check |
+| `cleo orchestrator should-pause` | Check context threshold | Before each spawn |
+| `cleo orchestrator pre-spawn-check` | Combined pre-spawn validation | Before spawning next agent |
+| `cleo orchestrator check-and-stop` | Check and auto-stop if critical | Spawn decision point |
+| `cleo research inject` | Get protocol injection block | Building subagent prompts |
 
 ### 10.2 File Locations
 
 | File | Purpose | Created By |
 |------|---------|------------|
-| `claudedocs/research-outputs/` | Research output directory | `cleo research init` |
+| `claudedocs/agent-outputs/` | Research output directory | `cleo research init` |
 | `MANIFEST.jsonl` | Research index | Subagents (append) |
 | `SUBAGENT_PROTOCOL.md` | Protocol reference | `cleo research init` |
 | `INJECT.md` | Copy-paste injection block | `cleo research init` |
@@ -535,28 +710,94 @@ cleo session close <session-id> --force
 
 ### 11.1 Orchestrator Compliance
 
-- [ ] Never reads full research files
-- [ ] Always spawns in dependency order
-- [ ] Uses manifest for summaries
-- [ ] Delegates all implementation work
+**Core Behavior (ORC-001 to ORC-005)**:
+- [ ] Never reads full research files (ORC-003)
+- [ ] Always spawns in dependency order (ORC-004)
+- [ ] Uses manifest for summaries (ORC-005)
+- [ ] Delegates all implementation work (ORC-002)
 - [ ] Executes session startup protocol
+
+**Pre-Spawn Verification (ORC-006 to ORC-009)**:
+- [ ] Verifies protocol injection in spawn prompt (ORC-006)
+- [ ] Checks context thresholds before spawn (ORC-007)
+- [ ] Verifies previous agent compliance (ORC-008)
+- [ ] Auto-stops at critical threshold (ORC-009)
+
+**Verification Functions**:
+
+| Function | Rule | Purpose |
+|----------|------|---------|
+| `orchestrator_verify_protocol_injection()` | ORC-006 | Validates SUBAGENT PROTOCOL marker in prompt |
+| `orchestrator_should_pause()` | ORC-007, ORC-009 | Checks context percentage against thresholds |
+| `orchestrator_verify_compliance()` | ORC-008 | Verifies previous agent created manifest entry |
+| `orchestrator_pre_spawn_check()` | All | Combined validation before spawn |
 
 ### 11.2 Subagent Compliance
 
 - [ ] Writes output file to correct path
-- [ ] Appends manifest entry
-- [ ] Returns only completion message
-- [ ] Sets focus before work
-- [ ] Completes task when done
+- [ ] Appends manifest entry with all required fields
+- [ ] Returns only completion message (no content in response)
+- [ ] Sets focus before work (`cleo focus set <id>`)
+- [ ] Completes task when done (`cleo complete <id>`)
 - [ ] Sets needs_followup for handoff
+- [ ] Sets agent_type appropriately (research|implementation|validation|documentation|analysis)
 
 ### 11.3 Manifest Compliance
 
-- [ ] All required fields present
-- [ ] Status is valid enum value
-- [ ] key_findings is 3-7 items
-- [ ] Date is ISO 8601 format
-- [ ] needs_followup contains valid task IDs
+- [ ] All required fields present (id, file, title, date, status, topics, key_findings, actionable, needs_followup)
+- [ ] Status is valid enum value (complete|partial|blocked)
+- [ ] key_findings is 3-7 items, one sentence each
+- [ ] Date is ISO 8601 format (YYYY-MM-DD)
+- [ ] needs_followup contains valid task IDs or BLOCKED: entries
+- [ ] agent_type (if present) is valid enum value
+
+### 11.4 Compliance Verification Gates
+
+Pre-spawn compliance verification ensures the orchestration chain maintains integrity:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     PRE-SPAWN COMPLIANCE GATES                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  GATE 1: Protocol Injection                                             │
+│  ├── Check: Prompt contains "SUBAGENT PROTOCOL" marker                  │
+│  ├── Function: orchestrator_verify_protocol_injection()                 │
+│  └── Exit Code: 60 (E_PROTOCOL_MISSING) if failed                       │
+│                                                                         │
+│  GATE 2: Context Threshold                                              │
+│  ├── Check: Context percentage < critical threshold (80%)               │
+│  ├── Function: orchestrator_should_pause()                              │
+│  └── Exit Code: 2 if critical, 1 if warning, 0 if OK                    │
+│                                                                         │
+│  GATE 3: Previous Agent Compliance                                      │
+│  ├── Check: Previous agent created valid manifest entry                 │
+│  ├── Function: orchestrator_verify_compliance()                         │
+│  └── Exit Code: 62 (E_MANIFEST_ENTRY_MISSING) or 6 (E_VALIDATION)       │
+│                                                                         │
+│  GATE 4: Task Status                                                    │
+│  ├── Check: Target task exists and has status "pending"                 │
+│  ├── Function: orchestrator_pre_spawn_check()                           │
+│  └── Exit Code: 4 (E_NOT_FOUND) if task missing or wrong status         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Combined Check Pattern**:
+```bash
+# Use pre_spawn_check for all gates in one call
+result=$(orchestrator_pre_spawn_check "$task_id" "$epic_id" "$previous_task_id")
+can_spawn=$(echo "$result" | jq -r '.result.canSpawn')
+
+if [[ "$can_spawn" != "true" ]]; then
+    # Log violations and halt
+    echo "$result" | jq -r '.result.reasons[] | .code + ": " + .message'
+    exit 1
+fi
+
+# All gates passed - safe to spawn
+orchestrator_spawn "$task_id"
+```
 
 ---
 
@@ -588,6 +829,28 @@ jq -s '[.[] | select(.topics | contains(["X"]))]' MANIFEST.jsonl
 
 # Actionable items
 jq -s '[.[] | select(.actionable)]' MANIFEST.jsonl
+
+# By agent_type (defaults to "research" if missing)
+jq -s '[.[] | select((.agent_type // "research") == "implementation")]' MANIFEST.jsonl
+
+# All implementation entries (CLI preferred)
+cleo research list --type implementation
+```
+
+### A.4 Pre-Spawn Check Cheatsheet
+
+```bash
+# Check if should pause before spawn
+cleo orchestrator should-pause | jq '.result.pauseStatus'
+
+# Combined pre-spawn validation
+cleo orchestrator pre-spawn-check --task T1235 --previous T1234
+
+# Check and auto-stop if critical
+cleo orchestrator check-and-stop --epic T1575
+
+# Verify protocol injection in prompt
+orchestrator_verify_protocol_injection "$prompt" "true"
 ```
 
 ---
@@ -597,9 +860,10 @@ jq -s '[.[] | select(.actionable)]' MANIFEST.jsonl
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-01-18 | Initial specification |
+| 1.1.0 | 2026-01-26 | Added ORC-006 to ORC-009 enforcement rules; Context-driven pause protocol (9.3); agent_type field documentation (5.2.1); Compliance verification gates (11.4); Pre-spawn check functions |
 
 ---
 
-*Specification v1.0.0 - Orchestrator Protocol*
+*Specification v1.1.0 - Orchestrator Protocol*
 *Epic: T1575 - Orchestrator Protocol Implementation*
-*Task: T1576 - Define Protocol Specification*
+*Task: T2379 - Update Specification Documents*

@@ -290,7 +290,7 @@ prompt=$(ti_load_template "skills/ct-task-executor/SKILL.md")
 | `{{TASK_ID}}` | T1234 | Current task |
 | `{{DATE}}` | 2026-01-20 | ISO date |
 | `{{TOPIC_SLUG}}` | auth-implementation | URL-safe topic |
-| `{{OUTPUT_DIR}}` | claudedocs/research-outputs | Output path |
+| `{{OUTPUT_DIR}}` | claudedocs/agent-outputs | Output path |
 | `{{MANIFEST_PATH}}` | {{OUTPUT_DIR}}/MANIFEST.jsonl | Manifest path |
 | `{{TASK_SHOW_CMD}}` | cleo show | Task detail command |
 | `{{TASK_FOCUS_CMD}}` | cleo focus set | Focus command |

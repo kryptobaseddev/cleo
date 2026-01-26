@@ -59,7 +59,7 @@ EOF
   "context": [
     {"token": "EPIC_ID", "default": ""},
     {"token": "SESSION_ID", "default": ""},
-    {"token": "OUTPUT_DIR", "default": "claudedocs/research-outputs"}
+    {"token": "OUTPUT_DIR", "default": "claudedocs/agent-outputs"}
   ],
   "taskCommands": {
     "tokens": [

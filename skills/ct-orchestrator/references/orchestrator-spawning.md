@@ -129,7 +129,18 @@ The function performs these steps automatically:
 | 3 | Validate skill | Check compatibility with target model |
 | 4 | Inject protocol | Load skill template + subagent protocol |
 | 5 | Set tokens | `{{TASK_ID}}`, `{{DATE}}`, `{{TOPIC_SLUG}}`, `{{EPIC_ID}}` |
-| 6 | Return prompt | Complete JSON with prompt ready for Task tool |
+| 6 | **Validate protocol** | **MANDATORY check for SUBAGENT PROTOCOL marker** |
+| 7 | Return prompt | Complete JSON with prompt ready for Task tool |
+
+### Protocol Validation (MANDATORY)
+
+Step 6 validates that the generated prompt contains the `SUBAGENT PROTOCOL` marker. This is **mandatory** and will fail loudly if missing:
+
+- **Exit code**: `EXIT_PROTOCOL_MISSING` (60)
+- **Fix command**: `cleo research inject`
+- **Validation function**: `orchestrator_verify_protocol_injection()`
+
+If validation fails, the spawn is **blocked** and you must fix the skill template or manually inject the protocol block.
 
 ### Return Value Structure
 

@@ -31,7 +31,7 @@ Before starting, ensure you have:
 3. **Research outputs directory**
    ```bash
    cleo research init
-   # Creates: claudedocs/research-outputs/
+   # Creates: claudedocs/agent-outputs/
    ```
 
 ## Step 1: Start Orchestrator Session
@@ -109,7 +109,7 @@ Task: [paste the generated prompt]
 **Wait for completion.** The subagent will:
 1. Set focus to T002
 2. Perform the work
-3. Write findings to `claudedocs/research-outputs/`
+3. Write findings to `claudedocs/agent-outputs/`
 4. Append entry to `MANIFEST.jsonl`
 5. Complete the task
 
@@ -119,7 +119,7 @@ After the subagent completes, read the results:
 
 ```bash
 # Get the latest manifest entry
-tail -1 claudedocs/research-outputs/MANIFEST.jsonl | jq
+tail -1 claudedocs/agent-outputs/MANIFEST.jsonl | jq
 
 # Or use CLEO's research commands (more context-efficient)
 cleo research list --limit 1
@@ -225,10 +225,10 @@ jq -s '[.[] | select(.linked_tasks | contains(["T001"])) | .key_findings] | flat
 **Solution:**
 ```bash
 # Check if file was created
-ls claudedocs/research-outputs/*.md | tail -1
+ls claudedocs/agent-outputs/*.md | tail -1
 
 # Manually append entry if needed
-echo '{"id":"manual-entry-2026-01-20",...}' >> claudedocs/research-outputs/MANIFEST.jsonl
+echo '{"id":"manual-entry-2026-01-20",...}' >> claudedocs/agent-outputs/MANIFEST.jsonl
 ```
 
 ### Task stuck as blocked

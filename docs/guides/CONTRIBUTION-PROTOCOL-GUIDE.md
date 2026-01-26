@@ -49,7 +49,7 @@ ct add "Session B: Architecture Analysis" \
 ```bash
 # Initialize contribution directories
 mkdir -p .cleo/contributions
-mkdir -p claudedocs/research-outputs
+mkdir -p claudedocs/agent-outputs
 
 # Generate contribution ID
 source lib/contribution-protocol.sh
@@ -592,7 +592,7 @@ A research session analyzing codebase map architecture options:
   "markerLabel": "rcsd-consensus-contrib",
   "researchOutputs": [
     {
-      "filePath": "claudedocs/research-outputs/2026-01-26_codebase-map-analysis.md",
+      "filePath": "claudedocs/agent-outputs/2026-01-26_codebase-map-analysis.md",
       "researchId": "research_a1b2c3d4",
       "type": "analysis",
       "title": "Codebase Map Architecture Analysis",

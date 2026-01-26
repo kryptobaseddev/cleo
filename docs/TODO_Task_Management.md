@@ -230,7 +230,7 @@ cleo research validate --fix        # Fix invalid manifest entries
 
 **Aliases**: `dig` → `research`
 
-**Output**: Creates `claudedocs/research-outputs/` with MANIFEST.jsonl + `.md` files.
+**Output**: Creates `claudedocs/agent-outputs/` with MANIFEST.jsonl + `.md` files.
 
 **Subagent Workflow**: Use `research inject` to get the injection block for subagent prompts, then query `research list` and `research show` instead of reading full research files.
 

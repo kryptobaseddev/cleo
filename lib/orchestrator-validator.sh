@@ -733,6 +733,278 @@ validate_protocol() {
 }
 
 # ============================================================================
+# PRE-SPAWN COMPLIANCE VERIFICATION
+# ============================================================================
+
+# orchestrator_verify_compliance - Verify previous agent completed protocol compliance
+#
+# Called BEFORE spawning a NEW agent to verify the PREVIOUS agent's compliance.
+# Ensures all agents follow the protocol chain: inject -> manifest -> return.
+#
+# This function implements the "trust but verify" pattern for multi-agent workflows.
+# By verifying compliance before each spawn, we catch protocol violations early
+# and prevent cascading failures in the orchestration chain.
+#
+# Args:
+#   $1 - previous_task_id (required) - Task ID from the previous spawn
+#   $2 - research_id (optional) - Expected research ID (auto-derived if not provided)
+#   $3 - expected_return_message (optional) - Return message to validate
+#
+# Returns:
+#   0 - All checks pass, safe to spawn next agent
+#   EXIT_VALIDATION_ERROR (6) - One or more compliance checks failed
+#   EXIT_MANIFEST_ENTRY_MISSING (62) - No manifest entry found
+#
+# Output: JSON with detailed compliance results including:
+#   - manifestEntryExists: boolean
+#   - researchLinkedToTask: boolean
+#   - returnStatusValid: boolean (or null if not provided)
+#   - violations: array of specific failures
+#   - canSpawnNext: boolean (true only if ALL checks pass)
+#
+# Usage:
+#   # Before spawning next agent, verify previous agent compliance
+#   result=$(orchestrator_verify_compliance "T1234" "task-research-2026-01-26")
+#   if [[ $(echo "$result" | jq -r '.result.canSpawnNext') == "true" ]]; then
+#       # Safe to spawn next agent
+#       orchestrator_spawn_for_task "T1235"
+#   else
+#       # Block spawn, handle violations
+#       echo "$result" | jq '.result.violations'
+#   fi
+#
+orchestrator_verify_compliance() {
+    local previous_task_id="${1:-}"
+    local research_id="${2:-}"
+    local expected_return_message="${3:-}"
+    local violations=()
+    local warnings=()
+
+    # Validate required input
+    if [[ -z "$previous_task_id" ]]; then
+        jq -n '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "verify_compliance"
+            },
+            "success": false,
+            "error": {
+                "code": "E_INVALID_INPUT",
+                "message": "previous_task_id is required",
+                "fix": "Provide the task ID from the previous spawn operation"
+            }
+        }'
+        return "$EXIT_INVALID_INPUT"
+    fi
+
+    local manifest_path output_dir todo_file
+    manifest_path=$(_ov_get_manifest_path)
+    output_dir=$(_ov_get_output_dir)
+    todo_file=$(_ov_get_todo_file)
+
+    # Initialize check results
+    local manifest_entry_exists="false"
+    local research_linked_to_task="false"
+    local return_status_valid="null"
+    local manifest_entry=""
+    local linked_tasks=()
+
+    # -------------------------------------------------------------------------
+    # CHECK 1: Manifest entry exists for previous agent
+    # -------------------------------------------------------------------------
+    # If research_id not provided, search for entries linked to this task
+    if [[ -f "$manifest_path" ]]; then
+        if [[ -n "$research_id" ]]; then
+            # Search by explicit research ID
+            manifest_entry=$(jq -s --arg id "$research_id" '.[] | select(.id == $id)' "$manifest_path" 2>/dev/null || echo "")
+        else
+            # Search for any entry linked to this task
+            manifest_entry=$(jq -s --arg tid "$previous_task_id" '
+                [.[] | select(
+                    (.linked_tasks // [] | any(. == $tid)) or
+                    (.needs_followup // [] | any(. == $tid))
+                )] | last // null
+            ' "$manifest_path" 2>/dev/null || echo "null")
+
+            # Also try to find by task ID pattern in research ID
+            if [[ "$manifest_entry" == "null" || -z "$manifest_entry" ]]; then
+                local task_num="${previous_task_id#T}"
+                manifest_entry=$(jq -s --arg pattern ".*${task_num}.*" '
+                    [.[] | select(.id | test($pattern; "i"))] | last // null
+                ' "$manifest_path" 2>/dev/null || echo "null")
+            fi
+        fi
+
+        if [[ -n "$manifest_entry" && "$manifest_entry" != "null" ]]; then
+            manifest_entry_exists="true"
+
+            # Extract actual research ID for downstream checks
+            if [[ -z "$research_id" ]]; then
+                research_id=$(echo "$manifest_entry" | jq -r '.id // ""')
+            fi
+
+            # Get linked_tasks array
+            linked_tasks=$(echo "$manifest_entry" | jq -r '.linked_tasks // []')
+        else
+            violations+=("MANIFEST_ENTRY_MISSING: No manifest entry found for task $previous_task_id (searched id: ${research_id:-auto})")
+        fi
+    else
+        violations+=("MANIFEST_FILE_NOT_FOUND: Manifest file does not exist at $manifest_path")
+    fi
+
+    # -------------------------------------------------------------------------
+    # CHECK 2: Research is linked to task (bidirectional)
+    # -------------------------------------------------------------------------
+    if [[ "$manifest_entry_exists" == "true" ]]; then
+        # Check if task is in linked_tasks array of manifest entry
+        local task_in_manifest
+        task_in_manifest=$(echo "$manifest_entry" | jq --arg tid "$previous_task_id" '
+            (.linked_tasks // []) | any(. == $tid)
+        ' 2>/dev/null || echo "false")
+
+        # Also check if task references this research in its linkedResearch field
+        local task_references_research="false"
+        if [[ -f "$todo_file" && -n "$research_id" ]]; then
+            task_references_research=$(jq --arg tid "$previous_task_id" --arg rid "$research_id" '
+                [.tasks[] | select(.id == $tid)] |
+                if length > 0 then
+                    .[0].linkedResearch // [] | any(. == $rid)
+                else
+                    false
+                end
+            ' "$todo_file" 2>/dev/null || echo "false")
+        fi
+
+        if [[ "$task_in_manifest" == "true" || "$task_references_research" == "true" ]]; then
+            research_linked_to_task="true"
+        else
+            # This is a warning, not a hard failure (task linking is recommended but not always required)
+            warnings+=("RESEARCH_NOT_LINKED: Research entry exists but is not bidirectionally linked to task $previous_task_id")
+        fi
+    fi
+
+    # -------------------------------------------------------------------------
+    # CHECK 3: Return status is valid (if return message provided)
+    # -------------------------------------------------------------------------
+    if [[ -n "$expected_return_message" ]]; then
+        # Use existing validate_return_message function
+        if validate_return_message "$expected_return_message" >/dev/null 2>&1; then
+            return_status_valid="true"
+        else
+            return_status_valid="false"
+            violations+=("INVALID_RETURN_MESSAGE: Return message does not match protocol format")
+        fi
+    elif [[ "$manifest_entry_exists" == "true" ]]; then
+        # Check status field in manifest entry (alternative validation)
+        local entry_status
+        entry_status=$(echo "$manifest_entry" | jq -r '.status // "unknown"')
+        case "$entry_status" in
+            complete|partial|blocked)
+                return_status_valid="true"
+                ;;
+            *)
+                return_status_valid="false"
+                violations+=("INVALID_MANIFEST_STATUS: Manifest entry has invalid status: $entry_status")
+                ;;
+        esac
+    fi
+
+    # -------------------------------------------------------------------------
+    # Build compliance result
+    # -------------------------------------------------------------------------
+    local violation_count=${#violations[@]}
+    local warning_count=${#warnings[@]}
+    local can_spawn_next="true"
+
+    # Spawn is blocked if there are any violations
+    if [[ $violation_count -gt 0 ]]; then
+        can_spawn_next="false"
+    fi
+
+    # Build JSON arrays
+    local violations_json warnings_json
+    if [[ $violation_count -gt 0 ]]; then
+        violations_json=$(printf '%s\n' "${violations[@]}" | jq -R . | jq -s .)
+    else
+        violations_json='[]'
+    fi
+    if [[ $warning_count -gt 0 ]]; then
+        warnings_json=$(printf '%s\n' "${warnings[@]}" | jq -R . | jq -s .)
+    else
+        warnings_json='[]'
+    fi
+
+    # Get entry details for output (if exists)
+    local entry_id entry_status entry_file
+    if [[ "$manifest_entry_exists" == "true" ]]; then
+        entry_id=$(echo "$manifest_entry" | jq -r '.id // ""')
+        entry_status=$(echo "$manifest_entry" | jq -r '.status // ""')
+        entry_file=$(echo "$manifest_entry" | jq -r '.file // ""')
+    else
+        entry_id=""
+        entry_status=""
+        entry_file=""
+    fi
+
+    jq -n \
+        --arg previous_task_id "$previous_task_id" \
+        --arg research_id "${research_id:-}" \
+        --argjson manifest_entry_exists "$manifest_entry_exists" \
+        --argjson research_linked "$research_linked_to_task" \
+        --argjson return_valid "$return_status_valid" \
+        --argjson can_spawn_next "$can_spawn_next" \
+        --argjson violation_count "$violation_count" \
+        --argjson warning_count "$warning_count" \
+        --argjson violations "$violations_json" \
+        --argjson warnings "$warnings_json" \
+        --arg entry_id "$entry_id" \
+        --arg entry_status "$entry_status" \
+        --arg entry_file "$entry_file" \
+        '{
+            "_meta": {
+                "command": "orchestrator",
+                "operation": "verify_compliance"
+            },
+            "success": true,
+            "result": {
+                "previousTaskId": $previous_task_id,
+                "researchId": (if $research_id != "" then $research_id else null end),
+                "checks": {
+                    "manifestEntryExists": $manifest_entry_exists,
+                    "researchLinkedToTask": $research_linked,
+                    "returnStatusValid": $return_valid
+                },
+                "canSpawnNext": $can_spawn_next,
+                "violationCount": $violation_count,
+                "warningCount": $warning_count,
+                "violations": $violations,
+                "warnings": $warnings,
+                "manifestEntry": (
+                    if $manifest_entry_exists then {
+                        "id": $entry_id,
+                        "status": $entry_status,
+                        "file": $entry_file
+                    } else null end
+                ),
+                "checkedRules": [
+                    "MANIFEST_ENTRY_EXISTS",
+                    "RESEARCH_TASK_BIDIRECTIONAL_LINK",
+                    "VALID_RETURN_STATUS"
+                ]
+            }
+        }'
+
+    # Return appropriate exit code
+    if [[ "$can_spawn_next" == "true" ]]; then
+        return 0
+    elif [[ "$manifest_entry_exists" == "false" ]]; then
+        return "$EXIT_MANIFEST_ENTRY_MISSING"
+    else
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+}
+
+# ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
 
@@ -740,3 +1012,4 @@ export -f validate_subagent_output
 export -f validate_orchestrator_compliance
 export -f validate_manifest_integrity
 export -f validate_protocol
+export -f orchestrator_verify_compliance

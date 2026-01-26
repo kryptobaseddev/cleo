@@ -381,7 +381,7 @@ Conflicts document disagreements requiring resolution:
 
 ```json
 {
-  "filePath": "claudedocs/research-outputs/2026-01-25_analysis.md",
+  "filePath": "claudedocs/agent-outputs/2026-01-25_analysis.md",
   "researchId": "research_a1b2c3d4",
   "type": "analysis|research|specification|synthesis|comparison|notes",
   "title": "Document title",
@@ -506,7 +506,7 @@ When `checksum` is present:
   "markerLabel": "rcsd-consensus-contrib",
   "researchOutputs": [
     {
-      "filePath": "claudedocs/research-outputs/2026-01-26_rcsd-architecture-analysis.md",
+      "filePath": "claudedocs/agent-outputs/2026-01-26_rcsd-architecture-analysis.md",
       "researchId": "research_f1e2d3c4",
       "type": "analysis",
       "title": "RCSD Architecture Options Analysis",
@@ -589,7 +589,7 @@ When `checksum` is present:
         "confidence": 0.75,
         "evidence": [
           {
-            "file": "claudedocs/research-outputs/2026-01-26_session-a-analysis.md",
+            "file": "claudedocs/agent-outputs/2026-01-26_session-a-analysis.md",
             "section": "Architecture Recommendations",
             "type": "research"
           }

@@ -258,7 +258,7 @@ teardown_file() {
       "type": "task",
       "parentId": "T000",
       "labels": ["consensus-source"],
-      "notes": ["claudedocs/research-outputs/test.md"],
+      "notes": ["claudedocs/agent-outputs/test.md"],
       "createdAt": "2026-01-25T12:00:00Z",
       "updatedAt": "2026-01-25T12:00:00Z"
     }
@@ -360,7 +360,7 @@ EOF
     result=$(contribution_get_injection "T2204")
 
     # Default output dir
-    [[ "$result" == *"claudedocs/research-outputs"* ]]
+    [[ "$result" == *"claudedocs/agent-outputs"* ]]
     [[ "$result" != *"{{OUTPUT_DIR}}"* ]]
 }
 

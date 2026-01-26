@@ -440,7 +440,7 @@ Date: 2026-01-19"
         ti_get_default 'OUTPUT_DIR'
     "
     assert_success
-    assert_output "claudedocs/research-outputs"
+    assert_output "claudedocs/agent-outputs"
 }
 
 @test "ti_get_default: returns default for TASK_SHOW_CMD" {
