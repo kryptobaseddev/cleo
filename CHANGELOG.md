@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-01-27
+
+### Added
+- **Epic T2190: Hierarchical Discovery System for graph-rag.sh**
+  - **`_find_lca()`** (T2192): Find lowest common ancestor of two tasks in hierarchy tree
+  - **`_tree_distance()`** (T2193): Calculate tree distance between tasks (0=same, 2=siblings, 4=cousins)
+  - **`_get_hierarchical_context()`** (T2194): Get task description with parent context using 0.5/0.25 decay weights
+  - **`_discover_by_hierarchy()`** (T2195): Discover siblings (+0.15 boost) and cousins (+0.08 boost)
+  - **`discover_related_tasks()` integration** (T2196): Added `hierarchy` method and auto-mode boosting
+  - **Test suite** (T2197): `tests/unit/graph-rag-hierarchy.bats` with 23 passing tests
+  - **Documentation** (T2198): `docs/commands/graph-rag.md` with full API reference
+  - **Config schema** (T2417): Added `graphRag` section to `schemas/config.schema.json`
+    - `hierarchyBoost`: sibling/cousin/ancestor boost values
+    - `contextPropagation`: maxDepth and decayFactor settings
+    - `minScore`: threshold for discovery results
+  - **Benchmark** (T2418): ~60-105ms/call for hierarchy functions (563 task project)
+
+### Changed
+- **`.cleo/` files now git-tracked**: Core task files (todo.json, sessions.json, config.json, todo-archive.json) are now tracked by git for data integrity and backup
+
 ## [0.70.1] - 2026-01-26
 
 ### Fixed
