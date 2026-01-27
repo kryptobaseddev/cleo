@@ -5,6 +5,34 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.5] - 2026-01-27
+
+### Added
+- **Skills Marketplace Integration Improvements** (T2495, T2496):
+  - New `--mp` flag as shortcut for marketplace search/install (replaces verbose `--source skillsmp`)
+  - New `--all` flag to search both local and marketplace
+  - New `cleo skills installed` command to list marketplace-installed skills
+  - New `cleo skills update [SKILL]` command to check for skill updates
+  - Marketplace skill tracking registry (`skills/mp/installed.json`)
+  - Records: name, scopedName, author, stars, version, path, timestamps
+
+- **Skills Documentation Overhaul**:
+  - `docs/skills/architecture.mdx`: 2-tier universal subagent architecture, protocol injection flow
+  - `docs/skills/manifest.mdx`: Complete manifest schema documentation
+  - `docs/skills/marketplace.mdx`: Marketplace integration guide (renamed from skillsmp.mdx)
+  - `docs/skills/development.mdx`: Skill creation guide
+  - `docs/skills/index.mdx`: Updated with full skill taxonomy (15 skills by tier)
+
+### Fixed
+- **scripts/skills.sh line 10**: Missing `#` comment character caused script execution during sourcing
+- **skills.sh search logic**: No longer requires config file for marketplace API access
+- **skills.sh install logic**: No longer requires config file for marketplace installs
+
+### Changed
+- Marketplace search/install now works without any configuration (agentskills.in public API)
+- Renamed `skillsmp.mdx` to `marketplace.mdx` for clarity
+- Updated all documentation to use `--mp` flag instead of `--source skillsmp`
+
 ## [0.73.3] - 2026-01-27
 
 ### Fixed
