@@ -197,13 +197,19 @@ if [[ "$DRY_RUN" == "true" ]]; then
     exit 0
 fi
 
-# Step 1: Update VERSION file
-log_step "Updating VERSION file..."
-echo "$NEW_VERSION" > VERSION
-
-# Step 2: Update README badge
-log_step "Updating README.md version badge..."
-sed -i "s/version-${CURRENT_VERSION//./\\.}-/version-${NEW_VERSION}-/g" README.md
+# Step 1 & 2: Update VERSION and README using bump-version.sh
+log_step "Updating version files..."
+if [[ -x "$PROJECT_ROOT/dev/bump-version.sh" ]]; then
+    "$PROJECT_ROOT/dev/bump-version.sh" "$NEW_VERSION" --quiet 2>/dev/null || {
+        # Fallback to manual update
+        echo "$NEW_VERSION" > VERSION
+        sed -i "s/version-${CURRENT_VERSION//./\\.}-/version-${NEW_VERSION}-/g" README.md
+    }
+else
+    # Manual update
+    echo "$NEW_VERSION" > VERSION
+    sed -i "s/version-${CURRENT_VERSION//./\\.}-/version-${NEW_VERSION}-/g" README.md
+fi
 
 # Step 3: Generate Mintlify changelog
 if [[ "$SKIP_CHANGELOG" != "true" ]]; then

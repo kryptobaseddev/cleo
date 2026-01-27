@@ -511,7 +511,7 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 - **Dependency Graph System** (Epic T2122):
   - **Graph Cache** (`lib/graph-cache.sh`):
-    - 90x performance improvement for dependency queries (18s → <200ms for 789 tasks)
+    - 90x performance improvement for dependency queries (18s → &lt;200ms for 789 tasks)
     - O(1) lookups via pre-computed forward/reverse adjacency lists
     - Checksum-based automatic cache invalidation
     - Single-pass jq construction for O(n) cache building
@@ -536,8 +536,8 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
     - New `docs/commands/relates.md` for relationship management
     - New `docs/guides/DEPENDENCY-GRAPHS.md` architecture guide
   - **Performance Benchmarks**:
-    - Cold cache build: <100ms for 500 tasks
-    - Warm cache lookup: <80ms
+    - Cold cache build: &lt;100ms for 500 tasks
+    - Warm cache lookup: &lt;80ms
     - 250x improvement over previous O(n²) implementation
   - **Edge Case Behavior**:
     - Empty dependency graphs return valid JSON with empty arrays
