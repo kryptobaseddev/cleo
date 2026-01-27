@@ -137,6 +137,9 @@ END {
 }
 ' "$CHANGELOG_SRC" >> "$CHANGELOG_DST"
 
+# Escape < followed by numbers (e.g., <200ms) to prevent MDX/JSX parse errors
+sed -i 's/<\([0-9]\)/\&lt;\1/g' "$CHANGELOG_DST"
+
 # Add footer
 cat >> "$CHANGELOG_DST" << 'FOOTER'
 ## Earlier Releases
