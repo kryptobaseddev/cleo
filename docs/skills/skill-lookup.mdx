@@ -1,0 +1,120 @@
+---
+title: "Skill Lookup"
+description: "Discover skills from the SkillsMP marketplace"
+icon: "search"
+---
+
+# Skill Lookup
+
+The Skill Lookup skill provides context injection for discovering skills from the Agent Skills Marketplace (SkillsMP).
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| **Skill ID** | ct-skill-lookup |
+| **Tier** | 3 (Support) |
+| **Protocol** | research |
+| **Tags** | skills, discovery |
+
+## SkillsMP Integration
+
+CLEO integrates with the Agent Skills Marketplace (agentskills.in API) for discovering external skills from a marketplace of 100,000+ agent skills.
+
+## Search Commands
+
+### Search Marketplace
+
+```bash
+# Search for skills
+cleo skills search "rust" --mp
+
+# Human-readable output
+cleo skills search "authentication" --mp --human
+
+# Search both local and marketplace
+cleo skills search "query" --source all
+```
+
+### View Installed Skills
+
+```bash
+# List marketplace-installed skills
+cleo skills installed
+
+# JSON output
+cleo skills installed --json
+```
+
+### Check for Updates
+
+```bash
+# Check all skills for updates
+cleo skills update
+
+# Check specific skill
+cleo skills update rust-async-patterns
+```
+
+## Search Results
+
+Results include:
+
+| Field | Description |
+|-------|-------------|
+| `name` | Skill name |
+| `author` | GitHub username |
+| `scopedName` | Full identifier (@author/name) |
+| `description` | Skill description |
+| `stars` | GitHub repository stars |
+| `category` | Skill category |
+
+## Installation
+
+```bash
+# Install to project
+cleo skills install @author/skill-name --mp
+
+# Install globally
+cleo skills install @author/skill-name --mp --global
+```
+
+## Quality Indicators
+
+| Indicator | Good Sign |
+|-----------|-----------|
+| **Stars** | >1000 indicates wide usage |
+| **Author** | Known authors (anthropics, wshobson) |
+| **Description** | Clear, specific use cases |
+| **Repository** | Active maintenance |
+
+## Workflow Example
+
+```bash
+# 1. Search for relevant skills
+cleo skills search "rust cli" --mp --human
+
+# 2. Install useful skill
+cleo skills install @wshobson/rust-async-patterns --mp
+
+# 3. Use the skill
+@skills/mp/rust-async-patterns/SKILL.md
+Build a calculator CLI in Rust.
+```
+
+## Categories
+
+| Category | Examples |
+|----------|----------|
+| `devops` | CI/CD, deployment, infrastructure |
+| `backend` | APIs, databases, authentication |
+| `frontend` | React, Vue, styling |
+| `documentation` | README generation, API docs |
+| `security` | Auditing, vulnerability scanning |
+| `testing` | Unit tests, integration tests |
+
+## Related Skills
+
+- [Skill Creator](/skills/skill-creator) - Create custom skills
+- [Marketplace](/skills/marketplace) - Full marketplace documentation
+- [Research Agent](/skills/research-agent) - General research

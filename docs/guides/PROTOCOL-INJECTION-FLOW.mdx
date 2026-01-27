@@ -1,0 +1,237 @@
+---
+title: "Protocol Injection Flow"
+description: "How CLEO composes and injects skill protocols into subagents"
+icon: "syringe"
+---
+
+# Protocol Injection Flow
+
+Protocol injection is the mechanism by which CLEO transforms a generic `cleo-subagent` into a specialized agent by composing and injecting skill-specific context.
+
+## Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  PROTOCOL INJECTION FLOW                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ORCHESTRATOR                                               │
+│      │                                                      │
+│      ├─1→ Select skill via dispatch algorithm               │
+│      │                                                      │
+│      ├─2→ Load protocol layers:                             │
+│      │    ├─ Base protocol (always)                         │
+│      │    ├─ Conditional protocol (skill-specific)          │
+│      │    └─ Task context (runtime values)                  │
+│      │                                                      │
+│      ├─3→ Resolve ALL tokens                                │
+│      │    ├─ {{TASK_ID}} → T1234                           │
+│      │    ├─ {{EPIC_ID}} → T1200                           │
+│      │    ├─ {{DATE}} → 2026-01-27                         │
+│      │    └─ {{OUTPUT_DIR}} → claudedocs/agent-outputs     │
+│      │                                                      │
+│      ├─4→ Compose final prompt                              │
+│      │                                                      │
+│      └─5→ Spawn cleo-subagent with injected protocol        │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Protocol Layers
+
+### Layer 1: Base Protocol (Always Loaded)
+
+The base protocol defines universal subagent behavior:
+
+**Source**: `skills/_shared/subagent-protocol-base.md`
+
+```markdown
+# Subagent Base Protocol
+
+## Output Requirements (MANDATORY)
+
+| ID | Rule | Compliance |
+|----|------|------------|
+| OUT-001 | MUST write to {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md | Required |
+| OUT-002 | MUST append ONE line to {{MANIFEST_PATH}} | Required |
+| OUT-003 | MUST return ONLY summary message | Required |
+| OUT-004 | MUST NOT return content in response | Required |
+
+## Lifecycle Rules
+
+1. Read task details via cleo show
+2. Set focus (if not set by orchestrator)
+3. Execute skill-specific work
+4. Write output file
+5. Append manifest entry
+6. Complete task via cleo complete
+7. Return summary message only
+```
+
+### Layer 2: Conditional Protocol (Skill-Specific)
+
+Each skill provides domain-specific instructions:
+
+**Source**: `skills/ct-{skill-name}/SKILL.md`
+
+```markdown
+# Research Agent Context Injection
+
+## Capabilities
+- Web research via Tavily
+- Library docs via Context7
+- Source aggregation
+- Structured findings
+
+## Methodology
+1. Understand the research question
+2. Identify relevant sources
+3. Execute searches
+4. Synthesize findings
+5. Document with citations
+```
+
+### Layer 3: Task Context (Runtime Values)
+
+Dynamic values resolved at spawn time:
+
+| Token | Description | Example |
+|-------|-------------|---------|
+| `{{TASK_ID}}` | Current task identifier | T1234 |
+| `{{TASK_NAME}}` | Task title | "Research auth methods" |
+| `{{EPIC_ID}}` | Parent epic identifier | T1200 |
+| `{{SESSION_ID}}` | Current session | session_20260127_... |
+| `{{DATE}}` | Current date | 2026-01-27 |
+| `{{OUTPUT_DIR}}` | Output directory | claudedocs/agent-outputs |
+| `{{MANIFEST_PATH}}` | Manifest file | claudedocs/agent-outputs/MANIFEST.jsonl |
+| `{{TOPIC_SLUG}}` | URL-safe topic | auth-research |
+
+## Composition Process
+
+### Step 1: Load Base Protocol
+
+```bash
+base_protocol=$(cat skills/_shared/subagent-protocol-base.md)
+```
+
+### Step 2: Load Skill Protocol
+
+```bash
+skill_protocol=$(cat "skills/ct-${skill_name}/SKILL.md")
+```
+
+### Step 3: Load Task System Integration
+
+```bash
+task_integration=$(cat skills/_shared/task-system-integration.md)
+```
+
+### Step 4: Resolve Tokens
+
+```bash
+composed_prompt=$(echo "$base_protocol
+$skill_protocol
+$task_integration" | resolve_tokens "$task_id")
+```
+
+### Step 5: Verify Resolution
+
+```bash
+# Check for unresolved tokens
+if grep -q '{{[A-Z_]*}}' <<< "$composed_prompt"; then
+  echo "ERROR: Unresolved tokens detected" >&2
+  return 1
+fi
+```
+
+## Token Resolution
+
+### Resolution Function
+
+```bash
+resolve_tokens() {
+  local task_id="$1"
+  local content="$2"
+
+  # Get task metadata
+  local task=$(cleo show "$task_id" --format json)
+  local epic_id=$(jq -r '.task.parentId // ""' <<< "$task")
+  local date=$(date +%Y-%m-%d)
+
+  # Replace tokens
+  content="${content//\{\{TASK_ID\}\}/$task_id}"
+  content="${content//\{\{EPIC_ID\}\}/$epic_id}"
+  content="${content//\{\{DATE\}\}/$date}"
+  content="${content//\{\{OUTPUT_DIR\}\}/claudedocs/agent-outputs}"
+  content="${content//\{\{MANIFEST_PATH\}\}/claudedocs/agent-outputs/MANIFEST.jsonl}"
+
+  echo "$content"
+}
+```
+
+### Verification
+
+The orchestrator MUST verify all tokens are resolved before spawning:
+
+```bash
+skill_prepare_spawn() {
+  local skill="$1"
+  local task_id="$2"
+
+  # Compose prompt
+  local prompt=$(compose_prompt "$skill" "$task_id")
+
+  # Verify resolution
+  local unresolved=$(grep -oE '\{\{[A-Z_]+\}\}' <<< "$prompt" | sort -u)
+
+  jq -nc \
+    --arg taskId "$task_id" \
+    --arg prompt "$prompt" \
+    --arg unresolved "$unresolved" \
+    '{
+      taskId: $taskId,
+      prompt: $prompt,
+      tokenResolution: {
+        fullyResolved: ($unresolved == ""),
+        unresolved: ($unresolved | split("\n") | map(select(. != "")))
+      }
+    }'
+}
+```
+
+## Spawning with Injection
+
+### The Final Spawn
+
+```bash
+# Get composed context
+context=$(skill_prepare_spawn "ct-research-agent" "T1234")
+
+# Verify resolution
+if ! jq -e '.tokenResolution.fullyResolved' <<< "$context"; then
+  echo "ERROR: Tokens not fully resolved"
+  jq '.tokenResolution.unresolved' <<< "$context"
+  exit 1
+fi
+
+# Extract prompt
+prompt=$(jq -r '.prompt' <<< "$context")
+
+# Spawn subagent
+Task tool: subagent_type="cleo-subagent", prompt="$prompt"
+```
+
+## Anti-Patterns
+
+| Pattern | Problem | Solution |
+|---------|---------|----------|
+| Unresolved tokens | Subagent can't execute | Check `tokenResolution.fullyResolved` |
+| Missing base protocol | Inconsistent output format | Always load base first |
+| Direct skill spawn | Wrong agent type | Always spawn `cleo-subagent` |
+| Hardcoded paths | Breaks in different environments | Use token resolution |
+
+## Related Documentation
+
+- [Skill Dispatch Algorithm](/guides/SKILL-DISPATCH-ALGORITHM) - How skills are selected
+- [Architecture](/skills/architecture) - Full 2-tier design
+- [Manifest Schema](/skills/manifest) - Output format requirements

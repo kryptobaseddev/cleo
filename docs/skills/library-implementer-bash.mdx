@@ -1,0 +1,215 @@
+---
+title: "Library Implementer (Bash)"
+description: "Create well-structured Bash library files with reusable functions"
+icon: "code"
+---
+
+# Library Implementer (Bash)
+
+The Library Implementer skill provides context injection for creating well-structured Bash library files with reusable functions following shell best practices.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| **Skill ID** | ct-library-implementer-bash |
+| **Tier** | 2 (Execution) |
+| **Protocol** | implementation |
+| **Tags** | implementation, bash, library |
+
+## Capabilities
+
+1. **Function Libraries** - Create lib/*.sh files with related functions
+2. **Utility Functions** - Implement shared helper functions
+3. **Module Design** - Organize functions into cohesive modules
+4. **Documentation** - Document function signatures and usage
+
+## When to Use
+
+The dispatch algorithm selects ct-library-implementer-bash for:
+
+- Tasks with keywords: `bash`, `library`, `shell`, `lib/`
+- Tasks labeled: `bash-library`
+- Task type: `bash-library`
+
+## Directory Structure
+
+```
+lib/
+├── exit-codes.sh       # Exit code constants
+├── output-format.sh    # JSON/human output formatting
+├── validation.sh       # Input validation functions
+├── file-ops.sh         # Atomic file operations
+├── logging.sh          # Audit trail logging
+├── config.sh           # Configuration management
+└── {new-module}.sh     # Your new library
+```
+
+## Library Template
+
+```bash
+#!/usr/bin/env bash
+# lib/{module-name}.sh - Brief description of module purpose
+#
+# Functions:
+#   function_name()     - Brief description
+#   another_function()  - Brief description
+
+# Guard against multiple sourcing
+[[ -n "${_MODULE_NAME_LOADED:-}" ]] && return 0
+readonly _MODULE_NAME_LOADED=1
+
+# Dependencies
+# source "${LIB_DIR:-./lib}/dependency.sh"
+
+# ==============================================================================
+# CONSTANTS
+# ==============================================================================
+
+readonly MODULE_CONSTANT="value"
+
+# ==============================================================================
+# FUNCTIONS
+# ==============================================================================
+
+# Brief description of what this function does
+#
+# Arguments:
+#   $1 - arg_name: Description
+#   $2 - arg_name: Description (optional, default: value)
+#
+# Returns:
+#   0 on success, non-zero on failure
+#
+# Output:
+#   Writes result to stdout
+#
+# Example:
+#   result=$(function_name "arg1" "arg2")
+#
+function_name() {
+  local arg1="$1"
+  local arg2="${2:-default}"
+
+  # Implementation
+}
+```
+
+## Naming Conventions
+
+```bash
+# Public functions: lowercase_with_underscores
+get_task_by_id()
+validate_json_schema()
+
+# Private/internal functions: prefix with underscore
+_internal_helper()
+_parse_config()
+
+# Module-specific prefix for clarity
+rm_get_entry()        # research-manifest module
+orc_build_prompt()    # orchestrator module
+```
+
+## Input Validation
+
+```bash
+function_name() {
+  local required_arg="$1"
+  local optional_arg="${2:-default}"
+
+  # Validate required arguments
+  if [[ -z "$required_arg" ]]; then
+    echo "ERROR: required_arg is required" >&2
+    return 1
+  fi
+
+  # Implementation
+}
+```
+
+## Error Handling
+
+```bash
+function_name() {
+  local file="$1"
+
+  # Check preconditions
+  if [[ ! -f "$file" ]]; then
+    echo "ERROR: File not found: $file" >&2
+    return "${EXIT_FILE_ERROR:-4}"
+  fi
+
+  # Safe operation
+  local result
+  if ! result=$(risky_operation 2>&1); then
+    echo "ERROR: Operation failed: $result" >&2
+    return 1
+  fi
+
+  echo "$result"
+}
+```
+
+## JSON Output
+
+```bash
+get_data() {
+  local id="$1"
+  local format="${2:-json}"
+
+  local data
+  data=$(fetch_data "$id")
+
+  if [[ "$format" == "json" ]]; then
+    jq -nc --arg id "$id" --arg data "$data" \
+      '{"id": $id, "data": $data}'
+  else
+    echo "ID: $id"
+    echo "Data: $data"
+  fi
+}
+```
+
+## Module Organization
+
+### Single Responsibility
+
+```bash
+# GOOD: lib/research-manifest.sh
+# - All functions related to research manifest operations
+
+# BAD: lib/utils.sh
+# - Grab bag of unrelated functions
+```
+
+### Dependency Layers
+
+```
+Layer 0: exit-codes.sh (no deps)
+Layer 1: output-format.sh (deps: exit-codes)
+Layer 2: validation.sh (deps: exit-codes, output-format)
+Layer 3: Your module (deps: layers 0-2)
+```
+
+## Execution Flow
+
+```
+1. Read task details
+2. Set focus
+3. Create library file in lib/
+4. Verify syntax: bash -n lib/{module}.sh
+5. Append manifest
+6. Complete task
+7. Return summary
+```
+
+## Output Location
+
+Libraries are created in: `lib/{{MODULE_NAME}}.sh`
+
+## Related Skills
+
+- [Test Writer](/skills/test-writer-bats) - Creates tests for libraries
+- [Task Executor](/skills/task-executor) - General implementation
+- [Validator](/skills/validator) - Validates code quality

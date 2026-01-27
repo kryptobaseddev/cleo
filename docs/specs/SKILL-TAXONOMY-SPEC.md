@@ -1,3 +1,9 @@
+---
+title: "Skill Taxonomy Specification"
+description: "Logical grouping taxonomy for CLEO skills based on tier, category, and tags"
+icon: "sitemap"
+---
+
 # Skill Taxonomy Specification
 
 **Version**: 1.0.0
