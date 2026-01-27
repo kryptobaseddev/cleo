@@ -1,0 +1,291 @@
+---
+title: "Skill Development Guide"
+description: "Create custom skills to extend CLEO capabilities"
+icon: "hammer"
+---
+
+# Skill Development Guide
+
+This guide covers creating custom skills for the CLEO ecosystem. Skills are protocol injection templates that transform `cleo-subagent` into specialized agents.
+
+## Quick Start
+
+```bash
+# 1. Create skill directory
+mkdir -p skills/ct-my-skill
+
+# 2. Create SKILL.md
+cat > skills/ct-my-skill/SKILL.md << 'EOF'
+# My Custom Skill
+
+**Protocol**: @protocols/implementation.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 1.0.0
+
+## Purpose
+
+Brief description of what this skill does.
+
+## Capabilities
+
+1. **Capability 1** - Description
+2. **Capability 2** - Description
+
+## Task System Integration
+
+@skills/_shared/task-system-integration.md
+
+## Subagent Protocol
+
+@skills/_shared/subagent-protocol-base.md
+EOF
+
+# 3. Register in manifest
+# Edit skills/manifest.json to add your skill
+```
+
+## Skill Structure
+
+### Directory Layout
+
+```
+skills/ct-my-skill/
+├── SKILL.md              # Main skill instructions (required)
+├── references/           # Supporting documentation (optional)
+│   ├── patterns.md
+│   └── examples.md
+└── examples/             # Example outputs (optional)
+    └── sample-output.md
+```
+
+### SKILL.md Template
+
+```markdown
+# {Skill Name} Context Injection
+
+**Protocol**: @protocols/{protocol-type}.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: X.Y.Z
+
+---
+
+## Purpose
+
+{2-3 sentences describing what this skill does and when to use it}
+
+---
+
+## Capabilities
+
+1. **{Capability 1}** - {Description}
+2. **{Capability 2}** - {Description}
+3. **{Capability 3}** - {Description}
+
+---
+
+## Parameters (Orchestrator-Provided)
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `{{TASK_ID}}` | Current task identifier | Yes |
+| `{{TOPIC_SLUG}}` | URL-safe topic name | Yes |
+| `{{DATE}}` | Current date (YYYY-MM-DD) | Yes |
+
+---
+
+## Methodology
+
+### Phase 1: {Phase Name}
+
+{Detailed instructions for this phase}
+
+### Phase 2: {Phase Name}
+
+{Detailed instructions for this phase}
+
+---
+
+## Task System Integration
+
+@skills/_shared/task-system-integration.md
+
+---
+
+## Subagent Protocol
+
+@skills/_shared/subagent-protocol-base.md
+
+### Output Requirements
+
+1. MUST write to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+3. MUST return ONLY: "{Skill} complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return content in response
+
+---
+
+## Completion Checklist
+
+- [ ] Task focus set
+- [ ] {Skill-specific requirement 1}
+- [ ] {Skill-specific requirement 2}
+- [ ] Output file written
+- [ ] Manifest entry appended
+- [ ] Task completed
+- [ ] Return summary message only
+```
+
+## Manifest Registration
+
+Add your skill to `skills/manifest.json`:
+
+```json
+{
+  "skills": [
+    {
+      "name": "ct-my-skill",
+      "version": "1.0.0",
+      "description": "Brief description",
+      "path": "skills/ct-my-skill/SKILL.md",
+      "tier": 2,
+      "tags": ["implementation", "custom"],
+      "protocol": "implementation"
+    }
+  ],
+  "dispatch_matrix": {
+    "by_keyword": {
+      "my-keyword": "ct-my-skill"
+    }
+  }
+}
+```
+
+## Token System
+
+### Standard Tokens
+
+All skills have access to these tokens:
+
+| Token | Description | Example |
+|-------|-------------|---------|
+| `{{TASK_ID}}` | Task identifier | T1234 |
+| `{{EPIC_ID}}` | Parent epic ID | T1200 |
+| `{{DATE}}` | Current date | 2026-01-27 |
+| `{{OUTPUT_DIR}}` | Output directory | claudedocs/agent-outputs |
+| `{{MANIFEST_PATH}}` | Manifest file | claudedocs/agent-outputs/MANIFEST.jsonl |
+| `{{TOPIC_SLUG}}` | URL-safe topic | my-topic |
+| `{{SESSION_ID}}` | Session identifier | session_20260127_... |
+
+### Custom Tokens
+
+Skills can define custom tokens:
+
+```markdown
+## Parameters (Orchestrator-Provided)
+
+| Parameter | Description | Required |
+|-----------|-------------|----------|
+| `{{CUSTOM_TOKEN}}` | What it represents | Yes/No |
+```
+
+<Warning>
+Custom tokens MUST be resolved by the orchestrator before spawning. Never leave unresolved tokens in the composed prompt.
+</Warning>
+
+## Protocol Types
+
+Choose the appropriate protocol for your skill:
+
+| Protocol | Use Case | Example Skills |
+|----------|----------|----------------|
+| `research` | Information gathering | ct-research-agent |
+| `decomposition` | Task breakdown | ct-epic-architect |
+| `implementation` | Code/artifact creation | ct-task-executor |
+| `specification` | RFC/spec writing | ct-spec-writer |
+| `contribution` | Git workflow | ct-dev-workflow |
+| `consensus` | Multi-perspective validation | ct-validator |
+
+## Output Format
+
+### Output File Structure
+
+```markdown
+# {Title}
+
+## Summary
+
+{2-3 sentence overview}
+
+## {Section 1}
+
+{Content}
+
+## {Section 2}
+
+{Content}
+
+## Linked Tasks
+
+- Epic: {{EPIC_ID}}
+- Task: {{TASK_ID}}
+```
+
+### Manifest Entry Format
+
+```json
+{"id":"topic-slug-2026-01-27","file":"2026-01-27_topic-slug.md","title":"Title","date":"2026-01-27","status":"complete","agent_type":"implementation","topics":["topic1","topic2"],"key_findings":["Finding 1","Finding 2"],"actionable":false,"needs_followup":[],"linked_tasks":["T1234"]}
+```
+
+<Note>
+Manifest entries MUST be single-line JSON. No pretty-printing.
+</Note>
+
+## Testing Your Skill
+
+### Manual Testing
+
+```bash
+# 1. Create a test task
+cleo add "Test my-skill functionality" --labels my-keyword
+
+# 2. Check dispatch
+source lib/skill-dispatch.sh
+skill=$(skill_auto_dispatch "T1234")
+echo "Selected: $skill"  # Should be ct-my-skill
+
+# 3. Test spawn preparation
+context=$(skill_prepare_spawn "ct-my-skill" "T1234")
+echo "$context" | jq '.tokenResolution'
+```
+
+### Validation Checklist
+
+- [ ] Skill dispatches correctly for target keywords
+- [ ] All tokens resolve properly
+- [ ] Output file is written to correct location
+- [ ] Manifest entry is valid JSON
+- [ ] Return message is exactly the summary
+- [ ] Task is marked complete
+
+## Best Practices
+
+### Do's
+
+- **Keep SKILL.md focused** - One clear purpose per skill
+- **Use shared protocols** - Reference `@skills/_shared/` for common patterns
+- **Document parameters** - List all expected tokens
+- **Provide completion checklist** - Help subagent verify all requirements
+
+### Don'ts
+
+- **Don't duplicate content** - Use `@` references
+- **Don't return content** - Only return summary message
+- **Don't skip manifest** - Always append entry
+- **Don't leave tokens unresolved** - Verify before spawn
+
+## Related Documentation
+
+- [Architecture](/skills/architecture) - 2-tier design
+- [Dispatch Algorithm](/guides/SKILL-DISPATCH-ALGORITHM) - Skill selection
+- [Protocol Injection](/guides/PROTOCOL-INJECTION-FLOW) - How injection works
+- [Manifest Schema](/skills/manifest) - Registry format

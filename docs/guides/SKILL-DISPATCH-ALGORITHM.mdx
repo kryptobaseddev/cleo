@@ -1,0 +1,217 @@
+---
+title: "Skill Dispatch Algorithm"
+description: "How CLEO automatically selects skills for task execution"
+icon: "route"
+---
+
+# Skill Dispatch Algorithm
+
+The dispatch algorithm determines which skill (protocol) to inject when spawning a cleo-subagent. This enables automatic skill selection based on task metadata.
+
+## Algorithm Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  DISPATCH DECISION TREE                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. Check task.labels[]                                     │
+│     └─→ Match against dispatch_matrix.by_label              │
+│                                                             │
+│  2. Check task.title + task.description                     │
+│     └─→ Match against dispatch_matrix.by_keyword            │
+│                                                             │
+│  3. Check task.type                                         │
+│     └─→ Match against dispatch_matrix.by_task_type          │
+│                                                             │
+│  4. Default fallback                                        │
+│     └─→ Return "ct-task-executor"                           │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Core Functions
+
+### skill_auto_dispatch()
+
+The main entry point for automatic skill selection:
+
+```bash
+skill_auto_dispatch(task_id) {
+  # 1. Load task metadata
+  task=$(cleo show "$task_id" --format json)
+
+  # 2. Check labels first (highest priority)
+  for label in task.labels[]; do
+    if skill = dispatch_matrix.by_label[label]; then
+      return skill
+    fi
+  done
+
+  # 3. Check keywords in title/description
+  text = "${task.title} ${task.description}"
+  skill = skill_dispatch_by_keywords(text)
+  if skill != "ct-task-executor"; then
+    return skill
+  fi
+
+  # 4. Check task type
+  if skill = dispatch_matrix.by_task_type[task.type]; then
+    return skill
+  fi
+
+  # 5. Default
+  return "ct-task-executor"
+}
+```
+
+### skill_dispatch_by_keywords()
+
+Pattern matching against task text:
+
+```bash
+skill_dispatch_by_keywords(text) {
+  text_lower = lowercase(text)
+
+  # Check each pattern in order
+  if matches(text_lower, "research|investigate|explore|discover"); then
+    return "ct-research-agent"
+  fi
+
+  if matches(text_lower, "epic|decompose|plan|architect"); then
+    return "ct-epic-architect"
+  fi
+
+  if matches(text_lower, "spec|rfc|protocol|contract"); then
+    return "ct-spec-writer"
+  fi
+
+  if matches(text_lower, "test|bats|coverage"); then
+    return "ct-test-writer-bats"
+  fi
+
+  if matches(text_lower, "doc|document|readme"); then
+    return "ct-documentor"
+  fi
+
+  if matches(text_lower, "validate|verify|audit|compliance"); then
+    return "ct-validator"
+  fi
+
+  if matches(text_lower, "release|version|deploy|publish"); then
+    return "ct-dev-workflow"
+  fi
+
+  # Default
+  return "ct-task-executor"
+}
+```
+
+## Dispatch Matrix
+
+The dispatch matrix defines mappings from task metadata to skills.
+
+### By Task Type
+
+```json
+{
+  "research": "ct-research-agent",
+  "planning": "ct-epic-architect",
+  "implementation": "ct-task-executor",
+  "testing": "ct-test-writer-bats",
+  "documentation": "ct-documentor",
+  "specification": "ct-spec-writer",
+  "validation": "ct-validator",
+  "bash-library": "ct-library-implementer-bash",
+  "release": "ct-dev-workflow"
+}
+```
+
+### By Keyword Pattern
+
+| Pattern | Skill | Example Match |
+|---------|-------|---------------|
+| `research\|investigate\|explore` | ct-research-agent | "Research auth methods" |
+| `epic\|plan\|decompose\|architect` | ct-epic-architect | "Plan the API epic" |
+| `spec\|rfc\|protocol\|contract` | ct-spec-writer | "Write RFC for auth" |
+| `test\|bats\|coverage` | ct-test-writer-bats | "Add tests for login" |
+| `doc\|document\|readme\|guide` | ct-documentor | "Document the API" |
+| `validate\|verify\|audit` | ct-validator | "Validate schema" |
+| `release\|version\|deploy` | ct-dev-workflow | "Release v1.0.0" |
+
+### By Label
+
+| Label | Skill |
+|-------|-------|
+| `research` | ct-research-agent |
+| `architecture` | ct-epic-architect |
+| `testing` | ct-test-writer-bats |
+| `documentation` | ct-documentor |
+| `validation` | ct-validator |
+
+## Priority Order
+
+When multiple matches are possible, the algorithm uses this priority:
+
+1. **Labels** (explicit categorization)
+2. **Keywords** (content-based matching)
+3. **Task type** (structural classification)
+4. **Default** (ct-task-executor)
+
+<Note>
+Labels have highest priority because they represent explicit user intent. A task labeled "research" should use ct-research-agent even if the title contains "implement".
+</Note>
+
+## Extending the Matrix
+
+To add new dispatch rules, update `skills/manifest.json`:
+
+```json
+{
+  "dispatch_matrix": {
+    "by_keyword": {
+      "new-pattern": "ct-new-skill"
+    },
+    "by_label": {
+      "new-label": "ct-new-skill"
+    },
+    "by_task_type": {
+      "new-type": "ct-new-skill"
+    }
+  }
+}
+```
+
+## Debugging Dispatch
+
+### Check What Skill Would Be Selected
+
+```bash
+source lib/skill-dispatch.sh
+skill=$(skill_auto_dispatch "T1234")
+echo "Selected skill: $skill"
+```
+
+### Trace Dispatch Decision
+
+```bash
+# Enable debug output
+export DEBUG_DISPATCH=1
+skill=$(skill_auto_dispatch "T1234")
+# Shows each step of the decision process
+```
+
+### Manual Override
+
+When automatic dispatch doesn't work:
+
+```bash
+# Explicit skill selection
+cleo orchestrator spawn T1234 --skill ct-research-agent
+```
+
+## Related Documentation
+
+- [Protocol Injection Flow](/guides/PROTOCOL-INJECTION-FLOW) - How skills are loaded
+- [Architecture](/skills/architecture) - Full 2-tier design
+- [Troubleshooting](/troubleshooting/DISPATCH-DEBUG) - Debug dispatch issues

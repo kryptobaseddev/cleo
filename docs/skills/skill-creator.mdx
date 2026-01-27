@@ -1,0 +1,154 @@
+---
+title: "Skill Creator"
+description: "Create effective skills to extend CLEO capabilities"
+icon: "wand-magic-sparkles"
+---
+
+# Skill Creator
+
+The Skill Creator skill provides guidance for creating effective skills that extend Claude's capabilities with specialized knowledge, workflows, or tool integrations.
+
+## Overview
+
+| Property | Value |
+|----------|-------|
+| **Skill ID** | ct-skill-creator |
+| **Tier** | 3 (Support) |
+| **Protocol** | implementation |
+| **Tags** | skills, creation, meta |
+
+## About Skills
+
+Skills are modular, self-contained packages that extend Claude's capabilities by providing specialized knowledge, workflows, and tools. They transform Claude from a general-purpose agent into a specialized agent equipped with procedural knowledge.
+
+### What Skills Provide
+
+1. **Specialized workflows** - Multi-step procedures for specific domains
+2. **Tool integrations** - Instructions for working with specific file formats or APIs
+3. **Domain expertise** - Company-specific knowledge, schemas, business logic
+4. **Bundled resources** - Scripts, references, and assets for complex tasks
+
+## Core Principles
+
+### Concise is Key
+
+The context window is shared with everything else Claude needs. Only add context Claude doesn't already have.
+
+**Default assumption**: Claude is already very smart.
+
+### Degrees of Freedom
+
+Match specificity to task fragility:
+
+| Freedom | Use When |
+|---------|----------|
+| **High** (text instructions) | Multiple approaches valid, heuristics guide |
+| **Medium** (pseudocode) | Preferred pattern exists, some variation ok |
+| **Low** (specific scripts) | Fragile operations, consistency critical |
+
+## Skill Anatomy
+
+```
+skill-name/
+├── SKILL.md (required)
+│   ├── YAML frontmatter (name, description)
+│   └── Markdown instructions
+└── Bundled Resources (optional)
+    ├── scripts/          - Executable code
+    ├── references/       - Documentation
+    └── assets/           - Files for output
+```
+
+### SKILL.md Format
+
+```markdown
+---
+name: skill-name
+description: What this skill does and when to use it.
+Include triggering contexts here.
+version: 1.0.0
+---
+
+# Skill Name
+
+Instructions for using this skill...
+```
+
+### Frontmatter Fields
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `name` | Yes | Skill identifier |
+| `description` | Yes | Triggering mechanism - describes when to use |
+| `version` | No | Semantic version |
+
+<Warning>
+The `description` field is the PRIMARY triggering mechanism. Include all "when to use" information here, not in the body.
+</Warning>
+
+## Progressive Disclosure
+
+Skills use a three-level loading system:
+
+1. **Metadata (name + description)** - Always in context (~100 words)
+2. **SKILL.md body** - When skill triggers (<5k words)
+3. **Bundled resources** - As needed (unlimited)
+
+### Pattern: High-level with References
+
+```markdown
+# PDF Processing
+
+## Quick start
+
+[basic example]
+
+## Advanced features
+
+- **Form filling**: See [FORMS.md](FORMS.md)
+- **API reference**: See [REFERENCE.md](REFERENCE.md)
+```
+
+## Creation Process
+
+### Step 1: Understand with Examples
+
+Gather concrete examples of how the skill will be used.
+
+### Step 2: Plan Reusable Contents
+
+Identify scripts, references, and assets needed.
+
+### Step 3: Initialize
+
+```bash
+scripts/init_skill.py skill-name --path skills/
+```
+
+### Step 4: Implement
+
+Create resources and write SKILL.md.
+
+### Step 5: Test
+
+Invoke with trigger phrases and verify output.
+
+### Step 6: Iterate
+
+Improve based on real usage.
+
+## What NOT to Include
+
+Do NOT create:
+- README.md
+- INSTALLATION_GUIDE.md
+- CHANGELOG.md
+- User-facing documentation
+
+Skills are for AI agents, not humans.
+
+## Related Skills
+
+- [Skill Lookup](/skills/skill-lookup) - Discover existing skills
+- [Documentor](/skills/documentor) - Document skills
+- [Development Guide](/guides/skill-development) - Detailed guide

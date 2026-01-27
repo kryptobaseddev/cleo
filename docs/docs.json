@@ -265,15 +265,18 @@
             "group": "Overview",
             "pages": [
               "skills/index",
-              "skills/installation"
+              "skills/overview",
+              "skills/installation",
+              "skills/marketplace"
             ]
           },
           {
             "group": "Architecture",
             "pages": [
+              "skills/architecture",
+              "skills/manifest",
               "guides/SKILL-DISPATCH-ALGORITHM",
-              "guides/PROTOCOL-INJECTION-FLOW",
-              "guides/MANIFEST-SCHEMA"
+              "guides/PROTOCOL-INJECTION-FLOW"
             ]
           },
           {
@@ -286,14 +289,27 @@
           {
             "group": "Agent Skills",
             "pages": [
-              "skills/epic-architect",
               "skills/orchestrator",
-              "skills/research-agent"
+              "skills/epic-architect",
+              "skills/research-agent",
+              "skills/task-executor",
+              "skills/spec-writer",
+              "skills/test-writer-bats",
+              "skills/library-implementer-bash",
+              "skills/validator",
+              "skills/dev-workflow",
+              "skills/documentor",
+              "skills/docs-lookup",
+              "skills/docs-write",
+              "skills/docs-review",
+              "skills/skill-creator",
+              "skills/skill-lookup"
             ]
           },
           {
             "group": "Development",
             "pages": [
+              "skills/development",
               "guides/skill-development"
             ]
           },

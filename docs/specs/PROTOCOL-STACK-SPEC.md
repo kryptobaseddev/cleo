@@ -1,3 +1,9 @@
+---
+title: "Protocol Stack Specification"
+description: "Protocol stack for CLEO subagents with conditional protocol loading"
+icon: "layer-group"
+---
+
 # Protocol Stack Specification
 
 **Version**: 1.0.0 | **Status**: PROPOSED | **RFC 2119**

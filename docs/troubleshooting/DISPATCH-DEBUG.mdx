@@ -1,0 +1,238 @@
+---
+title: "Dispatch Debugging"
+description: "Troubleshoot skill dispatch and protocol injection issues"
+icon: "bug"
+---
+
+# Dispatch Debugging
+
+This guide helps diagnose and resolve issues with skill dispatch and protocol injection.
+
+## Common Issues
+
+### Wrong Skill Selected
+
+**Symptom**: Task executes with wrong skill (e.g., research task uses ct-task-executor)
+
+**Diagnosis**:
+
+```bash
+# Check what skill would be selected
+source lib/skill-dispatch.sh
+skill=$(skill_auto_dispatch "T1234")
+echo "Selected: $skill"
+
+# Check task metadata
+cleo show T1234 --format json | jq '{labels, title, type}'
+```
+
+**Solutions**:
+
+1. **Add explicit label**:
+   ```bash
+   cleo update T1234 --labels research
+   ```
+
+2. **Use keyword in title**:
+   ```bash
+   cleo update T1234 --title "Research authentication methods"
+   ```
+
+3. **Manual override**:
+   ```bash
+   cleo orchestrator spawn T1234 --skill ct-research-agent
+   ```
+
+### Unresolved Tokens
+
+**Symptom**: Subagent fails with references to `{{TOKEN_NAME}}`
+
+**Diagnosis**:
+
+```bash
+# Check token resolution
+context=$(skill_prepare_spawn "ct-research-agent" "T1234")
+echo "$context" | jq '.tokenResolution'
+
+# List unresolved tokens
+echo "$context" | jq -r '.tokenResolution.unresolved[]'
+```
+
+**Solutions**:
+
+1. **Verify task exists**:
+   ```bash
+   cleo exists T1234
+   ```
+
+2. **Check parent epic**:
+   ```bash
+   cleo show T1234 | jq '.task.parentId'
+   ```
+
+3. **Ensure session is active**:
+   ```bash
+   cleo session status
+   ```
+
+### Skill Not Found
+
+**Symptom**: Error "Unknown skill: ct-my-skill"
+
+**Diagnosis**:
+
+```bash
+# Check if skill is registered
+jq '.skills[] | select(.name == "ct-my-skill")' skills/manifest.json
+
+# List all registered skills
+jq '.skills[].name' skills/manifest.json
+```
+
+**Solutions**:
+
+1. **Register skill** in `skills/manifest.json`
+2. **Verify skill path** exists: `ls skills/ct-my-skill/SKILL.md`
+
+### Protocol Not Loaded
+
+**Symptom**: Subagent doesn't follow skill instructions
+
+**Diagnosis**:
+
+```bash
+# Check composed prompt
+cleo orchestrator spawn T1234 --dry-run | head -100
+
+# Verify skill file content
+head -50 skills/ct-my-skill/SKILL.md
+```
+
+**Solutions**:
+
+1. **Check SKILL.md syntax** - Valid markdown with proper sections
+2. **Verify shared protocols** exist:
+   ```bash
+   ls skills/_shared/
+   ```
+
+## Debug Mode
+
+### Enable Verbose Dispatch
+
+```bash
+export CLEO_DEBUG=dispatch
+cleo orchestrator spawn T1234
+```
+
+This shows:
+- Labels checked
+- Keywords matched
+- Task type evaluated
+- Final skill selection
+
+### Trace Protocol Composition
+
+```bash
+export CLEO_DEBUG=protocol
+cleo orchestrator spawn T1234
+```
+
+This shows:
+- Base protocol loaded
+- Skill protocol loaded
+- Tokens resolved
+- Final prompt length
+
+## Diagnostic Commands
+
+### Check Dispatch Decision
+
+```bash
+# What skill for this task?
+source lib/skill-dispatch.sh
+echo "Labels: $(cleo show T1234 | jq -r '.task.labels | join(", ")')"
+echo "Title: $(cleo show T1234 | jq -r '.task.title')"
+echo "Selected: $(skill_auto_dispatch T1234)"
+```
+
+### Verify Token Resolution
+
+```bash
+# Get spawn context
+context=$(skill_prepare_spawn "ct-research-agent" "T1234")
+
+# Check resolution status
+echo "$context" | jq '{
+  fullyResolved: .tokenResolution.fullyResolved,
+  unresolved: .tokenResolution.unresolved,
+  taskId: .taskId
+}'
+```
+
+### Test Keyword Matching
+
+```bash
+source lib/skill-dispatch.sh
+
+# Test different inputs
+skill_dispatch_by_keywords "research authentication"     # ct-research-agent
+skill_dispatch_by_keywords "implement login"             # ct-task-executor
+skill_dispatch_by_keywords "write specification"         # ct-spec-writer
+```
+
+### Validate Manifest
+
+```bash
+# Check manifest syntax
+jq empty skills/manifest.json && echo "Valid JSON"
+
+# Check all skills exist
+jq -r '.skills[].path' skills/manifest.json | while read path; do
+  if [[ -f "$path" ]]; then
+    echo "✅ $path"
+  else
+    echo "❌ $path MISSING"
+  fi
+done
+```
+
+## Error Reference
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Unknown skill` | Skill not in manifest | Add to skills/manifest.json |
+| `Unresolved tokens` | Missing task metadata | Verify task exists with required fields |
+| `Protocol not found` | SKILL.md missing | Create skills/ct-name/SKILL.md |
+| `Base protocol missing` | _shared dir issue | Restore skills/_shared/ |
+
+## Recovery Procedures
+
+### Reset Dispatch Cache
+
+```bash
+# Clear cached dispatch decisions
+rm -f .cleo/.dispatch-cache.json
+```
+
+### Rebuild Manifest
+
+```bash
+# Regenerate from skill directories
+./dev/rebuild-manifest.sh
+```
+
+### Force Skill Selection
+
+When automatic dispatch fails:
+
+```bash
+# Explicit skill selection bypasses dispatch
+cleo orchestrator spawn T1234 --skill ct-research-agent --force
+```
+
+## Related Documentation
+
+- [Skill Dispatch Algorithm](/guides/SKILL-DISPATCH-ALGORITHM) - How dispatch works
+- [Protocol Injection Flow](/guides/PROTOCOL-INJECTION-FLOW) - How protocols load
+- [Architecture](/skills/architecture) - Full system design
