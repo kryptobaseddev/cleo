@@ -7,31 +7,6 @@ This document defines the global injection for all agents operating within CLEO'
 
 ---
 
-## Time Estimates — PROHIBITED (RFC 2119)
-
-**MUST NOT** estimate hours, days, weeks, or any temporal duration for tasks.
-**MUST NOT** provide time predictions even when explicitly requested by users.
-
-**Rationale**: Time estimates create false precision and lead to poor decisions.
-LLM agents cannot accurately predict implementation duration due to:
-- Unknown edge cases and complexity
-- External dependencies and blockers
-- Context switching and interruptions
-- Variability in problem-solving approaches
-
-**MUST** instead use CLEO's relative sizing system:
-- `small` - Single function, minimal complexity, clear path
-- `medium` - Multiple components, moderate complexity, some unknowns
-- `large` - Cross-cutting changes, high complexity, significant unknowns
-
-**SHOULD** describe scope, complexity, and dependencies when asked about effort.
-**MAY** reference task count, file count, or dependency depth for context.
-
-If a user insists on time estimates, respond:
-> "I cannot provide accurate time predictions. Instead, I can describe the scope (N tasks, M files), complexity factors, and dependencies. Would you like that analysis?"
-
----
-
 ## Architecture Overview
 
 CLEO implements a **2-tier universal subagent architecture** for multi-agent coordination:
@@ -211,12 +186,27 @@ Loaded for ALL subagents from `agents/cleo-subagent/AGENT.md`:
 | Protocol | File | Keywords | Use Case |
 |----------|------|----------|----------|
 | Research | `protocols/research.md` | research, investigate, explore | Information gathering |
+| Consensus | `protocols/consensus.md` | vote, validate, decide | Multi-agent decisions |
+| Specification | `protocols/specification.md` | spec, rfc, design | Document creation |
 | Decomposition | `protocols/decomposition.md` | epic, plan, decompose | Task breakdown |
 | Implementation | `protocols/implementation.md` | implement, build, create | Code execution |
-| Specification | `protocols/specification.md` | spec, rfc, design | Document creation |
-| Contribution | `protocols/contribution.md` | contribute, record | Work attribution |
-| Consensus | `protocols/consensus.md` | vote, agree, decide | Multi-agent decisions |
-| Release | `protocols/release.md` | release, version | Version management |
+| Contribution | `protocols/contribution.md` | PR, merge, shared | Work attribution |
+| Release | `protocols/release.md` | release, version, publish | Version management |
+
+### Project Lifecycle (RCSD → Execution → Release)
+
+```
+┌─────────────────── RCSD PIPELINE (setup phase) ───────────────────┐
+│  Research → Consensus → Specification → Decomposition             │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────── EXECUTION (core/polish) ───────────────────────┐
+│  Implementation → Contribution → Release                          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Full specification**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
 
 ### Protocol Composition Example
 
@@ -445,8 +435,39 @@ Before returning, subagent verifies:
 
 ---
 
+## Release Workflow
+
+When all tasks are complete, trigger the release workflow:
+
+```bash
+# Preview release (no changes)
+./dev/release-version.sh patch --dry-run
+
+# Patch release (x.y.z → x.y.z+1)
+./dev/release-version.sh patch --push
+
+# Minor release (x.y.z → x.y+1.0)
+./dev/release-version.sh minor --push
+
+# Major release (x.y.z → x+1.0.0)
+./dev/release-version.sh major --push
+```
+
+**Script Relationship**:
+
+| Script | Purpose |
+|--------|---------|
+| `dev/bump-version.sh` | VERSION + README only |
+| `dev/release-version.sh` | Full: bump + changelog + commit + tag + push |
+| `scripts/generate-changelog.sh` | CHANGELOG.md → Mintlify MDX |
+
+---
+
 ## References
 
+- **Project Lifecycle**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
+- **Protocol Stack**: `docs/specs/PROTOCOL-STACK-SPEC.md`
+- **RCSD Pipeline**: `docs/specs/RCSD-PIPELINE-SPEC.md`
 - **Protocol Spec**: `docs/specs/CLEO-SUBAGENT-PROTOCOL-v1.md`
 - **Skill Loading**: `docs/designs/SKILL-LOADING-MECHANISM.md`
 - **Orchestrator Skill**: `skills/ct-orchestrator/SKILL.md`
