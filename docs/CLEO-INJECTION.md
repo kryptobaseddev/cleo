@@ -186,12 +186,27 @@ Loaded for ALL subagents from `agents/cleo-subagent/AGENT.md`:
 | Protocol | File | Keywords | Use Case |
 |----------|------|----------|----------|
 | Research | `protocols/research.md` | research, investigate, explore | Information gathering |
+| Consensus | `protocols/consensus.md` | vote, validate, decide | Multi-agent decisions |
+| Specification | `protocols/specification.md` | spec, rfc, design | Document creation |
 | Decomposition | `protocols/decomposition.md` | epic, plan, decompose | Task breakdown |
 | Implementation | `protocols/implementation.md` | implement, build, create | Code execution |
-| Specification | `protocols/specification.md` | spec, rfc, design | Document creation |
-| Contribution | `protocols/contribution.md` | contribute, record | Work attribution |
-| Consensus | `protocols/consensus.md` | vote, agree, decide | Multi-agent decisions |
-| Release | `protocols/release.md` | release, version | Version management |
+| Contribution | `protocols/contribution.md` | PR, merge, shared | Work attribution |
+| Release | `protocols/release.md` | release, version, publish | Version management |
+
+### Project Lifecycle (RCSD → Execution → Release)
+
+```
+┌─────────────────── RCSD PIPELINE (setup phase) ───────────────────┐
+│  Research → Consensus → Specification → Decomposition             │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────── EXECUTION (core/polish) ───────────────────────┐
+│  Implementation → Contribution → Release                          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Full specification**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
 
 ### Protocol Composition Example
 
@@ -420,8 +435,39 @@ Before returning, subagent verifies:
 
 ---
 
+## Release Workflow
+
+When all tasks are complete, trigger the release workflow:
+
+```bash
+# Preview release (no changes)
+./dev/release-version.sh patch --dry-run
+
+# Patch release (x.y.z → x.y.z+1)
+./dev/release-version.sh patch --push
+
+# Minor release (x.y.z → x.y+1.0)
+./dev/release-version.sh minor --push
+
+# Major release (x.y.z → x+1.0.0)
+./dev/release-version.sh major --push
+```
+
+**Script Relationship**:
+
+| Script | Purpose |
+|--------|---------|
+| `dev/bump-version.sh` | VERSION + README only |
+| `dev/release-version.sh` | Full: bump + changelog + commit + tag + push |
+| `scripts/generate-changelog.sh` | CHANGELOG.md → Mintlify MDX |
+
+---
+
 ## References
 
+- **Project Lifecycle**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
+- **Protocol Stack**: `docs/specs/PROTOCOL-STACK-SPEC.md`
+- **RCSD Pipeline**: `docs/specs/RCSD-PIPELINE-SPEC.md`
 - **Protocol Spec**: `docs/specs/CLEO-SUBAGENT-PROTOCOL-v1.md`
 - **Skill Loading**: `docs/designs/SKILL-LOADING-MECHANISM.md`
 - **Orchestrator Skill**: `skills/ct-orchestrator/SKILL.md`
