@@ -1,18 +1,30 @@
 # Orchestrator Protocol Guide
 
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Status**: Active
-**Last Updated**: 2026-01-19
+**Last Updated**: 2026-01-26
 
 ## Overview
 
+> **Architecture Reference**: See [CLEO-SUBAGENT.md](../architecture/CLEO-SUBAGENT.md) for the complete 2-tier architecture documentation.
+>
 > **Vision Document**: See [ORCHESTRATOR-VISION.md](../ORCHESTRATOR-VISION.md) for the core philosophy and rationale behind this protocol.
 
-The Orchestrator Protocol enables complex multi-agent workflows where a single
-HITL-facing agent (the "orchestrator") delegates all detailed work to subagents
-while protecting its own context window.
+The Orchestrator Protocol implements a **2-tier architecture** for multi-agent workflows:
+
+| Tier | Component | Role |
+|------|-----------|------|
+| **0** | ct-orchestrator | HITL coordinator, delegates ALL work |
+| **1** | cleo-subagent | Universal executor with skill injection |
 
 **The Mantra**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
+
+### 2-Tier System Benefits
+
+- **Single subagent type**: Skills loaded as context, not separate agent types
+- **Consistent protocol**: All subagents follow same output requirements
+- **Token pre-resolution**: All placeholders resolved before spawn
+- **Protocol stack**: Base + conditional protocols combined per-task
 
 ### When to Use
 
@@ -486,9 +498,102 @@ After completing validation:
 - Skip manifest entries
 - Implement code directly as orchestrator
 
+## Skill Loading System
+
+The orchestrator uses `lib/skill-dispatch.sh` to automatically select and load skills for subagents.
+
+### Skill Selection
+
+Three strategies in priority order:
+
+| Strategy | Mechanism | Example |
+|----------|-----------|---------|
+| **1. Label-based** | Task labels match skill tags | `["research"]` → ct-research-agent |
+| **2. Type-based** | Task type maps to skill | `type: "epic"` → ct-epic-architect |
+| **3. Keyword-based** | Title/description keywords | "implement auth" → ct-task-executor |
+
+### Programmatic Dispatch
+
+```bash
+source lib/skill-dispatch.sh
+
+# Auto-select skill for task
+skill=$(skill_auto_dispatch "T1234")
+
+# Get full spawn context with resolved tokens
+context=$(skill_prepare_spawn "$skill" "T1234")
+prompt=$(echo "$context" | jq -r '.prompt')
+```
+
+### Available Skills (by Tier)
+
+| Tier | Skills | Use Case |
+|------|--------|----------|
+| **0** | ct-orchestrator | Workflow coordination |
+| **1** | ct-epic-architect | Planning and decomposition |
+| **2** | ct-task-executor, ct-research-agent, ct-spec-writer, ct-test-writer-bats, ct-library-implementer-bash, ct-validator | Task execution |
+| **3** | ct-documentor, ct-docs-* | Documentation and chaining |
+
+## Protocol Stack
+
+The protocol stack combines base protocol with conditional protocols:
+
+### Base Protocol (Always Loaded)
+
+From `skills/_shared/subagent-protocol-base.md`:
+
+| ID | Rule |
+|----|------|
+| OUT-001 | MUST write findings to output file |
+| OUT-002 | MUST append ONE line to MANIFEST.jsonl |
+| OUT-003 | MUST return ONLY summary message |
+| OUT-004 | MUST NOT return content in response |
+
+### Conditional Protocols
+
+| Protocol | When Loaded | Adds |
+|----------|-------------|------|
+| Task Lifecycle | All skills | Focus, complete, link operations |
+| Research Linking | Research skills | Bidirectional task-research links |
+| Verification Gates | Testing/validation | testsPassed, securityPassed gates |
+| Phase Awareness | Phase-filtered work | Current phase context |
+| Dependency Context | Has dependencies | Manifest summaries from deps |
+| Error Handling | All skills | Partial/blocked status handling |
+| Session Integration | Session-scoped | Session context preservation |
+
+### Token Resolution
+
+All tokens resolved via `ti_set_full_context()` BEFORE spawning:
+
+```bash
+# Required tokens
+{{TASK_ID}}       # Task identifier
+{{DATE}}          # Current date
+{{TOPIC_SLUG}}    # URL-safe topic name
+
+# Task context tokens
+{{TASK_TITLE}}           # Task title
+{{TASK_DESCRIPTION}}     # Full description
+{{DEPENDS_LIST}}         # Completed dependencies
+{{MANIFEST_SUMMARIES}}   # Key findings from deps
+```
+
+The spawn command verifies all tokens are resolved:
+
+```json
+{
+  "tokenResolution": {
+    "fullyResolved": true,
+    "unresolvedCount": 0
+  }
+}
+```
+
 ## Related Documentation
 
+- [CLEO-SUBAGENT Architecture](../architecture/CLEO-SUBAGENT.md)
 - [CLI Reference: orchestrator](../commands/orchestrator.md)
 - [Example Session](../examples/orchestrator-example-session.md)
 - [Template Quick Start](../../templates/orchestrator-protocol/README.md)
 - [Research Command Reference](../commands/research.md)
+- [Skills Manifest](../../skills/manifest.json)

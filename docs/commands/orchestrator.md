@@ -1,6 +1,6 @@
 # cleo orchestrator
 
-Orchestrator Protocol CLI for LLM agent coordination and multi-agent workflows.
+Orchestrator Protocol CLI for LLM agent coordination and multi-agent workflows using the 2-tier architecture.
 
 ## Synopsis
 
@@ -10,7 +10,16 @@ cleo orchestrator <command> [options]
 
 ## Overview
 
-The orchestrator command provides tools for LLM agents operating as orchestrators (delegating to subagents rather than implementing directly). It implements the ORC-001 through ORC-005 constraints:
+The orchestrator command provides tools for LLM agents operating as orchestrators in CLEO's **2-tier architecture**:
+
+| Tier | Component | Role |
+|------|-----------|------|
+| **0** | ct-orchestrator | HITL coordinator, delegates ALL work |
+| **1** | cleo-subagent | Universal executor with skill injection |
+
+> **Architecture Reference**: See [CLEO-SUBAGENT.md](../architecture/CLEO-SUBAGENT.md) for complete architecture documentation.
+
+The orchestrator implements the ORC-001 through ORC-005 constraints:
 
 | Constraint | Rule | Description |
 |------------|------|-------------|
@@ -537,8 +546,66 @@ The orchestrator commands use these configuration values:
 - **ct-validator** - Compliance validation
 - **ct-documentor** - Documentation orchestration
 
+## cleo-subagent Usage
+
+The 2-tier architecture uses a single `cleo-subagent` type with skill injection:
+
+### Spawning a cleo-subagent
+
+```bash
+# Generate spawn command with auto-selected skill
+cleo orchestrator spawn T1234
+
+# With explicit skill
+cleo orchestrator spawn T1234 --template ct-research-agent
+```
+
+### What cleo-subagent Receives
+
+1. **Skill Template**: Loaded from `skills/ct-{skill}/SKILL.md`
+2. **Protocol Base**: Injected from `skills/_shared/subagent-protocol-base.md`
+3. **Resolved Tokens**: All `{{TOKEN}}` placeholders pre-resolved
+
+### cleo-subagent Requirements
+
+Every spawned subagent MUST:
+
+1. Write findings to: `claudedocs/agent-outputs/{{DATE}}_{{TOPIC_SLUG}}.md`
+2. Append ONE line to: `claudedocs/agent-outputs/MANIFEST.jsonl`
+3. Return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. Complete task via: `cleo complete {{TASK_ID}}`
+
+### Programmatic Spawning
+
+```bash
+source lib/orchestrator-spawn.sh
+
+# Full spawn preparation
+result=$(orchestrator_spawn_for_task "T1234")
+prompt=$(echo "$result" | jq -r '.result.prompt')
+
+# Verify protocol injection
+orchestrator_verify_protocol_injection "$prompt"
+
+# After completion, verify manifest entry
+orchestrator_verify_manifest_entry "auth-research-2026-01-26"
+```
+
+### Skill Selection API
+
+```bash
+source lib/skill-dispatch.sh
+
+# Auto-select skill based on task metadata
+skill=$(skill_auto_dispatch "T1234")
+
+# Get spawn context with all tokens resolved
+context=$(skill_prepare_spawn "$skill" "T1234")
+```
+
 ## See Also
 
+- [CLEO-SUBAGENT Architecture](../architecture/CLEO-SUBAGENT.md)
 - [Orchestrator Protocol Spec](../specs/ORCHESTRATOR-PROTOCOL-SPEC.md)
 - [Orchestrator Protocol Guide](../guides/ORCHESTRATOR-PROTOCOL.md)
 - [Example Session](../examples/orchestrator-example-session.md)
