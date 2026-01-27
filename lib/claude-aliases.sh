@@ -53,6 +53,185 @@ readonly CLAUDE_ENV_VARS=(
 )
 
 # ============================================================================
+# WINDOWS-SPECIFIC HELPER FUNCTIONS
+# ============================================================================
+
+# normalize_windows_path - Convert path to Windows format with backslashes
+# Args: path
+# Returns: Path with backslashes (for Windows) or unchanged (for other platforms)
+normalize_windows_path() {
+    local path="$1"
+
+    if [[ "$PLATFORM" == "windows" ]]; then
+        # Convert forward slashes to backslashes for Windows
+        echo "${path//\//\\}"
+    else
+        echo "$path"
+    fi
+}
+
+# get_windows_documents_path - Get Windows Documents folder (handles localization)
+# Returns: Path to Documents folder or fallback
+get_windows_documents_path() {
+    if [[ "$PLATFORM" != "windows" ]]; then
+        echo "$HOME/Documents"
+        return 0
+    fi
+
+    # Try to get from Windows environment
+    local docs_path="${USERPROFILE:-$HOME}/Documents"
+
+    # Check if PowerShell can tell us the actual path (handles localized folder names)
+    if command_exists pwsh; then
+        local ps_docs
+        ps_docs=$(pwsh -NoProfile -Command '[Environment]::GetFolderPath("MyDocuments")' 2>/dev/null)
+        [[ -n "$ps_docs" ]] && docs_path="$ps_docs"
+    elif command_exists powershell; then
+        local ps_docs
+        ps_docs=$(powershell -NoProfile -Command '[Environment]::GetFolderPath("MyDocuments")' 2>/dev/null)
+        [[ -n "$ps_docs" ]] && docs_path="$ps_docs"
+    fi
+
+    echo "$docs_path"
+}
+
+# ensure_powershell_profile_dir - Create PowerShell profile directory if missing
+# Args: profile_path
+# Returns: 0 on success, 1 on failure
+# Output: JSON result
+ensure_powershell_profile_dir() {
+    local profile_path="$1"
+    local profile_dir
+    profile_dir=$(dirname "$profile_path")
+
+    if [[ -d "$profile_dir" ]]; then
+        echo '{"created":false,"exists":true,"path":"'"$profile_dir"'"}'
+        return 0
+    fi
+
+    # Create directory (handles both Unix and Windows paths)
+    if mkdir -p "$profile_dir" 2>/dev/null; then
+        echo '{"created":true,"exists":true,"path":"'"$profile_dir"'"}'
+        return 0
+    fi
+
+    # Fallback for Windows: try with PowerShell
+    if [[ "$PLATFORM" == "windows" ]]; then
+        local win_dir
+        win_dir=$(normalize_windows_path "$profile_dir")
+
+        if command_exists pwsh; then
+            pwsh -NoProfile -Command "New-Item -ItemType Directory -Path '$win_dir' -Force" >/dev/null 2>&1
+        elif command_exists powershell; then
+            powershell -NoProfile -Command "New-Item -ItemType Directory -Path '$win_dir' -Force" >/dev/null 2>&1
+        fi
+
+        if [[ -d "$profile_dir" ]]; then
+            echo '{"created":true,"exists":true,"path":"'"$profile_dir"'","method":"powershell"}'
+            return 0
+        fi
+    fi
+
+    echo '{"created":false,"exists":false,"path":"'"$profile_dir"'","error":"cannot_create_directory"}'
+    return 1
+}
+
+# setup_cmd_autorun - Configure CMD.exe to auto-load aliases via registry
+# Args: batch_file_path [--remove]
+# Returns: 0 on success, 1 on failure
+# Output: JSON result
+# Note: Requires Windows registry access (reg.exe)
+setup_cmd_autorun() {
+    local batch_file="$1"
+    local remove="${2:-}"
+    local registry_key='HKCU\Software\Microsoft\Command Processor'
+    local registry_value='AutoRun'
+
+    if [[ "$PLATFORM" != "windows" ]]; then
+        echo '{"success":false,"error":"not_windows","message":"CMD AutoRun is Windows-only"}'
+        return 1
+    fi
+
+    # Check if reg.exe is available
+    if ! command_exists reg.exe && ! command_exists reg; then
+        echo '{"success":false,"error":"no_reg_exe","message":"Registry tool not available"}'
+        return 1
+    fi
+
+    local reg_cmd="reg.exe"
+    command_exists reg.exe || reg_cmd="reg"
+
+    if [[ "$remove" == "--remove" ]]; then
+        # Remove the registry value
+        if $reg_cmd delete "$registry_key" /v "$registry_value" /f >/dev/null 2>&1; then
+            echo '{"success":true,"action":"removed","key":"'"$registry_key"'","value":"'"$registry_value"'"}'
+            return 0
+        else
+            echo '{"success":false,"action":"remove_failed","key":"'"$registry_key"'"}'
+            return 1
+        fi
+    fi
+
+    # Normalize path for Windows registry
+    local win_path
+    win_path=$(normalize_windows_path "$batch_file")
+
+    # Check if file exists
+    if [[ ! -f "$batch_file" ]]; then
+        echo '{"success":false,"error":"file_not_found","path":"'"$batch_file"'"}'
+        return 1
+    fi
+
+    # Set registry value
+    if $reg_cmd add "$registry_key" /v "$registry_value" /t REG_SZ /d "$win_path" /f >/dev/null 2>&1; then
+        echo '{"success":true,"action":"set","key":"'"$registry_key"'","value":"'"$registry_value"'","data":"'"$win_path"'"}'
+        return 0
+    else
+        echo '{"success":false,"error":"registry_write_failed","key":"'"$registry_key"'"}'
+        return 1
+    fi
+}
+
+# check_cmd_autorun - Check if CMD AutoRun is configured for CLEO aliases
+# Returns: JSON with current AutoRun status
+check_cmd_autorun() {
+    local registry_key='HKCU\Software\Microsoft\Command Processor'
+    local registry_value='AutoRun'
+
+    if [[ "$PLATFORM" != "windows" ]]; then
+        echo '{"configured":false,"reason":"not_windows"}'
+        return 0
+    fi
+
+    local reg_cmd="reg.exe"
+    command_exists reg.exe || reg_cmd="reg"
+
+    if ! command_exists "$reg_cmd"; then
+        echo '{"configured":false,"reason":"no_reg_exe"}'
+        return 0
+    fi
+
+    # Query registry
+    local reg_output
+    if reg_output=$($reg_cmd query "$registry_key" /v "$registry_value" 2>/dev/null); then
+        local current_value
+        current_value=$(echo "$reg_output" | grep -i "AutoRun" | sed 's/.*REG_SZ[[:space:]]*//')
+
+        # Check if it points to our file
+        local is_cleo="false"
+        if [[ "$current_value" == *"cleo-aliases.cmd"* ]]; then
+            is_cleo="true"
+        fi
+
+        echo '{"configured":true,"value":"'"$current_value"'","isCleo":'"$is_cleo"'}'
+    else
+        echo '{"configured":false,"reason":"not_set"}'
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # SHELL DETECTION FUNCTIONS
 # ============================================================================
 
@@ -122,14 +301,19 @@ get_rc_file_path() {
         powershell)
             # Cross-platform PowerShell profile detection
             if [[ "$PLATFORM" == "windows" ]]; then
-                echo "$HOME/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"
+                # Use localized Documents folder path on Windows
+                local docs_path
+                docs_path=$(get_windows_documents_path)
+                echo "$docs_path/PowerShell/Microsoft.PowerShell_profile.ps1"
             else
                 echo "$HOME/.config/powershell/Microsoft.PowerShell_profile.ps1"
             fi
             ;;
         cmd)
             # Windows CMD autorun (requires registry, we use batch file)
-            echo "$HOME/cleo-aliases.cmd"
+            # Use USERPROFILE on Windows for proper path resolution
+            local user_home="${USERPROFILE:-$HOME}"
+            echo "$user_home/cleo-aliases.cmd"
             ;;
         *)
             return 1
@@ -466,14 +650,26 @@ inject_aliases() {
     local content
     content=$(get_alias_content "$shell_type") || return $?
 
-    # Create directory if needed
+    # Create directory if needed (with Windows-specific handling for PowerShell)
     local rc_dir
     rc_dir=$(dirname "$rc_file")
     if [[ ! -d "$rc_dir" ]]; then
-        mkdir -p "$rc_dir" || {
-            echo "{\"action\":\"failed\",\"reason\":\"cannot_create_directory\",\"path\":\"$rc_dir\"}"
-            return "$EXIT_FILE_ERROR"
-        }
+        if [[ "$shell_type" == "powershell" ]]; then
+            # Use Windows-aware PowerShell profile directory creation
+            local dir_result
+            dir_result=$(ensure_powershell_profile_dir "$rc_file")
+            local dir_exists
+            dir_exists=$(echo "$dir_result" | jq -r '.exists' 2>/dev/null || echo "false")
+            if [[ "$dir_exists" != "true" ]]; then
+                echo "{\"action\":\"failed\",\"reason\":\"cannot_create_directory\",\"path\":\"$rc_dir\",\"details\":$dir_result}"
+                return "$EXIT_FILE_ERROR"
+            fi
+        else
+            mkdir -p "$rc_dir" || {
+                echo "{\"action\":\"failed\",\"reason\":\"cannot_create_directory\",\"path\":\"$rc_dir\"}"
+                return "$EXIT_FILE_ERROR"
+            }
+        fi
     fi
 
     local action
@@ -664,6 +860,13 @@ export CLAUDE_ALIAS_NAMES
 export -f detect_available_shells
 export -f get_rc_file_path
 export -f get_current_shell
+
+# Export Windows-specific helper functions
+export -f normalize_windows_path
+export -f get_windows_documents_path
+export -f ensure_powershell_profile_dir
+export -f setup_cmd_autorun
+export -f check_cmd_autorun
 
 # Export alias content generation functions
 export -f get_alias_content

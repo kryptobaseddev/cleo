@@ -101,6 +101,7 @@ OPT_FORCE=false
 OPT_CHECK_DEPS_ONLY=false
 OPT_SKIP_PROFILE=false
 OPT_SKIP_SKILLS=false
+OPT_SKIP_ALIASES=false
 OPT_RECOVER=false
 OPT_ROLLBACK=false
 OPT_DRY_RUN=false
@@ -118,6 +119,7 @@ OPT_UPGRADE=false
 OPT_UPGRADE_VERSION=""
 OPT_VERSION_INFO=false
 OPT_CHECK_UPGRADE=false
+OPT_WITH_PLUGIN=false
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -162,6 +164,9 @@ parse_args() {
             --skip-skills)
                 OPT_SKIP_SKILLS=true
                 ;;
+            --skip-aliases)
+                OPT_SKIP_ALIASES=true
+                ;;
             --recover)
                 OPT_RECOVER=true
                 ;;
@@ -194,6 +199,9 @@ parse_args() {
             --verbose|-d)
                 OPT_VERBOSE=true
                 export INSTALLER_DEBUG=1
+                ;;
+            --with-plugin)
+                OPT_WITH_PLUGIN=true
                 ;;
             *)
                 installer_log_error "Unknown option: $1"
@@ -229,6 +237,8 @@ Options:
   --check-deps            Check dependencies only, don't install
   --skip-profile          Skip shell profile modification
   --skip-skills           Skip skills installation
+  --skip-aliases          Skip Claude CLI alias installation
+  --with-plugin           Install Claude Code plugin symlink (optional)
   --recover               Resume interrupted installation
   --rollback              Rollback to previous version
   --status                Show current installation status
@@ -387,6 +397,11 @@ do_state_link() {
         installer_link_setup_skills "$INSTALL_DIR/skills" || true  # Non-critical
     fi
 
+    # Setup Claude Code plugin symlink (opt-in via --with-plugin)
+    if [[ "$OPT_WITH_PLUGIN" == "true" ]]; then
+        installer_link_setup_plugin "$INSTALL_DIR" || true  # Non-critical
+    fi
+
     # Setup global agent configurations (claude, gemini, codex, kimi)
     # This ensures LLM agents know about CLEO without requiring separate setup
     installer_link_setup_all_agents || true  # Non-critical
@@ -413,6 +428,18 @@ do_state_profile() {
 
     # Migrate legacy config if present
     installer_profile_migrate_legacy || true  # Non-critical
+
+    # Setup Claude CLI aliases (non-blocking, interactive if TTY)
+    if [[ "$OPT_SKIP_ALIASES" != "true" ]]; then
+        if [[ -t 0 ]]; then
+            installer_profile_setup_aliases --interactive || true  # Non-critical
+        else
+            installer_profile_setup_aliases || true  # Non-critical, non-interactive
+        fi
+    else
+        installer_log_info "Skipping Claude alias setup (--skip-aliases)"
+        installer_log_info "Run later with: cleo setup-claude-aliases"
+    fi
 
     return 0
 }

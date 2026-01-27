@@ -41,6 +41,7 @@ COMMAND_NAME="setup-claude-aliases"
 # Command-specific flags
 TARGET_SHELL=""
 REMOVE_MODE=false
+CMD_AUTORUN=false
 
 # ==============================================================================
 # HELP TEXT
@@ -57,6 +58,8 @@ OPTIONS:
     --force                Force reinstall even if current
     --shell SHELL          Target specific shell (bash|zsh|powershell|cmd)
     --remove               Remove installed aliases
+    --cmd-autorun          Configure Windows CMD.exe to auto-load aliases (registry)
+    --no-cmd-autorun       Skip CMD AutoRun registry setup (default)
     -f, --format FMT       Output format: text (default) or json
     --json                 Shorthand for --format json
     -q, --quiet            Suppress non-essential output
@@ -135,6 +138,14 @@ parse_args() {
                 ;;
             --remove)
                 REMOVE_MODE=true
+                shift
+                ;;
+            --cmd-autorun)
+                CMD_AUTORUN=true
+                shift
+                ;;
+            --no-cmd-autorun)
+                CMD_AUTORUN=false
                 shift
                 ;;
             *)
@@ -364,6 +375,40 @@ EOF
         results+=("$result")
     done
 
+    # Handle CMD AutoRun registry setup (Windows only)
+    local cmd_autorun_result=""
+    if [[ "$CMD_AUTORUN" == true ]] && [[ "$PLATFORM" == "windows" ]]; then
+        local cmd_batch_file
+        cmd_batch_file=$(get_rc_file_path "cmd")
+
+        if [[ "$FLAG_DRY_RUN" == true ]]; then
+            output_msg "[DRY-RUN] Would configure CMD AutoRun registry for: $cmd_batch_file"
+        elif [[ "$REMOVE_MODE" == true ]]; then
+            cmd_autorun_result=$(setup_cmd_autorun "$cmd_batch_file" --remove)
+            local ar_success
+            ar_success=$(echo "$cmd_autorun_result" | jq -r '.success' 2>/dev/null || echo "false")
+            if [[ "$ar_success" == "true" ]]; then
+                output_msg "Removed CMD AutoRun registry entry"
+            else
+                output_error "Failed to remove CMD AutoRun registry entry"
+            fi
+        else
+            # Only set up AutoRun if CMD aliases were installed successfully
+            if [[ -f "$cmd_batch_file" ]]; then
+                cmd_autorun_result=$(setup_cmd_autorun "$cmd_batch_file")
+                local ar_success
+                ar_success=$(echo "$cmd_autorun_result" | jq -r '.success' 2>/dev/null || echo "false")
+                if [[ "$ar_success" == "true" ]]; then
+                    output_msg "Configured CMD AutoRun registry for automatic alias loading"
+                else
+                    output_error "Failed to configure CMD AutoRun (aliases still installed)"
+                fi
+            else
+                output_error "Cannot configure CMD AutoRun: batch file not found"
+            fi
+        fi
+    fi
+
     # Handle dry-run output
     if [[ "$FLAG_DRY_RUN" == true ]]; then
         if [[ "$FORMAT" == "json" ]]; then
@@ -387,6 +432,12 @@ EOF
             results_json="[${results_json%,}]"
         fi
 
+        # Build cmdAutorun JSON if present
+        local cmd_autorun_json="null"
+        if [[ -n "$cmd_autorun_result" ]]; then
+            cmd_autorun_json="$cmd_autorun_result"
+        fi
+
         jq -n \
             --argjson installed "$installed" \
             --argjson skipped "$skipped" \
@@ -395,6 +446,7 @@ EOF
             --argjson results "$results_json" \
             --arg version "$CLAUDE_ALIASES_VERSION" \
             --argjson removeMode "$REMOVE_MODE" \
+            --argjson cmdAutorun "$cmd_autorun_json" \
             '{
                 success: ($failed == 0),
                 version: $version,
@@ -403,6 +455,7 @@ EOF
                 skipped: $skipped,
                 removed: $removed,
                 failed: $failed,
+                cmdAutorun: $cmdAutorun,
                 results: $results
             }'
     else
