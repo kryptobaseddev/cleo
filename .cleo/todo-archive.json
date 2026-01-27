@@ -3,8 +3,8 @@
   "version": "2.4.0",
   "project": "claude-todo",
   "_meta": {
-    "totalArchived": 1629,
-    "lastArchived": "2026-01-26T22:12:47Z",
+    "totalArchived": 1636,
+    "lastArchived": "2026-01-27T03:22:11Z",
     "oldestTask": "2025-12-06T06:35:41Z",
     "newestTask": "2026-01-02T07:33:02Z",
     "lastModified": "2025-12-29T18:07:08Z",
@@ -78856,20 +78856,307 @@
           "previousStatus": "pending"
         }
       }
+    },
+    {
+      "id": "T995",
+      "title": "PY-003: Create LLM-AGENT-FIRST output formatter",
+      "status": "cancelled",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": null,
+      "createdAt": "2025-12-29T07:35:27Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Create lib/rcsd/output/formatter.py with OutputFormatter class. Methods: format_success(), format_error(), format_envelope(). Must generate compliant JSON with schema, _meta, success fields.",
+      "labels": [
+        "output",
+        "python",
+        "rcsd"
+      ],
+      "position": 3,
+      "positionVersion": 0,
+      "updatedAt": "2026-01-27T03:21:09Z",
+      "relates": [],
+      "origin": null,
+      "cancelledAt": "2026-01-27T03:21:09Z",
+      "notes": [
+        "[CANCELLED 2026-01-27T03:21:09Z] Direction: Bash v1 → TypeScript v2. Python deprecated. Output formatter exists in lib/json-output.sh."
+      ],
+      "completedAt": "2026-01-27T03:21:09Z",
+      "cancellationReason": "Direction: Bash v1 → TypeScript v2. Python deprecated. Output formatter exists in lib/json-output.sh.",
+      "_archive": {
+        "archivedAt": "2026-01-27T03:21:12Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 28,
+        "cancellationDetails": {
+          "cancelledAt": "2026-01-27T03:21:09Z",
+          "cancellationReason": "Direction: Bash v1 → TypeScript v2. Python deprecated. Output formatter exists in lib/json-output.sh.",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T996",
+      "title": "PY-004: Create exit code constants and error mapping",
+      "status": "cancelled",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": null,
+      "createdAt": "2025-12-29T07:35:29Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Create lib/rcsd/output/exit_codes.py with RCSD exit codes 30-39. Map to E_* error codes. EXIT_RESEARCH_FAILED=30, EXIT_CONSENSUS_FAILED=32, EXIT_HITL_REQUIRED=33, etc.",
+      "labels": [
+        "errors",
+        "python",
+        "rcsd"
+      ],
+      "position": 4,
+      "positionVersion": 0,
+      "updatedAt": "2026-01-27T03:21:15Z",
+      "relates": [],
+      "origin": null,
+      "cancelledAt": "2026-01-27T03:21:15Z",
+      "notes": [
+        "[CANCELLED 2026-01-27T03:21:15Z] Direction: Bash v1 → TypeScript v2. Python deprecated. Exit codes exist in lib/exit-codes.sh, T2024 plans TS port."
+      ],
+      "completedAt": "2026-01-27T03:21:15Z",
+      "cancellationReason": "Direction: Bash v1 → TypeScript v2. Python deprecated. Exit codes exist in lib/exit-codes.sh, T2024 plans TS port.",
+      "_archive": {
+        "archivedAt": "2026-01-27T03:21:18Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 28,
+        "cancellationDetails": {
+          "cancelledAt": "2026-01-27T03:21:15Z",
+          "cancellationReason": "Direction: Bash v1 → TypeScript v2. Python deprecated. Exit codes exist in lib/exit-codes.sh, T2024 plans TS port.",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T994",
+      "title": "PY-002: Create Pydantic models for JSON schemas",
+      "status": "cancelled",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": null,
+      "createdAt": "2025-12-29T07:35:25Z",
+      "size": "medium",
+      "phase": "core",
+      "description": "Create Pydantic models in lib/rcsd/models/. Models: RCSDMeta, ResearchOutput, ConsensusReport, SpecFrontmatter, TaskDecomposition. Must match existing JSON schemas.",
+      "labels": [
+        "models",
+        "python",
+        "rcsd"
+      ],
+      "position": 2,
+      "positionVersion": 0,
+      "updatedAt": "2026-01-27T03:21:29Z",
+      "relates": [],
+      "origin": null,
+      "cancelledAt": "2026-01-27T03:21:29Z",
+      "notes": [
+        "[CANCELLED 2026-01-27T03:21:29Z] Direction: Bash v1 to TypeScript v2. Python deprecated. Pydantic models will be Zod schemas."
+      ],
+      "completedAt": "2026-01-27T03:21:29Z",
+      "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Pydantic models will be Zod schemas.",
+      "_archive": {
+        "archivedAt": "2026-01-27T03:21:32Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 28,
+        "cancellationDetails": {
+          "cancelledAt": "2026-01-27T03:21:29Z",
+          "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Pydantic models will be Zod schemas.",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T997",
+      "title": "PY-005: Create schema validation utilities",
+      "status": "cancelled",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": null,
+      "createdAt": "2025-12-29T07:35:30Z",
+      "size": "small",
+      "phase": "core",
+      "description": "Create lib/rcsd/validation/schema.py. Functions: validate_research_output(), validate_consensus_report(), validate_against_schema(). Use jsonschema library for validation.",
+      "labels": [
+        "python",
+        "rcsd",
+        "validation"
+      ],
+      "position": 5,
+      "positionVersion": 0,
+      "updatedAt": "2026-01-27T03:21:35Z",
+      "relates": [],
+      "origin": null,
+      "cancelledAt": "2026-01-27T03:21:35Z",
+      "notes": [
+        "[CANCELLED 2026-01-27T03:21:35Z] Direction: Bash v1 to TypeScript v2. Python deprecated. Schema validation will use Zod."
+      ],
+      "completedAt": "2026-01-27T03:21:35Z",
+      "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Schema validation will use Zod.",
+      "_archive": {
+        "archivedAt": "2026-01-27T03:21:38Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 28,
+        "cancellationDetails": {
+          "cancelledAt": "2026-01-27T03:21:35Z",
+          "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Schema validation will use Zod.",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T1070",
+      "title": "PY-006: Challenge Agent - Adversarial Validation Integration",
+      "status": "cancelled",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": null,
+      "createdAt": "2025-12-30T07:19:46Z",
+      "phase": "core",
+      "description": "Implement dedicated challenge agent for adversarial validation of consensus findings. Integrate with CONSENSUS-FRAMEWORK-SPEC challenge protocol. Deliverable: lib/rcsd/agents/challenge.py with adversarial prompt templates.",
+      "labels": [
+        "consensus",
+        "python",
+        "rcsd"
+      ],
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "updatedAt": "2026-01-27T03:21:42Z",
+      "relates": [],
+      "origin": null,
+      "cancelledAt": "2026-01-27T03:21:42Z",
+      "notes": [
+        "[CANCELLED 2026-01-27T03:21:42Z] Direction: Bash v1 to TypeScript v2. Python deprecated. Challenge Agent concept valid for v2 TS implementation."
+      ],
+      "completedAt": "2026-01-27T03:21:42Z",
+      "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Challenge Agent concept valid for v2 TS implementation.",
+      "_archive": {
+        "archivedAt": "2026-01-27T03:21:45Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 27,
+        "cancellationDetails": {
+          "cancelledAt": "2026-01-27T03:21:42Z",
+          "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Challenge Agent concept valid for v2 TS implementation.",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T1071",
+      "title": "PY-007: HITL Gates - AskUserQuestion Integration",
+      "status": "cancelled",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": null,
+      "createdAt": "2025-12-30T07:19:49Z",
+      "phase": "core",
+      "description": "Implement HITL (Human-in-the-Loop) gates with AskUserQuestion integration. Deliverable: lib/rcsd/orchestration/hitl.py with ask_user(), require_approval(), gate_critical_decisions() methods.",
+      "labels": [
+        "hitl",
+        "python",
+        "rcsd"
+      ],
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "updatedAt": "2026-01-27T03:21:49Z",
+      "relates": [],
+      "origin": null,
+      "cancelledAt": "2026-01-27T03:21:49Z",
+      "notes": [
+        "[CANCELLED 2026-01-27T03:21:49Z] Direction: Bash v1 to TypeScript v2. Python deprecated. HITL patterns exist in Bash, port to TS in v2."
+      ],
+      "completedAt": "2026-01-27T03:21:49Z",
+      "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. HITL patterns exist in Bash, port to TS in v2.",
+      "_archive": {
+        "archivedAt": "2026-01-27T03:21:52Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 27,
+        "cancellationDetails": {
+          "cancelledAt": "2026-01-27T03:21:49Z",
+          "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. HITL patterns exist in Bash, port to TS in v2.",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T1072",
+      "title": "PY-008: Adversarial Test Suite",
+      "status": "cancelled",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": null,
+      "createdAt": "2025-12-30T07:19:50Z",
+      "phase": "testing",
+      "description": "Create comprehensive adversarial test suite for RCSD pipeline. Cover challenge scenarios, voting conflicts, consensus failures, edge cases. Deliverable: tests/rcsd/e2e/adversarial_tests.bats",
+      "labels": [
+        "python",
+        "rcsd",
+        "testing"
+      ],
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "updatedAt": "2026-01-27T03:22:08Z",
+      "relates": [],
+      "origin": null,
+      "cancelledAt": "2026-01-27T03:22:08Z",
+      "notes": [
+        "[CANCELLED 2026-01-27T03:22:08Z] Direction: Bash v1 to TypeScript v2. Python deprecated. Adversarial tests will use Vitest in v2 (T2028)."
+      ],
+      "completedAt": "2026-01-27T03:22:08Z",
+      "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Adversarial tests will use Vitest in v2 (T2028).",
+      "_archive": {
+        "archivedAt": "2026-01-27T03:22:11Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 27,
+        "cancellationDetails": {
+          "cancelledAt": "2026-01-27T03:22:08Z",
+          "cancellationReason": "Direction: Bash v1 to TypeScript v2. Python deprecated. Adversarial tests will use Vitest in v2 (T2028).",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
     }
   ],
   "statistics": {
     "byPhase": {
-      "core": 1042,
+      "core": 1048,
       "maintenance": 55,
       "polish": 212,
       "setup": 43,
-      "testing": 186
+      "testing": 187
     },
     "byPriority": {
-      "critical": 166,
-      "high": 748,
-      "medium": 603,
+      "critical": 169,
+      "high": 751,
+      "medium": 604,
       "low": 101
     },
     "byLabel": {
@@ -78973,7 +79260,7 @@
       "configuration": 2,
       "conflict-resolution": 1,
       "conflicts": 8,
-      "consensus": 5,
+      "consensus": 6,
       "consensus-framework": 38,
       "consolidation": 1,
       "context": 3,
@@ -79044,7 +79331,7 @@
       "error-handling": 1,
       "error-message": 2,
       "error-messages": 1,
-      "errors": 1,
+      "errors": 2,
       "essential-field": 1,
       "evaluation": 2,
       "examples": 1,
@@ -79096,7 +79383,7 @@
       "hierarchy": 41,
       "high": 2,
       "high-priority": 9,
-      "hitl": 10,
+      "hitl": 11,
       "hook": 4,
       "hook-update": 1,
       "hooks": 7,
@@ -79178,7 +79465,7 @@
       "orchestrator": 6,
       "organization": 1,
       "orphan-detection": 5,
-      "output": 9,
+      "output": 10,
       "output-format": 2,
       "p0": 18,
       "p1": 21,
@@ -79219,7 +79506,7 @@
       "project-registry": 1,
       "protocol": 2,
       "provenance": 1,
-      "python": 14,
+      "python": 21,
       "qa": 1,
       "quality": 12,
       "quick-fix": 1,
@@ -79227,7 +79514,7 @@
       "quick-win": 2,
       "race-condition": 1,
       "rag": 2,
-      "rcsd": 20,
+      "rcsd": 27,
       "rcsd-pipeline": 1,
       "read-ops": 1,
       "rebrand": 37,
@@ -79364,7 +79651,7 @@
       "test-cleanup": 1,
       "test-fixes": 8,
       "test-verification": 1,
-      "testing": 128,
+      "testing": 129,
       "tests": 3,
       "text-output": 1,
       "tier-1": 5,
@@ -79415,7 +79702,7 @@
       "v2.2.0": 2,
       "v3.0": 4,
       "validate": 3,
-      "validation": 27,
+      "validation": 28,
       "verification": 29,
       "vision": 1,
       "visualization": 1,
@@ -79434,10 +79721,11 @@
       "scoring": 1,
       "graph-rag": 1,
       "pageindex": 1,
-      "v0.69.0": 1
+      "v0.69.0": 1,
+      "models": 1
     },
     "averageCycleTime": 1.44,
-    "cancelled": 145
+    "cancelled": 152
   },
   "phaseSummary": {
     "core": {
