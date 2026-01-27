@@ -7,6 +7,7 @@
 #
 # Usage:
 #   cleo skills list [--agent AGENT] [--global]
+  cleo skills search QUERY [--source SOURCE]
 #   cleo skills discover
 #   cleo skills validate SKILL
 #   cleo skills info SKILL
@@ -40,6 +41,7 @@ source "$LIB_DIR/agent-config.sh" 2>/dev/null || true
 source "$LIB_DIR/skill-validate.sh" 2>/dev/null || true
 source "$LIB_DIR/skill-discovery.sh" 2>/dev/null || true
 source "$LIB_DIR/error-json.sh" 2>/dev/null || true
+source "$LIB_DIR/skillsmp.sh" 2>/dev/null || true
 
 # Command metadata
 COMMAND_NAME="skills"
@@ -53,6 +55,8 @@ SUBCOMMAND=""
 SKILL_NAME=""
 AGENT_ID=""
 GLOBAL_FLAG=""
+SOURCE="local"
+SEARCH_QUERY=""
 
 # Paths
 PROJECT_SKILLS_DIR="skills"
@@ -68,13 +72,15 @@ cleo skills - Skill management and discovery
 
 USAGE
   cleo skills list [--agent AGENT] [--global]
+  cleo skills search QUERY [--source SOURCE]
   cleo skills discover
   cleo skills validate SKILL
   cleo skills info SKILL
-  cleo skills install SKILL [--agent AGENT] [--global]
+  cleo skills install SKILL [--agent AGENT] [--global] [--source SOURCE]
 
 SUBCOMMANDS
   list             List installed skills (project by default)
+  search QUERY     Search for skills (local and/or SkillsMP)
   discover         Scan and discover available skills
   validate SKILL   Validate skill against protocol
   info SKILL       Show skill details from manifest
@@ -83,6 +89,7 @@ SUBCOMMANDS
 OPTIONS
   --agent AGENT    Target agent (claude-code, cursor, gemini, etc.)
   --global         Use global skills directory instead of project
+  --source SOURCE  Search/install source: local (default) | skillsmp | all
   --format FORMAT  Output format: text | json (default: text, auto-json when piped)
   --json           Shortcut for --format json
   --human          Shortcut for --format text
@@ -92,10 +99,15 @@ EXAMPLES
   cleo skills list                          # List project skills
   cleo skills list --agent cursor           # List cursor's installed skills
   cleo skills list --global                 # List global skills
+  cleo skills search "research"             # Search local skills
+  cleo skills search "research" --source skillsmp  # Search SkillsMP
+  cleo skills search "orchestrator" --source all   # Search both sources
   cleo skills discover                      # Find available skills
   cleo skills info ct-orchestrator          # Show skill details
   cleo skills validate ct-research-agent    # Validate skill
   cleo skills install ct-orchestrator --agent cursor  # Install to cursor
+  cleo skills install research-agent --source skillsmp  # Install from marketplace
+  cleo skills install research-agent --source skillsmp --global  # Install globally
 
 NOTES
   - Skills are stored in skills/ (project) or ~/.cleo/skills/ (global)
@@ -290,6 +302,152 @@ cmd_list() {
         echo ""
       done
     fi
+  fi
+}
+
+# ============================================================================
+# Subcommand: search
+# ============================================================================
+
+cmd_search() {
+  local output_format="${FORMAT:-text}"
+
+  [[ -z "$SEARCH_QUERY" ]] && {
+    if [[ "$output_format" == "json" ]]; then
+      output_error "$E_INPUT_MISSING" "Search query required" "$EXIT_INVALID_INPUT" true \
+        "Usage: cleo skills search QUERY [--source SOURCE]"
+    else
+      echo "[ERROR] Search query required" >&2
+      echo "Usage: cleo skills search QUERY [--source SOURCE]" >&2
+    fi
+    exit "$EXIT_INVALID_INPUT"
+  }
+
+  local local_results="[]"
+  local skillsmp_results="[]"
+
+  # Search local skills
+  if [[ "$SOURCE" == "local" ]] || [[ "$SOURCE" == "all" ]]; then
+    local manifest_skills
+    manifest_skills=$(get_manifest_skills)
+
+    # Filter by query (case-insensitive match in name or description)
+    local_results=$(echo "$manifest_skills" | jq -c --arg query "$SEARCH_QUERY" '
+      map(select(
+        (.name | ascii_downcase | contains($query | ascii_downcase)) or
+        (.description // "" | ascii_downcase | contains($query | ascii_downcase))
+      )) | map(. + {source: "local"})
+    ')
+  fi
+
+  # Search SkillsMP
+  if [[ "$SOURCE" == "skillsmp" ]] || [[ "$SOURCE" == "all" ]]; then
+    # Load SkillsMP configuration
+    if declare -f smp_load_config >/dev/null 2>&1; then
+      if smp_load_config 2>/dev/null; then
+        # Search SkillsMP API
+        if declare -f smp_search_skills >/dev/null 2>&1; then
+          local smp_response
+          if smp_response=$(smp_search_skills "$SEARCH_QUERY" 10 "stars" 2>/dev/null); then
+            # Transform SkillsMP results to match local format
+            skillsmp_results=$(echo "$smp_response" | jq -c '.skills // [] | map({
+              name: .name,
+              version: .version,
+              description: .description,
+              author: .author,
+              stars: .stars,
+              source: "skillsmp",
+              scopedName: .scopedName,
+              repoFullName: .repoFullName
+            })')
+          fi
+        fi
+      fi
+    fi
+  fi
+
+  # Merge results
+  local combined_results
+  combined_results=$(jq -nc --argjson local "$local_results" --argjson smp "$skillsmp_results" \
+    '$local + $smp')
+
+  # Output results
+  if [[ "$output_format" == "json" ]]; then
+    local local_count skillsmp_count total_count
+    local_count=$(echo "$local_results" | jq 'length')
+    skillsmp_count=$(echo "$skillsmp_results" | jq 'length')
+    total_count=$(echo "$combined_results" | jq 'length')
+
+    jq -nc \
+      --arg query "$SEARCH_QUERY" \
+      --arg source "$SOURCE" \
+      --argjson results "$combined_results" \
+      --arg local_count "$local_count" \
+      --arg skillsmp_count "$skillsmp_count" \
+      --arg total "$total_count" \
+      --arg version "$VERSION" \
+      '{
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+        "_meta": {
+          "format": "json",
+          "version": $version,
+          "command": "skills search",
+          "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+        },
+        "success": true,
+        "query": $query,
+        "source": $source,
+        "counts": {
+          "local": ($local_count | tonumber),
+          "skillsmp": ($skillsmp_count | tonumber),
+          "total": ($total | tonumber)
+        },
+        "skills": $results
+      }'
+  else
+    get_colors
+    local total_count
+    total_count=$(echo "$combined_results" | jq 'length')
+
+    echo ""
+    echo -e "${BOLD}Skill Search: ${CYAN}$SEARCH_QUERY${NC} (source: $SOURCE)${NC}"
+    echo ""
+    echo -e "${DIM}Found $total_count results${NC}"
+    echo ""
+
+    if [[ "$total_count" -eq 0 ]]; then
+      echo -e "${YELLOW}No skills found matching query${NC}"
+      echo ""
+      return
+    fi
+
+    echo "$combined_results" | jq -c '.[]' | while read -r skill; do
+      local name version description source author stars
+      name=$(echo "$skill" | jq -r '.name')
+      version=$(echo "$skill" | jq -r '.version // "unknown"')
+      description=$(echo "$skill" | jq -r '.description // ""')
+      source=$(echo "$skill" | jq -r '.source')
+      author=$(echo "$skill" | jq -r '.author // ""')
+      stars=$(echo "$skill" | jq -r '.stars // ""')
+
+      # Truncate description
+      if [[ ${#description} -gt 60 ]]; then
+        description="${description:0:57}..."
+      fi
+
+      local source_badge=""
+      if [[ "$source" == "skillsmp" ]]; then
+        source_badge="${CYAN}[SkillsMP]${NC} "
+        [[ -n "$author" ]] && source_badge="${source_badge}${DIM}@${author}${NC} "
+        [[ -n "$stars" ]] && source_badge="${source_badge}${YELLOW}★${stars}${NC} "
+      else
+        source_badge="${GREEN}[Local]${NC} "
+      fi
+
+      echo -e "  ${source_badge}${BOLD}$name${NC} ${DIM}(v$version)${NC}"
+      echo -e "     $description"
+      echo ""
+    done
   fi
 }
 
@@ -682,14 +840,127 @@ cmd_install() {
   [[ -z "$SKILL_NAME" ]] && {
     if [[ "$output_format" == "json" ]]; then
       output_error "$E_INPUT_MISSING" "Skill name required" "$EXIT_INVALID_INPUT" true \
-        "Usage: cleo skills install SKILL [--agent AGENT] [--global]"
+        "Usage: cleo skills install SKILL [--agent AGENT] [--global] [--source SOURCE]"
     else
       echo "[ERROR] Skill name required" >&2
-      echo "Usage: cleo skills install SKILL [--agent AGENT] [--global]" >&2
+      echo "Usage: cleo skills install SKILL [--agent AGENT] [--global] [--source SOURCE]" >&2
     fi
     exit "$EXIT_INVALID_INPUT"
   }
 
+  # Handle SkillsMP source
+  if [[ "$SOURCE" == "skillsmp" ]]; then
+    # Check if SkillsMP library is available
+    if ! declare -f smp_install_skill >/dev/null 2>&1; then
+      if [[ "$output_format" == "json" ]]; then
+        output_error "$E_DEPENDENCY_MISSING" "SkillsMP library not loaded" \
+          "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skillsmp.sh is available"
+      else
+        get_colors
+        echo ""
+        echo -e "${RED}[ERROR]${NC} SkillsMP library not loaded"
+        echo ""
+      fi
+      exit "$EXIT_DEPENDENCY_ERROR"
+    fi
+
+    # Load SkillsMP config
+    if ! smp_load_config 2>/dev/null; then
+      if [[ "$output_format" == "json" ]]; then
+        output_error "$E_CONFIG_INVALID" "SkillsMP not configured or disabled" \
+          "$EXIT_CONFIG_ERROR" true "Run 'cleo skillsmp init' to configure"
+      else
+        get_colors
+        echo ""
+        echo -e "${RED}[ERROR]${NC} SkillsMP not configured or disabled"
+        echo ""
+        echo "Run 'cleo skillsmp init' to configure"
+        echo ""
+      fi
+      exit "$EXIT_CONFIG_ERROR"
+    fi
+
+    # Validate skill exists in marketplace
+    get_colors
+    echo ""
+    echo "Checking skill availability in SkillsMP..."
+
+    local skill_data
+    if ! skill_data=$(smp_get_skill_details "$SKILL_NAME" 2>&1); then
+      if [[ "$output_format" == "json" ]]; then
+        output_error "$E_NOT_FOUND" "Skill not found in SkillsMP: $SKILL_NAME" \
+          "$EXIT_NOT_FOUND" true "Search for available skills with: cleo skillsmp search"
+      else
+        echo ""
+        echo -e "${RED}[ERROR]${NC} Skill not found in SkillsMP: $SKILL_NAME"
+        echo ""
+        echo "Search for available skills with: cleo skillsmp search"
+        echo ""
+      fi
+      exit "$EXIT_NOT_FOUND"
+    fi
+
+    # Determine target directory
+    local target_dir
+    if [[ "$GLOBAL_FLAG" == "--global" ]]; then
+      target_dir="$CLEO_HOME/skills"
+    else
+      target_dir="$PROJECT_SKILLS_DIR"
+    fi
+
+    # Install using SkillsMP library
+    echo "Installing from SkillsMP..."
+    if smp_install_skill "$SKILL_NAME" "$target_dir" 2>&1; then
+      local skill_name
+      skill_name=$(echo "$skill_data" | jq -r '.name')
+      local install_path="${target_dir}/${skill_name}"
+
+      if [[ "$output_format" == "json" ]]; then
+        jq -nc \
+          --arg name "$skill_name" \
+          --arg path "$install_path" \
+          --arg global "$GLOBAL_FLAG" \
+          --arg source "$SOURCE" \
+          --arg version "$VERSION" \
+          '{
+            "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+            "_meta": {
+              "format": "json",
+              "version": $version,
+              "command": "skills install",
+              "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+            },
+            "success": true,
+            "skill": $name,
+            "source": $source,
+            "installedTo": $path,
+            "global": ($global == "--global")
+          }'
+      else
+        echo ""
+        echo -e "${GREEN}✓${NC} Skill installed from SkillsMP: ${CYAN}$skill_name${NC}"
+        echo ""
+        echo -e "${BOLD}Path:${NC}     $install_path"
+        [[ "$GLOBAL_FLAG" == "--global" ]] && echo -e "${BOLD}Scope:${NC}    global"
+        echo ""
+      fi
+      exit "$EXIT_SUCCESS"
+    else
+      if [[ "$output_format" == "json" ]]; then
+        output_error "$E_FILE_ERROR" "Failed to install skill from SkillsMP" \
+          "$EXIT_FILE_ERROR" true "Check network connection and permissions"
+      else
+        echo ""
+        echo -e "${RED}[ERROR]${NC} Failed to install skill from SkillsMP"
+        echo ""
+        echo "Check network connection and permissions"
+        echo ""
+      fi
+      exit "$EXIT_FILE_ERROR"
+    fi
+  fi
+
+  # Local source (existing logic)
   # Validate skill exists in project
   if ! skill_dir_exists "$SKILL_NAME"; then
     if [[ "$output_format" == "json" ]]; then
@@ -732,6 +1003,7 @@ cmd_install() {
         --arg agent "$AGENT_ID" \
         --arg path "$target_path" \
         --arg global "$GLOBAL_FLAG" \
+        --arg source "$SOURCE" \
         --arg version "$VERSION" \
         '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
@@ -744,6 +1016,7 @@ cmd_install() {
           "success": true,
           "skill": $name,
           "agent": $agent,
+          "source": $source,
           "installedTo": $path,
           "global": ($global == "--global")
         }'
@@ -793,7 +1066,7 @@ parse_arguments() {
   # Check for subcommand
   if [[ $# -gt 0 ]]; then
     case $1 in
-      list|discover|validate|info|install)
+      list|search|discover|validate|info|install)
         SUBCOMMAND="$1"
         shift
         ;;
@@ -808,10 +1081,10 @@ parse_arguments() {
       *)
         if [[ "$FORMAT" == "json" ]] && declare -f output_error >/dev/null 2>&1; then
           output_error "$E_INPUT_INVALID" "Invalid subcommand: $1" "$EXIT_INVALID_INPUT" true \
-            "Valid subcommands: list, discover, validate, info, install"
+            "Valid subcommands: list, search, discover, validate, info, install"
         else
           echo "[ERROR] Invalid subcommand: $1" >&2
-          echo "Valid subcommands: list, discover, validate, info, install" >&2
+          echo "Valid subcommands: list, search, discover, validate, info, install" >&2
         fi
         exit "$EXIT_INVALID_INPUT"
         ;;
@@ -837,6 +1110,30 @@ parse_arguments() {
         GLOBAL_FLAG="--global"
         shift
         ;;
+      --source)
+        shift
+        [[ $# -eq 0 ]] && {
+          echo "[ERROR] --source requires an argument" >&2
+          exit "$EXIT_INVALID_INPUT"
+        }
+        SOURCE="$1"
+        # Validate source value
+        if [[ ! "$SOURCE" =~ ^(local|skillsmp|all)$ ]]; then
+          echo "[ERROR] Invalid source: $SOURCE" >&2
+          echo "Valid sources: local, skillsmp, all" >&2
+          exit "$EXIT_INVALID_INPUT"
+        fi
+        shift
+        ;;
+      --source)
+        shift
+        [[ $# -eq 0 ]] && {
+          echo "[ERROR] --source requires an argument" >&2
+          exit "$EXIT_INVALID_INPUT"
+        }
+        SOURCE="$1"
+        shift
+        ;;
       --*)
         echo "[ERROR] Unknown option: $1" >&2
         echo "Run 'cleo skills --help' for usage" >&2
@@ -848,8 +1145,10 @@ parse_arguments() {
         exit "$EXIT_INVALID_INPUT"
         ;;
       *)
-        # Positional argument (skill name)
-        if [[ -z "$SKILL_NAME" ]]; then
+        # Positional argument (skill name or search query)
+        if [[ "$SUBCOMMAND" == "search" ]]; then
+          SEARCH_QUERY="$1"
+        elif [[ -z "$SKILL_NAME" ]]; then
           SKILL_NAME="$1"
         fi
         shift
@@ -901,6 +1200,9 @@ main() {
   case "$SUBCOMMAND" in
     list)
       cmd_list
+      ;;
+    search)
+      cmd_search
       ;;
     discover)
       cmd_discover

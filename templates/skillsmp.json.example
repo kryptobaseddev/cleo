@@ -1,0 +1,28 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/skillsmp.schema.json",
+  "endpoint": "https://www.agentskills.in/api",
+  "apiKey": "",
+  "defaultInstallLocation": "project",
+  "timeout": 30,
+  "retries": 3,
+  "cache": {
+    "enabled": true,
+    "searchTtlMinutes": 5,
+    "contentTtlMinutes": 60
+  },
+  "validation": {
+    "checkSchemaVersion": true,
+    "requireSignature": false,
+    "allowedPublishers": []
+  },
+  "security": {
+    "sandboxMode": true,
+    "restrictedCommands": ["rm", "dd", "mkfs", "fdisk"],
+    "maxFileSize": 10485760
+  },
+  "logging": {
+    "level": "info",
+    "logInstalls": true,
+    "logSearches": false
+  }
+}
