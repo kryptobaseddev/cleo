@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.71.0] - 2026-01-27
+## [0.71.1] - 2026-01-27
 
 ### Added
 - **Epic T2419: Backup System Assessment & Consolidation**
@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Recovery procedures and best practices
   - **Mintlify docs navigation** (T2428): Added backup-system to Concepts > Architecture
 
+## [0.71.0] - 2026-01-27
+
+### Added
 - **Epic T2190: Hierarchical Discovery System for graph-rag.sh**
   - **`_find_lca()`** (T2192): Find lowest common ancestor of two tasks in hierarchy tree
   - **`_tree_distance()`** (T2193): Calculate tree distance between tasks (0=same, 2=siblings, 4=cousins)
