@@ -64,7 +64,7 @@ done
 
 ### 5. Agent Injection Content
 
-- [ ] `~/.cleo/docs/TODO_Task_Management.md` is current
+- [ ] `~/.cleo/docs/CLEO-INJECTION.md` is current
 - [ ] Command Reference section updated
 - [ ] Session Protocol documented
 - [ ] Error handling section accurate

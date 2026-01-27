@@ -50,7 +50,7 @@
 |----------|---------|--------------|
 | **[installation.md](reference/installation.md)** | Installation guide | Setting up the system |
 | **[usage.md](usage.md)** | Usage guide and examples | Learning system operations |
-| **[TODO_Task_Management.md](TODO_Task_Management.md)** | CLI reference (installed to ~/.cleo/docs/) | Quick CLI command reference |
+| **[CLEO-INJECTION.md](../templates/CLEO-INJECTION.md)** | Universal subagent architecture (installed to ~/.cleo/docs/) | Agent protocol and lifecycle reference |
 | **[FEATURES.md](FEATURES.md)** | Feature inventory and capabilities | Understanding available features |
 | **[cli-output-formats.md](reference/cli-output-formats.md)** | Output formats reference | Understanding output formats (list: text/json/jsonl/markdown/table, export: csv/tsv) |
 | **[configuration.md](reference/configuration.md)** | Configuration reference | Customizing system behavior |

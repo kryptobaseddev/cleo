@@ -665,7 +665,7 @@ installer_link_inject_claudemd() {
         echo "<!-- CLEO:START -->"
         echo "## Task Management (cleo)"
         echo ""
-        echo "@~/.cleo/docs/TODO_Task_Management.md"
+        echo "@~/.cleo/docs/CLEO-INJECTION.md"
         echo "<!-- CLEO:END -->"
         echo ""
         cat "$claudemd"
@@ -732,7 +732,7 @@ installer_link_generate_cleo_content() {
     cat <<'EOF'
 <!-- CLEO:START -->
 # Task Management
-@~/.cleo/docs/TODO_Task_Management.md
+@~/.cleo/docs/CLEO-INJECTION.md
 
 ## Time Estimates — PROHIBITED (RFC 2119)
 
