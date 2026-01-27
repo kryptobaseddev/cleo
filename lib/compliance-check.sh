@@ -726,7 +726,8 @@ score_subagent_with_tokens() {
     local task_id="$1"
     local agent_id="$2"
     local response="${3:-}"
-    local token_metrics="${4:-{}}"
+    # Note: Use quoted default to avoid Bash 5.3+ brace expansion bug
+    local token_metrics="${4:-'{}'}"
 
     # Get base compliance score
     local base_metrics
