@@ -2749,7 +2749,44 @@ migrate_agent_outputs_dir() {
     fi
 
     # =========================================================================
-    # 6. Log migration
+    # 6. Update config.json (research.outputDir → agentOutputs.directory)
+    # =========================================================================
+
+    local config_file="${cleo_dir}/config.json"
+    if [[ -f "$config_file" ]]; then
+        # Check if config has old research.outputDir setting
+        if grep -q '"research"' "$config_file" 2>/dev/null; then
+            local temp_config
+            temp_config=$(mktemp)
+
+            # Use jq to migrate config: remove research section, add agentOutputs
+            if command -v jq &>/dev/null; then
+                if jq 'del(.research) | .agentOutputs = {
+                    "directory": "claudedocs/agent-outputs",
+                    "manifestFile": "MANIFEST.jsonl",
+                    "archiveDir": "archive",
+                    "archiveDays": 30
+                }' "$config_file" > "$temp_config" 2>/dev/null; then
+                    if mv "$temp_config" "$config_file"; then
+                        echo "  Updated config.json (research → agentOutputs)"
+                    else
+                        rm -f "$temp_config"
+                        echo "WARNING: Failed to update config.json" >&2
+                    fi
+                else
+                    rm -f "$temp_config"
+                    echo "WARNING: Failed to process config.json with jq" >&2
+                fi
+            else
+                # Fallback without jq: just warn
+                echo "WARNING: config.json has deprecated 'research' section" >&2
+                echo "  Run: cleo config set agentOutputs.directory claudedocs/agent-outputs" >&2
+            fi
+        fi
+    fi
+
+    # =========================================================================
+    # 7. Log migration
     # =========================================================================
 
     mkdir -p "$(dirname "$migration_log")" 2>/dev/null || true

@@ -493,3 +493,93 @@ EOF
     assert_dir_exists "claudedocs/agent-outputs"
     assert_dir_not_exists "claudedocs/research-outputs"
 }
+
+# =============================================================================
+# Config Migration Tests (T2358 fix)
+# =============================================================================
+
+@test "migration: updates config.json from research to agentOutputs" {
+    # Create old directory structure
+    mkdir -p "$TEST_TEMP_DIR/claudedocs/research-outputs"
+    echo '{"id":"test"}' > "$TEST_TEMP_DIR/claudedocs/research-outputs/MANIFEST.jsonl"
+
+    # Create old config with research section
+    cat > "$TEST_TEMP_DIR/.cleo/config.json" << 'CONF'
+{
+  "version": "2.6.0",
+  "research": {
+    "outputDir": "claudedocs/research-outputs",
+    "manifestFile": "MANIFEST.jsonl"
+  }
+}
+CONF
+
+    # Run migration
+    run migrate_agent_outputs_dir "$TEST_TEMP_DIR"
+    assert_success
+
+    # Verify config was updated
+    run jq -r '.agentOutputs.directory' "$TEST_TEMP_DIR/.cleo/config.json"
+    assert_output "claudedocs/agent-outputs"
+
+    # Verify research section was removed
+    run jq -r '.research' "$TEST_TEMP_DIR/.cleo/config.json"
+    assert_output "null"
+}
+
+@test "migration: preserves other config settings when updating" {
+    # Create old directory structure
+    mkdir -p "$TEST_TEMP_DIR/claudedocs/research-outputs"
+    echo '{"id":"test"}' > "$TEST_TEMP_DIR/claudedocs/research-outputs/MANIFEST.jsonl"
+
+    # Create config with research section AND other settings
+    cat > "$TEST_TEMP_DIR/.cleo/config.json" << 'CONF'
+{
+  "version": "2.6.0",
+  "research": {
+    "outputDir": "claudedocs/research-outputs"
+  },
+  "validation": {
+    "strictMode": true
+  },
+  "logging": {
+    "enabled": true
+  }
+}
+CONF
+
+    # Run migration
+    run migrate_agent_outputs_dir "$TEST_TEMP_DIR"
+    assert_success
+
+    # Verify other settings preserved
+    run jq -r '.validation.strictMode' "$TEST_TEMP_DIR/.cleo/config.json"
+    assert_output "true"
+
+    run jq -r '.logging.enabled' "$TEST_TEMP_DIR/.cleo/config.json"
+    assert_output "true"
+}
+
+@test "migration: skips config update if no research section" {
+    # Create old directory structure
+    mkdir -p "$TEST_TEMP_DIR/claudedocs/research-outputs"
+    echo '{"id":"test"}' > "$TEST_TEMP_DIR/claudedocs/research-outputs/MANIFEST.jsonl"
+
+    # Create config WITHOUT research section (already using defaults)
+    cat > "$TEST_TEMP_DIR/.cleo/config.json" << 'CONF'
+{
+  "version": "2.6.0",
+  "validation": {
+    "strictMode": false
+  }
+}
+CONF
+
+    # Run migration - directory migrates but config should NOT be touched
+    run migrate_agent_outputs_dir "$TEST_TEMP_DIR"
+    assert_success
+
+    # Config should NOT have agentOutputs added (uses defaults, no override needed)
+    run jq -r '.agentOutputs' "$TEST_TEMP_DIR/.cleo/config.json"
+    assert_output "null"
+}
