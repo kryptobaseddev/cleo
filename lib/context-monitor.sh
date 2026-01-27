@@ -46,14 +46,23 @@ get_config_value_simple() {
     echo "$value"
 }
 
-# Get current session ID from .current-session file
+# Get current session ID - checks CLEO_SESSION env var first, then .current-session file
 get_current_session_id() {
+    # Check environment variable first (set by orchestrators, subagents, scripts)
+    if [[ -n "${CLEO_SESSION:-}" ]]; then
+        echo "$CLEO_SESSION"
+        return 0
+    fi
+
+    # Fall back to .current-session file
     local session_file="${CLEO_DIR}/.current-session"
     if [[ -f "$session_file" ]]; then
         cat "$session_file" 2>/dev/null | tr -d '\n'
-    else
-        echo ""
+        return 0
     fi
+
+    echo ""
+    return 1
 }
 
 # Build the context state file path based on config and session

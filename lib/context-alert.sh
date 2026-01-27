@@ -47,14 +47,24 @@ readonly THRESHOLD_WARNING THRESHOLD_CAUTION THRESHOLD_CRITICAL THRESHOLD_EMERGE
 
 # get_current_session_id - Get the current active session ID
 #
+# Checks: CLEO_SESSION env var first, then .current-session file
 # Returns: Session ID or empty string if no active session
 get_current_session_id() {
+    # Check environment variable first (set by orchestrators, subagents, scripts)
+    if [[ -n "${CLEO_SESSION:-}" ]]; then
+        echo "$CLEO_SESSION"
+        return 0
+    fi
+
+    # Fall back to .current-session file
     local session_file="${CLEO_PROJECT_DIR:-.cleo}/.current-session"
     if [[ -f "$session_file" ]]; then
         cat "$session_file" 2>/dev/null | tr -d '\n'
-    else
-        echo ""
+        return 0
     fi
+
+    echo ""
+    return 1
 }
 
 # get_context_state_path - Get the context state file path for a session
