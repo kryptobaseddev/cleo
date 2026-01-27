@@ -1,16 +1,16 @@
----
-name: ct-dev-workflow
-description: |
-  Development workflow skill for atomic commits, conventional commits, and release management.
-  Use when user says "commit", "release", "run the workflow", "prepare release",
-  "atomic commit", "conventional commit", "version bump", "create release",
-  "commit and push", "finalize changes", "ship it", "cut a release".
-version: 2.0.0
+# Development Workflow Context Injection
+
+**Protocol**: @protocols/contribution.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 3.0.0
+
 ---
 
-# Development Workflow Skill
+## Purpose
 
-You are a development workflow executor. Your role is to ensure proper atomic commits with task traceability, conventional commit messages, and systematic release processes.
+Context injection for development workflow tasks spawned via cleo-subagent. Provides domain expertise for atomic commits with task traceability, conventional commit messages, and systematic release processes.
+
+---
 
 ## Core Principle: Task-Driven Development
 
@@ -252,12 +252,12 @@ git push origin HEAD
 
 | Change | Local Tests | Rely on CI |
 |--------|-------------|------------|
-| Single file fix | Related unit test | ✓ |
-| New feature | Feature tests | ✓ |
-| Docs only | None | ✓ |
-| Schema change | Schema tests | ✓ |
-| Cross-cutting refactor | Full suite | ✓ |
-| Release prep | Full suite | ✓ |
+| Single file fix | Related unit test | Yes |
+| New feature | Feature tests | Yes |
+| Docs only | None | Yes |
+| Schema change | Schema tests | Yes |
+| Cross-cutting refactor | Full suite | Yes |
+| Release prep | Full suite | Yes |
 
 ### Do I Need a Version Bump?
 
@@ -272,76 +272,44 @@ git push origin HEAD
 | `perf` | patch | Yes |
 | `security` | patch | Yes |
 
-### Push Flow
+---
 
-```
-Local commit → Push → CI tests → PR → Review → Merge to main
-                                                    ↓
-                                        CHANGELOG.md updated
-                                                    ↓
-                                    (Auto-PR for Mintlify docs)
-                                                    ↓
-                                        Version bump commit
-                                                    ↓
-                                        Tag push (v*.*.*)
-                                                    ↓
-                                    GitHub Release (automated)
+## Task System Integration
+
+@skills/_shared/task-system-integration.md
+
+### CLEO Integration Commands
+
+```bash
+# Task lifecycle
+cleo focus show              # Current task
+cleo focus set T123          # Set focus
+cleo complete T123           # Mark done
+
+# Find existing work
+cleo find "query"            # Search tasks
+cleo list --status pending   # Pending work
+
+# Create new work
+cleo add "Title" --parent T001 --description "..."
+
+# Session management
+cleo session status          # Current session
+cleo session end --note "Completed X, Y, Z"
 ```
 
 ---
 
-## Automated CI/CD Pipelines
+## Subagent Protocol
 
-### What GitHub Actions Handles
+@skills/_shared/subagent-protocol-base.md
 
-| Trigger | Workflow | Actions |
-|---------|----------|---------|
-| Push/PR to main | `ci.yml` | Tests, lint, JSON validation, docs drift, install test |
-| Push to main (CHANGELOG.md) | `docs-update.yml` | Auto-PR for Mintlify changelog regeneration |
-| Tag push (v*.*.*) | `release.yml` | Build tarball, create GitHub Release, upload artifacts |
-| Push to docs/ | `mintlify-deploy.yml` | Validate MDX, check required files |
+### Output Requirements
 
-### What YOU Handle
-
-| Action | When | How |
-|--------|------|-----|
-| Update CHANGELOG.md | Before release | Manual edit with release notes |
-| Version bump | When releasing | `./dev/bump-version.sh patch\|minor\|major` |
-| Create tag | After version bump | `git tag -a v0.X.Y -m "..."` |
-| Push tag | After tagging | `git push origin v0.X.Y` |
-| Merge auto-PRs | When changelog PR created | Review and merge the auto-generated PR |
-
-### Release Sequence
-
-```bash
-# 1. Ensure all changes are merged to main
-
-# 2. Update CHANGELOG.md with release notes
-# (edit CHANGELOG.md manually)
-
-# 3. Commit changelog
-git add CHANGELOG.md
-git commit -m "docs(changelog): Add v0.X.Y release notes"
-git push origin main
-
-# 4. (Auto) docs-update.yml creates PR for Mintlify
-# → Review and merge the auto-PR
-
-# 5. Version bump
-./dev/bump-version.sh minor  # or patch/major
-./dev/validate-version.sh
-
-# 6. Commit version bump
-git add -A
-git commit -m "chore: bump version to v0.X.Y"
-git push origin main
-
-# 7. Tag and push (triggers release.yml)
-git tag -a v0.X.Y -m "feat: Description of release"
-git push origin v0.X.Y
-
-# 8. (Auto) release.yml creates GitHub Release
-```
+1. MUST write workflow summary to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+3. MUST return ONLY: "Workflow complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return full commit/release details in response
 
 ---
 
@@ -379,75 +347,7 @@ git push origin HEAD
 cleo complete T1456
 ```
 
-### Example 2: New Feature
-
-```bash
-# 1. Verify task
-cleo focus show  # T1500 - Add export command
-
-# 2. Make changes
-# ... implement feature ...
-
-# 3. Run feature tests
-bats tests/unit/export.bats
-bats tests/integration/export.bats
-
-# 4. Stage changes
-git add scripts/export.sh lib/export-utils.sh tests/unit/export.bats
-
-# 5. Commit
-git commit -m "$(cat <<'EOF'
-feat(export): add CSV export command
-
-Enables exporting tasks to CSV format for external tools.
-
-Task: T1500
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-
-# 6. Push
-git push origin HEAD
-
-# 7. Complete task
-cleo complete T1500
-```
-
-### Example 3: Release
-
-```bash
-# 1. Verify all tasks complete
-cleo list --status pending --parent T1400  # Should be empty
-
-# 2. Run full test suite (release prep)
-./tests/run-all-tests.sh
-
-# 3. Update CHANGELOG
-# ... edit CHANGELOG.md ...
-
-# 4. Version bump
-./dev/bump-version.sh minor
-./dev/validate-version.sh
-
-# 5. Commit version bump
-git add -A
-git commit -m "$(cat <<'EOF'
-chore: bump version to v0.63.0
-
-Task: T1400
-Co-Authored-By: Claude <noreply@anthropic.com>
-EOF
-)"
-
-# 6. Tag and push
-git tag -a v0.63.0 -m "feat: Add export command and improvements"
-git push origin v0.63.0
-git push origin HEAD
-
-# GitHub Actions creates the release automatically
-```
-
-### Example 4: Documentation Only
+### Example 2: Documentation Only
 
 ```bash
 # 1. Verify task
@@ -485,31 +385,9 @@ cleo complete T1550
 | Committing to main | Bypass review | Use feature branches |
 | Running full tests always | Slow iteration | Use smart test scope |
 | Skipping CI | Missing validations | Always push, let CI run |
-| Manual release creation | Inconsistent releases | Use tag → GH Actions |
+| Manual release creation | Inconsistent releases | Use tag, GH Actions |
 | Giant commits | Hard to review/revert | Atomic commits |
 | Vague commit messages | Lost context | Conventional + task ref |
-
----
-
-## CLEO Integration Commands
-
-```bash
-# Task lifecycle
-cleo focus show              # Current task
-cleo focus set T123          # Set focus
-cleo complete T123           # Mark done
-
-# Find existing work
-cleo find "query"            # Search tasks
-cleo list --status pending   # Pending work
-
-# Create new work
-cleo add "Title" --parent T001 --description "..."
-
-# Session management
-cleo session status          # Current session
-cleo session end --note "Completed X, Y, Z"
-```
 
 ---
 
@@ -523,16 +401,3 @@ cleo session end --note "Completed X, Y, Z"
 6. **Use tags for releases** - GitHub Actions handles the rest
 7. **One logical change** per commit (atomic)
 8. **Conventional commit format** with task reference
-
----
-
-## Trigger Phrases
-
-This skill activates when user says:
-- "commit", "commit changes"
-- "release", "prepare release", "cut a release"
-- "run the workflow"
-- "atomic commit", "conventional commit"
-- "version bump"
-- "ship it", "finalize changes"
-- "push changes"

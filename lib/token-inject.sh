@@ -723,8 +723,10 @@ ti_inject_tokens() {
     # Replace all known tokens
     for token in "${_TI_ALL_TOKENS[@]}"; do
         value=$(_ti_get_token_value "$token")
-        # Use sed with different delimiter to handle paths with /
-        output=$(echo "$output" | sed "s|{{${token}}}|${value}|g")
+        # Use bash parameter expansion - handles multiline values and special chars safely
+        # (sed breaks on newlines, |, &, and \ in replacement values)
+        local pattern="{{${token}}}"
+        output="${output//$pattern/$value}"
     done
 
     # Check for remaining unknown tokens

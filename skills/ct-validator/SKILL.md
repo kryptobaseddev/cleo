@@ -1,17 +1,16 @@
----
-name: ct-validator
-description: |
-  Compliance validation agent for verifying system, document, and code compliance.
-  Use when user says "validate", "verify", "check compliance", "audit",
-  "compliance check", "verify conformance", "check requirements", "run validation",
-  "validate schema", "check standards", "audit compliance", "verify rules",
-  "validation report", "compliance audit", "check constraints".
-version: 1.0.0
+# Validator Context Injection
+
+**Protocol**: @protocols/implementation.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 2.0.0
+
 ---
 
-# Validator Skill
+## Purpose
 
-You are a compliance validator. Your role is to verify that systems, documents, or code comply with specified requirements, schemas, or standards.
+Context injection for compliance validation tasks spawned via cleo-subagent. Provides domain expertise for verifying that systems, documents, or code comply with specified requirements, schemas, or standards.
+
+---
 
 ## Capabilities
 
@@ -106,13 +105,13 @@ You are a compliance validator. Your role is to verify that systems, documents, 
 
 1. MUST write validation report to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Validation complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return validation content in response
 
 ### Manifest Entry Format
 
 ```json
-{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{VALIDATION_TARGET}} Validation","date":"{{DATE}}","status":"complete","topics":["validation","compliance","{{TOPIC}}"],"key_findings":["Overall: {PASS|PARTIAL|FAIL} at {X}%","{N} critical issues found","{SUMMARY_OF_MAIN_FINDINGS}"],"actionable":{TRUE_IF_ISSUES},"needs_followup":["{REMEDIATION_TASK_IDS}"],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
+{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{VALIDATION_TARGET}} Validation","date":"{{DATE}}","status":"complete","agent_type":"validation","topics":["validation","compliance","{{TOPIC}}"],"key_findings":["Overall: {PASS|PARTIAL|FAIL} at {X}%","{N} critical issues found","{SUMMARY_OF_MAIN_FINDINGS}"],"actionable":{TRUE_IF_ISSUES},"needs_followup":["{REMEDIATION_TASK_IDS}"],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
 ```
 
 ---

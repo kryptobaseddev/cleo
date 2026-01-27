@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # skill-validate.sh - Skill Validation Library for Orchestrator Protocol
 #
+# ARCHITECTURE NOTE (Universal Subagent Architecture):
+#   Skills (ct-research-agent, ct-task-executor, etc.) are PROTOCOL IDENTIFIERS,
+#   NOT separate agent types. All spawns use 'cleo-subagent' with skill injection.
+#   The '-agent' suffix in skill names is legacy naming - they are skills/protocols.
+#
 # LAYER: 1 (Foundation Services)
 # DEPENDENCIES: exit-codes.sh
 # PROVIDES: skill_exists, skill_is_active, skill_has_required_tokens,
 #           skill_is_compatible_with_subagent, skill_get_info, skill_list_all,
 #           skill_validate_for_spawn
 #
-# Validates skill configurations before subagent spawning to prevent
+# Validates skill protocol configurations before cleo-subagent spawning to prevent
 # hallucination and catch config errors early. All validation functions
 # read from skills/manifest.json (single source of truth).
 #

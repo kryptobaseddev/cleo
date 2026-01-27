@@ -1,23 +1,22 @@
----
-name: ct-epic-architect
-description: |
-  Creates comprehensive epics with full task decomposition, dependency analysis, and wave planning.
-  Use when user says "create epic", "plan epic", "decompose into tasks", "architect the work",
-  "break down this project", "epic planning", "task breakdown", "wave planning", "sprint planning".
-version: 2.3.0
-model: sonnet
-allowed-tools: Bash(cleo:*) Read Write
+# Epic Architect Context Injection
+
+**Protocol**: @protocols/decomposition.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 3.0.0
+
 ---
 
-# Epic Architect Skill
+## Purpose
 
-Creates epics with decomposed tasks, dependencies, and execution waves using CLEO (v0.70+).
+Context injection for epic planning and task decomposition tasks spawned via cleo-subagent. Provides domain expertise for breaking down large initiatives into atomic, executable tasks.
+
+---
 
 ## Capabilities
 
 1. **Epic Creation** - Parent epic with full metadata and file attachments
 2. **Task Decomposition** - Atomic tasks with acceptance criteria
-3. **Dependency Analysis** - Wave-based parallel execution
+3. **Dependency Analysis** - Wave-based parallel execution planning
 4. **Research Linking** - Connect research outputs to tasks
 5. **HITL Clarification** - Ask when requirements are ambiguous
 
@@ -222,18 +221,16 @@ Recommendation: [Your recommendation]
 
 ---
 
-## Session Lifecycle
+## Subagent Protocol
 
-```bash
-# Start session scoped to epic
-cleo session start --scope epic:T001 --name "Auth Development" --auto-focus
+@skills/_shared/subagent-protocol-base.md
 
-# Track progress
-cleo focus note "Completed JWT implementation"
+### Output Requirements
 
-# End session
-cleo session end --note "Epic complete, ready for testing"
-```
+1. MUST write decomposition to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+3. MUST return ONLY: "Decomposition complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return full decomposition in response
 
 ---
 

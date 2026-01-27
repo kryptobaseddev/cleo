@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # lib/agent-config.sh - Agent configuration registry management (Layer 1)
 # Tracks agent config file versions and setup state
+# v2.0.0 - Dynamic registry loading from schemas/agent-registry.json
 
 [[ -n "${_AGENT_CONFIG_LOADED:-}" ]] && return 0
 readonly _AGENT_CONFIG_LOADED=1
@@ -15,32 +16,264 @@ fi
 # AGENT CONFIG REGISTRY MANAGEMENT
 # ==============================================================================
 
-# Registry file location
+# Registry file locations
 readonly AGENT_CONFIG_REGISTRY="${CLEO_HOME:-$HOME/.cleo}/agent-configs.json"
+readonly AGENT_REGISTRY_SCHEMA="${CLEO_HOME:-$HOME/.cleo}/schemas/agent-registry.json"
 
-# Get agent directory path (evaluates HOME at runtime)
-# Args: agent_name
-# Returns: directory path
-get_agent_dir() {
-    local agent_name="$1"
-    case "$agent_name" in
-        claude) echo "$HOME/.claude" ;;
-        gemini) echo "$HOME/.gemini" ;;
-        codex) echo "$HOME/.codex" ;;
-        kimi) echo "$HOME/.kimi" ;;
+# Global variable for cached registry data
+_AGENT_REGISTRY=""
+
+# Load agent registry JSON
+# Returns: 0 on success, 1 on error
+# Sets: _AGENT_REGISTRY (global variable)
+load_agent_registry() {
+    [[ -n "$_AGENT_REGISTRY" ]] && return 0  # Already loaded
+
+    local registry_path="$AGENT_REGISTRY_SCHEMA"
+
+    # Check project location for dev mode
+    if [[ ! -f "$registry_path" ]]; then
+        registry_path="$(dirname "$_LIB_DIR")/schemas/agent-registry.json"
+    fi
+
+    if [[ ! -f "$registry_path" ]]; then
+        return 1
+    fi
+
+    _AGENT_REGISTRY=$(cat "$registry_path" 2>/dev/null) || return 1
+    return 0
+}
+
+# Normalize agent ID (handle legacy names)
+# Args: agent_id
+# Returns: normalized ID
+normalize_agent_id() {
+    local agent_id="$1"
+    case "$agent_id" in
+        claude) echo "claude-code" ;;
+        copilot) echo "github-copilot" ;;
+        *) echo "$agent_id" ;;
     esac
 }
 
+# Get agent directory path (evaluates HOME at runtime)
+# Args: agent_id
+# Returns: directory path
+get_agent_dir() {
+    local agent_id="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    local dir
+    dir=$(echo "$_AGENT_REGISTRY" | jq -r --arg id "$agent_id" '.agents[$id].globalDir // empty' 2>/dev/null)
+
+    # Expand $HOME
+    echo "${dir//\$HOME/$HOME}"
+}
+
 # Get agent config filename
-# Args: agent_name
+# Args: agent_id
 # Returns: config filename
 get_agent_config_file() {
-    local agent_name="$1"
-    case "$agent_name" in
-        claude) echo "CLAUDE.md" ;;
-        gemini) echo "GEMINI.md" ;;
-        codex|kimi) echo "AGENTS.md" ;;
-    esac
+    local agent_id="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    echo "$_AGENT_REGISTRY" | jq -r --arg id "$agent_id" '.agents[$id].instructionFile // empty' 2>/dev/null
+}
+
+# Get all agent IDs
+# Returns: newline-separated agent IDs
+get_all_agents() {
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+    echo "$_AGENT_REGISTRY" | jq -r '.agents | keys[]' 2>/dev/null
+}
+
+# Get agents by priority tier
+# Args: tier (tier1|tier2|tier3)
+# Returns: newline-separated agent IDs
+get_agents_by_tier() {
+    local tier="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+    echo "$_AGENT_REGISTRY" | jq -r --arg t "$tier" '.priorityTiers[$t][]' 2>/dev/null
+}
+
+# Get agent project skills directory (global)
+# Args: agent_id
+# Returns: skills directory path
+get_agent_skills_dir() {
+    local agent_id="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    local dir
+    dir=$(echo "$_AGENT_REGISTRY" | jq -r --arg id "$agent_id" '.agents[$id].skillsDir // empty' 2>/dev/null)
+    echo "$dir"
+}
+
+# Get agent project-level skills directory
+# Args: agent_id
+# Returns: project skills directory path
+get_agent_project_skills_dir() {
+    local agent_id="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    local dir
+    dir=$(echo "$_AGENT_REGISTRY" | jq -r --arg id "$agent_id" '.agents[$id].projectSkillsDir // empty' 2>/dev/null)
+    echo "$dir"
+}
+
+# Get agent global skills directory (evaluates HOME at runtime)
+# Args: agent_id
+# Returns: global skills directory path
+get_agent_global_skills_dir() {
+    local agent_id="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    local agent_dir skills_dir
+    agent_dir=$(get_agent_dir "$agent_id")
+    skills_dir=$(get_agent_skills_dir "$agent_id")
+
+    if [[ -n "$agent_dir" ]] && [[ -n "$skills_dir" ]]; then
+        echo "${agent_dir}/${skills_dir}"
+    fi
+}
+
+# Get skill install path (where skill would be installed)
+# Args: skill_name agent_id [--global]
+# Returns: full path to skill directory
+get_skill_install_path() {
+    local skill_name="$1"
+    local agent_id="$2"
+    local global_flag="${3:-}"
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    if [[ "$global_flag" == "--global" ]]; then
+        local global_dir
+        global_dir=$(get_agent_global_skills_dir "$agent_id")
+        [[ -n "$global_dir" ]] && echo "${global_dir}/${skill_name}"
+    else
+        local project_dir
+        project_dir=$(get_agent_project_skills_dir "$agent_id")
+        [[ -n "$project_dir" ]] && echo "${project_dir}/${skill_name}"
+    fi
+}
+
+# Install skill to agent directory
+# Args: skill_path agent_id [--global]
+# Returns: 0 on success, 1 on error
+install_skill_to_agent() {
+    local skill_path="$1"
+    local agent_id="$2"
+    local global_flag="${3:-}"
+
+    [[ ! -d "$skill_path" ]] && return 1
+
+    local skill_name
+    skill_name=$(basename "$skill_path")
+
+    local target_path
+    target_path=$(get_skill_install_path "$skill_name" "$agent_id" "$global_flag")
+
+    [[ -z "$target_path" ]] && return 1
+
+    # Create parent directory if needed
+    mkdir -p "$(dirname "$target_path")" || return 1
+
+    # Copy skill directory
+    if [[ -d "$target_path" ]]; then
+        # Remove existing and replace
+        rm -rf "$target_path" || return 1
+    fi
+
+    cp -r "$skill_path" "$target_path" || return 1
+    return 0
+}
+
+# List installed skills for agent
+# Args: agent_id [--global]
+# Returns: newline-separated skill names
+list_agent_skills() {
+    local agent_id="$1"
+    local global_flag="${2:-}"
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    local skills_dir
+    if [[ "$global_flag" == "--global" ]]; then
+        skills_dir=$(get_agent_global_skills_dir "$agent_id")
+    else
+        skills_dir=$(get_agent_project_skills_dir "$agent_id")
+    fi
+
+    [[ -z "$skills_dir" ]] && return 0
+    [[ ! -d "$skills_dir" ]] && return 0
+
+    # List directories (skills)
+    find "$skills_dir" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort
+}
+
+# Check if skill is installed for agent
+# Args: skill_name agent_id [--global]
+# Returns: 0 if installed, 1 if not
+is_skill_installed() {
+    local skill_name="$1"
+    local agent_id="$2"
+    local global_flag="${3:-}"
+
+    local skill_path
+    skill_path=$(get_skill_install_path "$skill_name" "$agent_id" "$global_flag")
+
+    [[ -n "$skill_path" ]] && [[ -d "$skill_path" ]]
+}
+
+# Uninstall skill from agent
+# Args: skill_name agent_id [--global]
+# Returns: 0 on success, 1 on error
+uninstall_skill_from_agent() {
+    local skill_name="$1"
+    local agent_id="$2"
+    local global_flag="${3:-}"
+
+    local skill_path
+    skill_path=$(get_skill_install_path "$skill_name" "$agent_id" "$global_flag")
+
+    [[ -z "$skill_path" ]] && return 1
+    [[ ! -d "$skill_path" ]] && return 1
+
+    rm -rf "$skill_path"
+}
+
+# Get full agent config as JSON
+# Args: agent_id
+# Returns: JSON object
+get_agent_config_json() {
+    local agent_id="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    echo "$_AGENT_REGISTRY" | jq --arg id "$agent_id" '.agents[$id]' 2>/dev/null
+}
+
+# Get agent display name
+# Args: agent_id
+# Returns: display name
+get_agent_display_name() {
+    local agent_id="$1"
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
+
+    agent_id=$(normalize_agent_id "$agent_id")
+
+    echo "$_AGENT_REGISTRY" | jq -r --arg id "$agent_id" '.agents[$id].displayName // empty' 2>/dev/null
 }
 
 # ==============================================================================
@@ -184,35 +417,29 @@ list_agent_configs() {
 
 # Get agent name from file path
 # Args: file_path
-# Returns: agent name (claude|gemini|codex|kimi) or empty
+# Returns: agent ID or empty
 get_agent_name_from_path() {
     local file_path="$1"
-    local basename_file agent_name
+    [[ -z "$_AGENT_REGISTRY" ]] && load_agent_registry
 
+    local basename_file
     basename_file=$(basename "$file_path")
 
-    # Map filename to agent
-    case "$basename_file" in
-        CLAUDE.md)
-            # Verify it's in ~/.claude/
-            if [[ "$file_path" == *"/.claude/"* ]]; then
-                echo "claude"
-            fi
-            ;;
-        GEMINI.md)
-            if [[ "$file_path" == *"/.gemini/"* ]]; then
-                echo "gemini"
-            fi
-            ;;
-        AGENTS.md)
-            # Could be codex or kimi, check parent directory
-            if [[ "$file_path" == *"/.codex/"* ]]; then
-                echo "codex"
-            elif [[ "$file_path" == *"/.kimi/"* ]]; then
-                echo "kimi"
-            fi
-            ;;
-    esac
+    # Get instruction file mapping from registry
+    local agent_ids
+    agent_ids=$(echo "$_AGENT_REGISTRY" | jq -r --arg file "$basename_file" '.instructionFileMap[$file][]?' 2>/dev/null)
+
+    [[ -z "$agent_ids" ]] && return
+
+    # For each potential agent, check if the path matches
+    while IFS= read -r agent_id; do
+        local agent_dir
+        agent_dir=$(get_agent_dir "$agent_id")
+        if [[ -n "$agent_dir" ]] && [[ "$file_path" == "$agent_dir"* ]]; then
+            echo "$agent_id"
+            return
+        fi
+    done <<< "$agent_ids"
 }
 
 # Check if agent CLI is installed (directory exists)

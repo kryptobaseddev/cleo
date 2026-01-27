@@ -40,15 +40,18 @@ The command manages these files:
 
 ## Injection Format
 
+> ⚠️ **DEPRECATED**: The `@~/.cleo/docs/TODO_Task_Management.md` reference is deprecated.
+> Use `cleo upgrade` to migrate to the new injection system.
+
 Content is injected between markers:
 
 ```markdown
 <!-- CLEO:START -->
-@~/.cleo/docs/TODO_Task_Management.md
+@~/.cleo/docs/TODO_Task_Management.md  (DEPRECATED - use injection system)
 <!-- CLEO:END -->
 ```
 
-The `@` reference syntax allows the agent to load the full task management instructions dynamically.
+**Migration**: Run `cleo upgrade` to update to the new injection system that uses `AGENT-INJECTION.md` templates.
 
 ## Examples
 

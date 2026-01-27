@@ -130,9 +130,10 @@ When the task system is CLEO, these additional commands are available:
 Sessions persist across Claude conversations and support long-running work.
 
 **Key Behaviors**:
-- Sessions timeout after **72 hours** of inactivity (session warning threshold)
-- Sessions are auto-ended after `retention.autoEndActiveAfterDays` (default: **7 days**) of inactivity
-- Use `cleo session gc --include-active` to clean up stale active sessions
+- Sessions receive timeout warning after **72 hours** of inactivity
+- Active sessions are auto-ended after **7 days** (configurable via `retention.autoEndActiveAfterDays`)
+- Ended/suspended sessions can be cleaned up with `cleo session gc`
+- Stale active sessions (72h+) cleaned with `cleo session gc --include-active`
 
 **Session Commands**:
 
@@ -147,9 +148,10 @@ Sessions persist across Claude conversations and support long-running work.
 
 **Best Practices**:
 - **MUST** check `cleo session list` before starting new sessions
-- **SHOULD** end sessions properly to avoid accumulation
-- **MAY** use `session gc --include-active` to recover from abandoned sessions
-- Long-running sessions are expected for complex multi-day work
+- **SHOULD** end sessions properly with `cleo session end --note "summary"` to avoid accumulation
+- **SHOULD** use `cleo session gc` periodically to clean up old ended/suspended sessions
+- **MAY** use `cleo session gc --include-active` to clean stale active sessions (72h+ inactive)
+- Long-running sessions (multi-day work) are expected and supported
 
 ---
 

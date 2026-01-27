@@ -35,10 +35,11 @@ Learn how to use CLEO effectively:
   - Query commands (list, stats)
   - Maintenance operations (validate, archive, backup)
 
-- **[CLI Reference (TODO_Task_Management.md)](TODO_Task_Management.md)** - Quick reference installed globally
-  - Installed to ~/.cleo/docs/ for global access
-  - CLI command quick reference
-  - Anti-hallucination rules
+- **CLI Reference** - Task management instructions
+  - ⚠️ **DEPRECATED**: `TODO_Task_Management.md` - Use injection system instead
+  - **NEW**: See `AGENT-INJECTION.md` template injected into `CLAUDE.md`
+  - Run `cleo upgrade` to migrate to new injection system
+  - CLI command quick reference with anti-hallucination rules
   - Session protocols and common patterns
 
 ### Advanced Usage
@@ -110,7 +111,7 @@ docs/
 ├── INDEX.md                     # Comprehensive navigation index
 ├── QUICK-REFERENCE.md           # Developer cheatsheet
 ├── PLUGINS.md                   # Plugin development guide
-├── TODO_Task_Management.md      # CLI reference (installed to ~/.cleo/)
+├── TODO_Task_Management.md      # CLI reference (DEPRECATED - see AGENT-INJECTION.md)
 ├── usage.md                     # Main usage guide
 ├── DOCS-MIGRATION-GUIDE.md      # Migration tracking (temporary)
 ├── architecture/

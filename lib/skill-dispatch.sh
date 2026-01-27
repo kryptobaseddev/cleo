@@ -13,6 +13,10 @@
 #   # Spec-compliant API (CLEO-SKILLS-SYSTEM-SPEC.md)
 #   skill_dispatch_by_keywords   - Match task to skill by keyword patterns
 #   skill_dispatch_by_type       - Match by task type
+#   skill_dispatch_by_category   - Match by skill category (taxonomy-based)
+#   get_skills_by_category       - Get skills in a category
+#   skill_get_tier               - Get tier level for a skill
+#   skill_is_tier                - Check if skill is at specific tier
 #   skill_get_metadata           - Get full skill metadata
 #   skill_get_references         - Get reference files for progressive loading
 #   skill_check_compatibility    - Check Claude Code subagent type compatibility
@@ -24,11 +28,12 @@
 #   skill_select_for_task, skill_dispatch_validate, skill_inject,
 #   skill_get_dispatch_triggers, skill_matches_labels, skill_matches_keywords
 #
-# Enables orchestrator to automatically select skills based on task type/labels/keywords.
-# Uses three matching strategies in priority order:
-#   1. Label-based: task labels match skill tags in manifest
-#   2. Type-based: task type (epic|task|subtask) maps to skill
-#   3. Keyword-based: task title/description keywords match dispatch_triggers
+# Enables orchestrator to automatically select skills based on task type/labels/keywords/categories.
+# Uses multiple matching strategies in priority order:
+#   1. Category-based: task labels or keywords map to skill category taxonomy
+#   2. Keyword-based: task title/description keywords match dispatch_triggers
+#   3. Label-based: task labels match skill tags in manifest
+#   4. Type-based: task type (epic|task|subtask) maps to skill
 #
 # USAGE:
 #   source lib/skill-dispatch.sh
@@ -37,11 +42,17 @@
 #   # 1. Select skill protocol based on task
 #   skill=$(skill_auto_dispatch "T1234")  # Returns skill name (protocol identifier)
 #   skill=$(skill_dispatch_by_keywords "implement auth middleware")
+#   skill=$(skill_dispatch_by_category "research")  # Category-based selection
 #
-#   # 2. Prepare spawn context with fully-resolved prompt
+#   # 2. Get skills by category or tier
+#   get_skills_by_category "execution"    # Get skills in execution category
+#   skill_list_by_tier 2                  # List tier 2 skills
+#   skill_get_tier "ct-research-agent"    # Get tier number
+#
+#   # 3. Prepare spawn context with fully-resolved prompt
 #   context=$(skill_prepare_spawn "$skill" "T1234")  # Returns JSON with prompt for cleo-subagent
 #
-#   # 3. Spawn cleo-subagent with Task tool using context.prompt
+#   # 4. Spawn cleo-subagent with Task tool using context.prompt
 #   #    NOTE: The skill name identifies the protocol, NOT the agent type.
 #   #    All spawns use subagent_type: "cleo-subagent"
 #
@@ -136,6 +147,163 @@ _sd_require_manifest() {
         return "$EXIT_FILE_ERROR"
     fi
     return 0
+}
+
+# ============================================================================
+# CATEGORY MAPPING & TIER FUNCTIONS
+# ============================================================================
+
+# Skill category taxonomy mapping (from T2434)
+# Categories: research, execution, planning, documentation, testing, validation
+readonly -A _SD_CATEGORY_MAP=(
+    ["research"]="ct-research-agent"
+    ["execution"]="ct-task-executor"
+    ["planning"]="ct-epic-architect"
+    ["documentation"]="ct-documentor"
+    ["testing"]="ct-test-writer-bats"
+    ["validation"]="ct-validator"
+    ["specification"]="ct-spec-writer"
+    ["bash-library"]="ct-library-implementer-bash"
+    ["workflow"]="ct-dev-workflow"
+    ["orchestration"]="ct-orchestrator"
+)
+
+# get_skills_by_category - Get skills matching a category
+# Args: $1 = category name (research|execution|planning|documentation|testing|validation)
+# Returns: 0 on success, EXIT_NOT_FOUND (4) if no match
+# Output: Skill names matching category (one per line)
+get_skills_by_category() {
+    local category="$1"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    # First check taxonomy mapping
+    if [[ -n "${_SD_CATEGORY_MAP[$category]:-}" ]]; then
+        local skill="${_SD_CATEGORY_MAP[$category]}"
+        # Verify skill exists and is active
+        local exists
+        exists=$(jq -r --arg name "$skill" \
+            '.skills[] | select(.name == $name and .status == "active") | .name' \
+            "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+        if [[ -n "$exists" ]]; then
+            echo "$exists"
+            return 0
+        fi
+    fi
+
+    # Fallback: search by tags
+    local results
+    results=$(jq -r --arg cat "$category" \
+        '.skills[] | select(.status == "active") | select(.tags[]? == $cat) | .name' \
+        "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+    if [[ -n "$results" ]]; then
+        echo "$results"
+        return 0
+    fi
+
+    return "$EXIT_NOT_FOUND"
+}
+
+# skill_dispatch_by_category - Match task to skill by category
+# Args: $1 = category name OR task type that maps to category
+# Returns: 0 on success, 1 if no match
+# Output: Skill name or empty if no match
+skill_dispatch_by_category() {
+    local input="$1"
+    local category=""
+
+    _sd_require_jq || return 1
+    _sd_require_manifest || return 1
+
+    # Map task type to category if needed
+    case "$input" in
+        # Direct category names
+        research|execution|planning|documentation|testing|validation|specification|bash-library|workflow|orchestration)
+            category="$input"
+            ;;
+        # Task type mappings
+        investigate|explore|discover)
+            category="research"
+            ;;
+        implement|build|execute|create)
+            category="execution"
+            ;;
+        epic|architect|decompose)
+            category="planning"
+            ;;
+        doc|docs|document|readme|guide)
+            category="documentation"
+            ;;
+        test|bats|coverage)
+            category="testing"
+            ;;
+        validate|verify|audit|compliance)
+            category="validation"
+            ;;
+        spec|rfc|protocol|contract)
+            category="specification"
+            ;;
+        "lib/"|bash|shell|library)
+            category="bash-library"
+            ;;
+        commit|release|version)
+            category="workflow"
+            ;;
+        orchestrate|coordinate|delegate)
+            category="orchestration"
+            ;;
+        *)
+            # No match
+            return 1
+            ;;
+    esac
+
+    # Get skill for category
+    local skill
+    skill=$(get_skills_by_category "$category" | head -1)
+
+    if [[ -n "$skill" ]]; then
+        _sd_debug "Category dispatch: '$category' -> $skill"
+        echo "$skill"
+        return 0
+    fi
+
+    return 1
+}
+
+# skill_get_tier - Get tier level for a skill
+# Args: $1 = skill name
+# Returns: 0 on success
+# Output: Tier number (0-3) or "unknown"
+skill_get_tier() {
+    local skill_name="$1"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    local tier
+    tier=$(jq -r --arg name "$skill_name" \
+        '.skills[] | select(.name == $name) | .tier // "unknown"' \
+        "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+    echo "$tier"
+    return 0
+}
+
+# skill_is_tier - Check if skill is at specific tier
+# Args: $1 = skill name, $2 = tier number (0-3)
+# Returns: 0 if match, 1 if no match
+skill_is_tier() {
+    local skill_name="$1"
+    local target_tier="$2"
+
+    local current_tier
+    current_tier=$(skill_get_tier "$skill_name")
+
+    [[ "$current_tier" == "$target_tier" ]]
 }
 
 # ============================================================================
@@ -836,6 +1004,7 @@ skill_list_by_tier() {
 # skill_auto_dispatch - Auto-select skill for a CLEO task
 # Usage: skill_auto_dispatch "T1234"
 # Returns: skill name (defaults to ct-task-executor if no match)
+# Priority: Explicit > Category > Keywords > Labels > Type > Default
 skill_auto_dispatch() {
     local task_id="$1"
 
@@ -852,18 +1021,43 @@ skill_auto_dispatch() {
     fi
 
     # Extract task metadata
-    local title description labels
+    local title description labels task_type
     title=$(echo "$task_json" | jq -r '.task.title // ""')
     description=$(echo "$task_json" | jq -r '.task.description // ""')
     labels=$(echo "$task_json" | jq -r '.task.labels[]? // empty' 2>/dev/null | tr '\n' ' ')
+    task_type=$(echo "$task_json" | jq -r '.task.type // "task"')
 
     # Combine text for matching
     local full_text="$title $description $labels"
 
     _sd_debug "Auto-dispatch for $task_id: '$full_text'"
 
-    # Strategy 1: Try keyword-based dispatch
     local skill
+
+    # Strategy 1: Try category-based dispatch from labels
+    for label in $labels; do
+        skill=$(skill_dispatch_by_category "$label" 2>/dev/null)
+        if [[ -n "$skill" ]]; then
+            _sd_log_dispatch "$skill" "category match ($label) for $task_id"
+            echo "$skill"
+            return 0
+        fi
+    done
+
+    # Strategy 2: Try category-based dispatch from title/description keywords
+    local category_keywords="research investigate explore implement build execute epic plan document test validate verify audit"
+    for keyword in $category_keywords; do
+        if [[ "$full_text" == *"$keyword"* ]]; then
+            skill=$(skill_dispatch_by_category "$keyword" 2>/dev/null)
+            if [[ -n "$skill" ]]; then
+                _sd_log_dispatch "$skill" "category keyword match ($keyword) for $task_id"
+                echo "$skill"
+                return 0
+            fi
+        fi
+    done
+
+    # Strategy 3: Try keyword-based dispatch
     skill=$(skill_dispatch_by_keywords "$full_text")
 
     if [[ -n "$skill" ]]; then
@@ -872,7 +1066,7 @@ skill_auto_dispatch() {
         return 0
     fi
 
-    # Strategy 2: Try label-based type dispatch
+    # Strategy 4: Try label-based type dispatch
     for label in $labels; do
         skill=$(skill_dispatch_by_type "$label")
         if [[ -n "$skill" ]]; then
@@ -882,7 +1076,7 @@ skill_auto_dispatch() {
         fi
     done
 
-    # Strategy 3: Use existing skill_select_for_task for label/keyword matching
+    # Strategy 5: Use existing skill_select_for_task for label/keyword matching
     skill=$(skill_select_for_task "$task_json")
 
     if [[ -n "$skill" && "$skill" != "$_SD_DEFAULT_SKILL" ]]; then
@@ -1103,6 +1297,12 @@ export -f skill_matches_keywords
 export -f skill_matches_type
 export -f skill_list_with_triggers
 export -f skill_find_by_trigger
+
+# Category and tier functions
+export -f get_skills_by_category
+export -f skill_dispatch_by_category
+export -f skill_get_tier
+export -f skill_is_tier
 
 # Spec-compliant API functions
 export -f skill_dispatch_by_keywords

@@ -349,17 +349,12 @@ run_project_registry_validation() {
         local injection_outdated=()
         local is_temp_project=false
 
-        # Check if this is a temporary project
-        if is_temp_project "$path"; then
-            is_temp_project=true
-            ((temp_count++))
-        fi
-
-        # Check 1: Path exists
+        # Check 1: Path exists (T1968: check FIRST to prevent double counting)
         if [[ ! -d "$path" ]]; then
             status="orphaned"
             issues+=("Project path does not exist")
             ((orphaned++))
+            # Skip temp check for orphaned projects - prevents double counting
 
             # For default view, only include orphaned projects in detailed mode
             if [[ "$DETAIL_MODE" == true ]]; then
@@ -393,6 +388,12 @@ run_project_registry_validation() {
         fi
 
         path_exists=true
+
+        # T1968: Check if temp project AFTER confirming path exists (prevents double counting)
+        if is_temp_project "$path"; then
+            is_temp_project=true
+            ((temp_count++))
+        fi
 
         # Check for per-project info file (hybrid registry architecture)
         local project_info_file="${path}/.cleo/project-info.json"
@@ -483,10 +484,11 @@ run_project_registry_validation() {
             local proj_todo_version proj_config_version proj_archive_version proj_log_version
             if [[ "$has_project_info" == true ]]; then
                 # Read from per-project info file (more efficient, cached)
-                proj_todo_version=$(echo "$project_info_data" | jq -r '.schemas.todo // "unknown"')
-                proj_config_version=$(echo "$project_info_data" | jq -r '.schemas.config // "unknown"')
-                proj_archive_version=$(echo "$project_info_data" | jq -r '.schemas.archive // "unknown"')
-                proj_log_version=$(echo "$project_info_data" | jq -r '.schemas.log // "unknown"')
+                # T1965: Extract .version subfield - schemas are objects with version/lastMigrated
+                proj_todo_version=$(echo "$project_info_data" | jq -r '.schemas.todo.version // "unknown"')
+                proj_config_version=$(echo "$project_info_data" | jq -r '.schemas.config.version // "unknown"')
+                proj_archive_version=$(echo "$project_info_data" | jq -r '.schemas.archive.version // "unknown"')
+                proj_log_version=$(echo "$project_info_data" | jq -r '.schemas.log.version // "unknown"')
             else
                 # Fall back to reading directly from project files (legacy projects)
                 proj_todo_version=$(jq -r '._meta.schemaVersion // "unknown"' "$path/.cleo/todo.json" 2>/dev/null || echo "unknown")
@@ -1341,6 +1343,46 @@ main() {
     local global_checks
     global_checks=$(run_global_health_checks)
 
+    # Phase 1b: Clean temporary projects BEFORE validation (T1966)
+    # This ensures health check shows accurate post-cleanup counts
+    if [[ "$CLEAN_TEMP_PROJECTS" == true ]]; then
+        show_progress "Cleaning temporary projects..."
+        local registry="$CLEO_HOME/projects-registry.json"
+
+        if [[ -f "$registry" ]]; then
+            # Get all projects and filter for temp ones, handling null paths
+            local temp_projects
+            temp_projects=$(list_registered_projects | jq -r '.[] | select(.path != null) | select(.path | test("/.temp/|/bats-run-|/tmp/")) | .hash')
+
+            # Handle empty string from wc -l (returns 1 for empty)
+            local temp_count=0
+            if [[ -n "$temp_projects" ]]; then
+                temp_count=$(echo "$temp_projects" | grep -c . || echo 0)
+            fi
+
+            if [[ "$temp_count" -gt 0 ]]; then
+                echo "Removing $temp_count temporary project(s)..." >&2
+
+                local removed_count=0
+                while IFS= read -r hash; do
+                    if [[ -n "$hash" ]]; then
+                        if remove_project_from_registry "$hash" >/dev/null 2>&1; then
+                            ((removed_count++)) || true
+                        fi
+                    fi
+                done <<< "$temp_projects"
+
+                if [[ "$removed_count" -gt 0 ]]; then
+                    echo "✓ Successfully removed $removed_count temporary projects" >&2
+                else
+                    echo "✗ Failed to remove temporary projects" >&2
+                fi
+            else
+                echo "No temporary projects to clean" >&2
+            fi
+        fi
+    fi
+
     # Phase 2: Run project registry validation (T1508)
     local project_status='{}'
     if [[ "$GLOBAL_ONLY" != true ]]; then
@@ -1386,44 +1428,7 @@ main() {
         fi
     fi
 
-    # Phase 5b: Clean temporary projects if requested
-    if [[ "$CLEAN_TEMP_PROJECTS" == true ]]; then
-        local registry="$CLEO_HOME/projects-registry.json"
-        
-        if [[ ! -f "$registry" ]]; then
-            echo "No registry found at $registry" >&2
-        else
-            # Get all projects and filter for temp ones, handling null paths
-            local temp_projects
-            temp_projects=$(list_registered_projects | jq -r '.[] | select(.path != null) | select(.path | test("/.temp/|/bats-run-|/tmp/")) | .hash')
-            
-            local temp_count=$(echo "$temp_projects" | wc -l)
-            
-            if [[ "$temp_count" -gt 0 ]]; then
-                echo "Removing $temp_count temporary project(s)..." >&2
-                
-                # Remove each temp project from registry
-                # Note: Use subshell with set +e to prevent errexit from aborting on removal failures
-                local removed_count=0
-                while IFS= read -r hash; do
-                    if [[ -n "$hash" ]]; then
-                        # Use || true to prevent set -e from exiting on failure
-                        if remove_project_from_registry "$hash" >/dev/null 2>&1; then
-                            ((removed_count++)) || true
-                        fi
-                    fi
-                done <<< "$temp_projects"
-
-                if [[ "$removed_count" -gt 0 ]]; then
-                    echo "✓ Successfully removed $removed_count temporary projects" >&2
-                else
-                    echo "✗ Failed to remove temporary projects" >&2
-                fi
-            else
-                echo "No temporary projects to clean" >&2
-            fi
-        fi
-    fi
+    # Phase 5b: (Moved to Phase 1b for T1966 - cleanup now runs before validation)
 
     # Phase 6: Output results
     if [[ "$FORMAT" == "json" ]]; then

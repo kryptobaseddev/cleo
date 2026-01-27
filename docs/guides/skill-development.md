@@ -1,6 +1,6 @@
 # Skill Development Tutorial
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Status**: Active
 **Last Updated**: 2026-01-27
 
@@ -24,6 +24,31 @@ A skill is a self-contained package that provides:
 4. **Reusable Components** - Scripts, references, and assets for complex tasks
 
 Think of skills as "onboarding guides" for specific domains. They transform a general-purpose LLM agent into a specialized agent with procedural knowledge.
+
+### Skill Organization: Tiers & Categories
+
+CLEO organizes skills into **4 tiers** based on complexity and orchestration level:
+
+| Tier | Purpose | Complexity | Example Skills |
+|------|---------|------------|----------------|
+| **0** | Orchestration | Highest - Multi-agent coordination | ct-orchestrator |
+| **1** | High-Level Planning | High - Epic decomposition | ct-epic-architect |
+| **2** | Core Execution | Medium - Specialized implementation | ct-research-agent, ct-task-executor, ct-spec-writer |
+| **3** | Specialized/Meta | Variable - Domain-specific or meta-skills | ct-documentor, ct-skill-creator |
+
+**Categories** group skills by function using tags:
+
+| Category | Tags | Purpose |
+|----------|------|---------|
+| **Orchestration** | workflow, coordination, multi-agent | Multi-agent workflow management |
+| **Planning** | planning, architecture, task-management | Epic and task breakdown |
+| **Research** | research, investigation, discovery | Information gathering |
+| **Implementation** | execution, implementation, bash, library | Code creation |
+| **Testing** | testing, bats, integration | Test creation |
+| **Documentation** | documentation, writing, review, style-guide | Documentation workflows |
+| **Specification** | specification, rfc, protocol | Technical specification writing |
+| **Validation** | validation, compliance, audit | Compliance checking |
+| **Meta** | skills, creation, discovery | Skill management |
 
 ### When to Create a Skill
 
@@ -362,15 +387,52 @@ Add skill to `skills/manifest.json`:
   "path": "skills/ct-my-skill",
   "tags": ["category1", "category2"],
   "status": "active",
+  "tier": 2,
+  "token_budget": 8000,
+  "references": [
+    "skills/ct-my-skill/SKILL.md"
+  ],
   "capabilities": {
     "inputs": ["TASK_ID", "DATE", "TOPIC_SLUG"],
     "outputs": ["output-file", "manifest-entry"],
     "dependencies": [],
     "dispatch_triggers": ["trigger phrase 1", "trigger phrase 2"],
-    "compatible_subagent_types": ["general-purpose"]
+    "compatible_subagent_types": ["general-purpose"],
+    "chains_to": ["ct-other-skill"],
+    "dispatch_keywords": {
+      "primary": ["keyword1", "keyword2"],
+      "secondary": ["alt1", "alt2"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 80000,
+    "requires_session": false,
+    "requires_epic": false
   }
 }
 ```
+
+**Key Fields**:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Skill identifier (ct-* prefix) |
+| `version` | Yes | Semantic version |
+| `description` | Yes | Brief purpose statement |
+| `path` | Yes | Relative path to skill directory |
+| `tags` | Yes | Category tags for grouping |
+| `status` | Yes | `active` or `deprecated` |
+| `tier` | Yes | Tier level (0-3) |
+| `token_budget` | No | Recommended token budget |
+| `references` | No | Documentation files |
+| `capabilities.inputs` | Yes | Required token parameters |
+| `capabilities.outputs` | Yes | Output artifact types |
+| `capabilities.dispatch_triggers` | Yes | Natural language triggers |
+| `capabilities.dispatch_keywords.primary` | No | Primary keyword matches |
+| `capabilities.dispatch_keywords.secondary` | No | Secondary keyword matches |
+| `capabilities.chains_to` | No | Skills this can delegate to |
+| `constraints.requires_session` | No | Whether session context required |
+| `constraints.requires_epic` | No | Whether epic context required |
 
 ### 3. Test Skill Invocation
 
@@ -392,6 +454,89 @@ ls -la claudedocs/agent-outputs/
 
 # Verify manifest entry
 tail -1 claudedocs/agent-outputs/MANIFEST.jsonl | jq .
+```
+
+---
+
+## Skill Discovery & Dispatch
+
+### Dynamic Discovery Mechanism
+
+CLEO uses a **registry-based discovery system** for skill selection. Skills are automatically detected when:
+
+1. **Directory structure matches**: `skills/ct-*/SKILL.md` pattern
+2. **Manifest registration**: Entry exists in `skills/manifest.json`
+3. **Valid frontmatter**: YAML frontmatter with `name`, `description`, `version`
+
+### Dispatch Matrix
+
+The `dispatch_matrix` in `skills/manifest.json` provides two selection methods:
+
+#### By Task Type
+
+Maps task types to skills for orchestrator spawning:
+
+```json
+{
+  "dispatch_matrix": {
+    "by_task_type": {
+      "research": "ct-research-agent",
+      "planning": "ct-epic-architect",
+      "implementation": "ct-task-executor",
+      "testing": "ct-test-writer-bats",
+      "documentation": "ct-documentor",
+      "specification": "ct-spec-writer",
+      "validation": "ct-validator",
+      "bash-library": "ct-library-implementer-bash"
+    }
+  }
+}
+```
+
+**Usage**: When a task has `type: "research"`, the orchestrator automatically selects `ct-research-agent`.
+
+#### By Keyword Pattern
+
+Maps regex patterns to skills for natural language matching:
+
+```json
+{
+  "dispatch_matrix": {
+    "by_keyword": {
+      "research|investigate|explore|discover": "ct-research-agent",
+      "epic|plan|decompose|architect": "ct-epic-architect",
+      "implement|build|execute|create": "ct-task-executor",
+      "test|bats|coverage|integration": "ct-test-writer-bats"
+    }
+  }
+}
+```
+
+**Usage**: When task title or labels contain matching keywords, that skill is selected.
+
+### Skill Selection Priority
+
+1. **Explicit invocation** - `/skill-name` in prompt (highest priority)
+2. **Task type match** - Direct match from `dispatch_matrix.by_task_type`
+3. **Keyword pattern** - Regex match from `dispatch_matrix.by_keyword`
+4. **Trigger phrase** - Match from skill's `capabilities.dispatch_triggers`
+5. **Default fallback** - `ct-task-executor` for generic implementation
+
+### Adding Your Skill to Dispatch
+
+When registering a new skill, update the dispatch matrix if it handles a new task type or keyword pattern:
+
+```json
+{
+  "dispatch_matrix": {
+    "by_task_type": {
+      "my-new-type": "ct-my-skill"
+    },
+    "by_keyword": {
+      "mypattern|myalt": "ct-my-skill"
+    }
+  }
+}
 ```
 
 ---
@@ -528,6 +673,7 @@ Load only the relevant domain reference when needed.
 
 ## Checklist for New Skills
 
+### Skill File Structure
 - [ ] Directory structure: `skills/ct-{name}/SKILL.md`
 - [ ] Frontmatter: `name`, `description`, `version`
 - [ ] Description includes trigger phrases
@@ -537,8 +683,27 @@ Load only the relevant domain reference when needed.
 - [ ] Manifest entry format defined
 - [ ] Error handling (partial/blocked)
 - [ ] Completion checklist
-- [ ] Registered in `skills/manifest.json`
-- [ ] Tested with debug mode
+
+### Manifest Registration
+- [ ] Added to `skills/manifest.json`
+- [ ] Assigned appropriate tier (0-3)
+- [ ] Tagged with relevant category tags
+- [ ] `capabilities.dispatch_triggers` defined
+- [ ] `capabilities.dispatch_keywords` defined (if applicable)
+- [ ] `capabilities.inputs` and `outputs` specified
+- [ ] `capabilities.chains_to` defined (if delegates to other skills)
+- [ ] `constraints` specified (session/epic requirements, token limits)
+
+### Dispatch Matrix Integration
+- [ ] Added to `dispatch_matrix.by_task_type` (if handles new task type)
+- [ ] Added to `dispatch_matrix.by_keyword` (if has unique keyword patterns)
+
+### Testing
+- [ ] Tested with debug mode (`SKILL_DISPATCH_DEBUG=1`)
+- [ ] Verified skill selection via natural language trigger
+- [ ] Verified output file creation
+- [ ] Verified manifest entry format
+- [ ] Tested error handling (partial/blocked scenarios)
 
 ---
 

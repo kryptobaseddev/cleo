@@ -1,9 +1,9 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
-    "version": "1.2.0",
-    "lastUpdated": "2026-01-23",
-    "totalCommands": 63,
+    "version": "1.3.0",
+    "lastUpdated": "2026-01-27",
+    "totalCommands": 64,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -71,6 +71,7 @@
       "restore",
       "self-update",
       "setup-agents",
+      "skills",
       "upgrade",
       "validate",
       "setup-claude-aliases"
@@ -1298,6 +1299,31 @@
       "note": "Run once after installation or when updating global agent configuration"
     },
     {
+      "name": "skills",
+      "script": "skills.sh",
+      "category": "maintenance",
+      "doc": "skills.md",
+      "synopsis": "Skill management: list, discover, validate, info, install",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--quiet",
+        "--category",
+        "--tier",
+        "--global"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2,
+        4
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium",
+      "note": "Manage CLEO skills: discovery, validation, installation"
+    },
+    {
       "name": "show",
       "script": "show.sh",
       "category": "read",
@@ -1654,6 +1680,7 @@
     "archiveAnalytics": "archive-stats",
     "complianceMetrics": "compliance",
     "gracefulShutdown": "safestop",
-    "globalAgentSetup": "setup-agents"
+    "globalAgentSetup": "setup-agents",
+    "skillManagement": "skills"
   }
 }
