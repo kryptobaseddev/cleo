@@ -218,8 +218,9 @@ cache_validation_result() {
     local project_path="${2:-}"
     local validation_status="${3:-}"
     local issues="${4:-[]}"
-    local schema_versions="${5:-{}}"
-    
+    # Note: Use quoted default to avoid Bash 5.3+ brace expansion bug
+    local schema_versions="${5:-'{}'}"
+
     if [[ -z "$project_hash" ]] || [[ -z "$project_path" ]]; then
         return 1
     fi

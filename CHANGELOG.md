@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.72.1] - 2026-01-27
+
+### Fixed
+- **Bash 5.3+ brace expansion bug**: Fixed jq parse errors ("Unmatched '}' at line 1, column 3") when ending sessions
+  - Root cause: Bash 5.3+ incorrectly handles `${N:-{}}` parameter defaults, appending extra `}` to values
+  - Affected functions: `capture_session_end_metrics`, `contribution_*`, `score_subagent_with_tokens`, `cache_validation_result`
+  - Fix: Changed `${N:-{}}` to `${N:-'{}'}` (quoted default) in 6 locations across 4 library files
+  - Files: `lib/metrics-aggregation.sh`, `lib/contribution-protocol.sh`, `lib/compliance-check.sh`, `lib/doctor-project-cache.sh`
+
 ## [0.72.0] - 2026-01-27
 
 ### Added

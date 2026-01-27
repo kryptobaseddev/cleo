@@ -787,7 +787,8 @@ capture_session_start_metrics() {
 # Returns: JSON object with end metrics and calculated efficiency
 capture_session_end_metrics() {
     local session_id="$1"
-    local start_metrics="${2:-{}}"
+    # Note: Use quoted default to avoid Bash 5.3+ brace expansion bug
+    local start_metrics="${2:-'{}'}"
     local timestamp
     timestamp=$(_ma_iso_timestamp)
 

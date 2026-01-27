@@ -237,7 +237,8 @@ contribution_protocol_instantiate() {
     local baseline_session="${2:-}"
     local questions_json="${3:-[]}"
     local baseline_decisions_json="${4:-[]}"
-    local options_json="${5:-{}}"
+    # Note: Use quoted default to avoid Bash 5.3+ brace expansion bug
+    local options_json="${5:-'{}'}"
 
     # Validate required arguments
     if [[ -z "$epic_id" ]]; then
@@ -482,7 +483,8 @@ contribution_validate_task() {
 contribution_get_injection() {
     local epic_id="${1:-}"
     local protocol_path="${2:-}"
-    local options_json="${3:-{}}"
+    # Note: Use quoted default to avoid Bash 5.3+ brace expansion bug
+    local options_json="${3:-'{}'}"
 
     # Validate required argument
     if [[ -z "$epic_id" ]]; then
@@ -1654,7 +1656,8 @@ contribution_compute_consensus() {
 contribution_generate_synthesis() {
     local epic_id="${1:-}"
     local consensus_json="${2:-}"
-    local options_json="${3:-{}}"
+    # Note: Use quoted default to avoid Bash 5.3+ brace expansion bug
+    local options_json="${3:-'{}'}"
 
     # Validate required argument
     if [[ -z "$epic_id" ]]; then
