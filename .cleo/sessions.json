@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-01-27T03:23:54Z",
-    "totalSessionsCreated": 247
+    "lastModified": "2026-01-27T06:13:57Z",
+    "totalSessionsCreated": 248
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -11471,7 +11471,7 @@
     },
     {
       "id": "session_20260123_001520_bb7a6a",
-      "status": "active",
+      "status": "ended",
       "name": "T1998 UX",
       "agentId": null,
       "scope": {
@@ -11485,7 +11485,7 @@
         "currentTask": "T1998",
         "currentPhase": null,
         "previousTask": null,
-        "sessionNote": null,
+        "sessionNote": "Cleaning old session",
         "nextAction": null,
         "focusHistory": [
           {
@@ -11496,14 +11496,15 @@
         ]
       },
       "startedAt": "2026-01-23T08:15:20Z",
-      "lastActivity": "2026-01-23T08:15:20Z",
+      "lastActivity": "2026-01-27T06:10:04Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
         "focusChanges": 1,
         "suspendCount": 0,
         "resumeCount": 0
-      }
+      },
+      "endedAt": "2026-01-27T06:10:04Z"
     },
     {
       "id": "session_20260123_001520_0480b7",
@@ -11544,7 +11545,7 @@
     },
     {
       "id": "session_20260123_003234_a463ca",
-      "status": "active",
+      "status": "ended",
       "name": "Complete T1463",
       "agentId": null,
       "scope": {
@@ -11558,7 +11559,7 @@
         "currentTask": "T1463",
         "currentPhase": null,
         "previousTask": null,
-        "sessionNote": null,
+        "sessionNote": "Cleaning old session",
         "nextAction": null,
         "focusHistory": [
           {
@@ -11569,14 +11570,15 @@
         ]
       },
       "startedAt": "2026-01-23T08:32:34Z",
-      "lastActivity": "2026-01-23T08:32:34Z",
+      "lastActivity": "2026-01-27T06:10:06Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
         "focusChanges": 1,
         "suspendCount": 0,
         "resumeCount": 0
-      }
+      },
+      "endedAt": "2026-01-27T06:10:06Z"
     },
     {
       "id": "session_20260123_011426_fe31d5",
@@ -14052,6 +14054,83 @@
       "startMetrics": {
         "session_id": "session_20260126_191812_17c2d7",
         "start_timestamp": "2026-01-27T03:18:12Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      }
+    },
+    {
+      "id": "session_20260126_221143_26203a",
+      "status": "active",
+      "name": "SkillsMP Integration",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T2471",
+        "computedTaskIds": [
+          "T2471",
+          "T2472",
+          "T2473",
+          "T2474",
+          "T2475",
+          "T2476",
+          "T2477",
+          "T2478",
+          "T2479",
+          "T2480",
+          "T2481"
+        ]
+      },
+      "focus": {
+        "currentTask": "T2476",
+        "currentPhase": null,
+        "previousTask": "T2478",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T2472",
+            "timestamp": "2026-01-27T06:11:43Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2474",
+            "timestamp": "2026-01-27T06:12:22Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2475",
+            "timestamp": "2026-01-27T06:12:23Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2477",
+            "timestamp": "2026-01-27T06:13:56Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2478",
+            "timestamp": "2026-01-27T06:13:57Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2476",
+            "timestamp": "2026-01-27T06:13:57Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-01-27T06:11:43Z",
+      "lastActivity": "2026-01-27T06:13:57Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 6,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260126_221143_26203a",
+        "start_timestamp": "2026-01-27T06:11:43Z",
         "start_tokens": 0,
         "max_tokens": 200000
       }
