@@ -187,7 +187,11 @@ cleo orchestrator spawn <task-id> [--template <skill>]
 - `<task-id>`: Task to spawn agent for
 
 **Options:**
-- `--template, -T <skill>`: Skill name (default: `ct-task-executor`)
+- `--template, -T <skill>`: Skill/protocol name (default: `ct-task-executor`)
+
+> **2-Tier Architecture Note**: The `--template` flag selects the PROTOCOL to inject, NOT the agent type.
+> All spawns use `subagent_type: "cleo-subagent"` with the selected skill as context injection.
+> Skill names (ct-research-agent, ct-task-executor) are protocol identifiers, not separate agent types.
 
 **Skill Dispatch Matrix:**
 

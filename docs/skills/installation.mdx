@@ -8,6 +8,10 @@ icon: "download"
 
 CLEO skills are included with the standard installation. This guide covers configuration and customization.
 
+<Note>
+**2-Tier Architecture (v0.72.0+)**: CLEO uses a universal subagent architecture where skills are **protocol identifiers**, NOT separate agent types. All spawns use `cleo-subagent` with the selected skill as context injection. Skill names like `ct-research-agent` identify the protocol to load, not a different agent.
+</Note>
+
 ## Included Skills
 
 The following skills are installed automatically with CLEO:

@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-01-27
+
+### Added
+- **Epic T2392: CLEO Universal Subagent Architecture**
+  - **2-Tier System Implementation**: Replaced per-skill agent spawning with unified architecture
+    - **Tier 0**: ct-orchestrator (HITL coordinator, delegates ALL work)
+    - **Tier 1**: cleo-subagent (universal executor with skill injection)
+  - **cleo-subagent agent file** (T2403): `.claude/agents/cleo-subagent.md`
+    - Registered with Claude Code agent discovery
+    - Tools: Read, Write, Edit, Bash, Glob, Grep
+    - Follows BASE protocol (BASE-001 through BASE-007)
+  - **Protocol stack system** (T2401, T2404): 7 protocols in `protocols/` directory
+    - `research.md`: Research and investigation tasks
+    - `decomposition.md`: Epic planning and task breakdown
+    - `implementation.md`: Code implementation tasks
+    - `specification.md`: RFC-style spec writing
+    - `contribution.md`: Contribution recording
+    - `consensus.md`: Multi-agent voting/decisions
+    - `release.md`: Version and changelog management
+  - **Skill dispatch enhancements** (T2405): `lib/skill-dispatch.sh`
+    - `skill_auto_dispatch()`: Auto-detect protocol from task metadata
+    - `skill_prepare_spawn()`: Full token pre-resolution before spawn
+    - Protocol composition: base + conditional protocols combined
+  - **Token injection system** (T2405): `lib/token-inject.sh`
+    - All placeholders resolved before subagent spawn
+    - `tokenResolution.fullyResolved` validation
+  - **Documentation updates**:
+    - `docs/architecture/CLEO-SUBAGENT.md`: Full 2-tier architecture reference
+    - `docs/CLEO-INJECTION.md`: Global injection for all agents
+    - `docs/guides/ORCHESTRATOR-PROTOCOL.md`: Updated for 2-tier system
+    - `docs/specs/CLEO-SUBAGENT-PROTOCOL-v1.md`: RFC 2119 protocol spec
+    - `docs/guides/SUBAGENT-MIGRATION.md`: Migration guide
+  - **Test suites**:
+    - `tests/unit/cleo-subagent.bats`: 66 tests for base protocol
+    - `tests/integration/protocol-stack.bats`: 81 tests for protocol composition
+    - `tests/integration/migration-validation.bats`: 42 tests for migration paths
+  - **E2E validation** (T2429): Verified cleo-subagent spawnable via Task tool
+  - **Manifest deprecation** (T2415): Added `deprecatedFields` to `skills/manifest.json`
+    - `compatible_subagent_types`: Marked deprecated (historical reference only)
+
+### Changed
+- **Skill system architecture**: Skills are now protocol identifiers, NOT separate agent types
+  - All spawns use `subagent_type: "cleo-subagent"` with skill as context injection
+  - Dispatch matrix maps task types/keywords to skill NAMES for protocol selection
+- **ct-orchestrator protocol** (T2407): Updated for cleo-subagent spawning
+  - ORC constraints enforced (ORC-001 through ORC-008)
+  - Spawn workflow uses `skill_prepare_spawn()` with full token resolution
+
+### Deprecated
+- **Skill-specific agent spawning**: Old pattern of spawning different agent types per skill
+  - Use `cleo-subagent` with protocol injection instead
+  - `compatible_subagent_types` field retained for backwards compatibility only
+
 ## [0.71.1] - 2026-01-27
 
 ### Added
