@@ -5,6 +5,24 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.3] - 2026-01-27
+
+### Fixed
+- **Context Tracking Cross-Session Bug**:
+  - `get_current_session_id()` in `lib/context-monitor.sh` and `lib/context-alert.sh` was ignoring `CLEO_SESSION` environment variable
+  - Context alerts were showing data from wrong session when multiple Claude Code conversations ran simultaneously
+  - Both functions now check `CLEO_SESSION` env var first, then fall back to `.current-session` file
+
+### Added
+- **Epic T2483: Skills & Orchestration Documentation Overhaul**
+  - `docs/guides/SKILL-DISPATCH-ALGORITHM.md`: Step-by-step dispatch decision tree
+  - `docs/guides/PROTOCOL-INJECTION-FLOW.md`: Full task → skill → prompt pipeline
+  - `docs/specs/PROTOCOL-STACK-SPEC.md`: RFC 2119 for base + 7 conditional protocols
+  - `docs/guides/MANIFEST-SCHEMA.md`: Complete manifest.json field reference
+  - `docs/troubleshooting/DISPATCH-DEBUG.md`: Debugging guide for dispatch issues
+  - Updated `docs/docs.json` Mintlify navigation with Skills Architecture section
+  - Documentation coverage improved from ~35% to ~75%
+
 ## [0.73.2] - 2026-01-27
 
 ### Added
