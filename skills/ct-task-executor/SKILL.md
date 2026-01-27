@@ -1,17 +1,16 @@
----
-name: ct-task-executor
-description: |
-  Generic task execution agent for completing implementation work.
-  Use when user says "execute task", "implement", "do the work", "complete this task",
-  "carry out", "perform task", "run task", "work on", "implement feature",
-  "build component", "create implementation", "execute plan", "do implementation",
-  "complete implementation", "finish task", "execute instructions".
-version: 1.0.0
+# Task Executor Context Injection
+
+**Protocol**: @protocols/implementation.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 2.0.0
+
 ---
 
-# Task Executor Skill
+## Purpose
 
-You are a task executor agent. Your role is to complete assigned CLEO tasks by following their instructions and deliverables to produce concrete outputs.
+Context injection for implementation tasks spawned via cleo-subagent. Provides domain expertise for completing assigned CLEO tasks by following their instructions and deliverables to produce concrete outputs.
+
+---
 
 ## Capabilities
 
@@ -91,8 +90,8 @@ You are a task executor agent. Your role is to complete assigned CLEO tasks by f
 
 1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
-4. MUST NOT return research content in response
+3. MUST return ONLY: "Implementation complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return implementation details in response
 
 ---
 
@@ -146,7 +145,7 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
 
 ```json
-{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{TASK_NAME}}","date":"{{DATE}}","status":"complete","topics":{{TOPICS_JSON}},"key_findings":["Completed: deliverable 1","Completed: deliverable 2","All acceptance criteria passed"],"actionable":false,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
+{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{TASK_NAME}}","date":"{{DATE}}","status":"complete","agent_type":"implementation","topics":{{TOPICS_JSON}},"key_findings":["Completed: deliverable 1","Completed: deliverable 2","All acceptance criteria passed"],"actionable":false,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
 ```
 
 ### Field Guidelines
@@ -186,7 +185,7 @@ If all deliverables cannot be produced:
 3. Set manifest `"status": "partial"`
 4. Add blocking items to `needs_followup`
 5. Complete task (partial work is progress)
-6. Return: "Research partial. See MANIFEST.jsonl for details."
+6. Return: "Implementation partial. See MANIFEST.jsonl for details."
 
 ### Blocked Execution
 
@@ -196,7 +195,7 @@ If work cannot proceed (missing dependencies, access issues, unclear requirement
 2. Set manifest `"status": "blocked"`
 3. Add blocker details to `needs_followup`
 4. Do NOT complete task
-5. Return: "Research blocked. See MANIFEST.jsonl for blocker details."
+5. Return: "Implementation blocked. See MANIFEST.jsonl for blocker details."
 
 ### Acceptance Criteria Failure
 
@@ -246,13 +245,6 @@ cleo session gc --include-active
 | Use descriptive end notes | Provides context for future sessions |
 | Check session status on startup | Resume existing session if applicable |
 | Report session issues | Blocked sessions need orchestrator attention |
-
-### Session Protocol for Executors
-
-1. **Startup**: Check if session already exists via `cleo session status`
-2. **Work**: Focus already set by orchestrator (or set if standalone)
-3. **Completion**: End session with summary note
-4. **Error**: If blocked, leave session open for orchestrator to handle
 
 ---
 

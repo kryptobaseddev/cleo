@@ -1,16 +1,16 @@
----
-name: ct-library-implementer-bash
-description: |
-  Bash library implementation skill for creating shared shell functions.
-  Use when user says "create library", "implement functions", "add to lib/",
-  "shared utilities", "bash library", "helper functions", "lib/*.sh",
-  "shell functions", "bash module", "utility functions".
-version: 1.0.0
+# Library Implementer (Bash) Context Injection
+
+**Protocol**: @protocols/implementation.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 2.0.0
+
 ---
 
-# Library Implementer (Bash) Skill
+## Purpose
 
-You are a Bash library implementer. Your role is to create well-structured bash library files with reusable functions following shell best practices.
+Context injection for Bash library implementation tasks spawned via cleo-subagent. Provides domain expertise for creating well-structured bash library files with reusable functions following shell best practices.
+
+---
 
 ## Capabilities
 
@@ -271,13 +271,13 @@ Libraries go in: `lib/{{MODULE_NAME}}.sh`
 1. MUST create library file in lib/
 2. MUST verify syntax: `bash -n lib/{module}.sh`
 3. MUST append ONE line to: `{{MANIFEST_PATH}}`
-4. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. MUST return ONLY: "Implementation complete. See MANIFEST.jsonl for summary."
 5. MUST NOT return full library content in response
 
 ### Manifest Entry Format
 
 ```json
-{"id":"lib-{{MODULE}}-{{DATE}}","file":"{{DATE}}_lib-{{MODULE}}.md","title":"Library: {{MODULE}}","date":"{{DATE}}","status":"complete","topics":["library","bash","{{DOMAIN}}"],"key_findings":["Created lib/{{MODULE}}.sh with N functions","Functions: function1, function2, function3","Dependencies: list or 'none'","Syntax check passed"],"actionable":false,"needs_followup":["{{TEST_TASK_IDS}}"],"linked_tasks":["{{TASK_ID}}"]}
+{"id":"lib-{{MODULE}}-{{DATE}}","file":"{{DATE}}_lib-{{MODULE}}.md","title":"Library: {{MODULE}}","date":"{{DATE}}","status":"complete","agent_type":"implementation","topics":["library","bash","{{DOMAIN}}"],"key_findings":["Created lib/{{MODULE}}.sh with N functions","Functions: function1, function2, function3","Dependencies: list or 'none'","Syntax check passed"],"actionable":false,"needs_followup":["{{TEST_TASK_IDS}}"],"linked_tasks":["{{TASK_ID}}"]}
 ```
 
 ---

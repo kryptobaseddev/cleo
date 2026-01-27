@@ -12,6 +12,16 @@
 | **[Design Philosophy](guides/design-philosophy.md)** | Why CLEO works this way | Understanding the design decisions |
 | **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** | Quick reference card | Daily reference during development |
 
+### 🤖 Multi-Agent Integration
+
+| Document | Purpose | When to Read |
+|----------|---------|--------------|
+| **[Agent Registry](../schemas/agent-registry.schema.json)** | Agent auto-discovery schema | Understanding agent detection |
+| **[Global Injection Template](../templates/CLEO-INJECTION.md)** | Global agent configuration template | Setting up ~/.claude/CLAUDE.md |
+| **[Project Injection Template](../templates/AGENT-INJECTION.md)** | Project agent instructions template | Setting up project CLAUDE.md |
+| **[Plugin Architecture](../.claude-plugin/README.md)** | Claude Code plugin (optional) | Claude Code enhanced integration |
+| **[Agent Registration Guide](guides/AGENT-REGISTRATION.md)** | Adding custom agent support | Extending agent compatibility |
+
 ### 💡 Guides
 
 | Document | Purpose | When to Read |
@@ -29,6 +39,7 @@
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
 | **[ARCHITECTURE.md](architecture/ARCHITECTURE.md)** | Complete system architecture | Understanding system design |
+| **[CLEO-SUBAGENT.md](architecture/CLEO-SUBAGENT.md)** | 2-tier subagent architecture | Multi-agent coordination and skill loading |
 | **[DATA-FLOW-DIAGRAMS.md](architecture/DATA-FLOWS.md)** | Visual workflows and data flows | Understanding operations |
 | **[ARCHITECTURE.md#executive-summary](architecture/ARCHITECTURE.md#executive-summary)** | Executive overview | High-level understanding |
 | **[ARCHITECTURE.md#design-principles](architecture/ARCHITECTURE.md#design-principles)** | Core design principles and patterns | Understanding design decisions |

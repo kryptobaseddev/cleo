@@ -864,27 +864,143 @@ else
   log_warn "sequence.sh not found (ID generation will use legacy scanning)"
 fi
 
+# ==============================================================================
+# AGENT DOCUMENTATION INJECTION (GLOBAL + PROJECT)
+# ==============================================================================
 # Inject CLEO task management instructions to agent documentation files
-# Creates files if missing, updates if outdated (CLAUDE.md, AGENTS.md, GEMINI.md)
-if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
-  source "$CLEO_HOME/lib/injection.sh"
+# - GLOBAL: ~/.claude/CLAUDE.md, ~/.gemini/GEMINI.md (via templates/CLEO-INJECTION.md)
+# - PROJECT: CLAUDE.md, AGENTS.md, GEMINI.md (via templates/AGENT-INJECTION.md)
 
-  result=$(injection_update_all ".")
-  updated=$(echo "$result" | jq -r '.updated')
-  skipped=$(echo "$result" | jq -r '.skipped')
-  failed=$(echo "$result" | jq -r '.failed')
+if [[ -f "$CLEO_HOME/lib/agent-registry.sh" ]]; then
+  source "$CLEO_HOME/lib/agent-registry.sh"
 
-  if [[ "$updated" -gt 0 ]]; then
-    log_info "Injected task management docs to $updated agent file(s)"
-  elif [[ "$skipped" -gt 0 ]]; then
-    log_info "Agent docs already up-to-date ($skipped file(s))"
-  fi
+  # Initialize counters
+  global_updated=0
+  global_skipped=0
+  global_failed=0
+  project_updated=0
+  project_skipped=0
+  project_failed=0
 
-  if [[ "$failed" -gt 0 ]]; then
-    log_warn "Failed to update $failed agent doc file(s) - check file permissions"
+  # Load agent registry
+  if ar_load_registry; then
+    log_info "Processing agent injections via registry..."
+
+    # Get all agents (sorted by priority tiers)
+    all_agents=$(ar_list_installed_by_tier "all")
+
+    for agent_id in $all_agents; do
+      # Skip if not installed
+      if ! ar_is_installed "$agent_id"; then
+        continue
+      fi
+
+      # ==============================================================================
+      # GLOBAL INJECTION (templates/CLEO-INJECTION.md → ~/.claude/CLAUDE.md)
+      # ==============================================================================
+      global_dir=$(ar_get_global_dir "$agent_id")
+      instruction_file=$(ar_get_instruction_file "$agent_id")
+      global_target="${global_dir}/${instruction_file}"
+
+      # Ensure global directory exists
+      mkdir -p "$global_dir" 2>/dev/null || true
+
+      # Global injection content (@ reference to CLEO-INJECTION.md)
+      global_reference="@~/.cleo/docs/TODO_Task_Management.md"
+      global_block="<!-- CLEO:START -->
+# Task Management
+${global_reference}
+<!-- CLEO:END -->"
+
+      # Check if global injection needed
+      if [[ -f "$global_target" ]]; then
+        # File exists - check if block current
+        if grep -q "<!-- CLEO:START -->" "$global_target" 2>/dev/null; then
+          current_block=$(sed -n '/<!-- CLEO:START -->/,/<!-- CLEO:END -->/p' "$global_target" 2>/dev/null || true)
+          if [[ "$current_block" == "$global_block" ]]; then
+            ((global_skipped++))
+          else
+            # Update block
+            temp_file=$(mktemp)
+            awk '/<!-- CLEO:START/,/<!-- CLEO:END -->/ { next } { print }' "$global_target" > "$temp_file"
+            echo "$global_block" | cat - "$temp_file" > "$global_target"
+            rm -f "$temp_file"
+            ((global_updated++))
+          fi
+        else
+          # Add block to existing file
+          echo "$global_block" | cat - "$global_target" > "${global_target}.tmp"
+          mv "${global_target}.tmp" "$global_target"
+          ((global_updated++))
+        fi
+      else
+        # Create new file with block
+        echo "$global_block" > "$global_target"
+        ((global_updated++))
+      fi
+
+      # ==============================================================================
+      # PROJECT INJECTION (templates/AGENT-INJECTION.md → project CLAUDE.md, etc.)
+      # ==============================================================================
+      project_target=$(ar_get_project_instruction_path "$agent_id" ".")
+
+      # Project injection content (@ reference to AGENT-INJECTION.md)
+      project_reference="@.cleo/templates/AGENT-INJECTION.md"
+      project_block="<!-- CLEO:START -->
+${project_reference}
+<!-- CLEO:END -->"
+
+      # Check if project injection needed
+      if [[ -f "$project_target" ]]; then
+        # File exists - check if block current
+        if grep -q "<!-- CLEO:START -->" "$project_target" 2>/dev/null; then
+          current_block=$(sed -n '/<!-- CLEO:START -->/,/<!-- CLEO:END -->/p' "$project_target" 2>/dev/null || true)
+          if [[ "$current_block" == "$project_block" ]]; then
+            ((project_skipped++))
+          else
+            # Update block
+            temp_file=$(mktemp)
+            awk '/<!-- CLEO:START/,/<!-- CLEO:END -->/ { next } { print }' "$project_target" > "$temp_file"
+            echo "$project_block" | cat - "$temp_file" > "$project_target"
+            rm -f "$temp_file"
+            ((project_updated++))
+          fi
+        else
+          # Add block to existing file
+          echo "$project_block" | cat - "$project_target" > "${project_target}.tmp"
+          mv "${project_target}.tmp" "$project_target"
+          ((project_updated++))
+        fi
+      else
+        # Create new file with block
+        echo "$project_block" > "$project_target"
+        ((project_updated++))
+      fi
+    done
+
+    # Report results
+    if [[ "$global_updated" -gt 0 ]]; then
+      log_info "Global: Updated $global_updated agent file(s)"
+    fi
+    if [[ "$global_skipped" -gt 0 ]]; then
+      log_info "Global: Skipped $global_skipped current file(s)"
+    fi
+    if [[ "$project_updated" -gt 0 ]]; then
+      log_info "Project: Updated $project_updated agent file(s)"
+    fi
+    if [[ "$project_skipped" -gt 0 ]]; then
+      log_info "Project: Skipped $project_skipped current file(s)"
+    fi
+
+    total_failed=$((global_failed + project_failed))
+    if [[ "$total_failed" -gt 0 ]]; then
+      log_warn "Failed to update $total_failed file(s) - check permissions"
+    fi
+  else
+    log_warn "Failed to load agent registry - agent docs not updated"
   fi
 else
-  log_warn "lib/injection.sh not found - agent docs not updated"
+  log_warn "lib/agent-registry.sh not found - agent docs not updated"
 fi
 
 # Register project in global registry using HYBRID MODEL

@@ -163,7 +163,8 @@ EOF
 }
 
 # Check 3: Docs Accessibility
-# Verifies ~/.cleo/docs/TODO_Task_Management.md is readable
+# Verifies ~/.cleo/docs/TODO_Task_Management.md is readable (DEPRECATED - kept for backward compatibility)
+# NOTE: TODO_Task_Management.md is deprecated. Use injection system via 'cleo upgrade'.
 # Returns: JSON check result
 check_docs_accessibility() {
     local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
@@ -589,7 +590,8 @@ EOF
 }
 
 # Check 7: @ Reference Resolution
-# Test read of @~/.cleo/docs/TODO_Task_Management.md
+# Test read of @~/.cleo/docs/TODO_Task_Management.md (DEPRECATED - kept for backward compatibility)
+# NOTE: TODO_Task_Management.md is deprecated. Use injection system via 'cleo upgrade'.
 # Returns: JSON check result
 check_at_reference_resolution() {
     local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
@@ -956,7 +958,223 @@ EOF
 EOF
 }
 
-# Check 9: Claude Aliases Installation
+# Check 9: Injection Files Validation
+# Validates both global and project injection files for CLEO markers and staleness
+# Returns: JSON check result
+check_injection_files() {
+    local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
+    local template_path="${cleo_home}/${INJECTION_TEMPLATE_MAIN}"
+
+    # Track validation status
+    local global_checked=0
+    local global_ok=0
+    local global_missing=0
+    local global_outdated=0
+    local global_no_markers=0
+
+    local project_checked=0
+    local project_ok=0
+    local project_missing=0
+    local project_outdated=0
+    local project_no_markers=0
+
+    local global_details=()
+    local project_details=()
+    local fix_suggestions=()
+
+    # Check global injection files
+    local agents=("claude" "gemini" "codex" "kimi")
+    for agent in "${agents[@]}"; do
+        local agent_dir
+        agent_dir=$(get_agent_dir "$agent")
+        [[ -z "$agent_dir" ]] && continue
+        [[ ! -d "$agent_dir" ]] && continue
+
+        local config_file
+        config_file=$(get_agent_config_file "$agent")
+        local config_path="${agent_dir}/${config_file}"
+
+        ((global_checked++))
+
+        # Check if file exists
+        if [[ ! -f "$config_path" ]]; then
+            ((global_missing++))
+            global_details+=("{\"path\":\"$config_path\",\"status\":\"missing\"}")
+            continue
+        fi
+
+        # Check for CLEO markers
+        if ! grep -q "$INJECTION_MARKER_START" "$config_path" 2>/dev/null; then
+            ((global_no_markers++))
+            global_details+=("{\"path\":\"$config_path\",\"status\":\"no_markers\"}")
+            continue
+        fi
+
+        # Check if content is stale (compare with template)
+        if [[ -f "$template_path" ]]; then
+            # Extract injection block from config
+            local config_injection
+            config_injection=$(awk "/$INJECTION_MARKER_START/,/$INJECTION_MARKER_END/" "$config_path" 2>/dev/null)
+
+            # Compare with template (ignore whitespace differences)
+            local template_content
+            template_content=$(cat "$template_path" 2>/dev/null)
+
+            # Simple staleness check: if template has significantly different content
+            if [[ -n "$template_content" ]] && ! echo "$config_injection" | grep -qF "$(head -1 "$template_path")" 2>/dev/null; then
+                ((global_outdated++))
+                global_details+=("{\"path\":\"$config_path\",\"status\":\"outdated\"}")
+            else
+                ((global_ok++))
+                global_details+=("{\"path\":\"$config_path\",\"status\":\"ok\"}")
+            fi
+        else
+            # No template to compare - assume OK if markers present
+            ((global_ok++))
+            global_details+=("{\"path\":\"$config_path\",\"status\":\"ok\"}")
+        fi
+    done
+
+    # Check project injection files (current directory)
+    if [[ -f ".cleo/todo.json" ]]; then
+        # Parse INJECTION_TARGETS into array
+        local target_array=($INJECTION_TARGETS)
+
+        for target in "${target_array[@]}"; do
+            ((project_checked++))
+
+            # Check if file exists
+            if [[ ! -f "$target" ]]; then
+                ((project_missing++))
+                project_details+=("{\"file\":\"$target\",\"status\":\"missing\"}")
+                continue
+            fi
+
+            # Check for CLEO markers
+            if ! grep -q "$INJECTION_MARKER_START" "$target" 2>/dev/null; then
+                ((project_no_markers++))
+                project_details+=("{\"file\":\"$target\",\"status\":\"no_markers\"}")
+                continue
+            fi
+
+            # Check if content is stale
+            if [[ -f "$template_path" ]]; then
+                local file_injection
+                file_injection=$(awk "/$INJECTION_MARKER_START/,/$INJECTION_MARKER_END/" "$target" 2>/dev/null)
+
+                local template_content
+                template_content=$(cat "$template_path" 2>/dev/null)
+
+                if [[ -n "$template_content" ]] && ! echo "$file_injection" | grep -qF "$(head -1 "$template_path")" 2>/dev/null; then
+                    ((project_outdated++))
+                    project_details+=("{\"file\":\"$target\",\"status\":\"outdated\"}")
+                else
+                    ((project_ok++))
+                    project_details+=("{\"file\":\"$target\",\"status\":\"ok\"}")
+                fi
+            else
+                # No template to compare - assume OK if markers present
+                ((project_ok++))
+                project_details+=("{\"file\":\"$target\",\"status\":\"ok\"}")
+            fi
+        done
+    fi
+
+    # Build details JSON
+    local global_json="[]"
+    if [[ ${#global_details[@]} -gt 0 ]]; then
+        global_json="[$(IFS=,; echo "${global_details[*]}")]"
+    fi
+
+    local project_json="[]"
+    if [[ ${#project_details[@]} -gt 0 ]]; then
+        project_json="[$(IFS=,; echo "${project_details[*]}")]"
+    fi
+
+    # Determine status and message
+    local status="passed"
+    local message="All injection files up to date"
+    local fix="null"
+
+    local total_issues=$((global_missing + global_outdated + global_no_markers + project_missing + project_outdated + project_no_markers))
+
+    if [[ $total_issues -gt 0 ]]; then
+        status="warning"
+        local issue_parts=()
+
+        # Global issues
+        if [[ $global_missing -gt 0 ]]; then
+            issue_parts+=("$global_missing global missing")
+            fix_suggestions+=("Run 'cleo setup-agents' to create global injection files")
+        fi
+        if [[ $global_outdated -gt 0 ]]; then
+            issue_parts+=("$global_outdated global outdated")
+            fix_suggestions+=("Run 'cleo setup-agents --update' to update global injection files")
+        fi
+        if [[ $global_no_markers -gt 0 ]]; then
+            issue_parts+=("$global_no_markers global without markers")
+            fix_suggestions+=("Run 'cleo setup-agents' to add CLEO markers to global files")
+        fi
+
+        # Project issues
+        if [[ $project_missing -gt 0 ]]; then
+            issue_parts+=("$project_missing project missing")
+            fix_suggestions+=("Run 'cleo init' to create project injection files")
+        fi
+        if [[ $project_outdated -gt 0 ]]; then
+            issue_parts+=("$project_outdated project outdated")
+            fix_suggestions+=("Run 'cleo upgrade' to update project injection files")
+        fi
+        if [[ $project_no_markers -gt 0 ]]; then
+            issue_parts+=("$project_no_markers project without markers")
+            fix_suggestions+=("Run 'cleo init' to add CLEO markers to project files")
+        fi
+
+        message="Injection file issues: $(IFS=', '; echo "${issue_parts[*]}")"
+
+        # Primary fix suggestion
+        if [[ ${#fix_suggestions[@]} -gt 0 ]]; then
+            fix="\"${fix_suggestions[0]}\""
+        fi
+    fi
+
+    # Build fixes JSON array
+    local fixes_json="[]"
+    if [[ ${#fix_suggestions[@]} -gt 0 ]]; then
+        fixes_json=$(printf '%s\n' "${fix_suggestions[@]}" | jq -R . | jq -s .)
+    fi
+
+    cat <<EOF
+{
+  "id": "injection_files",
+  "category": "configuration",
+  "status": "$status",
+  "message": "$message",
+  "details": {
+    "global": {
+      "checked": $global_checked,
+      "ok": $global_ok,
+      "missing": $global_missing,
+      "outdated": $global_outdated,
+      "no_markers": $global_no_markers,
+      "files": $global_json
+    },
+    "project": {
+      "checked": $project_checked,
+      "ok": $project_ok,
+      "missing": $project_missing,
+      "outdated": $project_outdated,
+      "no_markers": $project_no_markers,
+      "files": $project_json
+    },
+    "fixes": $fixes_json
+  },
+  "fix": $fix
+}
+EOF
+}
+
+# Check 10: Claude Aliases Installation
 # Verifies Claude Code CLI aliases are installed and current
 # Returns: JSON check result
 check_claude_aliases() {
@@ -1109,6 +1327,7 @@ run_all_global_checks() {
         "check_agent_config_registry"
         "check_at_reference_resolution"
         "check_registered_projects"
+        "check_injection_files"
         "check_claude_aliases"
     )
 
@@ -1122,6 +1341,7 @@ run_all_global_checks() {
         "agent registry"
         "@ reference resolution"
         "registered projects"
+        "injection files"
         "Claude aliases"
     )
 

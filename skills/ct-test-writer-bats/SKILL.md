@@ -1,16 +1,16 @@
----
-name: ct-test-writer-bats
-description: |
-  Integration test writing agent using BATS (Bash Automated Testing System) framework.
-  Use when user says "write tests", "create BATS tests", "add integration tests",
-  "bash tests", "test coverage", "write test cases", "shell script tests",
-  "create unit tests", "BATS framework", "testing bash scripts".
-version: 1.0.0
+# Test Writer (BATS) Context Injection
+
+**Protocol**: @protocols/implementation.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 2.0.0
+
 ---
 
-# Test Writer (BATS) Skill
+## Purpose
 
-You are a test writer. Your role is to create comprehensive integration and unit tests using the BATS (Bash Automated Testing System) framework.
+Context injection for test writing tasks spawned via cleo-subagent. Provides domain expertise for creating comprehensive integration and unit tests using the BATS (Bash Automated Testing System) framework.
+
+---
 
 ## Capabilities
 
@@ -46,7 +46,7 @@ You are a test writer. Your role is to create comprehensive integration and unit
 1. MUST create test file in appropriate tests/ subdirectory
 2. MUST run tests and verify they pass
 3. MUST append ONE line to: `{{MANIFEST_PATH}}`
-4. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. MUST return ONLY: "Tests complete. See MANIFEST.jsonl for summary."
 5. MUST NOT return full test content in response
 
 ---
@@ -281,7 +281,7 @@ bats tests/integration/{feature}.bats --filter "test name"
 ## Manifest Entry Format
 
 ```json
-{"id":"tests-{{FEATURE_SLUG}}-{{DATE}}","file":"{{DATE}}_tests-{{FEATURE_SLUG}}.md","title":"Tests: {{FEATURE_NAME}}","date":"{{DATE}}","status":"complete","topics":["tests","bats","{{DOMAIN}}"],"key_findings":["Created {{N}} tests: {{X}} happy path, {{Y}} error handling, {{Z}} integration","All tests pass","Coverage: {{LIST_OF_SCENARIOS}}"],"actionable":false,"needs_followup":[],"linked_tasks":["{{TASK_ID}}"]}
+{"id":"tests-{{FEATURE_SLUG}}-{{DATE}}","file":"{{DATE}}_tests-{{FEATURE_SLUG}}.md","title":"Tests: {{FEATURE_NAME}}","date":"{{DATE}}","status":"complete","agent_type":"implementation","topics":["tests","bats","{{DOMAIN}}"],"key_findings":["Created {{N}} tests: {{X}} happy path, {{Y}} error handling, {{Z}} integration","All tests pass","Coverage: {{LIST_OF_SCENARIOS}}"],"actionable":false,"needs_followup":[],"linked_tasks":["{{TASK_ID}}"]}
 ```
 
 ---

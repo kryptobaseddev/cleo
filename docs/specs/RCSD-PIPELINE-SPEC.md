@@ -77,7 +77,7 @@ This specification **DEFERS TO**:
 
 | Feature | Description |
 |---------|-------------|
-| **Python Implementation** | Agent orchestration via Anthropic Agent SDK (Python) |
+| **Agent Orchestration** | Multi-agent orchestration design (implementation: Bash v1, TypeScript v2) |
 | **Feedback Loops** | Explicit backward transitions between stages |
 | **HITL Formalization** | Structured capture, timeouts, and audit logging |
 | **Evidence Weighting** | Weighted scoring beyond simple votes |
@@ -91,7 +91,16 @@ This specification **DEFERS TO**:
 
 ### Supersedes
 
-This specification supersedes v1.0.0 and the plugin-based bash approach explored in T204 and T215-T221. The RCSD Pipeline v2.0.0 implements the 9-agent architecture using Python and the Anthropic Agent SDK for proper agent orchestration.
+This specification supersedes v1.0.0 and the plugin-based bash approach explored in T204 and T215-T221.
+
+### Implementation Roadmap
+
+| Version | Implementation | Status |
+|---------|----------------|--------|
+| **v1.x** | Bash (lib/*.sh, scripts/*.sh) | ACTIVE - Stabilization in progress |
+| **v2.x** | TypeScript (Zod schemas, Claude SDK) | PLANNED - Blocked by T2112 (v1 Gate) |
+
+**Note**: Python/Pydantic implementation (T982) was explored but **DEPRECATED** on 2026-01-27. The 9-agent architecture design remains valid; implementation shifts from Python to TypeScript. See T2430 for Python→TypeScript crosswalk reference.
 
 ### Legacy Cleanup (2026-01-23)
 
@@ -184,91 +193,125 @@ USER INPUT (Research Topic + Task ID)
 
 ## Part 2: Implementation Architecture
 
-### 2.1 Python Package Structure
+### 2.1 Current Implementation (Bash v1)
 
-The RCSD Pipeline is implemented as a Python package using the Anthropic Agent SDK:
+The RCSD Pipeline v1 is implemented in Bash under `lib/` and `scripts/`:
 
 ```
-lib/rcsd/
-├── __init__.py                    # Package initialization
-├── cli.py                         # Entry point: python -m rcsd.cli
+lib/
+├── rcsd-research.sh           # Research stage functions
+├── rcsd-consensus.sh          # Consensus stage functions
+├── rcsd-spec.sh               # Spec generation functions
+├── rcsd-decompose.sh          # Task decomposition functions
+├── contribution.sh            # Contribution protocol
+└── orchestrator.sh            # Agent orchestration
+
+scripts/
+├── research.sh                # ct research command
+├── consensus.sh               # ct consensus command
+├── spec.sh                    # ct spec command
+└── decompose.sh               # ct decompose command
+```
+
+### 2.2 Future Implementation (TypeScript v2)
+
+> **Status**: PLANNED - Blocked by T2112 (v1 Stabilization Gate)
+> **Crosswalk Reference**: T2430
+
+The TypeScript v2 implementation will use Zod schemas and the Claude SDK. Design reference structure (conceptual, not yet implemented):
+
+```
+src/rcsd/
+├── index.ts                       # Package entry point
+├── cli.ts                         # Entry point: npx cleo-rcsd
 ├── agents/
-│   ├── __init__.py
-│   ├── base.py                    # BaseAgent abstract class
-│   ├── research.py                # ResearchAgent
+│   ├── index.ts
+│   ├── base.ts                    # BaseAgent abstract class
+│   ├── research.ts                # ResearchAgent
 │   ├── consensus/
-│   │   ├── __init__.py
-│   │   ├── technical.py           # TechnicalValidatorAgent
-│   │   ├── design.py              # DesignPhilosophyAgent
-│   │   ├── documentation.py       # DocumentationAgent
-│   │   ├── implementation.py      # ImplementationAgent
-│   │   ├── challenge.py           # ChallengeAgent
-│   │   └── synthesis.py           # SynthesisAgent
-│   ├── spec.py                    # SpecAgent
-│   └── decompose.py               # DecomposeAgent
-├── models/
-│   ├── __init__.py
-│   ├── manifest.py                # ManifestModel (Pydantic)
-│   ├── research.py                # ResearchOutput models
-│   ├── consensus.py               # ConsensusReport models
-│   ├── task.py                    # Task models
-│   └── hitl.py                    # HITL Resolution models
+│   │   ├── index.ts
+│   │   ├── technical.ts           # TechnicalValidatorAgent
+│   │   ├── design.ts              # DesignPhilosophyAgent
+│   │   ├── documentation.ts       # DocumentationAgent
+│   │   ├── implementation.ts      # ImplementationAgent
+│   │   ├── challenge.ts           # ChallengeAgent
+│   │   └── synthesis.ts           # SynthesisAgent
+│   ├── spec.ts                    # SpecAgent
+│   └── decompose.ts               # DecomposeAgent
+├── schemas/
+│   ├── index.ts
+│   ├── manifest.ts                # ManifestSchema (Zod)
+│   ├── research.ts                # ResearchOutput schemas
+│   ├── consensus.ts               # ConsensusReport schemas
+│   ├── task.ts                    # Task schemas
+│   └── hitl.ts                    # HITL Resolution schemas
 ├── orchestration/
-│   ├── __init__.py
-│   ├── pipeline.py                # RCSDPipeline orchestrator
-│   ├── parallel.py                # Parallel agent execution
-│   └── hitl.py                    # HITL gate handling
+│   ├── index.ts
+│   ├── pipeline.ts                # RCSDPipeline orchestrator
+│   ├── parallel.ts                # Parallel agent execution
+│   └── hitl.ts                    # HITL gate handling
 ├── output/
-│   ├── __init__.py
-│   └── formatter.py               # LLM-AGENT-FIRST JSON formatter
+│   ├── index.ts
+│   └── formatter.ts               # LLM-AGENT-FIRST JSON formatter
 ├── validation/
-│   ├── __init__.py
-│   ├── schema.py                  # JSON Schema validation
-│   └── spec.py                    # Spec format validation
+│   ├── index.ts
+│   ├── schema.ts                  # Zod schema validation
+│   └── spec.ts                    # Spec format validation
 └── utils/
-    ├── __init__.py
-    ├── shortname.py               # Short-name derivation
-    └── files.py                   # File operations
+    ├── index.ts
+    ├── shortname.ts               # Short-name derivation
+    └── files.ts                   # File operations
 ```
 
-### 2.2 Anthropic Agent SDK Integration
+### 2.3 Claude SDK Integration (TypeScript v2)
 
-Each RCSD agent is implemented using the Anthropic Agent SDK pattern:
+Each RCSD agent will be implemented using the Claude SDK pattern:
 
-```python
-from anthropic import Anthropic
+```typescript
+import Anthropic from '@anthropic-ai/sdk';
+import { z } from 'zod';
 
-class BaseAgent:
-    """Base class for all RCSD agents."""
+abstract class BaseAgent {
+  protected client: Anthropic;
+  protected subagentType: string;
+  protected model: string;
 
-    def __init__(self, subagent_type: str, model: str = "claude-sonnet-4-20250514"):
-        self.client = Anthropic()
-        self.subagent_type = subagent_type
-        self.model = model
+  constructor(subagentType: string, model = 'claude-sonnet-4-20250514') {
+    this.client = new Anthropic();
+    this.subagentType = subagentType;
+    this.model = model;
+  }
 
-    async def run(self, prompt: str, context: dict) -> dict:
-        """Execute agent with evidence-based validation."""
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=8096,
-            system=self.get_system_prompt(),
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return self.validate_response(response)
+  async run(prompt: string, context: Record<string, unknown>): Promise<AgentResponse> {
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 8096,
+      system: this.getSystemPrompt(),
+      messages: [{ role: 'user', content: prompt }]
+    });
+    return this.validateResponse(response);
+  }
+
+  abstract getSystemPrompt(): string;
+  abstract validateResponse(response: Anthropic.Message): AgentResponse;
+}
 ```
 
-### 2.3 Bash Wrapper Integration
+### 2.4 CLI Integration
 
-The Python implementation is invoked via bash wrappers for CLI compatibility:
-
+**v1 (Current - Bash)**: Direct bash script execution
 ```bash
-# scripts/research.sh
+# scripts/research.sh - native bash implementation
 #!/usr/bin/env bash
-python -m rcsd.cli research "$@"
+source lib/rcsd-research.sh
+rcsd_research "$@"
+```
 
-# scripts/consensus.sh
+**v2 (Planned - TypeScript)**: Node.js CLI with BATS compatibility wrapper
+```bash
+# scripts/research.sh - thin wrapper for TypeScript
 #!/usr/bin/env bash
-python -m rcsd.cli consensus "$@"
+npx cleo-rcsd research "$@"
 ```
 
 ---

@@ -607,7 +607,10 @@ SKILL SUBCOMMAND:
     cleo orchestrator skill --install Copy skill to project's .cleo/skills/
     cleo orchestrator skill --verify  Check skill is properly installed
 
-SKILLS (for --template):
+SKILL PROTOCOLS (for --template):
+    NOTE: These are protocol identifiers, NOT agent types.
+          All spawns use 'cleo-subagent' with the selected protocol injected.
+
     ct-task-executor           General task execution (default)
     ct-research-agent          Research and investigation
     ct-epic-architect          Epic planning and decomposition
@@ -617,9 +620,9 @@ SKILLS (for --template):
     ct-validator               Compliance validation
     ct-documentor              Documentation orchestration
 
-SKILL DISPATCH MATRIX:
-    Task Type              Recommended Skill
-    ─────────────────────  ─────────────────────────
+PROTOCOL DISPATCH MATRIX:
+    Task Type              Protocol (injected into cleo-subagent)
+    ─────────────────────  ─────────────────────────────────────
     Implementation work    ct-task-executor
     Research/investigation ct-research-agent
     Epic/project planning  ct-epic-architect

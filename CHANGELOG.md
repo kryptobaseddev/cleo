@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Epic T2431: Skill System Enhancement & Dynamic Skill Discovery**
+  - **Dynamic Agent Registry System** (T2442, T2447, T2448):
+    - `templates/agent-registry.json`: Central registry for 16 LLM coding agents
+    - Supported agents: claude-code, cursor, windsurf, codex, gemini-cli, github-copilot, opencode, cline, kimi, roo, continue, antigravity, goose, kiro-cli, amp, trae
+    - Priority tiers: tier1 (claude-code, cursor, windsurf), tier2 (5 agents), tier3 (8 agents)
+    - No more hardcoded arrays - all agent data loaded dynamically from JSON
+    - `lib/agent-registry.sh`: New registry API (`ar_*` functions)
+    - `lib/agent-config.sh`: Refactored to use dynamic registry
+  - **Skill Taxonomy System** (T2432, T2434):
+    - `docs/specs/SKILL-TAXONOMY-SPEC.md`: 4-tier hierarchy (0-3)
+    - 9 functional categories: orchestration, research, design, implementation, testing, documentation, validation, integration, utility
+    - Dispatch matrix with category-based, keyword, label, and type matching
+  - **Dynamic Skill Discovery** (T2435, T2436):
+    - `docs/designs/DYNAMIC-SKILL-REGISTRATION.md`: Registration system design
+    - `lib/skill-discovery.sh`: Auto-discovery of skills in `skills/` directory
+    - Functions: `discover_skills()`, `validate_skill()`, `register_skill()`, `sync_manifest()`
+  - **Skill CLI Command** (T2440):
+    - `scripts/skills.sh`: New command group `cleo skills`
+    - Subcommands: `list`, `discover`, `validate`, `info`, `install`
+  - **Dispatch Matrix Enhancement** (T2437):
+    - Category-based dispatch: `skill_dispatch_by_category()`
+    - Tier functions: `skill_get_tier()`, `skill_is_tier()`
+    - 10 skill categories with explicit mappings
+  - **Test Coverage** (T2438): 31 unit tests in `tests/unit/skill-discovery.bats`
+  - **Documentation** (T2439): Updated `docs/CLEO-SKILLS-INVENTORY.md`, `docs/guides/skill-development.md`
+  - **Global Injection Update** (T2443, T2444):
+    - `installer/lib/link.sh`: Uses dynamic registry for all agent setup
+    - RFC 2119 time estimates prohibition block in global injection
+- **Epic T2450: Orchestrator Spawn Flow and Compliance Integration** (partial)
+  - **Token Injection Fix** (T2449, T2451):
+    - Fixed sed escaping bug in `lib/token-inject.sh` causing empty prompts
+    - Root cause: sed delimiter `|` breaking on multiline/special characters
+    - Solution: Replaced sed with bash parameter expansion
+    - All 51 token injection tests pass
 - **Epic T2089: Claude CLI Aliases - Cross-Platform Support Complete**
   - **Windows Support** (T2111):
     - `normalize_windows_path()`: Path separator conversion for Windows

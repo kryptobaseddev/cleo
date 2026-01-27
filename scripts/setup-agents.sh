@@ -279,8 +279,8 @@ echo "   Updated: $updated_count agents"
 echo "   Already configured: $no_change_count agents"
 echo "   Skipped: $skipped_count agents (CLI not installed)"
 echo ""
-echo "These configs reference: @~/.cleo/docs/TODO_Task_Management.md"
-echo "(No version tracking - external file always has current content)"
+echo "These configs reference: @~/.cleo/docs/TODO_Task_Management.md (legacy)"
+echo "NOTE: TODO_Task_Management.md is deprecated. Use injection system via 'cleo upgrade'."
 
 # Exit with appropriate code
 total_changes=$((configured_count + updated_count))
