@@ -23,6 +23,12 @@ readonly _INSTALLER_LINK_LOADED=1
 INSTALLER_LIB_DIR="${INSTALLER_LIB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 source "${INSTALLER_LIB_DIR}/core.sh"
 
+# Source agent config registry functions
+CLEO_LIB_DIR="$(dirname "$(dirname "$INSTALLER_LIB_DIR")")/lib"
+if [[ -f "$CLEO_LIB_DIR/agent-config.sh" ]]; then
+    source "$CLEO_LIB_DIR/agent-config.sh"
+fi
+
 # ============================================
 # CONSTANTS
 # ============================================
@@ -302,7 +308,7 @@ _get_cmd_script() {
         doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
         # Installation and setup
         self-update) echo "self-update.sh" ;; setup-agents) echo "setup-agents.sh" ;;
-        setup-claude-aliases) echo "setup-claude-aliases.sh" ;;
+        setup-claude-aliases) echo "setup-claude-aliases.sh" ;; skills) echo "skills.sh" ;;
         # Import/export tasks
         export-tasks) echo "export-tasks.sh" ;; import-tasks) echo "import-tasks.sh" ;;
         # Archive management
@@ -336,7 +342,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance roadmap claude-migrate release"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance roadmap claude-migrate release"
 }
 
 cmd="${1:-help}"
@@ -692,15 +698,8 @@ installer_link_remove_claudemd() {
 # GLOBAL AGENT CONFIGURATION
 # ============================================
 
-# Agent configuration mapping
-# agent_name -> (directory, config_file)
-# Format: "agent_name:directory:config_file"
-readonly AGENT_CONFIGS=(
-    "claude:$HOME/.claude:CLAUDE.md"
-    "gemini:$HOME/.gemini:GEMINI.md"
-    "codex:$HOME/.codex:AGENTS.md"
-    "kimi:$HOME/.kimi:AGENTS.md"
-)
+# Agent configurations loaded dynamically from schemas/agent-registry.json
+# See lib/agent-config.sh for registry management functions
 
 # Get CLEO version for agent config injection
 # Returns: version string
@@ -725,11 +724,38 @@ installer_link_get_cleo_version() {
 
 # Generate CLEO injection content (versionless - content is external)
 # Returns: injection content (stdout)
+# Includes:
+#   - Task management reference
+#   - Time estimates prohibition (RFC 2119)
+#   - Subagent architecture reference (optional, for agents with skills support)
 installer_link_generate_cleo_content() {
-    cat <<EOF
+    cat <<'EOF'
 <!-- CLEO:START -->
 # Task Management
 @~/.cleo/docs/TODO_Task_Management.md
+
+## Time Estimates — PROHIBITED (RFC 2119)
+
+**MUST NOT** estimate hours, days, weeks, or any temporal duration for tasks.
+**MUST NOT** provide time predictions even when explicitly requested by users.
+
+**Rationale**: Time estimates create false precision and lead to poor decisions.
+LLM agents cannot accurately predict implementation duration due to:
+- Unknown edge cases and complexity
+- External dependencies and blockers
+- Context switching and interruptions
+- Variability in problem-solving approaches
+
+**MUST** instead use CLEO's relative sizing system:
+- `small` - Single function, minimal complexity, clear path
+- `medium` - Multiple components, moderate complexity, some unknowns
+- `large` - Cross-cutting changes, high complexity, significant unknowns
+
+**SHOULD** describe scope, complexity, and dependencies when asked about effort.
+**MAY** reference task count, file count, or dependency depth for context.
+
+If a user insists on time estimates, respond:
+> "I cannot provide accurate time predictions. Instead, I can describe the scope (N tasks, M files), complexity factors, and dependencies. Would you like that analysis?"
 <!-- CLEO:END -->
 EOF
 }
@@ -816,25 +842,35 @@ installer_link_setup_all_agents() {
 
     installer_log_step "Setting up global agent configurations..."
 
-    for agent_entry in "${AGENT_CONFIGS[@]}"; do
-        # Parse agent entry
-        local agent_name agent_dir config_file
-        IFS=':' read -r agent_name agent_dir config_file <<< "$agent_entry"
+    # Load agent registry
+    if ! load_agent_registry; then
+        installer_log_error "Failed to load agent registry"
+        return 1
+    fi
 
-        # Skip if agent directory doesn't exist (CLI not installed)
+    # Iterate through all agents from registry
+    local agent_id
+    for agent_id in $(get_all_agents); do
+        local agent_dir config_file config_path
+
+        agent_dir=$(get_agent_dir "$agent_id")
+        config_file=$(get_agent_config_file "$agent_id")
+
+        [[ -z "$agent_dir" ]] && continue
+        [[ -z "$config_file" ]] && continue
+
+        # Check if agent directory exists (agent CLI installed)
         if [[ ! -d "$agent_dir" ]]; then
-            installer_log_debug "Skipping $agent_name: directory $agent_dir not found"
+            installer_log_debug "Skipping $agent_id: not installed ($agent_dir)"
             ((skipped++))
             continue
         fi
 
-        # Ensure directory exists (should already, but be safe)
-        mkdir -p "$agent_dir" 2>/dev/null || true
+        config_path="${agent_dir}/${config_file}"
 
-        local config_path="$agent_dir/$config_file"
+        # Inject CLEO config
         local result
-
-        installer_link_inject_agent_config "$config_path" "$agent_name"
+        installer_link_inject_agent_config "$config_path" "$agent_id"
         result=$?
 
         case $result in
@@ -846,7 +882,7 @@ installer_link_setup_all_agents() {
                 fi
                 ;;
             2) ((current++)) ;;
-            *) installer_log_warn "Failed to configure $agent_name" ;;
+            *) installer_log_warn "Failed to configure $agent_id" ;;
         esac
     done
 
@@ -862,6 +898,59 @@ installer_link_setup_all_agents() {
         installer_log_warn "No agent configurations processed"
         return 1
     fi
+}
+
+# ============================================
+# CLAUDE CODE PLUGIN INTEGRATION
+# ============================================
+
+# Setup Claude Code plugin symlink (opt-in)
+# Creates ~/.claude/plugins/cleo -> ~/.cleo/.claude-plugin/
+# Args: install_dir
+# Returns: 0 on success, 1 on failure
+installer_link_setup_plugin() {
+    local install_dir="${1:-$INSTALL_DIR}"
+    local plugin_source="$install_dir/.claude-plugin"
+    local plugin_target="$HOME/.claude/plugins/cleo"
+
+    # Verify source plugin directory exists
+    if [[ ! -d "$plugin_source" ]]; then
+        installer_log_error "Plugin source directory not found: $plugin_source"
+        return 1
+    fi
+
+    # Create ~/.claude/plugins directory if needed
+    local plugin_dir
+    plugin_dir=$(dirname "$plugin_target")
+    if [[ ! -d "$plugin_dir" ]]; then
+        installer_log_info "Creating Claude plugins directory: $plugin_dir"
+        mkdir -p "$plugin_dir" || {
+            installer_log_error "Failed to create directory: $plugin_dir"
+            return 1
+        }
+    fi
+
+    # Create symlink
+    if installer_link_create "$plugin_source" "$plugin_target"; then
+        installer_log_info "Created Claude Code plugin symlink: $plugin_target"
+        return 0
+    else
+        installer_log_error "Failed to create plugin symlink"
+        return 1
+    fi
+}
+
+# Remove Claude Code plugin symlink
+# Returns: 0 on success
+installer_link_remove_plugin() {
+    local plugin_target="$HOME/.claude/plugins/cleo"
+
+    if [[ -L "$plugin_target" ]]; then
+        installer_link_remove "$plugin_target" "false"
+        installer_log_info "Removed Claude Code plugin symlink"
+    fi
+
+    return 0
 }
 
 # ============================================
@@ -1016,6 +1105,8 @@ export -f installer_link_get_cleo_version
 export -f installer_link_generate_cleo_content
 export -f installer_link_inject_agent_config
 export -f installer_link_setup_all_agents
+export -f installer_link_setup_plugin
+export -f installer_link_remove_plugin
 export -f installer_link_setup_plugins
 export -f installer_link_generate_checksums
 export -f installer_link_update_template_versions

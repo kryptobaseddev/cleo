@@ -46,6 +46,8 @@ _OSP_PROJECT_ROOT="${_OSP_LIB_DIR}/.."
 source "${_OSP_LIB_DIR}/exit-codes.sh"
 # shellcheck source=lib/skill-dispatch.sh
 source "${_OSP_LIB_DIR}/skill-dispatch.sh"
+# shellcheck source=lib/compliance-check.sh
+source "${_OSP_LIB_DIR}/compliance-check.sh"
 
 # ============================================================================
 # INTERNAL HELPERS
@@ -254,7 +256,53 @@ orchestrator_spawn_for_task() {
         _osp_debug "Task context tokens set: TASK_TITLE='${TI_TASK_TITLE:-}', TOPICS_JSON='${TI_TOPICS_JSON:-}'"
     fi
 
-    # Step 6: Inject and return complete prompt
+    # Step 6: PRE-SPAWN COMPLIANCE VERIFICATION
+    # Verify tokens are set before injection to ensure template has required context
+    _osp_debug "Pre-spawn compliance check: verifying tokens set"
+    local missing_tokens=""
+    [[ -z "${TI_TASK_ID:-}" ]] && missing_tokens="${missing_tokens}TI_TASK_ID "
+    [[ -z "${TI_DATE:-}" ]] && missing_tokens="${missing_tokens}TI_DATE "
+    [[ -z "${TI_TOPIC_SLUG:-}" ]] && missing_tokens="${missing_tokens}TI_TOPIC_SLUG "
+
+    if [[ -n "$missing_tokens" ]]; then
+        _osp_error "SPAWN BLOCKED: Required tokens not set before injection"
+        jq -n \
+            --arg task_id "$task_id" \
+            --arg skill "$skill_name" \
+            --arg missing "$missing_tokens" \
+            '{
+                "_meta": {
+                    "command": "orchestrator",
+                    "operation": "spawn_for_task"
+                },
+                "success": false,
+                "error": {
+                    "code": "E_TOKENS_NOT_SET",
+                    "message": "SPAWN BLOCKED: Required tokens not set before injection. Missing: " + $missing,
+                    "fix": "cleo orchestrator spawn " + $task_id + " --template " + $skill,
+                    "alternatives": [
+                        {
+                            "action": "Check token injection in skill template",
+                            "command": "grep -i \"{{\" skills/" + $skill + "/SKILL.md"
+                        },
+                        {
+                            "action": "Verify skill uses ti_set_task_context",
+                            "command": "grep -i \"ti_set_task_context\" skills/" + $skill + "/SKILL.md"
+                        }
+                    ],
+                    "context": {
+                        "taskId": $task_id,
+                        "skill": $skill,
+                        "missingTokens": ($missing | split(" ") | map(select(length > 0))),
+                        "reason": "Token injection must complete before template rendering"
+                    }
+                }
+            }'
+        return "${EXIT_INVALID_INPUT:-2}"
+    fi
+    _osp_debug "Pre-spawn compliance passed: all required tokens set"
+
+    # Step 7: Inject and return complete prompt
     # skill_inject handles: token setting, skill loading, protocol injection
     local prompt_content
     prompt_content=$(skill_inject "$skill_name" "$task_id" "$date_today" "$topic_slug")
@@ -266,7 +314,7 @@ orchestrator_spawn_for_task() {
         return "$inject_rc"
     fi
 
-    # Step 7: MANDATORY protocol validation - fail loudly if missing
+    # Step 8: MANDATORY protocol validation - fail loudly if missing
     # This check ensures ALL spawned subagents have the protocol block
     _osp_debug "Validating protocol injection in generated prompt..."
     if ! orchestrator_verify_protocol_injection "$prompt_content"; then
@@ -313,6 +361,44 @@ orchestrator_spawn_for_task() {
     local output_file="${date_today}_${topic_slug}.md"
     local spawn_timestamp
     spawn_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Step 9: Record spawn attempt in compliance metrics
+    _osp_debug "Recording spawn attempt in compliance metrics"
+    if command -v log_compliance_metrics &>/dev/null; then
+        local spawn_metrics
+        spawn_metrics=$(jq -n \
+            --arg timestamp "$spawn_timestamp" \
+            --arg task_id "$task_id" \
+            --arg skill "$skill_name" \
+            '{
+                "timestamp": $timestamp,
+                "source_id": $task_id,
+                "source_type": "orchestrator",
+                "compliance": {
+                    "compliance_pass_rate": 1.0,
+                    "rule_adherence_score": 1.0,
+                    "violation_count": 0,
+                    "violation_severity": "none",
+                    "manifest_integrity": "valid"
+                },
+                "efficiency": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "context_utilization": 0,
+                    "token_utilization_rate": 0
+                },
+                "_context": {
+                    "agent_type": "orchestrator",
+                    "operation": "spawn",
+                    "skill": $skill,
+                    "protocol_validated": true,
+                    "tokens_validated": true
+                }
+            }')
+        log_compliance_metrics "$spawn_metrics" 2>/dev/null || _osp_debug "Failed to log spawn metrics (non-critical)"
+    else
+        _osp_debug "Compliance metrics logging not available (non-critical)"
+    fi
 
     # Output as JSON with all metadata for Task tool
     jq -n \

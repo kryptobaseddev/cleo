@@ -1,5 +1,12 @@
 # Task Management Instructions
 
+> ⚠️ **DEPRECATED**: This file is deprecated in favor of the injection system.
+> - **Global config**: See `~/.claude/CLAUDE.md` (auto-injected from `~/.cleo/docs/CLEO-INJECTION.md`)
+> - **Project config**: See `./CLAUDE.md` (auto-injected from `./.cleo/templates/AGENT-INJECTION.md`)
+> - Run `cleo upgrade` to update your injection files.
+>
+> This file is kept for backwards compatibility only. New projects should use the injection system.
+
 Use `cleo` CLI for **all** task operations. Single source of truth for persistent task tracking.
 
 ## Data Integrity Rules (RFC 2119)

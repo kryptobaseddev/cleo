@@ -308,7 +308,7 @@ jq --version
 
 ## Next Steps
 
-- **Full Command Reference**: `~/.cleo/docs/TODO_Task_Management.md`
+- **Full Command Reference**: See injected content in `~/.claude/CLAUDE.md` or project `CLAUDE.md` (run `cleo upgrade` to update)
 - **Detailed Usage**: See [usage.md](../usage.md) for complete command reference
 - **Configuration Guide**: See [configuration.md](../reference/configuration.md) for all settings
 - **Architecture**: See [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) for system design

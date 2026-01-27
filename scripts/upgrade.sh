@@ -30,6 +30,7 @@ source "$LIB_DIR/output-format.sh" 2>/dev/null || true
 source "$LIB_DIR/migrate.sh" 2>/dev/null || true
 source "$LIB_DIR/validation.sh" 2>/dev/null || true
 source "$LIB_DIR/injection.sh" 2>/dev/null || true
+source "$LIB_DIR/agent-registry.sh" 2>/dev/null || true
 source "$LIB_DIR/project-registry.sh" 2>/dev/null || true
 source "$LIB_DIR/skills-version.sh" 2>/dev/null || true
 
@@ -80,7 +81,9 @@ OPTIONS:
 WHAT IT DOES:
     1. Migrates schemas (todo.json, config.json, log, archive)
     2. Repairs structural issues (phases, checksums)
-    3. Updates agent docs injections (CLAUDE.md, AGENTS.md, GEMINI.md)
+    3. Updates agent docs injections (GLOBAL + PROJECT)
+       - Global: ~/.claude/CLAUDE.md, ~/.claude/AGENTS.md, etc.
+       - Project: CLAUDE.md, AGENTS.md, GEMINI.md
     4. Syncs templates (AGENT-INJECTION.md) from global to project
     5. Sets up Claude Code statusline for context monitoring
     6. Updates skill versions when manifest changes
@@ -855,7 +858,7 @@ if [[ -n "${UPDATES_NEEDED[checksum]:-}" ]] || [[ $UPDATES_APPLIED -gt 0 ]]; the
     (( ++UPDATES_APPLIED ))
 fi
 
-# 4. Update agent documentation injections
+# 4. Update agent documentation injections (GLOBAL + PROJECT)
 # Check if any agent docs need updating by iterating over UPDATES_NEEDED
 agent_docs_updated=false
 for key in "${!UPDATES_NEEDED[@]}"; do
@@ -872,34 +875,115 @@ if [[ "$agent_docs_updated" == true ]]; then
         echo "Updating agent documentation files..."
     fi
 
-    # Use injection library to update all agent docs
+    # Track totals across global and project files
+    local total_updated=0
+    local total_skipped=0
+    local total_failed=0
+
+    # 4a. Update PROJECT agent docs (CLAUDE.md, AGENTS.md, GEMINI.md in project root)
     if type injection_update_all &>/dev/null; then
         result=$(injection_update_all ".")
         updated=$(echo "$result" | jq -r '.updated')
         skipped=$(echo "$result" | jq -r '.skipped')
         failed=$(echo "$result" | jq -r '.failed')
 
-        if [[ "$updated" -gt 0 ]]; then
-            (( UPDATES_APPLIED += updated ))
-            if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
-                echo "  Updated $updated agent doc file(s)"
+        (( total_updated += updated ))
+        (( total_skipped += skipped ))
+        (( total_failed += failed ))
+
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            if [[ "$updated" -gt 0 ]]; then
+                echo "  Project: Updated $updated file(s)"
             fi
-        fi
-
-        if [[ "$skipped" -gt 0 ]] && ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
-            echo "  Skipped $skipped file(s) - already up-to-date"
-        fi
-
-        if [[ "$failed" -gt 0 ]]; then
-            ERRORS+=("Agent docs: $failed file(s) failed to update")
-        fi
-
-        # Only error if we expected updates but got none AND had no skips
-        if [[ "$updated" -eq 0 ]] && [[ "$skipped" -eq 0 ]] && [[ "$failed" -eq 0 ]]; then
-            ERRORS+=("Agent docs update completed with no files processed")
+            if [[ "$skipped" -gt 0 ]]; then
+                echo "  Project: Skipped $skipped file(s) (already up-to-date)"
+            fi
         fi
     else
         ERRORS+=("Injection library not available")
+        agent_docs_updated=false  # Prevent global updates if library missing
+    fi
+
+    # 4b. Update GLOBAL agent docs (~/.claude/CLAUDE.md, etc.)
+    if [[ "$agent_docs_updated" == true ]] && type ar_list_installed &>/dev/null; then
+        local global_updated=0
+        local global_skipped=0
+        local global_failed=0
+
+        # Get list of installed agents
+        local installed_agents
+        installed_agents=$(ar_list_installed)
+
+        for agent_id in $installed_agents; do
+            local global_file
+            global_file=$(ar_get_global_instruction_path "$agent_id" 2>/dev/null)
+
+            if [[ -z "$global_file" ]]; then
+                continue
+            fi
+
+            # Check if update needed
+            local needs_update=false
+            if [[ ! -f "$global_file" ]]; then
+                needs_update=true
+            else
+                local status_json status
+                status_json=$(injection_check "$global_file" 2>/dev/null || echo '{"status":"unknown"}')
+                status=$(echo "$status_json" | grep -oP '"status":"\K[^"]+' || echo "unknown")
+
+                if [[ "$status" != "current" ]]; then
+                    needs_update=true
+                fi
+            fi
+
+            if [[ "$needs_update" == true ]]; then
+                # Update global file
+                local update_result
+                if update_result=$(injection_update "$global_file" 2>&1); then
+                    (( ++global_updated ))
+                    if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                        echo "  Global: Updated $global_file"
+                    fi
+                else
+                    (( ++global_failed ))
+                    if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+                        echo "  Global: Failed to update $global_file" >&2
+                    fi
+                fi
+            else
+                (( ++global_skipped ))
+            fi
+        done
+
+        (( total_updated += global_updated ))
+        (( total_skipped += global_skipped ))
+        (( total_failed += global_failed ))
+
+        if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
+            if [[ "$global_updated" -gt 0 ]]; then
+                echo "  Global: Updated $global_updated file(s)"
+            fi
+            if [[ "$global_skipped" -gt 0 ]]; then
+                echo "  Global: Skipped $global_skipped file(s) (already up-to-date)"
+            fi
+        fi
+    fi
+
+    # Update totals and report
+    if [[ "$total_updated" -gt 0 ]]; then
+        (( UPDATES_APPLIED += total_updated ))
+        if ! is_json_output && ! [[ "$VERBOSE" == "true" ]]; then
+            echo "  Updated $total_updated agent doc file(s)"
+        fi
+    fi
+
+    if [[ "$total_failed" -gt 0 ]]; then
+        ERRORS+=("Agent docs: $total_failed file(s) failed to update")
+    fi
+
+    # Only error if we expected updates but got none AND had no skips
+    if [[ "$total_updated" -eq 0 ]] && [[ "$total_skipped" -eq 0 ]] && [[ "$total_failed" -eq 0 ]]; then
+        ERRORS+=("Agent docs update completed with no files processed")
     fi
 fi
 

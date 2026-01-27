@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleo-dev.com/schemas/v1/agent-registry.schema.json",
+  "title": "CLEO Agent Registry Schema",
+  "description": "Unified registry for LLM coding agent configurations, paths, and capabilities",
+  "type": "object",
+  "required": ["schemaVersion", "lastUpdated", "agents"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of this schema"
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date",
+      "description": "Last update date (ISO 8601)"
+    },
+    "agents": {
+      "type": "object",
+      "description": "Map of agent ID to configuration",
+      "additionalProperties": {
+        "$ref": "#/$defs/agentConfig"
+      }
+    },
+    "instructionFileMap": {
+      "type": "object",
+      "description": "Map of instruction file names to list of agents using them",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "priorityTiers": {
+      "type": "object",
+      "description": "Agent groupings by priority tier",
+      "properties": {
+        "tier1": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "High priority - primary agents"
+        },
+        "tier2": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Medium priority - secondary agents"
+        },
+        "tier3": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Low priority - emerging agents"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "agentConfig": {
+      "type": "object",
+      "required": ["id", "displayName", "globalDir", "instructionFile", "skillsDir", "priority"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "Unique agent identifier (lowercase, hyphenated)"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Human-readable display name"
+        },
+        "vendor": {
+          "type": "string",
+          "description": "Company/organization behind the agent"
+        },
+        "globalDir": {
+          "type": "string",
+          "description": "Global configuration directory path (use $HOME for home dir)"
+        },
+        "projectDir": {
+          "type": "string",
+          "description": "Project-level configuration directory (relative to project root)"
+        },
+        "instructionFile": {
+          "type": "string",
+          "description": "Instruction/configuration markdown file name"
+        },
+        "skillsDir": {
+          "type": "string",
+          "description": "Skills directory path relative to globalDir"
+        },
+        "projectSkillsDir": {
+          "type": "string",
+          "description": "Project-level skills directory (relative to project root)"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Agent priority tier for CLEO support"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "beta", "deprecated", "planned"],
+          "default": "active",
+          "description": "Support status"
+        },
+        "cliDetection": {
+          "type": "object",
+          "description": "How to detect if agent CLI is installed",
+          "properties": {
+            "method": {
+              "type": "string",
+              "enum": ["directory", "command", "file"],
+              "description": "Detection method"
+            },
+            "check": {
+              "type": "string",
+              "description": "Path, command, or file to check"
+            }
+          }
+        },
+        "agentSkillsCompatible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether agent is compatible with vercel-labs/add-skill"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes about this agent"
+        }
+      }
+    }
+  }
+}

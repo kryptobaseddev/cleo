@@ -1574,18 +1574,20 @@ cmd_archive() {
       if [[ "$output_format" == "json" ]]; then
         local timestamp
         timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        # Use --slurpfile with process substitution to avoid ARG_MAX limits
+        # when archiving many sessions (242+ sessions = potentially large array)
         jq -nc \
           --arg ts "$timestamp" \
           --arg version "${CLEO_VERSION:-$(get_version)}" \
           --argjson count "$archive_count" \
-          --argjson sessions "$(printf '%s\n' "${to_archive[@]}" | jq -R . | jq -s .)" \
+          --slurpfile sessions <(printf '%s\n' "${to_archive[@]}" | jq -R . | jq -s .) \
           '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
             "_meta": {"format": "json", "command": "session archive", "timestamp": $ts, "version": $version},
             "success": true,
             "dryRun": true,
             "wouldArchive": $count,
-            "sessions": $sessions
+            "sessions": $sessions[0]
           }'
       else
         log_info "[DRY-RUN] Would archive $archive_count session(s):"
@@ -2018,18 +2020,20 @@ cmd_cleanup() {
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     if [[ "$dry_run" == "true" ]]; then
+      # Use --slurpfile with process substitution to avoid ARG_MAX limits
+      # when removing many sessions (242+ sessions = potentially large array)
       jq -nc \
         --arg ts "$timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         --argjson count "$removed_count" \
-        --argjson sessions "$(printf '%s\n' "${to_remove[@]}" | jq -R . | jq -s .)" \
+        --slurpfile sessions <(printf '%s\n' "${to_remove[@]}" | jq -R . | jq -s .) \
         '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {"format": "json", "command": "session cleanup", "timestamp": $ts, "version": $version},
           "success": true,
           "dryRun": true,
           "wouldRemove": $count,
-          "sessions": $sessions
+          "sessions": $sessions[0]
         }'
     else
       # Actually remove sessions
@@ -2037,17 +2041,19 @@ cmd_cleanup() {
         jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
       done
 
+      # Use --slurpfile with process substitution to avoid ARG_MAX limits
+      # when removing many sessions (242+ sessions = potentially large array)
       jq -nc \
         --arg ts "$timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         --argjson count "$removed_count" \
-        --argjson sessions "$(printf '%s\n' "${to_remove[@]}" | jq -R . | jq -s .)" \
+        --slurpfile sessions <(printf '%s\n' "${to_remove[@]}" | jq -R . | jq -s .) \
         '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {"format": "json", "command": "session cleanup", "timestamp": $ts, "version": $version},
           "success": true,
           "removed": $count,
-          "sessions": $sessions
+          "sessions": $sessions[0]
         }'
     fi
   else

@@ -1,17 +1,16 @@
----
-name: ct-spec-writer
-description: |
-  Specification writing agent for creating technical specifications and protocol documents.
-  Use when user says "write a spec", "create specification", "define protocol",
-  "document requirements", "RFC-style document", "technical specification",
-  "write requirements", "define constraints", "create protocol spec",
-  "architecture specification", "API specification", "interface contract".
-version: 1.0.0
+# Specification Writer Context Injection
+
+**Protocol**: @protocols/specification.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 2.0.0
+
 ---
 
-# Specification Writer Skill
+## Purpose
 
-You are a specification writer. Your role is to create clear, unambiguous technical specifications using RFC 2119 language.
+Context injection for specification writing tasks spawned via cleo-subagent. Provides domain expertise for creating clear, unambiguous technical specifications using RFC 2119 language.
+
+---
 
 ## Capabilities
 
@@ -146,13 +145,13 @@ Specifications go in: `docs/specs/{{SPEC_NAME}}.md`
 
 1. MUST write specification to: `docs/specs/{{SPEC_NAME}}.md`
 2. MUST append ONE line to: `{{MANIFEST_PATH}}`
-3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+3. MUST return ONLY: "Specification complete. See MANIFEST.jsonl for summary."
 4. MUST NOT return specification content in response
 
 ### Manifest Entry Format
 
 ```json
-{"id":"spec-{{SPEC_NAME}}-{{DATE}}","file":"{{DATE}}_spec-{{SPEC_NAME}}.md","title":"Specification: {{TITLE}}","date":"{{DATE}}","status":"complete","topics":["specification","{{DOMAIN}}"],"key_findings":["Defined N requirements in M categories","Established X constraints with enforcement rules","Compliance criteria: summary"],"actionable":true,"needs_followup":["{{IMPLEMENTATION_TASK_IDS}}"],"linked_tasks":["{{TASK_ID}}"]}
+{"id":"spec-{{SPEC_NAME}}-{{DATE}}","file":"{{DATE}}_spec-{{SPEC_NAME}}.md","title":"Specification: {{TITLE}}","date":"{{DATE}}","status":"complete","agent_type":"specification","topics":["specification","{{DOMAIN}}"],"key_findings":["Defined N requirements in M categories","Established X constraints with enforcement rules","Compliance criteria: summary"],"actionable":true,"needs_followup":["{{IMPLEMENTATION_TASK_IDS}}"],"linked_tasks":["{{TASK_ID}}"]}
 ```
 
 ---

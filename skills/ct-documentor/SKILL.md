@@ -1,37 +1,24 @@
----
-name: ct-documentor
-description: |
-  Documentation specialist that orchestrates ct-docs-lookup, ct-docs-write, and ct-docs-review skills.
-  Use when user says "write documentation", "create docs", "review docs", "update documentation",
-  "document this feature", "fix the docs", "sync docs with code", "documentation is outdated",
-  "full docs workflow", "end-to-end documentation", or needs coordinated documentation creation
-  with style compliance and review.
-version: 2.3.0
+# Documentation Specialist Context Injection
+
+**Protocol**: @protocols/implementation.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 3.0.0
+
 ---
 
-# Documentation Specialist
+## Purpose
 
-You orchestrate documentation workflows by coordinating specialized skills:
+Context injection for documentation tasks spawned via cleo-subagent. Orchestrates documentation workflows by coordinating specialized skills for lookup, writing, and review.
+
+---
+
+## Skill Coordination
 
 | Skill | Purpose | Invoke When |
 |-------|---------|-------------|
 | `ct-docs-lookup` | Query existing docs, find references | Discovery phase, checking what exists |
 | `ct-docs-write` | Create/edit docs with CLEO style | Writing or updating content |
 | `ct-docs-review` | Check compliance with style guide | Quality validation before completion |
-
-## Skill Invocation
-
-```
-# Via Skill tool
-Skill(skill="ct-docs-lookup")
-Skill(skill="ct-docs-write")
-Skill(skill="ct-docs-review")
-
-# Via slash commands
-/ct-docs-lookup
-/ct-docs-write
-/ct-docs-review
-```
 
 ---
 
@@ -130,7 +117,9 @@ Before completing, verify:
 
 ---
 
-## CLEO Integration
+## Task System Integration
+
+@skills/_shared/task-system-integration.md
 
 ### Task Workflow
 
@@ -149,6 +138,19 @@ cleo complete {TASK_ID}
 # 5. Link research if applicable
 cleo research link {TASK_ID} {RESEARCH_ID}
 ```
+
+---
+
+## Subagent Protocol
+
+@skills/_shared/subagent-protocol-base.md
+
+### Output Requirements
+
+1. MUST write documentation output to: `{{OUTPUT_DIR}}/`
+2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+3. MUST return ONLY: "Documentation complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return documentation content in response
 
 ### Output File Format
 
@@ -189,22 +191,7 @@ Write to `{{OUTPUT_DIR}}/`:
 Append ONE line to `{{MANIFEST_PATH}}`:
 
 ```json
-{
-  "id": "docs-{TOPIC}-{DATE}",
-  "file": "{DATE}_docs-{TOPIC}.md",
-  "title": "Documentation Update: {TITLE}",
-  "date": "{DATE}",
-  "status": "complete",
-  "topics": ["documentation", "{topic}"],
-  "key_findings": [
-    "Updated {file} with {change}",
-    "Consolidated {topic} docs into {canonical-location}",
-    "Avoided duplication by updating existing {file}"
-  ],
-  "actionable": false,
-  "needs_followup": [],
-  "linked_tasks": ["{TASK_ID}"]
-}
+{"id":"docs-{TOPIC}-{DATE}","file":"{DATE}_docs-{TOPIC}.md","title":"Documentation Update: {TITLE}","date":"{DATE}","status":"complete","agent_type":"documentation","topics":["documentation","{topic}"],"key_findings":["Updated {file} with {change}","Consolidated {topic} docs into {canonical-location}","Avoided duplication by updating existing {file}"],"actionable":false,"needs_followup":[],"linked_tasks":["{TASK_ID}"]}
 ```
 
 ---

@@ -1,23 +1,22 @@
----
-name: ct-research-agent
-description: |
-  Research and investigation agent for gathering information from multiple sources.
-  Use when user says "research", "investigate", "gather information", "look up",
-  "find out about", "analyze topic", "explore options", "survey alternatives",
-  "collect data on", "background research", "discovery", "fact-finding",
-  "information gathering", "due diligence", "explore requirements".
-version: 1.0.0
+# Research Context Injection
+
+**Protocol**: @protocols/research.md
+**Type**: Context Injection (cleo-subagent)
+**Version**: 2.0.0
+
 ---
 
-# Research Agent Skill
+## Purpose
 
-You are a research agent. Your role is to gather, synthesize, and document information from multiple sources to support decision-making and implementation work.
+Context injection for research and investigation tasks spawned via cleo-subagent. Provides domain expertise for gathering, synthesizing, and documenting information from multiple sources.
+
+---
 
 ## Capabilities
 
 1. **Web Research** - Search for current practices, standards, and solutions
 2. **Documentation Lookup** - Query official docs via Context7
-3. **Codebase Analysis** - Analyze existing code via grep/serena
+3. **Codebase Analysis** - Analyze existing code via grep/tools
 4. **Synthesis** - Combine findings into actionable recommendations
 
 ---
@@ -67,7 +66,7 @@ You are a research agent. Your role is to gather, synthesize, and document infor
    - Verify version compatibility
 
 3. **Codebase Analysis** - Existing patterns, implementations
-   - Use grep/serena for code search
+   - Use grep/tools for code search
    - Identify existing patterns to follow or avoid
 
 ### Research Process
@@ -139,7 +138,7 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
 
 ```json
-{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{RESEARCH_TITLE}}","date":"{{DATE}}","status":"complete","topics":{{TOPICS_JSON}},"key_findings":["Finding 1","Finding 2","Finding 3"],"actionable":true,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
+{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{RESEARCH_TITLE}}","date":"{{DATE}}","status":"complete","agent_type":"research","topics":{{TOPICS_JSON}},"key_findings":["Finding 1","Finding 2","Finding 3"],"actionable":true,"needs_followup":[],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
 ```
 
 ### Field Guidelines

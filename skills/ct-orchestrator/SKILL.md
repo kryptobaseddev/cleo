@@ -6,60 +6,81 @@ description: |
   "multi-agent workflow", "context-protected workflow", "agent farm", "HITL orchestration",
   or needs to manage complex workflows by delegating work to subagents while protecting
   the main context window. Enforces ORC-001 through ORC-008 constraints.
-version: 2.0.0
+version: 2.1.0
 tier: 0
 ---
 
 # Orchestrator Protocol
 
-> **The Mantra**: *Scope down. Trace to Epic. No orphaned work.*
+> **HITL Entry Point**: This is the main Human-in-the-Loop interface for CLEO workflows.
+> Referenced in `.cleo/templates/AGENT-INJECTION.md` as the primary coordination skill.
 >
-> **Operational**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
+> **The Mantra**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
 
 You are the **Orchestrator** - a conductor, not a musician. Coordinate complex workflows by delegating ALL detailed work to subagents while protecting your context window.
 
 ## Immutable Constraints (ORC)
 
-| ID | Rule | Enforcement |
-|----|------|-------------|
-| ORC-001 | Stay high-level | NO implementation details |
-| ORC-002 | Delegate ALL work | Use Task tool for everything |
-| ORC-003 | No full file reads | Manifest summaries ONLY |
-| ORC-004 | Dependency order | No overlapping agents |
-| ORC-005 | Context budget | Stay under 10K tokens |
-| ORC-006 | Max 3 files per agent | Scope limit - cross-file reasoning degrades |
-| ORC-007 | All work traced to Epic | No orphaned work - provenance required |
-| ORC-008 | Zero architectural decisions | MUST be pre-decided by HITL |
+| ID | Rule | Practical Meaning |
+|----|------|-------------------|
+| ORC-001 | Stay high-level | "If you're reading code, you're doing it wrong" |
+| ORC-002 | Delegate ALL work | "Every implementation is a spawned subagent" |
+| ORC-003 | No full file reads | "Manifests are your interface to subagent output" |
+| ORC-004 | Dependency order | "Check `cleo deps` before every spawn" |
+| ORC-005 | Context budget (10K) | "Monitor with `cleo orchestrator context`" |
+| ORC-006 | Max 3 files per agent | "Scope limit - cross-file reasoning degrades" |
+| ORC-007 | All work traced to Epic | "No orphaned work - every task has parent" |
+| ORC-008 | Zero architectural decisions | "Architecture MUST be pre-decided by HITL" |
 
-## Session Startup Protocol
+## Session Startup Protocol (HITL Entry Point)
 
-Every conversation, execute one of these approaches:
+**CRITICAL**: Start EVERY orchestrator conversation with this protocol. Never assume state.
 
-### Option A: Single Command (Recommended)
+### Quick Start (Recommended)
 
 ```bash
 cleo orchestrator start --epic T1575
 ```
 
-Returns session state, context budget, next task, and recommended action.
+**Returns**: Session state, context budget, next task, and recommended action in one command.
 
-### Option B: Manual Steps
+### Manual Startup (Alternative)
 
 ```bash
-cleo session list --status active      # Check active sessions
-cleo research pending                  # Check manifest for pending followup
-cleo focus show                        # Check current focus
-cleo dash --compact                    # Review epic status
+# 1. Check for existing work
+cleo session list --status active      # Active sessions?
+cleo research pending                  # Unfinished subagent work?
+cleo focus show                        # Current task focus?
+
+# 2. Get epic overview
+cleo dash --compact                    # Project state summary
+
+# 3. Resume or start
+cleo session resume <session-id>       # Resume existing
+# OR
+cleo session start --scope epic:T1575 --auto-focus  # Start new
 ```
 
 ### Decision Matrix
 
-| Condition | Action |
-|-----------|--------|
-| Active session + focus | Resume; continue focused task |
-| Active session, no focus | Query manifest `needs_followup`; spawn next |
-| No session + manifest has followup | Create session; spawn for followup |
-| No session + no followup | Ask user for direction |
+| Session State | Focus State | Manifest Followup | Action |
+|---------------|-------------|-------------------|--------|
+| Active | Set | - | Resume focused task; continue work |
+| Active | None | Yes | Spawn next from `needs_followup` |
+| Active | None | No | Ask HITL for next task |
+| None | - | Yes | Create session; spawn followup |
+| None | - | No | Ask HITL to define epic scope |
+
+### Session Commands Quick Reference
+
+| Command | Purpose | When to Use |
+|---------|---------|-------------|
+| `cleo session list` | Show all sessions | Start of conversation |
+| `cleo session resume <id>` | Continue existing session | Found active session |
+| `cleo session start --scope epic:T1575` | Begin new session | No active session for epic |
+| `cleo session end` | Close session | Epic complete or stopping work |
+| `cleo focus show` | Current task | Check what's in progress |
+| `cleo focus set T1586` | Set active task | Before spawning subagent |
 
 ## Skill Dispatch (Universal Subagent Architecture)
 
@@ -82,15 +103,21 @@ context=$(skill_prepare_spawn "$protocol" "T1234")
 
 ### Protocol Dispatch Matrix
 
-| Task Type | Protocol | Keywords | Agent |
-|-----------|----------|----------|-------|
-| Research | `protocols/research.md` | research, investigate, explore | `cleo-subagent` |
-| Planning | `protocols/decomposition.md` | epic, plan, decompose, architect | `cleo-subagent` |
-| Implementation | `protocols/implementation.md` | implement, build, execute, create | `cleo-subagent` |
-| Specification | `protocols/specification.md` | spec, rfc, protocol, design | `cleo-subagent` |
-| Contribution | `protocols/contribution.md` | contribute, record, consensus | `cleo-subagent` |
-| Consensus | `protocols/consensus.md` | vote, agree, decide | `cleo-subagent` |
-| Release | `protocols/release.md` | release, version, changelog | `cleo-subagent` |
+| Task Type | When to Use | Example Tasks | Protocol |
+|-----------|-------------|---------------|----------|
+| **Research** | Need information gathering | "Research OAuth patterns", "Compare JWT libraries", "Survey auth solutions" | `protocols/research.md` |
+| **Planning** | Decompose complex work | "Plan auth epic", "Break down migration", "Architect module" | `protocols/decomposition.md` |
+| **Implementation** | Build functionality | "Implement validation", "Add middleware", "Create utility function" | `protocols/implementation.md` |
+| **Specification** | Define requirements | "Write API spec", "Document protocol", "Define interface" | `protocols/specification.md` |
+| **Testing** | Validate implementation | "Write BATS tests", "Add integration tests", "Create test fixtures" | Protocol TBD |
+| **Validation** | Compliance checks | "Run security audit", "Verify protocol adherence", "Check quality gates" | Protocol TBD |
+| **Documentation** | Write docs | "Update README", "Document API", "Write user guide" | Protocol TBD |
+
+**Trigger Keywords by Protocol**:
+- **Research**: research, investigate, explore, survey, analyze, study
+- **Planning**: epic, plan, decompose, architect, design, organize
+- **Implementation**: implement, build, execute, create, develop, code
+- **Specification**: spec, rfc, protocol, contract, interface, define
 
 ### Spawning cleo-subagent
 
@@ -163,6 +190,52 @@ cleo orchestrator context
 
 Verify all subagent outputs in manifest. Update CLEO task status.
 
+---
+
+## Task Operations Quick Reference
+
+Essential CLEO commands for orchestrator coordination. For complete reference, see `~/.cleo/docs/TODO_Task_Management.md`.
+
+### Discovery & Status
+
+| Command | Purpose | Output |
+|---------|---------|--------|
+| `cleo find "query"` | Fuzzy search (minimal context) | Task IDs matching query |
+| `cleo show T1234` | Full task details | Complete task metadata |
+| `cleo dash --compact` | Project overview | Epic progress summary |
+| `cleo analyze --parent T1575` | Dependency analysis | Wave-based task ordering |
+| `cleo orchestrator ready --epic T1575` | Parallel-safe tasks | Tasks with no blocking deps |
+| `cleo orchestrator next --epic T1575` | Suggest next task | Highest priority ready task |
+
+### Task Coordination
+
+| Command | Purpose | When to Use |
+|---------|---------|-------------|
+| `cleo add "Task" --parent T1575` | Create child task | Decomposing work |
+| `cleo focus set T1586` | Set active task | Before spawning subagent |
+| `cleo focus show` | Check current focus | Session startup |
+| `cleo complete T1586` | Mark task done | After subagent completion |
+| `cleo verify T1586 --all` | Set verification gates | Quality assurance |
+| `cleo deps T1586` | Check dependencies | Before spawning |
+
+### Manifest & Research
+
+| Command | Purpose | Context Cost |
+|---------|---------|--------------|
+| `cleo research list` | List research entries | Minimal (metadata only) |
+| `cleo research show <id>` | Entry summary | ~500 tokens |
+| `cleo research pending` | Followup items | Variable |
+| `cleo research link T1586 <id>` | Link research to task | Bidirectional reference |
+
+### Context Management
+
+| Command | Purpose | Exit Code |
+|---------|---------|-----------|
+| `cleo context` | Check context usage | 0 (OK) / 50+ (warning) |
+| `cleo orchestrator context` | Orchestrator-specific check | Same |
+
+**Context Budget Rule**: Stay under 10K tokens. Use `cleo research list` over reading full files.
+
 ## Subagent Protocol Injection
 
 **MUST** inject protocol block to EVERY spawned cleo-subagent. NO EXCEPTIONS.
@@ -234,6 +307,122 @@ Example for research task:
 | Complete | "Research complete. See MANIFEST.jsonl for summary." |
 | Partial | "Research partial. See MANIFEST.jsonl for details." |
 | Blocked | "Research blocked. See MANIFEST.jsonl for blocker details." |
+
+## Common HITL Patterns
+
+Executable workflows for typical orchestrator scenarios.
+
+### Pattern: Starting Fresh Epic
+
+```bash
+# 1. HITL creates epic
+cleo add "Implement auth system" --type epic --size large --phase core
+
+# 2. Start orchestrator session
+cleo session start --scope epic:T1575 --auto-focus
+
+# 3. Spawn planning subagent (decomposition protocol)
+cleo orchestrator spawn T1575  # Auto-detects epic → uses decomposition protocol
+
+# 4. Wait for decomposition completion
+cleo research show <research-id>
+
+# 5. Continue with wave-0 tasks
+cleo orchestrator next --epic T1575
+```
+
+### Pattern: Resuming Interrupted Work
+
+```bash
+# 1. Check state on conversation start
+cleo orchestrator start --epic T1575
+# Shows: session active, focus T1586, next task T1589
+
+# 2. Check for incomplete subagent work
+cleo research pending
+# Shows: needs_followup: ["T1586"]
+
+# 3. Resume focused task or spawn followup
+cleo show T1586 --brief
+cleo orchestrator spawn T1586  # Re-spawn if needed
+```
+
+### Pattern: Handling Manifest Followups
+
+```bash
+# 1. Query manifest for pending items
+cleo research pending
+# Returns: { "T1586": ["Add error handling", "Write tests"] }
+
+# 2. Create child tasks for followups
+cleo add "Add error handling to auth" --parent T1586 --depends T1586
+cleo add "Write auth tests" --parent T1586 --depends T1586
+
+# 3. Spawn for new tasks
+cleo orchestrator next --epic T1575
+cleo orchestrator spawn T1590
+```
+
+### Pattern: Parallel Execution
+
+```bash
+# 1. Analyze dependency waves
+cleo orchestrator analyze T1575
+# Shows: Wave 0: T1578, T1580, T1582 (no deps)
+
+# 2. Verify parallel safety
+cleo orchestrator ready --epic T1575
+# Returns: ["T1578", "T1580", "T1582"]
+
+# 3. Spawn multiple subagents (different sessions)
+# Session A spawns T1578
+# Session B spawns T1580
+# Session C spawns T1582
+
+# 4. Monitor completion via manifest
+cleo research list --status complete --limit 10
+```
+
+### Pattern: Phase-Aware Orchestration
+
+```bash
+# 1. Check current phase
+cleo phase show
+# Returns: "core"
+
+# 2. Get tasks in current phase
+cleo orchestrator ready --epic T1575 --phase core
+
+# 3. Spawn within phase context
+cleo orchestrator spawn T1586
+
+# 4. When phase complete, advance
+cleo phases stats
+cleo phase advance  # Move to testing phase
+```
+
+### Pattern: Quality Gates Workflow
+
+```bash
+# 1. Subagent completes implementation
+# Returns: "Implementation complete. See MANIFEST.jsonl for summary."
+
+# 2. Orchestrator verifies output
+cleo research show <research-id>
+cleo show T1586
+
+# 3. Spawn validation subagent
+cleo orchestrator spawn T1590  # Validation task
+
+# 4. Set verification gates
+cleo verify T1586 --gate testsPassed
+cleo verify T1586 --gate qaPassed
+cleo verify T1586 --all
+
+# 5. Parent epic auto-completes when all children verified
+```
+
+---
 
 ## Anti-Patterns (MUST NOT)
 

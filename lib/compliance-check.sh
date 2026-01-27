@@ -41,8 +41,8 @@ _CC_COMPLIANCE_FILE="COMPLIANCE.jsonl"
 # Expected return message pattern
 _CC_RETURN_PATTERN="Research complete\. See MANIFEST\.jsonl"
 
-# T1955 epic ID for violation tracking
-_CC_VIOLATION_EPIC="T1955"
+# T1954 epic ID for violation tracking (self-improvement & compliance)
+_CC_VIOLATION_EPIC="T1954"
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -397,8 +397,8 @@ log_compliance_metrics() {
     return 0
 }
 
-# log_violation - Create issue task under T1955 epic for compliance violation
-# Args: $1 = epic_id (usually T1955), $2 = violation_details (JSON or text)
+# log_violation - Create issue task under T1954 epic for compliance violation
+# Args: $1 = epic_id (usually T1954), $2 = violation_details (JSON or text)
 # Returns: JSON result with created task ID via stdout
 # Exit codes: 0 on success, various on cleo errors
 #
