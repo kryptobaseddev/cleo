@@ -582,17 +582,9 @@ else
     log_info "Research outputs directory already exists at $RESEARCH_OUTPUT_DIR/"
 fi
 
-# Copy subagent protocol templates if available
-if [[ -d "$TEMPLATES_DIR/subagent-protocol" ]]; then
-    if [[ ! -f "$RESEARCH_OUTPUT_DIR/SUBAGENT_PROTOCOL.md" ]] && [[ -f "$TEMPLATES_DIR/subagent-protocol/SUBAGENT_PROTOCOL.md" ]]; then
-        cp "$TEMPLATES_DIR/subagent-protocol/SUBAGENT_PROTOCOL.md" "$RESEARCH_OUTPUT_DIR/"
-        log_info "Copied SUBAGENT_PROTOCOL.md to $RESEARCH_OUTPUT_DIR/"
-    fi
-    if [[ ! -f "$RESEARCH_OUTPUT_DIR/INJECT.md" ]] && [[ -f "$TEMPLATES_DIR/subagent-protocol/INJECT.md" ]]; then
-        cp "$TEMPLATES_DIR/subagent-protocol/INJECT.md" "$RESEARCH_OUTPUT_DIR/"
-        log_info "Copied INJECT.md to $RESEARCH_OUTPUT_DIR/"
-    fi
-fi
+# NOTE: SUBAGENT_PROTOCOL.md and INJECT.md are no longer copied to output dir
+# The protocol is now accessed via 'cleo research inject' command
+# Legacy files in output dirs can be safely deleted
 
 # ============================================================================
 # EXTRACT SCHEMA VERSIONS FROM SOURCE OF TRUTH
