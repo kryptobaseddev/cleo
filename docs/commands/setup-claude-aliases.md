@@ -27,6 +27,8 @@ The command uses marker-based injection for idempotent installation, allowing sa
 | `--force` | Force reinstall even if current version installed |
 | `--shell SHELL` | Target specific shell (bash\|zsh\|powershell\|cmd) |
 | `--remove` | Remove installed aliases |
+| `--cmd-autorun` | Configure Windows CMD.exe to auto-load aliases (registry) |
+| `--no-cmd-autorun` | Skip CMD AutoRun registry setup (default) |
 | `-f, --format FMT` | Output format: text (default) or json |
 | `--json` | Shorthand for --format json |
 | `-q, --quiet` | Suppress non-essential output |
@@ -80,6 +82,42 @@ All aliases automatically set these environment variables:
 | zsh | `~/.zshrc` | All |
 | powershell | `~/Documents/PowerShell/Microsoft.PowerShell_profile.ps1` (Windows) or `~/.config/powershell/Microsoft.PowerShell_profile.ps1` (Unix) | All |
 | cmd | `~/cleo-aliases.cmd` | Windows |
+
+## Windows Support
+
+### PowerShell Profile
+
+On Windows, the command automatically:
+- Detects the localized Documents folder path (handles non-English Windows)
+- Creates the PowerShell profile directory if it doesn't exist
+- Works with both `pwsh` (PowerShell Core) and `powershell` (Windows PowerShell)
+
+### CMD.exe Integration
+
+For CMD.exe, aliases are defined as DOSKEY macros in a batch file. To enable automatic loading:
+
+```bash
+# Install aliases with registry AutoRun configuration
+cleo setup-claude-aliases --cmd-autorun
+
+# Or install aliases only (manual loading required)
+cleo setup-claude-aliases --shell cmd
+```
+
+The `--cmd-autorun` flag sets the registry key:
+```
+HKCU\Software\Microsoft\Command Processor\AutoRun
+```
+
+### Manual CMD.exe Loading
+
+If not using `--cmd-autorun`, load aliases manually in each CMD session:
+
+```cmd
+%USERPROFILE%\cleo-aliases.cmd
+```
+
+Or add to your own AutoRun batch file.
 
 ## Examples
 
@@ -294,6 +332,7 @@ cc-headless "Run tests" --allowedTools "Bash(npm test:*),Read"
 
 | Version | Changes |
 |---------|---------|
+| 1.2.0 | Windows support: `--cmd-autorun` registry setup, localized Documents folder detection, PowerShell profile directory creation, path normalization |
 | 1.1.0 | Added collision detection, legacy alias recognition, doctor integration improvements |
 | 1.0.0 | Initial release |
 

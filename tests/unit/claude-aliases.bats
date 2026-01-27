@@ -558,6 +558,286 @@ EOF
 }
 
 # ==============================================================================
+# COLLISION DETECTION TESTS (T2119)
+# ==============================================================================
+
+@test "detect_existing_aliases returns empty array for file without aliases" {
+    local rc_file="$TEST_DIR/.bashrc"
+    echo "# Just a comment" > "$rc_file"
+
+    run detect_existing_aliases "$rc_file"
+    assert_success
+    assert_output "[]"
+}
+
+@test "detect_existing_aliases detects shell alias" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# User aliases
+alias cc='some-other-command'
+alias ls='ls --color'
+EOF
+
+    run detect_existing_aliases "$rc_file"
+    assert_success
+
+    # Should find cc alias
+    echo "$output" | jq -e '.[] | select(.name == "cc")'
+    # Should mark it as potentially Claude-related (cc is our alias name)
+    echo "$output" | jq -e '.[] | select(.name == "cc" and .type == "alias")'
+}
+
+@test "detect_existing_aliases detects shell function" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# User functions
+cc() {
+    echo "my custom cc function"
+}
+EOF
+
+    run detect_existing_aliases "$rc_file"
+    assert_success
+
+    # Should find cc function
+    echo "$output" | jq -e '.[] | select(.name == "cc" and .type == "function")'
+}
+
+@test "detect_existing_aliases identifies Claude-related aliases" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# Claude aliases
+alias cc='claude code'
+alias ccy='claude code -y'
+EOF
+
+    run detect_existing_aliases "$rc_file"
+    assert_success
+
+    # Both should be marked as Claude-related
+    local claude_count
+    claude_count=$(echo "$output" | jq '[.[] | select(.isClaudeRelated == true)] | length')
+    [[ "$claude_count" -eq 2 ]]
+}
+
+@test "detect_existing_aliases identifies non-Claude aliases" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# Non-Claude alias using our name
+alias cc='gcc -Wall'
+EOF
+
+    run detect_existing_aliases "$rc_file"
+    assert_success
+
+    # Should be marked as NOT Claude-related (contains gcc, not claude)
+    echo "$output" | jq -e '.[] | select(.name == "cc" and .isClaudeRelated == false)'
+}
+
+@test "detect_legacy_claude_aliases returns false for empty file" {
+    local rc_file="$TEST_DIR/.bashrc"
+    echo "" > "$rc_file"
+
+    run detect_legacy_claude_aliases "$rc_file"
+    assert_success
+
+    echo "$output" | jq -e '.detected == false'
+}
+
+@test "detect_legacy_claude_aliases returns false for file without legacy patterns" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# Normal bashrc
+alias ls='ls --color'
+export PATH="$PATH:/usr/local/bin"
+EOF
+
+    run detect_legacy_claude_aliases "$rc_file"
+    assert_success
+
+    echo "$output" | jq -e '.detected == false'
+}
+
+@test "detect_legacy_claude_aliases detects _cc_env function pattern" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# Legacy Claude aliases
+_cc_env() {
+    export ANTHROPIC_API_KEY="sk-..."
+}
+cc() {
+    _cc_env && claude "$@"
+}
+EOF
+
+    run detect_legacy_claude_aliases "$rc_file"
+    assert_success
+
+    echo "$output" | jq -e '.detected == true'
+    echo "$output" | jq -e '.hasCcEnv == true'
+    echo "$output" | jq -e '.hasClaudeFunctions == true'
+}
+
+@test "detect_legacy_claude_aliases detects Claude comment marker" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# Claude Code aliases
+alias cc='claude code'
+EOF
+
+    run detect_legacy_claude_aliases "$rc_file"
+    assert_success
+
+    echo "$output" | jq -e '.hasClaudeComment == true'
+}
+
+@test "check_alias_collisions returns no collision for new file" {
+    local rc_file="$TEST_DIR/.bashrc"
+    echo "# Empty bashrc" > "$rc_file"
+
+    run check_alias_collisions "$rc_file"
+    assert_success
+
+    echo "$output" | jq -e '.hasCollisions == false'
+}
+
+@test "check_alias_collisions returns no collision for CLEO-managed file" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << EOF
+# Other stuff
+$CLAUDE_ALIASES_MARKER_START
+alias cc='claude code'
+$CLAUDE_ALIASES_MARKER_END
+EOF
+
+    run check_alias_collisions "$rc_file"
+    assert_success
+
+    echo "$output" | jq -e '.hasCollisions == false'
+    echo "$output" | jq -e '.reason == "cleo_managed"'
+}
+
+@test "check_alias_collisions detects non-Claude collision" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# User's custom cc alias (not Claude)
+alias cc='gcc -Wall -Wextra'
+alias ccy='gcc -Wall -Wextra -pedantic'
+EOF
+
+    run check_alias_collisions "$rc_file"
+    assert_success
+
+    echo "$output" | jq -e '.hasCollisions == true'
+    local non_claude_count
+    non_claude_count=$(echo "$output" | jq '.nonClaudeCount')
+    [[ "$non_claude_count" -gt 0 ]]
+}
+
+@test "check_alias_collisions allows Claude-only aliases" {
+    local rc_file="$TEST_DIR/.bashrc"
+    cat > "$rc_file" << 'EOF'
+# User's Claude aliases (pre-CLEO)
+alias cc='claude code'
+alias ccy='claude code -y'
+EOF
+
+    run check_alias_collisions "$rc_file"
+    assert_success
+
+    # These are Claude-related, so no collision
+    echo "$output" | jq -e '.hasCollisions == false'
+}
+
+@test "check_alias_collisions returns false for non-existent file" {
+    run check_alias_collisions "$TEST_DIR/nonexistent"
+    assert_success
+
+    echo "$output" | jq -e '.hasCollisions == false'
+}
+
+# ==============================================================================
+# WINDOWS-SPECIFIC HELPER TESTS (T2111)
+# ==============================================================================
+
+@test "normalize_windows_path returns unchanged on non-windows" {
+    # On Linux/macOS, PLATFORM is not "windows"
+    run normalize_windows_path "/home/user/file.txt"
+    assert_success
+    # Should return unchanged since we're not on Windows
+    assert_output "/home/user/file.txt"
+}
+
+@test "normalize_windows_path handles forward slashes" {
+    run normalize_windows_path "C:/Users/test/Documents"
+    assert_success
+    # On non-Windows, should return unchanged
+    # On Windows, would convert to backslashes
+    [[ "$output" == "C:/Users/test/Documents" ]] || [[ "$output" == 'C:\Users\test\Documents' ]]
+}
+
+@test "get_windows_documents_path returns path" {
+    run get_windows_documents_path
+    assert_success
+    # Should return some path (HOME/Documents on non-Windows)
+    [[ -n "$output" ]]
+    [[ "$output" == *"Documents"* ]] || [[ "$output" == *"documents"* ]] || [[ -d "$output" ]]
+}
+
+@test "ensure_powershell_profile_dir returns JSON" {
+    local test_profile="$TEST_DIR/PowerShell/Microsoft.PowerShell_profile.ps1"
+
+    run ensure_powershell_profile_dir "$test_profile"
+    assert_success
+
+    # Should return JSON with created/exists fields
+    echo "$output" | jq -e '.exists == true'
+    echo "$output" | jq -e 'has("path")'
+}
+
+@test "ensure_powershell_profile_dir creates directory if missing" {
+    local test_profile="$TEST_DIR/NewDir/SubDir/profile.ps1"
+
+    # Directory shouldn't exist yet
+    [[ ! -d "$TEST_DIR/NewDir" ]]
+
+    run ensure_powershell_profile_dir "$test_profile"
+    assert_success
+
+    # Directory should now exist
+    [[ -d "$TEST_DIR/NewDir/SubDir" ]]
+    echo "$output" | jq -e '.created == true'
+}
+
+@test "ensure_powershell_profile_dir handles existing directory" {
+    mkdir -p "$TEST_DIR/ExistingDir"
+    local test_profile="$TEST_DIR/ExistingDir/profile.ps1"
+
+    run ensure_powershell_profile_dir "$test_profile"
+    assert_success
+
+    echo "$output" | jq -e '.created == false'
+    echo "$output" | jq -e '.exists == true'
+}
+
+@test "setup_cmd_autorun returns not_windows on non-windows platform" {
+    # On Linux/macOS, PLATFORM is not "windows"
+    run setup_cmd_autorun "$TEST_DIR/test.cmd"
+    # Should fail gracefully
+    assert_failure
+
+    echo "$output" | jq -e '.error == "not_windows"'
+}
+
+@test "check_cmd_autorun returns not_windows on non-windows platform" {
+    run check_cmd_autorun
+    assert_success
+
+    echo "$output" | jq -e '.configured == false'
+    echo "$output" | jq -e '.reason == "not_windows"'
+}
+
+# ==============================================================================
 # CONSTANTS TESTS
 # ==============================================================================
 

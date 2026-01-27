@@ -251,6 +251,18 @@ cleo version
 cleo --validate
 ```
 
+#### Claude CLI Aliases (Optional)
+
+Install optimized aliases for Claude Code CLI:
+
+```bash
+cleo setup-claude-aliases
+```
+
+This installs `cc`, `ccy`, `ccr`, and other aliases across bash, zsh, PowerShell, and CMD.exe. See [setup-claude-aliases docs](docs/commands/setup-claude-aliases.md) for details.
+
+> **Tip**: During interactive installation, you'll be prompted to install aliases automatically.
+
 #### Initialize in Your Project
 
 ```bash
@@ -801,21 +813,62 @@ your-project/.cleo/          # Per-project instance
 
 ---
 
-## For Claude Code Users
+## Multi-Agent Support
 
-CLEO integrates seamlessly with Claude Code:
+CLEO provides **hybrid architecture** for broad agent compatibility:
 
-### CLAUDE.md Integration
+### Injection System (Primary - 16+ Agents)
+
+Auto-discovers and injects instructions for all installed agents:
 
 ```bash
-# Initialize project with automatic agent doc injection
+# Initialize project with automatic agent detection
 cleo init
 
 # Update existing agent docs to latest version
 cleo upgrade
 ```
 
-This injects essential commands and protocols into CLAUDE.md, AGENTS.md, and GEMINI.md between `<!-- CLEO:START -->` and `<!-- CLEO:END -->` markers.
+**Supported Agents:**
+- Claude (CLAUDE.md)
+- Generic agents (AGENTS.md)
+- Gemini (GEMINI.md)
+- Cursor (cursor_rules)
+- Windsurf (windsurf_rules)
+- Aider (CONVENTIONS.md)
+- Continue (CONVENTIONS.md)
+- GPT Engineer (CONVENTIONS.md)
+- Qodo Gen (CONVENTIONS.md)
+- v0 (v0_instructions.md)
+- Blackbox (.blackboxrc)
+- Codeium (codeium_instructions.txt)
+- CodeGPT (codegpt_rules.md)
+- And more...
+
+**Agent Registry:**
+- Auto-discovers installed agents in `~/.claude/agents/`
+- Uses `templates/AGENT-INJECTION.md` for project injections
+- Uses `templates/CLEO-INJECTION.md` for global agent configs
+- Full list: `cat ~/.cleo/registries/agent-registry.json`
+
+### Claude Code Plugin (Optional)
+
+For Claude Code users, the optional plugin provides enhanced integration:
+
+```bash
+# Install with plugin hooks
+cleo init --with-plugin
+```
+
+**Plugin Features:**
+- Command suggestions in context
+- Task mention auto-completion
+- Enhanced command palette integration
+
+**Documentation:**
+- Plugin architecture: [.claude-plugin/README.md](.claude-plugin/README.md)
+- Global injection: [templates/CLEO-INJECTION.md](templates/CLEO-INJECTION.md)
+- Project injection: [templates/AGENT-INJECTION.md](templates/AGENT-INJECTION.md)
 
 ### TodoWrite Sync
 

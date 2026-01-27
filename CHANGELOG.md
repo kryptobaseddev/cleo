@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Epic T2089: Claude CLI Aliases - Cross-Platform Support Complete**
+  - **Windows Support** (T2111):
+    - `normalize_windows_path()`: Path separator conversion for Windows
+    - `get_windows_documents_path()`: Localized Documents folder detection via PowerShell
+    - `ensure_powershell_profile_dir()`: PowerShell profile directory creation with Windows fallback
+    - `setup_cmd_autorun()`: CMD.exe registry AutoRun configuration
+    - `check_cmd_autorun()`: Registry query for current AutoRun status
+    - New CLI flag: `--cmd-autorun` for automatic CMD alias loading
+  - **Collision Detection** (T2119):
+    - `detect_existing_aliases()`: Find aliases/functions matching our names
+    - `detect_legacy_claude_aliases()`: Recognize function-based patterns
+    - `check_alias_collisions()`: Report non-Claude collisions
+    - Doctor integration with legacy detection and `--force` suggestion
+  - **Test Coverage**: 78 unit tests for claude-aliases library
+  - **Supported Shells**: bash, zsh, PowerShell (cross-platform), CMD.exe
+
 ## [0.72.1] - 2026-01-27
 
 ### Fixed

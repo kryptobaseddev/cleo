@@ -180,7 +180,8 @@
             "group": "Configuration",
             "pages": [
               "commands/config",
-              "commands/init"
+              "commands/init",
+              "commands/setup-claude-aliases"
             ]
           },
           {
