@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.71.0] - 2026-01-27
 
 ### Added
+- **Epic T2419: Backup System Assessment & Consolidation**
+  - **Pre-write schema validation** (T2427): Added to `lib/file-ops.sh`
+    - New functions: `_fo_get_schema_type()`, `_fo_validate_json_content()`
+    - New exit code: `FO_SCHEMA_VALIDATION_FAILED=9`
+    - Environment controls: `CLEO_SKIP_SCHEMA_VALIDATION`, `CLEO_SCHEMA_VALIDATION_STRICT`
+    - Validates todo.json, config.json, sessions.json, archive, log structures before write
+  - **Backup architecture documentation** (T2426): `docs/concepts/backup-system.mdx`
+    - Four-layer architecture explanation with Mermaid diagrams
+    - Layer 1: Atomic Operations (per-write safety)
+    - Layer 2: Recovery Backups (snapshots, safety, archive, migration)
+    - Layer 3: Schema Validation (now with pre-write prevention)
+    - Layer 4: Git Version Control (project history)
+    - Recovery procedures and best practices
+  - **Mintlify docs navigation** (T2428): Added backup-system to Concepts > Architecture
+
 - **Epic T2190: Hierarchical Discovery System for graph-rag.sh**
   - **`_find_lca()`** (T2192): Find lowest common ancestor of two tasks in hierarchy tree
   - **`_tree_distance()`** (T2193): Calculate tree distance between tasks (0=same, 2=siblings, 4=cousins)
