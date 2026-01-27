@@ -1,11 +1,16 @@
 {
   "$schema": "https://cleo-dev.com/schemas/v1/skills-manifest.schema.json",
   "_meta": {
-    "schemaVersion": "2.0.0",
-    "lastUpdated": "2026-01-26",
-    "totalSkills": 15
+    "schemaVersion": "2.1.0",
+    "lastUpdated": "2026-01-27",
+    "totalSkills": 15,
+    "architectureNote": "Universal Subagent Architecture: All spawns use single agent type 'cleo-subagent' with skill/protocol injection. Skill names like 'ct-research-agent' are identifiers for context injection protocols, NOT separate agent types.",
+    "deprecatedFields": {
+      "compatible_subagent_types": "DEPRECATED v0.70.0: Historical reference only. In 2-tier architecture, all spawns use 'cleo-subagent'. This field retained for backwards compatibility documentation."
+    }
   },
   "dispatch_matrix": {
+    "_comment": "Maps task types/keywords to skill NAMES (protocol identifiers). These are NOT agent types - all spawns use 'cleo-subagent' with the selected skill as context injection.",
     "by_task_type": {
       "research": "ct-research-agent",
       "planning": "ct-epic-architect",

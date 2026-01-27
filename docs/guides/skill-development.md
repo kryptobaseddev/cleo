@@ -1,10 +1,14 @@
 # Skill Development Tutorial
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: Active
-**Last Updated**: 2026-01-21
+**Last Updated**: 2026-01-27
 
 This tutorial covers creating skills for CLEO's multi-agent architecture. Skills are modular prompt packages that extend Claude Code's capabilities with specialized knowledge and workflows.
+
+> **2-Tier Architecture (v0.72.0+)**: Skills are now **protocol identifiers** loaded into a universal `cleo-subagent`. When the orchestrator spawns work, it uses `subagent_type: "cleo-subagent"` with the skill as context injection. Skill names (e.g., `ct-research-agent`) identify protocols, NOT separate agent types.
+>
+> See [CLEO-SUBAGENT.md](../architecture/CLEO-SUBAGENT.md) for architecture details.
 
 ---
 
