@@ -173,29 +173,73 @@ _ti_set_fallback_defaults() {
     _TI_REQUIRED_TOKENS=("TASK_ID" "DATE" "TOPIC_SLUG")
     _TI_ALL_TOKENS=(
         "TASK_ID" "DATE" "TOPIC_SLUG"
-        "EPIC_ID" "SESSION_ID" "RESEARCH_ID" "TITLE"
-        "TASK_SHOW_CMD" "TASK_FOCUS_CMD" "TASK_COMPLETE_CMD"
+        "EPIC_ID" "SESSION_ID" "RESEARCH_ID" "TITLE" "PARENT_ID"
+        # Task system commands
+        "TASK_SHOW_CMD" "TASK_FOCUS_CMD" "TASK_FOCUS_SHOW_CMD" "TASK_COMPLETE_CMD"
         "TASK_LINK_CMD" "TASK_LIST_CMD" "TASK_FIND_CMD" "TASK_ADD_CMD"
+        "TASK_EXISTS_CMD" "TASK_PHASE_CMD" "TASK_TREE_CMD"
+        # Session commands
+        "SESSION_LIST_CMD" "SESSION_START_CMD" "SESSION_END_CMD" "SESSION_GC_CMD"
+        # Research commands
+        "RESEARCH_LIST_CMD" "RESEARCH_SHOW_CMD" "RESEARCH_PENDING_CMD" "RESEARCH_INJECT_CMD"
+        # Dashboard
+        "DASH_CMD"
+        # Output paths
         "OUTPUT_DIR" "MANIFEST_PATH"
+        # Manifest tokens
+        "MANIFEST_ID" "MANIFEST_FILE" "MANIFEST_TITLE" "MANIFEST_STATUS"
+        "MANIFEST_TOPICS" "MANIFEST_FINDINGS" "LINKED_TASKS" "NEEDS_FOLLOWUP"
         # taskContext tokens (populated from CLEO task data)
         "TASK_TITLE" "TASK_NAME" "TASK_DESCRIPTION" "TASK_INSTRUCTIONS"
         "TOPICS_JSON" "DEPENDS_LIST" "ACCEPTANCE_CRITERIA" "DELIVERABLES_LIST"
         "MANIFEST_SUMMARIES" "NEXT_TASK_IDS"
+        # skillSpecific tokens
+        "FEATURE_SLUG" "FEATURE_NAME" "FEATURE_DESCRIPTION"
+        "TEST_SCOPE" "TARGET_PATH"
     )
     _TI_CLEO_DEFAULTS=(
+        # Task commands
         ["TASK_SHOW_CMD"]="cleo show"
         ["TASK_FOCUS_CMD"]="cleo focus set"
+        ["TASK_FOCUS_SHOW_CMD"]="cleo focus show"
         ["TASK_COMPLETE_CMD"]="cleo complete"
         ["TASK_LINK_CMD"]="cleo research link"
         ["TASK_LIST_CMD"]="cleo list"
         ["TASK_FIND_CMD"]="cleo find"
         ["TASK_ADD_CMD"]="cleo add"
+        ["TASK_EXISTS_CMD"]="cleo exists"
+        ["TASK_PHASE_CMD"]="cleo phase show"
+        ["TASK_TREE_CMD"]="cleo list --tree"
+        # Session commands
+        ["SESSION_LIST_CMD"]="cleo session list"
+        ["SESSION_START_CMD"]="cleo session start"
+        ["SESSION_END_CMD"]="cleo session end"
+        ["SESSION_GC_CMD"]="cleo session gc"
+        # Research commands
+        ["RESEARCH_LIST_CMD"]="cleo research list"
+        ["RESEARCH_SHOW_CMD"]="cleo research show"
+        ["RESEARCH_PENDING_CMD"]="cleo research pending"
+        ["RESEARCH_INJECT_CMD"]="cleo research inject"
+        # Dashboard
+        ["DASH_CMD"]="cleo dash"
+        # Output paths
         ["OUTPUT_DIR"]="claudedocs/agent-outputs"
         ["MANIFEST_PATH"]="claudedocs/agent-outputs/MANIFEST.jsonl"
+        # Context tokens
         ["EPIC_ID"]=""
         ["SESSION_ID"]=""
         ["RESEARCH_ID"]=""
         ["TITLE"]=""
+        ["PARENT_ID"]=""
+        # Manifest defaults
+        ["MANIFEST_ID"]=""
+        ["MANIFEST_FILE"]=""
+        ["MANIFEST_TITLE"]=""
+        ["MANIFEST_STATUS"]="complete"
+        ["MANIFEST_TOPICS"]="[]"
+        ["MANIFEST_FINDINGS"]="[]"
+        ["LINKED_TASKS"]="[]"
+        ["NEEDS_FOLLOWUP"]="[]"
         # taskContext defaults
         ["TASK_TITLE"]=""
         ["TASK_NAME"]=""
@@ -207,11 +251,20 @@ _ti_set_fallback_defaults() {
         ["DELIVERABLES_LIST"]="Implementation per task description"
         ["MANIFEST_SUMMARIES"]=""
         ["NEXT_TASK_IDS"]=""
+        # skillSpecific defaults
+        ["FEATURE_SLUG"]=""
+        ["FEATURE_NAME"]=""
+        ["FEATURE_DESCRIPTION"]=""
+        ["TEST_SCOPE"]=""
+        ["TARGET_PATH"]=""
     )
     _TI_TOKEN_PATTERNS=(
         ["TASK_ID"]="^T[0-9]+$"
         ["DATE"]="^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
         ["TOPIC_SLUG"]="^[a-zA-Z0-9_-]+$"
+        ["EPIC_ID"]="^T[0-9]+$"
+        ["PARENT_ID"]="^T[0-9]+$"
+        ["SESSION_ID"]="^session_[0-9]{8}_[0-9]{6}_[a-f0-9]+$"
     )
 }
 
@@ -1239,6 +1292,193 @@ ti_populate_skill_specific_tokens() {
     return 0
 }
 
+# ti_verify_all_resolved - Check that all {{TOKEN}} patterns have been resolved
+# Args: $1 = content to verify
+#       $2 = strict mode (optional, default "false") - if "true", returns error on unresolved
+# Returns: 0 if all resolved (or non-strict mode), EXIT_VALIDATION_ERROR (6) if unresolved in strict mode
+# Output: List of unresolved tokens to stderr if any found
+#
+# This function verifies that NO {{TOKEN}} patterns remain after injection.
+# Useful for final validation before spawning a subagent.
+#
+# Example:
+#   if ! ti_verify_all_resolved "$prompt" "true"; then
+#       echo "ERROR: Unresolved tokens in prompt"
+#       exit 1
+#   fi
+ti_verify_all_resolved() {
+    local content="${1:-}"
+    local strict="${2:-false}"
+
+    if [[ -z "$content" ]]; then
+        _ti_error "Content is required for ti_verify_all_resolved"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Find all remaining {{TOKEN}} patterns
+    local remaining
+    remaining=$(echo "$content" | grep -oE '\{\{[A-Z_]+\}\}' | sort -u || true)
+
+    if [[ -z "$remaining" ]]; then
+        # All tokens resolved
+        return 0
+    fi
+
+    # Count unresolved tokens
+    local count
+    count=$(echo "$remaining" | wc -l)
+
+    # Log warnings
+    _ti_warn "Found $count unresolved token(s) after injection:"
+    echo "$remaining" | while IFS= read -r token; do
+        [[ -n "$token" ]] && echo "  - $token" >&2
+    done
+
+    if [[ "$strict" == "true" ]]; then
+        _ti_error "Strict mode: All tokens must be resolved before spawn"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    return 0
+}
+
+# ti_inject_and_verify - Combined injection and verification for spawn preparation
+# Args: $1 = input text with {{TOKEN}} patterns
+#       $2 = strict mode (optional, default "true") - fail if unresolved tokens remain
+# Returns: 0 on success, EXIT_VALIDATION_ERROR (6) if validation fails
+# Output: Injected text to stdout
+#
+# This is the recommended function for spawn preparation as it combines
+# injection with mandatory verification.
+ti_inject_and_verify() {
+    local input="$1"
+    local strict="${2:-true}"
+
+    # Perform injection
+    local output
+    output=$(ti_inject_tokens "$input")
+
+    # Verify all resolved
+    if ! ti_verify_all_resolved "$output" "$strict"; then
+        # In strict mode, still output the content but return error
+        echo "$output"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    echo "$output"
+    return 0
+}
+
+# ti_get_session_id - Get current CLEO session ID
+# Args: none
+# Returns: 0 on success
+# Output: Session ID to stdout (empty if no active session)
+ti_get_session_id() {
+    if ! command -v cleo &>/dev/null; then
+        return 0
+    fi
+
+    local session_json
+    session_json=$(cleo session status --format json 2>/dev/null || echo '{}')
+
+    if [[ -n "$session_json" && "$session_json" != "{}" ]]; then
+        local session_id
+        session_id=$(echo "$session_json" | jq -r '.session.id // ""' 2>/dev/null)
+        echo "$session_id"
+    fi
+
+    return 0
+}
+
+# ti_set_full_context - Set ALL context tokens from task and session
+# Args:
+#   $1 = task_id (required)
+#   $2 = date (optional, defaults to today)
+#   $3 = topic_slug (optional, derived from title if not provided)
+# Returns: 0 on success, EXIT_VALIDATION_ERROR (6) if task not found
+# Side effects: Exports all TI_* environment variables for full token resolution
+#
+# This is the comprehensive context-setting function for orchestrator spawn.
+# It sets:
+#   - Required tokens (TASK_ID, DATE, TOPIC_SLUG)
+#   - Context tokens (EPIC_ID, SESSION_ID, PARENT_ID, etc.)
+#   - taskContext tokens (TASK_TITLE, TASK_DESCRIPTION, etc.)
+#   - Command defaults
+#   - Manifest context (RESEARCH_ID, OUTPUT paths)
+ti_set_full_context() {
+    local task_id="${1:-}"
+    local date="${2:-$(date +%Y-%m-%d)}"
+    local topic_slug="${3:-}"
+
+    if [[ -z "$task_id" ]]; then
+        _ti_error "task_id is required for ti_set_full_context"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Get task JSON from cleo
+    local task_json
+    task_json=$(cleo show "$task_id" --format json 2>/dev/null)
+
+    if [[ -z "$task_json" || "$task_json" == "null" ]]; then
+        _ti_error "Task not found: $task_id"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Check cleo success
+    local cleo_success
+    cleo_success=$(echo "$task_json" | jq -r '.success // false')
+    if [[ "$cleo_success" != "true" ]]; then
+        _ti_error "Failed to fetch task: $task_id"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Extract task metadata
+    local title parent_id
+    title=$(echo "$task_json" | jq -r '.task.title // "untitled"')
+    parent_id=$(echo "$task_json" | jq -r '.task.parentId // ""')
+
+    # Generate topic_slug if not provided
+    if [[ -z "$topic_slug" ]]; then
+        topic_slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | \
+                     sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g')
+        [[ -z "$topic_slug" ]] && topic_slug="task-${task_id}"
+    fi
+
+    # Set required tokens
+    export TI_TASK_ID="$task_id"
+    export TI_DATE="$date"
+    export TI_TOPIC_SLUG="$topic_slug"
+
+    # Set context tokens
+    export TI_EPIC_ID="$parent_id"
+    export TI_PARENT_ID="$parent_id"
+    export TI_TITLE="$title"
+
+    # Get session ID
+    local session_id
+    session_id=$(ti_get_session_id)
+    [[ -n "$session_id" ]] && export TI_SESSION_ID="$session_id"
+
+    # Generate research ID
+    export TI_RESEARCH_ID="${topic_slug}-${date}"
+
+    # Set command defaults
+    ti_set_defaults
+
+    # Set taskContext tokens from task JSON
+    ti_set_task_context "$task_json"
+
+    # Extract next task IDs for dependency tracking
+    ti_extract_next_task_ids "$task_id"
+
+    # Set computed manifest tokens
+    export TI_MANIFEST_ID="${topic_slug}-${date}"
+    export TI_MANIFEST_FILE="${date}_${topic_slug}.md"
+    export TI_MANIFEST_TITLE="$title"
+
+    return 0
+}
+
 # ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
@@ -1258,3 +1498,7 @@ export -f ti_reload_tokens
 export -f ti_populate_skill_specific_tokens
 export -f validate_token_value
 export -f ti_validate_all_tokens
+export -f ti_verify_all_resolved
+export -f ti_inject_and_verify
+export -f ti_get_session_id
+export -f ti_set_full_context

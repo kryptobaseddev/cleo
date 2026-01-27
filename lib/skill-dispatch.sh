@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # skill-dispatch.sh - Skill Dispatch Library for Orchestrator Protocol
 #
+# ARCHITECTURE NOTE (Universal Subagent Architecture):
+#   All spawns use a single agent type: 'cleo-subagent'
+#   Skills (ct-research-agent, ct-task-executor, etc.) are PROTOCOL IDENTIFIERS,
+#   NOT separate agent types. They are injected as context into cleo-subagent.
+#   The '-agent' suffix in skill names is legacy naming - they are skills/protocols.
+#
 # LAYER: 2 (Services - depends on Layer 1)
 # DEPENDENCIES: exit-codes.sh, skill-validate.sh, token-inject.sh
 # PROVIDES:
@@ -9,10 +15,10 @@
 #   skill_dispatch_by_type       - Match by task type
 #   skill_get_metadata           - Get full skill metadata
 #   skill_get_references         - Get reference files for progressive loading
-#   skill_check_compatibility    - Check subagent type compatibility
+#   skill_check_compatibility    - Check Claude Code subagent type compatibility
 #   skill_list_by_tier           - List skills at tier level
 #   skill_auto_dispatch          - Auto-select skill for CLEO task
-#   skill_prepare_spawn          - Generate spawn context JSON
+#   skill_prepare_spawn          - Generate spawn context JSON with resolved prompt
 #
 #   # Original API
 #   skill_select_for_task, skill_dispatch_validate, skill_inject,
@@ -27,20 +33,27 @@
 # USAGE:
 #   source lib/skill-dispatch.sh
 #
-#   # Spec-compliant API (recommended)
-#   skill=$(skill_auto_dispatch "T1234")
+#   # Spec-compliant API (recommended for Universal Subagent Architecture)
+#   # 1. Select skill protocol based on task
+#   skill=$(skill_auto_dispatch "T1234")  # Returns skill name (protocol identifier)
 #   skill=$(skill_dispatch_by_keywords "implement auth middleware")
-#   context=$(skill_prepare_spawn "$skill" "T1234")
 #
-#   # Original API
+#   # 2. Prepare spawn context with fully-resolved prompt
+#   context=$(skill_prepare_spawn "$skill" "T1234")  # Returns JSON with prompt for cleo-subagent
+#
+#   # 3. Spawn cleo-subagent with Task tool using context.prompt
+#   #    NOTE: The skill name identifies the protocol, NOT the agent type.
+#   #    All spawns use subagent_type: "cleo-subagent"
+#
+#   # Original API (still functional)
 #   skill=$(skill_select_for_task "$task_json")
 #
-#   # Validate skill for use
+#   # Validate skill protocol for use
 #   if skill_dispatch_validate "ct-research-agent"; then
-#       echo "Skill ready"
+#       echo "Skill protocol ready"
 #   fi
 #
-#   # Inject skill into subagent prompt
+#   # Inject skill protocol into prompt (used internally by skill_prepare_spawn)
 #   prompt=$(skill_inject "ct-research-agent" "T1234" "2026-01-20" "topic-slug")
 
 #=== SOURCE GUARD ================================================
@@ -884,9 +897,20 @@ skill_auto_dispatch() {
     return 0
 }
 
-# skill_prepare_spawn - Generate spawn context JSON for a skill and task
+# skill_prepare_spawn - Generate spawn context JSON for a skill and task with FULL token pre-resolution
 # Usage: skill_prepare_spawn "ct-research-agent" "T1234"
-# Returns: JSON object with spawn configuration
+# Returns: JSON object with spawn configuration including fully-resolved prompt content
+#
+# This function is the primary entry point for orchestrator spawning. It:
+#   1. Gets skill metadata and validates it
+#   2. Sets ALL context tokens from task data (ti_set_full_context)
+#   3. Populates skill-specific tokens
+#   4. Loads and injects skill template with ALL tokens resolved
+#   5. Verifies no unresolved {{TOKEN}} patterns remain
+#   6. Returns complete spawn context with ready-to-use prompt
+#
+# The output JSON includes a "prompt" field containing the FULLY RESOLVED prompt
+# that subagents receive - no placeholders should remain.
 skill_prepare_spawn() {
     local skill_name="$1"
     local task_id="$2"
@@ -913,13 +937,111 @@ skill_prepare_spawn() {
 
     # Get skill file path
     local skill_file="${skill_path}/SKILL.md"
+    local full_skill_path="${_SD_PROJECT_ROOT}/${skill_file}"
 
     # Get references
     local references
     references=$(skill_get_references "$skill_name" | jq -R -s -c 'split("\n") | map(select(. != ""))' 2>/dev/null)
     [[ -z "$references" ]] && references="[]"
 
-    # Build spawn context JSON
+    # =========================================================================
+    # FULL TOKEN PRE-RESOLUTION (T2405 Enhancement)
+    # =========================================================================
+
+    _sd_debug "Setting full context for task: $task_id"
+
+    # Step 1: Set ALL context tokens from task data
+    # This populates: TASK_ID, DATE, TOPIC_SLUG, EPIC_ID, SESSION_ID, PARENT_ID,
+    # TITLE, RESEARCH_ID, TASK_TITLE, TASK_DESCRIPTION, TOPICS_JSON, DEPENDS_LIST,
+    # ACCEPTANCE_CRITERIA, DELIVERABLES_LIST, MANIFEST_SUMMARIES, NEXT_TASK_IDS,
+    # and all command defaults
+    if ! ti_set_full_context "$task_id"; then
+        _sd_error "Failed to set full context for task: $task_id"
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+
+    # Step 2: Populate skill-specific tokens (if skill defines them)
+    # This maps skill name to skillSpecific section in placeholders.json
+    local skill_key
+    case "$skill_name" in
+        ct-epic-architect)
+            skill_key="epicArchitect"
+            ;;
+        ct-validator)
+            skill_key="validator"
+            ;;
+        ct-task-executor)
+            skill_key="taskExecutor"
+            ;;
+        *)
+            skill_key=""
+            ;;
+    esac
+
+    if [[ -n "$skill_key" ]]; then
+        _sd_debug "Populating skill-specific tokens for: $skill_key"
+        ti_populate_skill_specific_tokens "$skill_key" || true  # Don't fail if no specific tokens
+    fi
+
+    # Step 3: Load skill template with full injection
+    local skill_content=""
+    if [[ -f "$full_skill_path" ]]; then
+        _sd_debug "Loading skill template: $full_skill_path"
+        skill_content=$(ti_load_template "$full_skill_path")
+    else
+        _sd_warn "Skill file not found: $full_skill_path"
+    fi
+
+    # Step 4: Load and inject protocol base (if exists)
+    local protocol_content=""
+    if [[ -f "$_SD_PROTOCOL_BASE" ]]; then
+        _sd_debug "Loading protocol base: $_SD_PROTOCOL_BASE"
+        protocol_content=$(ti_load_template "$_SD_PROTOCOL_BASE")
+    fi
+
+    # Step 5: Combine into full prompt with protocol header
+    local full_prompt
+    if [[ -n "$protocol_content" ]]; then
+        full_prompt="## Subagent Protocol (Auto-injected)
+
+${protocol_content}
+
+---
+
+## Skill: ${skill_name}
+
+${skill_content}"
+    else
+        full_prompt="$skill_content"
+    fi
+
+    # Step 6: Final token injection pass (catch any nested/computed tokens)
+    full_prompt=$(ti_inject_tokens "$full_prompt")
+
+    # Step 7: CRITICAL - Verify all tokens are resolved
+    local unresolved_count=0
+    local unresolved_tokens=""
+    unresolved_tokens=$(echo "$full_prompt" | grep -oE '\{\{[A-Z_]+\}\}' | sort -u || true)
+
+    if [[ -n "$unresolved_tokens" ]]; then
+        unresolved_count=$(echo "$unresolved_tokens" | wc -l)
+        _sd_warn "Found $unresolved_count unresolved token(s) after injection:"
+        echo "$unresolved_tokens" | while IFS= read -r token; do
+            [[ -n "$token" ]] && echo "  - $token" >&2
+        done
+    fi
+
+    # Extract additional context for JSON output
+    local date_today topic_slug epic_id title
+    date_today="${TI_DATE:-$(date +%Y-%m-%d)}"
+    topic_slug="${TI_TOPIC_SLUG:-task-${task_id}}"
+    epic_id="${TI_EPIC_ID:-}"
+    title="${TI_TITLE:-untitled}"
+    local output_file="${date_today}_${topic_slug}.md"
+    local spawn_timestamp
+    spawn_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Build spawn context JSON with fully resolved prompt
     jq -n \
         --arg skill "$skill_name" \
         --arg path "$skill_path" \
@@ -929,6 +1051,15 @@ skill_prepare_spawn() {
         --argjson tier "$tier" \
         --argjson refs "$references" \
         --arg skillFile "$skill_file" \
+        --arg prompt "$full_prompt" \
+        --arg date "$date_today" \
+        --arg topicSlug "$topic_slug" \
+        --arg epicId "$epic_id" \
+        --arg title "$title" \
+        --arg outputFile "$output_file" \
+        --arg timestamp "$spawn_timestamp" \
+        --argjson unresolvedCount "$unresolved_count" \
+        --arg unresolvedTokens "$unresolved_tokens" \
         '{
             skill: $skill,
             path: $path,
@@ -937,7 +1068,21 @@ skill_prepare_spawn() {
             model: $model,
             tier: $tier,
             references: $refs,
-            skillFile: $skillFile
+            skillFile: $skillFile,
+            spawnContext: {
+                date: $date,
+                topicSlug: $topicSlug,
+                epicId: (if $epicId == "" then null else $epicId end),
+                title: $title,
+                outputFile: $outputFile,
+                spawnTimestamp: $timestamp
+            },
+            tokenResolution: {
+                fullyResolved: ($unresolvedCount == 0),
+                unresolvedCount: $unresolvedCount,
+                unresolvedTokens: (if $unresolvedTokens == "" then [] else ($unresolvedTokens | split("\n") | map(select(. != ""))) end)
+            },
+            prompt: $prompt
         }'
 
     return 0

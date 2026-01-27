@@ -216,6 +216,37 @@ ct context check           # Silent check, exit codes for scripting
 
 **Automatic alerts**: When a CLEO session is active, context alerts automatically appear on stderr after task operations (`complete`, `add`, `focus set`, session lifecycle). Alerts use visual box format and only trigger on threshold crossings. Configure with `ct config set contextAlerts.*`. See `docs/commands/context.md` for details.
 
+### cleo-subagent Architecture (v0.70.0+)
+
+This project uses CLEO's **2-tier universal subagent architecture**:
+
+```
+Tier 0: ORCHESTRATOR (ct-orchestrator)
+    ├── Coordinates workflows via Task tool
+    ├── Pre-resolves ALL tokens before spawn
+    └── Reads manifest summaries only
+    │
+    ▼
+Tier 1: CLEO-SUBAGENT (universal executor)
+    ├── Receives fully-resolved prompts
+    ├── Loads skill via protocol injection
+    └── Outputs: file + manifest entry + summary
+```
+
+**Core Principle**: One universal subagent type with context-specific protocols, NOT skill-specific agents.
+
+**Subagent Output Requirements**:
+| Requirement | Protocol |
+|-------------|----------|
+| **MUST** append ONE line to MANIFEST.jsonl | `claudedocs/agent-outputs/MANIFEST.jsonl` |
+| **MUST NOT** return content in response | Summary message only |
+| **MUST** complete task via `ct complete` | After writing output |
+| **MUST** set focus before work | `ct focus set <id>` |
+
+**Protocol Types (7)**: Research, Decomposition, Implementation, Specification, Contribution, Consensus, Release
+
+Full architecture: `~/.cleo/docs/CLEO-INJECTION.md`
+
 ### Research Subagent Integration (v0.53.0+)
 ```bash
 ct research init                  # Initialize research outputs directory
