@@ -13,6 +13,7 @@
 #   # Spec-compliant API (CLEO-SKILLS-SYSTEM-SPEC.md)
 #   skill_dispatch_by_keywords   - Match task to skill by keyword patterns
 #   skill_dispatch_by_type       - Match by task type
+#   skill_dispatch_by_protocol   - Match by protocol name (7 conditional protocols)
 #   skill_dispatch_by_category   - Match by skill category (taxonomy-based)
 #   get_skills_by_category       - Get skills in a category
 #   skill_get_tier               - Get tier level for a skill
@@ -860,6 +861,70 @@ skill_dispatch_by_type() {
     return 0
 }
 
+# skill_dispatch_by_protocol - Match protocol name to skill
+# Usage: skill_dispatch_by_protocol "research"
+# Returns: skill name or empty if no match
+# Uses dispatch_matrix.by_protocol if available
+# Supports 7 conditional protocols: research, consensus, specification,
+# decomposition, implementation, contribution, release
+skill_dispatch_by_protocol() {
+    local protocol_name="$1"
+
+    _sd_require_jq || return $?
+    _sd_require_manifest || return $?
+
+    # Try dispatch_matrix.by_protocol first
+    local result
+    result=$(jq -r --arg proto "$protocol_name" \
+        '.dispatch_matrix.by_protocol[$proto] // empty' \
+        "$_SD_MANIFEST_JSON" 2>/dev/null)
+
+    if [[ -n "$result" ]]; then
+        _sd_debug "Protocol dispatch: '$protocol_name' -> $result"
+        echo "$result"
+        return 0
+    fi
+
+    # Fallback: map protocol to skill by convention
+    local skill_name
+    case "$protocol_name" in
+        research)
+            skill_name="ct-research-agent"
+            ;;
+        consensus)
+            skill_name="ct-validator"
+            ;;
+        specification)
+            skill_name="ct-spec-writer"
+            ;;
+        decomposition)
+            skill_name="ct-epic-architect"
+            ;;
+        implementation)
+            skill_name="ct-task-executor"
+            ;;
+        contribution)
+            skill_name="ct-task-executor"
+            ;;
+        release)
+            skill_name="ct-dev-workflow"
+            ;;
+        *)
+            _sd_debug "Protocol dispatch: unknown protocol '$protocol_name'"
+            return 0
+            ;;
+    esac
+
+    # Verify skill exists
+    if skill_exists "$skill_name"; then
+        _sd_debug "Protocol dispatch fallback: '$protocol_name' -> $skill_name"
+        echo "$skill_name"
+        return 0
+    fi
+
+    return 0
+}
+
 # skill_get_metadata - Get full skill metadata from manifest
 # Usage: skill_get_metadata "ct-research-agent"
 # Returns: JSON object with all skill fields
@@ -1307,6 +1372,7 @@ export -f skill_is_tier
 # Spec-compliant API functions
 export -f skill_dispatch_by_keywords
 export -f skill_dispatch_by_type
+export -f skill_dispatch_by_protocol
 export -f skill_get_metadata
 export -f skill_get_references
 export -f skill_check_compatibility

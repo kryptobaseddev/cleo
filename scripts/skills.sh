@@ -7,7 +7,7 @@
 #
 # Usage:
 #   cleo skills list [--agent AGENT] [--global]
-  cleo skills search QUERY [--source SOURCE]
+#   cleo skills search QUERY [--source SOURCE]
 #   cleo skills discover
 #   cleo skills validate SKILL
 #   cleo skills info SKILL
@@ -61,6 +61,8 @@ SEARCH_QUERY=""
 # Paths
 PROJECT_SKILLS_DIR="skills"
 MANIFEST_FILE="${PROJECT_SKILLS_DIR}/manifest.json"
+MP_SKILLS_DIR="${PROJECT_SKILLS_DIR}/mp"
+MP_REGISTRY_FILE="${MP_SKILLS_DIR}/installed.json"
 
 # ============================================================================
 # Usage
@@ -72,24 +74,29 @@ cleo skills - Skill management and discovery
 
 USAGE
   cleo skills list [--agent AGENT] [--global]
-  cleo skills search QUERY [--source SOURCE]
+  cleo skills search QUERY [--mp]
   cleo skills discover
   cleo skills validate SKILL
   cleo skills info SKILL
-  cleo skills install SKILL [--agent AGENT] [--global] [--source SOURCE]
+  cleo skills install SKILL [--mp] [--global]
+  cleo skills installed                    # List marketplace-installed skills
+  cleo skills update [SKILL]               # Check/apply updates for marketplace skills
 
 SUBCOMMANDS
   list             List installed skills (project by default)
-  search QUERY     Search for skills (local and/or SkillsMP)
+  search QUERY     Search for skills (local or marketplace with --mp)
   discover         Scan and discover available skills
   validate SKILL   Validate skill against protocol
   info SKILL       Show skill details from manifest
   install SKILL    Install skill to agent directory
+  installed        List skills installed from marketplace
+  update           Check for updates to marketplace skills
 
 OPTIONS
   --agent AGENT    Target agent (claude-code, cursor, gemini, etc.)
   --global         Use global skills directory instead of project
-  --source SOURCE  Search/install source: local (default) | skillsmp | all
+  --mp             Search/install from marketplace (agentskills.in, 100K+ skills)
+  --all            Search both local and marketplace
   --format FORMAT  Output format: text | json (default: text, auto-json when piped)
   --json           Shortcut for --format json
   --human          Shortcut for --format text
@@ -100,14 +107,16 @@ EXAMPLES
   cleo skills list --agent cursor           # List cursor's installed skills
   cleo skills list --global                 # List global skills
   cleo skills search "research"             # Search local skills
-  cleo skills search "research" --source skillsmp  # Search SkillsMP
-  cleo skills search "orchestrator" --source all   # Search both sources
+  cleo skills search "rust cli" --mp        # Search marketplace (100K+ skills)
+  cleo skills search "orchestrator" --all   # Search both sources
   cleo skills discover                      # Find available skills
   cleo skills info ct-orchestrator          # Show skill details
   cleo skills validate ct-research-agent    # Validate skill
-  cleo skills install ct-orchestrator --agent cursor  # Install to cursor
-  cleo skills install research-agent --source skillsmp  # Install from marketplace
-  cleo skills install research-agent --source skillsmp --global  # Install globally
+  cleo skills install ct-orchestrator --agent cursor  # Install local to cursor
+  cleo skills install @wshobson/rust-async-patterns --mp  # Install from marketplace
+  cleo skills installed                     # Show marketplace-installed skills
+  cleo skills update                        # Check all for updates
+  cleo skills update rust-async-patterns    # Check specific skill
 
 NOTES
   - Skills are stored in skills/ (project) or ~/.cleo/skills/ (global)
@@ -183,6 +192,102 @@ discover_skills_in_dir() {
   done
 
   echo "$skills"
+}
+
+# ============================================================================
+# Marketplace Registry Management
+# ============================================================================
+
+# Initialize marketplace registry file
+init_mp_registry() {
+  mkdir -p "$MP_SKILLS_DIR"
+  if [[ ! -f "$MP_REGISTRY_FILE" ]]; then
+    cat > "$MP_REGISTRY_FILE" << 'EOF'
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/mp-registry.schema.json",
+  "_meta": {
+    "schemaVersion": "1.0.0",
+    "lastUpdated": null
+  },
+  "skills": []
+}
+EOF
+  fi
+}
+
+# Add skill to marketplace registry
+# Args: $1=name, $2=scopedName, $3=version, $4=author, $5=stars, $6=path, $7=repoFullName
+add_to_mp_registry() {
+  local name="$1" scopedName="$2" version="$3" author="$4" stars="$5" path="$6" repoFullName="$7"
+
+  init_mp_registry
+
+  local now
+  now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Check if skill already exists
+  local existing
+  existing=$(jq -r --arg name "$name" '.skills[] | select(.name == $name) | .name' "$MP_REGISTRY_FILE" 2>/dev/null || echo "")
+
+  if [[ -n "$existing" ]]; then
+    # Update existing entry
+    jq --arg name "$name" \
+       --arg scopedName "$scopedName" \
+       --arg version "$version" \
+       --arg author "$author" \
+       --argjson stars "$stars" \
+       --arg path "$path" \
+       --arg repoFullName "$repoFullName" \
+       --arg now "$now" \
+       '._meta.lastUpdated = $now |
+        .skills = [.skills[] | if .name == $name then
+          .scopedName = $scopedName | .version = $version | .author = $author |
+          .stars = $stars | .path = $path | .repoFullName = $repoFullName | .updatedAt = $now
+        else . end]' "$MP_REGISTRY_FILE" > "${MP_REGISTRY_FILE}.tmp" && \
+    mv "${MP_REGISTRY_FILE}.tmp" "$MP_REGISTRY_FILE"
+  else
+    # Add new entry
+    jq --arg name "$name" \
+       --arg scopedName "$scopedName" \
+       --arg version "${version:-unknown}" \
+       --arg author "$author" \
+       --argjson stars "${stars:-0}" \
+       --arg path "$path" \
+       --arg repoFullName "$repoFullName" \
+       --arg now "$now" \
+       '._meta.lastUpdated = $now |
+        .skills += [{
+          name: $name,
+          scopedName: $scopedName,
+          version: $version,
+          author: $author,
+          stars: $stars,
+          path: $path,
+          repoFullName: $repoFullName,
+          installedAt: $now,
+          updatedAt: $now
+        }]' "$MP_REGISTRY_FILE" > "${MP_REGISTRY_FILE}.tmp" && \
+    mv "${MP_REGISTRY_FILE}.tmp" "$MP_REGISTRY_FILE"
+  fi
+}
+
+# Get installed marketplace skills
+get_mp_installed() {
+  if [[ -f "$MP_REGISTRY_FILE" ]]; then
+    jq -r '.skills // []' "$MP_REGISTRY_FILE" 2>/dev/null || echo "[]"
+  else
+    echo "[]"
+  fi
+}
+
+# Check if skill is installed from marketplace
+is_mp_installed() {
+  local name="$1"
+  if [[ -f "$MP_REGISTRY_FILE" ]]; then
+    jq -e --arg name "$name" '.skills[] | select(.name == $name)' "$MP_REGISTRY_FILE" >/dev/null 2>&1
+    return $?
+  fi
+  return 1
 }
 
 # ============================================================================
@@ -340,28 +445,27 @@ cmd_search() {
     ')
   fi
 
-  # Search SkillsMP
+  # Search SkillsMP (agentskills.in - public API, no auth required)
   if [[ "$SOURCE" == "skillsmp" ]] || [[ "$SOURCE" == "all" ]]; then
-    # Load SkillsMP configuration
+    # Try to load config (optional - API works without it)
     if declare -f smp_load_config >/dev/null 2>&1; then
-      if smp_load_config 2>/dev/null; then
-        # Search SkillsMP API
-        if declare -f smp_search_skills >/dev/null 2>&1; then
-          local smp_response
-          if smp_response=$(smp_search_skills "$SEARCH_QUERY" 10 "stars" 2>/dev/null); then
-            # Transform SkillsMP results to match local format
-            skillsmp_results=$(echo "$smp_response" | jq -c '.skills // [] | map({
-              name: .name,
-              version: .version,
-              description: .description,
-              author: .author,
-              stars: .stars,
-              source: "skillsmp",
-              scopedName: .scopedName,
-              repoFullName: .repoFullName
-            })')
-          fi
-        fi
+      smp_load_config 2>/dev/null || true  # Config is optional
+    fi
+    # Search SkillsMP API (agentskills.in - public, no auth)
+    if declare -f smp_search_skills >/dev/null 2>&1; then
+      local smp_response
+      if smp_response=$(smp_search_skills "$SEARCH_QUERY" 10 "stars" 2>/dev/null); then
+        # Transform SkillsMP results to match local format
+        skillsmp_results=$(echo "$smp_response" | jq -c '.skills // [] | map({
+          name: .name,
+          version: .version,
+          description: .description,
+          author: .author,
+          stars: .stars,
+          source: "skillsmp",
+          scopedName: .scopedName,
+          repoFullName: .repoFullName
+        })')
       fi
     fi
   fi
@@ -848,7 +952,7 @@ cmd_install() {
     exit "$EXIT_INVALID_INPUT"
   }
 
-  # Handle SkillsMP source
+  # Handle marketplace source (--mp or --source skillsmp)
   if [[ "$SOURCE" == "skillsmp" ]]; then
     # Check if SkillsMP library is available
     if ! declare -f smp_install_skill >/dev/null 2>&1; then
@@ -864,20 +968,9 @@ cmd_install() {
       exit "$EXIT_DEPENDENCY_ERROR"
     fi
 
-    # Load SkillsMP config
-    if ! smp_load_config 2>/dev/null; then
-      if [[ "$output_format" == "json" ]]; then
-        output_error "$E_CONFIG_INVALID" "SkillsMP not configured or disabled" \
-          "$EXIT_CONFIG_ERROR" true "Run 'cleo skillsmp init' to configure"
-      else
-        get_colors
-        echo ""
-        echo -e "${RED}[ERROR]${NC} SkillsMP not configured or disabled"
-        echo ""
-        echo "Run 'cleo skillsmp init' to configure"
-        echo ""
-      fi
-      exit "$EXIT_CONFIG_ERROR"
+    # Try to load config (optional - API works without it)
+    if declare -f smp_load_config >/dev/null 2>&1; then
+      smp_load_config 2>/dev/null || true  # Config is optional
     fi
 
     # Validate skill exists in marketplace
@@ -911,13 +1004,22 @@ cmd_install() {
     # Install using SkillsMP library
     echo "Installing from SkillsMP..."
     if smp_install_skill "$SKILL_NAME" "$target_dir" 2>&1; then
-      local skill_name
+      local skill_name scopedName skill_author skill_stars skill_version repo_name
       skill_name=$(echo "$skill_data" | jq -r '.name')
+      scopedName=$(echo "$skill_data" | jq -r '.scopedName // ""')
+      skill_author=$(echo "$skill_data" | jq -r '.author // ""')
+      skill_stars=$(echo "$skill_data" | jq -r '.stars // 0')
+      skill_version=$(echo "$skill_data" | jq -r '.version // "unknown"')
+      repo_name=$(echo "$skill_data" | jq -r '.repoFullName // ""')
       local install_path="${target_dir}/${skill_name}"
+
+      # Record to marketplace registry
+      add_to_mp_registry "$skill_name" "$scopedName" "$skill_version" "$skill_author" "$skill_stars" "$install_path" "$repo_name"
 
       if [[ "$output_format" == "json" ]]; then
         jq -nc \
           --arg name "$skill_name" \
+          --arg scopedName "$scopedName" \
           --arg path "$install_path" \
           --arg global "$GLOBAL_FLAG" \
           --arg source "$SOURCE" \
@@ -932,16 +1034,20 @@ cmd_install() {
             },
             "success": true,
             "skill": $name,
+            "scopedName": $scopedName,
             "source": $source,
             "installedTo": $path,
-            "global": ($global == "--global")
+            "global": ($global == "--global"),
+            "tracked": true
           }'
       else
         echo ""
-        echo -e "${GREEN}✓${NC} Skill installed from SkillsMP: ${CYAN}$skill_name${NC}"
+        echo -e "${GREEN}✓${NC} Skill installed from marketplace: ${CYAN}$skill_name${NC}"
         echo ""
+        echo -e "${BOLD}Scoped:${NC}   $scopedName"
         echo -e "${BOLD}Path:${NC}     $install_path"
         [[ "$GLOBAL_FLAG" == "--global" ]] && echo -e "${BOLD}Scope:${NC}    global"
+        echo -e "${DIM}Tracked in: $MP_REGISTRY_FILE${NC}"
         echo ""
       fi
       exit "$EXIT_SUCCESS"
@@ -1047,6 +1153,207 @@ cmd_install() {
 }
 
 # ============================================================================
+# Subcommand: installed - List marketplace-installed skills
+# ============================================================================
+
+cmd_installed() {
+  local output_format="${FORMAT:-text}"
+
+  local installed
+  installed=$(get_mp_installed)
+  local count
+  count=$(echo "$installed" | jq 'length')
+
+  if [[ "$output_format" == "json" ]]; then
+    jq -nc \
+      --argjson skills "$installed" \
+      --arg version "$VERSION" \
+      --arg registry "$MP_REGISTRY_FILE" \
+      '{
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+        "_meta": {
+          "format": "json",
+          "version": $version,
+          "command": "skills installed",
+          "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+        },
+        "success": true,
+        "registry": $registry,
+        "count": ($skills | length),
+        "skills": $skills
+      }'
+  else
+    get_colors
+    echo ""
+    echo -e "${BOLD}Marketplace-Installed Skills ($count)${NC}"
+    echo -e "${DIM}Registry: $MP_REGISTRY_FILE${NC}"
+    echo ""
+
+    if [[ "$count" -eq 0 ]]; then
+      echo -e "${YELLOW}No marketplace skills installed${NC}"
+      echo ""
+      echo "Install skills with: cleo skills install @author/skill --mp"
+      echo ""
+      return
+    fi
+
+    echo "$installed" | jq -c '.[]' | while read -r skill; do
+      local name scopedName author stars installedAt path
+      name=$(echo "$skill" | jq -r '.name')
+      scopedName=$(echo "$skill" | jq -r '.scopedName // ""')
+      author=$(echo "$skill" | jq -r '.author // "unknown"')
+      stars=$(echo "$skill" | jq -r '.stars // 0')
+      installedAt=$(echo "$skill" | jq -r '.installedAt // ""')
+      path=$(echo "$skill" | jq -r '.path // ""')
+
+      echo -e "  ${GREEN}●${NC} ${BOLD}$name${NC} ${DIM}($scopedName)${NC}"
+      echo -e "     ${DIM}★$stars${NC} by ${CYAN}$author${NC}"
+      echo -e "     ${DIM}Installed: $installedAt${NC}"
+      echo -e "     ${DIM}Path: $path${NC}"
+      echo ""
+    done
+  fi
+}
+
+# ============================================================================
+# Subcommand: update - Check for updates to marketplace skills
+# ============================================================================
+
+cmd_update() {
+  local output_format="${FORMAT:-text}"
+
+  # Load SkillsMP functions
+  if ! declare -f smp_get_skill_details >/dev/null 2>&1; then
+    if [[ "$output_format" == "json" ]]; then
+      output_error "$E_DEPENDENCY_MISSING" "SkillsMP library not loaded" \
+        "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skillsmp.sh is available"
+    else
+      get_colors
+      echo ""
+      echo -e "${RED}[ERROR]${NC} SkillsMP library not loaded"
+      echo ""
+    fi
+    exit "$EXIT_DEPENDENCY_ERROR"
+  fi
+
+  # Try to load config (optional)
+  if declare -f smp_load_config >/dev/null 2>&1; then
+    smp_load_config 2>/dev/null || true
+  fi
+
+  local installed
+  installed=$(get_mp_installed)
+  local count
+  count=$(echo "$installed" | jq 'length')
+
+  if [[ "$count" -eq 0 ]]; then
+    if [[ "$output_format" == "json" ]]; then
+      jq -nc \
+        --arg version "$VERSION" \
+        '{
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+          "_meta": {
+            "format": "json",
+            "version": $version,
+            "command": "skills update",
+            "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+          },
+          "success": true,
+          "message": "No marketplace skills installed",
+          "updates": []
+        }'
+    else
+      get_colors
+      echo ""
+      echo -e "${YELLOW}No marketplace skills installed${NC}"
+      echo ""
+    fi
+    return
+  fi
+
+  get_colors
+  [[ "$output_format" != "json" ]] && {
+    echo ""
+    echo -e "${BOLD}Checking for updates...${NC}"
+    echo ""
+  }
+
+  local updates="[]"
+  local checked=0
+
+  # Check specific skill if provided
+  if [[ -n "$SKILL_NAME" ]]; then
+    local skill_info
+    skill_info=$(echo "$installed" | jq -r --arg name "$SKILL_NAME" '.[] | select(.name == $name)')
+
+    if [[ -z "$skill_info" ]]; then
+      if [[ "$output_format" == "json" ]]; then
+        output_error "$E_NOT_FOUND" "Skill not installed: $SKILL_NAME" "$EXIT_NOT_FOUND" true \
+          "Run 'cleo skills installed' to see installed marketplace skills"
+      else
+        echo -e "${RED}[ERROR]${NC} Skill not installed: $SKILL_NAME"
+        echo ""
+      fi
+      exit "$EXIT_NOT_FOUND"
+    fi
+
+    installed="[$skill_info]"
+    count=1
+  fi
+
+  echo "$installed" | jq -c '.[]' | while read -r skill; do
+    local name scopedName current_stars
+    name=$(echo "$skill" | jq -r '.name')
+    scopedName=$(echo "$skill" | jq -r '.scopedName // ""')
+    current_stars=$(echo "$skill" | jq -r '.stars // 0')
+
+    [[ "$output_format" != "json" ]] && echo -e "  Checking ${CYAN}$name${NC}..."
+
+    # Get latest info from marketplace
+    local latest_info
+    if latest_info=$(smp_get_skill_details "$scopedName" 2>/dev/null); then
+      local latest_stars
+      latest_stars=$(echo "$latest_info" | jq -r '.stars // 0')
+
+      if [[ "$latest_stars" -gt "$current_stars" ]]; then
+        [[ "$output_format" != "json" ]] && echo -e "    ${GREEN}↑${NC} Stars: $current_stars → $latest_stars"
+        updates=$(echo "$updates" | jq --arg name "$name" --arg old "$current_stars" --arg new "$latest_stars" \
+          '. += [{name: $name, field: "stars", old: ($old | tonumber), new: ($new | tonumber)}]')
+      else
+        [[ "$output_format" != "json" ]] && echo -e "    ${DIM}Up to date${NC}"
+      fi
+    else
+      [[ "$output_format" != "json" ]] && echo -e "    ${YELLOW}Could not check${NC}"
+    fi
+
+    checked=$((checked + 1))
+  done
+
+  if [[ "$output_format" == "json" ]]; then
+    jq -nc \
+      --argjson updates "$updates" \
+      --arg version "$VERSION" \
+      --arg checked "$count" \
+      '{
+        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+        "_meta": {
+          "format": "json",
+          "version": $version,
+          "command": "skills update",
+          "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+        },
+        "success": true,
+        "checked": ($checked | tonumber),
+        "updates": $updates
+      }'
+  else
+    echo ""
+    echo -e "${GREEN}✓${NC} Checked $count skill(s)"
+    echo ""
+  fi
+}
+
+# ============================================================================
 # Argument Parsing
 # ============================================================================
 
@@ -1066,7 +1373,7 @@ parse_arguments() {
   # Check for subcommand
   if [[ $# -gt 0 ]]; then
     case $1 in
-      list|search|discover|validate|info|install)
+      list|search|discover|validate|info|install|installed|update)
         SUBCOMMAND="$1"
         shift
         ;;
@@ -1110,6 +1417,14 @@ parse_arguments() {
         GLOBAL_FLAG="--global"
         shift
         ;;
+      --mp)
+        SOURCE="skillsmp"
+        shift
+        ;;
+      --all)
+        SOURCE="all"
+        shift
+        ;;
       --source)
         shift
         [[ $# -eq 0 ]] && {
@@ -1123,15 +1438,6 @@ parse_arguments() {
           echo "Valid sources: local, skillsmp, all" >&2
           exit "$EXIT_INVALID_INPUT"
         fi
-        shift
-        ;;
-      --source)
-        shift
-        [[ $# -eq 0 ]] && {
-          echo "[ERROR] --source requires an argument" >&2
-          exit "$EXIT_INVALID_INPUT"
-        }
-        SOURCE="$1"
         shift
         ;;
       --*)
@@ -1215,6 +1521,12 @@ main() {
       ;;
     install)
       cmd_install
+      ;;
+    installed)
+      cmd_installed
+      ;;
+    update)
+      cmd_update
       ;;
     *)
       echo "[ERROR] Unknown subcommand: $SUBCOMMAND" >&2

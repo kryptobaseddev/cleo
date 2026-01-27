@@ -101,23 +101,38 @@ context=$(skill_prepare_spawn "$protocol" "T1234")
 # - tokenResolution.fullyResolved: true/false
 ```
 
-### Protocol Dispatch Matrix
+### Protocol Dispatch Matrix (7 Conditional Protocols)
 
 | Task Type | When to Use | Example Tasks | Protocol |
 |-----------|-------------|---------------|----------|
-| **Research** | Need information gathering | "Research OAuth patterns", "Compare JWT libraries", "Survey auth solutions" | `protocols/research.md` |
-| **Planning** | Decompose complex work | "Plan auth epic", "Break down migration", "Architect module" | `protocols/decomposition.md` |
-| **Implementation** | Build functionality | "Implement validation", "Add middleware", "Create utility function" | `protocols/implementation.md` |
-| **Specification** | Define requirements | "Write API spec", "Document protocol", "Define interface" | `protocols/specification.md` |
-| **Testing** | Validate implementation | "Write BATS tests", "Add integration tests", "Create test fixtures" | Protocol TBD |
-| **Validation** | Compliance checks | "Run security audit", "Verify protocol adherence", "Check quality gates" | Protocol TBD |
-| **Documentation** | Write docs | "Update README", "Document API", "Write user guide" | Protocol TBD |
+| **Research** | Need information gathering | "Research OAuth patterns", "Compare JWT libraries" | `protocols/research.md` |
+| **Consensus** | Validate claims, decisions | "Vote on architecture", "Validate recommendations" | `protocols/consensus.md` |
+| **Specification** | Define requirements formally | "Write API spec", "Document protocol" | `protocols/specification.md` |
+| **Decomposition** | Break down complex work | "Plan auth epic", "Architect module" | `protocols/decomposition.md` |
+| **Implementation** | Build functionality | "Implement validation", "Add middleware" | `protocols/implementation.md` |
+| **Contribution** | Track multi-agent work | "PR creation", "Shared resource modification" | `protocols/contribution.md` |
+| **Release** | Version and publish | "Release v0.74.0", "Bump version" | `protocols/release.md` |
+
+**RCSD Pipeline Flow** (Research → Consensus → Specification → Decomposition):
+```
+┌─────────────────── RCSD PIPELINE (setup phase) ───────────────────┐
+│  Research → Consensus → Specification → Decomposition             │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────── EXECUTION (core/polish) ───────────────────────┐
+│  Implementation → Contribution → Release                          │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 **Trigger Keywords by Protocol**:
 - **Research**: research, investigate, explore, survey, analyze, study
-- **Planning**: epic, plan, decompose, architect, design, organize
-- **Implementation**: implement, build, execute, create, develop, code
+- **Consensus**: vote, validate, consensus, decide, agree, dispute
 - **Specification**: spec, rfc, protocol, contract, interface, define
+- **Decomposition**: epic, plan, decompose, architect, design, organize
+- **Implementation**: implement, build, execute, create, develop, code
+- **Contribution**: PR, merge, shared resource, commit, attribution
+- **Release**: release, version, publish, deploy, ship, changelog
 
 ### Spawning cleo-subagent
 
@@ -422,6 +437,59 @@ cleo verify T1586 --all
 # 5. Parent epic auto-completes when all children verified
 ```
 
+### Pattern: Release Workflow
+
+**Release tasks use the `release` protocol** for version management and changelog generation.
+
+```bash
+# 1. Verify all epic tasks complete
+cleo list --parent T1575 --status pending  # Should be empty
+
+# 2. Run pre-release validation
+./tests/run-all-tests.sh
+cleo validate
+
+# 3. Create release (uses dev/release-version.sh)
+# For patch release:
+./dev/release-version.sh patch --push
+
+# For minor release:
+./dev/release-version.sh minor --push
+
+# Preview without changes:
+./dev/release-version.sh patch --dry-run
+```
+
+**Release Script Relationship**:
+
+| Script | Purpose | Automation Level |
+|--------|---------|------------------|
+| `dev/bump-version.sh` | Updates VERSION + README only | Partial |
+| `dev/release-version.sh` | Full release: bump + changelog + commit + tag + push | Full |
+| `scripts/generate-changelog.sh` | CHANGELOG.md → Mintlify MDX | Called by release-version |
+
+**Full RCSD-to-Release Lifecycle**:
+
+```bash
+# RCSD PIPELINE (setup phase)
+cleo orchestrator spawn T100  # research protocol
+cleo orchestrator spawn T101  # consensus protocol
+cleo orchestrator spawn T102  # specification protocol
+cleo orchestrator spawn T103  # decomposition protocol
+
+# EXECUTION (core phase)
+cleo orchestrator spawn T104  # implementation protocol
+cleo orchestrator spawn T105  # implementation protocol
+# ...more implementation tasks...
+
+# CONTRIBUTION (tracked automatically)
+# contribution protocol auto-triggers for shared resources
+
+# RELEASE (polish phase)
+./dev/release-version.sh minor --push
+cleo session end --note "Feature X released v0.74.0"
+```
+
 ---
 
 ## Anti-Patterns (MUST NOT)
@@ -470,6 +538,9 @@ For detailed workflows, load these references on demand:
 
 ## External Documentation
 
+- [PROJECT-LIFECYCLE-SPEC.md](../../docs/specs/PROJECT-LIFECYCLE-SPEC.md) - Full lifecycle (RCSD → Release)
+- [PROTOCOL-STACK-SPEC.md](../../docs/specs/PROTOCOL-STACK-SPEC.md) - 7 conditional protocols
+- [RCSD-PIPELINE-SPEC.md](../../docs/specs/RCSD-PIPELINE-SPEC.md) - Research → Consensus → Spec → Decompose
 - [ORCHESTRATOR-VISION.md](../../docs/ORCHESTRATOR-VISION.md) - Core philosophy
 - [ORCHESTRATOR-PROTOCOL.md](../../docs/guides/ORCHESTRATOR-PROTOCOL.md) - Practical workflows
 - [orchestrator.md](../../docs/commands/orchestrator.md) - CLI command reference
