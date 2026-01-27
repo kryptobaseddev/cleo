@@ -5,6 +5,22 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.1] - 2026-01-27
+
+### Fixed
+- **Doctor Command Bug Fixes** (T1469 HITL Testing):
+  - **T1965**: Fixed schema version comparison - was comparing object instead of `.version` subfield from `project-info.json`, causing false "Outdated schemas" warnings
+  - **T1966**: Fixed `--clean-temp` showing stale counts - moved cleanup to Phase 1b (before validation) so health check shows accurate post-cleanup data
+  - **T1968**: Fixed double counting of orphaned and temp projects - orphan check now runs before temp check to prevent increment of both counters
+  - **T1964**: Verified ISSUES column truncation already fixed (shows full text)
+  - **T1967**: Verified agent config registry working correctly
+
+### Validated
+- **Migration Automation System** (T1482-T1485):
+  - Pre-commit hook exists with PATCH/MINOR/MAJOR auto-generation logic
+  - Developer mode bypass and runtime protection working correctly
+  - Agent documentation sanitization verified - no low-level `migrate` command references
+
 ## [Unreleased]
 
 ### Added
