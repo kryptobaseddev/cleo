@@ -269,11 +269,38 @@
             ]
           },
           {
+            "group": "Architecture",
+            "pages": [
+              "guides/SKILL-DISPATCH-ALGORITHM",
+              "guides/PROTOCOL-INJECTION-FLOW",
+              "guides/MANIFEST-SCHEMA"
+            ]
+          },
+          {
+            "group": "Specifications",
+            "pages": [
+              "specs/SKILL-TAXONOMY-SPEC",
+              "specs/PROTOCOL-STACK-SPEC"
+            ]
+          },
+          {
             "group": "Agent Skills",
             "pages": [
               "skills/epic-architect",
               "skills/orchestrator",
               "skills/research-agent"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "guides/skill-development"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/DISPATCH-DEBUG"
             ]
           }
         ]
