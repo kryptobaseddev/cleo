@@ -147,21 +147,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-01-27T03:23:42Z",
+  "lastUpdated": "2026-01-27T06:15:30Z",
   "_meta": {
-    "checksum": "a3f92919295be2d2",
+    "checksum": "3d8253c05f887fea",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-01-27T03:23:54Z",
+    "lastModified": "2026-01-27T06:13:57Z",
     "version": "2.7.0",
     "schemaVersion": "2.9.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 0,
-    "generation": 674
+    "activeSessionCount": 1,
+    "generation": 687
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T2476",
     "blockedUntil": null,
     "sessionNote": "CRITICAL: cleo-subagent NOT YET FUNCTIONAL. Files created but Task tool cannot discover agent. Fix applied: (1) Moved to .claude/agents/cleo-subagent.md, (2) Changed allowed_tools to tools. NEXT: Run /agents to reload discovery, test spawn. T2429 created for E2E validation. DO NOT trust subtask 'done' status - E2E never tested.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -9422,7 +9422,7 @@
     {
       "id": "T2200",
       "title": "Research: Version Bump Tooling Evaluation",
-      "status": "active",
+      "status": "pending",
       "priority": "high",
       "type": "task",
       "parentId": "T2199",
@@ -17171,6 +17171,300 @@
         "rcsd",
         "typescript"
       ]
+    },
+    {
+      "id": "T2470",
+      "title": "EPIC: SkillsMP Integration - External Skill Discovery",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-01-27T06:10:24Z",
+      "updatedAt": "2026-01-27T06:10:24Z",
+      "size": "large",
+      "position": 152,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Integrate with SkillsMP/agentskills.in API for external skill discovery."
+    },
+    {
+      "id": "T2471",
+      "title": "EPIC: SkillsMP Integration",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-01-27T06:10:31Z",
+      "updatedAt": "2026-01-27T06:10:31Z",
+      "size": "large",
+      "position": 153,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Integrate with SkillsMP API for skill discovery."
+    },
+    {
+      "id": "T2472",
+      "title": "Research: SkillsMP API capabilities",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:10:50Z",
+      "updatedAt": "2026-01-27T06:11:53Z",
+      "size": "small",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "setup",
+      "description": "Research SkillsMP/agentskills.in API endpoints and authentication",
+      "completedAt": "2026-01-27T06:11:53Z",
+      "notes": [
+        "[COMPLETED 2026-01-27T06:11:53Z] Research complete. API at agentskills.in, no auth required. See 2026-01-27_skillsmp-api-research.md"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-27T06:11:53Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2473",
+      "title": "Design: skillsmp.json config schema",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:10:52Z",
+      "updatedAt": "2026-01-27T06:11:57Z",
+      "size": "small",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "setup",
+      "description": "Design configuration schema for SkillsMP API credentials",
+      "completedAt": "2026-01-27T06:11:57Z",
+      "notes": [
+        "[COMPLETED 2026-01-27T06:11:57Z] Design complete. Config schema with env var support. See 2026-01-27_skillsmp-config-design.md"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-27T06:11:58Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2474",
+      "title": "Create: schemas/skillsmp.schema.json",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:10:56Z",
+      "updatedAt": "2026-01-27T06:12:55Z",
+      "size": "small",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "JSON Schema for skillsmp.json validation",
+      "completedAt": "2026-01-27T06:12:55Z",
+      "notes": [
+        "[COMPLETED 2026-01-27T06:12:55Z] Created skillsmp.schema.json with comprehensive configuration validation including api, auth, install, cache, validation, and logging sections"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-27T06:12:56Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2475",
+      "title": "Implement: lib/skillsmp.sh API client",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:10:59Z",
+      "updatedAt": "2026-01-27T06:13:15Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "SkillsMP API client library for search and download",
+      "completedAt": "2026-01-27T06:13:15Z",
+      "notes": [
+        "[COMPLETED 2026-01-27T06:13:15Z] Created lib/skillsmp.sh with API client functions: smp_load_config, smp_search_skills, smp_get_skill_details, smp_download_skill, smp_install_skill. Includes caching with 5-min TTL for search, 1-hour for content. Direct integration with agentskills.in REST API."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-27T06:13:16Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2476",
+      "title": "Implement: cleo skills search --source skillsmp",
+      "status": "active",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:11:24Z",
+      "updatedAt": "2026-01-27T06:13:57Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add SkillsMP source to skills search command"
+    },
+    {
+      "id": "T2477",
+      "title": "Implement: cleo skills install --source skillsmp",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:11:25Z",
+      "updatedAt": "2026-01-27T06:15:29Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add SkillsMP source to skills install command",
+      "completedAt": "2026-01-27T06:15:29Z",
+      "notes": [
+        "[COMPLETED 2026-01-27T06:15:29Z] Added --source skillsmp flag to skills install command. Integrates with lib/skillsmp.sh for marketplace downloads. Supports both local and SkillsMP sources with --global flag compatibility."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-27T06:15:30Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2478",
+      "title": "Update: ct-skill-lookup for SkillsMP",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:11:25Z",
+      "updatedAt": "2026-01-27T06:14:40Z",
+      "size": "small",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update skill lookup skill to support SkillsMP source",
+      "completedAt": "2026-01-27T06:14:40Z",
+      "notes": [
+        "[COMPLETED 2026-01-27T06:14:40Z] Updated ct-skill-lookup skill to document SkillsMP support. Added search, get, and install examples using cleo skills commands with --source skillsmp flag. Updated triggers to include marketplace and external skills keywords."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-27T06:14:40Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2479",
+      "title": "Test: SkillsMP integration BATS tests",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:11:26Z",
+      "updatedAt": "2026-01-27T06:11:26Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "testing",
+      "description": "Unit and integration tests for SkillsMP features"
+    },
+    {
+      "id": "T2480",
+      "title": "Documentation: SkillsMP integration guide",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:11:27Z",
+      "updatedAt": "2026-01-27T06:11:27Z",
+      "size": "small",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "polish",
+      "description": "User guide for SkillsMP integration"
+    },
+    {
+      "id": "T2481",
+      "title": "Create: Example skillsmp.json template",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2471",
+      "createdAt": "2026-01-27T06:11:28Z",
+      "updatedAt": "2026-01-27T06:11:28Z",
+      "size": "small",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "polish",
+      "description": "Template config file with documentation"
     }
   ],
   "labels": {}
