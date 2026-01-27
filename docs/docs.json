@@ -230,6 +230,7 @@
             "group": "Architecture",
             "pages": [
               "concepts/architecture",
+              "concepts/backup-system",
               "concepts/data-flows",
               "concepts/anti-hallucination"
             ]

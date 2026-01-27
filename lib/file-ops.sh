@@ -77,6 +77,13 @@ FO_VALIDATION_FAILED=5
 FO_RESTORE_FAILED=6
 FO_JSON_PARSE_FAILED=7
 FO_LOCK_FAILED=8
+FO_SCHEMA_VALIDATION_FAILED=9  # Pre-write schema validation failed
+
+# Pre-write schema validation configuration
+# Set CLEO_SKIP_SCHEMA_VALIDATION=1 to bypass schema validation (emergency use only)
+# Set CLEO_SCHEMA_VALIDATION_STRICT=1 to fail on validation errors (default: warn)
+CLEO_SKIP_SCHEMA_VALIDATION="${CLEO_SKIP_SCHEMA_VALIDATION:-0}"
+CLEO_SCHEMA_VALIDATION_STRICT="${CLEO_SCHEMA_VALIDATION_STRICT:-0}"
 
 # ============================================================================
 # SECURITY FUNCTIONS (inlined from validation.sh to avoid circular dependency)
@@ -557,6 +564,112 @@ load_json() {
     cat "$file"
     return $FO_SUCCESS
 }
+
+#######################################
+# Determine schema type from file path
+# Arguments:
+#   $1 - File path
+# Outputs:
+#   Schema type (todo|archive|config|sessions|log) or empty if unknown
+# Returns:
+#   0 always
+#######################################
+_fo_get_schema_type() {
+    local file="$1"
+    local basename
+    basename="$(basename "$file")"
+
+    case "$basename" in
+        todo.json)           echo "todo" ;;
+        todo-archive.json)   echo "archive" ;;
+        config.json)         echo "config" ;;
+        sessions.json)       echo "sessions" ;;
+        todo-log.json)       echo "log" ;;
+        *)                   echo "" ;;  # Unknown schema type
+    esac
+}
+
+#######################################
+# Validate JSON content against schema (pre-write validation)
+# Uses late-binding to avoid circular dependency with validation.sh
+# Arguments:
+#   $1 - JSON content
+#   $2 - Schema type (todo|archive|config|sessions|log)
+# Returns:
+#   0 if valid or validation skipped, non-zero if invalid (strict mode)
+# Notes:
+#   - Requires validation.sh to be loaded by caller for full validation
+#   - Falls back to basic structure checks if validation.sh not available
+#   - Controlled by CLEO_SKIP_SCHEMA_VALIDATION and CLEO_SCHEMA_VALIDATION_STRICT
+#######################################
+_fo_validate_json_content() {
+    local content="$1"
+    local schema_type="$2"
+
+    # Skip validation if disabled
+    if [[ "${CLEO_SKIP_SCHEMA_VALIDATION:-0}" == "1" ]]; then
+        return 0
+    fi
+
+    # Skip validation for unknown schema types
+    if [[ -z "$schema_type" ]]; then
+        return 0
+    fi
+
+    local validation_errors=0
+
+    # Basic structure validation (always performed, no external dependencies)
+    case "$schema_type" in
+        "todo")
+            if ! echo "$content" | jq -e '.tasks | type == "array"' >/dev/null 2>&1; then
+                echo "Schema validation: Missing or invalid 'tasks' array" >&2
+                ((validation_errors++))
+            fi
+            if ! echo "$content" | jq -e 'has("_meta")' >/dev/null 2>&1; then
+                echo "Schema validation: Missing '_meta' object" >&2
+                ((validation_errors++))
+            fi
+            ;;
+        "archive")
+            if ! echo "$content" | jq -e '.tasks | type == "array"' >/dev/null 2>&1; then
+                echo "Schema validation: Missing or invalid archived 'tasks' array" >&2
+                ((validation_errors++))
+            fi
+            ;;
+        "config")
+            if ! echo "$content" | jq -e 'has("_meta")' >/dev/null 2>&1; then
+                echo "Schema validation: Missing '_meta' object in config" >&2
+                ((validation_errors++))
+            fi
+            ;;
+        "sessions")
+            if ! echo "$content" | jq -e '.sessions | type == "array"' >/dev/null 2>&1; then
+                echo "Schema validation: Missing or invalid 'sessions' array" >&2
+                ((validation_errors++))
+            fi
+            ;;
+        "log")
+            if ! echo "$content" | jq -e '.entries | type == "array"' >/dev/null 2>&1; then
+                echo "Schema validation: Missing or invalid 'entries' array" >&2
+                ((validation_errors++))
+            fi
+            ;;
+    esac
+
+    # Return based on strictness mode
+    if [[ $validation_errors -gt 0 ]]; then
+        if [[ "${CLEO_SCHEMA_VALIDATION_STRICT:-0}" == "1" ]]; then
+            echo "Error: Pre-write schema validation failed ($validation_errors errors)" >&2
+            echo "Hint: Set CLEO_SKIP_SCHEMA_VALIDATION=1 to bypass (emergency only)" >&2
+            return 1
+        else
+            echo "Warning: Pre-write schema validation found issues (non-strict mode)" >&2
+        fi
+    fi
+
+    return 0
+}
+
 #######################################
 # Save JSON with pretty-printing and atomic write
 # Arguments:
@@ -587,6 +700,18 @@ save_json() {
     if ! echo "$json" | jq empty 2>/dev/null; then
         echo "Error: Invalid JSON content" >&2
         return $FO_JSON_PARSE_FAILED
+    fi
+
+    # Pre-write schema validation (v0.71.0+)
+    # Validates basic structure before writing to prevent invalid data persistence
+    # Controlled by CLEO_SKIP_SCHEMA_VALIDATION and CLEO_SCHEMA_VALIDATION_STRICT
+    local schema_type
+    schema_type=$(_fo_get_schema_type "$file")
+    if [[ -n "$schema_type" ]]; then
+        if ! _fo_validate_json_content "$json" "$schema_type"; then
+            echo "Error: Pre-write schema validation failed for $file" >&2
+            return $FO_SCHEMA_VALIDATION_FAILED
+        fi
     fi
 
     # For todo.json: increment generation counter before write
