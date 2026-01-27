@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.70.1-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.71.0-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -852,6 +852,15 @@ cleo find "auth" | jq '.matches[0].id'  # 99% less tokens than list
 <details>
 <summary><h2>Skills Architecture (v0.55.0+)</h2></summary>
 
+CLEO uses a **2-tier subagent architecture** for multi-agent coordination:
+
+| Tier | Component | Role |
+|------|-----------|------|
+| **0** | ct-orchestrator | HITL coordinator, delegates ALL work |
+| **1** | cleo-subagent | Universal executor with skill injection |
+
+> **Architecture Reference**: See [CLEO-SUBAGENT.md](docs/architecture/CLEO-SUBAGENT.md) for complete documentation.
+
 CLEO includes 14 modular skills for AI agent workflows:
 
 ### Token Injection System (v0.60.0+)
@@ -874,23 +883,28 @@ The `orchestrator_spawn_for_task()` function consolidates subagent spawning into
 ```bash
 # Programmatic spawning (from lib/orchestrator-spawn.sh)
 source lib/orchestrator-spawn.sh
-prompt=$(orchestrator_spawn_for_task "T1234")              # Default skill
-prompt=$(orchestrator_spawn_for_task "T1234" "ct-research-agent")  # Specific skill
+prompt=$(orchestrator_spawn_for_task "T1234")              # Default protocol
+prompt=$(orchestrator_spawn_for_task "T1234" "ct-research-agent")  # Specific protocol
+
+# NOTE: All spawns use subagent_type: "cleo-subagent"
+# The second argument selects the protocol to inject, not a separate agent type
 ```
 
 Automates: task validation, context loading, token injection, template rendering, and prompt generation.
 
-### Installed Skills
+### Installed Skills (Protocol Identifiers)
 
-| Skill | Purpose |
-|-------|---------|
+> **Note**: Skills are protocol identifiers, NOT separate agent types. All spawns use a single agent type (`cleo-subagent`) with the selected skill injected as context. The `-agent` suffix in some skill names is legacy naming.
+
+| Skill Protocol | Purpose |
+|----------------|---------|
 | `ct-epic-architect` | Create epics with task decomposition |
 | `ct-orchestrator` | Multi-agent workflow coordination |
 | `ct-docs-lookup` | Documentation search via Context7 |
 | `ct-docs-write` | Documentation generation |
 | `ct-docs-review` | Documentation compliance review |
-| `ct-research-agent` | Multi-source research |
-| `ct-task-executor` | Generic task execution |
+| `ct-research-agent` | Multi-source research protocol |
+| `ct-task-executor` | Generic task execution protocol |
 | `ct-spec-writer` | Technical specification writing |
 | `ct-test-writer-bats` | BATS test generation |
 | `ct-validator` | Compliance validation |
@@ -1036,9 +1050,9 @@ Target metrics (optimized for 1000+ tasks):
 | **Start Here** | [Quick Start](docs/getting-started/quick-start.md) · [Design Philosophy](docs/guides/design-philosophy.md) |
 | **Installation** | [Installer Architecture](docs/guides/installer-architecture.md) · [Migration Guide](docs/guides/installer-migration.md) |
 | **Reference** | [Command Index](docs/commands/COMMANDS-INDEX.json) · [Quick Reference](docs/QUICK-REFERENCE.md) · [Task Management](docs/TODO_Task_Management.md) |
-| **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flows](docs/architecture/DATA-FLOWS.md) |
+| **Architecture** | [System Architecture](docs/architecture/ARCHITECTURE.md) · [Data Flows](docs/architecture/DATA-FLOWS.md) · [2-Tier Subagent](docs/architecture/CLEO-SUBAGENT.md) |
 | **Specifications** | [LLM-Agent-First Spec](docs/specs/LLM-AGENT-FIRST-SPEC.md) · [Task ID System](docs/specs/LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md) · [Hierarchy Spec](docs/specs/TASK-HIERARCHY-SPEC.md) |
-| **Integration** | [Claude Code Guide](docs/integration/CLAUDE-CODE.md) · [CI/CD Integration](docs/ci-cd-integration.md) |
+| **Integration** | [Claude Code Guide](docs/integration/CLAUDE-CODE.md) · [CI/CD Integration](docs/ci-cd-integration.md) · [Orchestrator Protocol](docs/guides/ORCHESTRATOR-PROTOCOL.md) |
 
 **Complete documentation**: [docs/INDEX.md](docs/INDEX.md)
 
