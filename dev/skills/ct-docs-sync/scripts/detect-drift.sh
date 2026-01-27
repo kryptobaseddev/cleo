@@ -48,7 +48,7 @@ get_config() {
 }
 
 # Paths from config
-TODO_MGMT="$CLEO_HOME/docs/$(get_config '.agentInjectionDoc' 'TODO_Task_Management.md')"
+CLEO_INJECTION="$CLEO_HOME/docs/$(get_config '.agentInjectionDoc' 'CLEO-INJECTION.md')"
 
 # Options
 MODE="full"
@@ -403,12 +403,12 @@ check_vision_docs() {
     fi
 }
 
-# Check TODO_Task_Management.md
+# Check CLEO-INJECTION.md (agent injection documentation)
 check_agent_injection() {
-    log_header "INJECTION" "Checking TODO_Task_Management.md"
+    log_header "INJECTION" "Checking CLEO-INJECTION.md"
 
-    if [[ -f "$TODO_MGMT" ]]; then
-        log_ok "TODO_Task_Management.md exists at $TODO_MGMT"
+    if [[ -f "$CLEO_INJECTION" ]]; then
+        log_ok "CLEO-INJECTION.md exists at $CLEO_INJECTION"
 
         # Check for critical sections from config
         local section pattern
@@ -419,7 +419,7 @@ check_agent_injection() {
             pattern=$(jq -r ".requiredSections[\"$section\"]" "$DRIFT_CONFIG" 2>/dev/null)
             if [[ -n "$pattern" && "$pattern" != "null" ]]; then
                 ((sections_checked++))
-                if grep -qE "$pattern" "$TODO_MGMT"; then
+                if grep -qE "$pattern" "$CLEO_INJECTION"; then
                     log_ok "Section '$section' present"
                 else
                     log_warn "Section '$section' missing"
@@ -430,12 +430,12 @@ check_agent_injection() {
         # Fallback to defaults if no config
         if [[ $sections_checked -eq 0 ]]; then
             local -A fallback_sections=(
-                ["Command Reference"]="^## Command Reference"
-                ["Session Management"]="^### Focus & Session|^### Multi-Session|^## Session Protocol"
-                ["Core Operations"]="^### Core Operations"
+                ["Architecture Overview"]="^## Architecture Overview"
+                ["Protocol Stack"]="^## Protocol Stack"
+                ["Output Requirements"]="^## Output Requirements"
             )
             for section in "${!fallback_sections[@]}"; do
-                if grep -qE "${fallback_sections[$section]}" "$TODO_MGMT"; then
+                if grep -qE "${fallback_sections[$section]}" "$CLEO_INJECTION"; then
                     log_ok "Section '$section' present"
                 else
                     log_warn "Section '$section' missing"
@@ -443,7 +443,7 @@ check_agent_injection() {
             done
         fi
     else
-        log_error "TODO_Task_Management.md not found at $TODO_MGMT"
+        log_error "CLEO-INJECTION.md not found at $CLEO_INJECTION"
         log_recommend "Run cleo upgrade to regenerate agent injection docs"
     fi
 }
