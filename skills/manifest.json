@@ -19,7 +19,10 @@
       "documentation": "ct-documentor",
       "specification": "ct-spec-writer",
       "validation": "ct-validator",
-      "bash-library": "ct-library-implementer-bash"
+      "bash-library": "ct-library-implementer-bash",
+      "release": "ct-dev-workflow",
+      "consensus": "ct-validator",
+      "contribution": "ct-task-executor"
     },
     "by_keyword": {
       "research|investigate|explore|discover": "ct-research-agent",
@@ -28,8 +31,19 @@
       "test|bats|coverage|integration": "ct-test-writer-bats",
       "doc|document|readme|guide": "ct-documentor",
       "spec|rfc|protocol|contract": "ct-spec-writer",
-      "validate|verify|audit|compliance": "ct-validator",
-      "lib/|bash|shell|function": "ct-library-implementer-bash"
+      "validate|verify|audit|compliance|consensus|vote": "ct-validator",
+      "lib/|bash|shell|function": "ct-library-implementer-bash",
+      "release|version|publish|deploy|ship|changelog": "ct-dev-workflow"
+    },
+    "by_protocol": {
+      "_comment": "Maps protocol files to skills for protocol-based dispatch",
+      "research": "ct-research-agent",
+      "consensus": "ct-validator",
+      "specification": "ct-spec-writer",
+      "decomposition": "ct-epic-architect",
+      "implementation": "ct-task-executor",
+      "contribution": "ct-task-executor",
+      "release": "ct-dev-workflow"
     }
   },
   "skills": [

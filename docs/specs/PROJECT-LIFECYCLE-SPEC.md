@@ -1,640 +1,406 @@
-# Project Lifecycle & Task Management Specification
+# Project Lifecycle Specification
 
 **Version**: 1.0.0
-**Status**: Draft
-**Last Updated**: 2025-12-22
+**Status**: DRAFT
+**Created**: 2026-01-27
+**Epic**: Integration from RCSD Pipeline + Protocol Stack
 
 ---
 
-## Executive Summary
+## RFC 2119 Conformance
 
-cleo is a task management system designed for software projects across their entire lifecycle. It works for **greenfield** (new) projects, **brownfield** (existing) projects, and **grayfield** (hybrid) transitions.
-
-### The Two-Dimensional Model
-
-```
-                    PHASES (Lifecycle Time →)
-                    ┌─────────┬─────────┬─────────┬─────────┬─────────┐
-                    │ setup   │ core    │ testing │ polish  │ maint.  │
-             ┌──────┼─────────┼─────────┼─────────┼─────────┼─────────┤
-             │ Epic │ [tasks] │ [tasks] │ [tasks] │ [tasks] │ [tasks] │
-    EPICS    │  A   │         │         │         │         │         │
-  (Vertical) ├──────┼─────────┼─────────┼─────────┼─────────┼─────────┤
-             │ Epic │ [tasks] │ [tasks] │ [tasks] │ [tasks] │ [tasks] │
-             │  B   │         │         │         │         │         │
-             └──────┴─────────┴─────────┴─────────┴─────────┴─────────┘
-```
-
-- **PHASES** = WHERE you are in the project lifecycle (horizontal, time-based)
-- **EPICS** = WHAT capabilities you're building (vertical, feature-based)
-- **TASKS** = HOW you build them (at the intersection)
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+"SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+"OPTIONAL" in this document are to be interpreted as described in
+BCP 14 [RFC 2119] [RFC 8174] when, and only when, they appear in all capitals.
 
 ---
 
-## Part 1: Conceptual Framework
+## Part 1: Preamble
 
-### 1.1 The Lifecycle Continuum
+### 1.1 Purpose
 
-All projects follow the same lifecycle stages, but execute them differently:
+This specification defines the **Project Lifecycle** - the end-to-end workflow for taking an idea from research through release. It integrates:
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         PROJECT LIFECYCLE                            │
-├──────────┬──────────┬──────────┬──────────┬──────────┬──────────────┤
-│ Discovery│ Planning │ Design   │ Build    │ Test     │ Release      │
-│          │          │          │          │          │              │
-│ "What?"  │ "How?"   │ "Shape?" │ "Make!"  │ "Works?" │ "Ship!"      │
-├──────────┴──────────┴──────────┴──────────┴──────────┴──────────────┤
-│                                  ↓                                   │
-├──────────────────────────────────────────────────────────────────────┤
-│                     Operate ←→ Improve (Continuous)                  │
-│                     "Run it"    "Better it"                          │
-└──────────────────────────────────────────────────────────────────────┘
-```
+- **RCSD Pipeline** (Research → Consensus → Specification → Decomposition)
+- **Protocol Stack** (7 conditional protocols for subagent work)
+- **Release Workflow** (automated release management)
 
-### 1.2 Mapping to cleo Phases
+### 1.2 Scope
 
-| Lifecycle Stage | cleo Phase | Primary Activities |
-|-----------------|-------------------|-------------------|
-| Discovery | `setup` | Define problem, identify users, validate need |
-| Planning | `setup` | Choose stack, define architecture, create roadmap |
-| Design | `setup` / `core` | UX flows, data models, API contracts |
-| Build | `core` | Implement features, write code |
-| Test | `testing` | Unit tests, integration tests, QA |
-| Release | `polish` | Deployment prep, optimization, documentation |
-| Operate | `maintenance` | Monitoring, incident response, support |
-| Improve | `maintenance` | Feedback loops, performance tuning, iteration |
+This specification is **AUTHORITATIVE** for:
 
-### 1.3 The Key Insight
+- Lifecycle stage definitions and transitions
+- Protocol selection per lifecycle stage
+- Release workflow integration
+- Orchestrator coordination patterns
 
-> **After first release, everything becomes brownfield.**
+This specification **DEFERS TO**:
 
-Even greenfield projects accumulate:
-- Users who depend on behavior
-- Data that must be preserved
-- Constraints that limit changes
-
-The lifecycle **never stops**. It loops: Operate → Improve → Discovery → Build → Release → Operate...
+- [RCSD-PIPELINE-SPEC.md](RCSD-PIPELINE-SPEC.md) for RCSD stage details
+- [PROTOCOL-STACK-SPEC.md](PROTOCOL-STACK-SPEC.md) for protocol requirements
+- Individual protocol files (`protocols/*.md`) for protocol-specific rules
 
 ---
 
-## Part 2: Phase Definitions
+## Part 2: Lifecycle Stages
 
-### 2.1 Setup Phase
+### 2.1 Full Lifecycle Diagram
 
-**Purpose**: Foundation and preparation
-
-**Activities**:
-- Project initialization
-- Dependency setup
-- Architecture decisions
-- Initial scaffolding
-- Research and discovery
-- Technical spikes
-
-**Typical Task Patterns**:
 ```
-T001: Initialize project structure
-T002: Configure development environment
-T003: Define data models
-T004: Research authentication approaches
-T005: Create architectural decision records
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PROJECT LIFECYCLE                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌────────────────── RCSD PIPELINE ──────────────────┐                      │
+│  │                                                    │                      │
+│  │  ┌──────────┐   ┌───────────┐   ┌──────────────┐  │   ┌──────────────┐   │
+│  │  │ RESEARCH │ → │ CONSENSUS │ → │SPECIFICATION │  │ → │ DECOMPOSITION│   │
+│  │  │          │   │           │   │              │  │   │              │   │
+│  │  │ Protocol:│   │ Protocol: │   │ Protocol:    │  │   │ Protocol:    │   │
+│  │  │ research │   │ consensus │   │ specification│  │   │ decomposition│   │
+│  │  └──────────┘   └───────────┘   └──────────────┘  │   └──────────────┘   │
+│  │                                                    │                      │
+│  └────────────────────────────────────────────────────┘                      │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌───────────────── EXECUTION PHASE ─────────────────┐                      │
+│  │                                                    │                      │
+│  │  ┌───────────────┐   ┌──────────────┐   ┌───────┐ │                      │
+│  │  │IMPLEMENTATION │ → │ CONTRIBUTION │ → │RELEASE│ │                      │
+│  │  │               │   │              │   │       │ │                      │
+│  │  │ Protocol:     │   │ Protocol:    │   │Script:│ │                      │
+│  │  │implementation │   │ contribution │   │release│ │                      │
+│  │  │               │   │              │   │-version│                       │
+│  │  └───────────────┘   └──────────────┘   └───────┘ │                      │
+│  │                                                    │                      │
+│  └────────────────────────────────────────────────────┘                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Exit Criteria**: Project can build and run (even if empty)
+### 2.2 Stage Definitions
+
+| Stage | Phase | Protocol | Purpose | Output |
+|-------|-------|----------|---------|--------|
+| **Research** | setup | `protocols/research.md` | Gather information, explore options | Research findings, sources |
+| **Consensus** | setup | `protocols/consensus.md` | Validate claims, resolve disputes | Voting records, verdicts |
+| **Specification** | setup | `protocols/specification.md` | Define requirements formally | RFC 2119 spec document |
+| **Decomposition** | setup | `protocols/decomposition.md` | Break into atomic tasks | Task hierarchy, waves |
+| **Implementation** | core | `protocols/implementation.md` | Build functionality | Code, tests |
+| **Contribution** | core | `protocols/contribution.md` | Track multi-agent work | Contribution records |
+| **Release** | polish | `protocols/release.md` + `dev/release-version.sh` | Version, changelog, publish | Tagged release |
+
+### 2.3 Protocol Selection Matrix
+
+| Task Type | Keywords | Auto-Selected Protocol |
+|-----------|----------|------------------------|
+| Research | research, investigate, explore, survey | `research` |
+| Planning | epic, plan, decompose, architect | `decomposition` |
+| Specification | spec, rfc, protocol, contract | `specification` |
+| Implementation | implement, build, execute, create | `implementation` |
+| Validation | validate, verify, audit, compliance | `consensus` |
+| Release | release, version, publish, deploy | `release` |
 
 ---
 
-### 2.2 Core Phase
+## Part 3: Protocol Stack Architecture
 
-**Purpose**: Primary development and feature building
+### 3.1 Two-Tier Structure
 
-**Activities**:
-- Feature implementation
-- API development
-- UI/UX implementation
-- Integration work
-- Refactoring (when part of feature work)
-
-**Typical Task Patterns**:
 ```
-T010: Implement user registration endpoint
-T011: Create login form component
-T012: Add JWT middleware
-T013: Integrate payment provider
-T014: Build dashboard view
+┌─────────────────────────────────────────────────────────────┐
+│ BASE PROTOCOL (Always Active)                               │
+│ - OUT-001: Write findings to OUTPUT_DIR                     │
+│ - OUT-002: Append ONE line to MANIFEST.jsonl                │
+│ - OUT-003: Return ONLY summary message                      │
+│ - OUT-004: MUST NOT return content in response              │
+├─────────────────────────────────────────────────────────────┤
+│ CONDITIONAL PROTOCOLS (Max 3 Active)                        │
+│ - Selected based on task type/keywords                      │
+│ - Injected via skill_prepare_spawn()                        │
+│ - Defines stage-specific requirements                       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Exit Criteria**: Features functionally complete (not necessarily polished)
+### 3.2 Seven Conditional Protocols
+
+| Protocol | File | agent_type | Trigger Keywords |
+|----------|------|------------|------------------|
+| Research | `protocols/research.md` | `research` | research, investigate, explore |
+| Consensus | `protocols/consensus.md` | `analysis` | vote, decide, validate claim |
+| Specification | `protocols/specification.md` | `specification` | spec, rfc, define protocol |
+| Decomposition | `protocols/decomposition.md` | `analysis` | epic, plan, decompose |
+| Implementation | `protocols/implementation.md` | `implementation` | implement, build, code |
+| Contribution | `protocols/contribution.md` | `implementation` | PR, merge, shared resource |
+| Release | `protocols/release.md` | `documentation` | release, version, publish |
+
+### 3.3 Protocol Interactions
+
+```
+Research ──┬──→ Specification ──→ Implementation ──→ Contribution ──→ Release
+           │                           │
+           └──→ Consensus ─────────────┘
+                    │
+           Decomposition ──→ (feeds task list)
+```
 
 ---
 
-### 2.3 Testing Phase
+## Part 4: Release Workflow Integration
 
-**Purpose**: Validation and quality assurance
+### 4.1 Release Scripts
 
-**Activities**:
-- Test creation and execution
-- Bug fixing
-- Performance testing
-- Security audits
-- Regression testing
+| Script | Purpose | When to Use |
+|--------|---------|-------------|
+| `dev/bump-version.sh` | Updates VERSION + README only | Version bump without release |
+| `dev/release-version.sh` | Full release workflow | Complete release cycle |
+| `scripts/generate-changelog.sh` | Generates Mintlify changelog | Called by release-version |
 
-**Typical Task Patterns**:
+### 4.2 Release Protocol + Script Integration
+
+The `release` protocol defines requirements; `dev/release-version.sh` automates execution:
+
 ```
-T020: Write unit tests for auth module
-T021: Create integration test suite
-T022: Fix: Login fails with special characters
-T023: Performance test API endpoints
-T024: Security review of auth flow
-```
-
-**Exit Criteria**: Quality gates pass, no critical bugs
-
----
-
-### 2.4 Polish Phase
-
-**Purpose**: Release preparation and optimization
-
-**Activities**:
-- Documentation
-- UX refinement
-- Performance optimization
-- Accessibility improvements
-- Release preparation
-
-**Typical Task Patterns**:
-```
-T030: Write API documentation
-T031: Improve loading states
-T032: Optimize database queries
-T033: Add error messages for edge cases
-T034: Prepare deployment scripts
+┌─────────────────────────────────────────────────────────────┐
+│ RELEASE PROTOCOL (protocols/release.md)                     │
+├─────────────────────────────────────────────────────────────┤
+│ RLSE-001: MUST follow semver                                │
+│ RLSE-002: MUST update changelog                             │
+│ RLSE-003: MUST pass validation gates                        │
+│ RLSE-004: MUST tag release                                  │
+│ RLSE-005: MUST document breaking changes                    │
+│ RLSE-006: MUST verify version consistency                   │
+│ RLSE-007: MUST set agent_type: "documentation"              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ dev/release-version.sh (Implementation)                     │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Bump version (calls bump-version.sh)                     │
+│ 2. Update README badge                                      │
+│ 3. Generate Mintlify changelog (generate-changelog.sh)      │
+│ 4. Create git commit                                        │
+│ 5. Create git tag (vX.Y.Z)                                  │
+│ 6. Push to remote (--push flag)                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Exit Criteria**: Ready for production release
-
----
-
-### 2.5 Maintenance Phase
-
-**Purpose**: Ongoing operation and improvement
-
-**Activities**:
-- Bug fixes
-- Monitoring and alerting
-- Performance tuning
-- Incremental improvements
-- Technical debt reduction
-
-**Typical Task Patterns**:
-```
-T040: Fix: Timeout on large exports
-T041: Add monitoring for payment failures
-T042: Reduce login latency
-T043: Upgrade dependency versions
-T044: Refactor legacy auth code
-```
-
-**Exit Criteria**: None (continuous)
-
----
-
-## Part 3: Project Context
-
-### 3.1 Greenfield Projects
-
-**Definition**: Building on empty land. No existing code, users, or constraints.
-
-**Characteristics**:
-- Full design freedom
-- Linear phase progression
-- Build-focused tasks
-- Epics represent capability creation
-
-**Phase Flow**:
-```
-setup ──→ core ──→ testing ──→ polish ──→ maintenance
-  │         │         │          │            │
-  ▼         ▼         ▼          ▼            ▼
- plan     build     test      release      operate
-```
-
-**Epic Naming Convention**:
-```
-EPIC: User Authentication System
-EPIC: Payment Processing
-EPIC: Admin Dashboard
-EPIC: Notification Service
-```
-
-**Recommended Labels**: `greenfield`, `capability-*`
-
----
-
-### 3.2 Brownfield Projects
-
-**Definition**: Renovating a live building. Existing code, users, and constraints.
-
-**Characteristics**:
-- Constraint-driven design
-- Non-linear phase work (core + testing + maintenance simultaneous)
-- Risk mitigation tasks
-- Epics represent change or improvement
-
-**Phase Flow**:
-```
-     ┌──────────────────────────────────┐
-     │                                  │
-     ▼                                  │
-   setup ──→ core ◄──► testing ──→ maintenance
-     │         │          │              ▲
-     │         └──────────┼──────────────┘
-     └────────────────────┘
-```
-
-**Epic Naming Convention**:
-```
-EPIC: Replace Authentication Provider
-EPIC: Migrate to PostgreSQL
-EPIC: Reduce API Latency
-EPIC: Modernize Legacy Dashboard
-```
-
-**Recommended Labels**: `brownfield`, `change-*`, `migration`, `improvement`
-
-**Required Task Types** (every brownfield epic should consider):
-- Analysis / Discovery
-- Migration plan
-- Rollback plan
-- Regression tests
-- Monitoring updates
-
----
-
-### 3.3 Grayfield Projects
-
-**Definition**: Hybrid situation. Some systems exist, some are new.
-
-**Characteristics**:
-- Partial rewrites
-- Phased replacements
-- Microservices extraction
-- Incremental modernization
-
-**Epic Patterns**:
-```
-EPIC: Extract Auth to Microservice    (brownfield origin, greenfield target)
-EPIC: Add New Billing Module          (greenfield within brownfield)
-EPIC: Phase 1 Cloud Migration         (infrastructure grayfield)
-```
-
-**Recommended Labels**: `grayfield`, `extraction`, `phase-*`
-
----
-
-## Part 4: Epic & Task Patterns
-
-### 4.1 Greenfield Epic Template
+### 4.3 Release Workflow Commands
 
 ```bash
-# Create capability epic
-ct add "EPIC: User Authentication System" --type epic --phase core \
-  --labels "greenfield,capability-auth" \
-  --description "Complete user authentication including registration, login, password reset, and session management."
+# Preview what would happen
+./dev/release-version.sh patch --dry-run
 
-# Create tasks under epic
-ct add "Design authentication flow" --parent T001 --phase setup
-ct add "Implement user registration endpoint" --parent T001 --phase core
-ct add "Implement login endpoint" --parent T001 --phase core
-ct add "Add password reset flow" --parent T001 --phase core
-ct add "Create auth middleware" --parent T001 --phase core
-ct add "Write unit tests for auth" --parent T001 --phase testing
-ct add "Write integration tests" --parent T001 --phase testing
-ct add "Document auth API" --parent T001 --phase polish
+# Patch release (0.73.4 → 0.73.5)
+./dev/release-version.sh patch
+
+# Minor release with push (0.73.5 → 0.74.0)
+./dev/release-version.sh minor --push
+
+# Major release (0.74.0 → 1.0.0)
+./dev/release-version.sh major --push
+
+# Explicit version
+./dev/release-version.sh 1.0.0 --push
 ```
 
-### 4.2 Brownfield Epic Template
+### 4.4 Pre-Release Checklist (RLSE-003)
 
-```bash
-# Create change epic
-ct add "EPIC: Replace Auth0 with Custom Auth" --type epic --phase core \
-  --labels "brownfield,change-auth,migration" \
-  --description "Migrate from Auth0 to custom JWT authentication while maintaining backward compatibility."
-
-# Create tasks (note the brownfield-specific tasks)
-ct add "Analyze current Auth0 integration points" --parent T001 --phase setup
-ct add "Document migration risks and rollback plan" --parent T001 --phase setup
-ct add "Design parallel auth architecture" --parent T001 --phase core
-ct add "Implement feature flag for auth switching" --parent T001 --phase core
-ct add "Implement custom JWT auth" --parent T001 --phase core
-ct add "Create regression test suite" --parent T001 --phase testing
-ct add "Test rollback procedure" --parent T001 --phase testing
-ct add "Gradual rollout to 10% users" --parent T001 --phase polish
-ct add "Monitor error rates post-migration" --parent T001 --phase maintenance
-ct add "Decommission Auth0 integration" --parent T001 --phase maintenance
-```
-
-### 4.3 Task Size Guidelines
-
-| Size | Scope | Examples |
-|------|-------|----------|
-| `small` | < 2 hours | Fix typo, add config, update dependency |
-| `medium` | 2-8 hours | Implement endpoint, create component, write tests |
-| `large` | 1-3 days | Design system, implement feature, major refactor |
-
-**Rule**: If a task feels "large", it should probably be an epic with subtasks.
+| Gate | Command | Required |
+|------|---------|----------|
+| Tests pass | `./tests/run-all-tests.sh` | MUST |
+| Lint clean | `shellcheck scripts/*.sh lib/*.sh` | MUST |
+| Schema valid | `cleo validate` | MUST |
+| Version bumped | `./dev/bump-version.sh X.Y.Z` | MUST |
+| Changelog updated | Edit `CHANGELOG.md` | MUST |
+| Docs current | Review `docs/` | SHOULD |
+| Install tested | `./install.sh` | SHOULD |
 
 ---
 
-## Part 5: Label Conventions
+## Part 5: Orchestrator Integration
 
-### 5.1 Context Labels
+### 5.1 Orchestrator Role in Lifecycle
 
-| Label | Meaning |
-|-------|---------|
-| `greenfield` | New capability creation |
-| `brownfield` | Change to existing system |
-| `grayfield` | Hybrid (extraction, migration) |
+The Orchestrator (ct-orchestrator) coordinates the lifecycle by:
 
-### 5.2 Lifecycle Labels
+1. **Session Management**: Starting/resuming sessions scoped to epics
+2. **Protocol Selection**: Using `skill_auto_dispatch()` to select protocols
+3. **Subagent Spawning**: Using `skill_prepare_spawn()` for token injection
+4. **Progress Tracking**: Reading MANIFEST.jsonl for subagent outputs
+5. **Release Coordination**: Triggering release workflow when phase complete
 
-| Label | Meaning |
-|-------|---------|
-| `discovery` | Research, analysis, spike |
-| `planning` | Architecture, design decisions |
-| `build` | Implementation work |
-| `test` | Testing and QA |
-| `release` | Deployment and release prep |
-| `operate` | Production operation |
-| `improve` | Optimization and enhancement |
-
-### 5.3 Epic Type Labels
-
-| Label | Meaning |
-|-------|---------|
-| `capability-*` | Greenfield capability (e.g., `capability-auth`) |
-| `change-*` | Brownfield change (e.g., `change-db-migration`) |
-| `fix-*` | Bug fix grouping (e.g., `fix-performance`) |
-| `infra-*` | Infrastructure work (e.g., `infra-ci-cd`) |
-
-### 5.4 Risk Labels (Brownfield)
-
-| Label | Meaning |
-|-------|---------|
-| `migration` | Data or system migration |
-| `breaking-change` | May break existing behavior |
-| `rollback-required` | Must have rollback plan |
-| `feature-flag` | Behind feature flag |
-
----
-
-## Part 6: Workflow Patterns
-
-### 6.1 Greenfield Workflow
+### 5.2 Orchestrator Lifecycle Commands
 
 ```bash
-# 1. Initialize project
-ct init
-ct phase set setup
+# Start lifecycle for new feature
+cleo session start --scope epic:T001 --auto-focus --name "Feature-X"
 
-# 2. Create capability epics
-ct add "EPIC: Core User Workflows" --type epic --phase core
-ct add "EPIC: Admin Dashboard" --type epic --phase core
+# Spawn subagent with auto-selected protocol
+cleo orchestrator spawn T002  # Auto-detects task type → selects protocol
 
-# 3. Work through phases
-ct phase set core
-ct focus set T002  # First task
-# ... implement ...
-ct complete T002
-ct focus next
+# Check progress
+cleo research list --status complete
 
-# 4. Move to testing when features complete
-ct phase set testing
-
-# 5. Polish and release
-ct phase set polish
-
-# 6. Enter maintenance loop
-ct phase set maintenance
-```
-
-### 6.2 Brownfield Workflow
-
-```bash
-# 1. Initialize in existing project
-ct init
-ct phase set maintenance  # Start in maintenance (existing system)
-
-# 2. Create improvement epic
-ct add "EPIC: Performance Optimization" --type epic --phase core \
-  --labels "brownfield,improvement"
-
-# 3. Discovery tasks (may stay in setup phase)
-ct add "Profile API endpoints" --parent T001 --phase setup
-ct add "Identify top 5 slow queries" --parent T001 --phase setup
-
-# 4. Implementation (core phase tasks)
-ct add "Optimize user list query" --parent T001 --phase core
-ct add "Add database indexes" --parent T001 --phase core
-
-# 5. Validation (testing phase tasks)
-ct add "Load test optimizations" --parent T001 --phase testing
-ct add "Regression test existing functionality" --parent T001 --phase testing
-
-# 6. Work on tasks across phases as needed
-# (Brownfield often works multiple phases simultaneously)
-```
-
-### 6.3 Session Workflow
-
-```bash
-# Start session
-ct session start
-
-# Get suggestion (considers hierarchy, dependencies, priorities)
-ct next --explain
-
-# Focus on one task
-ct focus set T042
-
-# Work on task...
-
-# Add progress notes
-ct focus note "Completed query optimization, running tests"
-
-# Complete and move on
-ct complete T042
-ct focus next
+# Trigger release when ready
+./dev/release-version.sh patch --push
 
 # End session
-ct session end
+cleo session end --note "Feature complete, released v0.74.0"
+```
+
+### 5.3 Dispatch Matrix Updates
+
+The dispatch matrix in `skills/manifest.json` SHOULD be extended for release:
+
+```json
+{
+  "dispatch_matrix": {
+    "by_task_type": {
+      "release": "ct-dev-workflow"
+    },
+    "by_keyword": {
+      "release|version|publish|deploy|ship": "ct-dev-workflow"
+    }
+  }
+}
 ```
 
 ---
 
-## Part 7: CI/CD Integration
+## Part 6: RCSD Pipeline Integration
 
-### 7.1 Phase-Based Gating
+### 6.1 RCSD-to-Protocol Mapping
 
-| Phase | CI/CD Stage | Gate Requirements |
-|-------|-------------|-------------------|
-| `setup` | - | No deployment |
-| `core` | Dev/Feature | Build passes, unit tests |
-| `testing` | Staging/QA | Integration tests, code review |
-| `polish` | Pre-prod | Performance tests, security scan |
-| `maintenance` | Production | All gates + approval |
+| RCSD Stage | Protocol | Skill | Output |
+|------------|----------|-------|--------|
+| R: Research | `protocols/research.md` | ct-research-agent | `.cleo/rcsd/T###/research/` |
+| C: Consensus | `protocols/consensus.md` | ct-validator | `.cleo/rcsd/T###/consensus/` |
+| S: Specification | `protocols/specification.md` | ct-spec-writer | `.cleo/rcsd/T###/spec/` |
+| D: Decomposition | `protocols/decomposition.md` | ct-epic-architect | `.cleo/rcsd/T###/tasks/` |
 
-### 7.2 Task Status and Automation
+### 6.2 Post-RCSD Execution
 
-```yaml
-# Example GitHub Actions integration
-on:
-  pull_request:
-    types: [opened, synchronize]
+After RCSD completes (tasks decomposed), execution begins:
 
-jobs:
-  validate-tasks:
-    steps:
-      - name: Check task status
-        run: |
-          # Ensure PR has associated task
-          TASK_ID=$(echo "$PR_BODY" | grep -oP 'T\d+')
-          ct exists $TASK_ID --quiet || exit 1
-
-      - name: Verify phase alignment
-        run: |
-          TASK_PHASE=$(ct show $TASK_ID --format json | jq -r '.phase')
-          CURRENT_PHASE=$(ct phase show --format json | jq -r '.current')
-          # Warn if task phase doesn't match project phase
+```
+RCSD Complete → Implementation → Contribution → Release
+      │               │               │            │
+      │               │               │            │
+      ▼               ▼               ▼            ▼
+ Task list      Code + tests     Commits      Tag + push
+ in CLEO                         tracked
 ```
 
----
-
-## Part 8: Best Practices
-
-### 8.1 Epic Creation
-
-**DO**:
-- Create epics for coherent capabilities or changes
-- Use clear, outcome-focused titles
-- Add descriptions explaining the goal
-- Apply appropriate context labels
-
-**DON'T**:
-- Create epics for single tasks
-- Use vague titles like "Improvements" or "Fixes"
-- Forget to set parent relationships for tasks
-
-### 8.2 Task Discipline
-
-**DO**:
-- One task = one atomic piece of work
-- Set realistic sizes
-- Add dependencies when blocked
-- Update status in real-time
-
-**DON'T**:
-- Create tasks you won't track
-- Let tasks sit "active" for days
-- Skip the testing phase tasks
-- Forget brownfield risk mitigation tasks
-
-### 8.3 Phase Discipline
-
-**DO**:
-- Set project phase intentionally
-- Create tasks in appropriate phases
-- Complete phase work before moving on
-- Use phase for high-level progress tracking
-
-**DON'T**:
-- Ignore phase mismatches
-- Stay in "core" forever
-- Skip directly to maintenance
-- Forget that maintenance is continuous
-
-### 8.4 Greenfield Discipline
-
-- Design for eventual brownfield
-- Plan for users from day one
-- Add monitoring before you need it
-- Document as you build
-
-### 8.5 Brownfield Discipline
-
-- Always have a rollback plan
-- Test regression before new features
-- Use feature flags for risky changes
-- Monitor after every change
-
----
-
-## Part 9: Quick Reference
-
-### Common Commands
+### 6.3 Full Workflow Example
 
 ```bash
-# Project setup
-ct init                      # Initialize project
-ct phase set <slug>          # Set current phase
-ct phase show                # Show current phase
+# 1. RESEARCH STAGE
+cleo add "Research: OAuth patterns" --type epic --phase setup
+cleo session start --scope epic:T100 --auto-focus
+cleo orchestrator spawn T100  # research protocol
 
-# Epic management
-ct add "EPIC: Title" --type epic --phase core
-ct list --type epic          # List all epics
+# 2. CONSENSUS STAGE (validate findings)
+cleo add "Validate OAuth recommendations" --parent T100
+cleo orchestrator spawn T101  # consensus protocol
 
-# Task management
-ct add "Task title" --parent <epic-id>
-ct focus set <id>            # Focus on task
-ct complete <id>             # Mark done
-ct next                      # Get suggestion
+# 3. SPECIFICATION STAGE
+cleo add "Write OAuth Spec" --parent T100
+cleo orchestrator spawn T102  # specification protocol
 
-# Filtering
-ct list --phase core         # By phase
-ct list --label brownfield   # By label
-ct list --status pending     # By status
+# 4. DECOMPOSITION STAGE
+cleo add "Decompose OAuth epic" --parent T100
+cleo orchestrator spawn T103  # decomposition protocol
+# Creates: T104, T105, T106... (atomic implementation tasks)
 
-# Hierarchy
-ct tree                      # Visual hierarchy
-ct tree <epic-id>            # Subtree
+# 5. IMPLEMENTATION STAGE
+cleo focus set T104
+cleo orchestrator spawn T104  # implementation protocol
+cleo complete T104
+
+# 6. CONTRIBUTION STAGE (automatic for shared resources)
+# contribution protocol auto-triggers when modifying CLAUDE.md, lib/, etc.
+
+# 7. RELEASE STAGE
+cleo add "Release v0.75.0 with OAuth" --parent T100 --phase polish
+./dev/release-version.sh minor --push
+cleo complete T107  # release task
+
+# End session
+cleo session end --note "OAuth feature complete, released v0.75.0"
 ```
 
-### Mental Model Checklist
+---
 
-- [ ] Is my project greenfield, brownfield, or grayfield?
-- [ ] Am I in the right phase?
-- [ ] Does my epic represent a coherent capability or change?
-- [ ] Do my tasks have appropriate phases?
-- [ ] For brownfield: Do I have risk mitigation tasks?
-- [ ] Am I using labels consistently?
+## Part 7: Conformance
+
+### 7.1 Required Protocol Support
+
+A conforming orchestrator MUST:
+
+1. Support all 7 conditional protocols
+2. Auto-select protocols based on task type/keywords
+3. Inject protocols via `skill_prepare_spawn()`
+4. Track outputs via MANIFEST.jsonl
+5. Support release workflow integration
+
+### 7.2 Required Release Support
+
+A conforming release workflow MUST:
+
+1. Follow RLSE-001 through RLSE-007 requirements
+2. Use `dev/release-version.sh` for automation
+3. Generate Mintlify changelog
+4. Create git tags
+5. Update version consistently across files
 
 ---
 
-## Appendix A: Glossary
+## Appendix A: Quick Reference
 
-| Term | Definition |
-|------|------------|
-| **Greenfield** | New project with no existing constraints |
-| **Brownfield** | Existing project with users, data, and constraints |
-| **Grayfield** | Hybrid project (partial rewrite, migration) |
-| **Phase** | Project-wide lifecycle stage |
-| **Epic** | Large work item grouping related tasks |
-| **Task** | Atomic work item |
-| **Subtask** | Breakdown of a task |
-| **Technical Debt** | Short-term decisions creating long-term cost |
-| **Feature Flag** | Toggle to enable/disable features |
-| **Rollback Plan** | Strategy to undo changes |
+### Protocol File Locations
+
+```
+protocols/
+├── research.md        # RSCH-001 to RSCH-022
+├── consensus.md       # CONS-001 to CONS-022
+├── specification.md   # SPEC-001 to SPEC-022
+├── decomposition.md   # DCMP-001 to DCMP-022
+├── implementation.md  # IMPL-001 to IMPL-022
+├── contribution.md    # CONT-001 to CONT-022
+└── release.md         # RLSE-001 to RLSE-022
+```
+
+### Release Script Locations
+
+```
+dev/
+├── bump-version.sh         # Version + README only
+├── release-version.sh      # Full release workflow
+└── validate-version.sh     # Version consistency check
+
+scripts/
+└── generate-changelog.sh   # CHANGELOG.md → Mintlify MDX
+```
+
+### Shared Protocol References
+
+```
+skills/_shared/
+├── task-system-integration.md   # CLEO command tokens
+└── subagent-protocol-base.md    # OUT-001 to OUT-004 (base protocol)
+```
 
 ---
 
-## Appendix B: Version History
+## Appendix B: Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0.0 | 2025-12-22 | Initial specification |
+| 1.0.0 | 2026-01-27 | Initial specification integrating RCSD + Protocol Stack + Release |
 
 ---
 
-*This specification is part of the cleo documentation suite.*
+*End of Specification*
