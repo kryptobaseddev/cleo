@@ -5,6 +5,30 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.2] - 2026-01-27
+
+### Added
+- **Epic T2450: Orchestrator Spawn Flow and Compliance Integration** (Complete)
+  - **Bug Fix** (T2449, T2451):
+    - Fixed sed escaping bug in `lib/token-inject.sh:727` causing empty prompts
+    - Replaced sed with bash parameter expansion for safe multiline/special char handling
+    - All 51 token injection tests pass
+  - **Compliance Verification** (T2452, T2453):
+    - Pre-spawn compliance: Token validation before spawn
+    - Post-spawn compliance: Manifest entry, output file, return message verification
+    - Non-blocking by default with configurable strict mode
+  - **Metrics Integration** (T2454, T2455):
+    - Spawn metrics linked to T2163 usage tracking epic
+    - Compliance violations linked to T1954 self-improvement tracking
+    - Captures: spawn count, token usage, compliance rate, failure reasons
+  - **E2E Testing** (T2456):
+    - `tests/integration/orchestrator-spawn-e2e.bats`: 15 comprehensive tests (543 lines)
+    - Validates full spawn → inject → execute → manifest → return flow
+  - **Session Hook Testing**:
+    - `tests/unit/sessionstart-hook.bats`: 19 unit tests (234 lines)
+  - **Documentation** (T2457):
+    - Updated `docs/guides/ORCHESTRATOR-PROTOCOL.md` with compliance verification details
+
 ## [0.73.1] - 2026-01-27
 
 ### Added
@@ -36,12 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Global Injection Update** (T2443, T2444):
     - `installer/lib/link.sh`: Uses dynamic registry for all agent setup
     - RFC 2119 time estimates prohibition block in global injection
-- **Epic T2450: Orchestrator Spawn Flow and Compliance Integration** (partial)
-  - **Token Injection Fix** (T2449, T2451):
-    - Fixed sed escaping bug in `lib/token-inject.sh` causing empty prompts
-    - Root cause: sed delimiter `|` breaking on multiline/special characters
-    - Solution: Replaced sed with bash parameter expansion
-    - All 51 token injection tests pass
 - **Epic T2089: Claude CLI Aliases - Cross-Platform Support Complete**
   - **Windows Support** (T2111):
     - `normalize_windows_path()`: Path separator conversion for Windows
