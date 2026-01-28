@@ -406,6 +406,7 @@ cmd_create() {
             status: $status,
             targetDate: $targetDate,
             releasedAt: null,
+            createdAt: (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
             tasks: $tasks,
             notes: $notes
         }')
