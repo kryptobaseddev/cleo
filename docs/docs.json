@@ -81,8 +81,7 @@
           {
             "group": "Community",
             "pages": [
-              "roadmap",
-              "contributing"
+              "roadmap"
             ]
           }
         ]
@@ -219,26 +218,6 @@
         ]
       },
       {
-        "tab": "Concepts",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": [
-              "concepts/index"
-            ]
-          },
-          {
-            "group": "Architecture",
-            "pages": [
-              "concepts/architecture",
-              "concepts/backup-system",
-              "concepts/data-flows",
-              "concepts/anti-hallucination"
-            ]
-          }
-        ]
-      },
-      {
         "tab": "API",
         "groups": [
           {
@@ -271,22 +250,6 @@
             ]
           },
           {
-            "group": "Architecture",
-            "pages": [
-              "skills/architecture",
-              "skills/manifest",
-              "guides/SKILL-DISPATCH-ALGORITHM",
-              "guides/PROTOCOL-INJECTION-FLOW"
-            ]
-          },
-          {
-            "group": "Specifications",
-            "pages": [
-              "specs/SKILL-TAXONOMY-SPEC",
-              "specs/PROTOCOL-STACK-SPEC"
-            ]
-          },
-          {
             "group": "Agent Skills",
             "pages": [
               "skills/orchestrator",
@@ -307,15 +270,45 @@
             ]
           },
           {
-            "group": "Development",
+            "group": "Usage",
             "pages": [
-              "skills/development",
-              "guides/skill-development"
+              "skills/development"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "developer/index"
             ]
           },
           {
-            "group": "Troubleshooting",
+            "group": "Architecture",
             "pages": [
+              "concepts/architecture",
+              "concepts/data-flows",
+              "concepts/backup-system",
+              "concepts/anti-hallucination"
+            ]
+          },
+          {
+            "group": "Protocols & Specs",
+            "pages": [
+              "specs/SKILL-TAXONOMY-SPEC.md",
+              "specs/PROTOCOL-STACK-SPEC.md",
+              "guides/SKILL-DISPATCH-ALGORITHM",
+              "guides/PROTOCOL-INJECTION-FLOW"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "contributing",
+              "guides/skill-development",
               "troubleshooting/DISPATCH-DEBUG"
             ]
           }

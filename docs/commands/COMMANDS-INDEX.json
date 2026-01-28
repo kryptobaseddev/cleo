@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.3.0",
     "lastUpdated": "2026-01-27",
-    "totalCommands": 64,
+    "totalCommands": 65,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -74,7 +74,8 @@
       "skills",
       "upgrade",
       "validate",
-      "setup-claude-aliases"
+      "setup-claude-aliases",
+      "docs"
     ]
   },
   "commands": [
@@ -1613,6 +1614,35 @@
       "jsonOutput": true,
       "agentRelevance": "medium",
       "note": "Detects legacy Claude aliases and non-Claude collisions. Use --force to override."
+    },
+    {
+      "name": "docs",
+      "script": "docs.sh",
+      "category": "maintenance",
+      "doc": "docs.md",
+      "synopsis": "Documentation management: drift detection and gap validation for knowledge transfer",
+      "flags": [
+        "--quick",
+        "--full",
+        "--strict",
+        "--json",
+        "--human",
+        "--epic",
+        "--task",
+        "--all-review"
+      ],
+      "subcommands": [
+        "sync",
+        "gap-check"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "medium",
+      "note": "Part of documentation lifecycle - ensures knowledge transfer from research outputs to canonical docs"
     }
   ],
   "agentWorkflows": {
@@ -1681,6 +1711,8 @@
     "complianceMetrics": "compliance",
     "gracefulShutdown": "safestop",
     "globalAgentSetup": "setup-agents",
-    "skillManagement": "skills"
+    "skillManagement": "skills",
+    "documentationGaps": "docs gap-check",
+    "driftDetection": "docs sync"
   }
 }
