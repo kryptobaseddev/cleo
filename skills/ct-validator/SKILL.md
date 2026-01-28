@@ -1,3 +1,8 @@
+---
+name: ct-validator
+description: Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. Performs schema validation, code compliance checks, document validation, and protocol compliance verification with detailed pass/fail reporting. Use when validating compliance, checking schemas, verifying code standards, or auditing protocol implementations. Triggers on validation tasks, compliance checks, or quality verification needs.
+---
+
 # Validator Context Injection
 
 **Protocol**: @protocols/implementation.md
