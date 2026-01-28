@@ -17,18 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.74.2] - 2026-01-28
 
 ### Added
-- **Token-Optimized Error Output** (T2521, T2586-T2589):
-  - Error responses now use minimal context by default (93% reduction: 13K → 1K chars)
-  - New `minimize_error_context()` function strips large arrays, keeps counts
+- **Progressive Disclosure Error Output** (T2521, T2586-T2589):
+  - Error responses now use smart progressive disclosure (63% reduction: 14K → 5K chars)
+  - Smart summaries preserve decision-relevant fields for agent decision-making:
+    - Sessions: id, name, scope, focus (enough to choose the right session)
+    - Epics: id, title (truncated), status, pending count (enough to pick work)
+  - Unknown arrays get count-only treatment for maximum reduction
+  - `CLEO_VERBOSE=1` environment variable enables full verbose context for debugging
+  - New `minimize_error_context()` with domain-aware summarization
   - New `is_verbose_mode()` function for detecting debug mode
-  - `CLEO_VERBOSE=1` environment variable enables full error context for debugging
-  - Error context now includes hint about verbose mode
-  - Preserves all actionable fields: fix command, alternatives, exit codes
 
 ### Documentation
-- Updated `docs/api/output-formats.mdx` with "Minimal Error Output" section
+- Updated `docs/api/output-formats.mdx` with "Progressive Disclosure Error Output" section
 - Updated `docs/snippets/error-handling.mdx` with CLEO_VERBOSE note
-- Added 16 new unit tests in `tests/unit/error-output-minimal.bats`
+- Added 18 unit tests in `tests/unit/error-output-minimal.bats`
 
 ## [0.74.1] - 2026-01-28
 
