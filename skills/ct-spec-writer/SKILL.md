@@ -1,3 +1,8 @@
+---
+name: ct-spec-writer
+description: Technical specification writing using RFC 2119 language for clear, unambiguous requirements. Creates protocol specifications, technical requirements, API specifications, and architecture documents with testable requirements and compliance criteria. Use when writing specifications, defining protocols, documenting requirements, or creating API contracts. Triggers on specification tasks, protocol definition needs, or requirement documentation.
+---
+
 # Specification Writer Context Injection
 
 **Protocol**: @protocols/specification.md
