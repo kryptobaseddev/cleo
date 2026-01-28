@@ -195,18 +195,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-01-28T06:12:50Z",
+  "lastUpdated": "2026-01-28T06:25:11Z",
   "_meta": {
-    "checksum": "32a50323a1d70012",
+    "checksum": "481ac33b6b103840",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-01-28T06:12:58Z",
+    "lastModified": "2026-01-28T06:13:59Z",
     "version": "2.7.0",
     "schemaVersion": "2.9.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 5,
-    "generation": 901
+    "activeSessionCount": 4,
+    "generation": 906
   },
   "focus": {
     "currentTask": null,
@@ -21295,17 +21295,36 @@
     {
       "id": "T2592",
       "title": "Fix 26 claudedocs files failing frontmatter validation",
-      "status": "active",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T2591",
       "createdAt": "2026-01-28T04:34:17Z",
-      "updatedAt": "2026-01-28T06:12:58Z",
+      "updatedAt": "2026-01-28T06:25:10Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Fix the 26 claudedocs files that fail frontmatter validation: 2 with invalid status enum, 3 missing frontmatter entirely, 18 archive files missing required fields. Target: 100% compliance."
+      "description": "Fix the 26 claudedocs files that fail frontmatter validation: 2 with invalid status enum, 3 missing frontmatter entirely, 18 archive files missing required fields. Target: 100% compliance.",
+      "completedAt": "2026-01-28T06:25:10Z",
+      "notes": [
+        "[COMPLETED 2026-01-28T06:25:10Z] Fixed frontmatter validation for 23 claudedocs files - added missing frontmatter, fixed invalid status enums, updated archive files"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-28T06:25:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2593",
@@ -21385,17 +21404,36 @@
     {
       "id": "T2598",
       "title": "Update COMMANDS-INDEX.json to reference .mdx files",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T2591",
       "createdAt": "2026-01-28T04:42:47Z",
-      "updatedAt": "2026-01-28T04:42:47Z",
+      "updatedAt": "2026-01-28T06:25:09Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
       "phase": "core",
-      "description": "COMMANDS-INDEX.json references .md files but Mintlify uses .mdx. Update all 65 entries to reference .mdx files."
+      "description": "COMMANDS-INDEX.json references .md files but Mintlify uses .mdx. Update all 65 entries to reference .mdx files.",
+      "completedAt": "2026-01-28T06:25:09Z",
+      "notes": [
+        "[COMPLETED 2026-01-28T06:25:09Z] Updated all 60 command entries from .md to .mdx extension in COMMANDS-INDEX.json"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-28T06:25:10Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2599",

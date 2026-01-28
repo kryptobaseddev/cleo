@@ -947,105 +947,6 @@
       }
     },
 
-    "orchestrator": {
-      "type": "object",
-      "description": "Orchestrator configuration for autonomous operation mode. See AUTONOMOUS-ORCHESTRATION-SPEC.md.",
-      "additionalProperties": false,
-      "properties": {
-        "contextThresholds": {
-          "type": "object",
-          "description": "Context window thresholds for autonomous operation.",
-          "additionalProperties": false,
-          "properties": {
-            "warning": {
-              "type": "integer",
-              "minimum": 50,
-              "maximum": 90,
-              "default": 70,
-              "description": "Percentage threshold for context warning. Orchestrator logs warning but continues."
-            },
-            "critical": {
-              "type": "integer",
-              "minimum": 60,
-              "maximum": 95,
-              "default": 80,
-              "description": "Percentage threshold for critical context. Orchestrator MUST generate handoff and stop."
-            }
-          }
-        },
-        "autoStopOnCritical": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically stop and generate handoff when context reaches critical threshold."
-        },
-        "validation": {
-          "type": "object",
-          "description": "Project-agnostic validation configuration for orchestrator spawn gates.",
-          "additionalProperties": false,
-          "properties": {
-            "customGates": {
-              "type": "array",
-              "description": "Custom validation gates executed before spawning next subagent. Empty array uses only core gates (manifest, file, task status).",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["name", "command"],
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9_-]*$",
-                    "description": "Unique gate identifier (snake_case or kebab-case)."
-                  },
-                  "command": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "Shell command to execute. Exit 0 = pass, non-zero = fail."
-                  },
-                  "required": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "If true, gate failure blocks spawn. If false, failure is logged as warning."
-                  },
-                  "description": {
-                    "type": "string",
-                    "description": "Human-readable description of what this gate validates."
-                  }
-                }
-              },
-              "default": []
-            },
-            "requireManifestEntry": {
-              "type": "boolean",
-              "default": true,
-              "description": "Require manifest entry from previous agent before spawning next (AUTO-004)."
-            },
-            "requireWaveOrder": {
-              "type": "boolean",
-              "default": true,
-              "description": "Require spawning in dependency wave order (AUTO-005)."
-            }
-          }
-        },
-        "handoff": {
-          "type": "object",
-          "description": "Handoff protocol configuration.",
-          "additionalProperties": false,
-          "properties": {
-            "preferWaveBoundaries": {
-              "type": "boolean",
-              "default": true,
-              "description": "Prefer stopping at clean wave boundaries when generating handoff (HNDOFF-006)."
-            },
-            "includeKeyFindings": {
-              "type": "boolean",
-              "default": true,
-              "description": "Include key_findings summary in handoff document."
-            }
-          }
-        }
-      }
-    },
-
     "contextAlerts": {
       "type": "object",
       "description": "Context window alert configuration. Controls when and how users are alerted about context window usage approaching thresholds.",
@@ -1492,6 +1393,71 @@
           "type": "boolean",
           "default": true,
           "description": "Generate a human-in-the-loop summary document when session is paused due to context limits. Summary includes progress, remaining work, and handoff notes."
+        },
+        "validation": {
+          "type": "object",
+          "description": "Project-agnostic validation configuration for orchestrator spawn gates. See AUTONOMOUS-ORCHESTRATION-SPEC.md Part 6.",
+          "additionalProperties": false,
+          "properties": {
+            "customGates": {
+              "type": "array",
+              "description": "Custom validation gates executed before spawning next subagent. Empty array uses only core gates (manifest, file, task status).",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "command"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]*$",
+                    "description": "Unique gate identifier (snake_case or kebab-case)."
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Shell command to execute. Exit 0 = pass, non-zero = fail."
+                  },
+                  "required": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, gate failure blocks spawn. If false, failure is logged as warning."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Human-readable description of what this gate validates."
+                  }
+                }
+              },
+              "default": []
+            },
+            "requireManifestEntry": {
+              "type": "boolean",
+              "default": true,
+              "description": "Require manifest entry from previous agent before spawning next (AUTO-004)."
+            },
+            "requireWaveOrder": {
+              "type": "boolean",
+              "default": true,
+              "description": "Require spawning in dependency wave order (AUTO-005)."
+            }
+          }
+        },
+        "handoff": {
+          "type": "object",
+          "description": "Handoff protocol configuration. See AUTONOMOUS-ORCHESTRATION-SPEC.md Part 3.",
+          "additionalProperties": false,
+          "properties": {
+            "preferWaveBoundaries": {
+              "type": "boolean",
+              "default": true,
+              "description": "Prefer stopping at clean wave boundaries when generating handoff (HNDOFF-006)."
+            },
+            "includeKeyFindings": {
+              "type": "boolean",
+              "default": true,
+              "description": "Include key_findings summary in handoff document."
+            }
+          }
         }
       }
     },

@@ -100791,11 +100791,79 @@
         "type": "epic",
         "rootTaskId": "T2591"
       }
+    },
+    {
+      "id": "log_a2478e4de7a4",
+      "timestamp": "2026-01-28T06:13:33Z",
+      "sessionId": "session_20260127_221258_c83952",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "RCSD-IVTR validation in progress. Completed: T2634 (decomposition), T2635 (AUTO-001 validation). Remaining: 29 validation tasks. Next: T2636 (AUTO-002). Resume with: cleo session resume session_20260127_220442_af32fc"
+      }
+    },
+    {
+      "id": "log_3f4756fc9608",
+      "timestamp": "2026-01-28T06:13:59Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T2592"
+      },
+      "after": {
+        "currentTask": "T2598"
+      },
+      "details": null
+    },
+    {
+      "id": "log_034205144a5a",
+      "timestamp": "2026-01-28T06:25:10Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2598",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-01-28T06:25:09Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d6b6edc49abf",
+      "timestamp": "2026-01-28T06:25:12Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2592",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-01-28T06:25:10Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 4605,
-    "lastEntry": "2026-01-28T06:12:58Z",
+    "totalEntries": 4609,
+    "lastEntry": "2026-01-28T06:25:12Z",
     "firstEntry": "2025-12-29T06:21:18Z",
     "entriesPruned": 131,
     "schemaVersion": "2.4.0"

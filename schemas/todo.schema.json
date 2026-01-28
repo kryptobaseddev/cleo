@@ -162,6 +162,13 @@
                 ],
                 "maxLength": 5000,
                 "description": "Release notes or changelog summary."
+              },
+              "changelog": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Generated CHANGELOG.md content for this release (cached for reuse). Auto-populated by lib/changelog.sh:generate_changelog()."
               }
             }
           }
