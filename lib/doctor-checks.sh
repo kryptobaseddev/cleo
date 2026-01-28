@@ -163,11 +163,11 @@ EOF
 }
 
 # Check 3: Docs Accessibility
-# Verifies ~/.cleo/docs/CLEO-INJECTION.md is readable
+# Verifies ~/.cleo/templates/CLEO-INJECTION.md is readable
 # Returns: JSON check result
 check_docs_accessibility() {
     local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
-    local docs_file="$cleo_home/docs/CLEO-INJECTION.md"
+    local docs_file="$cleo_home/templates/CLEO-INJECTION.md"
 
     if [[ ! -f "$docs_file" ]]; then
         cat <<EOF
@@ -589,11 +589,11 @@ EOF
 }
 
 # Check 7: @ Reference Resolution
-# Test read of @~/.cleo/docs/CLEO-INJECTION.md
+# Test read of @~/.cleo/templates/CLEO-INJECTION.md
 # Returns: JSON check result
 check_at_reference_resolution() {
     local cleo_home="${CLEO_HOME:-$HOME/.cleo}"
-    local docs_file="$cleo_home/docs/CLEO-INJECTION.md"
+    local docs_file="$cleo_home/templates/CLEO-INJECTION.md"
 
     # This check is about whether @ syntax WOULD work in agent CLIs
     # We test by checking if the file is readable (actual @ syntax is agent-dependent)
@@ -606,7 +606,7 @@ check_at_reference_resolution() {
   "status": "failed",
   "message": "@ reference target does not exist",
   "details": {
-    "reference": "@~/.cleo/docs/CLEO-INJECTION.md",
+    "reference": "@~/.cleo/templates/CLEO-INJECTION.md",
     "path": "$docs_file",
     "exists": false
   },
@@ -624,7 +624,7 @@ EOF
   "status": "failed",
   "message": "@ reference target not readable",
   "details": {
-    "reference": "@~/.cleo/docs/CLEO-INJECTION.md",
+    "reference": "@~/.cleo/templates/CLEO-INJECTION.md",
     "path": "$docs_file",
     "readable": false
   },
@@ -646,7 +646,7 @@ EOF
   "status": "warning",
   "message": "@ reference target is empty",
   "details": {
-    "reference": "@~/.cleo/docs/CLEO-INJECTION.md",
+    "reference": "@~/.cleo/templates/CLEO-INJECTION.md",
     "path": "$docs_file",
     "empty": true
   },
@@ -666,7 +666,7 @@ EOF
   "status": "passed",
   "message": "@ reference resolution successful",
   "details": {
-    "reference": "@~/.cleo/docs/CLEO-INJECTION.md",
+    "reference": "@~/.cleo/templates/CLEO-INJECTION.md",
     "path": "$docs_file",
     "readable": true,
     "size": $size

@@ -7,6 +7,26 @@ This document defines the global injection for all agents operating within CLEO'
 
 ---
 
+## Time Estimates — PROHIBITED (RFC 2119)
+
+| Constraint | Rule |
+|------------|------|
+| **MUST NOT** | Estimate hours, days, weeks, or temporal duration |
+| **MUST NOT** | Provide time predictions even when explicitly requested |
+| **MUST** | Use relative sizing: `small` / `medium` / `large` |
+| **SHOULD** | Describe scope, complexity, dependencies when asked |
+| **MAY** | Reference task count, file count, dependency depth |
+
+**Sizing Definitions**:
+- `small` — Single function, minimal complexity, clear path
+- `medium` — Multiple components, moderate complexity, some unknowns
+- `large` — Cross-cutting changes, high complexity, significant unknowns
+
+**Response Template** (when user insists on time):
+> "I cannot provide time predictions. I can describe scope (N tasks, M files), complexity, and dependencies."
+
+---
+
 ## Architecture Overview
 
 CLEO implements a **2-tier universal subagent architecture** for multi-agent coordination:

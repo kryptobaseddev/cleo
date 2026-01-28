@@ -48,7 +48,7 @@ get_config() {
 }
 
 # Paths from config
-CLEO_INJECTION="$CLEO_HOME/docs/$(get_config '.agentInjectionDoc' 'CLEO-INJECTION.md')"
+CLEO_INJECTION="$CLEO_HOME/templates/$(get_config '.agentInjectionDoc' 'CLEO-INJECTION.md')"
 
 # Options
 MODE="full"
