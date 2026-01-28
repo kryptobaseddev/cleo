@@ -5,6 +5,38 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.75.0] - 2026-01-28
+
+### Added
+- **Autonomous Orchestration Specification** (T2633):
+  - New RFC 2119 compliant `AUTONOMOUS-ORCHESTRATION-SPEC.md` defining autonomous operation mode
+  - **AUTO-* constraints** (AUTO-001 to AUTO-011): Autonomous operation rules
+    - AUTO-001: Orchestrator spawns ALL subagents (2-tier architecture enforcement)
+    - AUTO-002: Read manifest key_findings only, not full output files
+    - AUTO-003: Decomposition separate from orchestration
+    - AUTO-004: Verify manifest before next spawn
+    - AUTO-005: Dependency wave computation and spawn order
+    - AUTO-006: Handle partial/blocked status with followup tasks
+  - **HNDOFF-* constraints** (HNDOFF-001 to HNDOFF-006): Session handoff protocol
+    - Generate handoff at 80% context threshold
+    - Include resume command in handoff document
+    - Persist handoff to MANIFEST.jsonl
+  - **CONT-* constraints** (CONT-001 to CONT-007): Session continuity/resume
+    - Read last handoff before resuming
+    - Verify task states match handoff expectations
+    - Check for concurrent modifications
+  - **Project-agnostic validation**: customGates in config for any project type
+  - New exit codes: EXIT_AUTONOMOUS_BOUNDARY (64), EXIT_HANDOFF_REQUIRED (65), EXIT_RESUME_FAILED (66), EXIT_CONCURRENT_SESSION (67)
+  - Config schema: `orchestrator.validation.customGates` for project-specific validation
+  - Config schema: `orchestrator.handoff` for handoff protocol settings
+  - New reference: `skills/ct-orchestrator/references/autonomous-operation.md`
+  - Updated `ct-orchestrator` skill with Autonomous Mode section
+
+### Documentation
+- Registered spec in `SPEC-INDEX.json` (21 total specs)
+- Added corrected injection template for autonomous orchestration
+- Decision trees for autonomous operation and handoff generation
+
 ## [0.74.5] - 2026-01-28
 
 ### Fixed
