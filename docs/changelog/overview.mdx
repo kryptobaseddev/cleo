@@ -17,6 +17,31 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.74.0" tags={["Fix", "Feature", "CLI"]}>
+## v0.74.0 Release
+
+
+**Added**
+- **Unified Release System Dogfooding** (T2536-T2568):
+  - Complete release workflow using CLEO to manage CLEO releases
+  - New `cleo release` commands: create, plan, ship, list, show
+  - Release tracking with task associations
+  - Automated version bumping, changelog generation, git tagging
+  - Pre-ship validation (tome compliance, syntax checks)
+  - Edge case handling: --force-tag flag, E_TAG_EXISTS (58) exit code
+  - Tome validation at 78% compliance
+
+**Fixed**
+- **Release System Edge Cases** (T2566, T2567):
+  - Added --force-tag flag for overwriting existing git tags
+  - Added E_TAG_EXISTS (58) exit code for clear error handling
+  - Pre-check validation before attempting tag creation
+  - Improved error messages for tag conflicts
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.0)
+</Update>
+
 <Update label="January 2026" description="v0.73.6" tags={["Fix", "Skills", "Research"]}>
 ## v0.73.6 Release
 
@@ -500,24 +525,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.0)
-</Update>
-
-<Update label="January 2026" description="v0.68.2" tags={["Feature", "Documentation", "CLI"]}>
-## Agent Injection Template
-
-
-**Changed**
-- **Agent Injection Template**: Added Claude CLI aliases documentation to `AGENT-INJECTION.md`
-  - Documents `setup-claude-aliases` command in injected content
-  - Lists all 7 aliases: `cc`, `ccy`, `ccr`, `ccry`, `cc-headless`, `cc-headfull`, `cc-headfull-stream`
-  - Includes doctor integration note
-  - Affects `cleo init` and `cleo upgrade` output
-
-**Documentation**
-- **TODO_Task_Management.md**: Full Claude CLI aliases section with alias table, doctor integration, and collision detection info
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.2)
 </Update>
 
 ## Earlier Releases
