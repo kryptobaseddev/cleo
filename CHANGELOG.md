@@ -5,6 +5,36 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.74.1] - 2026-01-28
+
+### Fixed
+- **Global Injection Path Consolidation**:
+  - Consolidated CLEO-INJECTION.md to templates/ directory (single source of truth)
+  - Updated all references to use `@~/.cleo/templates/CLEO-INJECTION.md`
+  - Added RFC 2119 Time Estimates section to CLEO-INJECTION.md
+  - Removed inline Time Estimates from installer injection
+  - Fixed setup-agents.sh, init.sh, doctor-checks.sh, detect-drift.sh
+  - Removed duplicate docs/CLEO-INJECTION.md
+
+## [0.74.0] - 2026-01-28
+
+### Added
+- **Unified Release System Dogfooding** (T2536-T2568):
+  - Complete release workflow using CLEO to manage CLEO releases
+  - New `cleo release` commands: create, plan, ship, list, show
+  - Release tracking with task associations
+  - Automated version bumping, changelog generation, git tagging
+  - Pre-ship validation (tome compliance, syntax checks)
+  - Edge case handling: --force-tag flag, E_TAG_EXISTS (58) exit code
+  - Tome validation at 78% compliance
+
+### Fixed
+- **Release System Edge Cases** (T2566, T2567):
+  - Added --force-tag flag for overwriting existing git tags
+  - Added E_TAG_EXISTS (58) exit code for clear error handling
+  - Pre-check validation before attempting tag creation
+  - Improved error messages for tag conflicts
+
 ## [0.73.6] - 2026-01-27
 
 ### Fixed
