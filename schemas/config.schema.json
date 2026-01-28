@@ -272,6 +272,23 @@
               "description": "Show warning when task phase differs from project phase."
             }
           }
+        },
+        "claudedocs": {
+          "type": "object",
+          "description": "Claudedocs YAML frontmatter validation settings.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable YAML frontmatter validation for claudedocs/ files."
+            },
+            "strictMode": {
+              "type": "boolean",
+              "default": false,
+              "description": "Strict mode: require frontmatter on all claudedocs/ files. When false, legacy files without frontmatter are allowed with warning."
+            }
+          }
         }
       }
     },
@@ -1557,6 +1574,51 @@
           "minimum": 0,
           "maximum": 1.0,
           "description": "Minimum score threshold for including in results."
+        }
+      }
+    },
+
+    "documentation": {
+      "type": "object",
+      "description": "Documentation synchronization and drift detection configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "driftDetection": {
+          "type": "object",
+          "description": "Drift detection settings for documentation vs implementation.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable drift detection system."
+            },
+            "autoCheck": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically run drift detection after critical operations."
+            },
+            "criticalCommands": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": ["add", "complete", "update", "delete", "reparent"],
+              "description": "Commands that trigger auto-drift detection when autoCheck is enabled."
+            }
+          }
+        },
+        "gapValidation": {
+          "type": "object",
+          "description": "Knowledge transfer gap validation settings (future use).",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable knowledge gap validation. Reserved for T2530 implementation."
+            }
+          }
         }
       }
     }

@@ -16,13 +16,13 @@
     "dash"
   ],
   "requiredSections": {
-    "Command Reference": "^## Command Reference",
-    "Session Management": "^### Focus & Session|^### Multi-Session|^## Session Protocol",
-    "Core Operations": "^### Core Operations"
+    "Architecture Overview": "^## Architecture Overview",
+    "Time Estimates Prohibited": "^## Time Estimates",
+    "Protocol Types": "^## Protocol Types|^### Protocol"
   },
   "visionDocs": [
     "docs/CLEO-UNIFIED-VISION.md",
     "docs/ORCHESTRATOR-VISION.md"
   ],
-  "agentInjectionDoc": "TODO_Task_Management.md"
+  "agentInjectionDoc": "CLEO-INJECTION.md"
 }
