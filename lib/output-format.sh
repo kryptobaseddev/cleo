@@ -255,6 +255,13 @@ resolve_format() {
     resolved_format="json"
   fi
 
+  # Normalize "human" to "text" for backward compatibility
+  # flags.sh uses --human → "human", but legacy scripts check for "text"
+  # This ensures --human works with all existing case statements
+  if [[ "$resolved_format" == "human" ]]; then
+    resolved_format="text"
+  fi
+
   # Validate if requested
   if [[ "$do_validate" == "true" ]]; then
     if ! validate_format "$resolved_format" "$valid_formats"; then

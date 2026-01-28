@@ -5,6 +5,16 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.74.5] - 2026-01-28
+
+### Fixed
+- **`--human` Flag Not Working on Multiple Commands**:
+  - Root cause: `flags.sh` standardized `--human` → `FLAG_FORMAT="human"`, but most scripts' case statements only matched `json` and `text`
+  - `--human` was falling through to JSON output instead of human-readable text
+  - Fix: `resolve_format()` in `lib/output-format.sh` now normalizes `"human"` → `"text"` for backward compatibility
+  - Affected commands: commands, next, history, dash, labels, stats, blockers, deps, and 50+ others
+  - All commands using `resolve_format()` now correctly handle `--human`
+
 ## [0.74.4] - 2026-01-28
 
 ### Fixed
