@@ -17,6 +17,60 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.75.0" tags={["Feature", "Skills", "Orchestrator"]}>
+## Project-agnostic validation
+
+
+**Added**
+- **Autonomous Orchestration Specification** (T2633):
+  - New RFC 2119 compliant `AUTONOMOUS-ORCHESTRATION-SPEC.md` defining autonomous operation mode
+  - **AUTO-* constraints** (AUTO-001 to AUTO-011): Autonomous operation rules
+    - AUTO-001: Orchestrator spawns ALL subagents (2-tier architecture enforcement)
+    - AUTO-002: Read manifest key_findings only, not full output files
+    - AUTO-003: Decomposition separate from orchestration
+    - AUTO-004: Verify manifest before next spawn
+    - AUTO-005: Dependency wave computation and spawn order
+    - AUTO-006: Handle partial/blocked status with followup tasks
+  - **HNDOFF-* constraints** (HNDOFF-001 to HNDOFF-006): Session handoff protocol
+    - Generate handoff at 80% context threshold
+    - Include resume command in handoff document
+    - Persist handoff to MANIFEST.jsonl
+  - **CONT-* constraints** (CONT-001 to CONT-007): Session continuity/resume
+    - Read last handoff before resuming
+    - Verify task states match handoff expectations
+    - Check for concurrent modifications
+  - **Project-agnostic validation**: customGates in config for any project type
+  - New exit codes: EXIT_AUTONOMOUS_BOUNDARY (64), EXIT_HANDOFF_REQUIRED (65), EXIT_RESUME_FAILED (66), EXIT_CONCURRENT_SESSION (67)
+  - Config schema: `orchestrator.validation.customGates` for project-specific validation
+  - Config schema: `orchestrator.handoff` for handoff protocol settings
+  - New reference: `skills/ct-orchestrator/references/autonomous-operation.md`
+  - Updated `ct-orchestrator` skill with Autonomous Mode section
+
+**Documentation**
+- Registered spec in `SPEC-INDEX.json` (21 total specs)
+- Added corrected injection template for autonomous orchestration
+- Decision trees for autonomous operation and handoff generation
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.75.0)
+</Update>
+
+<Update label="January 2026" description="v0.74.5" tags={["Fix", "CLI"]}>
+## `--human` Flag Not Working on Multiple Commands
+
+
+**Fixed**
+- **`--human` Flag Not Working on Multiple Commands**:
+  - Root cause: `flags.sh` standardized `--human` → `FLAG_FORMAT="human"`, but most scripts' case statements only matched `json` and `text`
+  - `--human` was falling through to JSON output instead of human-readable text
+  - Fix: `resolve_format()` in `lib/output-format.sh` now normalizes `"human"` → `"text"` for backward compatibility
+  - Affected commands: commands, next, history, dash, labels, stats, blockers, deps, and 50+ others
+  - All commands using `resolve_format()` now correctly handle `--human`
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.5)
+</Update>
+
 <Update label="January 2026" description="v0.74.4" tags={["Fix", "CLI"]}>
 ## v0.74.4 Release
 
@@ -165,6 +219,20 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.5)
+</Update>
+
+<Update label="January 2026" description="v0.73.4" tags={["Fix", "Feature"]}>
+## Changelog MDX Escaping
+
+
+**Fixed**
+- **Changelog MDX Escaping**: Escape `<` before numbers in Mintlify MDX output to prevent rendering issues
+
+**Added**
+- **Automated Release Script**: New `dev/release-version.sh` for streamlined version bumping, changelog updates, and git tagging
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.4)
 </Update>
 
 <Update label="January 2026" description="v0.73.3" tags={["Fix", "Feature", "Skills"]}>
@@ -487,6 +555,63 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.70.1)
+</Update>
+
+<Update label="January 2026" description="v0.69.3" tags={["Feature", "Skills", "Orchestrator"]}>
+## v0.69.3 Release
+
+
+**Added**
+- **Epic T2247: Research-Task Linking and Documentation Injection Improvements**
+  - **File Attachment Documentation** (T2254): Added `--files` flag documentation to AGENT-INJECTION.md
+    - Explains file attachment on task creation and update
+    - Documents that agents do NOT auto-read attached files
+  - **Research Linking Documentation** (T2254): Added research linking section to AGENT-INJECTION.md
+    - `--files` vs `research link` comparison table
+    - Bidirectional linking visibility via `cleo show`
+  - **Subagent Protocol Updates** (T2253): Enhanced `skills/_shared/subagent-protocol-base.md`
+    - Added Research Linking section with bidirectional discovery docs
+    - RFC 2119 SHOULD/MAY for optional behaviors
+  - **Task System Integration Updates** (T2253): Enhanced `skills/_shared/task-system-integration.md`
+    - Added File Attachment section with `--files` flag usage
+    - Distinguished `--files` (input context) from `research link` (output artifacts)
+  - **Orchestrator Compliance Verification** (T2255): Enhanced `skills/ct-orchestrator/SKILL.md`
+    - Added research link verification step to enforcement sequence
+    - Orchestrator fallback linking when subagent fails to link
+    - Updated compliance checks table with research link status
+
+**Research Tasks (T2247 Epic)**
+- T2249: CLEO --files flag on tasks
+- T2250: Research linking bidirectional behavior
+- T2251: CLEO documentation injection system
+- T2252: Subagent knowledge sources and gaps
+- T2263: --files flag validation testing
+- T2292: CLEO usage instruction sources and plugin integration audit
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.3)
+</Update>
+
+<Update label="January 2026" description="v0.69.2" tags={["Fix", "Feature"]}>
+## Epic T2264 Complete
+
+
+**Fixed**
+- **BATS Test Registry Cleanup** (T2265): Tests now clean up project registry entries on teardown
+  - Added `_cleanup_test_registry_entries()` helper to `tests/test_helper/common_setup.bash`
+  - Updated `common_teardown()`, `common_teardown_per_test()`, `common_teardown_file()` to call cleanup
+  - Prevents orphaned test project entries in `~/.cleo/projects-registry.json`
+- **Manifest Validation Count Bug** (T2266): Fixed incorrect "1350" invalid entries display
+  - Was actually 135 entries; bug caused by jq output concatenation in `scripts/validate.sh`
+  - Fixed by extracting only first JSON line and using `|| true` instead of fallback JSON
+  - Cleaned up 135 legacy manifest entries missing required fields
+
+**Changed**
+- **Epic T2264 Complete**: Cross-project repair foundation work complete
+  - Future `--fix-all` feature deferred to separate epic
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.2)
 </Update>
 
 ## Earlier Releases
