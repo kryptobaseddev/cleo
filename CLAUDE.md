@@ -217,6 +217,34 @@ Before any task operation, validate:
 - Validation errors prevent operations
 - Clear error messages for debugging
 
+### Protocol Enforcement
+
+**Exit codes 60-67**: Protocol violations
+
+CLEO enforces protocol compliance for agent-generated outputs:
+
+| Code | Protocol | Description |
+|------|----------|-------------|
+| 60 | Research | Missing key_findings or code modifications |
+| 61 | Consensus | Invalid voting matrix or confidence scores |
+| 62 | Specification | Missing RFC 2119 keywords or version |
+| 63 | Decomposition | Too many siblings or unclear descriptions |
+| 64 | Implementation | Missing @task tags on new functions |
+| 65 | Contribution | Missing @task/@contribution tags |
+| 66 | Release | Invalid semver or missing changelog |
+| 67 | Generic | Unknown protocol or generic violation |
+
+**Validation functions**: `lib/protocol-validation.sh`
+
+**Guides**:
+- Protocol enforcement: `docs/guides/protocol-enforcement.md`
+- Troubleshooting: `docs/guides/troubleshooting.md` (Protocol Violations section)
+
+**Commit enforcement**: All commits must reference a task ID `(T####)`
+- Hook location: `.cleo/templates/git-hooks/commit-msg`
+- Install: `cp .cleo/templates/git-hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg`
+- Bypass: `git commit --no-verify` (logged to `.cleo/bypass-log.json`)
+
 ## Agent Notes
 
 ### When Using AI Agents
@@ -483,6 +511,34 @@ Before any task operation, validate:
 - Backup files created during atomic operations
 - Validation errors prevent operations
 - Clear error messages for debugging
+
+### Protocol Enforcement
+
+**Exit codes 60-67**: Protocol violations
+
+CLEO enforces protocol compliance for agent-generated outputs:
+
+| Code | Protocol | Description |
+|------|----------|-------------|
+| 60 | Research | Missing key_findings or code modifications |
+| 61 | Consensus | Invalid voting matrix or confidence scores |
+| 62 | Specification | Missing RFC 2119 keywords or version |
+| 63 | Decomposition | Too many siblings or unclear descriptions |
+| 64 | Implementation | Missing @task tags on new functions |
+| 65 | Contribution | Missing @task/@contribution tags |
+| 66 | Release | Invalid semver or missing changelog |
+| 67 | Generic | Unknown protocol or generic violation |
+
+**Validation functions**: `lib/protocol-validation.sh`
+
+**Guides**:
+- Protocol enforcement: `docs/guides/protocol-enforcement.md`
+- Troubleshooting: `docs/guides/troubleshooting.md` (Protocol Violations section)
+
+**Commit enforcement**: All commits must reference a task ID `(T####)`
+- Hook location: `.cleo/templates/git-hooks/commit-msg`
+- Install: `cp .cleo/templates/git-hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg`
+- Bypass: `git commit --no-verify` (logged to `.cleo/bypass-log.json`)
 
 ## Agent Notes
 

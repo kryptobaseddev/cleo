@@ -154,6 +154,63 @@ Research complete. See MANIFEST.jsonl for summary.
 
 ---
 
+## Enforcement
+
+### Tool Allowlist
+
+**Allowed Tools** (Read-only operations):
+- `Read` - File reading
+- `Grep` - Content search
+- `Glob` - File pattern matching
+- `Bash` - **Read-only commands only** (ls, cat, grep, find, etc.)
+
+**Prohibited Tools**:
+- `Write` - File writing
+- `Edit` - File modification
+- **Any** code compilation or execution
+
+**Rationale**: Research must remain read-only to prevent contamination of implementation tasks.
+
+### Validation Command
+
+**Command** (planned): `cleo research validate [--task TASK_ID]`
+
+**Current State**: Available via `validate_research_protocol()` in `lib/protocol-validation.sh`
+
+```bash
+# Programmatic validation
+source lib/protocol-validation.sh
+result=$(validate_research_protocol "T1234" "$manifest_entry" "false")
+```
+
+**Checks**:
+- RSCH-001: No code changes in git diff
+- RSCH-004: Manifest entry appended
+- RSCH-006: 3-7 key findings
+- RSCH-007: agent_type = "research"
+
+### Orchestrator Integration
+
+**Pre-Spawn Validation**:
+```bash
+# In lib/orchestrator-spawn.sh Step 6.5
+protocol_type=$(_osp_skill_to_protocol "ct-research-agent")  # Returns "research"
+validate_research_protocol "$task_id" "$manifest_entry" "false"
+# Blocks spawn on MUST violations with EXIT_PROTOCOL_RESEARCH (60)
+```
+
+**Post-Completion Verification**:
+- Git diff analysis detects code modifications
+- Manifest parsing validates key_findings count
+- Agent type verification
+
+### Exit Codes
+
+- `EXIT_PROTOCOL_RESEARCH` (60) - Research protocol violation
+- Common violations: Code changes detected, wrong agent_type, insufficient findings
+
+---
+
 ## Anti-Patterns
 
 | Pattern | Why Avoid |
