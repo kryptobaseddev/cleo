@@ -5,6 +5,16 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.6] - 2026-01-27
+
+### Fixed
+- **Skills YAML Frontmatter Compliance** (T2517-T2520):
+  - Fixed 9 official CLEO skills that were missing required YAML frontmatter
+  - All skills now have proper `---` delimited frontmatter with `name` and `description` fields
+  - Skills affected: ct-documentor, ct-epic-architect, ct-library-implementer-bash, ct-research-agent, ct-spec-writer, ct-task-executor, ct-test-writer-bats, ct-validator, ct-dev-workflow
+  - Resolves Codex CLI "missing YAML frontmatter" errors when loading skills
+  - Validated ct-skill-creator produces compliant skills
+
 ## [0.73.5] - 2026-01-27
 
 ### Added

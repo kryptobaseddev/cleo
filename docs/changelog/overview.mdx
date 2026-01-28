@@ -17,6 +17,22 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.73.6" tags={["Fix", "Skills", "Research"]}>
+## v0.73.6 Release
+
+
+**Fixed**
+- **Skills YAML Frontmatter Compliance** (T2517-T2520):
+  - Fixed 9 official CLEO skills that were missing required YAML frontmatter
+  - All skills now have proper `---` delimited frontmatter with `name` and `description` fields
+  - Skills affected: ct-documentor, ct-epic-architect, ct-library-implementer-bash, ct-research-agent, ct-spec-writer, ct-task-executor, ct-test-writer-bats, ct-validator, ct-dev-workflow
+  - Resolves Codex CLI "missing YAML frontmatter" errors when loading skills
+  - Validated ct-skill-creator produces compliant skills
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.6)
+</Update>
+
 <Update label="January 2026" description="v0.73.5" tags={["Fix", "Feature", "Installer"]}>
 ## Skills Documentation Overhaul
 
@@ -502,19 +518,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.2)
-</Update>
-
-<Update label="January 2026" description="v0.68.1" tags={["Fix", "Feature", "Installer"]}>
-## COMMANDS-INDEX.json
-
-
-**Fixed**
-- **Wrapper Template Sync** (Epic T2209): Fresh installations now include `setup-claude-aliases` and `compliance` commands
-- **COMMANDS-INDEX.json**: Added missing `relates` command entry
-- **Drift Detection**: Added wrapper template sync validation to prevent future mismatches
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.1)
 </Update>
 
 ## Earlier Releases
