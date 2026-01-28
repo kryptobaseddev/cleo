@@ -342,7 +342,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance roadmap claude-migrate release"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance roadmap claude-migrate release docs"
 }
 
 cmd="${1:-help}"
@@ -663,9 +663,8 @@ installer_link_inject_claudemd() {
     local temp_file="${claudemd}.tmp.$$"
     {
         echo "<!-- CLEO:START -->"
-        echo "## Task Management (cleo)"
-        echo ""
-        echo "@~/.cleo/docs/CLEO-INJECTION.md"
+        echo "# Task Management"
+        echo "@~/.cleo/templates/CLEO-INJECTION.md"
         echo "<!-- CLEO:END -->"
         echo ""
         cat "$claudemd"
@@ -724,38 +723,12 @@ installer_link_get_cleo_version() {
 
 # Generate CLEO injection content (versionless - content is external)
 # Returns: injection content (stdout)
-# Includes:
-#   - Task management reference
-#   - Time estimates prohibition (RFC 2119)
-#   - Subagent architecture reference (optional, for agents with skills support)
+# All instructions are in CLEO-INJECTION.md (single source of truth)
 installer_link_generate_cleo_content() {
     cat <<'EOF'
 <!-- CLEO:START -->
 # Task Management
-@~/.cleo/docs/CLEO-INJECTION.md
-
-## Time Estimates — PROHIBITED (RFC 2119)
-
-**MUST NOT** estimate hours, days, weeks, or any temporal duration for tasks.
-**MUST NOT** provide time predictions even when explicitly requested by users.
-
-**Rationale**: Time estimates create false precision and lead to poor decisions.
-LLM agents cannot accurately predict implementation duration due to:
-- Unknown edge cases and complexity
-- External dependencies and blockers
-- Context switching and interruptions
-- Variability in problem-solving approaches
-
-**MUST** instead use CLEO's relative sizing system:
-- `small` - Single function, minimal complexity, clear path
-- `medium` - Multiple components, moderate complexity, some unknowns
-- `large` - Cross-cutting changes, high complexity, significant unknowns
-
-**SHOULD** describe scope, complexity, and dependencies when asked about effort.
-**MAY** reference task count, file count, or dependency depth for context.
-
-If a user insists on time estimates, respond:
-> "I cannot provide accurate time predictions. Instead, I can describe the scope (N tasks, M files), complexity factors, and dependencies. Would you like that analysis?"
+@~/.cleo/templates/CLEO-INJECTION.md
 <!-- CLEO:END -->
 EOF
 }

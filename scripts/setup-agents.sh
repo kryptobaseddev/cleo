@@ -160,9 +160,9 @@ for agent_name in "${agent_types[@]}"; do
         current_block=$(sed -n '/<!-- CLEO:START -->/,/<!-- CLEO:END -->/p' "$config_path" 2>/dev/null || true)
         expected_block="<!-- CLEO:START -->
 # Task Management
-@~/.cleo/docs/TODO_Task_Management.md
+@~/.cleo/templates/CLEO-INJECTION.md
 <!-- CLEO:END -->"
-        
+
         # If block already exists and is correct, and no force/update flags, skip
         if [[ "$current_block" == "$expected_block" ]] && [[ "$FORCE" != true ]] && [[ "$UPDATE" != true ]]; then
             echo "✓ $agent_name/$config_file: Already configured (no changes needed)"
@@ -180,7 +180,7 @@ for agent_name in "${agent_types[@]}"; do
     # Create @ reference block (NO version - content is external, always current)
     injection_content="<!-- CLEO:START -->
 # Task Management
-@~/.cleo/docs/TODO_Task_Management.md
+@~/.cleo/templates/CLEO-INJECTION.md
 <!-- CLEO:END -->"
 
     # Create or update file with marker-based injection
@@ -279,8 +279,7 @@ echo "   Updated: $updated_count agents"
 echo "   Already configured: $no_change_count agents"
 echo "   Skipped: $skipped_count agents (CLI not installed)"
 echo ""
-echo "These configs reference: @~/.cleo/docs/TODO_Task_Management.md (legacy)"
-echo "NOTE: TODO_Task_Management.md is deprecated. Use injection system via 'cleo upgrade'."
+echo "These configs reference: @~/.cleo/templates/CLEO-INJECTION.md"
 
 # Exit with appropriate code
 total_changes=$((configured_count + updated_count))

@@ -898,7 +898,7 @@ if [[ -f "$CLEO_HOME/lib/agent-registry.sh" ]]; then
       mkdir -p "$global_dir" 2>/dev/null || true
 
       # Global injection content (@ reference to CLEO-INJECTION.md)
-      global_reference="@~/.cleo/docs/TODO_Task_Management.md"
+      global_reference="@~/.cleo/templates/CLEO-INJECTION.md"
       global_block="<!-- CLEO:START -->
 # Task Management
 ${global_reference}
