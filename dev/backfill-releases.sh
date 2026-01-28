@@ -301,23 +301,23 @@ backfill_releases() {
         # Filter by range if specified
         if [[ -n "$FROM_VERSION" ]] && [[ "$version" < "$FROM_VERSION" ]]; then
             log_debug "Skipping $version (before $FROM_VERSION)"
-            ((skipped++))
+            skipped=$((skipped + 1))
             continue
         fi
 
         if [[ -n "$TO_VERSION" ]] && [[ "$version" > "$TO_VERSION" ]]; then
             log_debug "Skipping $version (after $TO_VERSION)"
-            ((skipped++))
+            skipped=$((skipped + 1))
             continue
         fi
 
-        ((processed++))
+        processed=$((processed + 1))
         log_info "Processing $version..."
 
         # Check if already has tasks (unless forcing)
         if has_tasks "$version"; then
             log_warn "  $version already has tasks (skipping)"
-            ((skipped++))
+            skipped=$((skipped + 1))
             continue
         fi
 
@@ -331,13 +331,13 @@ backfill_releases() {
 
         if [[ "$task_count" -eq 0 ]]; then
             log_warn "  No task IDs found for $version in CHANGELOG.md"
-            ((skipped++))
+            skipped=$((skipped + 1))
             continue
         fi
 
         # Update release
         update_release_tasks "$version" "$task_ids_json"
-        ((updated++))
+        updated=$((updated + 1))
 
     done <<< "$releases"
 
