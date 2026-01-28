@@ -492,6 +492,66 @@ cleo session end --note "Feature X released v0.74.0"
 
 ---
 
+## Autonomous Mode (AUTO-*)
+
+**Specification**: [AUTONOMOUS-ORCHESTRATION-SPEC.md](../../docs/specs/AUTONOMOUS-ORCHESTRATION-SPEC.md)
+
+When operating autonomously (without continuous HITL oversight), the orchestrator MUST follow these additional constraints:
+
+### Core Autonomous Constraints
+
+| ID | Constraint | Rationale |
+|----|------------|-----------|
+| AUTO-001 | Orchestrator MUST spawn ALL subagents; subagents MUST NOT spawn other subagents | Single coordination point |
+| AUTO-002 | MUST read manifest `key_findings` for handoff; MUST NOT read full output files | Context preservation |
+| AUTO-003 | Decomposition is separate from orchestration | Role separation |
+| AUTO-004 | MUST verify manifest entry BEFORE spawning next agent | Compliance chain |
+| AUTO-005 | MUST compute dependency waves; spawn in wave order | Correctness |
+| AUTO-006 | MUST handle partial/blocked by creating followup tasks | Graceful degradation |
+| HNDOFF-001 | MUST generate handoff at 80% context threshold | Graceful context management |
+| CONT-001 | MUST read last handoff before resuming work | State recovery |
+
+### Autonomous Workflow
+
+```bash
+# 1. Session startup
+cleo session list                      # Check existing sessions
+cleo session resume <id>               # OR resume existing
+cleo session start --scope epic:T1575 --auto-focus  # OR start new
+
+# 2. Wave computation
+cleo orchestrator analyze T1575        # Get dependency waves
+
+# 3. Spawn loop (for each task in wave order)
+cleo orchestrator spawn T1586          # Get spawn prompt
+# → Use Task tool (subagent_type: cleo-subagent)
+# → Wait for return message
+cleo research show <id>                # Verify manifest entry
+cleo research link T1586 <id>          # Link to task
+
+# 4. Context check (before each spawn)
+cleo context                           # Check threshold
+
+# 5. Handoff (at 80% or wave complete)
+cleo session end --note "Wave 2 complete, next: T1590"
+```
+
+### Scope Boundaries
+
+| Autonomous | Requires HITL |
+|------------|---------------|
+| Task execution within epic scope | Architectural decisions |
+| Dependency resolution | Scope expansion |
+| Manifest writing, status updates | Force/destructive operations |
+| Spawning subagents in wave order | Cross-epic work |
+| Creating followup tasks | Git push to main |
+
+### Quick Reference
+
+See @references/autonomous-operation.md for corrected injection templates and decision trees.
+
+---
+
 ## Anti-Patterns (MUST NOT)
 
 1. **MUST NOT** read full research files - use manifest summaries
@@ -528,6 +588,7 @@ For detailed workflows, load these references on demand:
 | Protocol compliance | @references/orchestrator-compliance.md |
 | Token injection | @references/orchestrator-tokens.md |
 | Error recovery | @references/orchestrator-recovery.md |
+| Autonomous mode | @references/autonomous-operation.md |
 
 ## Shared References
 
@@ -538,6 +599,7 @@ For detailed workflows, load these references on demand:
 
 ## External Documentation
 
+- [AUTONOMOUS-ORCHESTRATION-SPEC.md](../../docs/specs/AUTONOMOUS-ORCHESTRATION-SPEC.md) - Autonomous mode (AUTO-*, HNDOFF-*, CONT-*)
 - [PROJECT-LIFECYCLE-SPEC.md](../../docs/specs/PROJECT-LIFECYCLE-SPEC.md) - Full lifecycle (RCSD → Release)
 - [PROTOCOL-STACK-SPEC.md](../../docs/specs/PROTOCOL-STACK-SPEC.md) - 7 conditional protocols
 - [RCSD-PIPELINE-SPEC.md](../../docs/specs/RCSD-PIPELINE-SPEC.md) - Research → Consensus → Spec → Decompose

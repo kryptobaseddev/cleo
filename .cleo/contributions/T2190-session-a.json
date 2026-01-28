@@ -1,0 +1,129 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_1749f45a",
+    "protocolVersion": "1.0.0",
+    "createdAt": "2026-01-24T10:55:00Z",
+    "agentId": "orchestrator-opus",
+    "sessionId": "manual-orchestration"
+  },
+  "epicId": "T2190",
+  "taskId": "T2190",
+  "markerLabel": "consensus-source",
+  "decisions": [
+    {
+      "questionId": "HIER-001",
+      "question": "Architecture: Extend existing lib/graph-rag.sh or create new lib/graph-rag-hierarchy.sh?",
+      "answer": "Extend existing lib/graph-rag.sh",
+      "confidence": 0.85,
+      "rationale": "Single source of truth for all discovery methods. Follows existing pattern (_discover_by_labels, _discover_by_description, _discover_by_files). Consensus research document (hierarchy-implementation-consensus-2026-01-24) explicitly recommends adding functions to existing file.",
+      "evidence": [
+        {
+          "file": "claudedocs/research-outputs/2026-01-24_hierarchy-implementation-consensus.md",
+          "section": "Algorithm Decisions",
+          "type": "research"
+        },
+        {
+          "file": "lib/graph-rag.sh",
+          "section": "Discovery functions pattern (line 300-500)",
+          "type": "code"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-002",
+      "question": "Task structure: Flat (8 direct children) or nested (7 tasks + 4 subtasks)?",
+      "answer": "Flat structure with 8 direct children",
+      "confidence": 0.75,
+      "rationale": "Each function is independently testable. Dependencies clearly visible without nesting. Aligns with CLEO task patterns where subtasks are for actual sub-work, not just grouping.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2190 children T2191-T2198",
+          "type": "code"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-003",
+      "question": "Should a configuration schema task be included?",
+      "answer": "Yes, adopt T2244 content into T2190",
+      "confidence": 0.90,
+      "rationale": "Configurable boosts (siblingBoost, cousinBoost, decayFactor) are valuable. T2244 has good specification. T2190 mentions config in docs task but lacks dedicated implementation task.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2244 description",
+          "type": "task"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-004",
+      "question": "Should research outputs be explicitly linked to tasks?",
+      "answer": "Yes, use cleo research link for traceability",
+      "confidence": 0.95,
+      "rationale": "T2190 has 3 linked research outputs (LCA algorithm, sibling scoring, implementation consensus). Research links enable context-efficient retrieval without reading full files.",
+      "evidence": [
+        {
+          "file": "claudedocs/research-outputs/MANIFEST.jsonl",
+          "section": "lca-algorithm-research-2026-01-24, sibling-scoring-research-2026-01-24, hierarchy-implementation-consensus-2026-01-24",
+          "type": "research"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-005",
+      "question": "Is T2231 umbrella epic necessary for v0.69.0 scope?",
+      "answer": "No, umbrella is premature - but preserve T2233-T2235 as standalone future epics",
+      "confidence": 0.70,
+      "rationale": "v0.69.0 scope is only hierarchical discovery. Nexus (T2233), Cross-Project (T2234), and LLM Orchestration (T2235) are separate release scopes. Umbrella creates false hierarchy via relates-to which may confuse.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2231 relates field",
+          "type": "task"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-006",
+      "question": "Should benchmark task be included?",
+      "answer": "Defer - add post-implementation if performance issues arise",
+      "confidence": 0.65,
+      "rationale": "Epic success criteria mentions 'negligible performance impact'. Hierarchy traversal is O(3) constant for max depth 3. Benchmark can be added later if needed.",
+      "evidence": [
+        {
+          "file": "claudedocs/research-outputs/2026-01-24_lca-algorithm-research.md",
+          "section": "Complexity analysis",
+          "type": "research"
+        }
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "questionId": "HIER-001",
+      "conflictType": "architectural",
+      "otherContributionId": "T2232",
+      "otherAnswer": "Create new lib/graph-rag-hierarchy.sh",
+      "severity": "high",
+      "resolutionRequired": true
+    },
+    {
+      "questionId": "HIER-002",
+      "conflictType": "structural",
+      "otherContributionId": "T2232",
+      "otherAnswer": "Nested structure with subtasks under T2236",
+      "severity": "medium",
+      "resolutionRequired": false
+    }
+  ],
+  "researchOutputs": [
+    "lca-algorithm-research-2026-01-24",
+    "sibling-scoring-research-2026-01-24",
+    "hierarchy-implementation-consensus-2026-01-24",
+    "epic-consolidation-analysis-2026-01-24"
+  ],
+  "status": "complete"
+}

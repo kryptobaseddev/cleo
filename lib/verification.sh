@@ -736,6 +736,82 @@ check_epic_lifecycle_transition() {
 }
 
 # ============================================================================
+# CIRCULAR VALIDATION FUNCTIONS (T2579)
+# ============================================================================
+
+# Check for circular validation (self-approval prevention)
+# Args: $1 = task_id
+#       $2 = current_agent (agent attempting to validate)
+#       $3 = todo_file path
+# Returns: 0 if valid, 70 (E_SELF_APPROVAL) if circular validation detected
+# Outputs: error message to stderr if circular
+check_circular_validation() {
+    local task_id="$1"
+    local current_agent="$2"
+    local todo_file="$3"
+
+    # Get task
+    local task_json
+    task_json=$(jq --arg id "$task_id" '.tasks[] | select(.id == $id)' "$todo_file")
+
+    if [[ -z "$task_json" ]]; then
+        return "${EXIT_NOT_FOUND:-4}"
+    fi
+
+    # Get provenance fields
+    local created_by
+    local validated_by
+    local tested_by
+    created_by=$(echo "$task_json" | jq -r '.createdBy // null')
+    validated_by=$(echo "$task_json" | jq -r '.validatedBy // null')
+    tested_by=$(echo "$task_json" | jq -r '.testedBy // null')
+
+    # Allow user/legacy/system agents (special cases)
+    if [[ "$current_agent" =~ ^(user|legacy|system)$ ]]; then
+        return 0
+    fi
+
+    # Check for self-approval (creator cannot validate own work)
+    if [[ "$current_agent" == "$created_by" ]]; then
+        if declare -f error_json >/dev/null 2>&1; then
+            error_json "E_SELF_APPROVAL" \
+                "Cannot validate your own work (agent: $current_agent)" \
+                70
+        else
+            echo "[ERROR] Cannot validate your own work (agent: $current_agent)" >&2
+        fi
+        return 70
+    fi
+
+    # Check for validator re-testing (validator cannot also be tester)
+    if [[ "$current_agent" == "$validated_by" ]]; then
+        if declare -f error_json >/dev/null 2>&1; then
+            error_json "E_SELF_APPROVAL" \
+                "Validator cannot also be tester (agent: $current_agent)" \
+                70
+        else
+            echo "[ERROR] Validator cannot also be tester (agent: $current_agent)" >&2
+        fi
+        return 70
+    fi
+
+    # Check for tester re-creation (tester cannot create tasks for own testing)
+    if [[ "$current_agent" == "$tested_by" ]]; then
+        if declare -f error_json >/dev/null 2>&1; then
+            error_json "E_SELF_APPROVAL" \
+                "Tester cannot create tasks for own testing (agent: $current_agent)" \
+                70
+        else
+            echo "[ERROR] Tester cannot create tasks for own testing (agent: $current_agent)" >&2
+        fi
+        return 70
+    fi
+
+    # All checks passed
+    return 0
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -762,3 +838,4 @@ export -f require_verification_for_parent_auto_complete
 export -f all_epic_children_verified
 export -f transition_epic_lifecycle_to_review
 export -f check_epic_lifecycle_transition
+export -f check_circular_validation

@@ -268,6 +268,47 @@ readonly EXIT_MANIFEST_ENTRY_MISSING=62
 # Examples: skill validation failed, task not ready for spawn
 readonly EXIT_SPAWN_VALIDATION_FAILED=63
 
+# Autonomous operation boundary reached
+# Examples: orchestrator reached HITL gate, architectural decision required
+readonly EXIT_AUTONOMOUS_BOUNDARY=64
+
+# Handoff required before stopping
+# Examples: stopping at context threshold without generating handoff
+readonly EXIT_HANDOFF_REQUIRED=65
+
+# Resume from handoff failed
+# Examples: session not found, handoff document invalid, concurrent modification
+readonly EXIT_RESUME_FAILED=66
+
+# Concurrent session on same scope
+# Examples: attempting to resume when another session is active on same epic
+readonly EXIT_CONCURRENT_SESSION=67
+
+# ============================================================================
+# LIFECYCLE ENFORCEMENT ERROR CODES (75-79)
+# Provenance and lifecycle validation errors (T2569 - v2.10.0)
+# ============================================================================
+
+# Lifecycle gate requirements not met
+# Examples: attempting to enter implementation without specification approval
+readonly EXIT_LIFECYCLE_GATE_FAILED=75
+
+# Audit object missing or incomplete
+# Examples: MANIFEST entry missing required audit.created_by field
+readonly EXIT_AUDIT_MISSING=76
+
+# Circular validation detected (agent validating own work)
+# Examples: validated_by == created_by, or N-hop cycle in provenance chain
+readonly EXIT_CIRCULAR_VALIDATION=77
+
+# Invalid lifecycle state transition
+# Examples: attempting to move backward in RCSD→IVTR pipeline
+readonly EXIT_LIFECYCLE_TRANSITION_INVALID=78
+
+# Provenance fields required but missing
+# Examples: task missing createdBy field in enforcement mode
+readonly EXIT_PROVENANCE_REQUIRED=79
+
 # ============================================================================
 # SPECIAL CODES (100+)
 # These indicate notable states but are NOT errors
@@ -388,6 +429,16 @@ get_exit_code_name() {
         61)  echo "INVALID_RETURN_MESSAGE" ;;
         62)  echo "MANIFEST_ENTRY_MISSING" ;;
         63)  echo "SPAWN_VALIDATION_FAILED" ;;
+        64)  echo "AUTONOMOUS_BOUNDARY" ;;
+        65)  echo "HANDOFF_REQUIRED" ;;
+        66)  echo "RESUME_FAILED" ;;
+        67)  echo "CONCURRENT_SESSION" ;;
+        # Lifecycle Enforcement (75-79)
+        75)  echo "LIFECYCLE_GATE_FAILED" ;;
+        76)  echo "AUDIT_MISSING" ;;
+        77)  echo "CIRCULAR_VALIDATION" ;;
+        78)  echo "LIFECYCLE_TRANSITION_INVALID" ;;
+        79)  echo "PROVENANCE_REQUIRED" ;;
         # Special (100+)
         100) echo "NO_DATA" ;;
         101) echo "ALREADY_EXISTS" ;;
@@ -434,6 +485,15 @@ is_recoverable_code() {
         50|51|52|53|54) return 1 ;;
         # Orchestrator errors - recoverable by fixing prompt and respawning
         60|61|62|63) return 0 ;;
+        # Autonomous orchestration - boundary/handoff require HITL, resume/concurrent may be retryable
+        64|65) return 1 ;;  # Need HITL decision
+        66|67) return 0 ;;  # May be retryable
+        # Lifecycle enforcement errors - most recoverable by fixing audit/provenance
+        75|76|79) return 0 ;;
+        # Not recoverable: circular validation (requires different agent)
+        77) return 1 ;;
+        # Not recoverable: invalid lifecycle transition (requires proper sequence)
+        78) return 1 ;;
         # Special codes are not errors, so "recoverable" doesn't apply
         *)    return 1 ;;
     esac
@@ -545,6 +605,17 @@ export EXIT_PROTOCOL_MISSING
 export EXIT_INVALID_RETURN_MESSAGE
 export EXIT_MANIFEST_ENTRY_MISSING
 export EXIT_SPAWN_VALIDATION_FAILED
+export EXIT_AUTONOMOUS_BOUNDARY
+export EXIT_HANDOFF_REQUIRED
+export EXIT_RESUME_FAILED
+export EXIT_CONCURRENT_SESSION
+
+# Export constants - Lifecycle Enforcement (75-79)
+export EXIT_LIFECYCLE_GATE_FAILED
+export EXIT_AUDIT_MISSING
+export EXIT_CIRCULAR_VALIDATION
+export EXIT_LIFECYCLE_TRANSITION_INVALID
+export EXIT_PROVENANCE_REQUIRED
 
 # Export constants - Special (100+)
 export EXIT_NO_DATA

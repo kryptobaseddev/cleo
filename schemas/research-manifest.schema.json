@@ -133,6 +133,95 @@
       "items": {
         "type": "string"
       }
+    },
+    "audit": {
+      "type": "object",
+      "description": "Provenance and lifecycle tracking (v2.10.0+ - optional for backward compatibility)",
+      "properties": {
+        "created_by": {
+          "type": "string",
+          "description": "Agent ID that created this output (format: {role}-agent-{taskId})",
+          "pattern": "^[a-z]+-agent-T[0-9]+$"
+        },
+        "created_at": {
+          "type": "string",
+          "description": "ISO 8601 datetime when output was created",
+          "format": "date-time"
+        },
+        "validated_by": {
+          "type": ["string", "null"],
+          "description": "Agent ID that validated this output (MUST differ from created_by)",
+          "pattern": "^[a-z]+-agent-T[0-9]+$"
+        },
+        "validated_at": {
+          "type": ["string", "null"],
+          "description": "ISO 8601 datetime when output was validated",
+          "format": "date-time"
+        },
+        "validation_status": {
+          "type": "string",
+          "description": "Validation workflow state",
+          "enum": ["pending", "in_review", "approved", "rejected", "needs_revision"],
+          "default": "pending"
+        },
+        "tested_by": {
+          "type": ["string", "null"],
+          "description": "Agent ID that tested this output (MUST differ from created_by and validated_by)",
+          "pattern": "^[a-z]+-agent-T[0-9]+$"
+        },
+        "tested_at": {
+          "type": ["string", "null"],
+          "description": "ISO 8601 datetime when output was tested",
+          "format": "date-time"
+        },
+        "lifecycle_state": {
+          "type": "string",
+          "description": "RCSD→IVTR pipeline stage",
+          "enum": ["research", "consensus", "specification", "decomposition", "implementation", "validation", "testing", "release"]
+        },
+        "provenance_chain": {
+          "type": "array",
+          "description": "Full lineage from research to release (array of task/manifest IDs or objects)",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Simple ID reference",
+                "pattern": "^(T[0-9]+|[a-z0-9-]+)$"
+              },
+              {
+                "type": "object",
+                "description": "Detailed chain entry",
+                "required": ["type", "id"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["task", "research", "consensus", "specification", "decomposition", "implementation", "validation", "testing", "release"]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "default": []
+        },
+        "validates_task": {
+          "type": "string",
+          "description": "Task ID this output validates (for consensus/validation agents)",
+          "pattern": "^T[0-9]+$"
+        },
+        "validation_result": {
+          "type": "string",
+          "description": "Result of validation (approved/rejected/needs_revision)",
+          "enum": ["approved", "rejected", "needs_revision"]
+        }
+      },
+      "required": ["created_by", "created_at", "lifecycle_state"]
     }
   },
   "additionalProperties": true

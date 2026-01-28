@@ -88,6 +88,12 @@ if [[ -f "$LIB_DIR/verification.sh" ]]; then
   source "$LIB_DIR/verification.sh"
 fi
 
+# Source lifecycle library for gate enforcement (T2579)
+if [[ -f "$LIB_DIR/lifecycle.sh" ]]; then
+  # shellcheck source=../lib/lifecycle.sh
+  source "$LIB_DIR/lifecycle.sh"
+fi
+
 # Source context alert library for context monitoring (T1323)
 if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   # shellcheck source=../lib/context-alert.sh
@@ -570,6 +576,27 @@ VERIFY_STATUS=$(jq --arg id "$TASK_ID" '.tasks[] | select(.id == $id) | .status'
 if [[ "$VERIFY_STATUS" != '"done"' ]]; then
   log_error "Failed to update task status."
   exit "$EXIT_FILE_ERROR"
+fi
+
+# ============================================================================
+# LIFECYCLE GATE ENFORCEMENT (T2579)
+# Check circular validation before allowing completion
+# ============================================================================
+
+# Check if lifecycle enforcement is enabled
+if declare -f check_circular_validation >/dev/null 2>&1; then
+  LIFECYCLE_ENFORCE=$(get_config_value "lifecycle.enforce" "false")
+
+  if [[ "$LIFECYCLE_ENFORCE" == "true" ]]; then
+    # Get current agent ID from environment or config
+    CURRENT_AGENT="${CLEO_AGENT_ID:-user}"
+
+    # Check circular validation (prevent self-approval)
+    if ! check_circular_validation "$TASK_ID" "$CURRENT_AGENT" "$TODO_FILE"; then
+      # Error already logged by check_circular_validation
+      exit 70  # EXIT_SELF_APPROVAL
+    fi
+  fi
 fi
 
 # ============================================================================

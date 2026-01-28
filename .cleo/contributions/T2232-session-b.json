@@ -1,0 +1,112 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/contribution.schema.json",
+  "_meta": {
+    "contributionId": "contrib_b2c3d4e5",
+    "protocolVersion": "1.0.0",
+    "createdAt": "2026-01-24T10:30:00Z",
+    "agentId": "epic-architect-agent",
+    "sessionId": "session_unknown",
+    "note": "Reconstructed from task analysis - original agent did not create contribution JSON"
+  },
+  "epicId": "T2232",
+  "taskId": "T2232",
+  "markerLabel": "consensus-source",
+  "decisions": [
+    {
+      "questionId": "HIER-001",
+      "question": "Architecture: Extend existing lib/graph-rag.sh or create new lib/graph-rag-hierarchy.sh?",
+      "answer": "Create new lib/graph-rag-hierarchy.sh",
+      "confidence": 0.75,
+      "rationale": "Separation of concerns. Hierarchy functions are distinct module that can be independently tested and optionally disabled.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2236 description - 'New library for hierarchical context propagation'",
+          "type": "task"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-002",
+      "question": "Task structure: Flat (8 direct children) or nested (7 tasks + 4 subtasks)?",
+      "answer": "Nested structure with subtasks under foundation task T2236",
+      "confidence": 0.70,
+      "rationale": "Grouping related low-level functions (ancestry, LCA, distance, context) under a foundation task shows logical relationship.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2236 with children T2237-T2240",
+          "type": "task"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-003",
+      "question": "Should a configuration schema task be included?",
+      "answer": "Yes, dedicated T2244 task",
+      "confidence": 0.90,
+      "rationale": "Explicit task for config schema with 6 parameters: enabled, contextDepth, decayFactor, siblingBoost, cousinBoost, cacheAncestry.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2244 description",
+          "type": "task"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-004",
+      "question": "Should research outputs be explicitly linked to tasks?",
+      "answer": "References in description but no explicit links",
+      "confidence": 0.50,
+      "rationale": "T2232 description mentions T2153 (research) but does not use cleo research link.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2232 description - 'Relates to T2153 (research)'",
+          "type": "task"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-005",
+      "question": "Is T2231 umbrella epic necessary for v0.69.0 scope?",
+      "answer": "Yes, umbrella provides roadmap context (v0.69.0 -> v1.0.0)",
+      "confidence": 0.80,
+      "rationale": "T2231 links T2232-T2235 as phases toward 'CLEO Global Intelligence System'. Provides vision for future releases.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2231 relates field with Phase 1-4 links",
+          "type": "task"
+        }
+      ]
+    },
+    {
+      "questionId": "HIER-006",
+      "question": "Should benchmark task be included?",
+      "answer": "Yes, explicit T2246 benchmark task",
+      "confidence": 0.85,
+      "rationale": "Performance validation with target (<50ms) and scale requirement (500+ tasks) ensures production readiness.",
+      "evidence": [
+        {
+          "file": ".cleo/todo.json",
+          "section": "T2246 description",
+          "type": "task"
+        }
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "questionId": "HIER-001",
+      "conflictType": "architectural",
+      "otherContributionId": "T2190",
+      "otherAnswer": "Extend existing lib/graph-rag.sh",
+      "severity": "high",
+      "resolutionRequired": true
+    }
+  ],
+  "researchOutputs": [],
+  "status": "complete"
+}

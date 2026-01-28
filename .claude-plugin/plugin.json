@@ -1,0 +1,24 @@
+{
+  "name": "cleo",
+  "version": "0.70.1",
+  "description": "CLEO task management system with custom agents for LLM-driven development workflows",
+  "author": {
+    "name": "CLEO",
+    "url": "https://github.com/kryptobaseddev/cleo"
+  },
+  "capabilities": {
+    "task_management": true,
+    "multi_session": true,
+    "orchestration": true
+  },
+  "hooks": {
+    "enabled": true,
+    "directory": "hooks",
+    "manifest": "hooks/hooks.json"
+  },
+  "metadata": {
+    "schema_version": "1.0.0",
+    "min_claude_version": "1.0.0",
+    "license": "MIT"
+  }
+}

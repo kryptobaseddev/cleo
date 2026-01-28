@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v3.1/todo.schema.json",
-  "schemaVersion": "2.9.0",
+  "schemaVersion": "2.10.0",
   "title": "CLEO Task Schema",
-  "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, and anti-hallucination safeguards.",
+  "description": "LLM-Agent-First task tracking (Spec v3.1) with hierarchy support (Epic/Task/Subtask), soft-delete cancellation, integrity verification, session tracking, provenance tracking, and anti-hallucination safeguards.",
   "type": "object",
   "required": [
     "version",
@@ -835,6 +835,106 @@
               }
             }
           }
+        },
+        "createdBy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Agent or user that created this task",
+          "pattern": "^(research|consensus|specification|decomposition|implementation|validation|testing|release)-agent-T[0-9]+$|^(user|legacy|system)$",
+          "default": null
+        },
+        "validatedBy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Agent that validated this task's implementation",
+          "pattern": "^(research|consensus|specification|decomposition|implementation|validation|testing|release)-agent-T[0-9]+$|^(user|legacy|system)$",
+          "default": null
+        },
+        "testedBy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Agent that executed tests for this task",
+          "pattern": "^(research|consensus|specification|decomposition|implementation|validation|testing|release)-agent-T[0-9]+$|^(user|legacy|system)$",
+          "default": null
+        },
+        "lifecycleState": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "research",
+            "consensus",
+            "specification",
+            "decomposition",
+            "implementation",
+            "validation",
+            "testing",
+            "release",
+            null
+          ],
+          "description": "Current RCSD→IVTR pipeline state",
+          "default": null
+        },
+        "validationHistory": {
+          "type": "array",
+          "description": "Full audit trail of all validation events",
+          "items": {
+            "type": "object",
+            "required": [
+              "gate",
+              "result",
+              "validator",
+              "validatedAt"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "gate": {
+                "type": "string",
+                "enum": [
+                  "implemented",
+                  "testsPassed",
+                  "qaPassed",
+                  "securityPassed",
+                  "documented"
+                ]
+              },
+              "result": {
+                "type": "boolean",
+                "description": "Validation outcome (true = pass, false = fail)"
+              },
+              "validator": {
+                "type": "string",
+                "description": "Agent ID that performed validation",
+                "pattern": "^(research|consensus|specification|decomposition|implementation|validation|testing|release)-agent-T[0-9]+$|^(user|legacy|system)$"
+              },
+              "validatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO 8601 timestamp of validation"
+              },
+              "circularCheck": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "skipped"
+                ],
+                "description": "Circular validation check result"
+              },
+              "notes": {
+                "type": "string",
+                "description": "Validation notes (test results, review comments, etc.)"
+              }
+            }
+          },
+          "default": []
         }
       },
       "allOf": [

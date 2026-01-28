@@ -77,6 +77,17 @@ source_lib "jq-helpers.sh"
 source_lib "flags.sh"
 source_lib "changelog.sh"
 
+# Exit codes (50-59 range for release operations per spec)
+EXIT_RELEASE_NOT_FOUND=50
+EXIT_RELEASE_EXISTS=51
+EXIT_RELEASE_LOCKED=52
+EXIT_INVALID_VERSION=53
+EXIT_VALIDATION_FAILED=54
+EXIT_VERSION_BUMP_FAILED=55
+EXIT_TAG_CREATION_FAILED=56
+EXIT_CHANGELOG_GENERATION_FAILED=57
+EXIT_TAG_EXISTS=58
+
 # Default configuration
 COMMAND_NAME="release"
 FORMAT=""
@@ -88,6 +99,11 @@ TASKS_TO_REMOVE=""
 RELEASE_NOTES=""
 WRITE_CHANGELOG=""
 CHANGELOG_OUTPUT=""
+BUMP_VERSION=""
+CREATE_TAG=""
+PUSH_TAG=""
+FORCE_TAG=""
+VERBOSE=""
 
 # Initialize flag defaults
 init_flag_defaults 2>/dev/null || true
@@ -119,6 +135,10 @@ Options:
     --tasks T001,T002    Tasks to include (comma-separated)
     --remove T003        Remove task from release (for plan)
     --notes "text"       Release notes or summary
+    --bump-version       Bump VERSION file via dev/bump-version.sh (for ship)
+    --create-tag         Create git tag for release (for ship)
+    --force-tag          Overwrite existing git tag (requires --create-tag)
+    --push               Push git tag to remote (requires --create-tag)
     --write-changelog    Write changelog to CHANGELOG.md (for ship/changelog)
     --output FILE        Output file for changelog (default: CHANGELOG.md)
     --format, -f FORMAT  Output format: text | json (default: auto)
@@ -132,12 +152,12 @@ Release Status Flow:
 Examples:
     cleo release create v0.65.0 --target-date 2026-02-01
     cleo release plan v0.65.0 --tasks T2058,T2059
+    cleo release ship v0.65.0 --bump-version --create-tag --write-changelog
+    cleo release ship v0.65.0 --bump-version --create-tag --push
     cleo release ship v0.65.0 --notes "Schema 2.8.0 release"
-    cleo release ship v0.65.0 --write-changelog
     cleo release list
     cleo release show v0.65.0
     cleo release changelog v0.65.0
-    cleo release changelog v0.65.0 --write-changelog
 
 EOF
     exit "${EXIT_SUCCESS:-0}"
@@ -212,8 +232,8 @@ check_deps() {
 validate_version() {
     local version="$1"
     if [[ ! "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
-        log_error "Invalid version format: $version" "E_INVALID_VERSION" "${EXIT_INVALID_INPUT:-2}" "Use semver format: v0.65.0 or 0.65.0"
-        exit "${EXIT_INVALID_INPUT:-2}"
+        log_error "Invalid version format: $version" "E_INVALID_VERSION" "$EXIT_INVALID_VERSION" "Use semver format: v0.65.0 or 0.65.0"
+        exit "$EXIT_INVALID_VERSION"
     fi
 }
 
@@ -254,6 +274,58 @@ get_timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# Validation gates (Part 5 from spec)
+validate_release() {
+    local version="$1"
+    [[ "$VERBOSE" == true ]] && log_info "Running validation gates..."
+
+    # Gate 1: Tests
+    if [[ -x "./tests/run-all-tests.sh" ]]; then
+        if ! ./tests/run-all-tests.sh >/dev/null 2>&1; then
+            log_error "Tests failed" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Fix test failures: ./tests/run-all-tests.sh"
+            return "$EXIT_VALIDATION_FAILED"
+        fi
+        [[ "$VERBOSE" == true ]] && log_info "Tests passed"
+    fi
+
+    # Gate 2: Schema validation
+    if command -v cleo >/dev/null 2>&1; then
+        if ! cleo validate >/dev/null 2>&1; then
+            log_error "Schema validation failed" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Fix validation errors: cleo validate"
+            return "$EXIT_VALIDATION_FAILED"
+        fi
+        [[ "$VERBOSE" == true ]] && log_info "Schema validation passed"
+    fi
+
+    # Gate 3: VERSION consistency (if --bump-version was used)
+    if [[ "$BUMP_VERSION" == "true" ]] && [[ -f "VERSION" ]]; then
+        local version_file
+        version_file=$(cat VERSION | tr -d '[:space:]')
+        local normalized
+        normalized=$(normalize_version "$version")
+        # Remove v prefix for comparison
+        normalized="${normalized#v}"
+        if [[ "$version_file" != "$normalized" ]]; then
+            log_error "VERSION file mismatch" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" "VERSION file has $version_file but expected $normalized"
+            return "$EXIT_VERSION_BUMP_FAILED"
+        fi
+        [[ "$VERBOSE" == true ]] && log_info "VERSION consistency verified"
+    fi
+
+    # Gate 4: Changelog (if --write-changelog was used)
+    if [[ "$WRITE_CHANGELOG" == "true" ]] && [[ -f "CHANGELOG.md" ]]; then
+        local normalized
+        normalized=$(normalize_version "$version")
+        if ! grep -q "## \[${normalized}\]" CHANGELOG.md && ! grep -q "## ${normalized}" CHANGELOG.md; then
+            log_error "Changelog not updated" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "CHANGELOG.md missing entry for $normalized"
+            return "$EXIT_CHANGELOG_GENERATION_FAILED"
+        fi
+        [[ "$VERBOSE" == true ]] && log_info "Changelog verified"
+    fi
+
+    return 0
+}
+
 #####################################################################
 # Subcommand: create
 #####################################################################
@@ -268,8 +340,8 @@ cmd_create() {
 
     # Check if release already exists
     if release_exists "$normalized"; then
-        log_error "Release $normalized already exists" "E_RELEASE_EXISTS" "${EXIT_ALREADY_EXISTS:-101}" "Use 'cleo release plan $normalized' to modify"
-        exit "${EXIT_ALREADY_EXISTS:-101}"
+        log_error "Release $normalized already exists" "E_RELEASE_EXISTS" "$EXIT_RELEASE_EXISTS" "Use 'cleo release plan $normalized' to modify"
+        exit "$EXIT_RELEASE_EXISTS"
     fi
 
     # Build release object
@@ -355,8 +427,8 @@ cmd_plan() {
 
     # Check if release exists
     if ! release_exists "$normalized"; then
-        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "${EXIT_NOT_FOUND:-4}" "Create it first: cleo release create $normalized"
-        exit "${EXIT_NOT_FOUND:-4}"
+        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "$EXIT_RELEASE_NOT_FOUND" "Create it first: cleo release create $normalized"
+        exit "$EXIT_RELEASE_NOT_FOUND"
     fi
 
     # Get current release
@@ -367,8 +439,8 @@ cmd_plan() {
     local status
     status=$(echo "$current_release" | jq -r '.status')
     if [[ "$status" == "released" ]]; then
-        log_error "Cannot modify released release $normalized" "E_RELEASE_LOCKED" "${EXIT_VALIDATION_ERROR:-6}" "Released releases are read-only"
-        exit "${EXIT_VALIDATION_ERROR:-6}"
+        log_error "Cannot modify released release $normalized" "E_RELEASE_LOCKED" "$EXIT_RELEASE_LOCKED" "Released releases are read-only"
+        exit "$EXIT_RELEASE_LOCKED"
     fi
 
     # Build updated tasks array
@@ -448,8 +520,8 @@ cmd_ship() {
 
     # Check if release exists
     if ! release_exists "$normalized"; then
-        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "${EXIT_NOT_FOUND:-4}" "Create it first: cleo release create $normalized"
-        exit "${EXIT_NOT_FOUND:-4}"
+        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "$EXIT_RELEASE_NOT_FOUND" "Create it first: cleo release create $normalized"
+        exit "$EXIT_RELEASE_NOT_FOUND"
     fi
 
     # Get current release
@@ -460,31 +532,125 @@ cmd_ship() {
     local status
     status=$(echo "$current_release" | jq -r '.status')
     if [[ "$status" == "released" ]]; then
-        log_error "Release $normalized is already released" "E_ALREADY_RELEASED" "${EXIT_NO_CHANGE:-102}" "Cannot ship an already released version"
-        exit "${EXIT_NO_CHANGE:-102}"
+        log_error "Release $normalized is already released" "E_RELEASE_LOCKED" "$EXIT_RELEASE_LOCKED" "Cannot ship an already released version"
+        exit "$EXIT_RELEASE_LOCKED"
     fi
 
+    # Step 1: Bump VERSION if requested
+    if [[ "$BUMP_VERSION" == "true" ]]; then
+        log_info "Bumping VERSION to $normalized..."
+        local bump_script="./dev/bump-version.sh"
+        if [[ ! -x "$bump_script" ]]; then
+            log_error "VERSION bump script not found" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" "Ensure dev/bump-version.sh exists and is executable"
+            exit "$EXIT_VERSION_BUMP_FAILED"
+        fi
+
+        # Strip v prefix for bump-version.sh (expects X.Y.Z format)
+        local version_no_v="${normalized#v}"
+        if ! "$bump_script" "$version_no_v" --quiet; then
+            log_error "VERSION bump failed" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" "Check dev/bump-version.sh output"
+            exit "$EXIT_VERSION_BUMP_FAILED"
+        fi
+        log_info "VERSION bumped successfully"
+    fi
+
+    # Step 2: Generate changelog if requested
+    local changelog_content=""
+    local changelog_file=""
+    if [[ "$WRITE_CHANGELOG" == "true" ]]; then
+        changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
+        log_info "Generating changelog..."
+
+        # Check if generate-changelog.sh exists (unified system per spec)
+        if [[ -x "./scripts/generate-changelog.sh" ]]; then
+            if ! ./scripts/generate-changelog.sh >/dev/null 2>&1; then
+                log_error "Changelog generation failed" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check scripts/generate-changelog.sh output"
+                exit "$EXIT_CHANGELOG_GENERATION_FAILED"
+            fi
+        else
+            # Fallback to lib/changelog.sh (deprecated)
+            changelog_content=$(generate_changelog "$normalized" "" "$TODO_FILE")
+            append_to_changelog "$normalized" "$changelog_file" "$TODO_FILE"
+        fi
+        log_info "Changelog generated"
+    fi
+
+    # Step 3: Run validation gates
+    if ! validate_release "$normalized"; then
+        log_error "Release validation failed" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Fix validation errors before shipping"
+        exit "$EXIT_VALIDATION_FAILED"
+    fi
+
+    # Step 4: Create git tag if requested
+    local git_tag_created=false
+    if [[ "$CREATE_TAG" == "true" ]]; then
+        # Check if tag already exists
+        if git rev-parse "$normalized" >/dev/null 2>&1; then
+            if [[ "$FORCE_TAG" != "true" ]]; then
+                log_error "Tag $normalized already exists" "E_TAG_EXISTS" "$EXIT_TAG_EXISTS" "Use --force-tag to overwrite existing tag"
+                exit "$EXIT_TAG_EXISTS"
+            fi
+            log_info "Overwriting existing git tag $normalized..."
+        else
+            log_info "Creating git tag $normalized..."
+        fi
+
+        # Get release name and description for tag message
+        local release_name
+        local release_desc
+        release_name=$(echo "$current_release" | jq -r '.name // ""')
+        release_desc=$(echo "$current_release" | jq -r '.notes // ""')
+
+        local tag_message="Release $normalized"
+        [[ -n "$release_name" ]] && tag_message="$tag_message: $release_name"
+        [[ -n "$release_desc" ]] && tag_message="$tag_message
+
+$release_desc"
+
+        # Create tag with force flag if requested
+        local tag_opts="-a"
+        if [[ "$FORCE_TAG" == "true" ]]; then
+            tag_opts="-fa"
+        fi
+
+        if ! git tag $tag_opts "$normalized" -m "$tag_message" 2>/dev/null; then
+            log_error "Git tag creation failed" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Check git status and permissions"
+            exit "$EXIT_TAG_CREATION_FAILED"
+        fi
+        git_tag_created=true
+        log_info "Git tag $normalized created"
+
+        # Push tag if requested
+        if [[ "$PUSH_TAG" == "true" ]]; then
+            log_info "Pushing tag to remote..."
+            if ! git push origin "$normalized" 2>/dev/null; then
+                log_error "Failed to push tag to remote" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Push manually: git push origin $normalized"
+                # Don't exit - tag was created successfully locally
+            else
+                log_info "Tag pushed to remote"
+            fi
+        fi
+    fi
+
+    # Step 5: Update release status to shipped
     local timestamp
     timestamp=$(get_timestamp)
-
-    # Update release to shipped
-    local notes_update=""
-    if [[ -n "$RELEASE_NOTES" ]]; then
-        notes_update=", notes: \"$RELEASE_NOTES\""
-    fi
 
     local updated_json
     updated_json=$(jq \
         --arg version "$normalized" \
         --arg timestamp "$timestamp" \
         --arg notes "$RELEASE_NOTES" \
+        --arg git_tag "$normalized" \
+        --argjson tag_created "$git_tag_created" \
         '
         .project.releases = [
             .project.releases[] |
             if .version == $version then
                 .status = "released" |
                 .releasedAt = $timestamp |
-                if $notes != "" then .notes = $notes else . end
+                (if $notes != "" then .notes = $notes else . end) |
+                (if $tag_created then .gitTag = $git_tag else . end)
             else .
             end
         ] |
@@ -500,15 +666,6 @@ cmd_ship() {
     updated_release=$(echo "$updated_json" | jq --arg v "$normalized" '
         .project.releases | map(select(.version == $v)) | .[0]
     ')
-
-    # Generate changelog if requested
-    local changelog_content=""
-    local changelog_file=""
-    if [[ "$WRITE_CHANGELOG" == "true" ]]; then
-        changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
-        changelog_content=$(generate_changelog "$normalized" "" "$TODO_FILE")
-        append_to_changelog "$normalized" "$changelog_file" "$TODO_FILE"
-    fi
 
     # Output result
     if [[ "$FORMAT" == "json" ]]; then
@@ -542,6 +699,9 @@ cmd_ship() {
         if [[ -n "$changelog_file" ]]; then
             echo "  Changelog: $changelog_file updated"
         fi
+        if [[ "$git_tag_created" == true ]]; then
+            echo "  Git tag: $normalized created"
+        fi
     fi
 }
 
@@ -559,8 +719,8 @@ cmd_changelog() {
 
     # Check if release exists
     if ! release_exists "$normalized"; then
-        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "${EXIT_NOT_FOUND:-4}" "Run 'cleo release list' to see available releases"
-        exit "${EXIT_NOT_FOUND:-4}"
+        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "$EXIT_RELEASE_NOT_FOUND" "Run 'cleo release list' to see available releases"
+        exit "$EXIT_RELEASE_NOT_FOUND"
     fi
 
     # Get release date (use releasedAt if available, otherwise today)
@@ -689,8 +849,8 @@ cmd_show() {
 
     # Check if release exists
     if ! release_exists "$normalized"; then
-        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "${EXIT_NOT_FOUND:-4}" "Run 'cleo release list' to see available releases"
-        exit "${EXIT_NOT_FOUND:-4}"
+        log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "$EXIT_RELEASE_NOT_FOUND" "Run 'cleo release list' to see available releases"
+        exit "$EXIT_RELEASE_NOT_FOUND"
     fi
 
     # Get release
@@ -810,6 +970,26 @@ parse_args() {
             --notes)
                 shift
                 RELEASE_NOTES="$1"
+                shift
+                continue
+                ;;
+            --bump-version)
+                BUMP_VERSION="true"
+                shift
+                continue
+                ;;
+            --create-tag)
+                CREATE_TAG="true"
+                shift
+                continue
+                ;;
+            --force-tag)
+                FORCE_TAG="true"
+                shift
+                continue
+                ;;
+            --push)
+                PUSH_TAG="true"
                 shift
                 continue
                 ;;
