@@ -83,7 +83,7 @@
       "name": "add",
       "script": "add-task.sh",
       "category": "write",
-      "doc": "add.md",
+      "doc": "add.mdx",
       "synopsis": "Create new task with metadata (title, priority, labels, phase, dependencies)",
       "flags": [
         "--format",
@@ -112,7 +112,7 @@
       "name": "analyze",
       "script": "analyze.sh",
       "category": "read",
-      "doc": "analyze.md",
+      "doc": "analyze.mdx",
       "synopsis": "Task triage with leverage scoring and bottleneck detection. JSON default.",
       "flags": [
         "--format",
@@ -133,7 +133,7 @@
       "name": "archive-stats",
       "script": "archive-stats.sh",
       "category": "read",
-      "doc": "archive-stats.md",
+      "doc": "archive-stats.mdx",
       "synopsis": "Generate analytics and insights from archived tasks (counts, cycle times, trends)",
       "flags": [
         "--format",
@@ -155,7 +155,7 @@
       "name": "archive",
       "script": "archive.sh",
       "category": "write",
-      "doc": "archive.md",
+      "doc": "archive.mdx",
       "synopsis": "Archive completed tasks based on policy (age, count preservation)",
       "flags": [
         "--format",
@@ -176,7 +176,7 @@
       "name": "backup",
       "script": "backup.sh",
       "category": "maintenance",
-      "doc": "backup.md",
+      "doc": "backup.mdx",
       "synopsis": "Create backup of todo files or list available backups",
       "flags": [
         "--format",
@@ -195,7 +195,7 @@
       "name": "blockers",
       "script": "blockers-command.sh",
       "category": "read",
-      "doc": "blockers.md",
+      "doc": "blockers.mdx",
       "synopsis": "Show blocked tasks and analyze blocking chains/critical path",
       "flags": [
         "--format",
@@ -213,7 +213,7 @@
       "name": "claude-migrate",
       "script": "claude-migrate.sh",
       "category": "maintenance",
-      "doc": "claude-migrate.md",
+      "doc": "claude-migrate.mdx",
       "synopsis": "Detect and migrate legacy claude-todo installations to CLEO format",
       "flags": [
         "--format",
@@ -238,7 +238,7 @@
       "name": "commands",
       "script": "commands.sh",
       "category": "read",
-      "doc": "commands.md",
+      "doc": "commands.mdx",
       "synopsis": "List and query available commands with filtering. JSON by default.",
       "flags": [
         "--format",
@@ -265,7 +265,7 @@
       "name": "compliance",
       "script": "compliance.sh",
       "category": "read",
-      "doc": "compliance.md",
+      "doc": "compliance.mdx",
       "synopsis": "Monitor and report compliance metrics for orchestrator and agent outputs",
       "flags": [
         "--format",
@@ -296,7 +296,7 @@
       "name": "complete",
       "script": "complete-task.sh",
       "category": "write",
-      "doc": "complete.md",
+      "doc": "complete.mdx",
       "synopsis": "Mark task as done with completion timestamp and cycle time",
       "flags": [
         "--format",
@@ -316,7 +316,7 @@
       "name": "config",
       "script": "config.sh",
       "category": "maintenance",
-      "doc": "config.md",
+      "doc": "config.mdx",
       "synopsis": "View and modify configuration (project and global)",
       "flags": [
         "--format",
@@ -342,7 +342,7 @@
       "name": "context",
       "script": "context.sh",
       "category": "read",
-      "doc": "context.md",
+      "doc": "context.mdx",
       "synopsis": "Monitor context window usage for agent safeguard system",
       "flags": [
         "--format",
@@ -372,7 +372,7 @@
       "name": "dash",
       "script": "dash.sh",
       "category": "read",
-      "doc": "dash.md",
+      "doc": "dash.mdx",
       "synopsis": "Project dashboard with status summary, phase progress, recent activity",
       "flags": [
         "--format",
@@ -389,7 +389,7 @@
       "name": "delete",
       "script": "delete.sh",
       "category": "write",
-      "doc": "delete.md",
+      "doc": "delete.mdx",
       "synopsis": "Cancel/soft-delete a task with configurable child handling strategies",
       "flags": [
         "--reason",
@@ -422,7 +422,7 @@
       "name": "deps",
       "script": "deps-command.sh",
       "category": "read",
-      "doc": "deps.md",
+      "doc": "deps.mdx",
       "synopsis": "Dependency visualization and analysis (tree view, what depends on X)",
       "flags": [
         "--format",
@@ -441,7 +441,7 @@
       "name": "doctor",
       "script": "doctor.sh",
       "category": "maintenance",
-      "doc": "doctor.md",
+      "doc": "doctor.mdx",
       "synopsis": "System health diagnostics (global checks, project registry, agent configs)",
       "flags": [
         "--global",
@@ -464,7 +464,7 @@
       "name": "exists",
       "script": "exists.sh",
       "category": "read",
-      "doc": "exists.md",
+      "doc": "exists.mdx",
       "synopsis": "Validate task ID exists (scripting/CI). Exit 0=exists, 1=not found.",
       "flags": [
         "--format",
@@ -485,7 +485,7 @@
       "name": "export",
       "script": "export.sh",
       "category": "read",
-      "doc": "export.md",
+      "doc": "export.mdx",
       "synopsis": "Export tasks to CSV, TSV, JSON, markdown, or TodoWrite format",
       "flags": [
         "--format",
@@ -504,7 +504,7 @@
       "name": "export-tasks",
       "script": "export-tasks.sh",
       "category": "sync",
-      "doc": "export-tasks.md",
+      "doc": "export-tasks.mdx",
       "synopsis": "Export tasks to portable JSON package for cross-project transfer",
       "flags": [
         "--format",
@@ -528,7 +528,7 @@
       "name": "extract",
       "script": "extract-todowrite.sh",
       "category": "sync",
-      "doc": "sync.md",
+      "doc": "sync.mdx",
       "synopsis": "Extract/merge TodoWrite state back to cleo (session end)",
       "flags": [
         "--format",
@@ -549,7 +549,7 @@
       "name": "find",
       "script": "find.sh",
       "category": "read",
-      "doc": "find.md",
+      "doc": "find.mdx",
       "synopsis": "Fuzzy search tasks by title/description. ID prefix matching via --id.",
       "flags": [
         "--format",
@@ -575,7 +575,7 @@
       "name": "focus",
       "script": "focus.sh",
       "category": "write",
-      "doc": "focus.md",
+      "doc": "focus.mdx",
       "synopsis": "Single-task workflow discipline. Set/show/clear active task.",
       "flags": [
         "--format",
@@ -630,7 +630,7 @@
       "name": "history",
       "script": "history.sh",
       "category": "read",
-      "doc": "history.md",
+      "doc": "history.mdx",
       "synopsis": "Completion timeline and productivity analytics",
       "flags": [
         "--format",
@@ -649,7 +649,7 @@
       "name": "import-tasks",
       "script": "import-tasks.sh",
       "category": "sync",
-      "doc": "import-tasks.md",
+      "doc": "import-tasks.mdx",
       "synopsis": "Import tasks from export package with ID remapping and conflict resolution",
       "flags": [
         "--format",
@@ -674,7 +674,7 @@
       "name": "init",
       "script": "init.sh",
       "category": "maintenance",
-      "doc": "init.md",
+      "doc": "init.mdx",
       "synopsis": "Initialize project (.cleo/ directory) with automatic agent docs injection",
       "flags": [
         "--format",
@@ -694,7 +694,7 @@
       "name": "inject",
       "script": "inject-todowrite.sh",
       "category": "sync",
-      "doc": "sync.md",
+      "doc": "sync.mdx",
       "synopsis": "Inject/prepare tasks for TodoWrite format (session start)",
       "flags": [
         "--format",
@@ -714,7 +714,7 @@
       "name": "labels",
       "script": "labels.sh",
       "category": "read",
-      "doc": "labels.md",
+      "doc": "labels.mdx",
       "synopsis": "List all labels with counts or show tasks with specific label",
       "flags": [
         "--format",
@@ -735,7 +735,7 @@
       "name": "list",
       "script": "list-tasks.sh",
       "category": "read",
-      "doc": "list.md",
+      "doc": "list.mdx",
       "synopsis": "View tasks with filtering (status, priority, label, phase, type, parent)",
       "flags": [
         "--format",
@@ -765,7 +765,7 @@
       "name": "log",
       "script": "log.sh",
       "category": "read",
-      "doc": "log.md",
+      "doc": "log.mdx",
       "synopsis": "View audit log entries (operations, timestamps, changes)",
       "flags": [
         "--format",
@@ -785,7 +785,7 @@
       "name": "migrate",
       "script": "migrate.sh",
       "category": "maintenance",
-      "doc": "migrate.md",
+      "doc": "migrate.mdx",
       "synopsis": "Schema version migrations (status check, run migrations)",
       "flags": [
         "--format",
@@ -808,7 +808,7 @@
       "name": "next",
       "script": "next.sh",
       "category": "read",
-      "doc": "next.md",
+      "doc": "next.mdx",
       "synopsis": "Intelligent next task suggestion based on priority and dependencies",
       "flags": [
         "--format",
@@ -826,7 +826,7 @@
       "name": "orchestrator",
       "script": "orchestrator.sh",
       "category": "read",
-      "doc": "orchestrator.md",
+      "doc": "orchestrator.mdx",
       "synopsis": "Multi-agent coordination for parallel task execution with dependency analysis",
       "flags": [
         "--epic",
@@ -866,7 +866,7 @@
       "name": "phase",
       "script": "phase.sh",
       "category": "write",
-      "doc": "phase.md",
+      "doc": "phase.mdx",
       "synopsis": "Project-level phase lifecycle management (set, show, transitions)",
       "flags": [
         "--format",
@@ -889,7 +889,7 @@
       "name": "phases",
       "script": "phases.sh",
       "category": "read",
-      "doc": "phases.md",
+      "doc": "phases.mdx",
       "synopsis": "List phases with progress bars and statistics",
       "flags": [
         "--format",
@@ -911,7 +911,7 @@
       "name": "populate-hierarchy",
       "script": "populate-hierarchy.sh",
       "category": "write",
-      "doc": "hierarchy.md#populating-hierarchy-v0232",
+      "doc": "hierarchy.mdx#populating-hierarchy-v0232",
       "synopsis": "Auto-populate parentId from naming conventions and depends→epic patterns",
       "flags": [
         "--format",
@@ -933,7 +933,7 @@
       "name": "promote",
       "script": "promote.sh",
       "category": "write",
-      "doc": "promote.md",
+      "doc": "promote.mdx",
       "synopsis": "Remove parent from task, making it root-level",
       "flags": [
         "--format",
@@ -954,7 +954,7 @@
       "name": "reorganize-backups",
       "script": "reorganize-backups.sh",
       "category": "maintenance",
-      "doc": "reorganize-backups.md",
+      "doc": "reorganize-backups.mdx",
       "synopsis": "Migrate legacy backup structure to new taxonomy",
       "flags": [
         "--format",
@@ -975,7 +975,7 @@
       "name": "reopen",
       "script": "reopen.sh",
       "category": "write",
-      "doc": "reopen.md",
+      "doc": "reopen.mdx",
       "synopsis": "Restore completed tasks back to pending status with audit trail",
       "flags": [
         "--reason",
@@ -1003,7 +1003,7 @@
       "name": "reorder",
       "script": "reorder.sh",
       "category": "write",
-      "doc": "reorder.md",
+      "doc": "reorder.mdx",
       "synopsis": "Change task position within sibling group (move to position, before/after, top/bottom)",
       "flags": [
         "--position",
@@ -1026,7 +1026,7 @@
       "name": "reparent",
       "script": "reparent.sh",
       "category": "write",
-      "doc": "reparent.md",
+      "doc": "reparent.mdx",
       "synopsis": "Move task to different parent in hierarchy",
       "flags": [
         "--format",
@@ -1052,7 +1052,7 @@
       "name": "relates",
       "script": "relates-command.sh",
       "category": "read",
-      "doc": "relates.md",
+      "doc": "relates.mdx",
       "synopsis": "Semantic relationship discovery and management between tasks (suggest, add, remove, list)",
       "flags": [
         "--format",
@@ -1073,7 +1073,7 @@
       "name": "research",
       "script": "research.sh",
       "category": "read",
-      "doc": "research.md",
+      "doc": "research.mdx",
       "synopsis": "Multi-source web research aggregation with MCP servers (Tavily, Context7, Reddit)",
       "flags": [
         "--format",
@@ -1121,7 +1121,7 @@
       "name": "restore",
       "script": "restore.sh",
       "category": "maintenance",
-      "doc": "restore.md",
+      "doc": "restore.mdx",
       "synopsis": "Restore todo files from backup",
       "flags": [
         "--format",
@@ -1189,7 +1189,7 @@
       "name": "safestop",
       "script": "safestop.sh",
       "category": "write",
-      "doc": "safestop.md",
+      "doc": "safestop.mdx",
       "synopsis": "Graceful shutdown for agents approaching context limits with handoff support",
       "flags": [
         "--reason",
@@ -1215,7 +1215,7 @@
       "name": "self-update",
       "script": "self-update.sh",
       "category": "maintenance",
-      "doc": "self-update.md",
+      "doc": "self-update.mdx",
       "synopsis": "Update CLEO to latest version from GitHub releases with checksum verification",
       "flags": [
         "--check",
@@ -1244,7 +1244,7 @@
       "name": "session",
       "script": "session.sh",
       "category": "write",
-      "doc": "session.md",
+      "doc": "session.mdx",
       "synopsis": "Work session lifecycle (start, end, status, gc for garbage collection)",
       "flags": [
         "--format",
@@ -1279,7 +1279,7 @@
       "name": "setup-agents",
       "script": "setup-agents.sh",
       "category": "maintenance",
-      "doc": "setup-agents.md",
+      "doc": "setup-agents.mdx",
       "synopsis": "Setup global agent configs (~/.claude/CLAUDE.md, AGENTS.md) with @ references",
       "flags": [
         "--dry-run",
@@ -1303,7 +1303,7 @@
       "name": "skills",
       "script": "skills.sh",
       "category": "maintenance",
-      "doc": "skills.md",
+      "doc": "skills.mdx",
       "synopsis": "Skill management: list, discover, validate, info, install",
       "flags": [
         "--format",
@@ -1328,7 +1328,7 @@
       "name": "show",
       "script": "show.sh",
       "category": "read",
-      "doc": "show.md",
+      "doc": "show.mdx",
       "synopsis": "Full task details view with history and related tasks",
       "flags": [
         "--format",
@@ -1349,7 +1349,7 @@
       "name": "stats",
       "script": "stats.sh",
       "category": "read",
-      "doc": "stats.md",
+      "doc": "stats.mdx",
       "synopsis": "Project statistics (counts, completion rates, velocity)",
       "flags": [
         "--format",
@@ -1366,7 +1366,7 @@
       "name": "sync",
       "script": "sync-todowrite.sh",
       "category": "sync",
-      "doc": "sync.md",
+      "doc": "sync.mdx",
       "synopsis": "Bidirectional sync with Claude Code TodoWrite",
       "flags": [
         "--format",
@@ -1390,7 +1390,7 @@
       "name": "tree",
       "aliasFor": "list --tree",
       "category": "read",
-      "doc": "hierarchy.md",
+      "doc": "hierarchy.mdx",
       "synopsis": "Display task hierarchy as tree (alias for list --tree)",
       "flags": [
         "--format",
@@ -1414,7 +1414,7 @@
       "name": "uncancel",
       "script": "uncancel.sh",
       "category": "write",
-      "doc": "uncancel.md",
+      "doc": "uncancel.mdx",
       "synopsis": "Restore cancelled tasks back to pending status with cascade support",
       "flags": [
         "--cascade",
@@ -1442,7 +1442,7 @@
       "name": "unarchive",
       "script": "unarchive.sh",
       "category": "write",
-      "doc": "unarchive.md",
+      "doc": "unarchive.mdx",
       "synopsis": "Restore archived tasks back to todo.json with status options",
       "flags": [
         "--format",
@@ -1468,7 +1468,7 @@
       "name": "update",
       "script": "update-task.sh",
       "category": "write",
-      "doc": "update.md",
+      "doc": "update.mdx",
       "synopsis": "Modify existing task fields (status, priority, labels, notes, etc.)",
       "flags": [
         "--format",
@@ -1503,7 +1503,7 @@
       "name": "upgrade",
       "script": "upgrade.sh",
       "category": "maintenance",
-      "doc": "upgrade.md",
+      "doc": "upgrade.mdx",
       "synopsis": "Unified project maintenance (schema migration, structural repair, doc updates)",
       "flags": [
         "--status",
@@ -1526,7 +1526,7 @@
       "name": "validate",
       "script": "validate.sh",
       "category": "maintenance",
-      "doc": "validate.md",
+      "doc": "validate.mdx",
       "synopsis": "Check file integrity, schema compliance, checksum verification",
       "flags": [
         "--format",
@@ -1544,7 +1544,7 @@
       "name": "verify",
       "script": "verify.sh",
       "category": "write",
-      "doc": "verify.md",
+      "doc": "verify.mdx",
       "synopsis": "Manage verification gates for tasks (implemented, testsPassed, qaPassed, securityPassed, documented)",
       "flags": [
         "--gate",
@@ -1570,7 +1570,7 @@
       "name": "release",
       "script": "release.sh",
       "category": "write",
-      "doc": "release.md",
+      "doc": "release.mdx",
       "synopsis": "Manage releases (create, plan, ship, list, show, changelog)",
       "flags": [
         "--target-date",
@@ -1592,7 +1592,7 @@
       "name": "setup-claude-aliases",
       "script": "setup-claude-aliases.sh",
       "category": "maintenance",
-      "doc": "setup-claude-aliases.md",
+      "doc": "setup-claude-aliases.mdx",
       "synopsis": "Install optimized Claude Code CLI aliases with collision detection and legacy recognition",
       "flags": [
         "--dry-run",
@@ -1619,7 +1619,7 @@
       "name": "docs",
       "script": "docs.sh",
       "category": "maintenance",
-      "doc": "docs.md",
+      "doc": "docs.mdx",
       "synopsis": "Documentation management: drift detection and gap validation for knowledge transfer",
       "flags": [
         "--quick",
