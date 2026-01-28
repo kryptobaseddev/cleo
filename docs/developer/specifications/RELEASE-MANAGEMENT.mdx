@@ -423,24 +423,46 @@ fi
 
 ### 4.4 Changelog Integration
 
-When `--write-changelog` flag is used with `cleo release ship`:
+**As of v0.74.0** (Epic T2602), `cleo release ship` **automatically generates and appends** changelog entries:
 
 ```bash
-# Call unified changelog system
-./scripts/generate-changelog.sh
+# Automatic changelog generation (MANDATORY since v0.74.0)
+cleo release ship v0.74.0
 
-# Generates CHANGELOG.md in Mintlify/Keep a Changelog format
-# Sources:
-#   - Git commit history
-#   - Task metadata from release
-#   - Labels (feature/enhancement/bug)
+# Process:
+# 1. Discover tasks via populate_release_tasks() (lib/changelog.sh)
+# 2. Generate Keep a Changelog format from task metadata
+# 3. Validate changelog is not empty
+# 4. Append to CHANGELOG.md (atomic write)
+# 5. Update release.status = "released"
 ```
 
-**Unified System**: Use `scripts/generate-changelog.sh` exclusively. Deprecate `lib/changelog.sh` (per T2539 consensus).
+**Task Discovery**:
 
-**Flags**:
-- `--write-changelog`: Generate changelog (default: prompt user)
-- `--changelog-format <markdown|json>`: Output format (default: markdown)
+Tasks are included if they meet ANY of:
+- Explicitly assigned via `cleo release plan --tasks T001,T002`
+- Have label matching version (e.g., `v0.74.0` or `0.74.0`)
+- Have `changelog` or `release` label AND completed between release dates
+- Completed between previous release date and current release
+
+**Escape Hatch**:
+- `--skip-changelog`: Bypass automatic changelog generation (use sparingly)
+
+**Changelog Sources** (v0.74.0+):
+- Task metadata (title, description, labels)
+- Release tasks array
+- Date-based task discovery
+- Label-based filtering (`changelog`, `release`, version labels)
+
+**Validation Gates**:
+1. ✓ At least one task associated with release
+2. ✓ Generated changelog is not empty (unless `--skip-changelog`)
+3. ✓ CHANGELOG.md is writable
+
+**Related Specifications**:
+- [Changelog System Spec](/developer/specifications/CHANGELOG-SYSTEM-SPEC)
+- [Changelog Backfill Spec](/developer/specifications/CHANGELOG-BACKFILL-SPEC)
+- [Changelog Format Spec](/developer/specifications/CHANGELOG-FORMAT-SPEC)
 
 ### 4.5 Examples
 
@@ -457,8 +479,11 @@ cleo release plan v0.74.0 --tasks T2536,T2537,T2539,T2540,T2541,T2542,T2543
 # 3. Work proceeds (automatic state transition)
 # (as tasks are completed, release status → active)
 
-# 4. Ship release (all-in-one)
-cleo release ship v0.74.0 --bump-version --create-tag --write-changelog
+# 4. Ship release (automatic changelog since v0.74.0)
+cleo release ship v0.74.0 --bump-version --create-tag
+
+# Changelog is AUTOMATICALLY generated and appended
+# No need for --write-changelog flag (deprecated)
 
 # 5. Push to GitHub
 git push origin main --tags

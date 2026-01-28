@@ -1,0 +1,194 @@
+---
+title: "cleo release"
+description: "Manage release lifecycle for roadmap and changelog integration"
+icon: "tag"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo release
+
+Manage release lifecycle for roadmap and changelog integration.
+
+<Info>**Agent Relevance**: Medium - Used for release management</Info>
+
+## Synopsis
+
+```bash
+cleo release <subcommand> [OPTIONS]
+```
+
+## Description
+
+The `release` command manages the complete release lifecycle from planning to shipping, including task assignment, version bumping, git tagging, and changelog generation.
+
+<Note>
+**Changelog Integration**: As of v0.74.0, `cleo release ship` **automatically generates and appends** changelog entries to `CHANGELOG.md`. The changelog is generated from release tasks and validated before the release is marked as shipped.
+</Note>
+
+## Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `create <version>` | Create a new planned release |
+| `plan <version>` | Add/remove tasks from a release |
+| `ship <version>` | Mark release as released (set releasedAt) |
+| `list` | List all releases |
+| `show <version>` | Show release details |
+| `changelog <version>` | Generate changelog from release tasks |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--target-date DATE` | Set target release date (YYYY-MM-DD) |
+| `--tasks T001,T002` | Tasks to include (comma-separated) |
+| `--remove T003` | Remove task from release (for plan) |
+| `--notes "text"` | Release notes or summary |
+| `--bump-version` | Bump VERSION file via dev/bump-version.sh (for ship) |
+| `--create-tag` | Create git tag for release (for ship) |
+| `--force-tag` | Overwrite existing git tag (requires --create-tag) |
+| `--push` | Push git tag to remote (requires --create-tag) |
+| `--write-changelog` | Write changelog to CHANGELOG.md (for ship/changelog) |
+| `--skip-changelog` | Skip automatic changelog generation (for ship) |
+| `--output FILE` | Output file for changelog (default: CHANGELOG.md) |
+| `--format, -f FORMAT` | Output format: text \| json (default: auto) |
+| `--json` | Shortcut for --format json |
+| `--human` | Shortcut for --format text |
+| `-h, --help` | Show help message |
+
+## Release Status Flow
+
+```
+planned → active → released
+```
+
+## Changelog Integration
+
+### Automatic Changelog Generation
+
+Starting in v0.74.0, `cleo release ship` automatically:
+
+1. **Discovers tasks** associated with the release (via labels or explicit assignment)
+2. **Populates** `release.tasks[]` array in todo.json
+3. **Generates** changelog from task data (title, description, labels)
+4. **Validates** changelog is not empty
+5. **Appends** to CHANGELOG.md in Keep a Changelog format
+6. **Updates** release status to `released`
+
+### Task Discovery
+
+Tasks are included in a release if they meet **any** of these criteria:
+
+- Explicitly assigned via `cleo release plan --tasks T001,T002`
+- Have a label matching the version (e.g., `v0.65.0` or `0.65.0`)
+- Have the `changelog` or `release` label AND completed between release dates
+- Are completed between previous release date and current release date
+
+### Skipping Changelog Generation
+
+Use `--skip-changelog` to bypass automatic changelog generation:
+
+```bash
+cleo release ship v0.65.0 --skip-changelog
+```
+
+<Warning>
+**Use Case**: Only skip changelog when:
+- Generating changelog manually via `cleo release changelog`
+- Release has no user-facing changes
+- Testing release workflow
+</Warning>
+
+### Validation Gates
+
+The `ship` command validates:
+
+1. ✓ Release exists and is not already shipped
+2. ✓ At least one task is associated with the release
+3. ✓ Generated changelog is not empty (unless `--skip-changelog`)
+4. ✓ CHANGELOG.md is writable
+5. ✓ VERSION file matches (if `--bump-version`)
+
+## Examples
+
+<CodeGroup>
+
+```bash Create Release
+cleo release create v0.65.0 --target-date 2026-02-01
+```
+
+```bash Plan Tasks
+cleo release plan v0.65.0 --tasks T2058,T2059
+```
+
+```bash Ship with Automatic Changelog
+# Recommended: Let the system discover and generate changelog
+cleo release ship v0.65.0 --bump-version --create-tag --push
+```
+
+```bash Ship without Changelog
+# Skip changelog for minor releases
+cleo release ship v0.65.0 --skip-changelog
+```
+
+```bash Ship with Manual Changelog
+# Generate changelog separately first
+cleo release changelog v0.65.0 --write-changelog
+cleo release ship v0.65.0 --skip-changelog
+```
+
+```bash Ship with Notes
+cleo release ship v0.65.0 --notes "Schema 2.8.0 release"
+```
+
+```bash List Releases
+cleo release list
+```
+
+```bash Show Release Details
+cleo release show v0.65.0
+```
+
+```bash Generate Changelog Only
+# Preview or generate without shipping
+cleo release changelog v0.65.0
+```
+
+</CodeGroup>
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `2` | Invalid arguments | No |
+| `4` | Resource not found | No |
+| `6` | Validation failed | No |
+
+## Troubleshooting
+
+### "No tasks found for release"
+
+**Cause**: Release has no associated tasks.
+
+**Fix**: Add tasks via `cleo release plan --tasks T001,T002` or ensure tasks have correct labels.
+
+### "Generated changelog is empty"
+
+**Cause**: Tasks don't have sufficient metadata (title/description).
+
+**Fix**: Update task descriptions or use `--skip-changelog` to bypass validation.
+
+### "Release already shipped"
+
+**Cause**: Release already has a `releasedAt` timestamp.
+
+**Fix**: Verify with `cleo release show <version>`. Use `cleo release create` for new version.
+
+## See Also
+
+- [Release Management Specification](/developer/specifications/RELEASE-MANAGEMENT-SPEC) - Full release workflow spec
+- [generate-changelog](/commands/generate-changelog) - Generate Mintlify changelog
+- [roadmap](/commands/roadmap) - View project roadmap
+- [stats](/commands/stats) - Project statistics
