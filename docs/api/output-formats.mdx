@@ -221,6 +221,60 @@ FORCE_COLOR=1 cleo list | less -R
   </Accordion>
 </AccordionGroup>
 
+## Minimal Error Output (Token Optimization)
+
+<Note>
+  **New in v0.74.1**: Error responses now use minimal context by default, reducing token usage by up to 93%.
+</Note>
+
+Error responses are optimized for LLM agent token efficiency. Large arrays (sessions, epics) are replaced with counts by default.
+
+### Default Behavior
+
+Error output includes only essential information:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_SESSION_DISCOVERY_MODE",
+    "message": "Multi-session enabled. 9 active sessions exist.",
+    "fix": "cleo session status",
+    "exitCode": 100,
+    "context": {
+      "activeSessions": 9,
+      "sessionsCount": 9,
+      "epicsCount": 34,
+      "hint": "Use CLEO_VERBOSE=1 or --verbose for full context"
+    }
+  }
+}
+```
+
+### Verbose Mode
+
+To get full context (for debugging), use `CLEO_VERBOSE=1`:
+
+```bash
+# Full error context with complete arrays
+CLEO_VERBOSE=1 cleo session start --name "test"
+
+# Or use in scripts
+export CLEO_VERBOSE=1
+cleo session start --scope epic:T001
+```
+
+### Token Savings
+
+| Mode | Output Size | Use Case |
+|------|-------------|----------|
+| Default (minimal) | ~1,000 chars | Normal LLM agent usage |
+| Verbose | ~15,000 chars | Debugging, human inspection |
+
+<Warning>
+  The verbose output includes full session objects, focus history, and epic arrays. Only use when debugging.
+</Warning>
+
 ## LLM Agent Best Practices
 
 <CardGroup cols={2}>

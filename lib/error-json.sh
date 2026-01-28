@@ -77,6 +77,68 @@ if [[ -z "${_ERROR_COLORS_SET:-}" ]]; then
 fi
 
 # ============================================================================
+# ERROR CONTEXT MINIMIZATION (Token Optimization)
+# ============================================================================
+
+# minimize_error_context - Strip large arrays from context JSON for token efficiency
+#
+# LLM agents read entire error output into context. Large arrays (sessions, epics)
+# waste tokens when agents only need counts and actionable fix commands.
+#
+# This function:
+# - Preserves scalar values (strings, numbers, booleans)
+# - Replaces arrays with count summaries: "sessions" -> "sessionsCount"
+# - Adds hint about --verbose flag
+#
+# Arguments:
+#   $1 - context_json : Full context JSON object
+#
+# Returns: Minimized context JSON via stdout
+#
+# Example:
+#   Input:  {"activeSessions": 8, "sessions": [{...}, {...}], "epics": [{...}]}
+#   Output: {"activeSessions": 8, "sessionsCount": 2, "epicsCount": 1, "hint": "Use --verbose for full details"}
+#
+minimize_error_context() {
+    local context_json="$1"
+
+    # If null or empty, return as-is
+    if [[ -z "$context_json" ]] || [[ "$context_json" == "null" ]]; then
+        echo "null"
+        return 0
+    fi
+
+    # Use jq to transform: keep scalars, replace arrays with counts
+    echo "$context_json" | jq -c '
+        . as $orig |
+        reduce (keys[]) as $key (
+            {};
+            if ($orig[$key] | type) == "array" then
+                . + {($key + "Count"): ($orig[$key] | length)}
+            elif ($orig[$key] | type) == "object" then
+                # For nested objects, just include the key count
+                . + {($key + "Keys"): ($orig[$key] | keys | length)}
+            else
+                . + {($key): $orig[$key]}
+            end
+        ) + {"hint": "Use CLEO_VERBOSE=1 or --verbose for full context"}
+    ' 2>/dev/null || echo "$context_json"
+}
+
+# is_verbose_mode - Check if verbose error output is requested
+#
+# Returns 0 (true) if verbose mode is enabled, 1 (false) otherwise.
+# Checks: CLEO_VERBOSE env var, or global VERBOSE flag
+#
+is_verbose_mode() {
+    [[ "${CLEO_VERBOSE:-}" == "1" ]] || [[ "${CLEO_VERBOSE:-}" == "true" ]] || [[ "${VERBOSE:-}" == "true" ]]
+}
+
+# Export helper functions
+export -f minimize_error_context
+export -f is_verbose_mode
+
+# ============================================================================
 # ERROR JSON OUTPUT
 # ============================================================================
 
@@ -276,6 +338,13 @@ output_error_actionable() {
     # Validate context_json is valid JSON, default to null if not
     if [[ "$context_json" != "null" ]] && ! echo "$context_json" | jq . >/dev/null 2>&1; then
         context_json="null"
+    fi
+
+    # TOKEN OPTIMIZATION: Minimize context by default for LLM efficiency
+    # Large arrays (sessions, epics) waste tokens - agents only need counts + fix commands
+    # Use CLEO_VERBOSE=1 or --verbose to get full context when debugging
+    if [[ "$context_json" != "null" ]] && ! is_verbose_mode; then
+        context_json=$(minimize_error_context "$context_json")
     fi
 
     # Validate alternatives_json is valid JSON array, default to empty if not

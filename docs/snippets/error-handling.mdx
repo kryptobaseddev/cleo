@@ -35,3 +35,11 @@ cleo update T001 --notes "Price: $395"   # WRONG - $395 interpreted as variable
 Recoverable errors (retry with backoff): 7, 20, 21, 22
 Special codes (not errors): 100 = no data, 101 = already exists, 102 = no change needed
 </Tip>
+
+### Token-Optimized Error Output
+
+Error context is minimal by default (~1K chars vs 15K). For full debugging context:
+
+```bash
+CLEO_VERBOSE=1 cleo session start --name "debug"
+```
