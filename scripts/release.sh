@@ -312,15 +312,47 @@ validate_release() {
         [[ "$VERBOSE" == true ]] && log_info "VERSION consistency verified"
     fi
 
-    # Gate 4: Changelog (if --write-changelog was used)
-    if [[ "$WRITE_CHANGELOG" == "true" ]] && [[ -f "CHANGELOG.md" ]]; then
-        local normalized
-        normalized=$(normalize_version "$version")
-        if ! grep -q "## \[${normalized}\]" CHANGELOG.md && ! grep -q "## ${normalized}" CHANGELOG.md; then
-            log_error "Changelog not updated" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "CHANGELOG.md missing entry for $normalized"
+    # Gate 4: Changelog validation (MANDATORY unless --skip-changelog)
+    if [[ "${SKIP_CHANGELOG:-false}" != "true" ]]; then
+        if [[ ! -f "CHANGELOG.md" ]]; then
+            log_error "CHANGELOG.md not found" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Changelog generation failed - file missing"
             return "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
-        [[ "$VERBOSE" == true ]] && log_info "Changelog verified"
+
+        local normalized
+        normalized=$(normalize_version "$version")
+        local version_no_v="${normalized#v}"
+
+        # Check 1: Entry exists (with or without 'v' prefix)
+        if ! grep -q "^## \[v\?${version_no_v}\]" CHANGELOG.md; then
+            log_error "Changelog entry not found" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "CHANGELOG.md missing entry for $normalized"
+            return "$EXIT_CHANGELOG_GENERATION_FAILED"
+        fi
+
+        # Check 2: Entry is not empty
+        local section_content
+        section_content=$(extract_changelog_section "$normalized" "CHANGELOG.md" 2>/dev/null || echo "")
+        if [[ -z "$section_content" ]] || [[ "$section_content" =~ ^[[:space:]]*$ ]]; then
+            log_error "Changelog entry is empty" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "CHANGELOG.md entry for $normalized has no content"
+            return "$EXIT_CHANGELOG_GENERATION_FAILED"
+        fi
+
+        # Check 3: All task IDs exist in todo.json
+        local task_ids
+        task_ids=$(grep -oP '\(T\d+\)' <<< "$section_content" | tr -d '()' || echo "")
+        if [[ -n "$task_ids" ]]; then
+            while IFS= read -r task_id; do
+                [[ -z "$task_id" ]] && continue
+                if ! jq -e ".tasks[] | select(.id == \"$task_id\")" "$TODO_FILE" >/dev/null 2>&1; then
+                    log_error "Invalid task ID in changelog" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Task $task_id in CHANGELOG.md not found in todo.json"
+                    return "$EXIT_VALIDATION_FAILED"
+                fi
+            done <<< "$task_ids"
+        fi
+
+        [[ "$VERBOSE" == true ]] && log_info "Changelog validation passed"
+    else
+        [[ "$VERBOSE" == true ]] && log_warn "Changelog validation SKIPPED (--skip-changelog)"
     fi
 
     return 0
@@ -536,6 +568,14 @@ cmd_ship() {
         exit "$EXIT_RELEASE_LOCKED"
     fi
 
+    # Step 0: Auto-populate release tasks using hybrid date+label strategy
+    log_info "Discovering tasks for $normalized..."
+    if ! populate_release_tasks "$normalized" "$TODO_FILE"; then
+        log_error "Failed to populate release tasks" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check that release exists in todo.json"
+        exit "$EXIT_CHANGELOG_GENERATION_FAILED"
+    fi
+    log_info "Release tasks populated successfully"
+
     # Step 1: Bump VERSION if requested
     if [[ "$BUMP_VERSION" == "true" ]]; then
         log_info "Bumping VERSION to $normalized..."
@@ -554,25 +594,28 @@ cmd_ship() {
         log_info "VERSION bumped successfully"
     fi
 
-    # Step 2: Generate changelog if requested
+    # Step 2: ALWAYS generate changelog (mandatory per CHANGELOG-GENERATION-SPEC.md)
     local changelog_content=""
-    local changelog_file=""
-    if [[ "$WRITE_CHANGELOG" == "true" ]]; then
-        changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
-        log_info "Generating changelog..."
+    local changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
 
-        # Check if generate-changelog.sh exists (unified system per spec)
-        if [[ -x "./scripts/generate-changelog.sh" ]]; then
-            if ! ./scripts/generate-changelog.sh >/dev/null 2>&1; then
-                log_error "Changelog generation failed" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check scripts/generate-changelog.sh output"
-                exit "$EXIT_CHANGELOG_GENERATION_FAILED"
-            fi
-        else
-            # Fallback to lib/changelog.sh (deprecated)
-            changelog_content=$(generate_changelog "$normalized" "" "$TODO_FILE")
-            append_to_changelog "$normalized" "$changelog_file" "$TODO_FILE"
+    if [[ "${SKIP_CHANGELOG:-false}" == "true" ]]; then
+        log_warn "SKIPPING changelog generation (--skip-changelog)"
+        log_warn "You MUST manually update CHANGELOG.md before release"
+    else
+        log_info "Generating changelog for $normalized..."
+
+        # Generate changelog using lib/changelog.sh
+        if ! changelog_content=$(generate_changelog "$normalized" "" "$TODO_FILE"); then
+            log_error "Changelog generation failed" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check lib/changelog.sh:generate_changelog()"
+            exit "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
-        log_info "Changelog generated"
+
+        # Append to CHANGELOG.md
+        if ! append_to_changelog "$normalized" "$changelog_file" "$TODO_FILE"; then
+            log_error "Failed to write CHANGELOG.md" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check file permissions"
+            exit "$EXIT_CHANGELOG_GENERATION_FAILED"
+        fi
+        log_info "Changelog generated and written to $changelog_file"
     fi
 
     # Step 3: Run validation gates
@@ -623,11 +666,20 @@ $release_desc"
         # Push tag if requested
         if [[ "$PUSH_TAG" == "true" ]]; then
             log_info "Pushing tag to remote..."
-            if ! git push origin "$normalized" 2>/dev/null; then
-                log_error "Failed to push tag to remote" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Push manually: git push origin $normalized"
-                # Don't exit - tag was created successfully locally
+
+            # Detect if credentials are available (non-interactive check)
+            if ! git ls-remote --exit-code --tags origin >/dev/null 2>&1; then
+                log_warn "Git credential check failed - remote may not be accessible"
+                log_warn "Run manually: git push origin $normalized"
             else
-                log_info "Tag pushed to remote"
+                # Use GIT_TERMINAL_PROMPT=0 to prevent hang on credential prompt
+                # Use GIT_SSH_COMMAND to disable interactive SSH
+                if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin "$normalized" 2>&1; then
+                    log_error "Failed to push tag to remote" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Push manually: git push origin $normalized"
+                    # Don't exit - tag was created successfully locally
+                else
+                    log_info "Tag pushed to remote"
+                fi
             fi
         fi
     fi
@@ -642,6 +694,7 @@ $release_desc"
         --arg timestamp "$timestamp" \
         --arg notes "$RELEASE_NOTES" \
         --arg git_tag "$normalized" \
+        --arg changelog "$changelog_content" \
         --argjson tag_created "$git_tag_created" \
         '
         .project.releases = [
@@ -650,7 +703,8 @@ $release_desc"
                 .status = "released" |
                 .releasedAt = $timestamp |
                 (if $notes != "" then .notes = $notes else . end) |
-                (if $tag_created then .gitTag = $git_tag else . end)
+                (if $tag_created then .gitTag = $git_tag else . end) |
+                (if $changelog != "" then .changelog = $changelog else . end)
             else .
             end
         ] |

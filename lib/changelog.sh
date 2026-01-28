@@ -54,6 +54,94 @@ CHANGELOG_FILE="${CHANGELOG_FILE:-CHANGELOG.md}"
 # HELPER FUNCTIONS
 # ============================================================================
 
+# populate_release_tasks - Auto-populate release.tasks[] using hybrid date+label strategy
+#
+# Args:
+#   $1 - version (e.g., "v0.65.0")
+#   $2 - (optional) todo file path
+#
+# Output: Updates todo.json with discovered task IDs in release.tasks[]
+# Returns: 0 on success, 1 on failure
+#
+# Algorithm:
+#   1. Find tasks completed between prev_release and current_release
+#   2. Filter by labels: version/changelog/release
+#   3. Exclude epics (type != "epic")
+#   4. Update release.tasks[] array
+populate_release_tasks() {
+    local version="$1"
+    local todo_file="${2:-$TODO_FILE}"
+
+    # Normalize version
+    local version_normalized="${version#v}"
+    local version_with_v="v${version_normalized}"
+
+    # Get current and previous release timestamps
+    local release_timestamp prev_timestamp
+    release_timestamp=$(jq -r --arg v "$version_with_v" '
+        .project.releases[] | select(.version == $v) | .releasedAt // .createdAt
+    ' "$todo_file")
+
+    if [[ -z "$release_timestamp" || "$release_timestamp" == "null" ]]; then
+        echo "ERROR: Release $version_with_v not found or has no timestamp" >&2
+        return 1
+    fi
+
+    prev_timestamp=$(jq -r --arg current_ts "$release_timestamp" '
+        [.project.releases[] |
+         select(.releasedAt != null) |
+         select(.releasedAt < $current_ts)] |
+        sort_by(.releasedAt) | .[-1].releasedAt // "1970-01-01T00:00:00Z"
+    ' "$todo_file")
+
+    # Find candidate tasks in date window + label filter
+    local task_ids
+    task_ids=$(jq -r \
+        --arg start "$prev_timestamp" \
+        --arg end "$release_timestamp" \
+        --arg v1 "$version_normalized" \
+        --arg v2 "$version_with_v" \
+        '
+        [.tasks[] |
+         # Filter 1: Must have completion timestamp
+         select(.completedAt != null) |
+         # Filter 2: Must be in date window
+         select(.completedAt >= $start and .completedAt <= $end) |
+         # Filter 3: Exclude epics (organizational tasks)
+         select(.type != "epic") |
+         # Filter 4: Must have relevant label
+         select(
+            (.labels // []) | (
+                index($v1) or index($v2) or
+                index("changelog") or index("release")
+            )
+         ) |
+         .id
+        ]
+    ' "$todo_file")
+
+    # Update release.tasks[] with discovered IDs
+    local updated_json
+    updated_json=$(jq \
+        --arg version "$version_with_v" \
+        --argjson task_ids "$task_ids" \
+        '
+        .project.releases = [
+            .project.releases[] |
+            if .version == $version then
+                .tasks = $task_ids
+            else .
+            end
+        ]
+    ' "$todo_file")
+
+    # Write back to file
+    echo "$updated_json" > "$todo_file.tmp"
+    mv "$todo_file.tmp" "$todo_file"
+
+    return 0
+}
+
 # get_release_tasks - Get full task objects for a release
 #
 # Args:
@@ -355,4 +443,68 @@ get_release_notes() {
         map(select(.version == $v)) |
         .[0].notes // ""
     ' "$todo_file"
+}
+
+# extract_changelog_section - Extract version section from CHANGELOG.md
+#
+# Args:
+#   $1 - version (e.g., "v0.75.0" or "0.75.0")
+#   $2 - (optional) changelog file path (default: CHANGELOG.md)
+#   $3 - (optional) output file path (default: stdout)
+#
+# Returns:
+#   0 - Success (section extracted)
+#   1 - Version section not found in changelog
+#   2 - Section is empty (whitespace only)
+#
+# Example:
+#   extract_changelog_section "v0.75.0" "CHANGELOG.md" "release-notes.txt"
+extract_changelog_section() {
+    local version="$1"
+    local changelog="${2:-CHANGELOG.md}"
+    local output="${3:--}"
+
+    # Normalize version (remove 'v' prefix if present)
+    local version_normalized="${version#v}"
+
+    # Extract section using awk
+    local section_content
+    section_content=$(awk -v ver="$version_normalized" '
+        # Match version header (with or without "v" prefix)
+        /^## \[(v)?'"$version_normalized"'\]/ {
+            found=1
+            next
+        }
+
+        # Stop at next version section
+        found && /^## \[/ {
+            exit
+        }
+
+        # Print lines while in target section
+        found {
+            print
+        }
+    ' "$changelog")
+
+    # Check if section was found
+    if [[ -z "$section_content" ]]; then
+        echo "ERROR: Changelog section for version $version not found" >&2
+        return 1
+    fi
+
+    # Check if section is not empty (after trimming whitespace)
+    if [[ "$section_content" =~ ^[[:space:]]*$ ]]; then
+        echo "ERROR: Changelog section for $version is empty" >&2
+        return 2
+    fi
+
+    # Write to output
+    if [[ "$output" == "-" ]]; then
+        echo "$section_content"
+    else
+        echo "$section_content" > "$output"
+    fi
+
+    return 0
 }
