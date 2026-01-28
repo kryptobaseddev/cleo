@@ -63,6 +63,10 @@ ENV_PREFIX="CLEO"
 
 # Map of environment variables to config paths
 # CLEO_* variables only - no legacy CLAUDE_TODO_* support (clean break)
+# NOTE: Temporarily disable -u because Bash 5.3+ interprets array keys as
+# variable references under set -u, causing "unbound variable" errors.
+# See: https://github.com/kryptobaseddev/cleo/issues/10
+set +u
 declare -A ENV_TO_CONFIG=(
     # Special case - short form
     ["CLEO_FORMAT"]="output.defaultFormat"
@@ -114,6 +118,7 @@ declare -A ENV_TO_CONFIG=(
     ["CLEO_CANCELLATION_ALLOW_CASCADE"]="cancellation.allowCascade"
     ["CLEO_CANCELLATION_DEFAULT_CHILD_STRATEGY"]="cancellation.defaultChildStrategy"
 )
+set -u  # Re-enable after array declaration
 
 # ============================================================================
 # UTILITY FUNCTIONS
