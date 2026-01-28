@@ -1,0 +1,5 @@
+{"id":"T001-complete","file":"2026-01-28_T001-complete.md","title":"Completed Research","date":"2026-01-28","status":"complete","agent_type":"research","topics":["authentication","authorization"],"linked_tasks":["T001"]}
+{"id":"T002-review-covered","file":"2026-01-28_T002-review.md","title":"Review with Coverage","date":"2026-01-28","status":"review","agent_type":"specification","topics":["lifecycle","archival"],"linked_tasks":["T002","T100"]}
+{"id":"T003-review-gaps","file":"2026-01-28_T003-gaps.md","title":"Review with Gaps","date":"2026-01-28","status":"review","agent_type":"research","topics":["new-feature","undocumented"],"linked_tasks":["T003","T100"]}
+{"id":"T004-partial","file":"2026-01-28_T004-partial.md","title":"Partial Status","date":"2026-01-28","status":"partial","agent_type":"implementation","topics":["partial-topic"],"linked_tasks":["T004"]}
+{"id":"T005-review-epic2","file":"2026-01-28_T005-epic2.md","title":"Epic 2 Review","date":"2026-01-28","status":"review","agent_type":"research","topics":["epic2-feature"],"linked_tasks":["T200","T201"]}
