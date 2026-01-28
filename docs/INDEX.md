@@ -158,8 +158,8 @@
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
-| **[DEVELOPMENT.md](DEVELOPMENT.md)** | **Consolidated dev guide** - All dev tools in one place | First stop for contributors |
-| **[development/DEV-SCRIPTS-OVERVIEW.md](development/DEV-SCRIPTS-OVERVIEW.md)** | Dev scripts index and reference | Contributing to development tooling |
+| **[developer/development/dev-scripts.mdx](developer/development/dev-scripts.mdx)** | **Development scripts** - Dev tools index and reference | First stop for contributors |
+| **[developer/development/code-style.mdx](developer/development/code-style.mdx)** | Code style and conventions | Writing code for CLEO |
 | **[development/COMPLIANCE-CHECKING.md](development/COMPLIANCE-CHECKING.md)** | LLM-Agent-First compliance system | Understanding and running compliance checks |
 | **[development/PERFORMANCE-TESTING.md](development/PERFORMANCE-TESTING.md)** | Benchmarking workflow guide | Running and interpreting performance tests |
 | **[DEV-WORKFLOW.md](../dev/DEV-WORKFLOW.md)** | Development contribution guidelines | Before contributing to dev/ scripts |
