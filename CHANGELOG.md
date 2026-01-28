@@ -5,6 +5,19 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.74.4] - 2026-01-28
+
+### Fixed
+- **Bash 4+ Detection in CLI Wrapper** (GitHub #12, related to #10):
+  - CLI wrapper now detects system Bash version on startup
+  - Automatically finds and uses Homebrew Bash 4+ on macOS:
+    - `/opt/homebrew/bin/bash` (Apple Silicon)
+    - `/usr/local/bin/bash` (Intel)
+    - `/home/linuxbrew/.linuxbrew/bin/bash` (Linux Homebrew)
+  - Uses `_CLEO_REEXEC` guard to prevent infinite re-exec loops
+  - Shows helpful error message if no Bash 4+ is available
+  - Fixes macOS compatibility where system Bash 3.2 doesn't support associative arrays
+
 ## [0.74.3] - 2026-01-28
 
 ### Fixed

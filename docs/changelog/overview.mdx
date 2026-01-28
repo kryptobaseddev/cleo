@@ -17,6 +17,25 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.74.4" tags={["Fix", "CLI"]}>
+## v0.74.4 Release
+
+
+**Fixed**
+- **Bash 4+ Detection in CLI Wrapper** (GitHub #12, related to #10):
+  - CLI wrapper now detects system Bash version on startup
+  - Automatically finds and uses Homebrew Bash 4+ on macOS:
+    - `/opt/homebrew/bin/bash` (Apple Silicon)
+    - `/usr/local/bin/bash` (Intel)
+    - `/home/linuxbrew/.linuxbrew/bin/bash` (Linux Homebrew)
+  - Uses `_CLEO_REEXEC` guard to prevent infinite re-exec loops
+  - Shows helpful error message if no Bash 4+ is available
+  - Fixes macOS compatibility where system Bash 3.2 doesn't support associative arrays
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.4)
+</Update>
+
 <Update label="January 2026" description="v0.74.3" tags={["Fix", "Installer"]}>
 ## Auto-Update Agent Configs on Install/Upgrade
 
@@ -32,23 +51,25 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.3)
 </Update>
 
-<Update label="January 2026" description="v0.74.2" tags={["Fix", "Feature", "Context"]}>
+<Update label="January 2026" description="v0.74.2" tags={["Feature", "Sessions", "Context"]}>
 ## v0.74.2 Release
 
 
 **Added**
-- **Token-Optimized Error Output** (T2521, T2586-T2589):
-  - Error responses now use minimal context by default (93% reduction: 13K → 1K chars)
-  - New `minimize_error_context()` function strips large arrays, keeps counts
+- **Progressive Disclosure Error Output** (T2521, T2586-T2589):
+  - Error responses now use smart progressive disclosure (63% reduction: 14K → 5K chars)
+  - Smart summaries preserve decision-relevant fields for agent decision-making:
+    - Sessions: id, name, scope, focus (enough to choose the right session)
+    - Epics: id, title (truncated), status, pending count (enough to pick work)
+  - Unknown arrays get count-only treatment for maximum reduction
+  - `CLEO_VERBOSE=1` environment variable enables full verbose context for debugging
+  - New `minimize_error_context()` with domain-aware summarization
   - New `is_verbose_mode()` function for detecting debug mode
-  - `CLEO_VERBOSE=1` environment variable enables full error context for debugging
-  - Error context now includes hint about verbose mode
-  - Preserves all actionable fields: fix command, alternatives, exit codes
 
 **Documentation**
-- Updated `docs/api/output-formats.mdx` with "Minimal Error Output" section
+- Updated `docs/api/output-formats.mdx` with "Progressive Disclosure Error Output" section
 - Updated `docs/snippets/error-handling.mdx` with CLEO_VERBOSE note
-- Added 16 new unit tests in `tests/unit/error-output-minimal.bats`
+- Added 18 unit tests in `tests/unit/error-output-minimal.bats`
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.2)
@@ -466,150 +487,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.70.1)
-</Update>
-
-<Update label="January 2026" description="v0.69.3" tags={["Feature", "Skills", "Orchestrator"]}>
-## v0.69.3 Release
-
-
-**Added**
-- **Epic T2247: Research-Task Linking and Documentation Injection Improvements**
-  - **File Attachment Documentation** (T2254): Added `--files` flag documentation to AGENT-INJECTION.md
-    - Explains file attachment on task creation and update
-    - Documents that agents do NOT auto-read attached files
-  - **Research Linking Documentation** (T2254): Added research linking section to AGENT-INJECTION.md
-    - `--files` vs `research link` comparison table
-    - Bidirectional linking visibility via `cleo show`
-  - **Subagent Protocol Updates** (T2253): Enhanced `skills/_shared/subagent-protocol-base.md`
-    - Added Research Linking section with bidirectional discovery docs
-    - RFC 2119 SHOULD/MAY for optional behaviors
-  - **Task System Integration Updates** (T2253): Enhanced `skills/_shared/task-system-integration.md`
-    - Added File Attachment section with `--files` flag usage
-    - Distinguished `--files` (input context) from `research link` (output artifacts)
-  - **Orchestrator Compliance Verification** (T2255): Enhanced `skills/ct-orchestrator/SKILL.md`
-    - Added research link verification step to enforcement sequence
-    - Orchestrator fallback linking when subagent fails to link
-    - Updated compliance checks table with research link status
-
-**Research Tasks (T2247 Epic)**
-- T2249: CLEO --files flag on tasks
-- T2250: Research linking bidirectional behavior
-- T2251: CLEO documentation injection system
-- T2252: Subagent knowledge sources and gaps
-- T2263: --files flag validation testing
-- T2292: CLEO usage instruction sources and plugin integration audit
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.3)
-</Update>
-
-<Update label="January 2026" description="v0.69.2" tags={["Fix", "Feature"]}>
-## Epic T2264 Complete
-
-
-**Fixed**
-- **BATS Test Registry Cleanup** (T2265): Tests now clean up project registry entries on teardown
-  - Added `_cleanup_test_registry_entries()` helper to `tests/test_helper/common_setup.bash`
-  - Updated `common_teardown()`, `common_teardown_per_test()`, `common_teardown_file()` to call cleanup
-  - Prevents orphaned test project entries in `~/.cleo/projects-registry.json`
-- **Manifest Validation Count Bug** (T2266): Fixed incorrect "1350" invalid entries display
-  - Was actually 135 entries; bug caused by jq output concatenation in `scripts/validate.sh`
-  - Fixed by extracting only first JSON line and using `|| true` instead of fallback JSON
-  - Cleaned up 135 legacy manifest entries missing required fields
-
-**Changed**
-- **Epic T2264 Complete**: Cross-project repair foundation work complete
-  - Future `--fix-all` feature deferred to separate epic
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.2)
-</Update>
-
-<Update label="January 2026" description="v0.69.1" tags={["Feature", "Orchestrator", "Research"]}>
-## v0.69.1 Release
-
-
-**Added**
-- **Agent Contract Specification** (T2267): Comprehensive RFC 2119 conformant specification for orchestrator-subagent contracts
-  - Defines deterministic agent behavior rules
-  - Output requirements and handoff protocols
-  - Located at `docs/specs/AGENT-CONTRACT-SPEC.md`
-
-**Documentation**
-- **Cross-project repair backlog** (T2264): Created epic with subtasks for future improvements:
-  - T2265: BATS test registry cleanup
-  - T2266: Research manifest invalid entries cleanup
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.1)
-</Update>
-
-<Update label="January 2026" description="v0.69.0" tags={["Fix", "Feature", "Sessions"]}>
-## Feature Consistency Health Check
-
-
-**Added**
-- **Feature Consistency Health Check**: Doctor now validates that `project-info.json` features match `config.json` settings
-- **Features Schema Definition**: Added `features` field to `project-info.schema.json` with `multiSession`, `verification`, and `contextAlerts` properties
-
-**Fixed**
-- **Doctor Validation Details** (T2224): Doctor now shows actual validation error messages instead of generic "Validation failed"
-  - `--detail` flag shows full validation output for failed projects
-  - Issues column shows first error line (e.g., "Validation: [ERROR] Found 26 orphaned tasks...")
-- **cleoVersion in dev mode** (T2217): Fixed VERSION file reading to use `head -n 1` instead of `cat`, preventing multiline version values
-  - Affected files: `upgrade.sh`, `session.sh`, `sync-todowrite.sh`, `version-check.sh`
-- **Global Registry Format** (T2216, T2218, T2222): Cleaned up hybrid registry architecture
-  - Removed `injection`, `cleoVersion`, `schemas`, `health` nested objects from global registry
-  - Global registry now uses flat `healthStatus` and `healthLastCheck` fields only
-  - Doctor updates global registry with correct flat field names
-- **Injection Version Field** (T2225, T2226): Removed unused `version` field from injection objects
-  - Injection checks are marker-based, not version-based
-  - `project-info.json` injection entries now only have `status` and `lastUpdated`
-- **Feature Sync** (T2229): `cleo upgrade` now syncs features from `config.json` to `project-info.json`
-  - Eliminates hardcoded feature defaults
-  - Reads actual config settings: `multiSession.enabled`, `verification.enabled`, `contextAlerts.enabled`
-
-**Removed**
-- **Dead Code Cleanup** (T2227): Deleted unused `injection_extract_version()` function from `lib/injection-config.sh`
-  - Removed legacy version extraction tests from `tests/unit/injection.bats`
-  - Updated documentation to reflect versionless injection system
-
-**Changed**
-- **Migration Script Location**: Moved `migrate-registry-cleanup.sh` to `dev/migrations/` per architecture guidelines
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.0)
-</Update>
-
-<Update label="January 2026" description="v0.68.2" tags={["Feature", "Documentation", "CLI"]}>
-## Agent Injection Template
-
-
-**Changed**
-- **Agent Injection Template**: Added Claude CLI aliases documentation to `AGENT-INJECTION.md`
-  - Documents `setup-claude-aliases` command in injected content
-  - Lists all 7 aliases: `cc`, `ccy`, `ccr`, `ccry`, `cc-headless`, `cc-headfull`, `cc-headfull-stream`
-  - Includes doctor integration note
-  - Affects `cleo init` and `cleo upgrade` output
-
-**Documentation**
-- **TODO_Task_Management.md**: Full Claude CLI aliases section with alias table, doctor integration, and collision detection info
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.2)
-</Update>
-
-<Update label="January 2026" description="v0.68.1" tags={["Fix", "Feature", "Installer"]}>
-## COMMANDS-INDEX.json
-
-
-**Fixed**
-- **Wrapper Template Sync** (Epic T2209): Fresh installations now include `setup-claude-aliases` and `compliance` commands
-- **COMMANDS-INDEX.json**: Added missing `relates` command entry
-- **Drift Detection**: Added wrapper template sync validation to prevent future mismatches
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.1)
 </Update>
 
 ## Earlier Releases
