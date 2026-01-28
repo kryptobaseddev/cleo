@@ -123,6 +123,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `skillsmp.mdx` to `marketplace.mdx` for clarity
 - Updated all documentation to use `--mp` flag instead of `--source skillsmp`
 
+## [0.73.4] - 2026-01-27
+
+### Fixed
+- **Changelog MDX Escaping**: Escape `<` before numbers in Mintlify MDX output to prevent rendering issues
+
+### Added
+- **Automated Release Script**: New `dev/release-version.sh` for streamlined version bumping, changelog updates, and git tagging
+
 ## [0.73.3] - 2026-01-27
 
 ### Fixed
