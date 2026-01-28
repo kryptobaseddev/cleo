@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# commit-msg - CLEO task ID enforcement hook
+# @task T2693
+#
+# Per COMMIT-TASK-ENFORCEMENT-SPEC.md
+# Validates commit messages contain (T####) task references
+# Part of Epic T2679: Protocol Enforcement
+#
+# Installation: Automatically installed via `cleo init`
+# Manual: cp .cleo/templates/git-hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+
+set -euo pipefail
+
+MSG_FILE="$1"
+COMMIT_MSG=$(cat "$MSG_FILE")
+
+# ============================================================================
+# BYPASS LOGGING FUNCTION
+# Per COMMIT-TASK-ENFORCEMENT-SPEC.md Part 5.2
+# ============================================================================
+
+log_bypass() {
+    local justification="$1"
+    local note="$2"
+
+    local bypass_entry
+    bypass_entry=$(jq -n \
+        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg commit "$(git rev-parse HEAD 2>/dev/null || echo 'pending')" \
+        --arg user "$(git config user.name 2>/dev/null || echo 'unknown')" \
+        --arg session "${CLEO_SESSION:-none}" \
+        --arg message "$COMMIT_MSG" \
+        --arg justification "$justification" \
+        --arg note "$note" \
+        --arg hook "commit-msg" \
+        '{timestamp: $ts, commit: $commit, user: $user, session: $session, message: $message, justification: $justification, note: $note, hook: $hook}')
+
+    echo "$bypass_entry" >> .cleo/bypass-log.json 2>/dev/null || true
+}
+
+# ============================================================================
+# BYPASS DETECTION
+# ============================================================================
+
+# Auto-bypass for automated commits (merges, reverts, CI/CD)
+if echo "$COMMIT_MSG" | grep -qE '^Merge (branch|pull request)'; then
+    log_bypass "automated" "Merge commit detected"
+    exit 0
+fi
+
+if echo "$COMMIT_MSG" | grep -qE '^Revert '; then
+    log_bypass "automated" "Revert commit detected"
+    exit 0
+fi
+
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" || -n "${GITLAB_CI:-}" ]]; then
+    log_bypass "automated" "CI/CD environment detected"
+    exit 0
+fi
+
+# ============================================================================
+# TASK ID EXTRACTION
+# Per COMMIT-TASK-ENFORCEMENT-SPEC.md Part 3.2
+# ============================================================================
+
+# Extract task ID using pattern: (T####)
+TASK_ID=$(echo "$COMMIT_MSG" | grep -oE '\(T[0-9]+\)' | head -1 | grep -oE 'T[0-9]+' || true)
+
+# ============================================================================
+# VALIDATION
+# ============================================================================
+
+if [[ -z "$TASK_ID" ]]; then
+    # No task ID found - try to suggest from focus
+    CLEO_CMD="cleo"
+    if command -v cleo &>/dev/null; then
+        FOCUSED_TASK=$($CLEO_CMD focus show --format json 2>/dev/null | jq -r '.task.id // empty' || true)
+    else
+        FOCUSED_TASK=""
+    fi
+
+    if [[ -n "$FOCUSED_TASK" ]]; then
+        echo "ERROR: No task ID in commit message"
+        echo ""
+        echo "Current focus: $FOCUSED_TASK"
+        echo ""
+        echo "Suggested format:"
+        echo "  $COMMIT_MSG ($FOCUSED_TASK)"
+        echo ""
+        echo "Add task ID or bypass with: git commit --no-verify"
+        exit 1
+    else
+        echo "ERROR: No task ID in commit message"
+        echo ""
+        echo "Convention: Include (T####) in commit message"
+        echo "Example: feat(validation): Add protocol checks (T2692)"
+        echo ""
+        echo "Bypass with: git commit --no-verify"
+        exit 1
+    fi
+fi
+
+# Validate task exists
+if command -v cleo &>/dev/null; then
+    if ! cleo exists "$TASK_ID" >/dev/null 2>&1; then
+        echo "ERROR: Task $TASK_ID not found in CLEO database"
+        echo ""
+        echo "Use: cleo find <query> to discover valid task IDs"
+        echo "Or bypass with: git commit --no-verify"
+        exit 1
+    fi
+fi
+
+# Success
+echo "✓ Commit linked to $TASK_ID"
+exit 0

@@ -241,6 +241,78 @@ cleo update T004 --depends T003
 
 ---
 
+## Atomicity Validation
+
+### Atomicity Checklist
+
+For each leaf task, verify:
+
+- [ ] **Single Responsibility**: One clear objective
+- [ ] **Completable in 1 session**: No multi-day work
+- [ ] **Testable**: Has clear acceptance criteria
+- [ ] **Mergeable**: Can be PR'd independently
+- [ ] **Reversible**: Can be rolled back if needed
+- [ ] **Dependencies Clear**: Blocking tasks explicit
+
+### Validation Command
+
+**Command** (planned): `cleo atomicity check --epic EPIC_ID`
+
+**Current State**: Available via `validate_decomposition_protocol()` in `lib/protocol-validation.sh`
+
+```bash
+# Programmatic validation
+source lib/protocol-validation.sh
+child_tasks=$(cleo list --parent T2000 --format json | jq -c '.tasks')
+result=$(validate_decomposition_protocol "T2000" "T2000" "$child_tasks" "false")
+```
+
+**Checks**:
+- DCMP-002: No circular dependencies (via hierarchy validation)
+- DCMP-003: Max depth 3 (epic→task→subtask)
+- DCMP-004: Atomicity test (6 criteria above)
+- DCMP-006: Max 7 siblings per parent
+
+### Scoring System
+
+Each leaf task scored on 6 criteria (pass/fail per criterion):
+
+| Score | Interpretation | Action |
+|-------|---------------|--------|
+| 6/6 | Atomic | Proceed |
+| 4-5/6 | Mostly atomic | Review failing criteria |
+| 2-3/6 | Needs refinement | Split or clarify |
+| 0-1/6 | Not atomic | Reject, re-decompose |
+
+**Aggregate Epic Score**: Average of leaf task scores
+
+### Orchestrator Integration
+
+**Pre-Decomposition**:
+- Epic architect validates parent epic exists
+- Checks current depth < 3
+- Verifies sibling count < 7
+
+**Post-Decomposition**:
+- Validates all new tasks meet atomicity criteria
+- Blocks spawn of non-atomic tasks
+- Returns refinement suggestions
+
+### Exit Codes
+
+- `EXIT_PROTOCOL_DECOMPOSITION` (63) - Decomposition protocol violation
+- Common violations: Max siblings exceeded, depth limit exceeded, non-atomic tasks
+
+### Auto-Refinement (Future)
+
+**Planned**: If atomicity score <4/6:
+1. Analyze failing criteria
+2. Suggest task splits
+3. Generate refined decomposition
+4. Re-validate until score ≥4/6
+
+---
+
 ## Anti-Patterns
 
 | Pattern | Why Avoid |

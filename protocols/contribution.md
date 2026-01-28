@@ -186,6 +186,62 @@ Session: session_YYYYMMDD_HHMMSS_######
 
 ---
 
+## Implementation Integration
+
+### Automatic Tracking
+
+**Status**: Not yet implemented
+
+**Planned**: Integrate with `cleo complete` to automatically track contributions
+- Detect PR/merge commits in task completion
+- Extract contribution metadata from commit messages
+- Append to `.cleo/contributions/CONTRIBUTIONS.jsonl`
+- Link contribution to completed task
+
+**Future CLI**:
+```bash
+cleo complete T1234  # Auto-detects contribution if task has linked PR
+```
+
+### Manual Tracking
+
+**Status**: Not yet implemented
+
+**Planned**: Dedicated contribution tracking command
+
+**Future CLI**:
+```bash
+cleo contribution track --task T1234 --pr-number 456
+cleo contribution list --epic T2000
+cleo contribution show T1234-contrib
+```
+
+### Implementation Location
+
+**Library**: `lib/contribution-protocol.sh`
+
+**Key Functions** (for future integration):
+- `contribution_create()` - Record contribution metadata
+- `contribution_track_from_task()` - Extract contribution from task
+- `contribution_validate()` - Validate contribution structure
+- `contribution_compute_consensus()` - Compute consensus from contributions
+
+### Current State
+
+Contribution protocol is **specification-only** (no enforcement yet). Implementation tracking requires:
+1. Git integration for PR detection
+2. Contribution manifest system
+3. CLI commands for manual tracking
+4. Orchestrator integration for multi-agent contributions
+
+**Validation**: See `validate_contribution_protocol()` in `lib/protocol-validation.sh`
+- CONT-002: Provenance tags required
+- CONT-003: Tests must pass
+- CONT-007: agent_type = "implementation"
+- Exit code: `EXIT_PROTOCOL_CONTRIBUTION` (65)
+
+---
+
 ## Integration Points
 
 ### Base Protocol
@@ -237,6 +293,52 @@ Session: session_20260126_140000_abc123
 ```json
 {"id":"T2315-session-binding","file":"2026-01-26_session-binding.md","title":"Contribution: Session Binding","date":"2026-01-26","status":"complete","agent_type":"implementation","topics":["session","multi-agent","binding"],"key_findings":["TTY binding implemented","Env var fallback added","4 new tests"],"actionable":false,"needs_followup":[],"linked_tasks":["T2315","T2308"]}
 ```
+
+---
+
+## Provenance Validation
+
+### Overview
+
+Contribution protocol inherits provenance requirements from implementation protocol (IMPL-003), with identical enforcement mechanisms.
+
+**Requirement**: CONT-002 = IMPL-003 (Provenance tags required)
+
+### Pre-Commit Hook
+
+Same as Implementation Protocol:
+- Extract @task tags from commit diff
+- Calculate provenance coverage: 100% new, 80% existing, 50% legacy
+- Block commit if thresholds not met
+- Exit code: `EXIT_PROTOCOL_CONTRIBUTION` (65)
+
+### Runtime Validation
+
+**Current**: Available via `validate_contribution_protocol()` in `lib/protocol-validation.sh`
+
+**Planned CLI**: `cleo contribution validate [--task TASK_ID]`
+
+**Checks**:
+- CONT-002: Provenance tags present
+- CONT-003: Tests pass
+- CONT-007: agent_type = "implementation"
+
+### Shared Thresholds
+
+Identical to implementation protocol:
+
+| Code Category | Provenance Requirement |
+|---------------|------------------------|
+| New code | 100% |
+| Existing code | 80% |
+| Legacy code | 50% |
+
+### Enforcement Points
+
+1. **Pre-commit**: Shared with implementation protocol
+2. **Pre-merge**: PR validation checks provenance
+3. **Runtime**: `cleo complete` validates contribution tasks
+4. **Orchestrator**: Validates before spawning contribution agents
 
 ---
 

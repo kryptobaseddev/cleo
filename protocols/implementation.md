@@ -249,6 +249,63 @@ Implementation complete. See MANIFEST.jsonl for summary.
 
 ---
 
+## Provenance Validation
+
+### Pre-Commit Hook
+
+**Location**: `.git/hooks/commit-msg` (installed via `git config core.hooksPath .cleo/hooks`)
+
+**Logic**:
+1. Extract @task tags from commit diff
+2. Count new functions/classes
+3. Calculate provenance coverage
+4. Apply thresholds:
+   - **New code**: 100% coverage required
+   - **Existing code**: 80% coverage required
+   - **Legacy code**: 50% coverage required
+5. Block commit if thresholds not met
+
+**Exit Code**: `EXIT_PROTOCOL_IMPLEMENTATION` (64) on violation
+
+### Runtime Validation
+
+**Command** (planned): `cleo provenance validate [--task TASK_ID]`
+
+**Current State**: Validation available via protocol library
+
+```bash
+# Programmatic validation
+source lib/protocol-validation.sh
+result=$(validate_implementation_protocol "T1234" "$manifest_entry" "false")
+```
+
+**Checks**:
+- IMPL-003: `@task T####` tags in new functions
+- Git diff analysis for provenance coverage
+- Agent type = "implementation" (IMPL-007)
+
+### Thresholds
+
+| Code Category | Provenance Requirement | Rationale |
+|---------------|------------------------|-----------|
+| **New code** | 100% | Fresh code must be attributable |
+| **Existing code** | 80% | Modifications should track origin |
+| **Legacy code** | 50% | Gradual attribution improvement |
+
+**Detection**:
+- New code: Lines with `^+` in git diff, no prior history
+- Existing code: Modified files with prior commits
+- Legacy code: Files >6 months old or >100 commits
+
+### Enforcement Points
+
+1. **Pre-commit**: Blocks commits lacking provenance
+2. **Pre-push**: Warns on aggregate provenance score <70%
+3. **Runtime**: `cleo complete` validates IMPL-003 for implementation tasks
+4. **Orchestrator**: Validates before spawning implementation agents
+
+---
+
 ## Anti-Patterns
 
 | Pattern | Why Avoid |

@@ -81,7 +81,7 @@ This protocol activates when the task involves:
 
 | Verdict | Threshold | Evidence Requirement |
 |---------|-----------|---------------------|
-| **PROVEN** | 4/5 agents OR 80%+ weighted confidence | Reproducible evidence |
+| **PROVEN** | 3/5 agents OR 50%+ weighted confidence | Reproducible evidence |
 | **REFUTED** | Counter-evidence invalidates | Counter-proof exists |
 | **CONTESTED** | 3/5 split after 2 challenge rounds | Document both sides |
 | **INSUFFICIENT_EVIDENCE** | Cannot reach verdict | Request investigation |
@@ -199,6 +199,75 @@ This protocol activates when the task involves:
 ```json
 {"id":"T2216-arch-consensus","file":"2026-01-26_arch-consensus.md","title":"Consensus: Codebase Map Architecture","date":"2026-01-26","status":"complete","agent_type":"analysis","topics":["architecture","consensus","codebase-map"],"key_findings":["Single file selected over split","4/5 agents agree","Atomic operations priority"],"actionable":true,"needs_followup":["T2217"],"linked_tasks":["T2204","T2216"]}
 ```
+
+---
+
+## Integration
+
+### Implementation Location
+
+**Library**: `lib/contribution-protocol.sh`
+
+**Primary Function**: `contribution_compute_consensus(epic_id, [manifest_path])`
+- Loads complete contributions for epic
+- Groups decisions by question ID across contributions
+- Runs weighted voting per question
+- Classifies: unanimous/majority = resolved, split = unresolved
+- Flags unresolved questions for HITL review
+
+**Supporting Functions**:
+- `contribution_weighted_vote(votes_json)` - Calculates weighted consensus
+- `contribution_create_synthesis(consensus_json, epic_id)` - Creates Markdown synthesis
+
+### CLI Usage
+
+**Note**: No dedicated `cleo consensus` command exists yet. Consensus computation is invoked programmatically through the contribution workflow.
+
+**Programmatic Usage**:
+```bash
+source lib/contribution-protocol.sh
+
+# Compute consensus for an epic
+consensus=$(contribution_compute_consensus "T2679")
+
+# Extract resolved/unresolved questions
+resolved=$(echo "$consensus" | jq '.resolvedQuestions')
+unresolved=$(echo "$consensus" | jq '.unresolvedQuestions')
+```
+
+### Orchestrator Integration
+
+**Spawn Context**: When spawning consensus agents via orchestrator:
+
+```bash
+# Orchestrator detects consensus protocol from task labels
+protocol_type=$(_osp_skill_to_protocol "ct-validator")  # Returns "consensus"
+
+# Validates consensus requirements before spawn
+validate_consensus_protocol "$task_id" "$manifest_entry" "$voting_matrix" "false"
+
+# Blocks spawn if:
+# - Voting matrix has <2 options (CONS-001)
+# - Confidence scores invalid (CONS-003)
+# - Top confidence below 50% threshold (CONS-004)
+# - agent_type not "analysis" (CONS-007)
+```
+
+**Exit Codes**:
+- `EXIT_PROTOCOL_CONSENSUS` (61) - Consensus protocol violation
+- `EXIT_PROTOCOL_GENERIC` (67) - Generic protocol error
+
+### Validation Hook
+
+**Function**: `validate_consensus_protocol(task_id, manifest_entry, voting_matrix, strict)`
+
+**Location**: `lib/protocol-validation.sh`
+
+**Validates**:
+- CONS-001: ≥2 options in voting matrix
+- CONS-003: Confidence scores 0.0-1.0
+- CONS-004: Top confidence ≥50% threshold
+- CONS-007: agent_type = "analysis"
 
 ---
 
