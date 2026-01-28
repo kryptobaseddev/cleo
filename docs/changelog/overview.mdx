@@ -17,6 +17,21 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.74.3" tags={["Fix", "Installer"]}>
+## Auto-Update Agent Configs on Install/Upgrade
+
+
+**Fixed**
+- **Auto-Update Agent Configs on Install/Upgrade**:
+  - `install.sh` now automatically calls `setup-agents` after installation
+  - `self-update.sh` now automatically calls `setup-agents` after updates
+  - Mode switches (--to-release, --to-dev) also trigger agent config updates
+  - Ensures global agent files (CLAUDE.md, GEMINI.md, etc.) always have correct injection
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.3)
+</Update>
+
 <Update label="January 2026" description="v0.74.2" tags={["Fix", "Feature", "Context"]}>
 ## v0.74.2 Release
 
@@ -508,6 +523,93 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.2)
+</Update>
+
+<Update label="January 2026" description="v0.69.1" tags={["Feature", "Orchestrator", "Research"]}>
+## v0.69.1 Release
+
+
+**Added**
+- **Agent Contract Specification** (T2267): Comprehensive RFC 2119 conformant specification for orchestrator-subagent contracts
+  - Defines deterministic agent behavior rules
+  - Output requirements and handoff protocols
+  - Located at `docs/specs/AGENT-CONTRACT-SPEC.md`
+
+**Documentation**
+- **Cross-project repair backlog** (T2264): Created epic with subtasks for future improvements:
+  - T2265: BATS test registry cleanup
+  - T2266: Research manifest invalid entries cleanup
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.1)
+</Update>
+
+<Update label="January 2026" description="v0.69.0" tags={["Fix", "Feature", "Sessions"]}>
+## Feature Consistency Health Check
+
+
+**Added**
+- **Feature Consistency Health Check**: Doctor now validates that `project-info.json` features match `config.json` settings
+- **Features Schema Definition**: Added `features` field to `project-info.schema.json` with `multiSession`, `verification`, and `contextAlerts` properties
+
+**Fixed**
+- **Doctor Validation Details** (T2224): Doctor now shows actual validation error messages instead of generic "Validation failed"
+  - `--detail` flag shows full validation output for failed projects
+  - Issues column shows first error line (e.g., "Validation: [ERROR] Found 26 orphaned tasks...")
+- **cleoVersion in dev mode** (T2217): Fixed VERSION file reading to use `head -n 1` instead of `cat`, preventing multiline version values
+  - Affected files: `upgrade.sh`, `session.sh`, `sync-todowrite.sh`, `version-check.sh`
+- **Global Registry Format** (T2216, T2218, T2222): Cleaned up hybrid registry architecture
+  - Removed `injection`, `cleoVersion`, `schemas`, `health` nested objects from global registry
+  - Global registry now uses flat `healthStatus` and `healthLastCheck` fields only
+  - Doctor updates global registry with correct flat field names
+- **Injection Version Field** (T2225, T2226): Removed unused `version` field from injection objects
+  - Injection checks are marker-based, not version-based
+  - `project-info.json` injection entries now only have `status` and `lastUpdated`
+- **Feature Sync** (T2229): `cleo upgrade` now syncs features from `config.json` to `project-info.json`
+  - Eliminates hardcoded feature defaults
+  - Reads actual config settings: `multiSession.enabled`, `verification.enabled`, `contextAlerts.enabled`
+
+**Removed**
+- **Dead Code Cleanup** (T2227): Deleted unused `injection_extract_version()` function from `lib/injection-config.sh`
+  - Removed legacy version extraction tests from `tests/unit/injection.bats`
+  - Updated documentation to reflect versionless injection system
+
+**Changed**
+- **Migration Script Location**: Moved `migrate-registry-cleanup.sh` to `dev/migrations/` per architecture guidelines
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.69.0)
+</Update>
+
+<Update label="January 2026" description="v0.68.2" tags={["Feature", "Documentation", "CLI"]}>
+## Agent Injection Template
+
+
+**Changed**
+- **Agent Injection Template**: Added Claude CLI aliases documentation to `AGENT-INJECTION.md`
+  - Documents `setup-claude-aliases` command in injected content
+  - Lists all 7 aliases: `cc`, `ccy`, `ccr`, `ccry`, `cc-headless`, `cc-headfull`, `cc-headfull-stream`
+  - Includes doctor integration note
+  - Affects `cleo init` and `cleo upgrade` output
+
+**Documentation**
+- **TODO_Task_Management.md**: Full Claude CLI aliases section with alias table, doctor integration, and collision detection info
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.2)
+</Update>
+
+<Update label="January 2026" description="v0.68.1" tags={["Fix", "Feature", "Installer"]}>
+## COMMANDS-INDEX.json
+
+
+**Fixed**
+- **Wrapper Template Sync** (Epic T2209): Fresh installations now include `setup-claude-aliases` and `compliance` commands
+- **COMMANDS-INDEX.json**: Added missing `relates` command entry
+- **Drift Detection**: Added wrapper template sync validation to prevent future mismatches
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.1)
 </Update>
 
 ## Earlier Releases
