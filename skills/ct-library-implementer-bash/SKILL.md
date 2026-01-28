@@ -1,3 +1,8 @@
+---
+name: ct-library-implementer-bash
+description: Bash library development with focus on creating well-structured lib/*.sh files following shell best practices. Implements reusable functions, utility modules, and shared helpers with proper documentation, error handling, and dependency management. Use when creating new lib/ modules, implementing shared functions, or adding utility libraries. Triggers on library implementation tasks, bash module creation, or utility function needs.
+---
+
 # Library Implementer (Bash) Context Injection
 
 **Protocol**: @protocols/implementation.md
