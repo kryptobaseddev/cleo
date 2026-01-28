@@ -930,6 +930,14 @@ do_switch_to_release() {
     # Update skills symlinks after mode switch
     update_skills_for_mode_switch
 
+    # Update global agent configurations
+    if ! is_json_output; then
+        echo "Updating global agent configurations..."
+    fi
+    if [[ -x "$CLEO_HOME/scripts/setup-agents.sh" ]]; then
+        "$CLEO_HOME/scripts/setup-agents.sh" --force >/dev/null 2>&1 || true
+    fi
+
     # Success
     if is_json_output; then
         jq -nc \
@@ -1069,6 +1077,14 @@ do_switch_to_dev() {
 
     # Update skills symlinks after mode switch
     update_skills_for_mode_switch
+
+    # Update global agent configurations
+    if ! is_json_output; then
+        echo "Updating global agent configurations..."
+    fi
+    if [[ -x "$CLEO_HOME/scripts/setup-agents.sh" ]]; then
+        "$CLEO_HOME/scripts/setup-agents.sh" --force >/dev/null 2>&1 || true
+    fi
 
     # Get version
     local version
@@ -1331,6 +1347,21 @@ do_update() {
         echo ""
         echo "Backup created at:"
         echo "  $backup_path.*"
+    fi
+
+    # Update global agent configuration files
+    if ! is_json_output; then
+        echo ""
+        echo "Updating global agent configurations..."
+    fi
+    if [[ -x "$CLEO_HOME/scripts/setup-agents.sh" ]]; then
+        "$CLEO_HOME/scripts/setup-agents.sh" --force >/dev/null 2>&1 || true
+        if ! is_json_output; then
+            echo "Agent configurations updated."
+        fi
+    fi
+
+    if ! is_json_output; then
         echo ""
         echo "Run 'cleo --version' to verify"
     fi
