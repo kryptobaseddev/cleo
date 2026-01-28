@@ -139,6 +139,11 @@ _rm_validate_entry() {
             ;;
     esac
 
+    # Validate audit object if present (T2578 - v2.10.0)
+    if ! validate_audit_object "$json"; then
+        return $?
+    fi
+
     return 0
 }
 
@@ -2447,6 +2452,230 @@ export -f append_manifest
 export -f find_entry
 export -f filter_entries
 export -f archive_entry
+# ============================================================================
+# AUDIT FIELD HELPERS (T2578 - Lifecycle Enforcement v2.10.0)
+# ============================================================================
+
+# create_audit_object - Generate audit object for new manifest entries
+# Args:
+#   $1 = created_by (agent ID, format: {role}-agent-{taskId})
+#   $2 = lifecycle_state (research|consensus|specification|decomposition|implementation|validation|testing|release)
+#   $3 = provenance_chain (optional, JSON array as string)
+# Returns: JSON object for audit field
+# Exit codes: 0 on success, 6 on validation error
+create_audit_object() {
+    local created_by="$1"
+    local lifecycle_state="$2"
+    local provenance_chain="${3:-[]}"
+
+    # Validate created_by format
+    if ! [[ "$created_by" =~ ^[a-z]+-agent-T[0-9]+$ ]]; then
+        echo "ERROR: Invalid created_by format: $created_by (must match {role}-agent-T####)" >&2
+        return "${EXIT_VALIDATION_ERROR:-6}"
+    fi
+
+    # Validate lifecycle_state
+    case "$lifecycle_state" in
+        research|consensus|specification|decomposition|implementation|validation|testing|release) ;;
+        *)
+            echo "ERROR: Invalid lifecycle_state: $lifecycle_state" >&2
+            return "${EXIT_VALIDATION_ERROR:-6}"
+            ;;
+    esac
+
+    # Generate current timestamp
+    local created_at
+    created_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Build audit object
+    jq -nc \
+        --arg created_by "$created_by" \
+        --arg created_at "$created_at" \
+        --arg lifecycle_state "$lifecycle_state" \
+        --argjson provenance_chain "$provenance_chain" \
+        '{
+            created_by: $created_by,
+            created_at: $created_at,
+            validated_by: null,
+            validated_at: null,
+            validation_status: "pending",
+            tested_by: null,
+            tested_at: null,
+            lifecycle_state: $lifecycle_state,
+            provenance_chain: $provenance_chain
+        }'
+}
+
+# validate_audit_object - Validate audit object against schema requirements
+# Args: $1 = JSON entry with audit object
+# Returns: 0 if valid, 6 (EXIT_VALIDATION_ERROR) if invalid, 77 (EXIT_CIRCULAR_VALIDATION) if circular
+# Output: Error message to stderr on failure
+validate_audit_object() {
+    local json="$1"
+
+    # Check if audit object exists
+    if ! echo "$json" | jq -e 'has("audit")' >/dev/null 2>&1; then
+        # Audit is optional for backward compatibility
+        return 0
+    fi
+
+    local audit
+    audit=$(echo "$json" | jq -r '.audit')
+
+    # Validate required audit fields
+    local required_fields=("created_by" "created_at" "lifecycle_state")
+    local missing_fields=()
+
+    for field in "${required_fields[@]}"; do
+        if ! echo "$audit" | jq -e "has(\"$field\")" >/dev/null 2>&1; then
+            missing_fields+=("$field")
+        fi
+    done
+
+    if [[ ${#missing_fields[@]} -gt 0 ]]; then
+        echo "ERROR: Missing required audit fields: ${missing_fields[*]}" >&2
+        return "${EXIT_VALIDATION_ERROR:-6}"
+    fi
+
+    # Validate created_by format
+    local created_by
+    created_by=$(echo "$audit" | jq -r '.created_by')
+    if ! [[ "$created_by" =~ ^[a-z]+-agent-T[0-9]+$ ]]; then
+        echo "ERROR: Invalid audit.created_by format: $created_by" >&2
+        return "${EXIT_VALIDATION_ERROR:-6}"
+    fi
+
+    # Validate lifecycle_state enum
+    local lifecycle_state
+    lifecycle_state=$(echo "$audit" | jq -r '.lifecycle_state')
+    case "$lifecycle_state" in
+        research|consensus|specification|decomposition|implementation|validation|testing|release) ;;
+        *)
+            echo "ERROR: Invalid audit.lifecycle_state: $lifecycle_state" >&2
+            return "${EXIT_VALIDATION_ERROR:-6}"
+            ;;
+    esac
+
+    # Validate validation_status if present
+    local validation_status
+    validation_status=$(echo "$audit" | jq -r '.validation_status // "pending"')
+    case "$validation_status" in
+        pending|in_review|approved|rejected|needs_revision) ;;
+        *)
+            echo "ERROR: Invalid audit.validation_status: $validation_status" >&2
+            return "${EXIT_VALIDATION_ERROR:-6}"
+            ;;
+    esac
+
+    # Check circular validation (1-hop)
+    local validated_by tested_by
+    validated_by=$(echo "$audit" | jq -r '.validated_by // empty')
+    tested_by=$(echo "$audit" | jq -r '.tested_by // empty')
+
+    if [[ -n "$validated_by" && "$validated_by" == "$created_by" ]]; then
+        echo "ERROR: Circular validation detected: validated_by ($validated_by) == created_by ($created_by)" >&2
+        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+    fi
+
+    if [[ -n "$tested_by" && "$tested_by" == "$created_by" ]]; then
+        echo "ERROR: Circular validation detected: tested_by ($tested_by) == created_by ($created_by)" >&2
+        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+    fi
+
+    if [[ -n "$tested_by" && -n "$validated_by" && "$tested_by" == "$validated_by" ]]; then
+        echo "ERROR: Circular validation detected: tested_by ($tested_by) == validated_by ($validated_by)" >&2
+        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+    fi
+
+    return 0
+}
+
+# check_circular_validation - Check for circular validation in provenance chain (N-hop)
+# Args:
+#   $1 = agent_id to check
+#   $2 = provenance_chain (JSON array)
+# Returns: 0 if no cycles, 77 (EXIT_CIRCULAR_VALIDATION) if cycle detected
+check_circular_validation() {
+    local agent_id="$1"
+    local provenance_chain="$2"
+
+    # Extract all agent IDs from provenance chain
+    local chain_agents
+    chain_agents=$(echo "$provenance_chain" | jq -r '.[] | select(type == "object") | .id // empty')
+
+    # Check if agent_id appears in chain
+    while IFS= read -r chain_agent; do
+        if [[ "$chain_agent" == "$agent_id" ]]; then
+            echo "ERROR: Circular validation detected: $agent_id appears in provenance chain" >&2
+            return "${EXIT_CIRCULAR_VALIDATION:-77}"
+        fi
+    done <<< "$chain_agents"
+
+    return 0
+}
+
+# update_audit_validation - Update audit object with validation information
+# Args:
+#   $1 = entry_id (manifest entry ID)
+#   $2 = validated_by (agent ID)
+#   $3 = validation_status (pending|in_review|approved|rejected|needs_revision)
+# Returns: 0 on success, error code on failure
+update_audit_validation() {
+    local entry_id="$1"
+    local validated_by="$2"
+    local validation_status="$3"
+
+    # Validate validated_by format
+    if ! [[ "$validated_by" =~ ^[a-z]+-agent-T[0-9]+$ ]]; then
+        echo "ERROR: Invalid validated_by format: $validated_by" >&2
+        return "${EXIT_VALIDATION_ERROR:-6}"
+    fi
+
+    # Validate validation_status enum
+    case "$validation_status" in
+        pending|in_review|approved|rejected|needs_revision) ;;
+        *)
+            echo "ERROR: Invalid validation_status: $validation_status" >&2
+            return "${EXIT_VALIDATION_ERROR:-6}"
+            ;;
+    esac
+
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        echo "ERROR: Manifest file not found: $manifest_path" >&2
+        return "${EXIT_FILE_NOT_FOUND:-4}"
+    fi
+
+    # Get entry
+    local entry
+    entry=$(grep -F "\"id\":\"$entry_id\"" "$manifest_path" || true)
+
+    if [[ -z "$entry" ]]; then
+        echo "ERROR: Entry not found: $entry_id" >&2
+        return "${EXIT_NOT_FOUND:-4}"
+    fi
+
+    # Check circular validation
+    local created_by
+    created_by=$(echo "$entry" | jq -r '.audit.created_by // empty')
+
+    if [[ "$validated_by" == "$created_by" ]]; then
+        echo "ERROR: Circular validation: validated_by ($validated_by) == created_by ($created_by)" >&2
+        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+    fi
+
+    # Update entry (this would typically use the update_entry function)
+    # For now, this is a placeholder - full implementation would modify the manifest
+    echo "TODO: Implement manifest update with validation fields" >&2
+    return 0
+}
+
+export -f create_audit_object
+export -f validate_audit_object
+export -f check_circular_validation
+export -f update_audit_validation
 export -f get_pending_followup
 export -f get_entry_by_id
 export -f get_latest_by_topic

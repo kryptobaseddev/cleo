@@ -35,6 +35,11 @@ if [[ -f "$LIB_DIR/verification.sh" ]]; then
   source "$LIB_DIR/verification.sh"
 fi
 
+# Source lifecycle library for gate enforcement (T2579)
+if [[ -f "$LIB_DIR/lifecycle.sh" ]]; then
+  source "$LIB_DIR/lifecycle.sh"
+fi
+
 # Source flags library for standardized flag parsing
 if [[ -f "$LIB_DIR/flags.sh" ]]; then
   source "$LIB_DIR/flags.sh"
@@ -249,6 +254,22 @@ set_gate_value() {
   local value="$3"
   local agent="$4"
   local format="$5"
+
+  # Check circular validation if lifecycle enforcement enabled (T2579)
+  if declare -f check_circular_validation >/dev/null 2>&1; then
+    LIFECYCLE_ENFORCE=$(get_config_value "lifecycle.enforce" "false")
+
+    if [[ "$LIFECYCLE_ENFORCE" == "true" ]]; then
+      # Get current agent ID from environment or config
+      CURRENT_AGENT="${CLEO_AGENT_ID:-${agent:-user}}"
+
+      # Check circular validation (prevent self-approval)
+      if ! check_circular_validation "$task_id" "$CURRENT_AGENT" "$TODO_FILE"; then
+        # Error already logged by check_circular_validation
+        exit 70  # EXIT_SELF_APPROVAL
+      fi
+    fi
+  fi
 
   # Validate gate name
   if ! validate_gate_name "$gate"; then

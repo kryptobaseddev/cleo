@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-# changelog.sh - Generate changelog from completed tasks
+# changelog.sh - Task-to-Changelog Generation (Step 1 of 2)
+#
+# PURPOSE: Generates CHANGELOG.md content from cleo task metadata
+# WORKFLOW: Part 1 of 2-step changelog pipeline
+#   1. lib/changelog.sh: tasks → CHANGELOG.md (THIS SCRIPT)
+#   2. scripts/generate-changelog.sh: CHANGELOG.md → docs/changelog/overview.mdx (Mintlify)
+#
+# NOTE: Despite T2539 consensus, this script and scripts/generate-changelog.sh
+# serve different, non-overlapping purposes. They are sequential pipeline stages,
+# not competing alternatives. See claudedocs/agent-outputs/2026-01-27_changelog-unification.md
 #
 # LAYER: 3 (Feature Layer)
 # DEPENDENCIES: file-ops.sh

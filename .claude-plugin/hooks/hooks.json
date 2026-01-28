@@ -1,0 +1,18 @@
+{
+  "SessionStart": [
+    {
+      "matcher": "*",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start.sh",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "version": "1.0.0",
+    "last_updated": "2026-01-27"
+  }
+}

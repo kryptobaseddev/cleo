@@ -1,9 +1,9 @@
 {
   "$schema": "https://claude-todo.dev/schemas/v1/spec-index.schema.json",
   "_meta": {
-    "version": "1.0.6",
-    "lastUpdated": "2025-12-27",
-    "totalSpecs": 20,
+    "version": "1.0.7",
+    "lastUpdated": "2026-01-27",
+    "totalSpecs": 21,
     "totalReports": 11
   },
   "authorities": {
@@ -15,13 +15,14 @@
     "todowrite-sync": "TODOWRITE-SYNC-SPEC.md",
     "configuration": "CONFIG-SYSTEM-SPEC.md",
     "file-operations": "FILE-LOCKING-SPEC.md",
-    "versioning": "RELEASE-VERSION-MANAGEMENT-SPEC.md",
+    "versioning": "RELEASE-MANAGEMENT-SPEC.md",
     "search": "FIND-COMMAND-SPEC.md",
     "consensus-investigation": "CONSENSUS-FRAMEWORK-SPEC.md",
     "multi-agent-abstraction": "MULTI-AGENT-ABSTRACTION-SPEC.md",
     "rcsd-pipeline": "RCSD-PIPELINE-SPEC.md",
     "task-decomposition": "TASK-DECOMPOSITION-SPEC.md",
-    "multi-session": "MULTI-SESSION-SPEC.md"
+    "multi-session": "MULTI-SESSION-SPEC.md",
+    "autonomous-orchestration": "AUTONOMOUS-ORCHESTRATION-SPEC.md"
   },
   "specs": [
     {
@@ -150,16 +151,18 @@
     {
       "file": "RELEASE-VERSION-MANAGEMENT-SPEC.md",
       "version": "2.0.0",
-      "status": "DRAFT",
+      "status": "DEPRECATED",
       "type": "SPEC",
       "domain": "versioning",
       "category": "process",
-      "synopsis": "Release version tracking with 4-state lifecycle (planning/development/released/cancelled). VERSION file integration, git tags.",
-      "lastUpdated": "2025-12-18",
+      "synopsis": "ARCHIVED: Never implemented. Superseded by RELEASE-MANAGEMENT-SPEC.md. Preserved in archive/specs/deprecated/ for historical reference.",
+      "lastUpdated": "2026-01-27",
       "dependsOn": [],
       "dependedOnBy": [],
-      "implementationReport": "RELEASE-VERSION-MANAGEMENT-IMPLEMENTATION-REPORT.md",
-      "isAuthoritativeFor": ["versioning"]
+      "implementationReport": null,
+      "isAuthoritativeFor": [],
+      "archivedPath": "archive/specs/deprecated/RELEASE-VERSION-MANAGEMENT-SPEC.md",
+      "supersededBy": "RELEASE-MANAGEMENT-SPEC.md"
     },
     {
       "file": "LLM-AGENT-FIRST-FINALIZATION-PLAN.md",
@@ -289,8 +292,21 @@
       "synopsis": "Multi-session concurrent agent architecture. Scoped sessions (epic/taskGroup/phase), per-scope active task validation, conflict detection, session lifecycle (start/suspend/resume/end). Enables parallel LLM agents.",
       "lastUpdated": "2025-12-27",
       "dependsOn": ["SPEC-BIBLE-GUIDELINES.md", "LLM-AGENT-FIRST-SPEC.md", "FILE-LOCKING-SPEC.md", "TASK-HIERARCHY-SPEC.md", "CONFIG-SYSTEM-SPEC.md"],
-      "dependedOnBy": [],
+      "dependedOnBy": ["AUTONOMOUS-ORCHESTRATION-SPEC.md"],
       "isAuthoritativeFor": ["multi-session"]
+    },
+    {
+      "file": "AUTONOMOUS-ORCHESTRATION-SPEC.md",
+      "version": "1.0.0",
+      "status": "ACTIVE",
+      "type": "SPEC",
+      "domain": "autonomous-orchestration",
+      "category": "architecture",
+      "synopsis": "Autonomous operation mode for orchestrators. Defines AUTO-*, HNDOFF-*, CONT-* constraints for multi-session autonomous workflows. Project-agnostic validation. Session handoff and resume protocols.",
+      "lastUpdated": "2026-01-27",
+      "dependsOn": ["SPEC-BIBLE-GUIDELINES.md", "ORCHESTRATOR-PROTOCOL-SPEC.md", "MULTI-SESSION-SPEC.md", "PROJECT-LIFECYCLE-SPEC.md"],
+      "dependedOnBy": [],
+      "isAuthoritativeFor": ["autonomous-orchestration"]
     }
   ],
   "reports": [
@@ -335,14 +351,6 @@
       "notes": "ID system works, hierarchy pending"
     },
     {
-      "file": "RELEASE-VERSION-MANAGEMENT-IMPLEMENTATION-REPORT.md",
-      "relatedSpec": "RELEASE-VERSION-MANAGEMENT-SPEC.md",
-      "progress": "0%",
-      "phase": "planned",
-      "lastUpdated": "2025-12-18",
-      "notes": "Research complete, v0.20.0 target"
-    },
-    {
       "file": "WEB-AGGREGATION-PIPELINE-IMPLEMENTATION-REPORT.md",
       "relatedSpec": "WEB-AGGREGATION-PIPELINE-SPEC.md",
       "progress": "0%",
@@ -384,6 +392,13 @@
     }
   ],
   "recentChanges": [
+    {
+      "date": "2026-01-27",
+      "file": "AUTONOMOUS-ORCHESTRATION-SPEC.md",
+      "changeType": "Created",
+      "version": "1.0.0",
+      "description": "Autonomous operation mode for orchestrators. Defines AUTO-001 to AUTO-011, HNDOFF-001 to HNDOFF-006, CONT-001 to CONT-007 constraints. Project-agnostic validation gates. Session handoff and resume protocols. Exit codes 64-67."
+    },
     {
       "date": "2025-12-27",
       "file": "MULTI-SESSION-SPEC.md",

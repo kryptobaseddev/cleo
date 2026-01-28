@@ -296,19 +296,74 @@
             ]
           },
           {
-            "group": "Protocols & Specs",
+            "group": "Core Specifications",
             "pages": [
-              "specs/SKILL-TAXONOMY-SPEC.md",
-              "specs/PROTOCOL-STACK-SPEC.md",
-              "guides/SKILL-DISPATCH-ALGORITHM",
-              "guides/PROTOCOL-INJECTION-FLOW"
+              "developer/specifications/index",
+              "developer/specifications/SKILL-TAXONOMY",
+              "developer/specifications/PROTOCOL-STACK",
+              "developer/specifications/PROJECT-LIFECYCLE",
+              "developer/specifications/CLEO-SYSTEM-ARCHITECTURE",
+              "developer/specifications/CLEO-SUBAGENT-PROTOCOL-v1"
             ]
           },
           {
-            "group": "Development",
+            "group": "System Specifications",
+            "pages": [
+              "developer/specifications/BACKUP-SYSTEM",
+              "developer/specifications/CONFIG-SYSTEM",
+              "developer/specifications/MIGRATION-SYSTEM",
+              "developer/specifications/PHASE-SYSTEM",
+              "developer/specifications/TASK-HIERARCHY",
+              "developer/specifications/MULTI-SESSION",
+              "developer/specifications/EPIC-SESSION"
+            ]
+          },
+          {
+            "group": "Feature Specifications",
+            "pages": [
+              "developer/specifications/FIND-COMMAND",
+              "developer/specifications/TODOWRITE-SYNC",
+              "developer/specifications/CONTEXT-SAFEGUARD",
+              "developer/specifications/CHAIN-VISUALIZATION",
+              "developer/specifications/FILE-LOCKING",
+              "developer/specifications/VERSION-GUARD-FINAL-DESIGN"
+            ]
+          },
+          {
+            "group": "Agent Protocols",
+            "pages": [
+              "developer/specifications/ORCHESTRATOR-PROTOCOL",
+              "developer/specifications/RCSD-PIPELINE",
+              "developer/specifications/CONSENSUS-FRAMEWORK",
+              "developer/specifications/AGENT-CONTRACT",
+              "developer/specifications/MULTI-AGENT-ABSTRACTION"
+            ]
+          },
+          {
+            "group": "Implementation Reports",
+            "pages": [
+              "developer/specifications/BACKUP-SYSTEM-SPEC-implementation",
+              "developer/specifications/CONFIG-SYSTEM-implementation",
+              "developer/specifications/LIBRARY-ARCHITECTURE-implementation",
+              "developer/specifications/LLM-AGENT-FIRST-implementation",
+              "developer/specifications/RCSD-PIPELINE-implementation",
+              "developer/specifications/TODOWRITE-SYNC-implementation"
+            ]
+          },
+          {
+            "group": "Development Guides",
             "pages": [
               "contributing",
-              "guides/skill-development",
+              "developer/development/code-style",
+              "developer/development/compliance-checking",
+              "developer/development/dev-scripts",
+              "developer/development/performance-testing",
+              "developer/development/todowrite-sync"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
               "troubleshooting/DISPATCH-DEBUG"
             ]
           }
