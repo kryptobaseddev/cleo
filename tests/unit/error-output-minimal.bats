@@ -58,23 +58,39 @@ teardown_file() {
     [ "$result" = "null" ]
 }
 
-@test "minimize_error_context replaces arrays with counts" {
+@test "minimize_error_context creates smart session summaries" {
     source "$LIB_DIR/error-json.sh"
 
-    input='{"activeSessions":5,"sessions":[{"id":"a"},{"id":"b"}],"name":"test"}'
+    # Full session object with verbose fields
+    input='{"activeSessions":2,"sessions":[{"id":"sess1","name":"Auth-Work","scope":{"type":"epic","rootTaskId":"T001"},"focus":{"currentTask":"T005"},"stats":{"tasksCompleted":3},"startMetrics":{"tokens":1000}},{"id":"sess2","name":"UI-Fix","scope":{"type":"task","rootTaskId":"T050"},"focus":{"currentTask":"T050"},"stats":{"tasksCompleted":0}}],"name":"test"}'
     result=$(minimize_error_context "$input")
 
-    # Should have sessionsCount = 2
-    count=$(echo "$result" | jq -r '.sessionsCount')
-    [ "$count" = "2" ]
+    # Should have sessions array (not sessionsCount) with smart summary
+    sessions_type=$(echo "$result" | jq -r '.sessions | type')
+    [ "$sessions_type" = "array" ]
+
+    # Session should have decision-relevant fields only
+    first_session=$(echo "$result" | jq -r '.sessions[0]')
+
+    # Has id
+    echo "$first_session" | jq -e '.id == "sess1"' >/dev/null
+
+    # Has name (for intent matching)
+    echo "$first_session" | jq -e '.name == "Auth-Work"' >/dev/null
+
+    # Has scope (formatted as "type:rootTaskId")
+    echo "$first_session" | jq -e '.scope == "epic:T001"' >/dev/null
+
+    # Has focus (current task)
+    echo "$first_session" | jq -e '.focus == "T005"' >/dev/null
+
+    # Does NOT have verbose fields
+    echo "$first_session" | jq -e '.stats == null' >/dev/null
+    echo "$first_session" | jq -e '.startMetrics == null' >/dev/null
 
     # Should preserve scalar name
     name=$(echo "$result" | jq -r '.name')
     [ "$name" = "test" ]
-
-    # Should have hint
-    hint=$(echo "$result" | jq -r '.hint')
-    [ -n "$hint" ]
 }
 
 @test "minimize_error_context adds verbose hint" {
@@ -83,7 +99,8 @@ teardown_file() {
     input='{"count":1}'
     result=$(minimize_error_context "$input")
 
-    hint=$(echo "$result" | jq -r '.hint')
+    # Hint is stored as _hint (underscore prefix for metadata)
+    hint=$(echo "$result" | jq -r '._hint // .hint // empty')
     [[ "$hint" == *"CLEO_VERBOSE"* ]] || [[ "$hint" == *"verbose"* ]]
 }
 
@@ -152,8 +169,8 @@ teardown_file() {
     data_count=$(echo "$ctx" | jq -r '.dataCount // empty')
     [ -n "$data_count" ] && [ "$data_count" = "5" ]
 
-    # Should have hint
-    hint=$(echo "$ctx" | jq -r '.hint // empty')
+    # Should have hint (stored as _hint for metadata convention)
+    hint=$(echo "$ctx" | jq -r '._hint // .hint // empty')
     [ -n "$hint" ]
 }
 
@@ -294,4 +311,57 @@ teardown_file() {
 
     keys_count=$(echo "$result" | jq -r '.configKeys')
     [ "$keys_count" = "3" ]
+}
+
+@test "minimize_error_context creates smart epic summaries" {
+    source "$LIB_DIR/error-json.sh"
+
+    # Full epic object with verbose fields
+    input='{"epics":[{"id":"T001","title":"EPIC: Authentication System Implementation","status":"pending","priority":"critical","childCount":15,"pendingCount":10,"notes":["long note 1","long note 2"]}]}'
+    result=$(minimize_error_context "$input")
+
+    # Should have epics array with smart summary
+    epic=$(echo "$result" | jq -r '.epics[0]')
+
+    # Has id
+    echo "$epic" | jq -e '.id == "T001"' >/dev/null
+
+    # Has truncated title (max 50 chars)
+    title=$(echo "$epic" | jq -r '.title')
+    [ "${#title}" -le 53 ]  # 50 + "..."
+
+    # Has status
+    echo "$epic" | jq -e '.status == "pending"' >/dev/null
+
+    # Has pending count
+    echo "$epic" | jq -e '.pending == 10' >/dev/null
+
+    # Does NOT have verbose fields
+    echo "$epic" | jq -e '.notes == null' >/dev/null
+    echo "$epic" | jq -e '.childCount == null' >/dev/null
+}
+
+@test "Progressive disclosure: smart summary enables agent decision-making" {
+    source "$LIB_DIR/error-json.sh"
+
+    # Simulate real E_SESSION_DISCOVERY_MODE context
+    input='{"activeSessions":3,"availableEpics":5,"sessions":[{"id":"sess1","name":"Auth-Epic","scope":{"type":"epic","rootTaskId":"T100"},"focus":{"currentTask":"T105"},"stats":{"completed":2}},{"id":"sess2","name":"UI-Work","scope":{"type":"epic","rootTaskId":"T200"},"focus":{"currentTask":"T210"},"stats":{"completed":0}}],"epics":[{"id":"T100","title":"Authentication Epic","status":"pending","pendingCount":5},{"id":"T200","title":"UI Refactor Epic","status":"pending","pendingCount":3}]}'
+
+    result=$(minimize_error_context "$input")
+
+    # Agent can find session by name
+    auth_session=$(echo "$result" | jq -r '.sessions[] | select(.name == "Auth-Epic")')
+    [ -n "$auth_session" ]
+
+    # Agent can find session by scope
+    epic_t100_session=$(echo "$result" | jq -r '.sessions[] | select(.scope == "epic:T100")')
+    [ -n "$epic_t100_session" ]
+
+    # Agent can find epic by title pattern
+    auth_epic=$(echo "$result" | jq -r '.epics[] | select(.title | contains("Auth"))')
+    [ -n "$auth_epic" ]
+
+    # Agent can compare pending counts
+    most_work_epic=$(echo "$result" | jq -r '.epics | sort_by(.pending) | reverse | .[0].id')
+    [ "$most_work_epic" = "T100" ]
 }

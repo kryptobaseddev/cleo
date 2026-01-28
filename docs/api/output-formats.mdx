@@ -221,58 +221,67 @@ FORCE_COLOR=1 cleo list | less -R
   </Accordion>
 </AccordionGroup>
 
-## Minimal Error Output (Token Optimization)
+## Progressive Disclosure Error Output
 
 <Note>
-  **New in v0.74.1**: Error responses now use minimal context by default, reducing token usage by up to 93%.
+  **New in v0.74.2**: Error responses use smart progressive disclosure - enough context for agent decision-making without verbose debugging data.
 </Note>
 
-Error responses are optimized for LLM agent token efficiency. Large arrays (sessions, epics) are replaced with counts by default.
+Error responses are optimized for LLM agent **decision quality**, not just token count. Large arrays are replaced with smart summaries containing decision-relevant fields.
 
-### Default Behavior
+### Three-Level Progressive Disclosure
 
-Error output includes only essential information:
+| Level | Content | Size | Use Case |
+|-------|---------|------|----------|
+| **Smart Summary** (default) | Decision-relevant fields only | ~5K chars | Agent decision-making |
+| **Verbose** | Full objects with all fields | ~15K chars | Debugging |
+
+### Default Behavior: Smart Summaries
+
+Sessions include fields needed to **choose the right session**:
 
 ```json
 {
-  "success": false,
-  "error": {
-    "code": "E_SESSION_DISCOVERY_MODE",
-    "message": "Multi-session enabled. 9 active sessions exist.",
-    "fix": "cleo session status",
-    "exitCode": 100,
-    "context": {
-      "activeSessions": 9,
-      "sessionsCount": 9,
-      "epicsCount": 34,
-      "hint": "Use CLEO_VERBOSE=1 or --verbose for full context"
-    }
+  "context": {
+    "activeSessions": 9,
+    "sessions": [
+      {
+        "id": "session_abc123",
+        "name": "Auth-Epic-Work",      // ← Intent visible
+        "scope": "epic:T001",           // ← Scope visible
+        "focus": "T005"                 // ← Current task visible
+      }
+    ],
+    "epics": [
+      {
+        "id": "T001",
+        "title": "EPIC: Authentication System...",  // ← Truncated
+        "status": "pending",
+        "pending": 10                   // ← Workload visible
+      }
+    ],
+    "_hint": "CLEO_VERBOSE=1 for full context"
   }
 }
 ```
 
-### Verbose Mode
+### What Agents Can Do With Smart Summaries
 
-To get full context (for debugging), use `CLEO_VERBOSE=1`:
+- **Find session by name**: Match "Auth-Epic-Work" to their task
+- **Find session by scope**: Resume `epic:T001` session
+- **Compare epic workload**: Pick epic with most pending tasks
+- **See current focus**: Understand what's in progress
+
+### Verbose Mode (Debugging)
 
 ```bash
-# Full error context with complete arrays
-CLEO_VERBOSE=1 cleo session start --name "test"
-
-# Or use in scripts
-export CLEO_VERBOSE=1
-cleo session start --scope epic:T001
+CLEO_VERBOSE=1 cleo session start --name "debug"
 ```
 
-### Token Savings
-
-| Mode | Output Size | Use Case |
-|------|-------------|----------|
-| Default (minimal) | ~1,000 chars | Normal LLM agent usage |
-| Verbose | ~15,000 chars | Debugging, human inspection |
+Adds: `stats`, `startMetrics`, `focusHistory`, `lastActivity`, `suspendedAt`, full epic metadata.
 
 <Warning>
-  The verbose output includes full session objects, focus history, and epic arrays. Only use when debugging.
+  Verbose mode is for debugging only. It includes 3x more data that agents don't need for decision-making.
 </Warning>
 
 ## LLM Agent Best Practices
