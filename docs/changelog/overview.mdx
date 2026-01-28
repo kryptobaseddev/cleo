@@ -17,6 +17,40 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.73.5" tags={["Fix", "Feature", "Installer"]}>
+## Skills Documentation Overhaul
+
+
+**Added**
+- **Skills Marketplace Integration Improvements** (T2495, T2496):
+  - New `--mp` flag as shortcut for marketplace search/install (replaces verbose `--source skillsmp`)
+  - New `--all` flag to search both local and marketplace
+  - New `cleo skills installed` command to list marketplace-installed skills
+  - New `cleo skills update [SKILL]` command to check for skill updates
+  - Marketplace skill tracking registry (`skills/mp/installed.json`)
+  - Records: name, scopedName, author, stars, version, path, timestamps
+
+- **Skills Documentation Overhaul**:
+  - `docs/skills/architecture.mdx`: 2-tier universal subagent architecture, protocol injection flow
+  - `docs/skills/manifest.mdx`: Complete manifest schema documentation
+  - `docs/skills/marketplace.mdx`: Marketplace integration guide (renamed from skillsmp.mdx)
+  - `docs/skills/development.mdx`: Skill creation guide
+  - `docs/skills/index.mdx`: Updated with full skill taxonomy (15 skills by tier)
+
+**Fixed**
+- **scripts/skills.sh line 10**: Missing `#` comment character caused script execution during sourcing
+- **skills.sh search logic**: No longer requires config file for marketplace API access
+- **skills.sh install logic**: No longer requires config file for marketplace installs
+
+**Changed**
+- Marketplace search/install now works without any configuration (agentskills.in public API)
+- Renamed `skillsmp.mdx` to `marketplace.mdx` for clarity
+- Updated all documentation to use `--mp` flag instead of `--source skillsmp`
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.5)
+</Update>
+
 <Update label="January 2026" description="v0.73.3" tags={["Fix", "Feature", "Skills"]}>
 ## Context Tracking Cross-Session Bug
 
@@ -481,99 +515,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.1)
-</Update>
-
-<Update label="January 2026" description="v0.68.0" tags={["Fix", "Feature", "Skills"]}>
-## Enhanced deps Command
-
-
-**Added**
-- **Epic T1955: CLEO Self-Improvement and Compliance Tracking** (26/26 tasks complete):
-  - **SubagentStop Hook** - Automatic compliance tracking for all subagents:
-    - Captures: agent_id, compliance scores, token metrics
-    - Writes to: `.cleo/metrics/COMPLIANCE.jsonl`
-  - **Compliance Command** - `cleo compliance` with subcommands:
-    - `summary` - Aggregate compliance stats
-    - `violations` - List violations
-    - `trend` - Compliance over time
-    - `audit` - Check specific epic
-    - `sync` - Sync to global metrics
-    - `skills` - Agent reliability stats
-  - **Metrics Aggregation** - Two-tier storage:
-    - Project: `.cleo/metrics/COMPLIANCE.jsonl`
-    - Global: `~/.cleo/metrics/GLOBAL.jsonl`
-  - **Session Metrics Integration** - Token tracking per session:
-    - Captures start/end token counts
-    - Writes to: `.cleo/metrics/SESSIONS.jsonl`
-  - **noAutoComplete Field** - Epic pinning:
-    - Prevents epics from auto-completing
-    - Used for persistent tracking epics
-
-- **Dependency Graph System** (Epic T2122):
-  - **Graph Cache** (`lib/graph-cache.sh`):
-    - 90x performance improvement for dependency queries (18s → &lt;200ms for 789 tasks)
-    - O(1) lookups via pre-computed forward/reverse adjacency lists
-    - Checksum-based automatic cache invalidation
-    - Single-pass jq construction for O(n) cache building
-    - Cache location: `.cleo/.deps-cache/`
-  - **Semantic Relationship Discovery** (`lib/graph-rag.sh`):
-    - `discover_related_tasks()` - Find related tasks by labels, description, files
-    - `suggest_relates()` - Threshold-filtered suggestions with scoring
-    - `add_relates_entry()` - Add non-blocking relationships
-    - Jaccard similarity for label and description matching
-    - Stopword removal for text tokenization
-  - **Enhanced deps Command**:
-    - `--rebuild-cache` flag to force cache rebuild
-    - Improved tree visualization
-    - Cache status in JSON output
-  - **relates Command** (`cleo relates`):
-    - `suggest` - Get AI-powered relationship suggestions
-    - `add` - Add relationships between tasks
-    - `discover` - Find related tasks by method
-    - `list` - List relationships for a task
-  - **Documentation**:
-    - Updated `docs/commands/deps.md` with cache documentation
-    - New `docs/commands/relates.md` for relationship management
-    - New `docs/guides/DEPENDENCY-GRAPHS.md` architecture guide
-  - **Performance Benchmarks**:
-    - Cold cache build: &lt;100ms for 500 tasks
-    - Warm cache lookup: &lt;80ms
-    - 250x improvement over previous O(n²) implementation
-  - **Edge Case Behavior**:
-    - Empty dependency graphs return valid JSON with empty arrays
-    - Tasks with no dependencies show appropriate message
-    - Cache gracefully handles concurrent access
-
-**Migration Notes**
-- **Cache Directory**: Graph cache now stored in `.cleo/.cache/` (was `.cleo/.deps-cache/`)
-- **Automatic Migration**: Cache auto-rebuilds on first use, no manual action required
-- **Force Rebuild**: Use `cleo deps --rebuild-cache` if issues occur
-
-**Fixed**
-- **Epic T1342: CI Test Failure Resolution** (195 → 0 failures):
-  - `lib/config.sh`: Boolean false values now handled correctly in `read_config_file` (T2079)
-  - `lib/context-alert.sh`: Fixed function scoping and threshold constant exports (T2081, T1346)
-  - `tests/unit/analyze-size-weighting.bats`: Added missing helper functions (T2082)
-  - `tests/unit/config.bats`: Added `_meta.schemaVersion` to fixtures (T2083)
-  - `tests/unit/error-codes.bats`: Updated expected E_* count (T2084)
-  - `lib/research-manifest.sh`: Suppressed flock warnings in JSON output (T2085)
-  - `scripts/claude-migrate.sh`: Fixed text output format recognition (T2088)
-  - `tests/unit/phase-commands.bats`: Fixed multi-session mode mismatch (T1344)
-  - `tests/fixtures/`: Added multiSession config to todowrite-sync fixtures (T1347)
-  - `scripts/config.sh`: Added help subcommand handler (T1345)
-  - `scripts/upgrade.sh`: Fixed migration and idempotency tests (T1348)
-  - `tests/unit/edge-cases.bats`: Fixed backup path assertions (T1349)
-
-- **Doctor Registry Validation** (T1997):
-  - Fixed healthy project counting to match table output
-  - Temp project skip logic moved before counting for consistency
-
-- **Session Metrics Integration** (T1996, T2000):
-  - Added metrics-aggregation sourcing in sessions.sh
-  - Session start captures initial metrics
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.68.0)
 </Update>
 
 ## Earlier Releases
