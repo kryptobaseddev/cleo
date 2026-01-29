@@ -351,7 +351,7 @@ _get_cmd_script() {
         compliance) echo "compliance.sh" ;;
         # Other tools
         roadmap) echo "roadmap.sh" ;; claude-migrate) echo "claude-migrate.sh" ;;
-        release) echo "release.sh" ;;
+        release) echo "release.sh" ;; docs) echo "docs.sh" ;;
         *) echo "" ;;
     esac
 }
