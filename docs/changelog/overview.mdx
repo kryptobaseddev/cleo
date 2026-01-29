@@ -17,6 +17,60 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.75.0" tags={["Feature", "Skills", "Orchestrator"]}>
+## Project-agnostic validation
+
+
+**Added**
+- **Autonomous Orchestration Specification** (T2633):
+  - New RFC 2119 compliant `AUTONOMOUS-ORCHESTRATION-SPEC.md` defining autonomous operation mode
+  - **AUTO-* constraints** (AUTO-001 to AUTO-011): Autonomous operation rules
+    - AUTO-001: Orchestrator spawns ALL subagents (2-tier architecture enforcement)
+    - AUTO-002: Read manifest key_findings only, not full output files
+    - AUTO-003: Decomposition separate from orchestration
+    - AUTO-004: Verify manifest before next spawn
+    - AUTO-005: Dependency wave computation and spawn order
+    - AUTO-006: Handle partial/blocked status with followup tasks
+  - **HNDOFF-* constraints** (HNDOFF-001 to HNDOFF-006): Session handoff protocol
+    - Generate handoff at 80% context threshold
+    - Include resume command in handoff document
+    - Persist handoff to MANIFEST.jsonl
+  - **CONT-* constraints** (CONT-001 to CONT-007): Session continuity/resume
+    - Read last handoff before resuming
+    - Verify task states match handoff expectations
+    - Check for concurrent modifications
+  - **Project-agnostic validation**: customGates in config for any project type
+  - New exit codes: EXIT_AUTONOMOUS_BOUNDARY (64), EXIT_HANDOFF_REQUIRED (65), EXIT_RESUME_FAILED (66), EXIT_CONCURRENT_SESSION (67)
+  - Config schema: `orchestrator.validation.customGates` for project-specific validation
+  - Config schema: `orchestrator.handoff` for handoff protocol settings
+  - New reference: `skills/ct-orchestrator/references/autonomous-operation.md`
+  - Updated `ct-orchestrator` skill with Autonomous Mode section
+
+**Documentation**
+- Registered spec in `SPEC-INDEX.json` (21 total specs)
+- Added corrected injection template for autonomous orchestration
+- Decision trees for autonomous operation and handoff generation
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.75.0)
+</Update>
+
+<Update label="January 2026" description="v0.74.5" tags={["Fix", "CLI"]}>
+## `--human` Flag Not Working on Multiple Commands
+
+
+**Fixed**
+- **`--human` Flag Not Working on Multiple Commands**:
+  - Root cause: `flags.sh` standardized `--human` → `FLAG_FORMAT="human"`, but most scripts' case statements only matched `json` and `text`
+  - `--human` was falling through to JSON output instead of human-readable text
+  - Fix: `resolve_format()` in `lib/output-format.sh` now normalizes `"human"` → `"text"` for backward compatibility
+  - Affected commands: commands, next, history, dash, labels, stats, blockers, deps, and 50+ others
+  - All commands using `resolve_format()` now correctly handle `--human`
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.5)
+</Update>
+
 <Update label="January 2026" description="v0.74.4" tags={["Fix", "CLI"]}>
 ## v0.74.4 Release
 
@@ -165,6 +219,20 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.5)
+</Update>
+
+<Update label="January 2026" description="v0.73.4" tags={["Fix", "Feature"]}>
+## Changelog MDX Escaping
+
+
+**Fixed**
+- **Changelog MDX Escaping**: Escape `<` before numbers in Mintlify MDX output to prevent rendering issues
+
+**Added**
+- **Automated Release Script**: New `dev/release-version.sh` for streamlined version bumping, changelog updates, and git tagging
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.4)
 </Update>
 
 <Update label="January 2026" description="v0.73.3" tags={["Fix", "Feature", "Skills"]}>
@@ -360,133 +428,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.72.0)
-</Update>
-
-<Update label="January 2026" description="v0.71.1" tags={["Feature", "Sessions", "Documentation"]}>
-## v0.71.1 Release
-
-
-**Added**
-- **Epic T2419: Backup System Assessment & Consolidation**
-  - **Pre-write schema validation** (T2427): Added to `lib/file-ops.sh`
-    - New functions: `_fo_get_schema_type()`, `_fo_validate_json_content()`
-    - New exit code: `FO_SCHEMA_VALIDATION_FAILED=9`
-    - Environment controls: `CLEO_SKIP_SCHEMA_VALIDATION`, `CLEO_SCHEMA_VALIDATION_STRICT`
-    - Validates todo.json, config.json, sessions.json, archive, log structures before write
-  - **Backup architecture documentation** (T2426): `docs/concepts/backup-system.mdx`
-    - Four-layer architecture explanation with Mermaid diagrams
-    - Layer 1: Atomic Operations (per-write safety)
-    - Layer 2: Recovery Backups (snapshots, safety, archive, migration)
-    - Layer 3: Schema Validation (now with pre-write prevention)
-    - Layer 4: Git Version Control (project history)
-    - Recovery procedures and best practices
-  - **Mintlify docs navigation** (T2428): Added backup-system to Concepts > Architecture
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.71.1)
-</Update>
-
-<Update label="January 2026" description="v0.71.0" tags={["Feature", "Sessions", "Context"]}>
-## `.cleo/` files now git-tracked
-
-
-**Added**
-- **Epic T2190: Hierarchical Discovery System for graph-rag.sh**
-  - **`_find_lca()`** (T2192): Find lowest common ancestor of two tasks in hierarchy tree
-  - **`_tree_distance()`** (T2193): Calculate tree distance between tasks (0=same, 2=siblings, 4=cousins)
-  - **`_get_hierarchical_context()`** (T2194): Get task description with parent context using 0.5/0.25 decay weights
-  - **`_discover_by_hierarchy()`** (T2195): Discover siblings (+0.15 boost) and cousins (+0.08 boost)
-  - **`discover_related_tasks()` integration** (T2196): Added `hierarchy` method and auto-mode boosting
-  - **Test suite** (T2197): `tests/unit/graph-rag-hierarchy.bats` with 23 passing tests
-  - **Documentation** (T2198): `docs/commands/graph-rag.md` with full API reference
-  - **Config schema** (T2417): Added `graphRag` section to `schemas/config.schema.json`
-    - `hierarchyBoost`: sibling/cousin/ancestor boost values
-    - `contextPropagation`: maxDepth and decayFactor settings
-    - `minScore`: threshold for discovery results
-  - **Benchmark** (T2418): ~60-105ms/call for hierarchy functions (563 task project)
-
-**Changed**
-- **`.cleo/` files now git-tracked**: Core task files (todo.json, sessions.json, config.json, todo-archive.json) are now tracked by git for data integrity and backup
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.71.0)
-</Update>
-
-<Update label="January 2026" description="v0.70.1" tags={["Fix", "Feature", "Skills"]}>
-## Skill system improvements
-
-
-**Fixed**
-- **ct-epic-architect skill bash histexpand error** (T2347): Fixed skill loading failure caused by `!` character in shell escaping documentation table triggering bash history expansion
-  - Moved shell escaping documentation to `references/shell-escaping.md`
-  - Condensed SKILL.md from 525 to 288 lines (under 500 line best practice)
-  - Updated to third-person description format per Agent Skills spec
-  - Added concrete CLEO command examples alongside abstract tokens
-  - Version bumped to v2.3.0
-
-**Changed**
-- **ct-orchestrator skill major condensation** (v2.0.0): Reduced from ~1000 lines to ~300 lines
-  - Moved detailed content to reference files
-  - Improved progressive disclosure pattern
-  - Added tier designation for subagent protocol
-- **Skill system improvements**: Updated shared templates and protocols
-  - `skills/_shared/subagent-protocol-base.md`: Minor refinements
-  - `skills/_shared/task-system-integration.md`: Consistent formatting
-  - Various template updates for consistency
-
-**Added**
-- **Epic T2308: Contribution Protocol System v2 - JSON-First Multi-Agent Consensus**
-  - **JSON Contribution Format Spec** (T2309): `docs/specs/CONTRIBUTION-FORMAT-SPEC.md`
-    - Complete JSON structure for contributions with confidence scores
-    - Evidence reference format for traceability
-    - Conflict structure for machine detection
-  - **JSONL Manifest Spec** (T2310): Append-only manifest at `.cleo/contributions/CONTRIBUTIONS.jsonl`
-    - Entry structure with status tracking
-    - Query patterns for conflict aggregation
-  - **Schema v2.0.0** (T2311): Updated `schemas/contribution.schema.json`
-    - `decisions[].confidence`: Float 0.0-1.0 for weighted voting
-    - `decisions[].evidence[]`: Structured evidence objects
-    - `conflicts[].severity`: Enum (low|medium|high|critical)
-    - `conflicts[].resolution`: Resolution workflow object
-    - `_meta.consensusReady`: Boolean flag
-  - **Usage Guide** (T2312): `docs/guides/CONTRIBUTION-PROTOCOL-GUIDE.md`
-    - Step-by-step workflow documentation
-    - Library function reference
-    - Troubleshooting patterns
-  - **Contribution Protocol Skill** (T2313): `skills/contribution-protocol/SKILL.md`
-    - `/contribution start` - Initialize protocol for epic
-    - `/contribution submit` - Validate and submit contribution
-    - `/contribution conflicts` - Detect conflicts
-    - `/contribution status` - Show progress
-  - **Conflict Detection** (T2314): Added to `lib/contribution-protocol.sh`
-    - `contribution_detect_conflicts()` - Compare two contributions
-    - `contribution_compare_decisions()` - Compare individual decisions
-    - `contribution_aggregate_conflicts()` - Epic-wide conflict matrix
-    - Severity classification based on confidence scores
-  - **Consensus Aggregation** (T2315): Added to `lib/contribution-protocol.sh`
-    - `contribution_weighted_vote()` - Confidence-weighted voting
-    - `contribution_compute_consensus()` - Aggregate decisions
-    - `contribution_generate_synthesis()` - Generate Markdown synthesis
-    - HITL flagging for split votes
-  - **RCSD Pipeline Integration** (T2316): Updated `docs/specs/RCSD-PIPELINE-SPEC.md` to v2.2.0
-    - JSON-first contribution workflow
-    - Consensus stage integration
-    - HITL gates for unresolved conflicts
-  - **BATS Tests** (T2317): `tests/unit/contribution-json.bats` (42 tests)
-    - JSON format validation
-    - Conflict detection tests
-    - Consensus aggregation tests
-    - Integration workflow tests
-
-**Documentation**
-- **Mintlify Guide**: `docs/guides/contribution-protocol.mdx`
-  - Workflow diagrams with Mermaid
-  - JSON format examples
-  - RCSD pipeline integration docs
-- Updated `docs/docs.json` navigation with contribution-protocol page
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.70.1)
 </Update>
 
 ## Earlier Releases
