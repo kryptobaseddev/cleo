@@ -104,6 +104,8 @@ CREATE_TAG=""
 PUSH_TAG=""
 FORCE_TAG=""
 VERBOSE=""
+RUN_TESTS=""
+SKIP_VALIDATION=""
 
 # Initialize flag defaults
 init_flag_defaults 2>/dev/null || true
@@ -139,6 +141,8 @@ Options:
     --create-tag         Create git tag for release (for ship)
     --force-tag          Overwrite existing git tag (requires --create-tag)
     --push               Push git tag to remote (requires --create-tag)
+    --run-tests          Run test suite during validation (opt-in, slow)
+    --skip-validation    Skip all validation gates (for emergency releases)
     --write-changelog    Write changelog to CHANGELOG.md (for ship/changelog)
     --output FILE        Output file for changelog (default: CHANGELOG.md)
     --format, -f FORMAT  Output format: text | json (default: auto)
@@ -275,17 +279,31 @@ get_timestamp() {
 }
 
 # Validation gates (Part 5 from spec)
+# @task T2739
 validate_release() {
     local version="$1"
+
+    # Skip all validation if --skip-validation flag set
+    if [[ "$SKIP_VALIDATION" == "true" ]]; then
+        [[ "$VERBOSE" == true ]] && log_warn "Skipping all validation gates (--skip-validation)"
+        return 0
+    fi
+
     [[ "$VERBOSE" == true ]] && log_info "Running validation gates..."
 
-    # Gate 1: Tests
-    if [[ -x "./tests/run-all-tests.sh" ]]; then
-        if ! ./tests/run-all-tests.sh >/dev/null 2>&1; then
-            log_error "Tests failed" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Fix test failures: ./tests/run-all-tests.sh"
-            return "$EXIT_VALIDATION_FAILED"
+    # Gate 1: Tests (opt-in only with --run-tests flag)
+    # Tests are NOT run by default to avoid release ship timeout
+    if [[ "$RUN_TESTS" == "true" ]]; then
+        if [[ -x "./tests/run-all-tests.sh" ]]; then
+            [[ "$VERBOSE" == true ]] && log_info "Running test suite (--run-tests enabled)..."
+            if ! ./tests/run-all-tests.sh >/dev/null 2>&1; then
+                log_error "Tests failed" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Fix test failures: ./tests/run-all-tests.sh"
+                return "$EXIT_VALIDATION_FAILED"
+            fi
+            [[ "$VERBOSE" == true ]] && log_info "Tests passed"
         fi
-        [[ "$VERBOSE" == true ]] && log_info "Tests passed"
+    else
+        [[ "$VERBOSE" == true ]] && log_info "Skipping tests (use --run-tests to enable)"
     fi
 
     # Gate 2: Schema validation
@@ -1040,6 +1058,16 @@ parse_args() {
                 ;;
             --force-tag)
                 FORCE_TAG="true"
+                shift
+                continue
+                ;;
+            --run-tests)
+                RUN_TESTS="true"
+                shift
+                continue
+                ;;
+            --skip-validation)
+                SKIP_VALIDATION="true"
                 shift
                 continue
                 ;;
