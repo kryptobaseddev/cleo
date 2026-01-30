@@ -39,8 +39,55 @@ A single, unified subagent type that:
 - Writes to manifest (MANIFEST.jsonl)
 - Returns standardized messages
 - Integrates with CLEO task system
+- Has access to MCP tools for browser automation and research
 
 **Key Principle**: Skills define WHAT to do. Protocol defines HOW to report results.
+
+### Agent Definition (Claude Code)
+
+The cleo-subagent is defined in `.claude/agents/cleo-subagent.md` with these tools:
+
+```yaml
+---
+name: cleo-subagent
+description: |
+  CLEO task executor with protocol compliance. Spawned by orchestrators for
+  delegated work. Auto-loads skills and protocols based on task context.
+  Writes output to files, appends manifest entries, returns summary only.
+model: sonnet
+tools:
+  # Core file operations
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  # Web access
+  - WebFetch
+  - WebSearch
+  # Browser automation (claude-in-chrome MCP)
+  - mcp__claude-in-chrome__tabs_context_mcp
+  - mcp__claude-in-chrome__tabs_create_mcp
+  - mcp__claude-in-chrome__navigate
+  - mcp__claude-in-chrome__computer
+  - mcp__claude-in-chrome__read_page
+  - mcp__claude-in-chrome__find
+  - mcp__claude-in-chrome__form_input
+  - mcp__claude-in-chrome__javascript_tool
+  - mcp__claude-in-chrome__get_page_text
+  - mcp__claude-in-chrome__read_console_messages
+  - mcp__claude-in-chrome__read_network_requests
+  # Documentation lookup (context7 MCP)
+  - mcp__context7__resolve-library-id
+  - mcp__context7__query-docs
+  # Web research (tavily MCP)
+  - mcp__tavily__tavily-search
+  - mcp__tavily__tavily-extract
+---
+```
+
+**Installation**: Run `cleo init` to copy the agent definition to `.claude/agents/`.
 
 ## Skill Loading as Context Injection
 
