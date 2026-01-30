@@ -1,0 +1,195 @@
+---
+title: "Manifest Schema Reference"
+description: "Reference for the skills/manifest.json file structure and dispatch configuration"
+---
+
+# Manifest Schema Reference
+
+**Version**: 2.1.0 | **Status**: ACTIVE
+
+The `skills/manifest.json` file is the single source of truth for skill metadata and dispatch configuration.
+
+## Schema Structure
+
+```json
+{
+  "_meta": {
+    "schemaVersion": "2.1.0",
+    "generatedAt": "2026-01-27T00:00:00Z",
+    "architectureNote": "Universal Subagent Architecture..."
+  },
+  "dispatch_matrix": {
+    "by_task_type": { ... },
+    "by_keyword": { ... },
+    "by_label": { ... },
+    "by_category": { ... }
+  },
+  "skills": [ ... ]
+}
+```
+
+## _meta Section
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schemaVersion` | string | Semantic version of manifest schema |
+| `generatedAt` | ISO 8601 | Last generation timestamp |
+| `architectureNote` | string | Architecture documentation |
+| `deprecatedFields` | array | Fields scheduled for removal |
+
+## dispatch_matrix Section
+
+### by_task_type
+
+Maps task type to skill:
+
+```json
+{
+  "by_task_type": {
+    "research": "ct-research-agent",
+    "planning": "ct-epic-architect",
+    "implementation": "ct-task-executor",
+    "testing": "ct-test-writer-bats",
+    "documentation": "ct-documentor",
+    "validation": "ct-validator"
+  }
+}
+```
+
+### by_keyword
+
+Regex patterns to skill:
+
+```json
+{
+  "by_keyword": {
+    "epic|plan|decompose|architect": "ct-epic-architect",
+    "research|investigate|explore": "ct-research-agent",
+    "test|spec|bats": "ct-test-writer-bats",
+    "document|docs|readme": "ct-documentor"
+  }
+}
+```
+
+### by_label
+
+Task label to skill:
+
+```json
+{
+  "by_label": {
+    "research": "ct-research-agent",
+    "epic": "ct-epic-architect",
+    "testing": "ct-test-writer-bats",
+    "documentation": "ct-documentor"
+  }
+}
+```
+
+### by_category
+
+Category to skill (v0.53.0+):
+
+```json
+{
+  "by_category": {
+    "orchestration": "ct-orchestrator",
+    "research": "ct-research-agent",
+    "design": "ct-epic-architect",
+    "implementation": "ct-task-executor"
+  }
+}
+```
+
+## skills Array
+
+Each skill entry:
+
+```json
+{
+  "name": "ct-research-agent",
+  "version": "2.0.0",
+  "tier": 2,
+  "description": "Deep research and analysis",
+  "tags": ["research", "analysis", "investigation"],
+  "path": "skills/ct-research-agent/SKILL.md",
+  "triggers": ["research", "investigate", "explore"],
+  "chains_to": ["ct-task-executor", "ct-spec-writer"],
+  "constraints": {
+    "requires_session": false,
+    "requires_epic": false,
+    "max_concurrent": 3
+  },
+  "capabilities": {
+    "can_spawn_subagents": false,
+    "can_modify_tasks": true,
+    "can_create_tasks": true
+  }
+}
+```
+
+### Skill Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Unique skill identifier |
+| `version` | semver | Yes | Skill version |
+| `tier` | 0-3 | Yes | Coordination level |
+| `description` | string | Yes | Purpose description |
+| `tags` | array | Yes | Categorization tags |
+| `path` | string | Yes | Path to SKILL.md |
+| `triggers` | array | No | Keyword triggers |
+| `chains_to` | array | No | Skills this can invoke |
+| `constraints` | object | No | Execution constraints |
+| `capabilities` | object | No | Capability flags |
+
+### Tier Definitions
+
+| Tier | Role | Examples |
+|------|------|----------|
+| 0 | Orchestrator | ct-orchestrator |
+| 1 | Architect | ct-epic-architect, ct-spec-writer |
+| 2 | Executor | ct-research-agent, ct-task-executor |
+| 3 | Specialist | ct-docs-lookup, ct-skill-lookup |
+
+## Virtual Hierarchy
+
+The manifest creates a virtual hierarchy through:
+
+1. **Tiers** - Coordination levels (0 → 1 → 2 → 3)
+2. **chains_to** - Skill dependencies
+3. **tags** - Category membership
+
+```
+Tier 0: ct-orchestrator
+    │
+    ├─chains_to→ Tier 1: ct-epic-architect
+    │                    ct-spec-writer
+    │
+    └─chains_to→ Tier 2: ct-research-agent
+                         ct-task-executor
+                         │
+                         └─chains_to→ Tier 3: ct-docs-lookup
+```
+
+## Schema Versioning
+
+| Version | Changes |
+|---------|---------|
+| 2.1.0 | Added `by_category` dispatch |
+| 2.0.0 | Universal Subagent Architecture |
+| 1.0.0 | Initial manifest structure |
+
+## Validation
+
+Validate manifest:
+
+```bash
+cleo skills validate
+# Checks: required fields, path existence, tier consistency
+```
+
+## Related
+
+- [Skill Dispatch Algorithm](./SKILL-DISPATCH-ALGORITHM.md)
+- [Skill Taxonomy Spec](../specs/SKILL-TAXONOMY-SPEC.md)

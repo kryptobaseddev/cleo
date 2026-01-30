@@ -1,0 +1,105 @@
+---
+title: "cleo docs"
+description: "Documentation synchronization and drift detection"
+icon: "book"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo docs
+
+Documentation synchronization and drift detection.
+
+<Info>**Agent Relevance**: Medium - Used for documentation maintenance</Info>
+
+## Synopsis
+
+```bash
+cleo docs <subcommand> [options]
+```
+
+## Description
+
+The `docs` command maintains documentation synchronization by detecting drift between scripts and documentation, validating wrapper template completeness, and checking critical commands in README.
+
+## Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `sync` | Run drift detection (checks scripts vs docs) |
+| `gap-check` | Validate knowledge transfer from review docs to canonical docs |
+
+## Sync Options
+
+| Option | Description |
+|--------|-------------|
+| `--quick` | Quick check (commands only) |
+| `--full` | Full check (default) |
+| `--strict` | Exit with error on any drift |
+| `--json` | JSON output |
+
+## Gap-Check Options
+
+| Option | Description |
+|--------|-------------|
+| `--epic <id>` | Filter by epic ID |
+| `--task <id>` | Filter by task ID |
+| `--all-review` | Check all review docs (default) |
+| `--json` | JSON output (default) |
+| `--human` | Human-readable output |
+
+## Examples
+
+<CodeGroup>
+
+```bash Full Drift Detection
+cleo docs sync
+```
+
+```bash Quick Check
+cleo docs sync --quick
+```
+
+```bash Fail on Warnings
+cleo docs sync --strict
+```
+
+```bash Check All Review Docs
+cleo docs gap-check
+```
+
+```bash Epic-Specific Check
+cleo docs gap-check --epic T2526 --human
+```
+
+</CodeGroup>
+
+## JSON Output Structure
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+  "_meta": {
+    "command": "docs sync",
+    "timestamp": "...",
+    "version": "..."
+  },
+  "success": true,
+  "status": "clean|warning|error",
+  "message": "...",
+  "driftCode": 0
+}
+```
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success / No drift | No |
+| `1` | Drift warnings detected | No |
+| `2` | Critical drift detected | No |
+
+## See Also
+
+- [upgrade](/commands/upgrade) - Updates documentation
+- [commands](/commands/commands) - Full command reference

@@ -1,0 +1,653 @@
+---
+title: "Multi-Agent CLEO Setup Guide"
+description: "Setup guide for Claude Code, Gemini CLI, Codex CLI, and other AI agents"
+---
+
+# Multi-Agent CLEO Setup Guide
+
+**Version**: 1.0.0
+**Updated**: 2026-01-05
+**Epic**: T1384
+
+## Overview
+
+CLEO supports multiple LLM agent CLIs through automatic documentation injection and optional global installation. This guide covers setup for Claude Code, Gemini CLI, Codex CLI, and other @ syntax compatible agents.
+
+## Quick Start (Current - v0.50.2)
+
+### Automatic Project-Level Injection
+
+**Works Now:**
+
+```bash
+# Initialize CLEO in your project
+cd my-project
+cleo init
+
+# Creates 3 agent doc files automatically:
+# - CLAUDE.md (Claude Code)
+# - AGENTS.md (multi-agent standard)
+# - GEMINI.md (Gemini CLI)
+```
+
+**Update existing projects:**
+
+```bash
+# Update all agent doc files to latest version
+cleo upgrade
+
+# Or just update injections
+cleo init --update-docs
+```
+
+**Result:** All agents in your project will have CLEO instructions available.
+
+## Supported Agents
+
+### Agent Compatibility Matrix
+
+| Agent | Doc File | @ Syntax | Global Config | Status |
+|-------|----------|----------|---------------|--------|
+| **Claude Code** | CLAUDE.md | ✅ Full | `~/.claude/` | Production |
+| **Codex CLI** | AGENTS.md | ✅ Full | `~/.codex/` | Production |
+| **Gemini CLI** | GEMINI.md | ✅ Full | `~/.gemini/` | Production |
+| **Kimi CLI** | AGENTS.md (likely) | ❓ Unknown | `~/.kimi/` (assumed) | Undocumented |
+| **Cursor** | AGENTS.md | ✅ Full | Various | Production |
+
+**AGENTS.md Universal Standard:**
+- 60,000+ repositories use AGENTS.md
+- Backed by Google, OpenAI, Factory, Sourcegraph, Cursor
+- Emerging as cross-agent instruction standard
+
+## Installation Methods
+
+### Method 1: Project-Level (Recommended for v0.50.2)
+
+**When to use:**
+- Working in a single project
+- Want instructions versioned with code
+- Don't need global @ references
+
+**Setup:**
+
+```bash
+cd your-project
+cleo init
+```
+
+**Files created:**
+```
+your-project/
+├── CLAUDE.md    # ← Claude Code reads this
+├── AGENTS.md    # ← Codex, Cursor, others read this
+└── GEMINI.md    # ← Gemini CLI reads this
+```
+
+**Updating:**
+
+```bash
+# After CLEO version upgrade
+cleo upgrade
+
+# Check what needs updating
+cleo upgrade --status
+```
+
+### Method 2: Global Installation (Coming in v2.1)
+
+**Status:** Designed (T1428), not yet implemented
+
+**When available:**
+- Work across multiple projects
+- Use @ syntax for dynamic references
+- Centralized documentation updates
+
+**Planned usage:**
+
+```bash
+# Install to ~/.cleo/docs/
+cleo install --global
+
+# Verify installation
+cleo doctor
+
+# Update global docs
+cleo install --global --force
+```
+
+**Planned directory structure:**
+
+```
+~/.cleo/
+├── docs/
+│   ├── TODO_Task_Management.md       # Full reference
+│   ├── DOCUMENTATION-MAINTENANCE.md
+│   ├── specs/
+│   └── commands/
+├── templates/
+│   ├── AGENT-INJECTION.md
+│   └── CLAUDE.md.template
+└── .cleo-version
+```
+
+**@ Syntax reference (when global install available):**
+
+```markdown
+<!-- In CLAUDE.md, AGENTS.md, etc. -->
+For full CLEO documentation, see:
+@~/.cleo/docs/TODO_Task_Management.md
+```
+
+### Method 3: Manual Global Setup (Current Workaround)
+
+**For users who want global @ references now:**
+
+```bash
+# Create global docs directory
+mkdir -p ~/.cleo/docs
+
+# Copy from CLEO installation
+cp -r $CLEO_HOME/docs/* ~/.cleo/docs/
+
+# Verify
+ls ~/.cleo/docs/TODO_Task_Management.md
+```
+
+**Add to your agent config:**
+
+**Claude Code** (CLAUDE.md):
+```markdown
+Full docs: @~/.cleo/docs/TODO_Task_Management.md
+```
+
+**Gemini CLI** (GEMINI.md):
+```markdown
+Complete reference: @~/.cleo/docs/TODO_Task_Management.md
+```
+
+**Update when CLEO version changes:**
+
+```bash
+# Manual sync
+rm -rf ~/.cleo/docs
+cp -r $CLEO_HOME/docs ~/.cleo/docs
+```
+
+## Platform Support
+
+### Operating System Compatibility
+
+| Platform | Claude Code | Gemini CLI | Codex CLI | CLEO |
+|----------|-------------|------------|-----------|------|
+| **Linux** | ✅ `~/.claude/` | ✅ `~/.gemini/` | ✅ `~/.codex/` | ✅ `~/.cleo/` |
+| **macOS** | ✅ `~/.claude/` | ✅ `~/.gemini/` | ✅ `~/.codex/` | ✅ `~/.cleo/` |
+| **Windows (WSL2)** | ✅ `~/.claude/` | ✅ `~/.gemini/` | ✅ `~/.codex/` | ✅ `~/.cleo/` |
+| **Windows (Native)** | ❌ Not supported | ✅ `%USERPROFILE%\.gemini\` | ⚠️ Experimental | ❌ Use WSL2 |
+
+**CLEO Design Decision:** Windows users MUST use WSL2 (follows Claude Code pattern).
+
+**WSL2 Detection:**
+
+```bash
+# Check if running in WSL
+uname -r | grep -i microsoft
+
+# WSL distributions supported:
+- Ubuntu (recommended)
+- Debian
+- Alpine
+- Others (untested)
+```
+
+## Per-Agent Configuration
+
+### Claude Code
+
+**Config File:** `CLAUDE.md` (project root)
+
+**Features:**
+- ✅ Full @ syntax support (files and directories)
+- ✅ Automatic CLAUDE.md detection
+- ✅ @ imports in CLAUDE.md frontmatter
+
+**Example:**
+
+```markdown
+<!-- CLAUDE.md -->
+# Project Instructions
+
+Full task management docs:
+@~/.cleo/docs/TODO_Task_Management.md
+
+## Custom Instructions
+[Your project-specific instructions]
+```
+
+**Tips:**
+- CLAUDE.md is checked into git - version with your project
+- Claude Code prioritizes CLAUDE.md over global config
+- Use `<!-- comments -->` for metadata
+
+### Gemini CLI
+
+**Config File:** `GEMINI.md` (project root or `~/.gemini/default.md`)
+
+**Features:**
+- ✅ Full @ syntax support
+- ✅ Configurable context file name
+- ✅ Native Windows support
+
+**Configuration:**
+
+```bash
+# Set custom context file name (default: GEMINI.md)
+gemini config set context_file "AI_INSTRUCTIONS.md"
+```
+
+**Example:**
+
+```markdown
+<!-- GEMINI.md -->
+# Gemini Instructions
+
+Task management: @~/.cleo/docs/TODO_Task_Management.md
+
+## Model Settings
+- temperature: 0.7
+- max_tokens: 8192
+```
+
+**Tips:**
+- GEMINI.md format is less standardized than CLAUDE.md
+- Supports both project-level and global configs
+- Use `gemini config` to verify settings
+
+### Codex CLI & Multi-Agent Projects
+
+**Config File:** `AGENTS.md` (universal standard)
+
+**Features:**
+- ✅ Supported by: Codex, Cursor, Factory, Sourcegraph, others
+- ✅ @ syntax for file references
+- ✅ Growing adoption (60k+ repos)
+
+**Example:**
+
+```markdown
+<!-- AGENTS.md -->
+# Multi-Agent Instructions
+
+This project uses CLEO for task management.
+Full reference: @~/.cleo/docs/TODO_Task_Management.md
+
+## Quick Reference
+[Minimal command list - full docs in @ reference above]
+```
+
+**Tips:**
+- AGENTS.md is becoming the de facto standard for multi-agent projects
+- Works with agents that don't have dedicated config files
+- Future-proof choice for new agent support
+
+## Injection System
+
+### How It Works
+
+**Versioned Markers:**
+
+```markdown
+<!-- CLEO:START v0.50.2 -->
+## Task Management (cleo)
+[Injected content here]
+<!-- CLEO:END -->
+```
+
+**Registry-Based Auto-Discovery:**
+
+CLEO uses `lib/injection-registry.sh` to define targets:
+
+```bash
+readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md"
+```
+
+**Update Behavior:**
+
+| File Status | Action | Command |
+|-------------|--------|---------|
+| Missing | Create with injection | `cleo init` |
+| No injection | Prepend injection | `cleo init` |
+| Outdated version | Replace injection | `cleo upgrade` |
+| Current version | Skip | None |
+| Non-standard content | Preserve (only replace markers) | Any |
+
+**Version Detection:**
+
+```bash
+# Check current version in project files
+grep -oP 'CLEO:START v\K[0-9.]+' CLAUDE.md AGENTS.md GEMINI.md
+
+# Compare to installed version
+cleo version -s
+```
+
+### Customizing Injection
+
+**Adding Custom Targets:**
+
+1. Edit `lib/injection-registry.sh`:
+
+```bash
+readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md COPILOT.md"
+```
+
+2. Run update:
+
+```bash
+cleo init --update-docs
+```
+
+3. Verify:
+
+```bash
+ls -la COPILOT.md
+```
+
+**Agent-Specific Headers:**
+
+For agents needing custom headers (future):
+
+```bash
+# lib/injection-registry.sh
+declare -A INJECTION_HEADERS=(
+    ["GEMINI.md"]="GEMINI-HEADER.md"
+)
+```
+
+Create `templates/agents/GEMINI-HEADER.md`:
+
+```markdown
+<!-- Gemini-specific config -->
+temperature: 0.7
+max_tokens: 8192
+```
+
+## Troubleshooting
+
+### Injections Not Updating
+
+**Symptoms:**
+- `cleo upgrade` runs but files unchanged
+- Version markers show old version
+
+**Diagnosis:**
+
+```bash
+# Check injection status
+cleo upgrade --status
+
+# Check file markers manually
+grep "CLEO:START" CLAUDE.md AGENTS.md GEMINI.md
+
+# Verify injection library loaded
+cleo upgrade --verbose
+```
+
+**Fixes:**
+
+```bash
+# Force re-inject
+cleo init --update-docs
+
+# If markers corrupted, remove and recreate
+rm CLAUDE.md AGENTS.md GEMINI.md
+cleo init
+
+# Check file permissions
+ls -la *.md
+```
+
+### Agent Can't Read @ References
+
+**Symptoms:**
+- Agent doesn't see `@~/.cleo/docs/TODO_Task_Management.md`
+- "File not found" errors
+
+**Diagnosis:**
+
+```bash
+# Verify file exists
+ls -la ~/.cleo/docs/TODO_Task_Management.md
+
+# Check permissions
+ls -ld ~/.cleo ~/.cleo/docs
+
+# Test from agent's perspective (for Claude Code)
+cat "$(echo @~/.cleo/docs/TODO_Task_Management.md | sed 's/@//')"
+```
+
+**Fixes:**
+
+```bash
+# Ensure ~/.cleo/docs exists
+mkdir -p ~/.cleo/docs
+
+# Manual copy from CLEO installation
+cp -r $CLEO_HOME/docs/* ~/.cleo/docs/
+
+# Fix permissions
+chmod -R 755 ~/.cleo
+
+# Verify with agent doctor (when available)
+cleo doctor
+```
+
+### Version Mismatches
+
+**Symptoms:**
+- `cleo doctor` shows version warning
+- Project files show old version
+
+**Diagnosis:**
+
+```bash
+# Check installed version
+cleo version
+
+# Check project file versions
+grep "CLEO:START" *.md
+
+# Check global docs version (if installed)
+cat ~/.cleo/.cleo-version
+```
+
+**Fixes:**
+
+```bash
+# Update project injections
+cleo upgrade
+
+# Update global docs (when available)
+cleo install --global --force
+
+# Verify synchronization
+cleo upgrade --status
+```
+
+### Platform-Specific Issues
+
+**Windows (Native):**
+
+```
+ERROR: CLEO requires WSL2 on Windows
+```
+
+**Fix:** Install WSL2:
+
+```powershell
+# In PowerShell (admin)
+wsl --install
+
+# Install Ubuntu distribution
+wsl --install -d Ubuntu
+
+# Then install CLEO in WSL
+wsl
+cd /path/to/project
+./install.sh
+```
+
+**macOS Permission Errors:**
+
+```bash
+# If ~/.cleo/ not writable
+sudo chown -R $USER ~/.cleo
+chmod -R 755 ~/.cleo
+```
+
+**Linux File Locking:**
+
+```bash
+# If "Text file busy" errors
+# Close all agent processes accessing files
+pkill -f "claude\|gemini\|codex"
+
+# Then retry
+cleo upgrade
+```
+
+## Best Practices
+
+### Project Setup
+
+**New Projects:**
+
+```bash
+# 1. Initialize CLEO
+cd new-project
+cleo init
+
+# 2. Verify injections
+ls -la *.md
+grep "CLEO:START" *.md
+
+# 3. Commit agent docs
+git add CLAUDE.md AGENTS.md GEMINI.md .cleo/
+git commit -m "chore: Add CLEO task management"
+```
+
+**Existing Projects:**
+
+```bash
+# 1. Add CLEO to existing project
+cd existing-project
+cleo init
+
+# 2. Update existing CLAUDE.md (if present)
+# CLEO prepends injection, preserves your content
+
+# 3. Review changes
+git diff CLAUDE.md
+
+# 4. Commit
+git add .
+git commit -m "feat: Add CLEO task management"
+```
+
+### Version Management
+
+**Keep Injections Current:**
+
+```bash
+# After upgrading CLEO
+cleo upgrade
+
+# Or just update docs
+cleo init --update-docs
+
+# Check before committing
+cleo upgrade --status
+```
+
+**CI/CD Integration:**
+
+```bash
+# .github/workflows/cleo-check.yml
+- name: Check CLEO is up to date
+  run: |
+    cleo upgrade --status
+    if [ $? -ne 0 ]; then
+      echo "ERROR: CLEO injections outdated"
+      echo "Run: cleo upgrade"
+      exit 1
+    fi
+```
+
+### Multi-Agent Compatibility
+
+**Recommended File Strategy:**
+
+```
+project/
+├── CLAUDE.md    # ✅ Claude Code
+├── AGENTS.md    # ✅ Codex, Cursor, Factory (universal)
+└── GEMINI.md    # ✅ Gemini CLI
+```
+
+**Why All Three?**
+- **CLAUDE.md**: Claude Code won't read AGENTS.md
+- **AGENTS.md**: Universal standard for other agents
+- **GEMINI.md**: Gemini CLI specific (can fallback to AGENTS.md)
+
+**Content Strategy:**
+- **Identical injections**: All three files get same CLEO content
+- **Custom additions**: Add agent-specific notes below injection
+- **Maintenance**: `cleo upgrade` updates all three automatically
+
+## Roadmap
+
+### Current (v0.50.2)
+
+- ✅ Multi-file injection (CLAUDE.md, AGENTS.md, GEMINI.md)
+- ✅ Registry-based auto-discovery
+- ✅ Version tracking with markers
+- ✅ Automatic updates via `upgrade` command
+
+### Planned (v2.1)
+
+- ⏳ `cleo install --global` - Global docs installation (T1428)
+- ⏳ `cleo doctor` - Diagnostic tool (T1429)
+- ⏳ @ syntax integration - Dynamic file references
+- ⏳ Cross-project consistency validation
+
+### Future Considerations
+
+- Agent-specific header templates
+- Custom injection content per file
+- Multi-language documentation
+- Auto-sync with CLEO version updates
+
+## See Also
+
+- [lib/injection.md](../lib/injection.md) - Injection library API
+- [init](../commands/init.md) - Project initialization
+- [upgrade](../commands/upgrade.md) - Project updates
+- [INJECTION-SYSTEM-DESIGN.md](../../claudedocs/designs/INJECTION-SYSTEM-DESIGN.md) - Architecture spec
+
+## Contributing
+
+### Adding New Agent Support
+
+1. Research agent's @ syntax support
+2. Add target to `INJECTION_TARGETS` in `lib/injection-registry.sh`
+3. (Optional) Create agent-specific header in `templates/agents/`
+4. Test with `cleo init`
+5. Document in this guide
+
+### Reporting Issues
+
+- Agent compatibility problems
+- @ syntax not working
+- Version mismatch bugs
+- Platform-specific errors
+
+File issues at: https://github.com/yourusername/cleo/issues

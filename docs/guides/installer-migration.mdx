@@ -1,0 +1,367 @@
+---
+title: "Migrating to the New CLEO Installer"
+description: "Guide for upgrading from the legacy install.sh to the modular installer"
+---
+
+# Migrating to the New CLEO Installer
+
+> Guide for upgrading from the legacy install.sh to the modular installer
+
+## Overview
+
+CLEO v0.56.0 introduces a completely rewritten installer with:
+- **Atomic operations**: Never leaves your system in a broken state
+- **Automatic recovery**: Detects and resumes interrupted installations
+- **Modular architecture**: 7 focused modules instead of one 1500+ line monolith
+- **Dual-mode support**: Development (symlinks) and Release (copy) modes
+- **10-state machine**: Granular progress tracking with checkpoints
+
+## Before You Begin
+
+### Check Current Installation
+
+```bash
+# Check current version
+cleo version
+# Or directly:
+cat ~/.cleo/VERSION
+
+# Check if legacy installation
+ls ~/.cleo/.installer 2>/dev/null || echo "Legacy installation (no .installer directory)"
+```
+
+### Backup Your Data
+
+The migration preserves your data, but backup is recommended:
+
+```bash
+# Backup task data
+mkdir -p ~/cleo-backup
+cp ~/.cleo/todo.json ~/cleo-backup/
+cp ~/.cleo/todo-archive.json ~/cleo-backup/ 2>/dev/null
+cp ~/.cleo/todo-log.json ~/cleo-backup/ 2>/dev/null
+
+# Backup config and sessions
+cp ~/.cleo/config.json ~/cleo-backup/
+cp -r ~/.cleo/sessions ~/cleo-backup/ 2>/dev/null
+```
+
+## Migration Options
+
+### Option 1: In-Place Upgrade (Recommended)
+
+Use this if you have a cloned repository and want to preserve your development workflow.
+
+```bash
+# From your CLEO repository
+cd /path/to/cleo
+
+# Pull latest changes
+git pull
+
+# Run new modular installer
+./installer/install.sh
+
+# Verify
+cleo version
+cleo --validate
+```
+
+The new installer automatically:
+1. Detects existing installation
+2. Creates safety backup
+3. Upgrades in place
+4. Preserves all task data
+
+### Option 2: Fresh Install (Clean State)
+
+Use this for a clean start while preserving data.
+
+```bash
+# Remove old installation components (preserves data files)
+rm -rf ~/.cleo/scripts ~/.cleo/lib ~/.cleo/schemas
+
+# Run new installer
+./installer/install.sh
+
+# Verify
+cleo version
+```
+
+### Option 3: Development Mode
+
+For contributors who want live updates via symlinks:
+
+```bash
+# Force development mode with symlinks
+./installer/install.sh --dev
+
+# Changes in repo reflect immediately
+# No reinstall needed after code changes
+```
+
+### Option 4: Release Mode (End Users)
+
+Downloads and installs from GitHub releases:
+
+```bash
+# From GitHub (when available)
+curl -fsSL https://github.com/kryptobaseddev/cleo/releases/latest/download/install.sh | bash
+
+# Or explicitly disable symlinks
+./installer/install.sh --no-symlinks
+```
+
+## What Changes
+
+### Directory Structure
+
+| Aspect | Old (Legacy) | New (Modular) |
+|--------|--------------|---------------|
+| Installer | Single `install.sh` (~800 lines) | `installer/install.sh` + `installer/lib/*.sh` (7 modules) |
+| CLI wrapper | Embedded in install.sh | `~/.cleo/cleo.sh` |
+| State tracking | None | `~/.cleo/.installer/` |
+| Backups | Ad-hoc `.bak` files | `~/.cleo/.installer/backups/` |
+| Recovery | Manual only | Automatic detection and resume |
+
+### New Files and Directories
+
+```
+~/.cleo/
+├── .installer/               # NEW: Installation state
+│   ├── state/               # Current state tracking
+│   │   ├── current          # Current state name
+│   │   └── markers/         # Progress markers
+│   ├── backups/             # Installation backups
+│   │   ├── safety/          # Pre-operation backups
+│   │   └── snapshot/        # User snapshots
+│   └── install.lock         # Concurrent install protection
+├── VERSION                   # Enhanced with metadata
+└── ...                       # Existing files unchanged
+```
+
+### VERSION File Format
+
+**Old format:**
+```
+0.55.0
+```
+
+**New format:**
+```
+0.56.0
+mode=dev
+installed=2026-01-20T12:30:00-08:00
+source=/path/to/cleo
+```
+
+### Command Line Options
+
+**Legacy options (still supported):**
+```bash
+./install.sh -f              # Force install
+./install.sh --check-deps    # Check dependencies
+./install.sh --skip-skills   # Skip skills
+```
+
+**New options:**
+```bash
+./installer/install.sh --dev             # Force dev mode
+./installer/install.sh --no-symlinks     # Force copy mode
+./installer/install.sh --recover         # Resume interrupted
+./installer/install.sh --rollback        # Restore backup
+./installer/install.sh --status          # Show status
+./installer/install.sh --refresh         # Refresh dev mode
+./installer/install.sh --upgrade         # Upgrade to latest
+./installer/install.sh --version-info    # Show version info
+./installer/install.sh --check-upgrade   # Check for updates
+./installer/install.sh --dry-run         # Preview changes
+```
+
+## Troubleshooting
+
+### Migration Fails with Lock Error
+
+```bash
+# Check for stale lock file
+ls -la ~/.cleo/.installer/install.lock 2>/dev/null
+
+# If lock is stale (>5 minutes old), remove it
+rm ~/.cleo/.installer/install.lock
+
+# Retry
+./installer/install.sh
+```
+
+### Recovery After Interrupted Migration
+
+The new installer automatically detects interrupted installations:
+
+```bash
+# Check status
+./installer/install.sh --status
+
+# Auto-recovery
+./installer/install.sh --recover
+
+# Or let installer detect and prompt
+./installer/install.sh
+# Will show: "Previous installation was interrupted. Resume? [Y/n]"
+```
+
+### Permission Denied Errors
+
+```bash
+# Check directory ownership
+ls -la ~/.cleo
+
+# Fix ownership if needed
+sudo chown -R "$USER" ~/.cleo
+
+# Retry
+./installer/install.sh
+```
+
+### Rollback to Previous State
+
+```bash
+# List available backups
+./installer/install.sh --status
+
+# Rollback to most recent backup
+./installer/install.sh --rollback
+
+# Verify
+cleo version
+cleo --validate
+```
+
+### Rollback to Legacy Installer
+
+If you need to temporarily use the legacy installer:
+
+```bash
+# Use legacy install.sh from repo root
+./install.sh --force
+
+# Note: This bypasses new safety features
+```
+
+## Verification
+
+After migration, verify your installation:
+
+```bash
+# 1. Check version
+cleo version
+# Should show: CLEO v0.56.0+
+
+# 2. Validate installation integrity
+cleo --validate
+# Should show: All checks passed
+
+# 3. Check installation mode
+grep "mode=" ~/.cleo/VERSION
+# Shows: mode=dev or mode=release
+
+# 4. Test commands work
+cleo list
+cleo dash
+
+# 5. Check skills (if installed)
+ls ~/.claude/skills/ct-* 2>/dev/null && echo "Skills installed"
+```
+
+## FAQ
+
+### Will I lose my tasks?
+
+**No.** Task data in `todo.json`, `todo-archive.json`, and `todo-log.json` is never modified by the installer. The migration only updates the CLI scripts and libraries.
+
+### Can I switch between dev and release modes?
+
+**Yes.** There are two ways to switch modes:
+
+**Via self-update command (recommended):**
+```bash
+# Switch from dev to release mode
+cleo self-update --to-release
+
+# Switch from release to dev mode
+cleo self-update --to-dev /path/to/cleo-repo
+```
+
+**Via installer:**
+```bash
+# Switch to dev mode (symlinks)
+./installer/install.sh --dev --force
+
+# Switch to release mode
+./installer/install.sh --release --force
+```
+
+See [Installation Modes Guide](./INSTALLATION-MODES.md) for detailed information.
+
+### What if the migration is interrupted?
+
+The new installer automatically:
+1. Detects the interrupted state on next run
+2. Offers to resume or rollback
+3. Restores from backup if needed
+
+This is the primary advantage over the legacy installer.
+
+### Do I need to update my shell profile?
+
+The new installer handles profile updates automatically. If `cleo` command is not found after migration:
+
+```bash
+# Reload your shell
+source ~/.bashrc  # or ~/.zshrc
+
+# Or manually add if missing
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Is the legacy installer still available?
+
+**Yes.** The `install.sh` in the repository root remains for backward compatibility. However, it lacks the safety features of the new modular installer:
+- No atomic operations
+- No recovery from interruption
+- No state tracking
+
+We recommend migrating to the new installer for a more reliable experience.
+
+## Future Upgrades
+
+After migrating to v0.56.0+, future upgrades are simplified with the `self-update` command:
+
+```bash
+# Check for updates
+cleo self-update --check
+
+# View current vs latest version
+cleo self-update --status
+
+# Update to latest version
+cleo self-update
+
+# Update to specific version
+cleo self-update --version 0.58.0
+```
+
+**Note:** For development mode installations (symlinks), use `git pull` instead of `self-update`.
+
+The self-update command:
+- Queries GitHub releases for the latest version
+- Downloads and verifies the release tarball (SHA256 checksum)
+- Creates a backup before updating
+- Runs the bundled installer automatically
+
+## See Also
+
+- [Installation Modes Guide](./INSTALLATION-MODES.md) - Switching between dev and release modes
+- [Installer Architecture](./installer-architecture.md) - Technical details of the new installer
+- [Getting Started](./getting-started.md) - Fresh installation guide
+- [CLEO CLI Reference](../commands/README.md) - Command documentation

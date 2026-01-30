@@ -1,0 +1,604 @@
+---
+title: "Orchestrator Protocol Guide"
+description: "2-tier architecture guide for multi-agent workflows with context protection and manifest-based handoffs"
+---
+
+# Orchestrator Protocol Guide
+
+**Version**: 2.1.0
+**Status**: Active
+**Last Updated**: 2026-01-26
+
+## Overview
+
+> **Architecture Reference**: See [CLEO-SUBAGENT.md](../architecture/CLEO-SUBAGENT.md) for the complete 2-tier architecture documentation.
+>
+> **Vision Document**: See [ORCHESTRATOR-VISION.md](../ORCHESTRATOR-VISION.md) for the core philosophy and rationale behind this protocol.
+
+The Orchestrator Protocol implements a **2-tier architecture** for multi-agent workflows:
+
+| Tier | Component | Role |
+|------|-----------|------|
+| **0** | ct-orchestrator | HITL coordinator, delegates ALL work |
+| **1** | cleo-subagent | Universal executor with skill injection |
+
+**The Mantra**: *Stay high-level. Delegate everything. Read only manifests. Spawn in order.*
+
+### 2-Tier System Benefits
+
+- **Single subagent type**: Skills loaded as context, not separate agent types
+- **Consistent protocol**: All subagents follow same output requirements
+- **Token pre-resolution**: All placeholders resolved before spawn
+- **Protocol stack**: Base + conditional protocols combined per-task
+
+### When to Use
+
+| Scenario | Use Orchestrator? | Rationale |
+|----------|-------------------|-----------|
+| Multi-task epic (5+ tasks) | Yes | Dependency coordination, parallel safety |
+| Research-heavy project | Yes | Manifest summaries preserve context |
+| Long-running session (>100K tokens) | Yes | Context protection via delegation |
+| Single quick task | No | Direct execution is faster |
+| Simple bug fix | No | Overhead not justified |
+
+## Activation
+
+### Via Skill (Recommended)
+
+The skill-based approach is **strongly recommended** over CLAUDE.md injection:
+
+```bash
+# Natural language triggers:
+# - "activate orchestrator mode"
+# - "run as orchestrator"
+# - "orchestrate this workflow"
+
+# Or via Skill tool directly:
+Skill: orchestrator
+```
+
+**Why skill-based?**
+
+| Problem with CLAUDE.md | Skill-based solution |
+|------------------------|---------------------|
+| ALL agents read CLAUDE.md | Skills load ON-DEMAND |
+| Subagents ALSO try to orchestrate | Subagents do NOT inherit skills |
+| Breaks delegation pattern | Only HITL session operates as orchestrator |
+| Always loaded (context overhead) | Loaded when needed |
+
+### Via CLI (Project Installation)
+
+Install the orchestrator skill to your project:
+
+```bash
+cleo orchestrator skill --install    # Copy skill to .cleo/skills/
+cleo orchestrator skill --verify     # Verify installation
+```
+
+### Legacy: CLAUDE.md Injection (DEPRECATED)
+
+> **WARNING**: The CLAUDE.md injection approach is deprecated.
+> See `templates/orchestrator-protocol/ORCHESTRATOR-INJECT.md` for migration guidance.
+
+## Core Concepts
+
+### Immutable Constraints
+
+See [ORCHESTRATOR-PROTOCOL-SPEC.md Part 2.1](../specs/ORCHESTRATOR-PROTOCOL-SPEC.md#21-core-constraints) for authoritative ORC constraint definitions.
+
+**Quick Reference:**
+| ID | Rule |
+|----|------|
+| ORC-001 | Stay high-level (no implementation) |
+| ORC-002 | Delegate ALL work via Task tool |
+| ORC-003 | No full file reads (>100 lines) |
+| ORC-004 | Dependency order enforcement |
+| ORC-005 | Context budget (10K max) |
+
+**Mantra**: Stay high-level. Delegate everything. Read only manifests. Spawn in order.
+
+### Manifest-Based Handoff
+
+Subagents communicate via `MANIFEST.jsonl`:
+
+```json
+{
+  "id": "topic-slug-2026-01-18",
+  "file": "2026-01-18_topic-slug.md",
+  "title": "Descriptive Title",
+  "date": "2026-01-18",
+  "status": "complete",
+  "topics": ["topic1", "topic2"],
+  "key_findings": [
+    "Finding 1: One sentence summary",
+    "Finding 2: Another key insight"
+  ],
+  "actionable": true,
+  "needs_followup": ["T1234"],
+  "linked_tasks": ["T1000", "T1234"]
+}
+```
+
+Key fields:
+- `key_findings`: 3-7 items, one sentence each (orchestrator reads these)
+- `needs_followup`: Task IDs requiring subsequent agents
+- `linked_tasks`: Bidirectional links to CLEO tasks
+
+## Quick Start
+
+### 1. Activate Orchestrator Mode
+
+**Option A: Skill-based (Recommended)**
+```bash
+# Say "activate orchestrator mode" or use Skill tool
+```
+
+**Option B: Install to project**
+```bash
+cleo orchestrator skill --install
+```
+
+### 2. Start an Orchestrator Session
+
+```bash
+# Initialize and get startup state
+cleo orchestrator start --epic T1575
+
+# Check pending work from previous sessions
+cleo orchestrator status
+```
+
+### 3. Spawn Subagents
+
+```bash
+# Get next task to spawn
+cleo orchestrator next --epic T1575
+
+# Generate spawn command with prompt
+cleo orchestrator spawn T1586
+
+# Or spawn with specific template
+cleo orchestrator spawn T1586 --template RESEARCH-AGENT
+```
+
+## Session Startup Protocol
+
+Execute this sequence at conversation start:
+
+```bash
+# 1. Check active sessions
+cleo session list --status active
+
+# 2. Check manifest for pending work
+cat claudedocs/agent-outputs/MANIFEST.jsonl | jq -s '[.[] | select(.needs_followup | length > 0)]'
+
+# 3. Check focused task
+cleo focus show
+
+# 4. Review epic status
+cleo dash --compact
+```
+
+### Decision Matrix
+
+| Condition | Action |
+|-----------|--------|
+| Active session + focus | Resume; continue focused task |
+| Active session, no focus | Query manifest needs_followup; spawn next |
+| No session + manifest has followup | Create session; spawn for followup |
+| No session + no followup | Ask user for direction |
+
+## Subagent Requirements
+
+Every subagent MUST follow this protocol:
+
+### Output Requirements
+
+1. **MUST** write findings to: `claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md`
+2. **MUST** append ONE line to: `claudedocs/agent-outputs/MANIFEST.jsonl`
+3. **MUST** return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. **MUST NOT** return research content in response
+
+### CLEO Integration
+
+1. **MUST** read task details: `cleo show <task-id>`
+2. **MUST** set focus: `cleo focus set <task-id>`
+3. **MUST** complete task when done: `cleo complete <task-id>`
+4. **SHOULD** link research: `cleo research link <task-id> <research-id>`
+
+### Injection Block
+
+Include this in every spawn prompt:
+
+```markdown
+## SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
+
+OUTPUT REQUIREMENTS:
+1. MUST write findings to: claudedocs/agent-outputs/YYYY-MM-DD_{topic-slug}.md
+2. MUST append ONE line to: claudedocs/agent-outputs/MANIFEST.jsonl
+3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return research content in response.
+
+CLEO INTEGRATION:
+1. MUST read task details: `cleo show <task-id>`
+2. MUST set focus: `cleo focus set <task-id>`
+3. MUST complete task when done: `cleo complete <task-id>`
+4. SHOULD link research: `cleo research link <task-id> <research-id>`
+```
+
+## Manifest Operations
+
+### Query Patterns
+
+```bash
+# Latest entry
+jq -s '.[-1]' MANIFEST.jsonl
+
+# Pending followups
+jq -s '[.[] | select(.needs_followup | length > 0)]' MANIFEST.jsonl
+
+# By topic
+jq -s '[.[] | select(.topics | contains(["auth"]))]' MANIFEST.jsonl
+
+# Actionable items
+jq -s '[.[] | select(.actionable)]' MANIFEST.jsonl
+
+# Key findings for epic
+jq -s '[.[] | select(.linked_tasks | contains(["T1575"])) | .key_findings] | flatten' MANIFEST.jsonl
+```
+
+### CLI Commands
+
+```bash
+# List research entries (context-efficient)
+cleo research list
+cleo research list --status complete --limit 10
+
+# Get entry details
+cleo research show <research-id>
+cleo research show <research-id> --full  # Include file content
+
+# Get pending followups
+cleo research pending
+
+# Link research to task
+cleo research link T1234 research-id-2026-01-18
+
+# Validate research links
+cleo research links T1234
+```
+
+## Context Protection
+
+### Budget Rules
+
+| Rule | Constraint |
+|------|------------|
+| CTX-001 | MUST NOT read research files > 100 lines |
+| CTX-002 | MUST use `cleo research list` over raw manifest |
+| CTX-003 | MUST use `cleo show --brief` for task summaries |
+| CTX-004 | Subagent MUST NOT return content in response |
+| CTX-005 | Manifest key_findings: 3-7 items, one sentence each |
+
+### Context Check
+
+```bash
+# Check current context usage
+cleo orchestrator context
+
+# With specific token count
+cleo orchestrator context --tokens 5000
+```
+
+Exit codes:
+- `0`: OK (<70%)
+- `52`: Critical (>90%)
+
+## Error Recovery
+
+| Failure | Recovery |
+|---------|----------|
+| No output file | Re-spawn with clearer instructions |
+| No manifest entry | Manual entry or rebuild |
+| Task not completed | Orchestrator completes manually |
+| Partial status | Spawn continuation agent |
+| Blocked status | Flag for human review |
+
+## Validation
+
+```bash
+# Full protocol validation
+cleo orchestrator validate
+
+# Validate for specific epic
+cleo orchestrator validate --epic T1575
+
+# Validate specific subagent output
+cleo orchestrator validate --subagent research-id-2026-01-18
+
+# Validate manifest only
+cleo orchestrator validate --manifest
+
+# Validate orchestrator compliance
+cleo orchestrator validate --orchestrator
+```
+
+## Parallel Execution
+
+### Check Task Independence
+
+```bash
+# Analyze dependency waves
+cleo orchestrator analyze T1575
+
+# Get parallel-safe tasks
+cleo orchestrator ready --epic T1575
+
+# Check if specific tasks can run in parallel
+cleo orchestrator check T1578 T1580 T1582
+```
+
+### Wave-Based Execution
+
+Tasks are grouped into waves based on dependencies:
+
+- **Wave 0**: Tasks with no dependencies (can run in parallel)
+- **Wave 1**: Tasks depending only on Wave 0 (can run in parallel)
+- **Wave N**: Tasks depending on Wave N-1 or earlier
+
+## Phase-Aware Orchestration
+
+Orchestrator can scope work to specific project phases for focused execution.
+
+### Phase Filtering
+
+```bash
+# Get next task from specific phase
+cleo orchestrator next --epic T1575 --phase testing
+
+# Get all ready tasks in a phase
+cleo orchestrator ready --epic T1575 --phase core
+
+# Check current project phase
+cleo phase show
+```
+
+### Phase Workflow
+
+| Phase | Focus | Typical Subagents |
+|-------|-------|-------------------|
+| setup | Foundation work | RESEARCH-AGENT, SPEC-WRITER |
+| core | Main implementation | TASK-EXECUTOR, LIBRARY-IMPLEMENTER |
+| testing | Validation | VALIDATOR, TEST-WRITER-BATS |
+| polish | Refinement | DOCUMENTOR, VALIDATOR |
+| maintenance | Ongoing fixes | TASK-EXECUTOR |
+
+### Phase Progression
+
+```bash
+# Check phase progress before spawning
+cleo phases stats
+
+# Spawn within current phase context
+CURRENT_PHASE=$(cleo phase show -q)
+cleo orchestrator ready --epic T1575 --phase "$CURRENT_PHASE"
+```
+
+### Cross-Phase Dependencies
+
+When tasks span phases, the orchestrator SHOULD:
+1. Complete current phase tasks first (when possible)
+2. Document cross-phase dependencies in task notes
+3. Use phase filtering to focus subagent work
+
+## Verification Gates Integration
+
+CLEO verification gates enable quality assurance before parent task auto-completion.
+
+### Verification Workflow
+
+```
+SUBAGENT COMPLETES TASK
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ cleo complete T1234                   │
+│ → Sets verification.gates.implemented │
+└───────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ Run tests: cleo verify T1234 --gate   │
+│            testsPassed                │
+└───────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ QA review: cleo verify T1234 --gate   │
+│            qaPassed                   │
+└───────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────┐
+│ Full verify: cleo verify T1234 --all  │
+│ → When all gates pass, epic may       │
+│   auto-complete                       │
+└───────────────────────────────────────┘
+```
+
+### Orchestrator Verification Commands
+
+```bash
+# Check verification status
+cleo verify T1234
+
+# Set individual gates
+cleo verify T1234 --gate testsPassed
+cleo verify T1234 --gate qaPassed
+cleo verify T1234 --gate securityPassed
+cleo verify T1234 --gate documented
+
+# Set all gates at once
+cleo verify T1234 --all
+
+# Reset verification (if re-work needed)
+cleo verify T1234 --reset
+
+# Filter tasks by verification status
+cleo list --verification-status pending
+cleo list --verification-status passed
+```
+
+### Gate Definitions
+
+| Gate | Set By | When |
+|------|--------|------|
+| `implemented` | Auto | `cleo complete` |
+| `testsPassed` | VALIDATOR subagent | Tests pass |
+| `qaPassed` | Human/orchestrator | QA review done |
+| `securityPassed` | Security scan | No vulnerabilities |
+| `documented` | DOCUMENTOR subagent | Docs updated |
+
+### Epic Auto-Completion with Verification
+
+When `verification.requireForParentAutoComplete` is enabled (default):
+- Parent epic auto-completes only when ALL children have `verification.passed = true`
+- This prevents premature epic closure
+
+```bash
+# Check configuration
+cleo config get verification.requireForParentAutoComplete
+
+# Disable if needed (not recommended)
+cleo config set verification.requireForParentAutoComplete false
+```
+
+### Subagent Verification Protocol
+
+VALIDATOR subagents SHOULD include:
+```markdown
+## VALIDATION PROTOCOL
+
+After completing validation:
+1. Run: `cleo verify {TASK_ID} --gate testsPassed`
+2. If security checks: `cleo verify {TASK_ID} --gate securityPassed`
+3. Document findings in manifest entry
+```
+
+## Best Practices
+
+### DO
+
+- Query manifest summaries before spawning
+- Check dependencies before each spawn
+- Use templates for consistent subagent prompts
+- Complete tasks via CLEO after subagent work
+- Link research to tasks for traceability
+
+### DON'T
+
+- Read full research files as orchestrator
+- Spawn agents out of dependency order
+- Return research content in responses
+- Skip manifest entries
+- Implement code directly as orchestrator
+
+## Skill Loading System
+
+The orchestrator uses `lib/skill-dispatch.sh` to automatically select and load skills for subagents.
+
+### Skill Selection
+
+Three strategies in priority order:
+
+| Strategy | Mechanism | Example |
+|----------|-----------|---------|
+| **1. Label-based** | Task labels match skill tags | `["research"]` → ct-research-agent |
+| **2. Type-based** | Task type maps to skill | `type: "epic"` → ct-epic-architect |
+| **3. Keyword-based** | Title/description keywords | "implement auth" → ct-task-executor |
+
+### Programmatic Dispatch
+
+```bash
+source lib/skill-dispatch.sh
+
+# Auto-select skill for task
+skill=$(skill_auto_dispatch "T1234")
+
+# Get full spawn context with resolved tokens
+context=$(skill_prepare_spawn "$skill" "T1234")
+prompt=$(echo "$context" | jq -r '.prompt')
+```
+
+### Available Skills (by Tier)
+
+| Tier | Skills | Use Case |
+|------|--------|----------|
+| **0** | ct-orchestrator | Workflow coordination |
+| **1** | ct-epic-architect | Planning and decomposition |
+| **2** | ct-task-executor, ct-research-agent, ct-spec-writer, ct-test-writer-bats, ct-library-implementer-bash, ct-validator | Task execution |
+| **3** | ct-documentor, ct-docs-* | Documentation and chaining |
+
+## Protocol Stack
+
+The protocol stack combines base protocol with conditional protocols:
+
+### Base Protocol (Always Loaded)
+
+From `skills/_shared/subagent-protocol-base.md`:
+
+| ID | Rule |
+|----|------|
+| OUT-001 | MUST write findings to output file |
+| OUT-002 | MUST append ONE line to MANIFEST.jsonl |
+| OUT-003 | MUST return ONLY summary message |
+| OUT-004 | MUST NOT return content in response |
+
+### Conditional Protocols
+
+| Protocol | When Loaded | Adds |
+|----------|-------------|------|
+| Task Lifecycle | All skills | Focus, complete, link operations |
+| Research Linking | Research skills | Bidirectional task-research links |
+| Verification Gates | Testing/validation | testsPassed, securityPassed gates |
+| Phase Awareness | Phase-filtered work | Current phase context |
+| Dependency Context | Has dependencies | Manifest summaries from deps |
+| Error Handling | All skills | Partial/blocked status handling |
+| Session Integration | Session-scoped | Session context preservation |
+
+### Token Resolution
+
+All tokens resolved via `ti_set_full_context()` BEFORE spawning:
+
+```bash
+# Required tokens
+{{TASK_ID}}       # Task identifier
+{{DATE}}          # Current date
+{{TOPIC_SLUG}}    # URL-safe topic name
+
+# Task context tokens
+{{TASK_TITLE}}           # Task title
+{{TASK_DESCRIPTION}}     # Full description
+{{DEPENDS_LIST}}         # Completed dependencies
+{{MANIFEST_SUMMARIES}}   # Key findings from deps
+```
+
+The spawn command verifies all tokens are resolved:
+
+```json
+{
+  "tokenResolution": {
+    "fullyResolved": true,
+    "unresolvedCount": 0
+  }
+}
+```
+
+## Related Documentation
+
+- [CLEO-SUBAGENT Architecture](../architecture/CLEO-SUBAGENT.md)
+- [CLI Reference: orchestrator](../commands/orchestrator.md)
+- [Example Session](../examples/orchestrator-example-session.md)
+- [Template Quick Start](../../templates/orchestrator-protocol/README.md)
+- [Research Command Reference](../commands/research.md)
+- [Skills Manifest](../../skills/manifest.json)

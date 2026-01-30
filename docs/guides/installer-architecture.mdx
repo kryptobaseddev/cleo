@@ -1,0 +1,740 @@
+---
+title: "CLEO Installer Architecture"
+description: "Modern, atomic, recoverable installation system with state machine and dual mode support"
+---
+
+# CLEO Installer Architecture
+
+> Modern, atomic, recoverable installation system
+
+## Overview
+
+The CLEO installer is a modular Bash-based installation system that ensures installations never leave your system in a broken state. Built with enterprise-grade reliability patterns adapted for single-developer workflows.
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Atomic Operations** | All changes use temp-write-then-rename pattern |
+| **State Machine** | 10-state installation with recovery checkpoints |
+| **Dual Mode** | Development (symlinks) and Release (downloads) |
+| **Auto-Recovery** | Detects and recovers from interrupted installations |
+| **Cross-Platform** | Supports Linux and macOS |
+| **Lock Protection** | Prevents concurrent installations |
+
+## Architecture
+
+### Module Structure
+
+```
+installer/
+├── install.sh           # Entry point (~280 lines)
+└── lib/
+    ├── core.sh          # State machine, locking, atomic ops (907 lines)
+    ├── deps.sh          # Dependency checking
+    ├── validate.sh      # Integrity verification
+    ├── source.sh        # Local/remote fetch, version management
+    ├── link.sh          # Symlink management
+    ├── profile.sh       # Shell configuration
+    └── recover.sh       # Rollback and cleanup
+```
+
+### State Machine
+
+The installer progresses through 10 ordered states. Each state can be recovered from if interrupted.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        CLEO Installer State Machine                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+INIT ──► PREPARE ──► VALIDATE ──► BACKUP ──► INSTALL ──► LINK ──► PROFILE ──► VERIFY ──► CLEANUP ──► COMPLETE
+  │         │           │           │          │          │         │          │          │           │
+  ▼         ▼           ▼           ▼          ▼          ▼         ▼          ▼          ▼           ▼
+Safe     Safe        Safe        Safe      Critical   Critical  Moderate   Safe       Safe        Done
+Recovery Recovery    Recovery    Recovery   Point      Point     Point     Recovery   Recovery
+
+States marked "Safe Recovery" can restart cleanly.
+States marked "Critical Point" require careful rollback if interrupted.
+```
+
+| State | Purpose | Recovery Level |
+|-------|---------|----------------|
+| `INIT` | Initialize installer state | Safe - restart cleanly |
+| `PREPARE` | Acquire lock, create temp directories | Safe - cleanup and restart |
+| `VALIDATE` | Check dependencies and disk space | Safe - no changes made |
+| `BACKUP` | Create safety backup of existing install | Safe - backup is preserved |
+| `INSTALL` | Copy/download files to staging | Critical - may need rollback |
+| `LINK` | Create symlinks (bin, skills) | Critical - partial state possible |
+| `PROFILE` | Update shell configuration | Moderate - may need manual fix |
+| `VERIFY` | Validate installation integrity | Safe - installation complete |
+| `CLEANUP` | Remove temp files, old backups | Safe - cleanup only |
+| `COMPLETE` | Release lock, show success | Done |
+
+### Installation Modes
+
+#### Development Mode
+
+Used when running from a cloned repository. Ideal for contributors and testing.
+
+```bash
+./installer/install.sh --dev
+```
+
+**Characteristics:**
+- Creates symlinks to repository directories
+- Changes in repo reflect immediately
+- Uses `git pull` to refresh
+- Detected automatically when `.git` directory present
+
+#### Release Mode
+
+Downloads from GitHub releases. Recommended for end users.
+
+```bash
+./installer/install.sh --release
+# or from a non-git directory:
+./installer/install.sh
+```
+
+**Characteristics:**
+- Downloads release tarball from GitHub
+- Copies files to `~/.cleo`
+- Includes checksum verification
+- Independent of source repository
+- Updates via `cleo self-update`
+
+#### Mode Auto-Detection
+
+The installer automatically detects the appropriate mode:
+
+```bash
+# From git clone → dev mode (symlinks)
+cd ~/projects/cleo && ./installer/install.sh
+
+# From release download → release mode (copy)
+curl -L https://github.com/kryptobaseddev/cleo/releases/latest/download/installer.sh | bash
+```
+
+## Module Reference
+
+### core.sh - State Machine and Infrastructure
+
+The core module provides the state machine, locking, and atomic operations.
+
+| Function | Purpose |
+|----------|---------|
+| `installer_run_state_machine()` | Execute state machine with handlers |
+| `installer_lock_acquire()` | Acquire installation lock (blocks concurrent installs) |
+| `installer_lock_release()` | Release installation lock |
+| `installer_lock_check_stale()` | Detect and clean stale locks |
+| `installer_state_init()` | Initialize state tracking |
+| `installer_state_transition()` | Move to next state |
+| `installer_state_mark_complete()` | Mark current state complete |
+| `installer_create_temp_dir()` | Create temporary directory |
+| `installer_ensure_dirs()` | Ensure required directories exist |
+| `installer_log_info/warn/error/debug()` | Logging functions |
+| `installer_show_status()` | Display current installation status |
+
+**Configuration Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INSTALL_DIR` | `~/.cleo` | Installation directory |
+| `STATE_DIR` | `~/.cleo/.installer` | State tracking directory |
+| `LOCK_FILE` | `$STATE_DIR/install.lock` | Lock file path |
+| `LOCK_TIMEOUT` | `300` | Lock timeout in seconds |
+| `LOCK_POLL_INTERVAL` | `2` | Seconds between lock checks |
+
+### deps.sh - Dependency Checking
+
+Validates system prerequisites and reports missing dependencies.
+
+| Function | Purpose |
+|----------|---------|
+| `installer_deps_detect_os()` | Detect Linux/macOS/WSL |
+| `installer_deps_detect_arch()` | Detect x86_64/arm64 |
+| `installer_deps_detect_package_manager()` | Detect apt/dnf/brew/pacman |
+| `installer_deps_check_bash()` | Verify Bash 4.0+ |
+| `installer_deps_check_jq()` | Verify jq 1.5+ |
+| `installer_deps_check_checksum()` | Find sha256sum/shasum |
+| `installer_deps_check_ajv()` | Check for ajv-cli (optional) |
+| `installer_deps_check_git()` | Check for git (dev mode) |
+| `installer_deps_check_downloader()` | Find curl/wget |
+| `installer_deps_check_required()` | Check all required deps |
+| `installer_deps_check_all()` | Check required + optional |
+| `installer_deps_report()` | Generate dependency report |
+| `installer_deps_install_instructions()` | Show install commands |
+
+**Minimum Versions:**
+
+| Dependency | Minimum | Required |
+|------------|---------|----------|
+| Bash | 4.0 | Yes |
+| jq | 1.5 | Yes |
+| curl or wget | any | Yes |
+| sha256sum or shasum | any | Yes |
+| git | any | Dev mode only |
+| ajv-cli | any | Optional |
+
+### validate.sh - Integrity Verification
+
+Validates installation integrity using checksums and structure verification.
+
+| Function | Purpose |
+|----------|---------|
+| `installer_validate_calc_checksum()` | Calculate SHA256 checksum |
+| `installer_validate_checksum()` | Verify single file checksum |
+| `installer_validate_checksums()` | Verify all checksums from manifest |
+| `installer_validate_generate_checksums()` | Generate checksum manifest |
+| `installer_validate_structure()` | Verify directory structure |
+| `installer_validate_writable()` | Check write permissions |
+| `installer_validate_permissions()` | Verify file permissions |
+| `installer_validate_disk_space()` | Check available disk space |
+| `installer_validate_compare_versions()` | Compare semver versions |
+| `installer_validate_get_installed_version()` | Get installed version |
+| `installer_validate_installation()` | Full installation validation |
+
+**Required Structure:**
+
+```
+~/.cleo/
+├── lib/           # Library functions
+├── scripts/       # CLI scripts
+├── schemas/       # JSON schemas
+├── skills/        # Skill definitions
+├── templates/     # Templates
+└── VERSION        # Version file
+```
+
+### source.sh - Source Management
+
+Handles fetching from local repositories or GitHub releases.
+
+| Function | Purpose |
+|----------|---------|
+| `installer_source_detect_mode()` | Detect dev/release mode |
+| `installer_source_get_dir()` | Get source directory |
+| `installer_source_validate_repo()` | Validate repository structure |
+| `installer_source_link_repo()` | Create symlinks to repo |
+| `installer_source_copy_repo()` | Copy repo to install dir |
+| `installer_source_write_version_metadata()` | Write version info |
+| `installer_source_dev_status()` | Show dev mode status |
+| `installer_source_dev_refresh()` | Pull latest changes |
+| `installer_source_get_releases()` | List GitHub releases |
+| `installer_source_get_latest()` | Get latest release |
+| `installer_source_select_version()` | Interactive version selection |
+| `installer_source_fetch()` | Fetch source (local or remote) |
+| `installer_source_fetch_remote()` | Download from GitHub |
+| `installer_source_verify_checksum()` | Verify download checksum |
+| `installer_source_upgrade()` | Upgrade existing installation |
+| `installer_source_version_info()` | Show version information |
+| `installer_source_check_upgrade_available()` | Check for updates |
+
+**GitHub Configuration:**
+
+| Variable | Value |
+|----------|-------|
+| `SOURCE_GITHUB_REPO` | `kryptobaseddev/cleo` |
+| `SOURCE_DOWNLOAD_RETRIES` | `3` |
+| `SOURCE_DOWNLOAD_RETRY_DELAY` | `5` |
+| `SOURCE_DOWNLOAD_TIMEOUT` | `60` |
+
+### link.sh - Symlink Management
+
+Creates and manages symlinks for binaries and skills.
+
+| Function | Purpose |
+|----------|---------|
+| `installer_link_create()` | Create single symlink |
+| `installer_link_remove()` | Remove single symlink |
+| `installer_link_verify()` | Verify symlink target |
+| `installer_link_ensure_bin_dir()` | Ensure `~/.local/bin` exists |
+| `installer_link_setup_bin()` | Create `cleo` and `ct` symlinks |
+| `installer_link_remove_bin()` | Remove bin symlinks |
+| `installer_link_verify_all()` | Verify all symlinks |
+| `installer_link_setup_skills()` | Link skills directory |
+| `installer_link_remove_skills()` | Remove skills symlinks |
+| `installer_link_detect_claudemd()` | Find CLAUDE.md locations |
+| `installer_link_inject_claudemd()` | Inject CLEO section |
+| `installer_link_remove_claudemd()` | Remove CLEO section |
+
+**Symlink Locations:**
+
+| Link | Target |
+|------|--------|
+| `~/.local/bin/cleo` | `~/.cleo/cleo.sh` |
+| `~/.local/bin/ct` | `~/.cleo/cleo.sh` (alias) |
+
+### profile.sh - Shell Configuration
+
+Manages shell profile updates for PATH configuration.
+
+| Function | Purpose |
+|----------|---------|
+| `installer_profile_detect_shell()` | Detect bash/zsh/fish |
+| `installer_profile_detect_config_file()` | Find appropriate config file |
+| `installer_profile_is_login_shell()` | Check if login shell |
+| `installer_profile_backup()` | Backup config before changes |
+| `installer_profile_restore()` | Restore config from backup |
+| `installer_profile_check_path()` | Check if PATH configured |
+| `installer_profile_get_path_cmd()` | Get PATH export command |
+| `installer_profile_has_cleo_section()` | Check for existing config |
+| `installer_profile_update()` | Add CLEO to profile |
+| `installer_profile_remove()` | Remove CLEO from profile |
+| `installer_profile_verify()` | Verify configuration |
+| `installer_profile_init_global_config()` | Initialize global config |
+| `installer_profile_migrate_legacy()` | Migrate from old locations |
+| `installer_profile_show_info()` | Show profile information |
+
+**Supported Shells:**
+
+| Shell | Config Files |
+|-------|--------------|
+| Bash | `~/.bashrc`, `~/.bash_profile` |
+| Zsh | `~/.zshrc`, `~/.zprofile` |
+| Fish | `~/.config/fish/config.fish` |
+
+### recover.sh - Recovery and Rollback
+
+Handles interruption recovery, rollback, and cleanup operations.
+
+| Function | Purpose |
+|----------|---------|
+| `installer_recover_needs_recovery()` | Check if recovery needed |
+| `installer_recover_get_state_info()` | Get saved state info |
+| `installer_recover_is_state_stale()` | Check for stale state |
+| `installer_recover_from_state()` | Determine recovery action |
+| `installer_recover_resume_from_state()` | Resume interrupted install |
+| `installer_recover_restart()` | Clean restart installation |
+| `installer_recover_rollback()` | Rollback to backup |
+| `installer_recover_rollback_to_state()` | Rollback to specific state |
+| `installer_recover_rollback_state()` | Execute rollback |
+| `installer_recover_cleanup()` | Full cleanup |
+| `installer_recover_cleanup_temp()` | Clean temp files only |
+| `installer_recover_reset()` | Reset installer state |
+| `installer_recover_create_backup()` | Create recovery backup |
+| `installer_recover_restore_current_backup()` | Restore from backup |
+| `installer_recover_interrupted()` | Handle interruption |
+| `installer_recover_prompt_action()` | Interactive recovery prompt |
+| `installer_recover_execute_recovery_actions()` | Execute recovery plan |
+| `installer_recover_manual_rollback()` | Manual rollback command |
+| `installer_recover_manual_cleanup()` | Manual cleanup command |
+| `installer_recover_manual_reset()` | Manual reset command |
+| `installer_recover_list_backups()` | List available backups |
+| `installer_recover_restore_from()` | Restore specific backup |
+
+**Recovery Actions:**
+
+| Action | When Used |
+|--------|-----------|
+| `resume` | State is safe, continue from checkpoint |
+| `restart` | State is corrupted, clean restart |
+| `rollback` | Critical failure, restore backup |
+| `abort` | User cancelled, cleanup and exit |
+
+**State Expiry:**
+
+Stale states older than 24 hours are automatically cleaned.
+
+## Exit Codes
+
+The installer uses distinct exit codes for different failure modes.
+
+### Core Exit Codes (60-71)
+
+| Code | Name | Description |
+|------|------|-------------|
+| 60 | `EXIT_LOCK_HELD` | Another installation in progress |
+| 61 | `EXIT_STATE_CORRUPT` | State file corrupted |
+| 62 | `EXIT_BACKUP_FAILED` | Failed to create backup |
+| 63 | `EXIT_INSTALL_FAILED` | Installation failed |
+| 64 | `EXIT_ROLLBACK_FAILED` | Rollback failed |
+| 65 | `EXIT_VALIDATION_FAILED` | Validation failed |
+| 66 | `EXIT_DOWNLOAD_FAILED` | Download failed |
+| 67 | `EXIT_CHECKSUM_MISMATCH_INST` | Checksum mismatch |
+| 68 | `EXIT_PERMISSION_DENIED` | Permission denied |
+| 69 | `EXIT_INTERRUPTED` | Installation interrupted |
+| 70 | `EXIT_PROFILE_FAILED` | Profile update failed |
+| 71 | `EXIT_STAGING_FAILED` | Staging failed |
+
+### Source Exit Codes (70-75)
+
+| Code | Name | Description |
+|------|------|-------------|
+| 70 | `EXIT_NETWORK_ERROR` | Network connection failed |
+| 71 | `EXIT_CHECKSUM_FAILED` | Checksum verification failed |
+| 72 | `EXIT_INVALID_VERSION` | Invalid version specified |
+| 73 | `EXIT_EXTRACT_FAILED` | Archive extraction failed |
+| 74 | `EXIT_MODE_CONFLICT` | Dev/release mode conflict |
+| 75 | `EXIT_USER_CANCELLED` | User cancelled operation |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLEO_HOME` | `~/.cleo` | Installation directory |
+| `INSTALLER_MODE` | `auto` | Installation mode (dev/release/auto) |
+| `INSTALLER_DEBUG` | `0` | Enable debug logging |
+| `INSTALLER_DEV_MODE` | `0` | Force development mode |
+| `INSTALLER_NO_COLOR` | `0` | Disable colored output |
+
+### Command Line Options
+
+```bash
+./installer/install.sh [OPTIONS]
+
+Installation:
+  --dev               Force development mode (symlinks)
+  --release           Force release mode (download from GitHub)
+  --no-symlinks       In dev mode, copy files instead of symlinking
+  --force             Overwrite existing installation
+  --skip-profile      Skip shell profile updates
+  --skip-skills       Skip skills installation
+  --version VERSION   Install specific version
+
+Information:
+  --check-deps        Check dependencies only
+  --status            Show installation status
+  --version-info      Show version information
+  --list-versions     List available versions
+  --check-upgrade     Check for available upgrades
+
+Recovery:
+  --recover           Recover from interrupted installation
+  --rollback          Rollback to previous backup
+  --dry-run           Show what would be done
+  --verbose           Enable verbose output
+
+Maintenance:
+  --refresh           Refresh dev mode installation
+  --upgrade [VERSION] Upgrade to latest or specified version
+```
+
+## Recovery
+
+### Automatic Recovery
+
+The installer automatically detects interrupted installations and offers recovery options.
+
+**Safe States (automatic restart):**
+- `INIT` - No changes made
+- `PREPARE` - Only temp directories created
+- `VALIDATE` - Only validation performed
+
+**Critical States (require user choice):**
+- `INSTALL` - Files may be partially copied
+- `LINK` - Symlinks may be incomplete
+- `PROFILE` - Shell config may be modified
+
+### Manual Recovery Commands
+
+```bash
+# Show current state and recovery options
+./installer/install.sh --status
+
+# Attempt automatic recovery
+./installer/install.sh --recover
+
+# Rollback to backup
+./installer/install.sh --rollback
+
+# Full cleanup (removes all installer state)
+./installer/install.sh --cleanup
+```
+
+### Backup Structure
+
+Backups are stored in `~/.cleo/.installer/backups/`:
+
+```
+~/.cleo/.installer/backups/
+├── safety/              # Pre-operation backups
+│   └── 2026-01-20T15-30-00/
+│       ├── metadata.json
+│       └── cleo-backup.tar.gz
+└── snapshot/            # User-requested snapshots
+    └── 2026-01-20T10-00-00/
+        ├── metadata.json
+        └── cleo-backup.tar.gz
+```
+
+## Usage Examples
+
+### Fresh Installation
+
+```bash
+# Clone and install (dev mode)
+git clone https://github.com/kryptobaseddev/cleo.git
+cd cleo
+./installer/install.sh
+
+# Or download and install (release mode)
+curl -sSL https://cleo.sh/install | bash
+```
+
+### Upgrade Existing Installation
+
+```bash
+# Check for updates
+./installer/install.sh --check-upgrade
+
+# Upgrade to latest
+./installer/install.sh --upgrade
+
+# Upgrade to specific version
+./installer/install.sh --upgrade 0.55.0
+```
+
+### Recovery from Failure
+
+```bash
+# Check status
+./installer/install.sh --status
+
+# Recover
+./installer/install.sh --recover
+
+# If recovery fails, rollback
+./installer/install.sh --rollback
+```
+
+### Development Workflow
+
+```bash
+# Install in dev mode
+./installer/install.sh --dev
+
+# Make changes, test immediately
+# Changes are live via symlinks
+
+# Pull latest and refresh
+git pull
+./installer/install.sh --refresh
+```
+
+## Troubleshooting
+
+### Lock File Issues
+
+**Symptom:** "Another installation in progress" but no other install running.
+
+**Solution:**
+```bash
+# Check lock age
+cat ~/.cleo/.installer/install.lock
+
+# Remove stale lock (if >5 minutes old)
+rm ~/.cleo/.installer/install.lock
+```
+
+### Permission Errors
+
+**Symptom:** Permission denied during installation.
+
+**Solution:**
+```bash
+# Check directory ownership
+ls -la ~/.cleo
+
+# Fix ownership
+sudo chown -R $USER ~/.cleo
+
+# Retry
+./installer/install.sh
+```
+
+### Checksum Failures
+
+**Symptom:** Checksum verification failed.
+
+**Possible Causes:**
+- Incomplete download
+- Network issues
+- Corrupted file
+
+**Solution:**
+```bash
+# Clean and retry
+./installer/install.sh --cleanup
+./installer/install.sh
+```
+
+### Profile Not Updated
+
+**Symptom:** `cleo` command not found after installation.
+
+**Solution:**
+```bash
+# Check profile
+grep -l "cleo" ~/.bashrc ~/.zshrc ~/.bash_profile 2>/dev/null
+
+# Manually add if missing
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+## Self-Update Command
+
+CLEO v0.57.0+ includes a self-update command that allows automatic updates from GitHub releases without running the full installer manually.
+
+### Usage
+
+```bash
+# Check for updates
+cleo self-update --check
+
+# Show current vs latest version
+cleo self-update --status
+
+# Update to latest version
+cleo self-update
+
+# Update to specific version
+cleo self-update --version 0.58.0
+
+# Non-interactive update (for scripts/CI)
+cleo self-update --force
+```
+
+### How Self-Update Works
+
+1. **Version Check**: Queries GitHub API for latest release information
+2. **Download**: Fetches the release tarball (`cleo-X.Y.Z.tar.gz`)
+3. **Checksum Verification**: Validates SHA256 checksum from `SHA256SUMS` file
+4. **Backup**: Creates backup of current installation in `~/.cleo/backups/self-update/`
+5. **Install**: Runs the bundled installer from the extracted tarball
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success / already up to date |
+| 1 | Update available (with `--check`) |
+| 2 | Download failed |
+| 3 | Checksum mismatch |
+| 4 | Installation failed |
+| 5 | GitHub API error |
+| 100 | Dev mode (use git pull instead) |
+
+### Development Mode Detection
+
+For development installations (symlinks to git repository), `self-update` exits with code 100 and instructs the user to use `git pull` instead:
+
+```bash
+$ cleo self-update
+CLEO is installed in development mode.
+Use 'git pull' to update instead.
+
+Development mode indicators:
+  - Symlinked installation
+  - Git repository present
+```
+
+### Mode Switching (v0.58.0+)
+
+Self-update now supports switching between installation modes:
+
+```bash
+# Switch from dev mode to release mode
+cleo self-update --to-release
+
+# Switch from release mode to dev mode
+cleo self-update --to-dev /path/to/cleo-repo
+```
+
+**Dev → Release (`--to-release`):**
+1. Creates backup of current installation
+2. Downloads latest release from GitHub
+3. Verifies checksum
+4. Replaces symlinks with copied files
+5. Updates VERSION file to `mode=release`
+
+**Release → Dev (`--to-dev PATH`):**
+1. Validates PATH is a valid CLEO repository
+2. Creates backup of current installation
+3. Removes copied files
+4. Creates symlinks to repository
+5. Updates VERSION file to `mode=dev, source=PATH`
+
+See [Installation Modes Guide](INSTALLATION-MODES.md) for detailed usage.
+
+## GitHub Release Workflow
+
+CLEO releases are automated via GitHub Actions. When a version tag (`v*.*.*`) is pushed, the release workflow automatically builds and publishes release artifacts.
+
+### Workflow Trigger
+
+```yaml
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+```
+
+### Release Artifacts
+
+Each release includes:
+
+| Artifact | Description |
+|----------|-------------|
+| `cleo-X.Y.Z.tar.gz` | Runtime tarball (scripts, lib, schemas, templates, skills, installer) |
+| `install.sh` | Standalone installer script |
+| `SHA256SUMS` | SHA256 checksums for verification |
+
+### Runtime Tarball Contents
+
+The tarball contains only runtime components (no tests, dev scripts, or documentation):
+
+```
+cleo-X.Y.Z/
+├── scripts/       # CLI command scripts
+├── lib/           # Core libraries
+├── schemas/       # JSON Schema definitions
+├── templates/     # User templates
+├── skills/        # Agent skills
+├── installer/     # Modular installer
+├── VERSION        # Version file
+├── LICENSE        # License file
+└── README.md      # Project readme
+```
+
+**Excluded from runtime tarball:**
+- `tests/` - BATS test suite
+- `docs/` - User documentation
+- `.github/` - CI configurations
+- `dev/` - Development scripts
+- `claudedocs/` - Internal research
+- `archive/` - Historical data
+
+### Creating a Release
+
+To create a new release:
+
+```bash
+# Update VERSION file
+echo "0.58.0" > VERSION
+
+# Commit and tag
+git add VERSION
+git commit -m "chore: Bump version to 0.58.0"
+git tag v0.58.0
+
+# Push tag to trigger release workflow
+git push origin main --tags
+```
+
+The GitHub Action will:
+1. Validate required files exist
+2. Build the runtime tarball
+3. Generate SHA256 checksums
+4. Create a GitHub Release with auto-generated release notes
+5. Attach all artifacts to the release
+
+## See Also
+
+- [Getting Started Guide](./getting-started.md)
+- [CLEO CLI Reference](../commands/README.md)
+- [Contributing Guide](../contributing.mdx)

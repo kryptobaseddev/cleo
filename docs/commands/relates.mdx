@@ -1,0 +1,107 @@
+---
+title: "cleo relates"
+description: "Manage task relationships and discover semantic connections"
+icon: "diagram-project"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo relates
+
+Manage task relationships and discover semantic connections.
+
+<Info>**Agent Relevance**: Medium - Useful for task relationship management</Info>
+
+## Synopsis
+
+```bash
+cleo relates <subcommand> [options]
+```
+
+## Description
+
+The `relates` command helps discover and manage relationships between tasks based on shared attributes, labels, descriptions, and file references.
+
+## Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `suggest <task-id>` | Suggest related tasks based on shared attributes |
+| `add <from> <to> <type> "<reason>"` | Add a relates entry |
+| `discover <task-id>` | Discover related tasks using various methods |
+| `list <task-id>` | Show existing relates entries for a task |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--threshold N` | Similarity threshold for suggest (0.0-1.0, default: 0.5) |
+| `--method METHOD` | Discovery method: labels, description, files, auto (default: auto) |
+| `-f, --format FORMAT` | Output format: text \| json (default: auto-detect) |
+| `--json` | Force JSON output |
+| `--human` | Force text output |
+| `-q, --quiet` | Suppress informational messages |
+| `-h, --help` | Show help message |
+
+## Relationship Types
+
+| Type | Description |
+|------|-------------|
+| `relates-to` | General relationship (default) |
+| `spawned-from` | Derived from another task |
+| `deferred-to` | Work postponed to another task |
+| `supersedes` | Replaces another task |
+| `duplicates` | Same as another task |
+
+## Discovery Methods
+
+| Method | Description |
+|--------|-------------|
+| `labels` | Find tasks with overlapping labels |
+| `description` | Find tasks with similar text content |
+| `files` | Find tasks referencing similar files |
+| `auto` | Combine all methods (default) |
+
+## Examples
+
+<CodeGroup>
+
+```bash Find Related Tasks
+cleo relates suggest T2122
+```
+
+```bash Suggest with Higher Threshold
+cleo relates suggest T2122 --threshold 0.7
+```
+
+```bash Add Relationship
+cleo relates add T2122 T2100 spawned-from "Derived during analysis"
+```
+
+```bash Discover by Labels
+cleo relates discover T2122 --method labels
+```
+
+```bash List Task Relationships
+cleo relates list T2122
+```
+
+```bash List as JSON
+cleo relates list T2122 --json
+```
+
+</CodeGroup>
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `2` | Invalid arguments | No |
+| `4` | Resource not found | No |
+
+## See Also
+
+- [deps](/commands/deps) - Dependency management
+- [find](/commands/find) - Search tasks
+- [show](/commands/show) - Task details

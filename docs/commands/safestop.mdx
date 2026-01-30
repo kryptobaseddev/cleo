@@ -1,0 +1,86 @@
+---
+title: "cleo safestop"
+description: "Graceful shutdown for agents approaching context limits"
+icon: "hand"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo safestop
+
+Graceful shutdown for agents approaching context limits.
+
+<Info>**Agent Relevance**: High - Critical for agent context management</Info>
+
+## Synopsis
+
+```bash
+cleo safestop --reason <reason> [OPTIONS]
+```
+
+## Description
+
+The `safestop` command performs a graceful shutdown for agents approaching context limits. It updates task notes, optionally commits changes, generates a handoff document, and ends the session.
+
+## Required Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--reason <text>` | Reason for stopping (e.g., "context-limit", "manual") |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--commit` | Commit pending git changes with WIP message |
+| `--handoff <file>` | Generate handoff document (use - for stdout) |
+| `--no-session-end` | Update notes but don't end session |
+| `--dry-run` | Show actions without executing |
+| `--format <format>` | Output format: text (default) or json |
+| `--json` | Shortcut for --format json |
+| `--help` | Show help message |
+
+## Examples
+
+<CodeGroup>
+
+```bash Full Graceful Shutdown
+cleo safestop --reason "context-limit" --commit --handoff ./handoff.json
+```
+
+```bash Preview Actions
+cleo safestop --reason "context-limit" --dry-run
+```
+
+```bash Update Notes, Keep Session Open
+cleo safestop --reason "checkpoint" --no-session-end
+```
+
+```bash Output Handoff to stdout
+cleo safestop --reason "context-limit" --handoff -
+```
+
+</CodeGroup>
+
+## Handoff Document
+
+The handoff document contains:
+
+- Current task state
+- Completed work summary
+- Blockers and next steps
+- Context window usage
+- Timestamp and session info
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `2` | Invalid arguments | No |
+
+## See Also
+
+- [session](/commands/session) - Session management
+- [context](/commands/context) - Context management
+- [focus](/commands/focus) - Task focus management

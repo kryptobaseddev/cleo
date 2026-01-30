@@ -1,0 +1,563 @@
+---
+title: 'Protocol Metrics & Compliance'
+description: 'Measuring and enforcing RCSD-IVTR protocol compliance'
+---
+
+# Protocol Metrics & Compliance
+
+> Automated validation and metrics tracking for CLEO's 9 RCSD-IVTR protocols
+
+## Overview
+
+The protocol metrics system provides **automated validation** and **compliance tracking** for all agent outputs in CLEO's RCSD-IVTR workflow. This ensures high-quality, standardized deliverables across research, implementation, and release phases.
+
+**Key Components:**
+- **9 protocol validators** - One for each RCSD-IVTR stage
+- **Compliance dashboard** - View pass rates and violations via `cleo compliance`
+- **Reusable validation functions** - Shared library for consistent checks
+- **Metrics storage** - Project-local and global aggregation
+
+## Protocol Validators
+
+Each RCSD-IVTR protocol stage has dedicated validation with specific requirements:
+
+### Research Protocol (Exit Code 60)
+
+**Validator**: `validate_research_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. Output file exists in expected directory
+2. Manifest entry present with required fields
+3. `agent_type` = "research"
+4. `key_findings` array with 3-7 items
+5. Status is valid enum (complete/partial/blocked)
+6. Return message follows format: "Research complete. See MANIFEST.jsonl for summary."
+7. No code modifications in git diff (research is read-only)
+
+**Common Violations**:
+- Missing key_findings array
+- Code changes during research phase
+- Incorrect agent_type
+
+### Consensus Protocol (Exit Code 61)
+
+**Validator**: `validate_consensus_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. Output file exists
+2. Voting matrix present in manifest
+3. Confidence scores for each option (0.0-1.0)
+4. Consensus threshold documented (usually 0.7)
+5. Decision rationale in key_findings
+6. `agent_type` = "consensus"
+7. Return message format valid
+
+**Common Violations**:
+- Invalid confidence score ranges
+- Missing voting matrix
+- Undocumented consensus threshold
+
+### Specification Protocol (Exit Code 62)
+
+**Validator**: `validate_specification_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. Output file contains RFC 2119 keywords (MUST/SHOULD/MAY)
+2. Version field present (e.g., "v1.0.0")
+3. Specification sections present (Purpose, Requirements, Design)
+4. `agent_type` = "specification"
+5. Manifest entry valid
+6. Status valid
+7. Return message format valid
+
+**Common Violations**:
+- Missing RFC 2119 keywords
+- No version field
+- Incomplete specification sections
+
+### Decomposition Protocol (Exit Code 63)
+
+**Validator**: `validate_decomposition_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. Task breakdown produces 2-7 sibling tasks
+2. Each subtask has clear, unique description
+3. Dependencies explicitly declared
+4. Epic structure documented in manifest
+5. `agent_type` = "decomposition"
+6. No orphaned tasks
+7. Return message format valid
+
+**Common Violations**:
+- Too many siblings (>7)
+- Duplicate or unclear descriptions
+- Missing dependency declarations
+
+### Implementation Protocol (Exit Code 64)
+
+**Validator**: `validate_implementation_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. All new functions have `@task` provenance tags
+2. Output file documents what was implemented
+3. `agent_type` = "implementation"
+4. Manifest entry links to task ID
+5. Status valid
+6. Return message format valid
+7. Git diff contains actual code changes
+
+**Common Violations**:
+- Missing `@task` tags on new functions
+- No actual code changes in git diff
+- Undocumented implementation details
+
+### Validation Protocol (Exit Code 67/68)
+
+**Validator**: `validate_validation_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. Validation criteria documented
+2. Test results included in manifest
+3. Pass/fail determination clear
+4. `agent_type` = "validation"
+5. Output file contains validation report
+6. Status valid
+7. Return message format valid
+
+**Common Violations**:
+- Missing test results
+- Unclear pass/fail criteria
+- No validation report
+
+### Testing Protocol (Exit Code 69/70)
+
+**Validator**: `validate_testing_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. Test file created with `@task` tags
+2. Test coverage documented
+3. Test results in manifest
+4. `agent_type` = "testing"
+5. All tests pass or failures documented
+6. Status valid
+7. Return message format valid
+
+**Common Violations**:
+- Missing `@task` tags in test files
+- Undocumented test coverage
+- Failed tests without documentation
+
+### Contribution Protocol (Exit Code 65)
+
+**Validator**: `validate_contribution_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. All modified files have `@task` or `@contribution` tags
+2. Manifest documents contribution scope
+3. `agent_type` = "contribution"
+4. PR link or commit reference present
+5. Status valid
+6. Return message format valid
+7. Attribution metadata present
+
+**Common Violations**:
+- Missing contribution tags
+- No PR/commit reference
+- Unclear contribution scope
+
+### Release Protocol (Exit Code 66)
+
+**Validator**: `validate_release_protocol()` in `lib/protocol-validation.sh`
+
+**Requirements** (7 MUST):
+1. Version follows semver (e.g., "0.76.0")
+2. CHANGELOG updated
+3. Release notes present
+4. `agent_type` = "release"
+5. Manifest links to release task
+6. Status valid
+7. Return message format valid
+
+**Common Violations**:
+- Invalid semver format
+- Missing CHANGELOG entry
+- No release notes
+
+## Compliance Dashboard
+
+### Quick Status Check
+
+```bash
+# Summary of compliance metrics
+cleo compliance
+
+# Output (JSON by default)
+{
+  "compliance_pass_rate": 0.92,
+  "rule_adherence_score": 0.95,
+  "violation_count": 3,
+  "total_tasks": 37
+}
+```
+
+### Full Compliance Report
+
+```bash
+# Detailed human-readable report
+cleo compliance report
+
+# Output
+╔════════════════════════════════════════════════════════════╗
+║             PROJECT COMPLIANCE REPORT                      ║
+╚════════════════════════════════════════════════════════════╝
+
+Pass Rate: 92% (34/37 tasks)
+Rule Adherence: 95% (245/258 rules)
+Violations: 3 (2 medium, 1 low)
+
+BY PROTOCOL:
+  Research:       100% (12/12 tasks)
+  Specification:   90% (9/10 tasks)
+  Implementation:  89% (8/9 tasks)
+  Testing:        100% (5/5 tasks)
+```
+
+### View Violations
+
+```bash
+# All violations
+cleo compliance violations
+
+# High severity only
+cleo compliance violations --severity high
+
+# Specific protocol
+cleo compliance violations --protocol research
+```
+
+### Trend Analysis
+
+```bash
+# 7-day trend (default)
+cleo compliance trend
+
+# 30-day trend
+cleo compliance trend 30
+
+# Output
+Date       Pass Rate  Violations
+2026-01-22   0.85         5
+2026-01-23   0.88         4
+2026-01-24   0.90         3
+2026-01-25   0.92         3
+2026-01-26   0.92         2
+2026-01-27   0.93         2
+2026-01-28   0.95         1
+```
+
+### Epic-Specific Audit
+
+```bash
+# Check compliance for epic's tasks
+cleo compliance audit T2724
+
+# Output
+Epic T2724: Protocol Metrics
+  T2725: Research - ✓ Pass
+  T2726: Specification - ✓ Pass
+  T2727: Implementation - ✗ FAIL (missing @task tags)
+  T2728: Testing - ✓ Pass
+
+Overall: 75% (3/4 tasks pass)
+```
+
+## Common Validation Functions
+
+The `lib/protocol-validation-common.sh` library provides **8 reusable validation functions** used across all protocol validators:
+
+### Output File Validation
+
+| Function | Purpose | Usage |
+|----------|---------|-------|
+| `check_output_file_exists()` | Verify output file written | `check_output_file_exists "$task_id" "$output_dir" "*.md"` |
+| `check_documentation_sections()` | Check required sections present | `check_documentation_sections "$file" "Summary" "Requirements"` |
+
+### Manifest Validation
+
+| Function | Purpose | Usage |
+|----------|---------|-------|
+| `check_manifest_field_present()` | Verify field exists and non-empty | `check_manifest_field_present "$entry" "key_findings"` |
+| `check_manifest_field_type()` | Check field has correct type | `check_manifest_field_type "$entry" "topics" "array"` |
+| `check_agent_type()` | Validate agent_type value | `check_agent_type "$entry" "research"` |
+| `check_status_valid()` | Check status is complete/partial/blocked | `check_status_valid "$entry"` |
+| `check_key_findings_count()` | Verify 3-7 findings | `check_key_findings_count "$entry"` |
+| `check_linked_tasks_present()` | Check task IDs linked | `check_linked_tasks_present "$entry" "T2724" "T2732"` |
+
+### Return Message Validation
+
+| Function | Purpose | Usage |
+|----------|---------|-------|
+| `check_return_message_format()` | Validate return message format | `check_return_message_format "$msg" "Research"` |
+
+### Provenance Validation
+
+| Function | Purpose | Usage |
+|----------|---------|-------|
+| `check_provenance_tags()` | Verify @task tags in code | `check_provenance_tags "$file" "T2724"` |
+
+**Example Usage in Validator:**
+
+```bash
+#!/usr/bin/env bash
+source lib/protocol-validation-common.sh
+
+validate_custom_protocol() {
+    local task_id="$1"
+    local output_file="$2"
+
+    # Check output file exists
+    check_output_file_exists "$task_id" "claudedocs/agent-outputs" || {
+        echo "ERROR: Output file missing"
+        return 1
+    }
+
+    # Check manifest entry
+    local manifest_entry
+    manifest_entry=$(grep "\"id\":\"${task_id}" MANIFEST.jsonl | tail -1)
+
+    check_manifest_field_present "$manifest_entry" "key_findings" || {
+        echo "ERROR: Missing key_findings"
+        return 1
+    }
+
+    check_status_valid "$manifest_entry" || {
+        echo "ERROR: Invalid status"
+        return 1
+    }
+
+    return 0
+}
+```
+
+## Metrics Storage
+
+### Project-Local Metrics
+
+**Location**: `.cleo/metrics/COMPLIANCE.jsonl`
+
+**Format**: Append-only JSONL (one entry per task completion)
+
+```jsonl
+{"task_id":"T2725","agent_type":"research","protocol":"research","passed":true,"violations":[],"timestamp":"2026-01-28T12:00:00Z"}
+{"task_id":"T2726","agent_type":"specification","protocol":"specification","passed":true,"violations":[],"timestamp":"2026-01-28T13:30:00Z"}
+{"task_id":"T2727","agent_type":"implementation","protocol":"implementation","passed":false,"violations":[{"rule":"IMPL-004","severity":"medium","message":"Missing @task tags"}],"timestamp":"2026-01-28T15:00:00Z"}
+```
+
+**Fields**:
+- `task_id` - Task identifier
+- `agent_type` - research, implementation, etc.
+- `protocol` - Protocol name
+- `passed` - Boolean validation result
+- `violations` - Array of violation objects
+- `timestamp` - ISO 8601 completion time
+
+### Manifest Entries
+
+**Location**: `claudedocs/agent-outputs/MANIFEST.jsonl`
+
+**Purpose**: Subagent output catalog (separate from compliance metrics)
+
+```jsonl
+{"id":"T2725-research","file":"claudedocs/agent-outputs/T2725-research.md","title":"Protocol Metrics Research","date":"2026-01-28","status":"complete","agent_type":"research","topics":["validation","metrics"],"key_findings":["9 validators implemented","Common functions library created","Exit codes 60-70 allocated"],"actionable":true,"needs_followup":[],"linked_tasks":["T2724","T2725"]}
+```
+
+**Relationship**:
+- **COMPLIANCE.jsonl** = Validation results (pass/fail)
+- **MANIFEST.jsonl** = Output catalog (what was produced)
+
+### Global Metrics (Future)
+
+**Location**: `~/.cleo/metrics/compliance-global.jsonl`
+
+**Purpose**: Cross-project aggregation for skill reliability tracking
+
+```bash
+# Sync project metrics to global
+cleo compliance sync
+
+# View global skill stats
+cleo compliance skills --global
+```
+
+## Protocol Requirements Summary
+
+Quick reference for MUST/SHOULD/MAY counts per protocol:
+
+| Protocol | MUST | SHOULD | MAY | Validator Exit Code |
+|----------|-----:|-------:|----:|--------------------:|
+| Research | 7 | 3 | 2 | 60 |
+| Consensus | 7 | 2 | 1 | 61 |
+| Specification | 7 | 4 | 3 | 62 |
+| Decomposition | 7 | 3 | 2 | 63 |
+| Implementation | 7 | 4 | 2 | 64 |
+| Validation | 7 | 3 | 2 | 67/68 |
+| Testing | 7 | 4 | 3 | 69/70 |
+| Contribution | 7 | 2 | 1 | 65 |
+| Release | 7 | 3 | 2 | 66 |
+
+**Total**: 63 MUST requirements across all protocols
+
+## Integration with Orchestrator
+
+### Spawn-Time Validation
+
+The orchestrator validates task readiness before spawning:
+
+```bash
+# Check if task ready for spawn
+cleo orchestrator check T2732
+
+# Output
+{
+  "ready": true,
+  "protocol": "release",
+  "prerequisites": ["T2725", "T2726", "T2727"],
+  "lifecycle_gate": "passed"
+}
+```
+
+### Post-Spawn Validation
+
+After subagent completes, orchestrator validates output:
+
+```bash
+# Validate subagent output
+cleo orchestrator validate --subagent T2732
+
+# Output
+{
+  "task_id": "T2732",
+  "protocol": "release",
+  "passed": true,
+  "violations": []
+}
+```
+
+### Compliance Reporting
+
+Orchestrator tracks compliance across entire epic:
+
+```bash
+# Epic compliance summary
+cleo compliance audit T2724
+
+# Blocks further spawns if compliance drops below threshold
+```
+
+## Troubleshooting
+
+### "Missing key_findings" Violation
+
+**Symptom**: Research validator fails with "Missing key_findings"
+
+**Causes**:
+- Manifest entry lacks `key_findings` field
+- Array is empty
+- Array has <3 or >7 items
+
+**Fix**:
+```bash
+# Check manifest entry
+grep "T2725" claudedocs/agent-outputs/MANIFEST.jsonl | jq '.key_findings'
+
+# Should have 3-7 items:
+["Finding 1", "Finding 2", "Finding 3"]
+```
+
+### "Invalid status" Violation
+
+**Symptom**: Validator fails with "Invalid status"
+
+**Causes**:
+- Status not one of: complete, partial, blocked
+- Field missing or null
+
+**Fix**:
+```bash
+# Check status field
+grep "T2726" claudedocs/agent-outputs/MANIFEST.jsonl | jq '.status'
+
+# Must be exactly one of:
+"complete"   # ✓
+"partial"    # ✓
+"blocked"    # ✓
+"done"       # ✗ (use "complete")
+"finished"   # ✗ (use "complete")
+```
+
+### "Missing @task tags" Violation
+
+**Symptom**: Implementation validator fails for missing provenance
+
+**Causes**:
+- New functions lack `@task` comment tags
+- Tags use wrong format
+
+**Fix**:
+```bash
+# Add tags to new functions:
+# @task T2727
+function new_feature() {
+    # ...
+}
+
+# Not in docstrings - must be standalone comment
+```
+
+### "Protocol type mismatch" Violation
+
+**Symptom**: Agent_type doesn't match protocol
+
+**Causes**:
+- Manifest has `agent_type: "implementation"` but protocol is "research"
+- Copy-paste error in manifest template
+
+**Fix**:
+```bash
+# Ensure agent_type matches protocol:
+Research → "agent_type": "research"
+Implementation → "agent_type": "implementation"
+Release → "agent_type": "release"
+```
+
+## Exit Code Reference
+
+| Code | Protocol | Name | Meaning |
+|-----:|----------|------|---------|
+| 60 | Research | `E_PROTOCOL_RESEARCH` | Research validation failed |
+| 61 | Consensus | `E_PROTOCOL_CONSENSUS` | Consensus validation failed |
+| 62 | Specification | `E_PROTOCOL_SPECIFICATION` | Spec validation failed |
+| 63 | Decomposition | `E_PROTOCOL_DECOMPOSITION` | Decomposition validation failed |
+| 64 | Implementation | `E_PROTOCOL_IMPLEMENTATION` | Implementation validation failed |
+| 65 | Contribution | `E_PROTOCOL_CONTRIBUTION` | Contribution validation failed |
+| 66 | Release | `E_PROTOCOL_RELEASE` | Release validation failed |
+| 67 | Validation | `E_PROTOCOL_VALIDATION` | Validation validation failed |
+| 68 | - | `E_PROTOCOL_VALIDATION_ALT` | Alternate validation code |
+| 69 | Testing | `E_PROTOCOL_TESTING` | Testing validation failed |
+| 70 | - | `E_PROTOCOL_TESTING_ALT` | Alternate testing code |
+
+**See**: `lib/exit-codes.sh` for canonical exit code definitions
+
+## See Also
+
+- [RCSD-IVTR Protocol Stack](/docs/developer/specifications/RCSD-IVTR-PROTOCOL-STACK) - Full protocol specification
+- [Protocol Enforcement](/docs/developer/specifications/PROTOCOL-ENFORCEMENT) - Implementation details
+- [Orchestrator Protocol](/guides/ORCHESTRATOR-PROTOCOL) - Multi-agent coordination
+- [Compliance Command Reference](/commands/compliance) - CLI usage
+- [Exit Codes Reference](/docs/developer/development/exit-codes) - All exit codes
+
+## Version History
+
+- **v0.76.0**: Protocol metrics system with 9 validators
+- **v0.75.0**: Common validation functions library
+- **v0.74.0**: RCSD-IVTR protocol stack complete

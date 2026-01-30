@@ -1,0 +1,85 @@
+---
+title: "cleo generate-changelog"
+description: "Generate Mintlify changelog from CHANGELOG.md"
+icon: "clock-rotate-left"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo generate-changelog
+
+Generate Mintlify changelog from CHANGELOG.md.
+
+<Info>**Agent Relevance**: Low - Release management tool</Info>
+
+## Synopsis
+
+```bash
+cleo generate-changelog [LIMIT]
+```
+
+## Description
+
+The `generate-changelog` command parses CHANGELOG.md and generates a Mintlify-compatible MDX file at `docs/changelog/overview.mdx`. It converts version headers to `<Update>` components with automatic tag detection.
+
+## Arguments
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `LIMIT` | Maximum number of versions to include | 15 |
+
+## Features
+
+- Auto-detects tags from changelog content (Fix, Feature, Installer, Skills, etc.)
+- Limits to 3 tags per release
+- Escapes special characters to prevent MDX/JSX parse errors
+- Generates RSS-compatible output
+
+## Output Location
+
+```
+docs/changelog/overview.mdx
+```
+
+## Examples
+
+<CodeGroup>
+
+```bash Generate with Default Limit
+cleo generate-changelog
+```
+
+```bash Generate Last 10 Versions
+cleo generate-changelog 10
+```
+
+</CodeGroup>
+
+## Tag Detection
+
+The following keywords are automatically detected and converted to tags:
+
+| Keyword | Tag |
+|---------|-----|
+| Fix | Fix |
+| Add | Feature |
+| Install | Installer |
+| Skill | Skills |
+| Orchestrat | Orchestrator |
+| Session | Sessions |
+| Context | Context |
+| Research | Research |
+| Doc | Documentation |
+| CLI | CLI |
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `1` | Error (CHANGELOG.md not found) | No |
+
+## See Also
+
+- [release](/commands/release) - Manage release lifecycle
+- [self-update](/commands/self-update) - Update CLEO itself
