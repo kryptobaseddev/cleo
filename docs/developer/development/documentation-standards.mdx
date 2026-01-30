@@ -1,0 +1,876 @@
+---
+title: "Documentation Standards"
+description: "Mintlify documentation standards and best practices for CLEO"
+icon: "book-open"
+---
+
+# Documentation Standards
+
+**Version**: 1.0.0
+**Last Updated**: 2026-01-30
+**Status**: Reference Guide (Normative)
+
+---
+
+## Overview
+
+This document defines documentation standards for CLEO's Mintlify documentation. These standards ensure consistency, discoverability, and maintainability across all documentation pages.
+
+**Scope**: All `.mdx` files in the `docs/` directory that are part of the Mintlify documentation site.
+
+---
+
+## Core Principles
+
+### Single Source of Truth
+
+| Principle | Implementation |
+|-----------|----------------|
+| **One canonical location** | Each piece of information should exist in exactly one place |
+| **Reference, don't duplicate** | Link to authoritative sources rather than copying content |
+| **Structured data over prose** | Use schemas, configs, and code as primary sources |
+| **Auto-generation preferred** | Generate docs from code/data when possible |
+
+**Examples**:
+- Exit codes: Source of truth is `lib/exit-codes.sh`, documentation generated from code
+- Command flags: Source of truth is argument parsing in each script
+- JSON schemas: Source of truth is `schemas/*.schema.json`, documentation references schemas
+- Version numbers: Source of truth is `VERSION` file, documentation pulls from it
+
+### Documentation Hierarchy
+
+```
+Source Code/Data (Authoritative)
+    ↓ generates/validates
+Documentation (Derivative)
+    ↓ presents
+User-Facing Content (Consumable)
+```
+
+**Never edit the derivative layer expecting changes to propagate up.**
+
+---
+
+## Part 1: Frontmatter Requirements
+
+### Required Fields
+
+Every `.mdx` file **MUST** include frontmatter with these three fields:
+
+```yaml
+---
+title: "Human-Readable Page Title"
+description: "Brief description for SEO and navigation (50-160 chars recommended)"
+icon: "fontawesome-icon-name"
+---
+```
+
+### Field Specifications
+
+#### `title` Field
+
+| Constraint | Rule |
+|------------|------|
+| **Format** | String, quoted |
+| **Length** | 3-60 characters recommended |
+| **Style** | Title Case for most pages, sentence case for guides |
+| **Uniqueness** | Should be unique within the documentation set |
+
+**Examples**:
+```yaml
+# Specifications (Title Case)
+title: "CLEO System Architecture"
+title: "Multi-Agent Orchestration Protocol"
+title: "Library Architecture Specification"
+
+# Guides (Sentence case often)
+title: "Quick Start"
+title: "Getting started with sessions"
+title: "Multi-agent setup guide"
+
+# Commands (Command name + description)
+title: "add - Create New Tasks"
+title: "session - Manage Work Sessions"
+```
+
+#### `description` Field
+
+| Constraint | Rule |
+|------------|------|
+| **Format** | String, quoted |
+| **Length** | 50-160 characters (SEO optimal) |
+| **Style** | Complete sentence or fragment, ends without period |
+| **Purpose** | Used in search results, navigation tooltips, SEO meta tags |
+
+**Best Practices**:
+- Focus on what the page helps users accomplish
+- Include key terms for searchability
+- Be specific, not generic
+
+**Examples**:
+```yaml
+# Good descriptions
+description: "Automated validation of LLM-Agent-First compliance for CLEO scripts"
+description: "Get up and running with CLEO in 5 minutes"
+description: "Bash library architecture and dependency management patterns"
+
+# Avoid generic descriptions
+description: "Documentation for this feature"  # Too vague
+description: "Learn about the system"          # Too generic
+```
+
+#### `icon` Field
+
+| Constraint | Rule |
+|------------|------|
+| **Format** | String, unquoted or quoted, Font Awesome icon name |
+| **Source** | [Font Awesome 6 Free icons](https://fontawesome.com/search?o=r&m=free) |
+| **Style** | Use kebab-case (e.g., `book-open`, not `bookOpen`) |
+| **Prefix** | Omit the `fa-` prefix (Mintlify adds it automatically) |
+
+**Icon Selection Guide**:
+
+| Category | Common Icons |
+|----------|--------------|
+| **Architecture/System** | `sitemap`, `diagram-project`, `network-wired`, `cubes` |
+| **Code/Development** | `code`, `terminal`, `file-code`, `brackets-curly` |
+| **Configuration** | `gear`, `sliders`, `wrench`, `screwdriver-wrench` |
+| **Documentation** | `book`, `book-open`, `file-lines`, `scroll` |
+| **Security/Validation** | `shield-check`, `lock`, `shield-halved`, `check-double` |
+| **Workflows** | `arrows-rotate`, `rotate`, `arrow-right-arrow-left`, `diagram-next` |
+| **Time/History** | `clock`, `clock-rotate-left`, `calendar`, `timeline` |
+| **Actions** | `play`, `rocket`, `wand-magic-sparkles`, `bolt` |
+| **Data/Storage** | `database`, `server`, `hard-drive`, `floppy-disk` |
+| **Search/Discovery** | `magnifying-glass`, `telescope`, `binoculars`, `radar` |
+| **Users/Teams** | `users`, `user-group`, `people-group`, `user-check` |
+
+**Examples**:
+```yaml
+# Specifications
+icon: "sitemap"              # System architecture
+icon: "diagram-project"      # Project structure
+icon: "shield-check"         # Validation/compliance
+
+# Guides
+icon: "rocket"               # Quick start
+icon: "book-open"            # General guide
+icon: "terminal"             # Command-line guide
+
+# Commands
+icon: "plus"                 # add command
+icon: "pen"                  # update command
+icon: "check"                # complete command
+icon: "list"                 # list command
+```
+
+### Frontmatter Validation
+
+**Automated checks** (via `cleo verify` or CI):
+- [ ] All three required fields present
+- [ ] `title` not empty, within length constraints
+- [ ] `description` not empty, ideally 50-160 chars
+- [ ] `icon` is a valid Font Awesome icon name
+- [ ] No duplicate titles across navigation
+
+---
+
+## Part 2: File Naming Conventions
+
+### General Rules
+
+| Rule | Pattern | Example |
+|------|---------|---------|
+| **Case** | UPPER-KEBAB for specs, lower-kebab for others | `TASK-HIERARCHY.mdx`, `quick-start.mdx` |
+| **Hyphens** | Use hyphens, not underscores | `multi-agent.mdx` ✅ `multi_agent.mdx` ❌ |
+| **Extensions** | Always `.mdx` for Mintlify | `guide.mdx` ✅ `guide.md` ❌ |
+| **Descriptive** | Name should match title (converted to kebab-case) | Title: "Quick Start" → `quick-start.mdx` |
+
+### Directory-Specific Patterns
+
+#### `/docs/getting-started/`
+- **Pattern**: `lower-kebab-case.mdx`
+- **Examples**: `index.mdx`, `quickstart.mdx`, `installation.mdx`
+
+#### `/docs/concepts/`
+- **Pattern**: `lower-kebab-case.mdx`
+- **Examples**: `vision.mdx`, `task-hierarchy.mdx`, `sessions.mdx`
+
+#### `/docs/guides/`
+- **Pattern**: `lower-kebab-case.mdx` or `UPPER-KEBAB-CASE.mdx` for protocol guides
+- **Examples**:
+  - `project-management.mdx`
+  - `multi-agent-setup.mdx`
+  - `ORCHESTRATOR-PROTOCOL.mdx` (protocol reference)
+
+#### `/docs/commands/`
+- **Pattern**: `command-name.mdx` (exact command name)
+- **Examples**: `add.mdx`, `list.mdx`, `session.mdx`, `setup-agents.mdx`
+
+#### `/docs/api/`
+- **Pattern**: `lower-kebab-case.mdx`
+- **Examples**: `index.mdx`, `schemas.mdx`, `exit-codes.mdx`, `output-formats.mdx`
+
+#### `/docs/skills/`
+- **Pattern**: `skill-slug.mdx` (matches skill directory name pattern)
+- **Examples**: `orchestrator.mdx`, `epic-architect.mdx`, `test-writer-bats.mdx`
+
+#### `/docs/developer/specifications/`
+- **Pattern**: `UPPER-KEBAB-CASE.mdx` (matching spec file names)
+- **Examples**:
+  - `CLEO-SYSTEM-ARCHITECTURE.mdx`
+  - `TASK-HIERARCHY.mdx`
+  - `LIBRARY-ARCHITECTURE.mdx`
+  - `LLM-AGENT-FIRST.mdx`
+
+#### `/docs/developer/protocols/`
+- **Pattern**: `lowercase-single-word.mdx`
+- **Examples**: `research.mdx`, `consensus.mdx`, `specification.mdx`, `implementation.mdx`
+
+#### `/docs/developer/development/`
+- **Pattern**: `lower-kebab-case.mdx`
+- **Examples**:
+  - `code-style.mdx`
+  - `compliance-checking.mdx`
+  - `documentation-standards.mdx` ← This file
+
+#### `/docs/troubleshooting/`
+- **Pattern**: `UPPER-KEBAB-CASE.mdx` or `lower-kebab-case.mdx`
+- **Examples**: `DISPATCH-DEBUG.mdx`, `common-issues.mdx`
+
+### File Location Rules
+
+| Content Type | Location | Rationale |
+|--------------|----------|-----------|
+| **User-facing guides** | `/docs/guides/` | Practical how-to content |
+| **API references** | `/docs/api/` | Technical specifications for scripting |
+| **Command documentation** | `/docs/commands/` | One file per command |
+| **System specs** | `/docs/developer/specifications/` | Authoritative design documents |
+| **Protocol definitions** | `/docs/developer/protocols/` | RCSD-IVTR protocol specs |
+| **Development guides** | `/docs/developer/development/` | For contributors |
+| **Concepts** | `/docs/concepts/` | High-level understanding |
+
+---
+
+## Part 3: docs.json Structure Patterns
+
+### Overview
+
+The `docs/docs.json` file defines the navigation structure for Mintlify. It uses a **tab → group → pages** hierarchy.
+
+### Structure Template
+
+```json
+{
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Tab Name",
+        "groups": [
+          {
+            "group": "Group Name",
+            "pages": [
+              "path/to/page-without-extension"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Page Path Rules
+
+| Rule | Description | Example |
+|------|-------------|---------|
+| **Relative to docs/** | Paths are relative to `docs/` directory | `"getting-started/index"` → `docs/getting-started/index.mdx` |
+| **No extension** | Omit `.mdx` extension | ✅ `"commands/add"` ❌ `"commands/add.mdx"` |
+| **No leading slash** | Paths start without `/` | ✅ `"api/schemas"` ❌ `"/api/schemas"` |
+| **Exact file match** | Must match actual file name | File: `quick-start.mdx` → `"getting-started/quick-start"` |
+
+### Tab Organization
+
+CLEO documentation uses these standard tabs:
+
+```json
+[
+  "Getting Started",  // Installation, quickstart, core concepts
+  "Guides",           // User-facing how-to guides
+  "Commands",         // Command reference (one page per command)
+  "API",              // Schemas, exit codes, output formats
+  "Skills",           // Skill documentation and development
+  "Developer",        // Specifications, protocols, development guides
+  "Changelog"         // Release history
+]
+```
+
+### Group Naming Guidelines
+
+| Style | Use Case | Examples |
+|-------|----------|----------|
+| **Descriptive** | Clear category labels | "Core Workflows", "System Specifications" |
+| **Consistent** | Similar naming patterns across tabs | "Overview" groups in multiple tabs |
+| **Hierarchical** | Organize by complexity or flow | "Introduction" → "Core Concepts" → "Advanced" |
+| **Scannable** | Easy to find in sidebar | "Task Management" not "Managing Tasks" |
+
+### Adding New Pages
+
+**Step-by-step process**:
+
+1. **Create the MDX file** with proper frontmatter:
+   ```bash
+   # Example: Adding a new guide
+   touch docs/guides/new-feature-guide.mdx
+   # Add frontmatter: title, description, icon
+   ```
+
+2. **Determine placement** in navigation:
+   - Which tab? (Getting Started, Guides, Commands, etc.)
+   - Which group within that tab?
+   - What position in the group? (order matters for navigation)
+
+3. **Edit docs.json**:
+   ```json
+   {
+     "tab": "Guides",
+     "groups": [
+       {
+         "group": "Core Workflows",
+         "pages": [
+           "guides/existing-guide",
+           "guides/new-feature-guide",  // ← Add here
+           "guides/another-guide"
+         ]
+       }
+     ]
+   }
+   ```
+
+4. **Verify navigation**:
+   ```bash
+   # Check for orphaned files
+   ./dev/verify-docs.sh --check-orphans
+
+   # Validate docs.json structure
+   jq . docs/docs.json > /dev/null && echo "Valid JSON"
+   ```
+
+### Common Patterns
+
+#### Index Pages
+
+Most tabs and many groups have an `index.mdx` as an overview/landing page:
+
+```json
+{
+  "group": "Overview",
+  "pages": [
+    "section/index"    // Landing page for the section
+  ]
+}
+```
+
+#### Logical Grouping
+
+Group related pages together with clear boundaries:
+
+```json
+{
+  "group": "Core Workflows",
+  "pages": [
+    "guides/project-management",
+    "guides/sessions",
+    "guides/context-monitoring"
+  ]
+},
+{
+  "group": "Advanced",
+  "pages": [
+    "guides/multi-agent",
+    "guides/orchestrator"
+  ]
+}
+```
+
+#### Progressive Disclosure
+
+Organize from simple to complex:
+
+```json
+{
+  "groups": [
+    {
+      "group": "Introduction",
+      "pages": ["getting-started/index", "getting-started/quickstart"]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": ["concepts/vision", "concepts/task-hierarchy"]
+    },
+    {
+      "group": "Advanced",
+      "pages": ["guides/multi-agent", "guides/orchestrator"]
+    }
+  ]
+}
+```
+
+---
+
+## Part 4: Single Source of Truth Principle
+
+### Data Hierarchy
+
+```
+1. Code/Config/Schema (Authoritative Source)
+   ├─ lib/exit-codes.sh           → Exit code definitions
+   ├─ schemas/*.schema.json        → Data structure contracts
+   ├─ VERSION                      → Current version number
+   ├─ CHANGELOG.md                 → Release history
+   └─ scripts/*.sh                 → Command implementations
+
+2. Generated Documentation (Derivative)
+   ├─ docs/api/exit-codes.mdx     → Generated from lib/exit-codes.sh
+   ├─ docs/api/schemas.mdx         → References schemas/*.schema.json
+   └─ docs/changelog/overview.mdx  → Generated from CHANGELOG.md
+
+3. Manual Documentation (Explanatory)
+   ├─ docs/guides/*.mdx            → How-to content
+   ├─ docs/concepts/*.mdx          → Conceptual explanations
+   └─ docs/developer/*.mdx         → Architecture and design
+```
+
+### Generation Scripts
+
+**When to auto-generate** vs **when to write manually**:
+
+| Content Type | Approach | Script |
+|--------------|----------|--------|
+| **Exit codes** | Auto-generate | `scripts/generate-exit-codes-doc.sh` |
+| **Changelog** | Auto-generate | `scripts/generate-changelog.sh` |
+| **Command list** | Auto-generate | From `scripts/*.sh` enumeration |
+| **Schemas** | Reference with examples | Manual, validated against `schemas/` |
+| **Guides** | Write manually | N/A |
+| **Specifications** | Write manually | N/A |
+
+### Version Synchronization
+
+**Source of truth**: `VERSION` file at repository root
+
+**Propagation**:
+```bash
+VERSION file (source)
+    ↓
+.cleo/templates/todo.json.template (schemaVersion)
+    ↓
+schemas/*.schema.json (_meta.schemaVersion)
+    ↓
+docs/api/schemas.mdx (documentation reference)
+```
+
+**Critical**: Version numbers in documentation should reference the source, not duplicate:
+
+```mdx
+<!-- ❌ BAD: Hardcoded version -->
+Current schema version: 2.10.0
+
+<!-- ✅ GOOD: Reference to source -->
+Current schema version is defined in `schemas/todo.schema.json` (_meta.schemaVersion field).
+```
+
+### Update Workflow
+
+When source code changes:
+
+1. **Update source** (code, schema, config)
+2. **Run generators** (if applicable)
+   ```bash
+   ./scripts/generate-changelog.sh
+   ./scripts/generate-exit-codes-doc.sh
+   ```
+3. **Review derivative docs** (ensure they reference sources correctly)
+4. **Verify navigation** (docs.json includes new pages)
+5. **Commit atomically** (source + generated docs together)
+
+---
+
+## Part 5: Validation Checklist
+
+### Pre-Commit Checklist
+
+Before committing documentation changes:
+
+- [ ] **Frontmatter**: All three fields present (title, description, icon)
+- [ ] **Title**: Descriptive, unique, appropriate length
+- [ ] **Description**: 50-160 chars, clear and specific
+- [ ] **Icon**: Valid Font Awesome icon name
+- [ ] **File naming**: Follows directory-specific conventions
+- [ ] **Navigation**: Page added to `docs.json` if new
+- [ ] **Links**: Internal links use correct relative paths
+- [ ] **Source references**: Links to code/schema sources, not duplicates
+- [ ] **Markdown**: Valid MDX syntax (no unclosed tags)
+- [ ] **Code blocks**: Language specified for syntax highlighting
+- [ ] **Tables**: Properly formatted with header row
+
+### Automated Validation
+
+```bash
+# Frontmatter validation
+./dev/verify-docs.sh --check-frontmatter
+
+# Navigation validation (orphaned files)
+./dev/verify-docs.sh --check-orphans
+
+# Dead link detection
+./dev/verify-docs.sh --check-links
+
+# Full validation suite
+./dev/verify-docs.sh --all
+```
+
+### Manual Review
+
+**Quality checks**:
+- [ ] Page loads without 404 on Mintlify preview
+- [ ] Sidebar navigation shows page in correct location
+- [ ] Search indexes the page correctly
+- [ ] Code examples are accurate and tested
+- [ ] Cross-references link to correct pages
+- [ ] Table of contents auto-generates properly (H2/H3 headings)
+
+---
+
+## Part 6: Common Pitfalls
+
+### Pitfall 1: Duplicate Content
+
+**Problem**: Copying information instead of referencing source.
+
+**Example**:
+```mdx
+<!-- ❌ BAD: Duplicated exit code table -->
+| Code | Name | Description |
+|------|------|-------------|
+| 1 | EXIT_GENERAL_ERROR | General error |
+| 2 | EXIT_INVALID_INPUT | Invalid input |
+...
+
+<!-- ✅ GOOD: Reference to source -->
+Exit codes are defined in `lib/exit-codes.sh`. See [Exit Codes Reference](/api/exit-codes)
+for the complete list.
+```
+
+**Fix**: Always link to canonical source or auto-generate from it.
+
+---
+
+### Pitfall 2: Incorrect File Paths in docs.json
+
+**Problem**: Path doesn't match actual file location.
+
+**Example**:
+```json
+// File: docs/guides/multi-agent-setup.mdx
+
+// ❌ BAD: Extension included
+"pages": ["guides/multi-agent-setup.mdx"]
+
+// ❌ BAD: Wrong path
+"pages": ["multi-agent-setup"]
+
+// ✅ GOOD: Correct relative path, no extension
+"pages": ["guides/multi-agent-setup"]
+```
+
+---
+
+### Pitfall 3: Missing or Invalid Icons
+
+**Problem**: Icon doesn't exist in Font Awesome, causes broken UI.
+
+**Example**:
+```yaml
+# ❌ BAD: Non-existent icon
+icon: "my-custom-icon"
+
+# ❌ BAD: Wrong prefix
+icon: "fa-book"
+
+# ✅ GOOD: Valid Font Awesome icon
+icon: "book"
+```
+
+**Fix**: Verify icon exists at https://fontawesome.com/search?o=r&m=free
+
+---
+
+### Pitfall 4: Orphaned Files
+
+**Problem**: File exists but not in `docs.json` navigation, making it undiscoverable.
+
+**Detection**:
+```bash
+./dev/verify-docs.sh --check-orphans
+```
+
+**Fix**: Either add to `docs.json` or delete if obsolete.
+
+---
+
+### Pitfall 5: Specification Files Without Frontmatter
+
+**Problem**: Older spec files converted from `.md` to `.mdx` but missing frontmatter.
+
+**Detection**:
+```bash
+find docs/developer/specifications -name "*.mdx" -exec grep -L "^---$" {} \;
+```
+
+**Fix**: Add frontmatter header:
+```yaml
+---
+title: "Specification Name"
+description: "Brief description of the specification"
+icon: "sitemap"
+---
+```
+
+---
+
+## Part 7: Style Guidelines
+
+### Heading Hierarchy
+
+- **H1 (`#`)**: Page title (once per page, matches frontmatter title)
+- **H2 (`##`)**: Major sections
+- **H3 (`###`)**: Subsections
+- **H4 (`####`)**: Sub-subsections (use sparingly)
+
+**Auto-TOC**: Mintlify generates table of contents from H2 and H3 headings.
+
+### Code Blocks
+
+Always specify language for syntax highlighting:
+
+```mdx
+```bash
+# Shell commands
+cleo add "Task title"
+```
+
+```json
+{
+  "key": "value"
+}
+```
+
+```yaml
+# YAML frontmatter
+title: "Page Title"
+```
+```
+
+### Links
+
+| Link Type | Syntax | Example |
+|-----------|--------|---------|
+| **Internal (docs)** | `/path/to/page` | `[Schemas](/api/schemas)` |
+| **Internal (relative)** | `../other/page` | `[Specs](../specifications/index)` |
+| **External** | `https://...` | `[GitHub](https://github.com/user/repo)` |
+| **Anchor** | `/page#anchor` | `[Section](/guide#setup)` |
+
+### Tables
+
+**Alignment**:
+- Left-align text columns
+- Right-align numeric columns
+- Center-align status/icon columns
+
+**Example**:
+```mdx
+| Name | Count | Status |
+|------|------:|:------:|
+| Tasks | 42 | ✅ |
+```
+
+### Callouts
+
+Mintlify supports these callout components:
+
+```mdx
+<Info>
+  Informational message
+</Info>
+
+<Warning>
+  Warning message (use for deprecations, breaking changes)
+</Warning>
+
+<Tip>
+  Pro tip or best practice
+</Tip>
+
+<Note>
+  Additional context
+</Note>
+```
+
+---
+
+## Part 8: Documentation Workflow
+
+### Adding a New Guide
+
+1. **Plan the content**:
+   - What problem does it solve?
+   - Who is the audience?
+   - What are the prerequisites?
+   - What's the desired outcome?
+
+2. **Create the file**:
+   ```bash
+   touch docs/guides/my-new-guide.mdx
+   ```
+
+3. **Add frontmatter**:
+   ```yaml
+   ---
+   title: "My New Guide"
+   description: "Learn how to accomplish X with CLEO"
+   icon: "book-open"
+   ---
+   ```
+
+4. **Write the content** following structure:
+   - Introduction (what & why)
+   - Prerequisites
+   - Step-by-step instructions
+   - Examples
+   - Troubleshooting (optional)
+   - Related pages
+
+5. **Add to navigation** (`docs/docs.json`)
+
+6. **Validate**:
+   ```bash
+   ./dev/verify-docs.sh --file docs/guides/my-new-guide.mdx
+   ```
+
+7. **Test locally** (if Mintlify CLI available):
+   ```bash
+   mintlify dev
+   ```
+
+8. **Commit**:
+   ```bash
+   git add docs/guides/my-new-guide.mdx docs/docs.json
+   git commit -m "docs: Add guide for X feature"
+   ```
+
+### Updating Existing Documentation
+
+1. **Find the source file**:
+   - Check `docs.json` for page path
+   - Or use grep: `grep -r "Page Title" docs/`
+
+2. **Make changes** to `.mdx` file
+
+3. **Update docs.json** if:
+   - Page title changed (update navigation label)
+   - Page moved to different location
+   - Page deprecated (remove from navigation)
+
+4. **Validate changes**:
+   ```bash
+   ./dev/verify-docs.sh --check-links
+   ```
+
+5. **Commit** with descriptive message
+
+### Deprecating Documentation
+
+When removing outdated documentation:
+
+1. **Remove from `docs.json` navigation** first
+2. **Add deprecation notice** to the file (if keeping temporarily):
+   ```mdx
+   <Warning>
+     This page is deprecated. See [New Page](/path/to/new) for updated information.
+   </Warning>
+   ```
+3. **Delete the file** after grace period (1-2 releases)
+4. **Redirect** if possible (via Mintlify `redirects` config)
+
+---
+
+## Related Documentation
+
+- [Code Style and Conventions](code-style) - Shell script and JSON standards
+- [Compliance Checking System](compliance-checking) - LLM-Agent-First validation
+- [Protocol Docs Generation](protocol-docs-generation) - Auto-generating protocol documentation
+- [Contributing Guide](../../contributing) - General contribution guidelines
+- [Mintlify Documentation](https://mintlify.com/docs) - Official Mintlify docs
+
+---
+
+## Appendix: Quick Reference
+
+### Frontmatter Template
+
+```yaml
+---
+title: "Page Title Here"
+description: "50-160 character description for SEO and navigation"
+icon: "fontawesome-icon-name"
+---
+```
+
+### File Naming Cheat Sheet
+
+| Directory | Pattern | Example |
+|-----------|---------|---------|
+| `getting-started/` | `lower-kebab-case.mdx` | `quick-start.mdx` |
+| `concepts/` | `lower-kebab-case.mdx` | `task-hierarchy.mdx` |
+| `guides/` | `lower-kebab-case.mdx` | `multi-agent-setup.mdx` |
+| `commands/` | `command-name.mdx` | `add.mdx`, `session.mdx` |
+| `api/` | `lower-kebab-case.mdx` | `exit-codes.mdx` |
+| `skills/` | `skill-slug.mdx` | `epic-architect.mdx` |
+| `developer/specifications/` | `UPPER-KEBAB-CASE.mdx` | `TASK-HIERARCHY.mdx` |
+| `developer/protocols/` | `lowercase.mdx` | `research.mdx` |
+| `developer/development/` | `lower-kebab-case.mdx` | `code-style.mdx` |
+
+### Validation Commands
+
+```bash
+# Check frontmatter
+./dev/verify-docs.sh --check-frontmatter
+
+# Find orphaned files
+./dev/verify-docs.sh --check-orphans
+
+# Validate links
+./dev/verify-docs.sh --check-links
+
+# Full validation
+./dev/verify-docs.sh --all
+
+# Validate docs.json syntax
+jq . docs/docs.json
+```
+
+### Common Icons
+
+| Category | Icon Names |
+|----------|------------|
+| **Documentation** | `book`, `book-open`, `file-lines`, `scroll` |
+| **Architecture** | `sitemap`, `diagram-project`, `network-wired` |
+| **Code** | `code`, `terminal`, `brackets-curly` |
+| **Security** | `shield-check`, `lock`, `shield-halved` |
+| **Workflows** | `arrows-rotate`, `rotate`, `diagram-next` |
+| **Actions** | `play`, `rocket`, `bolt`, `wand-magic-sparkles` |
+
+---
+
+**Last Updated**: 2026-01-30
+**Maintainer**: CLEO Documentation Team
+**Issues**: Report documentation issues via [GitHub](https://github.com/kryptobaseddev/cleo/issues)
