@@ -204,17 +204,21 @@ generate_changelog() {
     local release_date="${2:-$(date +%Y-%m-%d)}"
     local todo_file="${3:-$TODO_FILE}"
 
-    # Normalize version
-    if [[ ! "$version" =~ ^v ]]; then
-        version="v${version}"
+    # Normalize version for internal lookups (with v prefix)
+    local version_lookup="$version"
+    if [[ ! "$version_lookup" =~ ^v ]]; then
+        version_lookup="v${version_lookup}"
     fi
+
+    # Version for CHANGELOG output (without v prefix per Keep a Changelog standard)
+    local version_display="${version_lookup#v}"
 
     # Get tasks for release
     local tasks_json
-    tasks_json=$(get_release_tasks "$version" "$todo_file")
+    tasks_json=$(get_release_tasks "$version_lookup" "$todo_file")
 
     # Generate categorized changelog using jq
-    jq -r --arg version "$version" --arg date "$release_date" '
+    jq -r --arg version "$version_display" --arg date "$release_date" '
         # Categorization function
         def categorize:
             .labels // [] |
