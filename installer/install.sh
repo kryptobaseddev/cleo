@@ -406,6 +406,16 @@ do_state_link() {
     # This ensures LLM agents know about CLEO without requiring separate setup
     installer_link_setup_all_agents || true  # Non-critical
 
+    # Install cleo-subagent to global ~/.claude/agents/
+    local global_agents_dir="$HOME/.claude/agents"
+    local agent_template="$INSTALL_DIR/templates/agents/cleo-subagent.md"
+    if [[ -f "$agent_template" ]]; then
+        mkdir -p "$global_agents_dir" 2>/dev/null || true
+        cp "$agent_template" "$global_agents_dir/cleo-subagent.md" && \
+            installer_log_info "Installed cleo-subagent to $global_agents_dir" || \
+            installer_log_warn "Failed to install cleo-subagent"
+    fi
+
     # Run post-install setup (plugins dir, checksums, template versions)
     installer_link_post_install "$INSTALL_DIR" || true  # Non-critical
 
