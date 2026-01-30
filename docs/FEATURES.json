@@ -638,6 +638,15 @@
           "status": "complete",
           "version": "0.23.0",
           "docs": "docs/commands/research.md"
+        },
+        {
+          "id": "hybrid-agent-install",
+          "name": "Hybrid Agent Installation",
+          "command": "cleo init --copy-agents",
+          "description": "Install agents via symlink (default, auto-updating) or copy (project isolation)",
+          "status": "complete",
+          "version": "0.76.2",
+          "docs": "docs/guides/INSTALLATION-MODES.md"
         }
       ]
     },

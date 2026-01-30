@@ -89,6 +89,16 @@ source "$INSTALLER_LIB_DIR/link.sh"
 source "$INSTALLER_LIB_DIR/profile.sh"
 source "$INSTALLER_LIB_DIR/recover.sh"
 
+# Source agents-install.sh from repo lib/ (not installer/lib/)
+REPO_LIB_DIR="$(dirname "$INSTALLER_DIR")/lib"
+if [[ -f "$REPO_LIB_DIR/agents-install.sh" ]]; then
+    source "$REPO_LIB_DIR/agents-install.sh"
+else
+    # Fallback: try relative to install.sh location
+    FALLBACK_LIB="$INSTALLER_DIR/../lib/agents-install.sh"
+    [[ -f "$FALLBACK_LIB" ]] && source "$FALLBACK_LIB"
+fi
+
 # ============================================
 # CONSTANTS
 # ============================================
@@ -120,6 +130,7 @@ OPT_UPGRADE_VERSION=""
 OPT_VERSION_INFO=false
 OPT_CHECK_UPGRADE=false
 OPT_WITH_PLUGIN=false
+OPT_COPY_AGENTS=false
 
 parse_args() {
     while [[ $# -gt 0 ]]; do
@@ -203,6 +214,9 @@ parse_args() {
             --with-plugin)
                 OPT_WITH_PLUGIN=true
                 ;;
+            --copy-agents)
+                OPT_COPY_AGENTS=true
+                ;;
             *)
                 installer_log_error "Unknown option: $1"
                 show_usage
@@ -239,6 +253,7 @@ Options:
   --skip-skills           Skip skills installation
   --skip-aliases          Skip Claude CLI alias installation
   --with-plugin           Install Claude Code plugin symlink (optional)
+  --copy-agents           Copy agent files instead of symlinking (default: symlink)
   --recover               Resume interrupted installation
   --rollback              Rollback to previous version
   --status                Show current installation status
@@ -406,15 +421,22 @@ do_state_link() {
     # This ensures LLM agents know about CLEO without requiring separate setup
     installer_link_setup_all_agents || true  # Non-critical
 
-    # Install cleo-subagent to global ~/.claude/agents/
-    local global_agents_dir="$HOME/.claude/agents"
-    local agent_template="$INSTALL_DIR/templates/agents/cleo-subagent.md"
-    if [[ -f "$agent_template" ]]; then
-        mkdir -p "$global_agents_dir" 2>/dev/null || true
-        cp "$agent_template" "$global_agents_dir/cleo-subagent.md" && \
-            installer_log_info "Installed cleo-subagent to $global_agents_dir" || \
-            installer_log_warn "Failed to install cleo-subagent"
+    # Install agents to ~/.claude/agents/ (hybrid: symlink or copy)
+    if type -t install_agents >/dev/null 2>&1; then
+        local agent_mode="symlink"
+        [[ "$OPT_COPY_AGENTS" == "true" ]] && agent_mode="copy"
+
+        # Set CLEO_REPO_ROOT for agents-install.sh
+        export CLEO_REPO_ROOT="$INSTALL_DIR"
+
+        install_agents "$agent_mode" "installer_log_info" || \
+            installer_log_warn "Failed to install agents"
+    else
+        installer_log_warn "install_agents function not available"
     fi
+
+    # Setup global CLEO agents directory (~/.cleo/agents/)
+    installer_link_setup_global_agents "$INSTALL_DIR" || true  # Non-critical
 
     # Run post-install setup (plugins dir, checksums, template versions)
     installer_link_post_install "$INSTALL_DIR" || true  # Non-critical
