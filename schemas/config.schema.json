@@ -5,9 +5,11 @@
   "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
-  "required": ["version", "_meta"],
+  "required": [
+    "version",
+    "_meta"
+  ],
   "additionalProperties": false,
-
   "properties": {
     "$schema": {
       "type": "string",
@@ -21,7 +23,9 @@
     "_meta": {
       "type": "object",
       "description": "Configuration file metadata.",
-      "required": ["schemaVersion"],
+      "required": [
+        "schemaVersion"
+      ],
       "additionalProperties": false,
       "properties": {
         "schemaVersion": {
@@ -31,7 +35,120 @@
         }
       }
     },
-
+    "extends": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Single config to extend (file path or npm package)"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Multiple configs to extend (processed left-to-right, last wins)"
+        }
+      ],
+      "description": "Configuration inheritance. Supports file paths (~/.cleo/config.json, ../shared/config.json) or npm packages (@cleo/config-ci). Resolution order: global config → extended configs (left-to-right) → project config → environment variables. Deep merge strategy: primitive values last-wins, arrays concatenate with deduplication, objects merge recursively. Circular extends chains MUST be detected and MUST fail with exit code 6 (E_VALIDATION_FAILED).",
+      "examples": [
+        "~/.cleo/config.json",
+        [
+          "~/.cleo/config.json",
+          "@cleo/config-ci"
+        ]
+      ]
+    },
+    "directories": {
+      "type": "object",
+      "description": "Directory path configuration. All paths MUST be relative to project root. Replaces hardcoded path assumptions across codebase.",
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": "string",
+          "default": ".cleo",
+          "description": "CLEO data directory (contains todo.json, config.json)"
+        },
+        "schemas": {
+          "type": "string",
+          "default": "schemas",
+          "description": "JSON Schema definitions"
+        },
+        "backups": {
+          "type": "object",
+          "description": "Backup storage configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "root": {
+              "type": "string",
+              "default": "backups",
+              "description": "Backup storage root"
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "snapshot",
+                "safety",
+                "incremental",
+                "archive",
+                "migration"
+              ],
+              "description": "Backup type subdirectories"
+            }
+          }
+        },
+        "templates": {
+          "type": "string",
+          "default": "templates",
+          "description": "Template storage"
+        },
+        "research": {
+          "type": "object",
+          "description": "Research output configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "output": {
+              "type": "string",
+              "default": "research",
+              "description": "Research output directory"
+            },
+            "archive": {
+              "type": "string",
+              "default": "research/archive",
+              "description": "Archived research"
+            }
+          }
+        },
+        "agentOutputs": {
+          "type": "string",
+          "default": "claudedocs/agent-outputs",
+          "description": "Agent manifest outputs (MANIFEST.jsonl location)"
+        },
+        "metrics": {
+          "type": "string",
+          "default": "claudedocs/metrics",
+          "description": "Metrics collection"
+        },
+        "documentation": {
+          "type": "string",
+          "default": "docs",
+          "description": "User-facing documentation"
+        },
+        "skills": {
+          "type": "string",
+          "default": "skills",
+          "description": "CLEO skill definitions"
+        },
+        "sync": {
+          "type": "string",
+          "default": "sync",
+          "description": "TodoWrite sync directory"
+        }
+      }
+    },
     "archive": {
       "type": "object",
       "description": "Archive automation settings.",
@@ -79,7 +196,10 @@
             "type": "string",
             "minLength": 1
           },
-          "default": ["pinned", "keep"],
+          "default": [
+            "pinned",
+            "keep"
+          ],
           "description": "Labels that exempt tasks from automatic archiving. Add these labels to any task/epic you want to protect from auto-archive."
         },
         "labelPolicies": {
@@ -170,7 +290,6 @@
         }
       }
     },
-
     "logging": {
       "type": "object",
       "description": "Change history logging settings.",
@@ -190,7 +309,11 @@
         },
         "level": {
           "type": "string",
-          "enum": ["minimal", "standard", "verbose"],
+          "enum": [
+            "minimal",
+            "standard",
+            "verbose"
+          ],
           "default": "standard",
           "description": "minimal=status changes, standard=+notes, verbose=+all fields."
         },
@@ -201,7 +324,6 @@
         }
       }
     },
-
     "validation": {
       "type": "object",
       "description": "Validation and integrity settings.",
@@ -289,10 +411,73 @@
               "description": "Strict mode: require frontmatter on all claudedocs/ files. When false, legacy files without frontmatter are allowed with warning."
             }
           }
+        },
+        "testing": {
+          "type": "object",
+          "description": "Test validation configuration. Enable project-agnostic test framework support.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable test validation"
+            },
+            "framework": {
+              "type": "string",
+              "enum": [
+                "bats",
+                "jest",
+                "vitest",
+                "playwright",
+                "cypress",
+                "mocha",
+                "ava",
+                "uvu",
+                "tap",
+                "node:test",
+                "deno",
+                "bun",
+                "pytest",
+                "go",
+                "cargo",
+                "custom"
+              ],
+              "default": "bats",
+              "description": "Testing framework identifier"
+            },
+            "command": {
+              "type": "string",
+              "description": "Test execution command"
+            },
+            "directory": {
+              "type": "string",
+              "default": "tests",
+              "description": "Test directory relative to project root"
+            },
+            "requirePassingTests": {
+              "type": "boolean",
+              "default": false,
+              "description": "Block operations on test failure"
+            },
+            "runOnComplete": {
+              "type": "boolean",
+              "default": false,
+              "description": "Auto-run tests on task completion"
+            },
+            "testFilePatterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "**/*.bats"
+              ],
+              "description": "Glob patterns for test files"
+            }
+          }
         }
       }
     },
-
     "verification": {
       "type": "object",
       "description": "Verification gates configuration for task quality tracking.",
@@ -314,9 +499,22 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+            "enum": [
+              "implemented",
+              "testsPassed",
+              "qaPassed",
+              "cleanupDone",
+              "securityPassed",
+              "documented"
+            ]
           },
-          "default": ["implemented", "testsPassed", "qaPassed", "securityPassed", "documented"],
+          "default": [
+            "implemented",
+            "testsPassed",
+            "qaPassed",
+            "securityPassed",
+            "documented"
+          ],
           "description": "Gates required to pass for verification.passed = true. cleanupDone excluded by default."
         },
         "autoSetImplementedOnComplete": {
@@ -336,7 +534,6 @@
         }
       }
     },
-
     "defaults": {
       "type": "object",
       "description": "Default values for new tasks.",
@@ -344,7 +541,12 @@
       "properties": {
         "priority": {
           "type": "string",
-          "enum": ["critical", "high", "medium", "low"],
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
           "default": "medium"
         },
         "phase": {
@@ -354,12 +556,13 @@
         },
         "labels": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": []
         }
       }
     },
-
     "session": {
       "type": "object",
       "description": "Session behavior settings.",
@@ -414,7 +617,6 @@
         }
       }
     },
-
     "display": {
       "type": "object",
       "description": "Display and notification settings.",
@@ -438,7 +640,6 @@
         }
       }
     },
-
     "output": {
       "type": "object",
       "description": "Output formatting and display preferences.",
@@ -446,7 +647,15 @@
       "properties": {
         "defaultFormat": {
           "type": "string",
-          "enum": ["text", "json", "jsonl", "csv", "tsv", "markdown", "table"],
+          "enum": [
+            "text",
+            "json",
+            "jsonl",
+            "csv",
+            "tsv",
+            "markdown",
+            "table"
+          ],
           "default": "text",
           "description": "Default output format for list and export commands."
         },
@@ -473,7 +682,12 @@
         },
         "dateFormat": {
           "type": "string",
-          "enum": ["iso8601", "relative", "unix", "locale"],
+          "enum": [
+            "iso8601",
+            "relative",
+            "unix",
+            "locale"
+          ],
           "default": "iso8601",
           "description": "Date/time display format: iso8601, relative (5min ago), unix, locale."
         },
@@ -491,7 +705,6 @@
         }
       }
     },
-
     "cli": {
       "type": "object",
       "description": "CLI behavior, aliases, and plugin settings.",
@@ -525,8 +738,13 @@
             },
             "directories": {
               "type": "array",
-              "items": { "type": "string" },
-              "default": ["~/.cleo/plugins", "./.claude/plugins"],
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "~/.cleo/plugins",
+                "./.claude/plugins"
+              ],
               "description": "Directories to scan for plugins (in order of priority)."
             },
             "autoDiscover": {
@@ -565,7 +783,6 @@
         }
       }
     },
-
     "backup": {
       "type": "object",
       "description": "Backup system configuration for snapshots, safety backups, incremental backups, and archive backups.",
@@ -647,7 +864,6 @@
         }
       }
     },
-
     "cancellation": {
       "type": "object",
       "description": "Configuration for task cancellation/deletion behavior. Safety-first defaults for automation.",
@@ -679,13 +895,17 @@
         },
         "defaultChildStrategy": {
           "type": "string",
-          "enum": ["block", "orphan", "cascade", "fail"],
+          "enum": [
+            "block",
+            "orphan",
+            "cascade",
+            "fail"
+          ],
           "default": "block",
           "description": "Default behavior for --children flag. block=prevent if has children, orphan=detach children, cascade=cancel children, fail=error."
         }
       }
     },
-
     "hierarchy": {
       "type": "object",
       "description": "Hierarchy constraints for Epic → Task → Subtask structure. LLM-Agent-First design: limits are organizational, not cognitive.",
@@ -724,13 +944,16 @@
         },
         "autoCompleteMode": {
           "type": "string",
-          "enum": ["auto", "suggest", "off"],
+          "enum": [
+            "auto",
+            "suggest",
+            "off"
+          ],
           "default": "off",
           "description": "Auto-complete behavior: auto=silent completion, suggest=prompt user, off=disabled."
         }
       }
     },
-
     "analyze": {
       "type": "object",
       "description": "Configuration for the analyze command and task prioritization algorithms.",
@@ -766,7 +989,11 @@
         },
         "sizeStrategy": {
           "type": "string",
-          "enum": ["quick-wins", "big-impact", "balanced"],
+          "enum": [
+            "quick-wins",
+            "big-impact",
+            "balanced"
+          ],
           "default": "balanced",
           "description": "Strategy for weighting tasks by size. quick-wins=favor small tasks, big-impact=favor large tasks, balanced=neutral."
         },
@@ -864,7 +1091,6 @@
         }
       }
     },
-
     "multiSession": {
       "type": "object",
       "description": "Multi-session concurrent agent configuration. Enables multiple LLM agents to work on different task groups simultaneously with isolated focus and scope boundaries.",
@@ -891,7 +1117,11 @@
         },
         "scopeValidation": {
           "type": "string",
-          "enum": ["strict", "warn", "none"],
+          "enum": [
+            "strict",
+            "warn",
+            "none"
+          ],
           "default": "strict",
           "description": "strict=error on scope overlap, warn=allow with warning, none=no validation."
         },
@@ -946,7 +1176,6 @@
         }
       }
     },
-
     "contextAlerts": {
       "type": "object",
       "description": "Context window alert configuration. Controls when and how users are alerted about context window usage approaching thresholds.",
@@ -959,7 +1188,12 @@
         },
         "minThreshold": {
           "type": "string",
-          "enum": ["warning", "caution", "critical", "emergency"],
+          "enum": [
+            "warning",
+            "caution",
+            "critical",
+            "emergency"
+          ],
           "default": "warning",
           "description": "Minimum threshold level to trigger alerts. warning=70%, caution=85%, critical=90%, emergency=95%."
         },
@@ -968,7 +1202,12 @@
           "items": {
             "type": "string"
           },
-          "default": ["complete", "focus", "add", "session"],
+          "default": [
+            "complete",
+            "focus",
+            "add",
+            "session"
+          ],
           "description": "Commands that trigger context alert checks. Empty array = all commands."
         },
         "suppressDuration": {
@@ -980,7 +1219,6 @@
         }
       }
     },
-
     "agentOutputs": {
       "type": "object",
       "description": "Cross-agent output configuration. Controls where agent outputs (research, contributions, artifacts) are stored and managed.",
@@ -1042,7 +1280,6 @@
         }
       }
     },
-
     "research": {
       "type": "object",
       "description": "DEPRECATED: Use agentOutputs instead. Legacy research output configuration kept for backward compatibility.",
@@ -1115,7 +1352,6 @@
         }
       }
     },
-
     "project": {
       "type": "object",
       "description": "Project-level metadata and status tracking for doctor command and health monitoring.",
@@ -1128,12 +1364,20 @@
           "properties": {
             "health": {
               "type": "string",
-              "enum": ["healthy", "warning", "error", "unknown"],
+              "enum": [
+                "healthy",
+                "warning",
+                "error",
+                "unknown"
+              ],
               "default": "unknown",
               "description": "Overall project health: healthy=no issues, warning=minor issues, error=critical issues, unknown=not yet checked."
             },
             "lastCheck": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "format": "date-time",
               "default": null,
               "description": "ISO 8601 timestamp of last health check (doctor command). Null if never checked."
@@ -1171,7 +1415,10 @@
               "additionalProperties": false,
               "properties": {
                 "lastValidated": {
-                  "type": ["string", "null"],
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "format": "date-time",
                   "default": null,
                   "description": "ISO 8601 timestamp of last validation run."
@@ -1185,7 +1432,10 @@
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "required": ["code", "message"],
+                    "required": [
+                      "code",
+                      "message"
+                    ],
                     "additionalProperties": false,
                     "properties": {
                       "code": {
@@ -1209,7 +1459,10 @@
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "required": ["code", "message"],
+                    "required": [
+                      "code",
+                      "message"
+                    ],
                     "additionalProperties": false,
                     "properties": {
                       "code": {
@@ -1238,17 +1491,32 @@
               "properties": {
                 "CLAUDE.md": {
                   "type": "string",
-                  "enum": ["injected", "missing", "outdated", "not_found"],
+                  "enum": [
+                    "injected",
+                    "missing",
+                    "outdated",
+                    "not_found"
+                  ],
                   "description": "Injection status for CLAUDE.md."
                 },
                 "AGENTS.md": {
                   "type": "string",
-                  "enum": ["injected", "missing", "outdated", "not_found"],
+                  "enum": [
+                    "injected",
+                    "missing",
+                    "outdated",
+                    "not_found"
+                  ],
                   "description": "Injection status for AGENTS.md."
                 },
                 "GEMINI.md": {
                   "type": "string",
-                  "enum": ["injected", "missing", "outdated", "not_found"],
+                  "enum": [
+                    "injected",
+                    "missing",
+                    "outdated",
+                    "not_found"
+                  ],
                   "description": "Injection status for GEMINI.md."
                 }
               }
@@ -1257,7 +1525,6 @@
         }
       }
     },
-
     "retention": {
       "type": "object",
       "description": "Retention policies for session archival and cleanup. Controls automatic session lifecycle management.",
@@ -1317,7 +1584,6 @@
         }
       }
     },
-
     "contextStates": {
       "type": "object",
       "description": "Context state file management configuration. Context state files track per-session context window usage.",
@@ -1357,7 +1623,6 @@
         }
       }
     },
-
     "orchestrator": {
       "type": "object",
       "description": "Orchestrator agent configuration. Controls context thresholds for automatic session management and HITL (human-in-the-loop) handoff behavior.",
@@ -1405,7 +1670,10 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["name", "command"],
+                "required": [
+                  "name",
+                  "command"
+                ],
                 "properties": {
                   "name": {
                     "type": "string",
@@ -1461,7 +1729,6 @@
         }
       }
     },
-
     "enforcement": {
       "type": "object",
       "description": "Enforcement configuration for task metadata fields. Controls validation and warning behavior for size, acceptance criteria, and auto-extraction features.",
@@ -1483,8 +1750,16 @@
               "description": "Warn when size is not specified during task creation."
             },
             "defaultValue": {
-              "type": ["string", "null"],
-              "enum": ["small", "medium", "large", null],
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "small",
+                "medium",
+                "large",
+                null
+              ],
               "default": null,
               "description": "Default size value when not specified. Null means no default (field remains unset)."
             }
@@ -1497,7 +1772,11 @@
           "properties": {
             "mode": {
               "type": "string",
-              "enum": ["off", "warn", "block"],
+              "enum": [
+                "off",
+                "warn",
+                "block"
+              ],
               "default": "warn",
               "description": "Enforcement mode: off=no enforcement, warn=warn when missing, block=require on creation."
             },
@@ -1505,9 +1784,17 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "enum": ["critical", "high", "medium", "low"]
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low"
+                ]
               },
-              "default": ["critical", "high"],
+              "default": [
+                "critical",
+                "high"
+              ],
               "description": "Priority levels that require acceptance criteria when mode is 'warn' or 'block'."
             }
           }
@@ -1527,7 +1814,13 @@
               "items": {
                 "type": "string"
               },
-              "default": ["*.ts", "*.js", "*.sh", "*.json", "*.md"],
+              "default": [
+                "*.ts",
+                "*.js",
+                "*.sh",
+                "*.json",
+                "*.md"
+              ],
               "description": "File patterns to recognize during extraction. Uses glob-style patterns."
             }
           }
@@ -1563,7 +1856,6 @@
         }
       }
     },
-
     "graphRag": {
       "type": "object",
       "description": "Graph-RAG semantic relationship discovery configuration.",
@@ -1642,7 +1934,161 @@
         }
       }
     },
-
+    "lifecycleEnforcement": {
+      "type": "object",
+      "description": "Lifecycle gate enforcement configuration. Controls how strictly the RCSD→IVTR pipeline progression is enforced.",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "advisory",
+            "off"
+          ],
+          "default": "strict",
+          "description": "Enforcement mode: strict (blocks spawn if prerequisites not met), advisory (warns but allows spawn), off (disables gate checks)."
+        }
+      },
+      "default": {
+        "mode": "strict"
+      }
+    },
+    "testing": {
+      "type": "object",
+      "description": "Comprehensive testing configuration beyond validation gates.",
+      "additionalProperties": false,
+      "properties": {
+        "framework": {
+          "type": "object",
+          "description": "Test framework configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "bats",
+                "jest",
+                "vitest",
+                "playwright",
+                "cypress",
+                "mocha",
+                "ava",
+                "uvu",
+                "tap",
+                "node:test",
+                "deno",
+                "bun",
+                "pytest",
+                "go",
+                "cargo",
+                "custom"
+              ],
+              "default": "bats",
+              "description": "Framework identifier (same enum as validation.testing.framework)"
+            },
+            "fileExtension": {
+              "type": "string",
+              "default": ".bats",
+              "description": "Test file extension (e.g., .bats, .test.ts)"
+            },
+            "installCommand": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Command to install framework"
+            },
+            "runCommand": {
+              "type": "string",
+              "default": "./tests/run-all-tests.sh",
+              "description": "Command to execute tests"
+            },
+            "watchCommand": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Command for watch mode (null if unsupported)"
+            },
+            "coverageCommand": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Command for coverage reports (null if unsupported)"
+            },
+            "configFile": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Framework config file path (null if none)"
+            }
+          }
+        },
+        "directories": {
+          "type": "object",
+          "description": "Test directory structure.",
+          "additionalProperties": false,
+          "properties": {
+            "unit": {
+              "type": "string",
+              "default": "tests/unit/",
+              "description": "Unit test directory"
+            },
+            "integration": {
+              "type": "string",
+              "default": "tests/integration/",
+              "description": "Integration test directory"
+            },
+            "golden": {
+              "type": "string",
+              "default": "tests/golden/",
+              "description": "Golden test directory"
+            },
+            "fixtures": {
+              "type": "string",
+              "default": "tests/fixtures/",
+              "description": "Test fixtures directory"
+            }
+          }
+        },
+        "skillName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "ct-test-writer-bats",
+          "description": "CLEO skill for test generation"
+        },
+        "dispatchKeywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "test",
+            "bats",
+            "coverage",
+            "testing"
+          ],
+          "description": "Keywords for skill auto-dispatch"
+        },
+        "tempPathPattern": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": "/bats-run-|/test/.*test-",
+          "description": "Regex pattern for temp test files (context window management)"
+        }
+      }
+    },
     "documentation": {
       "type": "object",
       "description": "Documentation synchronization and drift detection configuration.",
@@ -1668,7 +2114,13 @@
               "items": {
                 "type": "string"
               },
-              "default": ["add", "complete", "update", "delete", "reparent"],
+              "default": [
+                "add",
+                "complete",
+                "update",
+                "delete",
+                "reparent"
+              ],
               "description": "Commands that trigger auto-drift detection when autoCheck is enabled."
             }
           }
@@ -1682,6 +2134,128 @@
               "type": "boolean",
               "default": false,
               "description": "Enable knowledge gap validation. Reserved for T2530 implementation."
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "description": "External tool dependencies and installation commands. Replaces hardcoded tool assumptions.",
+      "additionalProperties": false,
+      "properties": {
+        "jsonProcessor": {
+          "type": "object",
+          "description": "JSON manipulation tool configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "jq",
+              "description": "Human-readable tool name"
+            },
+            "command": {
+              "type": "string",
+              "default": "jq",
+              "description": "Command name for execution"
+            },
+            "installCommand": {
+              "type": "string",
+              "default": "brew install jq",
+              "description": "Installation command (platform-specific)"
+            },
+            "required": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether tool is required for CLEO operation"
+            }
+          }
+        },
+        "schemaValidator": {
+          "type": "object",
+          "description": "JSON Schema validation tool configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "ajv-cli",
+              "description": "Human-readable tool name"
+            },
+            "command": {
+              "type": "string",
+              "default": "ajv",
+              "description": "Command name for execution"
+            },
+            "installCommand": {
+              "type": "string",
+              "default": "npm install -g ajv-cli",
+              "description": "Installation command"
+            },
+            "required": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether tool is required for CLEO operation"
+            }
+          }
+        },
+        "testRunner": {
+          "type": "object",
+          "description": "Test execution tool configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "bats",
+              "description": "Human-readable tool name"
+            },
+            "command": {
+              "type": "string",
+              "default": "bats",
+              "description": "Command name for execution"
+            },
+            "installCommand": {
+              "type": "string",
+              "default": "npm install -g bats",
+              "description": "Installation command"
+            },
+            "required": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether tool is required for CLEO operation"
+            }
+          }
+        },
+        "linter": {
+          "type": "object",
+          "description": "Language-specific linting tools.",
+          "additionalProperties": false,
+          "properties": {
+            "bash": {
+              "type": "object",
+              "description": "Bash/shell linter configuration.",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "default": "shellcheck",
+                  "description": "Human-readable tool name"
+                },
+                "command": {
+                  "type": "string",
+                  "default": "shellcheck",
+                  "description": "Command name for execution"
+                },
+                "installCommand": {
+                  "type": "string",
+                  "default": "brew install shellcheck",
+                  "description": "Installation command"
+                },
+                "required": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Whether tool is required"
+                }
+              }
             }
           }
         }
