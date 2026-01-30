@@ -1,0 +1,74 @@
+---
+title: "Orchestrator Protocol Versions"
+description: "Version reference for orchestrator protocol and tmux infrastructure systems"
+---
+
+# Orchestrator Protocol Versions
+
+**Last Updated**: 2026-01-20
+
+---
+
+## Simplified Version Architecture
+
+There are **two independent systems** with separate versions:
+
+| System | Version Source | Scope |
+|--------|----------------|-------|
+| **Orchestrator Protocol** | `skills/manifest.json` → ct-orchestrator | ORC constraints, subagent spawning |
+| **tmux Infrastructure** | ORCHESTRATOR-SPEC.md header | Multi-agent automation (optional) |
+
+---
+
+## Orchestrator Protocol (Current: 1.0.0)
+
+**Single Source of Truth**: `skills/manifest.json` → `ct-orchestrator.version`
+
+All protocol docs share this version:
+
+| Document | Purpose | Updates When |
+|----------|---------|--------------|
+| skills/ct-orchestrator/SKILL.md | Skill activation | Protocol changes |
+| ORCHESTRATOR-PROTOCOL-SPEC.md | RFC 2119 spec (ORC-001-005) | Constraint changes |
+| ORCHESTRATOR-PROTOCOL.md | User guide | Guide content changes |
+
+**Version Ownership**: Bump `ct-orchestrator.version` in manifest.json when any protocol document changes.
+
+---
+
+## tmux Infrastructure (Separate: 2.2.0)
+
+**Independent System**: ORCHESTRATOR-SPEC.md has its own version.
+
+This is optional infrastructure for tmux-based multi-agent automation. NOT required for basic orchestrator usage.
+
+**Location**: [ORCHESTRATOR](../developer/specifications/ORCHESTRATOR)
+
+---
+
+## Quick Reference
+
+| Goal | Read |
+|------|------|
+| Activate orchestrator mode | skills/ct-orchestrator/SKILL.md |
+| Understand ORC constraints | ORCHESTRATOR-PROTOCOL-SPEC.md |
+| Learn practical usage | ORCHESTRATOR-PROTOCOL.md |
+| Set up tmux automation | ORCHESTRATOR-SPEC.md |
+
+**Authoritative**: ORCHESTRATOR-PROTOCOL-SPEC.md defines ORC-001 through ORC-005
+
+---
+
+## Migration Notes
+
+### From CLAUDE.md Injection (DEPRECATED)
+
+Use skill activation instead of CLAUDE.md injection:
+
+| CLAUDE.md Injection | Skill Activation |
+|---------------------|------------------|
+| ALL agents read it | Loads ON-DEMAND |
+| Subagents also try to orchestrate | Subagents do NOT inherit skills |
+| Always loaded | Loaded when needed |
+
+**Migration**: Remove `<!-- ORCHESTRATOR:START -->` blocks from CLAUDE.md. Use `/ct-orchestrator` or load skill via Task tool.

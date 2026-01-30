@@ -1,0 +1,638 @@
+---
+title: "CLEO Subagent Migration Guide"
+description: "Migrating from the old skill system to the 2-Tier Universal Subagent Architecture"
+---
+
+# CLEO Subagent Migration Guide
+
+**Version**: 1.0.0
+**Status**: Active
+**Last Updated**: 2026-01-26
+**Target Audience**: Projects using old CLEO skill system (pre-v0.70.0)
+
+---
+
+## Overview
+
+CLEO v0.70.0 introduces a **2-Tier Universal Subagent Architecture** that fundamentally changes how skills operate. This guide helps you migrate from the old per-skill agent model to the new unified architecture.
+
+### Why the Change?
+
+| Old System | New System |
+|------------|------------|
+| Skills were standalone agents | Single universal agent: `cleo-subagent` |
+| Each skill spawned as separate agent type | Skills are context injections, not agents |
+| Orchestrator spawned skill-specific agents | Orchestrator spawns only `cleo-subagent` |
+| No unified protocol | 7 conditional protocols for task-specific behavior |
+| Skills defined HOW to work | Skills define WHAT to do; protocols define HOW to report |
+
+### Benefits of New Architecture
+
+- **Consistent behavior**: All subagents follow the same output protocol
+- **Simplified orchestration**: Single `subagent_type` to manage
+- **Token pre-resolution**: All placeholders resolved before spawn
+- **Protocol stacking**: Base + conditional protocols combined per-task
+- **Easier skill development**: Focus on domain expertise, not execution mechanics
+
+---
+
+## Breaking Changes
+
+### 1. Skills No Longer Standalone Agents
+
+**Before (Old System)**:
+```yaml
+# Old skill with agent-like frontmatter
+---
+name: my-research-skill
+type: agent
+subagent_type: research
+model: sonnet
+...
+---
+```
+
+**After (New System)**:
+```yaml
+# Skills are context packages, not agents
+---
+name: ct-my-skill
+description: |
+  Description focusing on WHAT the skill does.
+  Use when user says "trigger phrase"...
+version: 1.0.0
+---
+```
+
+**Key Difference**: Remove `type: agent`, `subagent_type`, and `model` from skill frontmatter. Skills are now pure context injections.
+
+### 2. Spawn Syntax Changes
+
+**Before (Old System)**:
+```bash
+# Spawn specific agent type
+cleo orchestrator spawn T1234 --agent-type research-agent
+cleo orchestrator spawn T1234 --agent-type task-executor
+cleo orchestrator spawn T1234 --agent-type spec-writer
+```
+
+**After (New System)**:
+```bash
+# Single universal subagent with skill injection
+cleo orchestrator spawn T1234
+cleo orchestrator spawn T1234 --template ct-research-agent
+```
+
+The orchestrator automatically:
+1. Selects appropriate skill via `lib/skill-dispatch.sh`
+2. Loads skill template from `skills/ct-{skill}/SKILL.md`
+3. Injects protocol base from `skills/_shared/subagent-protocol-base.md`
+4. Resolves all tokens via `lib/token-inject.sh`
+5. Spawns single `cleo-subagent` with combined context
+
+### 3. Output Format Changes
+
+**Before (Old System)**:
+Skills could return arbitrary output formats.
+
+**After (New System)**:
+All subagents MUST follow the protocol:
+
+| Requirement | Description |
+|-------------|-------------|
+| OUT-001 | MUST write findings to `claudedocs/agent-outputs/{DATE}_{TOPIC_SLUG}.md` |
+| OUT-002 | MUST append ONE line to `claudedocs/agent-outputs/MANIFEST.jsonl` |
+| OUT-003 | MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary." |
+| OUT-004 | MUST NOT return content in response |
+
+### 4. Directory Rename
+
+The output directory has been renamed:
+
+| Before | After |
+|--------|-------|
+| `claudedocs/research-outputs/` | `claudedocs/agent-outputs/` |
+
+This change runs automatically during `cleo upgrade`. See [agent-outputs-migration-guide.md](../migration/agent-outputs-migration-guide.md) for details.
+
+### 5. Skill Dispatch Mechanism
+
+**Before (Old System)**:
+Manual skill selection or simple name matching.
+
+**After (New System)**:
+Three-strategy dispatch in priority order:
+
+| Strategy | Mechanism | Example |
+|----------|-----------|---------|
+| 1. Label-based | Task labels match skill tags | `["research"]` → ct-research-agent |
+| 2. Type-based | Task type maps to skill | `type: "epic"` → ct-epic-architect |
+| 3. Keyword-based | Title/description keywords | "implement auth" → ct-task-executor |
+
+Default fallback: `ct-task-executor`
+
+---
+
+## Migration Steps
+
+### Step 1: Update CLEO
+
+```bash
+cleo self-update
+```
+
+Verify you have v0.70.0 or later:
+```bash
+cleo version
+```
+
+### Step 2: Upgrade Project
+
+```bash
+cleo upgrade
+```
+
+This command:
+- Migrates `research-outputs/` to `agent-outputs/`
+- Updates MANIFEST.jsonl paths
+- Updates configuration keys
+- Creates backup before changes
+
+Check status:
+```bash
+cleo upgrade --status
+```
+
+### Step 3: Update Custom Skills
+
+If you have custom skills, update them to the new format.
+
+#### 3.1 Remove Agent Frontmatter
+
+**Remove these fields**:
+```yaml
+# REMOVE these from frontmatter
+type: agent
+subagent_type: research
+model: sonnet
+max_tokens: 4096
+```
+
+**Keep these fields**:
+```yaml
+# KEEP these in frontmatter
+name: ct-my-skill
+description: |
+  Description with trigger phrases...
+version: 1.0.0
+```
+
+#### 3.2 Add Protocol References
+
+Add these sections to your skill's SKILL.md body:
+
+```markdown
+## Task System Integration
+
+@skills/_shared/task-system-integration.md
+
+### Execution Sequence
+
+1. Read task: `{{TASK_SHOW_CMD}} {{TASK_ID}}`
+2. Set focus: `{{TASK_FOCUS_CMD}} {{TASK_ID}}`
+3. Do skill-specific work
+4. Write output: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+5. Append manifest: `{{MANIFEST_PATH}}`
+6. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
+7. Return summary message
+
+---
+
+## Subagent Protocol
+
+@skills/_shared/subagent-protocol-base.md
+
+### Output Requirements
+
+1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return content in response
+```
+
+#### 3.3 Convert to Context Injection Format
+
+Your skill content should focus on **domain expertise**, not execution mechanics:
+
+```markdown
+# My Skill Name
+
+You are a [role description]. Your role is to [primary function].
+
+## Capabilities
+
+1. **Capability 1** - Brief description
+2. **Capability 2** - Brief description
+
+---
+
+## Methodology
+
+[Your skill-specific workflow and patterns]
+
+---
+
+## Output File Format
+
+[Define expected output structure for this skill]
+
+---
+
+## Manifest Entry Format
+
+[Define JSONL entry format including skill-specific topics]
+```
+
+### Step 4: Update Orchestration Code
+
+If you have custom orchestration scripts:
+
+#### 4.1 Update Subagent Type
+
+**Before**:
+```bash
+# Old: Multiple subagent types
+subagent_type="research-agent"
+subagent_type="task-executor"
+subagent_type="spec-writer"
+```
+
+**After**:
+```bash
+# New: Single subagent type
+subagent_type="cleo-subagent"
+```
+
+#### 4.2 Use Skill Dispatch
+
+**Before**:
+```bash
+# Old: Manual skill selection
+if [[ "$task_type" == "research" ]]; then
+    spawn_research_agent "$task_id"
+fi
+```
+
+**After**:
+```bash
+# New: Automatic skill dispatch
+source lib/skill-dispatch.sh
+
+skill=$(skill_auto_dispatch "$task_id")
+context=$(skill_prepare_spawn "$skill" "$task_id")
+prompt=$(echo "$context" | jq -r '.prompt')
+
+# Spawn cleo-subagent with combined context
+```
+
+#### 4.3 Verify Protocol Injection
+
+```bash
+source lib/orchestrator-spawn.sh
+
+# Generate spawn command
+result=$(cleo orchestrator spawn T1234)
+
+# Verify protocol block present
+if ! echo "$result" | jq -e '.result.prompt | contains("SUBAGENT PROTOCOL")' > /dev/null; then
+    echo "ERROR: Protocol block missing"
+fi
+```
+
+### Step 5: Register Custom Skills
+
+Add custom skills to `skills/manifest.json`:
+
+```json
+{
+  "name": "ct-my-skill",
+  "version": "1.0.0",
+  "description": "Brief description for manifest",
+  "path": "skills/ct-my-skill",
+  "tags": ["category1", "category2"],
+  "status": "active",
+  "tier": 2,
+  "token_budget": 8000,
+  "references": [
+    "skills/ct-my-skill/SKILL.md"
+  ],
+  "capabilities": {
+    "inputs": ["TASK_ID", "DATE", "TOPIC_SLUG"],
+    "outputs": ["output-file", "manifest-entry"],
+    "dependencies": [],
+    "dispatch_triggers": ["trigger phrase 1", "trigger phrase 2"],
+    "compatible_subagent_types": ["general-purpose"],
+    "dispatch_keywords": {
+      "primary": ["keyword1", "keyword2"],
+      "secondary": ["keyword3", "keyword4"]
+    }
+  },
+  "constraints": {
+    "max_context_tokens": 80000,
+    "requires_session": false,
+    "requires_epic": false
+  }
+}
+```
+
+### Step 6: Validate Migration
+
+```bash
+# Validate CLEO installation
+cleo --validate
+
+# Check skill registration
+cleo commands --workflows
+
+# Test skill dispatch
+export SKILL_DISPATCH_DEBUG=1
+cleo orchestrator spawn T001 --dry-run
+
+# Verify manifest format
+cleo research list
+```
+
+---
+
+## New Patterns
+
+### Spawning Subagents (New)
+
+```bash
+# Via CLI
+cleo orchestrator spawn T1234
+
+# With specific skill override (optional)
+cleo orchestrator spawn T1234 --template ct-research-agent
+
+# Dry run to preview
+cleo orchestrator spawn T1234 --dry-run
+
+# Programmatically
+source lib/orchestrator-spawn.sh
+result=$(orchestrator_spawn_for_task "T1234")
+prompt=$(echo "$result" | jq -r '.result.prompt')
+```
+
+### Skill Loading (New)
+
+Skills load via `lib/skill-dispatch.sh`:
+
+```bash
+source lib/skill-dispatch.sh
+
+# Auto-select skill based on task metadata
+skill=$(skill_auto_dispatch "T1234")
+echo "Selected: $skill"  # e.g., "ct-research-agent"
+
+# Get full spawn context with resolved tokens
+context=$(skill_prepare_spawn "$skill" "T1234")
+
+# Verify token resolution
+echo "$context" | jq '.tokenResolution'
+# {"fullyResolved": true, "unresolvedCount": 0}
+```
+
+### Protocol Usage (New)
+
+The protocol stack combines base + conditional protocols:
+
+```
+┌─────────────────────────────────────────┐
+│ BASE PROTOCOL (Always)                  │
+│ - Output file format                    │
+│ - Manifest entry requirements           │
+│ - Return message format                 │
+├─────────────────────────────────────────┤
+│ + TASK LIFECYCLE PROTOCOL               │
+│ - cleo focus set                        │
+│ - cleo complete                         │
+├─────────────────────────────────────────┤
+│ + CONDITIONAL PROTOCOLS (as needed)     │
+│ - Verification Gates                    │
+│ - Research Linking                      │
+│ - Phase Awareness                       │
+│ - Dependency Context                    │
+│ - Error Handling                        │
+│ - Session Integration                   │
+└─────────────────────────────────────────┘
+```
+
+### 7 Conditional Protocols
+
+| Protocol | When Loaded | Purpose |
+|----------|-------------|---------|
+| Task Lifecycle | All skills | Focus, complete, link operations |
+| Research Linking | Research skills | Bidirectional task-research links |
+| Verification Gates | Testing/validation | testsPassed, securityPassed gates |
+| Phase Awareness | Phase-filtered work | Current phase context |
+| Dependency Context | Has dependencies | Manifest summaries from deps |
+| Error Handling | All skills | Partial/blocked status handling |
+| Session Integration | Session-scoped | Session context preservation |
+
+---
+
+## Troubleshooting
+
+### Old Skill Not Found
+
+**Symptom**:
+```
+ERROR: Skill 'research-agent' not found
+```
+
+**Cause**: Using old skill names without `ct-` prefix.
+
+**Solution**:
+```bash
+# Old name (deprecated)
+--agent-type research-agent
+
+# New name (correct)
+--template ct-research-agent
+```
+
+### Spawn Fails with E_PROTOCOL_MISSING
+
+**Symptom**:
+```json
+{
+  "error": {
+    "code": "E_PROTOCOL_MISSING",
+    "message": "SPAWN BLOCKED: Generated prompt missing SUBAGENT PROTOCOL marker"
+  }
+}
+```
+
+**Cause**: Skill template missing protocol injection.
+
+**Solution**:
+```bash
+# Option 1: Force inject protocol
+cleo orchestrator spawn T1234 --force-inject
+
+# Option 2: Add protocol to skill template
+# In your SKILL.md, add:
+## Subagent Protocol
+@skills/_shared/subagent-protocol-base.md
+```
+
+### Output Format Mismatch
+
+**Symptom**: Orchestrator cannot find subagent output.
+
+**Cause**: Subagent returning content in response instead of writing to file.
+
+**Solution**: Ensure skill follows OUT-001 through OUT-004:
+
+```markdown
+## Output Requirements (MUST follow)
+
+1. MUST write findings to: `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`
+2. MUST append ONE line to: `{{MANIFEST_PATH}}`
+3. MUST return ONLY: "Research complete. See MANIFEST.jsonl for summary."
+4. MUST NOT return content in response
+```
+
+### Token Not Resolved
+
+**Symptom**:
+```
+WARNING: Unresolved tokens in prompt: {{TASK_TITLE}}, {{DEPENDS_LIST}}
+```
+
+**Cause**: Task context not fully loaded before spawn.
+
+**Solution**:
+```bash
+source lib/token-inject.sh
+
+# Ensure full context is set
+ti_set_full_context "T1234"
+
+# Verify tokens
+ti_get_token "TASK_TITLE"
+ti_get_token "DEPENDS_LIST"
+```
+
+### Manifest Entry Invalid
+
+**Symptom**:
+```
+ERROR: Invalid JSON in MANIFEST.jsonl at line X
+```
+
+**Cause**: Pretty-printed JSON or malformed entry.
+
+**Solution**: Manifest entries must be single-line JSON:
+
+```json
+{"id":"topic-2026-01-26","file":"2026-01-26_topic.md","title":"Title","date":"2026-01-26","status":"complete","topics":["t1"],"key_findings":["Finding 1"],"actionable":true,"needs_followup":[],"linked_tasks":["T1234"]}
+```
+
+**NOT**:
+```json
+{
+  "id": "topic-2026-01-26",
+  "file": "2026-01-26_topic.md",
+  ...
+}
+```
+
+---
+
+## Rollback Instructions
+
+If migration causes issues, you can rollback:
+
+### Method 1: Restore from Backup
+
+```bash
+# List available backups
+cleo backup --list
+
+# Restore from backup
+cleo restore
+```
+
+### Method 2: Reverse Directory Migration
+
+```bash
+# Reverse agent-outputs → research-outputs
+mv claudedocs/agent-outputs claudedocs/research-outputs
+
+# Update manifest paths
+sed -i 's|agent-outputs/|research-outputs/|g' claudedocs/research-outputs/MANIFEST.jsonl
+```
+
+### Method 3: Downgrade CLEO
+
+```bash
+# Install specific older version
+cleo self-update --version 0.69.0
+```
+
+**Note**: Downgrading may require manual schema adjustments.
+
+---
+
+## Configuration Changes
+
+### Deprecated Configuration Keys
+
+```json
+{
+  "research": {
+    "outputDir": "claudedocs/research-outputs",
+    "manifestFile": "MANIFEST.jsonl"
+  }
+}
+```
+
+### New Configuration Keys
+
+```json
+{
+  "agentOutputs": {
+    "directory": "claudedocs/agent-outputs",
+    "manifestFile": "MANIFEST.jsonl"
+  }
+}
+```
+
+**Backward Compatibility**: Old keys are automatically mapped to new keys. Update at your convenience.
+
+---
+
+## Verification Checklist
+
+After migration, verify:
+
+- [ ] CLEO version is v0.70.0 or later (`cleo version`)
+- [ ] `cleo upgrade` completed successfully
+- [ ] `claudedocs/agent-outputs/` directory exists
+- [ ] Custom skills have protocol references
+- [ ] Custom skills registered in `skills/manifest.json`
+- [ ] Skill dispatch works (`cleo orchestrator spawn T001 --dry-run`)
+- [ ] Manifest entries are valid JSON (`cleo research list`)
+- [ ] Orchestrator can read manifest summaries
+
+---
+
+## Related Documentation
+
+- [CLEO-SUBAGENT Architecture](../architecture/CLEO-SUBAGENT.md) - Complete 2-tier system documentation
+- [Orchestrator Protocol Guide](ORCHESTRATOR-PROTOCOL.md) - Orchestrator usage and constraints
+- [Skill Development Tutorial](skill-development.md) - Creating new skills
+- [Agent Outputs Migration](../migration/agent-outputs-migration-guide.md) - Directory migration details
+- [Subagent Protocol Base](../../skills/_shared/subagent-protocol-base.md) - Protocol requirements

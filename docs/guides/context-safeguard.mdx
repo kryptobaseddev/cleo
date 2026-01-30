@@ -1,0 +1,432 @@
+---
+title: "Context Safeguard System"
+description: "Automatic context window monitoring and proactive alerts for LLM agent workflows"
+---
+
+# Context Safeguard System
+
+> Automatic context window monitoring and proactive alerts for LLM agent workflows
+
+## Overview
+
+The Context Safeguard System prevents context window overflows during extended agent sessions through:
+
+1. **Real-time monitoring** - Claude Code statusline integration tracks token usage
+2. **Automatic alerts** - Threshold crossing triggers visual warnings on stderr
+3. **Session-aware** - Alerts only during active CLEO sessions
+4. **Configurable** - Thresholds, triggers, and suppression customizable
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Claude Code Statusline (lib/context-monitor.sh)            │
+│ - Runs every ~300ms                                         │
+│ - Writes .context-state-{sessionId}.json                    │
+│ - Provides real-time token count                            │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ CLEO Commands (complete, add, focus, session)              │
+│ - Call check_context_alert() after operation               │
+│ - Pass command name for trigger filtering                  │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Alert Library (lib/context-alert.sh)                       │
+│ - Read context state file                                   │
+│ - Compare to last alerted threshold                         │
+│ - Emit visual box to stderr if crossing detected           │
+│ - Update .context-alert-state.json                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Setup
+
+### 1. Configure Claude Code Statusline
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.cleo/lib/context-monitor.sh"
+  }
+}
+```
+
+This enables real-time context monitoring.
+
+### 2. Start a CLEO Session
+
+Automatic alerts only trigger during active sessions:
+
+```bash
+cleo session start --scope epic:T001 --auto-focus --name "Feature Work"
+```
+
+### 3. Work Normally
+
+Alerts automatically appear after key operations:
+
+```bash
+cleo complete T005     # May trigger alert if crossing threshold
+cleo add "New task"    # May trigger alert
+cleo focus set T006    # May trigger alert
+```
+
+## Alert Behavior
+
+### Threshold Levels
+
+| Level | Range | Emoji | Action |
+|-------|-------|-------|--------|
+| OK | <70% | 🟢 | Continue normally |
+| Warning | 70-84% | 🟡 | Monitor: Consider session cleanup soon |
+| Caution | 85-89% | 🟠 | Consider: `ct archive; ct session suspend` |
+| Critical | 90-94% | 🔴 | Recommended: `ct session end --note "..."` |
+| Emergency | 95%+ | 🚨 | IMMEDIATE: `ct session end --note "..."` |
+
+### Alert Format
+
+Alerts appear on **stderr** before command output:
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║ 🟡  WARNING: Context window at 78%                        ║
+║   Usage: 156000/200000 tokens                             ║
+║   Monitor: Consider session cleanup soon                  ║
+╚═══════════════════════════════════════════════════════════╝
+```
+
+**Why stderr?**
+- Keeps JSON output on stdout clean for parsing
+- Ensures visibility even when piping to jq
+- Standard practice for warnings/diagnostics
+
+### Threshold Crossing Logic
+
+Alerts trigger **only on threshold crossings**, not every command:
+
+```
+Current: 68% → No alert (below warning)
+Current: 72% → Alert! (crossed into warning)
+Current: 75% → No alert (still in warning)
+Current: 78% → No alert (still in warning)
+Current: 86% → Alert! (crossed into caution)
+Current: 65% → No alert (dropped below threshold)
+Current: 73% → Alert! (crossed back into warning)
+```
+
+This prevents alert fatigue while ensuring important transitions are visible.
+
+## Configuration
+
+All settings via `cleo config`:
+
+### Enable/Disable Alerts
+
+```bash
+# Enable (default)
+cleo config set contextAlerts.enabled true
+
+# Disable
+cleo config set contextAlerts.enabled false
+```
+
+### Minimum Threshold
+
+Set the lowest threshold that triggers alerts:
+
+```bash
+# Alert on warning and above (default)
+cleo config set contextAlerts.minThreshold warning
+
+# Only alert on caution and above
+cleo config set contextAlerts.minThreshold caution
+
+# Only critical and emergency
+cleo config set contextAlerts.minThreshold critical
+
+# Only emergency
+cleo config set contextAlerts.minThreshold emergency
+```
+
+### Suppress Repeat Alerts
+
+Prevent repeated alerts within a time window:
+
+```bash
+# No suppression (default)
+cleo config set contextAlerts.suppressDuration 0
+
+# Suppress for 5 minutes (300 seconds)
+cleo config set contextAlerts.suppressDuration 300
+
+# Suppress for 1 hour
+cleo config set contextAlerts.suppressDuration 3600
+```
+
+**Note**: This suppresses alerts at the **same threshold level**. Crossing to a **new** level always alerts.
+
+### Trigger Commands
+
+Limit which commands trigger alerts:
+
+```bash
+# All commands trigger (default)
+cleo config set contextAlerts.triggerCommands '[]'
+
+# Only specific commands
+cleo config set contextAlerts.triggerCommands '["complete","add","focus"]'
+
+# Only session lifecycle
+cleo config set contextAlerts.triggerCommands '["session"]'
+```
+
+**Recommended**: Leave empty (`[]`) for comprehensive coverage.
+
+### View Current Config
+
+```bash
+# Show all contextAlerts settings
+cleo config show | jq '.contextAlerts'
+
+# Get specific value
+cleo config get contextAlerts.enabled
+cleo config get contextAlerts.minThreshold
+```
+
+## Integration with Agent Workflows
+
+### START Phase
+
+```bash
+# Check context state before starting work
+cleo context
+
+# Start session (enables automatic alerts)
+cleo session start --scope epic:T001 --auto-focus
+```
+
+### WORK Phase
+
+```bash
+# Alerts automatically trigger during work
+cleo focus set T005          # May alert
+cleo complete T005           # May alert
+cleo add "New task"          # May alert
+
+# Manual context check anytime
+cleo context
+```
+
+### END Phase
+
+```bash
+# When alert suggests session end
+cleo session end --note "Completed auth endpoints, context at 92%"
+
+# Archive to reduce state file size
+cleo archive
+```
+
+### Emergency Shutdown
+
+If you see an **emergency alert** (95%+):
+
+```bash
+# Immediate graceful stop
+cleo session end --note "Emergency shutdown: context 96%"
+
+# Alternatively, suspend for later
+cleo session suspend --note "Paused at context limit"
+```
+
+## Multi-Session Behavior
+
+Each session has **isolated context tracking**:
+
+```bash
+# Agent 1: Working on auth epic
+cleo session start --scope epic:T001 --auto-focus
+# → Context tracked in .context-state-session_abc123.json
+
+# Agent 2: Working on UI epic
+cleo session start --scope epic:T050 --auto-focus
+# → Context tracked in .context-state-session_xyz789.json
+```
+
+Alerts are **session-specific**:
+- Agent 1 may see alerts for its context usage
+- Agent 2 has independent alerts for its context
+- No cross-session interference
+
+## Troubleshooting
+
+### No Alerts Appearing
+
+**Check session status:**
+```bash
+cleo session status
+```
+Alerts only work during active sessions.
+
+**Verify config:**
+```bash
+cleo config get contextAlerts.enabled
+```
+Should return `true`.
+
+**Check context state file:**
+```bash
+# Current session
+ls -la .cleo/.context-state-*.json
+
+# View content
+cat .cleo/.context-state-session_*.json | jq .
+```
+
+**Verify statusline:**
+```bash
+# Check Claude Code settings
+cat ~/.claude/settings.json | jq '.statusLine'
+```
+
+### Alerts Too Frequent
+
+**Increase suppress duration:**
+```bash
+cleo config set contextAlerts.suppressDuration 300  # 5 minutes
+```
+
+**Raise minimum threshold:**
+```bash
+cleo config set contextAlerts.minThreshold caution  # Skip warning level
+```
+
+### Alerts Not Triggering at Expected Threshold
+
+**Check last alerted state:**
+```bash
+cat .cleo/.context-alert-state.json | jq .
+```
+
+**Reset alert state:**
+```bash
+rm .cleo/.context-alert-state.json
+```
+Next threshold crossing will trigger fresh alert.
+
+### Visual Box Broken (Unicode Issues)
+
+Terminals without Unicode support automatically fall back to ASCII:
+
+```
++==========================================================+
+| 🟡  WARNING: Context window at 78%                      |
+|   Usage: 156000/200000 tokens                           |
+|   Monitor: Consider session cleanup soon                |
++==========================================================+
+```
+
+No configuration needed - automatic detection.
+
+## Advanced: Manual Alert Checks
+
+For custom integrations:
+
+```bash
+# Check context with exit code
+cleo context check
+echo $?  # 0=OK, 50=Warning, 51=Caution, 52=Critical, 53=Emergency
+
+# Script example
+if ! cleo context check; then
+  echo "Context warning detected!"
+  # Your custom handling...
+fi
+```
+
+## State Files
+
+### Context State (Per-Session)
+
+**Location**: `.cleo/.context-state-{sessionId}.json`
+
+**Content**:
+```json
+{
+  "timestamp": "2026-01-03T17:20:00Z",
+  "status": "warning",
+  "contextWindow": {
+    "percentage": 78,
+    "currentTokens": 156000,
+    "maxTokens": 200000
+  },
+  "staleAfterMs": 5000,
+  "sessionId": "session_abc123"
+}
+```
+
+**Update frequency**: ~300ms (statusline)
+
+### Alert State (Global)
+
+**Location**: `.cleo/.context-alert-state.json`
+
+**Content**:
+```json
+{
+  "lastAlertedLevel": 78,
+  "thresholdLevel": "warning",
+  "lastAlertedAt": "2026-01-03T17:20:00Z"
+}
+```
+
+**Updated**: On each alert emission
+
+## Design Philosophy
+
+### Non-Blocking
+
+Alerts **never block** command execution:
+- Return code always 0
+- Command output unaffected
+- Pure informational warnings
+
+### Fail-Safe
+
+Missing or stale state files → No alert:
+- No crashes
+- No error messages
+- Graceful degradation
+
+### Minimal Noise
+
+Threshold crossing detection prevents:
+- Alert spam
+- Desensitization
+- Log pollution
+
+### Session-Scoped
+
+Alerts tied to session lifecycle:
+- Only during active work
+- No alerts during ad-hoc CLI usage
+- Respects session boundaries
+
+## Related Documentation
+
+- [context Command Reference](../commands/context.md)
+- [Session Protocol](../TODO_Task_Management.md#session-protocol)
+- [Configuration Guide](../config-reference.md)
+- [Multi-Session Architecture](../../specs/MULTI-SESSION-SPEC.md)
+
+## Version History
+
+- **v0.48.0**: Automatic context alerts with configurable thresholds
+- **v0.46.0**: Context monitoring command and statusline integration

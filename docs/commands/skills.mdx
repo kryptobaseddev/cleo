@@ -1,0 +1,136 @@
+---
+title: "cleo skills"
+description: "Skill management and discovery"
+icon: "wand-magic-sparkles"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo skills
+
+Skill management and discovery for extending agent capabilities.
+
+<Info>**Agent Relevance**: High - Essential for skill management</Info>
+
+## Synopsis
+
+```bash
+cleo skills <subcommand> [OPTIONS]
+```
+
+## Description
+
+The `skills` command manages skills that extend agent capabilities. Skills can be installed locally, globally, or from the marketplace (agentskills.in).
+
+## Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List installed skills (project by default) |
+| `search QUERY` | Search for skills (local or marketplace with --mp) |
+| `discover` | Scan and discover available skills |
+| `validate SKILL` | Validate skill against protocol |
+| `info SKILL` | Show skill details from manifest |
+| `install SKILL` | Install skill to agent directory |
+| `installed` | List skills installed from marketplace |
+| `update [SKILL]` | Check/apply updates for marketplace skills |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--agent AGENT` | Target agent (claude-code, cursor, gemini, etc.) |
+| `--global` | Use global skills directory instead of project |
+| `--mp` | Search/install from marketplace (agentskills.in, 100K+ skills) |
+| `--all` | Search both local and marketplace |
+| `--format FORMAT` | Output format: text \| json (default: text, auto-json when piped) |
+| `--json` | Shortcut for --format json |
+| `--human` | Shortcut for --format text |
+| `-h, --help` | Show help message |
+
+## Skill Storage
+
+| Location | Path |
+|----------|------|
+| Project skills | `skills/` |
+| Global skills | `~/.cleo/skills/` |
+| Agent-specific | Agent config directories (e.g., `~/.claude/skills/`) |
+
+## Examples
+
+<CodeGroup>
+
+```bash List Project Skills
+cleo skills list
+```
+
+```bash List Cursor's Skills
+cleo skills list --agent cursor
+```
+
+```bash List Global Skills
+cleo skills list --global
+```
+
+```bash Search Local Skills
+cleo skills search "research"
+```
+
+```bash Search Marketplace
+cleo skills search "rust cli" --mp
+```
+
+```bash Search Both Sources
+cleo skills search "orchestrator" --all
+```
+
+```bash Discover Available Skills
+cleo skills discover
+```
+
+```bash Show Skill Details
+cleo skills info ct-orchestrator
+```
+
+```bash Validate Skill
+cleo skills validate ct-research-agent
+```
+
+```bash Install Local to Cursor
+cleo skills install ct-orchestrator --agent cursor
+```
+
+```bash Install from Marketplace
+cleo skills install @wshobson/rust-async-patterns --mp
+```
+
+```bash Show Marketplace-Installed Skills
+cleo skills installed
+```
+
+```bash Check All for Updates
+cleo skills update
+```
+
+```bash Check Specific Skill for Updates
+cleo skills update rust-async-patterns
+```
+
+</CodeGroup>
+
+## Manifest File
+
+The manifest file (`skills/manifest.json`) is the single source of truth for skill metadata.
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `2` | Invalid arguments | No |
+| `4` | Resource not found | No |
+
+## See Also
+
+- [orchestrator](/commands/orchestrator) - Orchestrator with skill protocols
+- [setup-agents](/commands/setup-agents) - Setup agent configurations

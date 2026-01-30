@@ -1,0 +1,151 @@
+---
+title: "cleo orchestrator"
+description: "Orchestrator protocol for multi-agent task management"
+icon: "users"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo orchestrator
+
+Orchestrator Protocol CLI for multi-agent task management.
+
+<Info>**Agent Relevance**: Critical - Essential for orchestrator workflows</Info>
+
+## Synopsis
+
+```bash
+cleo orchestrator <command> [options]
+```
+
+## Description
+
+The `orchestrator` command manages multi-agent task execution with dependency-aware spawning, context limit protection, and protocol compliance validation.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `start` | Initialize orchestrator session, get complete startup state |
+| `status` | Check pending work from manifest and CLEO |
+| `next` | Get the next task to spawn an agent for |
+| `ready` | Get all tasks that can be spawned in parallel |
+| `context` | Check orchestrator context limits |
+| `spawn` | Generate spawn command for a task with prompt template |
+| `analyze` | Show dependency analysis and execution waves |
+| `parallel` | Show parallel execution waves for an epic |
+| `check` | Check if multiple tasks can be spawned in parallel |
+| `validate` | Validate protocol compliance (manifest, orchestrator, subagents) |
+| `skill` | Manage orchestrator skill installation |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--epic, -e <id>` | Epic ID to scope operations |
+| `--tokens, -t <n>` | Current token usage for context check |
+| `--template, -T <name>` | Skill name for spawn (default: ct-task-executor) |
+| `--subagent, -s <id>` | Research ID for subagent validation |
+| `--manifest, -m` | Validate manifest only |
+| `--orchestrator, -o` | Validate orchestrator compliance only |
+
+## Skill Protocols
+
+Available protocols for `--template`:
+
+| Protocol | Use Case |
+|----------|----------|
+| `ct-task-executor` | General task execution (default) |
+| `ct-research-agent` | Research and investigation |
+| `ct-epic-architect` | Epic planning and decomposition |
+| `ct-spec-writer` | Technical specification writing |
+| `ct-test-writer-bats` | BATS integration test writing |
+| `ct-library-implementer-bash` | Bash library implementation |
+| `ct-validator` | Compliance validation |
+| `ct-documentor` | Documentation orchestration |
+
+## Skill Subcommand
+
+```bash
+cleo orchestrator skill              # Show skill installation instructions
+cleo orchestrator skill --install    # Copy skill to project's .cleo/skills/
+cleo orchestrator skill --verify     # Check skill is properly installed
+```
+
+## Examples
+
+<CodeGroup>
+
+```bash Start Orchestrator for Epic
+cleo orchestrator start --epic T1575
+```
+
+```bash Check What Needs to be Done
+cleo orchestrator status
+```
+
+```bash Get Next Task to Spawn
+cleo orchestrator next --epic T1575
+```
+
+```bash Get All Parallel-Safe Tasks
+cleo orchestrator ready --epic T1575
+```
+
+```bash Generate Spawn Command
+cleo orchestrator spawn T1586
+cleo orchestrator spawn T1586 --template ct-research-agent
+```
+
+```bash Analyze Dependencies
+cleo orchestrator analyze T1575
+```
+
+```bash Get Parallel Execution Waves
+cleo orchestrator parallel T1575
+```
+
+```bash Check Parallel Tasks
+cleo orchestrator check T1578 T1580 T1582
+```
+
+```bash Check Context Budget
+cleo orchestrator context --tokens 5000
+```
+
+```bash Install Orchestrator Skill
+cleo orchestrator skill --install
+cleo orchestrator skill --verify
+```
+
+```bash Validate Protocol Compliance
+cleo orchestrator validate
+cleo orchestrator validate --epic T1575
+cleo orchestrator validate --subagent research-id-2026-01-18
+```
+
+</CodeGroup>
+
+## Decision Matrix
+
+The startup command uses this decision matrix:
+
+| Condition | Action |
+|-----------|--------|
+| Active session + focus | Resume focused task |
+| Active session, no focus | Spawn for manifest followup |
+| No session + pending | Create session, spawn |
+| No session, no pending | Request user direction |
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `2` | Invalid arguments | No |
+
+## See Also
+
+- [compliance](/commands/compliance) - Compliance monitoring
+- [session](/commands/session) - Session management
+- [next](/commands/next) - Get next actionable task

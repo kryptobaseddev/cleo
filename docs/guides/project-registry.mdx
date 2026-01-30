@@ -1,0 +1,332 @@
+---
+title: "Project Registry Guide"
+description: "Hybrid registry architecture for tracking projects with global and per-project metadata"
+---
+
+# Project Registry Guide
+
+**Version**: 1.0.0
+**Status**: Active
+**Epic**: T2180
+
+## Overview
+
+CLEO uses a **hybrid registry architecture** to track projects efficiently while keeping detailed metadata local. This two-tier design balances system-wide discoverability with project-local autonomy.
+
+## Architecture
+
+### Two-Tier Model
+
+```
+Global Registry                     Per-Project Info
+~/.cleo/projects-registry.json      .cleo/project-info.json
+┌─────────────────────────┐         ┌─────────────────────────┐
+│ Minimal project data    │◄───────►│ Detailed project data   │
+│ - hash                  │         │ - schema versions       │
+│ - path                  │         │ - injection status      │
+│ - name                  │         │ - health issues         │
+│ - lastAccess            │         │ - project hash (link)   │
+│ - health.status         │         │ - lastUpdated           │
+└─────────────────────────┘         └─────────────────────────┘
+```
+
+### Design Rationale
+
+| Concern | Solution |
+|---------|----------|
+| **System-wide discovery** | Global registry lists all projects |
+| **Performance** | Minimal data in global registry |
+| **Project autonomy** | Detailed data stays in project |
+| **Offline access** | Project info available without global registry |
+| **Data locality** | Project-specific data versioned with project |
+
+## File Locations
+
+### Global Registry
+
+**Location**: `~/.cleo/projects-registry.json`
+
+**Purpose**: System-wide project discovery and minimal health tracking
+
+**Contents**:
+```json
+{
+  "$schema": "./schemas/projects-registry.schema.json",
+  "schemaVersion": "1.0.0",
+  "lastUpdated": "2026-01-24T00:00:00Z",
+  "projects": {
+    "a3f5b2c8d1e9": {
+      "path": "/home/user/my-project",
+      "name": "my-project",
+      "lastAccess": "2026-01-24T00:00:00Z",
+      "health": {
+        "status": "healthy",
+        "lastCheck": "2026-01-24T00:00:00Z"
+      }
+    }
+  }
+}
+```
+
+**Fields**:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `path` | string | Absolute path to project |
+| `name` | string | Project display name |
+| `lastAccess` | date-time | Last time project was accessed |
+| `health.status` | enum | healthy, warning, error, unknown |
+| `health.lastCheck` | date-time | Last health check timestamp |
+
+### Per-Project Info
+
+**Location**: `.cleo/project-info.json` (within each project)
+
+**Purpose**: Detailed project metadata, health diagnostics, and injection tracking
+
+**Contents**:
+```json
+{
+  "$schema": "./schemas/project-info.schema.json",
+  "schemaVersion": "1.0.0",
+  "projectHash": "a3f5b2c8d1e9",
+  "cleoVersion": "0.68.0",
+  "lastUpdated": "2026-01-24T00:00:00Z",
+  "schemas": {
+    "todo": "2.8.0",
+    "config": "1.5.0",
+    "archive": "2.8.0",
+    "log": "1.2.0"
+  },
+  "injection": {
+    "CLAUDE.md": "0.68.0",
+    "AGENTS.md": "0.68.0",
+    "GEMINI.md": "0.68.0"
+  },
+  "health": {
+    "status": "healthy",
+    "lastCheck": "2026-01-24T00:00:00Z",
+    "issues": []
+  }
+}
+```
+
+**Fields**:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `projectHash` | string | 12-char hex hash linking to global registry |
+| `cleoVersion` | semver | CLEO version that last modified this file |
+| `schemas.*` | semver | Schema versions for each data file |
+| `injection.*` | semver/null | Injection versions in agent doc files |
+| `health.status` | enum | Current health status |
+| `health.lastCheck` | date-time | Last health check |
+| `health.issues` | array | Detailed issue list (if any) |
+
+## How Commands Use the Registry
+
+### cleo init
+
+1. Generates project hash from absolute path
+2. Creates `.cleo/project-info.json` with full metadata
+3. Registers project in global registry with minimal data
+4. Records injection versions
+
+### cleo upgrade
+
+1. Updates per-project `project-info.json`:
+   - Schema versions from migrated files
+   - Injection versions from updated docs
+   - Health status set to "healthy"
+2. Updates global registry:
+   - Health status summary only
+   - Last updated timestamp
+
+### cleo doctor
+
+1. **Read phase** (performance optimized):
+   - If `project-info.json` exists: read schema versions from it
+   - Otherwise: read directly from project files (legacy fallback)
+
+2. **Write phase** (dual update):
+   - Global registry: status and lastCheck only
+   - Per-project file: full issues array and details
+
+### get_project_data()
+
+The `lib/project-registry.sh` function merges both sources:
+
+```bash
+# Returns merged data from both sources
+# Per-project info takes precedence
+data=$(get_project_data "$hash")
+
+# Returns only global registry data
+data=$(get_project_data_global "$hash")
+```
+
+## Backward Compatibility
+
+### Legacy Projects
+
+Projects created before v0.68.0 do not have `project-info.json`.
+
+**Behavior**:
+- Doctor reads schema versions directly from project files
+- Upgrade creates `project-info.json` automatically
+- No manual migration required
+
+### Upgrade Path
+
+```
+Legacy Project                       Upgraded Project
+.cleo/                               .cleo/
+├── todo.json                        ├── todo.json
+├── config.json         cleo        ├── config.json
+├── todo-archive.json   upgrade →   ├── todo-archive.json
+└── todo-log.json                    ├── todo-log.json
+                                     └── project-info.json  ← NEW
+```
+
+### Version Detection
+
+Commands detect project state:
+
+1. Check for `project-info.json` existence
+2. If missing, operate in legacy mode
+3. On any upgrade, create the file
+
+## Health Tracking
+
+### Status Values
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| `healthy` | All checks pass | None |
+| `warning` | Minor issues | Review with `doctor` |
+| `error` | Critical issues | Run `doctor --fix` |
+| `unknown` | Never checked | Run `doctor` |
+
+### Issue Structure
+
+```json
+{
+  "severity": "warning",
+  "code": "SCHEMA_OUTDATED",
+  "message": "todo.json schema version 2.7.0 is outdated (current: 2.8.0)",
+  "file": ".cleo/todo.json",
+  "fix": "cleo upgrade"
+}
+```
+
+### Issue Codes
+
+| Code | Severity | Description |
+|------|----------|-------------|
+| `SCHEMA_OUTDATED` | warning | Data file needs schema migration |
+| `INJECTION_MISSING` | warning | Agent doc file missing injection |
+| `INJECTION_OUTDATED` | warning | Injection version behind CLI |
+| `VALIDATION_FAILED` | error | Data file fails validation |
+| `PATH_MISSING` | error | Project path no longer exists |
+
+## API Reference
+
+### Library Functions
+
+**Source**: `lib/project-registry.sh`
+
+```bash
+# Generate hash from project path
+hash=$(generate_project_hash "/path/to/project")
+
+# Check if project is registered
+if is_project_registered "$hash"; then
+    echo "Project found"
+fi
+
+# Get merged data (global + per-project)
+data=$(get_project_data "$hash")
+
+# Get global registry data only
+data=$(get_project_data_global "$hash")
+
+# Check for per-project info file
+if has_project_info "/path/to/project"; then
+    echo "Has project-info.json"
+fi
+
+# Read per-project info
+info=$(get_project_info "/path/to/project")
+
+# Save per-project info (atomic)
+echo "$new_info" | save_project_info "/path/to/project"
+
+# List all registered projects
+projects=$(list_registered_projects)
+
+# Prune missing projects
+removed=$(prune_registry)
+removed=$(prune_registry --dry-run)  # Preview mode
+```
+
+## Troubleshooting
+
+### Project Not Found in Registry
+
+```bash
+# Verify registration
+cleo doctor
+
+# Re-register project
+cd /path/to/project
+cleo upgrade
+```
+
+### Stale Health Status
+
+```bash
+# Force health check
+cleo doctor
+
+# Check per-project file
+cat .cleo/project-info.json | jq '.health'
+```
+
+### Missing project-info.json
+
+```bash
+# Normal for legacy projects
+# Run upgrade to create it
+cleo upgrade
+
+# Verify
+ls -la .cleo/project-info.json
+```
+
+### Registry Corruption
+
+```bash
+# Prune orphaned entries
+cleo doctor --prune
+
+# Rebuild from projects
+# (Re-init each project)
+cleo init
+```
+
+## Schema Reference
+
+### Global Registry Schema
+
+**File**: `schemas/projects-registry.schema.json`
+
+### Per-Project Info Schema
+
+**File**: `schemas/project-info.schema.json`
+
+## See Also
+
+- [doctor command](../commands/doctor.md)
+- [upgrade command](../commands/upgrade.md)
+- [init command](../commands/init.md)
+- [Hybrid Registry Migration](../migration/hybrid-registry-migration.md)

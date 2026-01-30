@@ -1,0 +1,111 @@
+---
+title: "cleo archive-stats"
+description: "Generate analytics and reports from archived tasks"
+icon: "chart-bar"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo archive-stats
+
+Generate analytics and reports from archived tasks.
+
+<Info>**Agent Relevance**: Medium - Useful for project retrospectives</Info>
+
+## Synopsis
+
+```bash
+cleo archive-stats [OPTIONS]
+```
+
+## Description
+
+The `archive-stats` command provides detailed analytics and insights from archived tasks, including:
+
+- Summary statistics (counts, averages, date ranges)
+- Phase breakdown with cycle times
+- Label breakdown with frequency counts
+- Priority breakdown
+- Cycle time analysis with distribution buckets
+- Archiving trends over time
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--summary` | Overview statistics (default) |
+| `--by-phase` | Breakdown by project phase |
+| `--by-label` | Breakdown by label |
+| `--by-priority` | Breakdown by priority |
+| `--cycle-times` | Analyze task completion cycle times |
+| `--trends` | Show archiving trends over time |
+| `--since DATE` | Only include tasks archived since DATE (ISO 8601) |
+| `--until DATE` | Only include tasks archived until DATE (ISO 8601) |
+| `-f, --format FMT` | Output format: text, json, csv (default: auto-detect) |
+| `--human` | Force human-readable text output |
+| `--json` | Force JSON output |
+| `-q, --quiet` | Suppress decorative output |
+| `-h, --help` | Show help message |
+
+## Report Types
+
+| Report | Description |
+|--------|-------------|
+| `summary` | Total counts, status breakdown, average cycle time, date ranges |
+| `by-phase` | Count and average cycle time per phase |
+| `by-label` | Count per label (sorted by frequency) |
+| `by-priority` | Count per priority level |
+| `cycle-times` | Min/max/avg/median cycle times with distribution buckets |
+| `trends` | Archive activity by week/month |
+
+## Examples
+
+<CodeGroup>
+
+```bash Summary Statistics
+cleo archive-stats
+```
+
+```bash Phase Breakdown
+cleo archive-stats --by-phase
+```
+
+```bash Cycle Time Analysis
+cleo archive-stats --cycle-times
+```
+
+```bash Trend Data as JSON
+cleo archive-stats --trends --json
+```
+
+```bash Tasks Archived in 2025
+cleo archive-stats --since 2025-01-01
+```
+
+</CodeGroup>
+
+## JSON Output Structure
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+  "_meta": { "version": "...", "command": "archive-stats", ... },
+  "success": true,
+  "report": "summary|by-phase|by-label|by-priority|cycle-times|trends",
+  "data": { ... },
+  "generatedAt": "timestamp"
+}
+```
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `2` | Invalid arguments | No |
+
+## See Also
+
+- [archive](/commands/archive) - Archive completed tasks
+- [stats](/commands/stats) - Current task statistics
+- [validate](/commands/validate) - Validate data integrity

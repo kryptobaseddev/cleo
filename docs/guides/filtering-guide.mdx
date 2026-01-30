@@ -1,0 +1,709 @@
+---
+title: "Task Filtering and Query Guide"
+description: "Complete reference for filtering, searching, and querying tasks in CLEO"
+---
+
+# Task Filtering and Query Guide
+
+Complete reference for filtering, searching, and querying tasks in the cleo system.
+
+---
+
+## Table of Contents
+
+1. [Basic Filters](#basic-filters)
+2. [Date-Based Filtering](#date-based-filtering)
+3. [Advanced Queries](#advanced-queries)
+4. [jq Power User Techniques](#jq-power-user-techniques)
+5. [Output Format Control](#output-format-control)
+6. [Sort and Limit Options](#sort-and-limit-options)
+7. [Practical Examples](#practical-examples)
+
+---
+
+## Basic Filters
+
+### Status-Based Filtering
+
+Filter tasks by their current workflow state.
+
+```bash
+# All pending work
+cleo list --status pending
+cleo list -s pending          # Short flag
+
+# Currently active tasks
+cleo list --status active
+
+# Blocked tasks requiring attention
+cleo list --status blocked
+
+# Recently completed
+cleo list --status done --limit 10
+
+# Multiple statuses (comma-separated)
+cleo list --status pending,active
+```
+
+**Available Status Values**:
+- `pending`: Not yet started
+- `active`: Currently in progress
+- `blocked`: Waiting on dependency or blocker
+- `done`: Completed (ready for archive)
+
+### Priority Filtering
+
+Filter tasks by urgency level.
+
+```bash
+# Critical tasks only
+cleo list --priority critical
+cleo list -p critical         # Short flag
+
+# High priority tasks
+cleo list --priority high
+
+# Multiple priorities (comma-separated)
+cleo list --priority high,critical
+
+# Non-urgent work
+cleo list --priority low,medium
+```
+
+**Available Priority Values**:
+- `critical`: Immediate attention required
+- `high`: Important, schedule soon
+- `medium`: Normal priority (default)
+- `low`: Can be deferred
+
+### Label-Based Filtering
+
+Filter tasks by categorization tags.
+
+```bash
+# All backend tasks
+cleo list --label backend
+cleo list -l backend          # Short flag
+
+# Security-related work
+cleo list --label security
+
+# Frontend UI tasks (multiple labels)
+cleo list --label frontend --label ui
+cleo list -l frontend -l ui   # Short flags
+
+# Sprint-specific tasks
+cleo list --label sprint-12
+```
+
+**Label Best Practices**:
+- Use lowercase with hyphens: `feature-auth`, `bug-critical`
+- Organize by: domain (`backend`, `frontend`), type (`bug`, `feature`), sprint (`sprint-12`)
+- Multiple labels for cross-categorization
+
+### Phase Filtering
+
+Filter tasks by project workflow phase.
+
+```bash
+# Setup phase tasks
+cleo list --phase setup
+
+# Core implementation tasks
+cleo list --phase core
+
+# Polish and refinement tasks
+cleo list --phase polish
+```
+
+---
+
+## Date-Based Filtering
+
+### Single Date Filters
+
+```bash
+# Tasks created after specific date
+cleo list --since 2025-12-01
+
+# Tasks created before specific date
+cleo list --until 2025-12-31
+
+# Tasks from today
+cleo list --since $(date -Idate)
+
+# Tasks from last 7 days
+cleo list --since $(date -d '7 days ago' -Idate)
+
+# Tasks from last week
+cleo list --since 2025-11-28
+```
+
+**Date Format**: ISO 8601 format `YYYY-MM-DD`
+
+### Date Range Filters
+
+Combine `--since` and `--until` for specific ranges.
+
+```bash
+# Tasks from November 2025
+cleo list \
+  --since 2025-11-01 \
+  --until 2025-11-30
+
+# Tasks from Q4 2025
+cleo list \
+  --since 2025-10-01 \
+  --until 2025-12-31
+
+# Last 30 days
+cleo list \
+  --since $(date -d '30 days ago' -Idate)
+```
+
+### Dynamic Date Calculations
+
+```bash
+# Yesterday's tasks
+cleo list --since $(date -d 'yesterday' -Idate)
+
+# This week's tasks
+cleo list --since $(date -d 'last monday' -Idate)
+
+# Last month's tasks
+cleo list \
+  --since $(date -d 'last month' +%Y-%m-01) \
+  --until $(date -d 'this month' +%Y-%m-01)
+```
+
+---
+
+## Advanced Queries
+
+### Multi-Filter Combinations
+
+Combine multiple filters for precise queries.
+
+```bash
+# High-priority backend tasks that are pending
+cleo list \
+  --priority high \
+  --label backend \
+  --status pending
+
+# Blocked critical tasks
+cleo list \
+  --status blocked \
+  --priority critical \
+  --format json
+
+# Recent active work, newest first
+cleo list \
+  --status active \
+  --since 2025-12-01 \
+  --sort createdAt \
+  --reverse
+
+# Critical frontend tasks from last sprint
+cleo list \
+  --priority critical \
+  --label frontend \
+  --label sprint-11 \
+  --since 2025-11-01 \
+  --until 2025-11-30
+```
+
+### Negation Patterns (via jq)
+
+Filter out specific values using jq.
+
+```bash
+# All tasks EXCEPT low priority
+cleo list --format json | \
+  jq '.tasks[] | select(.priority != "low")'
+
+# All tasks NOT labeled as "docs"
+cleo list --format json | \
+  jq '.tasks[] | select(.labels | contains(["docs"]) | not)'
+
+# Active tasks NOT blocked
+cleo list --status active --format json | \
+  jq '.tasks[] | select(.status != "blocked")'
+```
+
+### Pattern Matching
+
+Use jq for pattern-based filtering.
+
+```bash
+# Tasks with "auth" in title
+cleo list --format json | \
+  jq '.tasks[] | select(.title | test("auth"; "i"))'
+
+# Tasks with files in specific directory
+cleo list --format json | \
+  jq '.tasks[] | select(.files | map(test("^src/auth/")) | any)'
+
+# Tasks with descriptions containing specific text
+cleo list --format json | \
+  jq '.tasks[] | select(.description // "" | contains("security"))'
+```
+
+---
+
+## jq Power User Techniques
+
+### Field-Specific Filters
+
+```bash
+# Tasks with specific files
+cleo list --format json | \
+  jq '.tasks[] | select(.files | map(contains("auth")) | any)'
+
+# Tasks with acceptance criteria
+cleo list --format json | \
+  jq '.tasks[] | select(.acceptance | length > 0)'
+
+# Tasks with dependencies
+cleo list --format json | \
+  jq '.tasks[] | select(.depends | length > 0)'
+
+# Tasks with notes
+cleo list --format json | \
+  jq '.tasks[] | select(.notes | length > 0)'
+```
+
+### Time-Based Analysis
+
+```bash
+# Long-running active tasks (>7 days)
+cleo list --status active --format json | \
+  jq --arg date "$(date -d '7 days ago' -Iseconds)" \
+    '.tasks[] | select(.createdAt < $date)'
+
+# Recently completed tasks (last 24 hours)
+cleo list --status done --format json | \
+  jq --arg date "$(date -d '1 day ago' -Iseconds)" \
+    '.tasks[] | select(.completedAt > $date)'
+
+# Tasks created this month
+cleo list --format json | \
+  jq --arg month "$(date +%Y-%m)" \
+    '.tasks[] | select(.createdAt | startswith($month))'
+```
+
+### Custom Projections
+
+Extract specific fields from tasks.
+
+```bash
+# Extract only ID and title
+cleo list --format json | \
+  jq '.tasks[] | {id, title}'
+
+# Create CSV-like output
+cleo list --format json | \
+  jq -r '.tasks[] | [.id, .title, .status, .priority] | @csv'
+
+# Custom formatted summary
+cleo list --format json | \
+  jq -r '.tasks[] | "\(.id): \(.title) [\(.status)/\(.priority)]"'
+
+# Task titles as array
+cleo list --format json | \
+  jq '[.tasks[].title]'
+```
+
+### Aggregation and Counting
+
+```bash
+# Count tasks by status
+cleo list --format json | \
+  jq '[.tasks[].status] | group_by(.) | map({status: .[0], count: length})'
+
+# Count tasks by priority
+cleo list --format json | \
+  jq '[.tasks[].priority] | group_by(.) | map({priority: .[0], count: length})'
+
+# Count tasks by label
+cleo list --format json | \
+  jq '[.tasks[].labels[]] | group_by(.) | map({label: .[0], count: length}) | sort_by(.count) | reverse'
+
+# Average number of files per task
+cleo list --format json | \
+  jq '[.tasks[].files | length] | add / length'
+```
+
+### Dependency Analysis
+
+```bash
+# Tasks blocking other tasks
+cleo list --format json | \
+  jq '.tasks[] | select(.depends | length > 0) |
+      "\(.title) depends on: \(.depends | join(", "))"'
+
+# Unblocked pending tasks (no dependencies)
+cleo list --status pending --format json | \
+  jq '.tasks[] | select(.depends | length == 0)'
+
+# Count dependencies per task
+cleo list --format json | \
+  jq '.tasks[] | {id, title, dependency_count: (.depends | length)}'
+```
+
+---
+
+## Output Format Control
+
+### Available Formats
+
+```bash
+# Human-readable text (default)
+cleo list --format text
+cleo list -f text
+
+# JSON with metadata envelope
+cleo list --format json
+
+# JSON Lines (streaming, one task per line)
+cleo list --format jsonl
+
+# Markdown checklist
+cleo list --format markdown
+
+# ASCII table
+cleo list --format table
+
+# CSV export (RFC 4180 compliant) - via export command
+cleo export --format csv
+
+# TSV export (tab-separated values) - via export command
+cleo export --format tsv
+```
+
+### Format-Specific Options
+
+#### Text Format
+
+```bash
+# Default text output
+cleo list
+
+# Verbose mode (all details)
+cleo list --verbose
+cleo list -v
+
+# Compact mode (one-line per task)
+cleo list --compact
+cleo list -c
+
+# Flat list (no priority grouping)
+cleo list --flat
+
+# Quiet mode (suppress info messages)
+cleo list --quiet
+cleo list -q
+```
+
+#### JSON Format
+
+```bash
+# Standard JSON with metadata
+cleo list --format json
+
+# Pretty-printed JSON
+cleo list --format json | jq '.'
+
+# Minified JSON
+cleo list --format json | jq -c '.'
+
+# Extract just tasks array
+cleo list --format json | jq '.tasks'
+```
+
+**JSON Structure**:
+```json
+{
+  "_meta": {
+    "version": "2.1.0",
+    "timestamp": "2025-12-12T10:00:00Z",
+    "count": 3,
+    "filtered": true,
+    "filters": {
+      "status": ["pending", "active"]
+    }
+  },
+  "tasks": [...]
+}
+```
+
+#### CSV/TSV Format
+
+```bash
+# Standard CSV with header (via export command)
+cleo export --format csv
+
+# TSV with header (via export command)
+cleo export --format tsv
+
+# CSV without header
+cleo export --format csv --no-header
+
+# Custom delimiter (pipe-separated)
+cleo export --format csv --delimiter '|'
+
+# Save to file
+cleo export --format csv > tasks.csv
+```
+
+#### Markdown Format
+
+```bash
+# Markdown checklist
+cleo list --format markdown
+
+# Save to file
+cleo list --format markdown > TODO.md
+
+# Specific status as checklist
+cleo list --status pending --format markdown > PENDING.md
+```
+
+**Markdown Output**:
+```markdown
+## Active Tasks
+
+- [ ] Fix navigation bug (pending)
+- [x] Implement authentication (active)
+- [ ] Add user dashboard (pending)
+```
+
+---
+
+## Sort and Limit Options
+
+### Sorting
+
+```bash
+# Sort by status (default order)
+cleo list --sort status
+
+# Sort by priority (critical → low)
+cleo list --sort priority
+
+# Sort by creation date (oldest first)
+cleo list --sort createdAt
+
+# Sort by title (alphabetical)
+cleo list --sort title
+
+# Reverse sort order (newest first)
+cleo list --sort createdAt --reverse
+```
+
+**Available Sort Fields**:
+- `status`: Workflow state order
+- `priority`: Urgency level order
+- `createdAt`: Task creation timestamp
+- `title`: Alphabetical order
+
+### Limiting Results
+
+```bash
+# First 10 tasks
+cleo list --limit 10
+
+# Top 5 high-priority tasks
+cleo list --priority high --limit 5
+
+# Latest 3 completed tasks
+cleo list --status done --sort createdAt --reverse --limit 3
+```
+
+### Pagination Pattern
+
+Combine sort, limit, and offset (via jq) for pagination.
+
+```bash
+# Page 1 (tasks 0-9)
+cleo list --limit 10
+
+# Page 2 (tasks 10-19)
+cleo list --format json | jq '.tasks[10:20]'
+
+# Page 3 (tasks 20-29)
+cleo list --format json | jq '.tasks[20:30]'
+```
+
+---
+
+## Practical Examples
+
+### Daily Workflow Queries
+
+```bash
+# Morning standup: What's on my plate today?
+cleo list --status active,pending --priority high,critical
+
+# End of day: What did I complete?
+cleo list --status done --since $(date -Idate)
+
+# Weekly review: What's blocked?
+cleo list --status blocked
+```
+
+### Sprint Management
+
+```bash
+# Current sprint tasks
+cleo list --label sprint-12
+
+# Sprint progress (completed vs total)
+TOTAL=$(cleo list --label sprint-12 --format json | jq '.tasks | length')
+DONE=$(cleo list --label sprint-12 --status done --format json | jq '.tasks | length')
+echo "Sprint Progress: $DONE / $TOTAL tasks completed"
+
+# Sprint burndown data
+cleo list --label sprint-12 --format json | \
+  jq '[.tasks[].status] | group_by(.) | map({status: .[0], count: length})'
+```
+
+### Team Coordination
+
+```bash
+# Backend team tasks
+cleo list --label backend --status pending,active
+
+# Frontend team tasks
+cleo list --label frontend --status pending,active
+
+# Security review needed
+cleo list --label security --status pending
+```
+
+### Release Planning
+
+```bash
+# Critical tasks before release
+cleo list --priority critical --status pending,active
+
+# Release blockers
+cleo list --status blocked --priority high,critical
+
+# Release checklist
+cleo list --label release --format markdown > RELEASE-CHECKLIST.md
+```
+
+### Technical Debt Tracking
+
+```bash
+# All tech debt tasks
+cleo list --label tech-debt
+
+# Old tech debt (>90 days)
+cleo list --label tech-debt --format json | \
+  jq --arg date "$(date -d '90 days ago' -Iseconds)" \
+    '.tasks[] | select(.createdAt < $date)'
+```
+
+### Bug Triage
+
+```bash
+# All open bugs
+cleo list --label bug --status pending,active
+
+# Critical bugs
+cleo list --label bug --priority critical
+
+# Bugs by age
+cleo list --label bug --sort createdAt
+```
+
+---
+
+## Quick Reference
+
+### Common Filter Patterns
+
+```bash
+# High-priority work
+cleo list -p high,critical
+
+# Pending backend tasks
+cleo list -s pending -l backend
+
+# Recent activity (last 7 days)
+cleo list --since $(date -d '7 days ago' -Idate)
+
+# Compact JSON for scripting
+cleo list -f json -c
+
+# Markdown checklist of pending tasks
+cleo list -s pending -f markdown
+```
+
+### Combining Filters
+
+```bash
+# Critical pending backend tasks from this sprint
+cleo list \
+  -p critical \
+  -s pending \
+  -l backend \
+  -l sprint-12
+
+# Recently created high-priority tasks
+cleo list \
+  -p high \
+  --since $(date -d '3 days ago' -Idate) \
+  --sort createdAt \
+  --reverse
+```
+
+### Output Redirection
+
+```bash
+# Export to CSV (via export command)
+cleo export -f csv > tasks.csv
+
+# Export to JSON
+cleo list -f json > tasks.json
+
+# Export to Markdown
+cleo list -f markdown > TODO.md
+
+# Append to log file
+cleo list -f text >> task-report-$(date -Idate).log
+```
+
+---
+
+## Best Practices
+
+1. **Use Short Flags**: `-s`, `-p`, `-l`, `-f` for faster typing
+2. **Combine Filters**: Start broad, then narrow with multiple filters
+3. **Save Common Queries**: Create shell aliases for frequent filters
+4. **Use JSON for Scripting**: Parse with jq for automation
+5. **Export Regularly**: Create snapshots with CSV/Markdown exports
+6. **Leverage Sorting**: Use `--sort` and `--reverse` for priority ordering
+
+### Shell Aliases for Common Filters
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+alias ct-todo='cleo list -s pending'
+alias ct-active='cleo list -s active'
+alias ct-blocked='cleo list -s blocked'
+alias ct-done='cleo list -s done --limit 10'
+alias ct-critical='cleo list -p critical'
+alias ct-today='cleo list --since $(date -Idate)'
+alias ct-week='cleo list --since $(date -d "7 days ago" -Idate)'
+```
+
+---
+
+## Next Steps
+
+- **Usage Guide**: See [usage.md](../usage.md) for complete command reference
+- **Output Reference**: See [CLI-OUTPUT-REFERENCE.md](../../claudedocs/CLI-OUTPUT-REFERENCE.md) for format details
+- **Configuration**: See [configuration.md](../reference/configuration.md) for filter customization

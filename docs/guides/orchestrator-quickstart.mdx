@@ -1,0 +1,284 @@
+---
+title: "Orchestrator Quickstart"
+description: "Step-by-step tutorial for running your first orchestrated workflow with CLEO"
+---
+
+# Orchestrator Quickstart
+
+**Version**: 1.0.0
+**Status**: Active
+**Last Updated**: 2026-01-20
+
+A step-by-step tutorial for running your first orchestrated workflow with CLEO.
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+1. **CLEO installed and initialized**
+   ```bash
+   cleo version   # Should show v0.55.0+
+   cleo validate  # Should pass
+   ```
+
+2. **An epic with child tasks**
+   ```bash
+   # Check for existing epics
+   cleo list --type epic
+
+   # Or create one
+   cleo add "My Feature Epic" --type epic
+   cleo add "Research requirements" --parent T001
+   cleo add "Implement solution" --parent T001 --depends T002
+   cleo add "Write tests" --parent T001 --depends T003
+   ```
+
+3. **Research outputs directory**
+   ```bash
+   cleo research init
+   # Creates: claudedocs/agent-outputs/
+   ```
+
+## Step 1: Start Orchestrator Session
+
+Start a scoped session for your epic:
+
+```bash
+# Start session scoped to epic T001
+cleo session start --scope epic:T001 --auto-focus --name "Feature Work"
+```
+
+**Expected output:**
+```json
+{
+  "success": true,
+  "sessionId": "session_20260120_143022_123456",
+  "scope": "epic:T001",
+  "autoFocus": "T002"
+}
+```
+
+**Verify your session:**
+```bash
+cleo session status
+cleo focus show
+```
+
+### What This Does
+
+- Creates a new session scoped to epic T001 and all children
+- Sets focus to the first available task (via `--auto-focus`)
+- Prevents other sessions from claiming the same tasks
+
+## Step 2: Spawn First Subagent
+
+Check what's ready to spawn and generate the spawn command:
+
+```bash
+# See which tasks can run (no blockers)
+cleo orchestrator ready --epic T001
+
+# Get the next recommended task
+cleo orchestrator next --epic T001
+
+# Generate spawn command with full prompt
+cleo orchestrator spawn T002
+```
+
+**Expected output:**
+```
+Spawning subagent for task T002: Research requirements
+
+Task tool prompt:
+---
+## Task Assignment: T002
+
+### Context
+Research requirements for feature implementation...
+
+### SUBAGENT PROTOCOL (RFC 2119 - MANDATORY)
+...
+---
+
+Copy and paste the above into a Task tool invocation.
+```
+
+### Execute the Spawn
+
+Use Claude Code's Task tool to spawn the subagent:
+
+```
+Task: [paste the generated prompt]
+```
+
+**Wait for completion.** The subagent will:
+1. Set focus to T002
+2. Perform the work
+3. Write findings to `claudedocs/agent-outputs/`
+4. Append entry to `MANIFEST.jsonl`
+5. Complete the task
+
+## Step 3: Read Manifest Results
+
+After the subagent completes, read the results:
+
+```bash
+# Get the latest manifest entry
+tail -1 claudedocs/agent-outputs/MANIFEST.jsonl | jq
+
+# Or use CLEO's research commands (more context-efficient)
+cleo research list --limit 1
+cleo research show <research-id>
+```
+
+**Example manifest entry:**
+```json
+{
+  "id": "requirements-research-2026-01-20",
+  "file": "2026-01-20_requirements-research.md",
+  "title": "Feature Requirements Research",
+  "date": "2026-01-20",
+  "status": "complete",
+  "topics": ["research", "requirements"],
+  "key_findings": [
+    "Finding 1: Need JWT authentication",
+    "Finding 2: Database schema requires migration"
+  ],
+  "actionable": true,
+  "needs_followup": ["T003"],
+  "linked_tasks": ["T001", "T002"]
+}
+```
+
+### Check Task Completion
+
+```bash
+# Verify task was completed
+cleo show T002
+
+# Check what's now unblocked
+cleo orchestrator ready --epic T001
+```
+
+## Step 4: Continue and Complete Epic
+
+Repeat for remaining tasks:
+
+```bash
+# Spawn next task
+cleo orchestrator next --epic T001
+cleo orchestrator spawn T003
+
+# After subagent completes, verify
+cleo show T003 --verification
+
+# Verify the task (if required)
+cleo verify T003 --all
+
+# Check epic progress
+cleo analyze --parent T001
+```
+
+### Complete the Epic
+
+When all child tasks are done and verified:
+
+```bash
+# Check epic status
+cleo show T001
+
+# If auto-complete is enabled, epic completes automatically
+# Otherwise, complete manually:
+cleo complete T001 --notes "All child tasks completed"
+
+# End session
+cleo session end --note "Feature epic completed"
+```
+
+## Quick Reference
+
+### Essential Commands
+
+| Command | Purpose |
+|---------|---------|
+| `cleo session start --scope epic:T001` | Start scoped session |
+| `cleo orchestrator ready --epic T001` | List unblocked tasks |
+| `cleo orchestrator next --epic T001` | Get next task to spawn |
+| `cleo orchestrator spawn T002` | Generate spawn prompt |
+| `cleo research list --limit 5` | Recent research entries |
+| `cleo orchestrator analyze T001` | Dependency wave analysis |
+
+### Manifest Query Patterns
+
+```bash
+# Latest entry
+tail -1 MANIFEST.jsonl | jq
+
+# Pending followups
+jq -s '[.[] | select(.needs_followup | length > 0)]' MANIFEST.jsonl
+
+# Key findings for epic
+jq -s '[.[] | select(.linked_tasks | contains(["T001"])) | .key_findings] | flatten' MANIFEST.jsonl
+```
+
+## Troubleshooting
+
+### Subagent didn't write to manifest
+
+**Symptoms:** Task completed but no manifest entry.
+
+**Solution:**
+```bash
+# Check if file was created
+ls claudedocs/agent-outputs/*.md | tail -1
+
+# Manually append entry if needed
+echo '{"id":"manual-entry-2026-01-20",...}' >> claudedocs/agent-outputs/MANIFEST.jsonl
+```
+
+### Task stuck as blocked
+
+**Symptoms:** `cleo orchestrator ready` shows nothing.
+
+**Solution:**
+```bash
+# Check dependencies
+cleo deps T003
+
+# Complete blocking task
+cleo complete T002
+```
+
+### Session scope conflict
+
+**Symptoms:** Error when starting session.
+
+**Solution:**
+```bash
+# Check existing sessions
+cleo session list --status active
+
+# End conflicting session
+cleo session end --session <session-id>
+```
+
+### Context window warning
+
+**Symptoms:** Orchestrator session consuming too much context.
+
+**Solution:**
+```bash
+# Check context usage
+cleo context
+
+# Use manifest summaries instead of reading files
+cleo research list
+cleo research show <id>  # Only when needed
+```
+
+## Next Steps
+
+- **Full Protocol Guide**: [ORCHESTRATOR-PROTOCOL.md](./ORCHESTRATOR-PROTOCOL.md)
+- **Parallel Execution**: See "Wave-Based Execution" in protocol guide
+- **Verification Gates**: See "Verification Gates Integration" in protocol guide
+- **CLI Reference**: [orchestrator command](../commands/orchestrator.md)

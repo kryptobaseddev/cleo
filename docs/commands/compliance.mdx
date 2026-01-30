@@ -1,0 +1,117 @@
+---
+title: "cleo compliance"
+description: "Monitor and report compliance metrics for orchestrator and agent outputs"
+icon: "shield-check"
+---
+
+{/* AUTO-GENERATED - Command documentation */}
+
+# cleo compliance
+
+Monitor and report compliance metrics for orchestrator and agent outputs.
+
+<Info>**Agent Relevance**: High - Used by orchestrator for quality control</Info>
+
+## Synopsis
+
+```bash
+cleo compliance <subcommand> [OPTIONS]
+```
+
+## Description
+
+The `compliance` command tracks and reports compliance metrics for agent task execution, including pass rates, rule adherence, and violation tracking.
+
+## Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `summary` | Aggregate compliance stats (default) |
+| `violations` | List compliance violations |
+| `trend [N]` | Show compliance trend over N days (default: 7) |
+| `audit <EPIC_ID>` | Check compliance for specific epic's tasks |
+| `sync` | Sync project metrics to global aggregation |
+| `skills` | Per-skill/agent reliability stats |
+| `report` | Human-readable project compliance report |
+| `report-global` | Human-readable cross-project report |
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--since DATE` | Filter metrics from this date (ISO 8601) |
+| `--agent AGENT_ID` | Filter by agent/skill ID |
+| `--project NAME` | Filter by project (global commands only) |
+| `--severity LEVEL` | Filter violations by severity (low\|medium\|high\|critical) |
+| `--global` | Use global metrics file (trend/skills) |
+| `--force` | Force full sync (sync only) |
+| `--format FORMAT` | Output format: json (default) or human |
+| `--json` | Shortcut for --format json |
+| `--human` | Shortcut for --format human |
+| `--help` | Show help message |
+
+## Metrics Tracked
+
+| Metric | Description |
+|--------|-------------|
+| `compliance_pass_rate` | Tasks with zero violations (0.0-1.0) |
+| `rule_adherence_score` | Rules satisfied / total rules (0.0-1.0) |
+| `violation_count` | Total violations |
+| `violation_severity` | low\|medium\|high\|critical |
+| `manifest_integrity` | valid\|partial\|invalid\|missing |
+
+## Examples
+
+<CodeGroup>
+
+```bash Summary of Project Compliance
+cleo compliance
+```
+
+```bash Summary Since Date
+cleo compliance summary --since 2026-01-01
+```
+
+```bash High Severity Violations
+cleo compliance violations --severity high
+```
+
+```bash 14-Day Trend
+cleo compliance trend 14
+```
+
+```bash Audit Epic Tasks
+cleo compliance audit T1930
+```
+
+```bash Sync to Global Metrics
+cleo compliance sync
+```
+
+```bash Cross-Project Skill Reliability
+cleo compliance skills --global
+```
+
+```bash Human-Readable Report
+cleo compliance report
+```
+
+</CodeGroup>
+
+## Output
+
+- **JSON by default** (when piped or --json)
+- **Human-readable table** for TTY (or --human)
+
+## Exit Codes
+
+| Code | Meaning | Recoverable |
+|------|---------|:-----------:|
+| `0` | Success | No |
+| `2` | Invalid arguments | No |
+
+## See Also
+
+- [orchestrator](/commands/orchestrator) - Orchestrator protocol management
+- [validate](/commands/validate) - Validate task data
+- [verify](/commands/verify) - Verify task completeness
