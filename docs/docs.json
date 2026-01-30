@@ -111,6 +111,66 @@
               "guides/todowrite-sync",
               "guides/contribution-protocol"
             ]
+          },
+          {
+            "group": "Installation",
+            "pages": [
+              "guides/getting-started",
+              "guides/INSTALLATION-MODES",
+              "guides/installer-architecture",
+              "guides/installer-migration"
+            ]
+          },
+          {
+            "group": "Orchestration",
+            "pages": [
+              "guides/orchestrator-quickstart",
+              "guides/ORCHESTRATOR-PROTOCOL",
+              "guides/ORCHESTRATOR-VERSIONS",
+              "guides/llm-agent-workflows"
+            ]
+          },
+          {
+            "group": "Multi-Agent",
+            "pages": [
+              "guides/multi-agent-setup",
+              "guides/AGENT-REGISTRATION",
+              "guides/SUBAGENT-MIGRATION"
+            ]
+          },
+          {
+            "group": "Skills",
+            "pages": [
+              "guides/skill-development",
+              "guides/skillsmp-integration",
+              "guides/EPIC-ARCHITECT-SKILL-GUIDE"
+            ]
+          },
+          {
+            "group": "Protocols",
+            "pages": [
+              "guides/PROTOCOL-INJECTION-FLOW",
+              "guides/SKILL-DISPATCH-ALGORITHM",
+              "guides/CONTRIBUTION-PROTOCOL-GUIDE",
+              "guides/MANIFEST-SCHEMA"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "guides/filtering-guide",
+              "guides/archive-guide",
+              "guides/cleo-project-management-guide-optimized",
+              "guides/context-safeguard",
+              "guides/design-philosophy"
+            ]
+          },
+          {
+            "group": "System Architecture",
+            "pages": [
+              "guides/DEPENDENCY-GRAPHS",
+              "guides/project-registry"
+            ]
           }
         ]
       },
@@ -180,6 +240,7 @@
             "pages": [
               "commands/config",
               "commands/init",
+              "commands/setup-agents",
               "commands/setup-claude-aliases"
             ]
           },
@@ -192,7 +253,12 @@
               "commands/archive",
               "commands/upgrade",
               "commands/migrate",
+              "commands/claude-migrate",
+              "commands/compliance",
               "commands/doctor",
+              "commands/release",
+              "commands/reorganize-backups",
+              "commands/safestop",
               "commands/self-update"
             ]
           },
@@ -203,16 +269,28 @@
               "commands/export",
               "commands/export-tasks",
               "commands/import-tasks",
-              "commands/research"
+              "commands/inject",
+              "commands/orchestrator",
+              "commands/research",
+              "commands/sequence"
             ]
           },
           {
             "group": "Utilities",
             "pages": [
+              "commands/archive-stats",
+              "commands/commands",
+              "commands/docs",
               "commands/exists",
-              "commands/verify",
+              "commands/extract",
+              "commands/generate-changelog",
+              "commands/generate-features",
               "commands/log",
-              "commands/commands"
+              "commands/relates",
+              "commands/roadmap",
+              "commands/skills",
+              "commands/unarchive",
+              "commands/verify"
             ]
           }
         ]
@@ -246,7 +324,9 @@
               "skills/index",
               "skills/overview",
               "skills/installation",
-              "skills/marketplace"
+              "skills/marketplace",
+              "skills/architecture",
+              "skills/manifest"
             ]
           },
           {
@@ -287,12 +367,50 @@
             ]
           },
           {
-            "group": "Architecture",
+            "group": "System Architecture",
             "pages": [
-              "concepts/architecture",
-              "concepts/data-flows",
-              "concepts/backup-system",
-              "concepts/anti-hallucination"
+              "developer/specifications/CLEO-SYSTEM-ARCHITECTURE",
+              "developer/specifications/PRIME-ARCHITECTURE",
+              "developer/specifications/LIBRARY-ARCHITECTURE",
+              "developer/specifications/LLM-AGENT-FIRST",
+              "developer/specifications/LLM-AGENT-HEALTH-PROTOCOL"
+            ]
+          },
+          {
+            "group": "RCSD-IVTR Protocol Stack",
+            "pages": [
+              "developer/specifications/RCSD-IVTR-PROTOCOL-STACK",
+              "developer/specifications/PROTOCOL-STACK",
+              "developer/specifications/PROJECT-LIFECYCLE",
+              "developer/specifications/RCSD-PIPELINE",
+              "developer/specifications/LIFECYCLE-ENFORCEMENT"
+            ]
+          },
+          {
+            "group": "Protocol Definitions",
+            "icon": "scroll",
+            "pages": [
+              "developer/protocols/research",
+              "developer/protocols/consensus",
+              "developer/protocols/specification",
+              "developer/protocols/decomposition",
+              "developer/protocols/implementation",
+              "developer/protocols/validation",
+              "developer/protocols/testing",
+              "developer/protocols/contribution",
+              "developer/protocols/release"
+            ]
+          },
+          {
+            "group": "Agent Protocols",
+            "pages": [
+              "developer/specifications/ORCHESTRATOR-PROTOCOL",
+              "developer/specifications/ORCHESTRATOR",
+              "developer/specifications/CLEO-SUBAGENT-PROTOCOL",
+              "developer/specifications/AGENT-CONTRACT",
+              "developer/specifications/MULTI-AGENT-ABSTRACTION",
+              "developer/specifications/CONSENSUS-FRAMEWORK",
+              "developer/specifications/CONTRIBUTION-FORMAT"
             ]
           },
           {
@@ -300,10 +418,13 @@
             "pages": [
               "developer/specifications/index",
               "developer/specifications/SKILL-TAXONOMY",
-              "developer/specifications/PROTOCOL-STACK",
-              "developer/specifications/PROJECT-LIFECYCLE",
-              "developer/specifications/CLEO-SYSTEM-ARCHITECTURE",
-              "developer/specifications/CLEO-SUBAGENT-PROTOCOL-v1"
+              "developer/specifications/TASK-HIERARCHY",
+              "developer/specifications/TASK-DECOMPOSITION",
+              "developer/specifications/EPIC-SESSION",
+              "developer/specifications/MULTI-SESSION",
+              "developer/specifications/MULTI-SESSION-BINDING",
+              "developer/specifications/PHASE-SYSTEM",
+              "developer/specifications/LLM-TASK-ID-SYSTEM-DESIGN"
             ]
           },
           {
@@ -312,10 +433,9 @@
               "developer/specifications/BACKUP-SYSTEM",
               "developer/specifications/CONFIG-SYSTEM",
               "developer/specifications/MIGRATION-SYSTEM",
-              "developer/specifications/PHASE-SYSTEM",
-              "developer/specifications/TASK-HIERARCHY",
-              "developer/specifications/MULTI-SESSION",
-              "developer/specifications/EPIC-SESSION"
+              "developer/specifications/HEALTH-REGISTRY",
+              "developer/specifications/ISSUE-LIFECYCLE",
+              "developer/specifications/CLEO-PLUGIN"
             ]
           },
           {
@@ -326,28 +446,26 @@
               "developer/specifications/CONTEXT-SAFEGUARD",
               "developer/specifications/CHAIN-VISUALIZATION",
               "developer/specifications/FILE-LOCKING",
-              "developer/specifications/VERSION-GUARD-FINAL-DESIGN"
+              "developer/specifications/VERSION-GUARD",
+              "developer/specifications/WEB-AGGREGATION-PIPELINE",
+              "developer/specifications/SOLID-PROMPTING-SYSTEM",
+              "developer/specifications/IMPLEMENTATION-ORCHESTRATION"
             ]
           },
           {
-            "group": "Agent Protocols",
+            "group": "Release & Changelog",
             "pages": [
-              "developer/specifications/ORCHESTRATOR-PROTOCOL",
-              "developer/specifications/RCSD-PIPELINE",
-              "developer/specifications/CONSENSUS-FRAMEWORK",
-              "developer/specifications/AGENT-CONTRACT",
-              "developer/specifications/MULTI-AGENT-ABSTRACTION"
+              "developer/specifications/RELEASE-MANAGEMENT",
+              "developer/specifications/CHANGELOG-GENERATION",
+              "developer/specifications/GITHUB-RELEASE-INTEGRATION"
             ]
           },
-          {
-            "group": "Implementation Reports",
+                    {
+            "group": "Schemas",
             "pages": [
-              "developer/specifications/BACKUP-SYSTEM-SPEC-implementation",
-              "developer/specifications/CONFIG-SYSTEM-implementation",
-              "developer/specifications/LIBRARY-ARCHITECTURE-implementation",
-              "developer/specifications/LLM-AGENT-FIRST-implementation",
-              "developer/specifications/RCSD-PIPELINE-implementation",
-              "developer/specifications/TODOWRITE-SYNC-implementation"
+              "developer/schemas/sessions.schema",
+              "developer/schemas/error.schema",
+              "developer/schemas/output.schema"
             ]
           },
           {
@@ -358,6 +476,7 @@
               "developer/development/compliance-checking",
               "developer/development/dev-scripts",
               "developer/development/performance-testing",
+              "developer/development/protocol-docs-generation",
               "developer/development/todowrite-sync"
             ]
           },
