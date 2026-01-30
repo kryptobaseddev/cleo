@@ -17,6 +17,30 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.76.1" tags={["Bug Fix", "Installer"]}>
+## Bug Fix Release
+
+**Fixed**
+- `cleo --validate` failed on fresh installations due to missing `docs` command mapping in `installer/lib/link.sh` (T2735)
+  - Added `docs) echo "docs.sh" ;;` to `_get_cmd_script()` function
+</Update>
+
+<Update label="January 2026" description="v0.76.0" tags={["Feature", "Protocol", "Lifecycle"]}>
+## Lifecycle Enforcement & Protocol Validation
+
+**Added**
+- Lifecycle enforcement system for RCSD-IVTR pipeline
+- Protocol validation and testing framework
+- Protocol enforcement exit codes (60-67)
+
+**Fixed**
+- `release create` missing `createdAt` timestamp (T2677)
+
+**Documentation**
+- RCSD-IVTR Protocol Stack developer guide
+- Release workflow documentation updates
+</Update>
+
 <Update label="January 2026" description="v0.75.0" tags={["Feature", "Skills", "Orchestrator"]}>
 ## Project-agnostic validation
 

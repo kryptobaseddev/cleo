@@ -5,6 +5,174 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.76.1] - 2026-01-29
+
+### Bug Fixes
+- Fix: Missing docs command mapping in link.sh causes --validate to fail (T2735)
+  - The `cleo --validate` command failed on fresh installations because the `docs` command
+    was listed in `_get_all_commands()` but had no corresponding mapping in `_get_cmd_script()`
+  - Added `docs) echo "docs.sh" ;;` to `installer/lib/link.sh:354`
+
+## [v0.76.0] - 2026-01-29
+
+### Bug Fixes
+- Fix: release create missing createdAt (T2677)
+
+### Documentation
+- Release: Update release workflow documentation (T2628)
+- Release: Update Documentation for Protocol Enforcement (T2705)
+
+### Tests
+- Test: Unit tests for task association logic (T2622)
+- Test: Integration tests for release.sh ship command (T2623)
+- Test: GitHub workflow simulation with act (T2624)
+- Test: Backfill script testing with real data (T2625)
+
+### Other Changes
+- Research: Analyze current release workflow end-to-end (T2603)
+- Research: GitHub Actions release.yml deep dive (T2604)
+- Research: Task → Release association strategy (T2605)
+- Research: Backfill feasibility analysis (T2606)
+- Consensus: Changelog generation trigger strategy (T2607)
+- Consensus: GitHub Release body source strategy (T2608)
+- Consensus: Task association strategy selection (T2609)
+- Spec: Write CHANGELOG-GENERATION-SPEC.md (T2610)
+- Spec: Update RELEASE-MANAGEMENT-SPEC.md with changelog (T2611)
+- Spec: Write GITHUB-RELEASE-INTEGRATION-SPEC.md (T2612)
+- Implement: Task association in release.sh (T2613)
+- Implement: Changelog content field in release object (T2614)
+- Implement: GitHub Release body extraction function (T2615)
+- Implement: Update release.yml workflow (T2616)
+- Implement: Validation gate for changelog (T2617)
+- Implement: Backfill script for historical releases (T2618)
+- Validate: Full pipeline smoke test (T2619)
+- Validate: Changelog categorization accuracy (T2620)
+- Validate: GitHub Release body content quality (T2621)
+- Release: Deploy changelog system to production (T2626)
+- Release: Backfill historical releases with task data (T2627)
+- Research: Audit Execution Protocols (implementation.md, contribution.md, release.md) RFC 2119 Compliance (T2684)
+- Release: Deploy Protocol Enforcement to Production (T2704)
+
+## [v0.76.0] - 2026-01-29
+
+### Bug Fixes
+- Fix: release create missing createdAt (T2677)
+
+### Documentation
+- Release: Update release workflow documentation (T2628)
+- Release: Update Documentation for Protocol Enforcement (T2705)
+
+### Tests
+- Test: Unit tests for task association logic (T2622)
+- Test: Integration tests for release.sh ship command (T2623)
+- Test: GitHub workflow simulation with act (T2624)
+- Test: Backfill script testing with real data (T2625)
+
+### Other Changes
+- Research: Analyze current release workflow end-to-end (T2603)
+- Research: GitHub Actions release.yml deep dive (T2604)
+- Research: Task → Release association strategy (T2605)
+- Research: Backfill feasibility analysis (T2606)
+- Consensus: Changelog generation trigger strategy (T2607)
+- Consensus: GitHub Release body source strategy (T2608)
+- Consensus: Task association strategy selection (T2609)
+- Spec: Write CHANGELOG-GENERATION-SPEC.md (T2610)
+- Spec: Update RELEASE-MANAGEMENT-SPEC.md with changelog (T2611)
+- Spec: Write GITHUB-RELEASE-INTEGRATION-SPEC.md (T2612)
+- Implement: Task association in release.sh (T2613)
+- Implement: Changelog content field in release object (T2614)
+- Implement: GitHub Release body extraction function (T2615)
+- Implement: Update release.yml workflow (T2616)
+- Implement: Validation gate for changelog (T2617)
+- Implement: Backfill script for historical releases (T2618)
+- Validate: Full pipeline smoke test (T2619)
+- Validate: Changelog categorization accuracy (T2620)
+- Validate: GitHub Release body content quality (T2621)
+- Release: Deploy changelog system to production (T2626)
+- Release: Backfill historical releases with task data (T2627)
+- Research: Audit Execution Protocols (implementation.md, contribution.md, release.md) RFC 2119 Compliance (T2684)
+- Release: Deploy Protocol Enforcement to Production (T2704)
+
+## [v0.76.0] - 2026-01-29
+
+### Bug Fixes
+- Fix: release create missing createdAt (T2677)
+
+### Documentation
+- Release: Update release workflow documentation (T2628)
+- Release: Update Documentation for Protocol Enforcement (T2705)
+
+### Tests
+- Test: Unit tests for task association logic (T2622)
+- Test: Integration tests for release.sh ship command (T2623)
+- Test: GitHub workflow simulation with act (T2624)
+- Test: Backfill script testing with real data (T2625)
+
+### Other Changes
+- Research: Analyze current release workflow end-to-end (T2603)
+- Research: GitHub Actions release.yml deep dive (T2604)
+- Research: Task → Release association strategy (T2605)
+- Research: Backfill feasibility analysis (T2606)
+- Consensus: Changelog generation trigger strategy (T2607)
+- Consensus: GitHub Release body source strategy (T2608)
+- Consensus: Task association strategy selection (T2609)
+- Spec: Write CHANGELOG-GENERATION-SPEC.md (T2610)
+- Spec: Update RELEASE-MANAGEMENT-SPEC.md with changelog (T2611)
+- Spec: Write GITHUB-RELEASE-INTEGRATION-SPEC.md (T2612)
+- Implement: Task association in release.sh (T2613)
+- Implement: Changelog content field in release object (T2614)
+- Implement: GitHub Release body extraction function (T2615)
+- Implement: Update release.yml workflow (T2616)
+- Implement: Validation gate for changelog (T2617)
+- Implement: Backfill script for historical releases (T2618)
+- Validate: Full pipeline smoke test (T2619)
+- Validate: Changelog categorization accuracy (T2620)
+- Validate: GitHub Release body content quality (T2621)
+- Release: Deploy changelog system to production (T2626)
+- Release: Backfill historical releases with task data (T2627)
+- Research: Audit Execution Protocols (implementation.md, contribution.md, release.md) RFC 2119 Compliance (T2684)
+- Release: Deploy Protocol Enforcement to Production (T2704)
+
+## [v0.76.0] - 2026-01-29
+
+### Bug Fixes
+- Fix: release create missing createdAt (T2677)
+
+### Documentation
+- Release: Update release workflow documentation (T2628)
+- Release: Update Documentation for Protocol Enforcement (T2705)
+
+### Tests
+- Test: Unit tests for task association logic (T2622)
+- Test: Integration tests for release.sh ship command (T2623)
+- Test: GitHub workflow simulation with act (T2624)
+- Test: Backfill script testing with real data (T2625)
+
+### Other Changes
+- Research: Analyze current release workflow end-to-end (T2603)
+- Research: GitHub Actions release.yml deep dive (T2604)
+- Research: Task → Release association strategy (T2605)
+- Research: Backfill feasibility analysis (T2606)
+- Consensus: Changelog generation trigger strategy (T2607)
+- Consensus: GitHub Release body source strategy (T2608)
+- Consensus: Task association strategy selection (T2609)
+- Spec: Write CHANGELOG-GENERATION-SPEC.md (T2610)
+- Spec: Update RELEASE-MANAGEMENT-SPEC.md with changelog (T2611)
+- Spec: Write GITHUB-RELEASE-INTEGRATION-SPEC.md (T2612)
+- Implement: Task association in release.sh (T2613)
+- Implement: Changelog content field in release object (T2614)
+- Implement: GitHub Release body extraction function (T2615)
+- Implement: Update release.yml workflow (T2616)
+- Implement: Validation gate for changelog (T2617)
+- Implement: Backfill script for historical releases (T2618)
+- Validate: Full pipeline smoke test (T2619)
+- Validate: Changelog categorization accuracy (T2620)
+- Validate: GitHub Release body content quality (T2621)
+- Release: Deploy changelog system to production (T2626)
+- Release: Backfill historical releases with task data (T2627)
+- Research: Audit Execution Protocols (implementation.md, contribution.md, release.md) RFC 2119 Compliance (T2684)
+- Release: Deploy Protocol Enforcement to Production (T2704)
+
 ## [0.75.0] - 2026-01-28
 
 ### Added
