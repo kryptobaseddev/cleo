@@ -14,20 +14,20 @@
 
 ```bash
 # Query authoritative source for a domain
-jq '.authorities["task-ids"]' docs/specs/SPEC-INDEX.json
+jq '.authorities["task-ids"]' docs/archive/specs-md/SPEC-INDEX.json
 # → "LLM-TASK-ID-SYSTEM-DESIGN-SPEC.md"
 
 # List all IMMUTABLE specs
-jq '.specs[] | select(.status == "IMMUTABLE") | .file' docs/specs/SPEC-INDEX.json
+jq '.specs[] | select(.status == "IMMUTABLE") | .file' docs/archive/specs-md/SPEC-INDEX.json
 
 # Get dependencies for a spec
-jq '.specs[] | select(.file == "TASK-HIERARCHY-SPEC.md") | .dependsOn' docs/specs/SPEC-INDEX.json
+jq '.specs[] | select(.file == "TASK-HIERARCHY-SPEC.md") | .dependsOn' docs/archive/specs-md/SPEC-INDEX.json
 
 # Find specs by domain
-jq '.specs[] | select(.domain == "phase-lifecycle")' docs/specs/SPEC-INDEX.json
+jq '.specs[] | select(.domain == "phase-lifecycle")' docs/archive/specs-md/SPEC-INDEX.json
 
 # Get implementation progress
-jq '.reports[] | {file, progress, notes}' docs/specs/SPEC-INDEX.json
+jq '.reports[] | {file, progress, notes}' docs/archive/specs-md/SPEC-INDEX.json
 ```
 
 ### Why JSON?

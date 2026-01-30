@@ -600,7 +600,7 @@
       "name": "generate-changelog",
       "script": "generate-changelog.sh",
       "category": "maintenance",
-      "doc": null,
+      "doc": "generate-changelog.mdx",
       "synopsis": "Generate Mintlify changelog from CHANGELOG.md (dev tool)",
       "flags": [],
       "exitCodes": [
@@ -615,7 +615,7 @@
       "name": "generate-features",
       "script": "generate-features.sh",
       "category": "maintenance",
-      "doc": null,
+      "doc": "generate-features.mdx",
       "synopsis": "Generate FEATURES.md from FEATURES.json (dev tool)",
       "flags": [],
       "exitCodes": [
@@ -911,7 +911,7 @@
       "name": "populate-hierarchy",
       "script": "populate-hierarchy.sh",
       "category": "write",
-      "doc": "hierarchy.mdx#populating-hierarchy-v0232",
+      "doc": "populate-hierarchy.mdx",
       "synopsis": "Auto-populate parentId from naming conventions and depends→epic patterns",
       "flags": [
         "--format",
