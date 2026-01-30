@@ -1,0 +1,238 @@
+---
+title: "Error Schema"
+description: "Schema definition for CLEO error responses"
+---
+
+## Overview
+
+The Error schema defines the standard JSON envelope for all CLEO error responses. It provides a consistent structure for communicating errors to users and agents, including machine-readable error codes, human-readable messages, and actionable recovery suggestions.
+
+## Schema Definition
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "schemaVersion": "1.0.0",
+  "$id": "https://cleo-dev.com/schemas/v1/error.schema.json",
+  "title": "Claude-TODO Error Envelope",
+  "description": "Standard JSON envelope for all cleo error responses",
+  "type": "object",
+  "required": ["_meta", "success", "error"],
+  "additionalProperties": false
+}
+```
+
+## Properties
+
+### Root Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `$schema` | string | No | Schema URL for validation (must be `https://cleo-dev.com/schemas/v1/error.schema.json`) |
+| `_meta` | object | Yes | Response metadata |
+| `success` | boolean | Yes | Always `false` for error responses |
+| `error` | object | Yes | Error details |
+
+### _meta Object
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `format` | string | No | Output format identifier (always "json") |
+| `version` | string | Yes | CLEO version (semver format) |
+| `command` | string | Yes | Command name that generated this error |
+| `timestamp` | string | Yes | ISO-8601 UTC timestamp of error generation |
+
+### error Object
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `code` | string | Yes | Error code with `E_` prefix (e.g., `E_TASK_NOT_FOUND`) |
+| `message` | string | Yes | Human-readable error message |
+| `exitCode` | integer | Yes | Shell exit code (1-127) |
+| `recoverable` | boolean | No | Whether the error can be recovered from |
+| `suggestion` | string/null | No | Suggested action to resolve the error |
+| `fix` | string/null | No | Concrete command to fix the error (copy-paste ready) |
+| `alternatives` | array | No | Alternative recovery actions with executable commands |
+| `context` | object | No | Additional error context (varies by error type) |
+
+### alternatives Array Items
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `action` | string | Yes | Short description of what this alternative does |
+| `command` | string | Yes | Executable command (copy-paste ready) |
+
+## Error Codes
+
+The schema defines the following error codes:
+
+| Error Code | Description |
+|------------|-------------|
+| `E_TASK_NOT_FOUND` | Requested task does not exist |
+| `E_TASK_ALREADY_EXISTS` | Task with this ID already exists |
+| `E_TASK_INVALID_ID` | Task ID format is invalid |
+| `E_TASK_INVALID_STATUS` | Invalid task status value |
+| `E_FILE_NOT_FOUND` | Required file not found |
+| `E_FILE_READ_ERROR` | Unable to read file |
+| `E_FILE_WRITE_ERROR` | Unable to write file |
+| `E_FILE_PERMISSION` | Permission denied for file operation |
+| `E_VALIDATION_SCHEMA` | JSON Schema validation failed |
+| `E_VALIDATION_CHECKSUM` | Checksum validation failed |
+| `E_VALIDATION_REQUIRED` | Required field missing |
+| `E_INPUT_MISSING` | Required input not provided |
+| `E_INPUT_INVALID` | Input value is invalid |
+| `E_INPUT_FORMAT` | Input format is incorrect |
+| `E_DEPENDENCY_MISSING` | Required dependency not found |
+| `E_DEPENDENCY_VERSION` | Dependency version mismatch |
+| `E_PHASE_NOT_FOUND` | Specified phase does not exist |
+| `E_PHASE_INVALID` | Invalid phase value |
+| `E_SESSION_ACTIVE` | Session already active |
+| `E_SESSION_NOT_ACTIVE` | No active session |
+| `E_UNKNOWN` | Unknown error occurred |
+| `E_NOT_INITIALIZED` | CLEO not initialized |
+| `E_PARENT_NOT_FOUND` | Parent task not found |
+| `E_DEPTH_EXCEEDED` | Task nesting depth exceeded |
+| `E_SIBLING_LIMIT` | Too many sibling tasks |
+| `E_INVALID_PARENT_TYPE` | Parent cannot have children |
+| `E_CIRCULAR_REFERENCE` | Circular dependency detected |
+| `E_ORPHAN_DETECTED` | Task without valid parent |
+| `E_HAS_CHILDREN` | Cannot delete task with children |
+| `E_TASK_COMPLETED` | Operation not allowed on completed task |
+| `E_CASCADE_FAILED` | Cascading operation failed |
+| `E_CANCEL_REASON_REQUIRED` | Cancellation reason required |
+| `E_CHECKSUM_MISMATCH` | Data integrity check failed |
+| `E_CONCURRENT_MODIFICATION` | File was modified concurrently |
+| `E_ID_COLLISION` | ID collision detected |
+| `E_SESSION_EXISTS` | Session already exists |
+| `E_SESSION_NOT_FOUND` | Session not found |
+| `E_SCOPE_CONFLICT` | Session scope conflict |
+| `E_SCOPE_INVALID` | Invalid session scope |
+| `E_TASK_NOT_IN_SCOPE` | Task not in session scope |
+| `E_TASK_CLAIMED` | Task already claimed by another session |
+| `E_SESSION_REQUIRED` | Session required for operation |
+| `E_SESSION_CLOSE_BLOCKED` | Cannot close session |
+| `E_FOCUS_REQUIRED` | Task focus required |
+| `E_NOTES_REQUIRED` | Notes required for operation |
+
+## Examples
+
+### Basic Error Response
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "version": "1.0.0",
+    "command": "cleo show",
+    "timestamp": "2026-01-27T22:30:00Z"
+  },
+  "success": false,
+  "error": {
+    "code": "E_TASK_NOT_FOUND",
+    "message": "Task T9999 not found in todo.json",
+    "exitCode": 1,
+    "recoverable": true,
+    "suggestion": "Use 'cleo list' to see available tasks",
+    "fix": "cleo list --status pending"
+  }
+}
+```
+
+### Error with Alternatives
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "version": "1.0.0",
+    "command": "cleo add",
+    "timestamp": "2026-01-27T22:35:00Z"
+  },
+  "success": false,
+  "error": {
+    "code": "E_TASK_ALREADY_EXISTS",
+    "message": "Task T0100 already exists",
+    "exitCode": 1,
+    "recoverable": true,
+    "suggestion": "Choose a different task ID or update the existing task",
+    "alternatives": [
+      {
+        "action": "List existing tasks",
+        "command": "cleo list"
+      },
+      {
+        "action": "Update existing task",
+        "command": "cleo update T0100 --status active"
+      }
+    ],
+    "context": {
+      "existingTaskId": "T0100",
+      "existingTaskTitle": "Sample Task"
+    }
+  }
+}
+```
+
+### Validation Error with Context
+
+```json
+{
+  "_meta": {
+    "format": "json",
+    "version": "1.0.0",
+    "command": "cleo validate",
+    "timestamp": "2026-01-27T22:40:00Z"
+  },
+  "success": false,
+  "error": {
+    "code": "E_VALIDATION_SCHEMA",
+    "message": "todo.json failed schema validation",
+    "exitCode": 1,
+    "recoverable": true,
+    "suggestion": "Run 'cleo validate --fix' to attempt automatic repair",
+    "fix": "cleo validate --fix",
+    "context": {
+      "file": "todo.json",
+      "errors": [
+        {
+          "path": "/tasks/0/status",
+          "message": "Invalid enum value: 'in-progress'"
+        }
+      ]
+    }
+  }
+}
+```
+
+## Usage
+
+The error schema is used throughout CLEO:
+
+- **CLI Error Output**: All `cleo` commands output errors in this format when using `--format json`
+- **API Responses**: Error responses from any CLEO API endpoints
+- **Script Integration**: Bash scripts can parse structured error responses
+- **Agent Communication**: LLM agents receive consistent error information
+
+### Exit Codes
+
+Common exit codes used:
+
+| Exit Code | Meaning |
+|-----------|---------|
+| 1 | General error |
+| 2 | Invalid arguments |
+| 3 | File not found |
+| 4 | Permission denied |
+| 5 | Validation failed |
+| 6 | Task not found |
+| 10 | Session error |
+| 127 | Command not found |
+
+### Recovery Patterns
+
+Errors follow these recovery patterns:
+
+1. **`recoverable: true`**: User can fix the issue and retry
+2. **`fix` provided**: Copy-paste command to resolve
+3. **`alternatives` provided**: Multiple recovery options
+4. **`context` provided**: Additional details for debugging
