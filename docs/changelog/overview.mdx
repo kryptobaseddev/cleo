@@ -17,6 +17,80 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="January 2026" description="v0.76.2" tags={["Fix", "Feature"]}>
+## v0.76.2 Release
+
+
+**Bug Fixes**
+- Fix: Make test validation opt-in to prevent release ship timeout (T2739)
+  - `validate_release()` was unconditionally running `./tests/run-all-tests.sh`
+  - Tests are now opt-in with `--run-tests` flag
+  - Added `--skip-validation` flag for emergency releases
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.76.2)
+</Update>
+
+<Update label="January 2026" description="v0.76.1" tags={["Fix", "Feature", "Installer"]}>
+## v0.76.1 Release
+
+
+**Bug Fixes**
+- Fix: Missing docs command mapping in link.sh causes --validate to fail (T2735)
+  - The `cleo --validate` command failed on fresh installations because the `docs` command
+    was listed in `_get_all_commands()` but had no corresponding mapping in `_get_cmd_script()`
+  - Added `docs) echo "docs.sh" ;;` to `installer/lib/link.sh:354`
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.76.1)
+</Update>
+
+<Update label="January 2026" description="v0.76.0" tags={["Fix", "Research", "Documentation"]}>
+## v0.76.0 Release
+
+
+**Bug Fixes**
+- Fix: release create missing createdAt (T2677)
+
+**Documentation**
+- Release: Update release workflow documentation (T2628)
+- Release: Update Documentation for Protocol Enforcement (T2705)
+
+**Tests**
+- Test: Unit tests for task association logic (T2622)
+- Test: Integration tests for release.sh ship command (T2623)
+- Test: GitHub workflow simulation with act (T2624)
+- Test: Backfill script testing with real data (T2625)
+
+**Other Changes**
+- Research: Analyze current release workflow end-to-end (T2603)
+- Research: GitHub Actions release.yml deep dive (T2604)
+- Research: Task → Release association strategy (T2605)
+- Research: Backfill feasibility analysis (T2606)
+- Consensus: Changelog generation trigger strategy (T2607)
+- Consensus: GitHub Release body source strategy (T2608)
+- Consensus: Task association strategy selection (T2609)
+- Spec: Write CHANGELOG-GENERATION-SPEC.md (T2610)
+- Spec: Update RELEASE-MANAGEMENT-SPEC.md with changelog (T2611)
+- Spec: Write GITHUB-RELEASE-INTEGRATION-SPEC.md (T2612)
+- Implement: Task association in release.sh (T2613)
+- Implement: Changelog content field in release object (T2614)
+- Implement: GitHub Release body extraction function (T2615)
+- Implement: Update release.yml workflow (T2616)
+- Implement: Validation gate for changelog (T2617)
+- Implement: Backfill script for historical releases (T2618)
+- Validate: Full pipeline smoke test (T2619)
+- Validate: Changelog categorization accuracy (T2620)
+- Validate: GitHub Release body content quality (T2621)
+- Release: Deploy changelog system to production (T2626)
+- Release: Backfill historical releases with task data (T2627)
+- Research: Audit Execution Protocols (implementation.md, contribution.md, release.md) RFC 2119 Compliance (T2684)
+- Release: Deploy Protocol Enforcement to Production (T2704)
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.76.0)
+</Update>
+
 <Update label="January 2026" description="v0.75.0" tags={["Feature", "Skills", "Orchestrator"]}>
 ## Project-agnostic validation
 
@@ -287,147 +361,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.2)
-</Update>
-
-<Update label="January 2026" description="v0.73.1" tags={["Fix", "Feature", "Installer"]}>
-## Test Coverage
-
-
-**Added**
-- **Epic T2431: Skill System Enhancement & Dynamic Skill Discovery**
-  - **Dynamic Agent Registry System** (T2442, T2447, T2448):
-    - `templates/agent-registry.json`: Central registry for 16 LLM coding agents
-    - Supported agents: claude-code, cursor, windsurf, codex, gemini-cli, github-copilot, opencode, cline, kimi, roo, continue, antigravity, goose, kiro-cli, amp, trae
-    - Priority tiers: tier1 (claude-code, cursor, windsurf), tier2 (5 agents), tier3 (8 agents)
-    - No more hardcoded arrays - all agent data loaded dynamically from JSON
-    - `lib/agent-registry.sh`: New registry API (`ar_*` functions)
-    - `lib/agent-config.sh`: Refactored to use dynamic registry
-  - **Skill Taxonomy System** (T2432, T2434):
-    - `docs/specs/SKILL-TAXONOMY-SPEC.md`: 4-tier hierarchy (0-3)
-    - 9 functional categories: orchestration, research, design, implementation, testing, documentation, validation, integration, utility
-    - Dispatch matrix with category-based, keyword, label, and type matching
-  - **Dynamic Skill Discovery** (T2435, T2436):
-    - `docs/designs/DYNAMIC-SKILL-REGISTRATION.md`: Registration system design
-    - `lib/skill-discovery.sh`: Auto-discovery of skills in `skills/` directory
-    - Functions: `discover_skills()`, `validate_skill()`, `register_skill()`, `sync_manifest()`
-  - **Skill CLI Command** (T2440):
-    - `scripts/skills.sh`: New command group `cleo skills`
-    - Subcommands: `list`, `discover`, `validate`, `info`, `install`
-  - **Dispatch Matrix Enhancement** (T2437):
-    - Category-based dispatch: `skill_dispatch_by_category()`
-    - Tier functions: `skill_get_tier()`, `skill_is_tier()`
-    - 10 skill categories with explicit mappings
-  - **Test Coverage** (T2438): 31 unit tests in `tests/unit/skill-discovery.bats`
-  - **Documentation** (T2439): Updated `docs/CLEO-SKILLS-INVENTORY.md`, `docs/guides/skill-development.md`
-  - **Global Injection Update** (T2443, T2444):
-    - `installer/lib/link.sh`: Uses dynamic registry for all agent setup
-    - RFC 2119 time estimates prohibition block in global injection
-- **Epic T2089: Claude CLI Aliases - Cross-Platform Support Complete**
-  - **Windows Support** (T2111):
-    - `normalize_windows_path()`: Path separator conversion for Windows
-    - `get_windows_documents_path()`: Localized Documents folder detection via PowerShell
-    - `ensure_powershell_profile_dir()`: PowerShell profile directory creation with Windows fallback
-    - `setup_cmd_autorun()`: CMD.exe registry AutoRun configuration
-    - `check_cmd_autorun()`: Registry query for current AutoRun status
-    - New CLI flag: `--cmd-autorun` for automatic CMD alias loading
-  - **Collision Detection** (T2119):
-    - `detect_existing_aliases()`: Find aliases/functions matching our names
-    - `detect_legacy_claude_aliases()`: Recognize function-based patterns
-    - `check_alias_collisions()`: Report non-Claude collisions
-    - Doctor integration with legacy detection and `--force` suggestion
-  - **Test Coverage**: 78 unit tests for claude-aliases library
-  - **Supported Shells**: bash, zsh, PowerShell (cross-platform), CMD.exe
-
-**Fixed**
-- **Doctor Command Bug Fixes** (T1469 HITL Testing):
-  - **T1965**: Fixed schema version comparison - was comparing object instead of `.version` subfield from `project-info.json`, causing false "Outdated schemas" warnings
-  - **T1966**: Fixed `--clean-temp` showing stale counts - moved cleanup to Phase 1b (before validation) so health check shows accurate post-cleanup data
-  - **T1968**: Fixed double counting of orphaned and temp projects - orphan check now runs before temp check to prevent increment of both counters
-  - **T1964**: Verified ISSUES column truncation already fixed (shows full text)
-  - **T1967**: Verified agent config registry working correctly
-
-**Validated**
-- **Migration Automation System** (T1482-T1485):
-  - Pre-commit hook exists with PATCH/MINOR/MAJOR auto-generation logic
-  - Developer mode bypass and runtime protection working correctly
-  - Agent documentation sanitization verified - no low-level `migrate` command references
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.1)
-</Update>
-
-<Update label="January 2026" description="v0.72.1" tags={["Fix", "Sessions", "Documentation"]}>
-## Bash 5.3+ brace expansion bug
-
-
-**Fixed**
-- **Bash 5.3+ brace expansion bug**: Fixed jq parse errors ("Unmatched '}' at line 1, column 3") when ending sessions
-  - Root cause: Bash 5.3+ incorrectly handles `${N:-{}}` parameter defaults, appending extra `}` to values
-  - Affected functions: `capture_session_end_metrics`, `contribution_*`, `score_subagent_with_tokens`, `cache_validation_result`
-  - Fix: Changed `${N:-{}}` to `${N:-'{}'}` (quoted default) in 6 locations across 4 library files
-  - Files: `lib/metrics-aggregation.sh`, `lib/contribution-protocol.sh`, `lib/compliance-check.sh`, `lib/doctor-project-cache.sh`
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.72.1)
-</Update>
-
-<Update label="January 2026" description="v0.72.0" tags={["Feature", "Skills", "Orchestrator"]}>
-## 2-Tier System Implementation
-
-
-**Added**
-- **Epic T2392: CLEO Universal Subagent Architecture**
-  - **2-Tier System Implementation**: Replaced per-skill agent spawning with unified architecture
-    - **Tier 0**: ct-orchestrator (HITL coordinator, delegates ALL work)
-    - **Tier 1**: cleo-subagent (universal executor with skill injection)
-  - **cleo-subagent agent file** (T2403): `.claude/agents/cleo-subagent.md`
-    - Registered with Claude Code agent discovery
-    - Tools: Read, Write, Edit, Bash, Glob, Grep
-    - Follows BASE protocol (BASE-001 through BASE-007)
-  - **Protocol stack system** (T2401, T2404): 7 protocols in `protocols/` directory
-    - `research.md`: Research and investigation tasks
-    - `decomposition.md`: Epic planning and task breakdown
-    - `implementation.md`: Code implementation tasks
-    - `specification.md`: RFC-style spec writing
-    - `contribution.md`: Contribution recording
-    - `consensus.md`: Multi-agent voting/decisions
-    - `release.md`: Version and changelog management
-  - **Skill dispatch enhancements** (T2405): `lib/skill-dispatch.sh`
-    - `skill_auto_dispatch()`: Auto-detect protocol from task metadata
-    - `skill_prepare_spawn()`: Full token pre-resolution before spawn
-    - Protocol composition: base + conditional protocols combined
-  - **Token injection system** (T2405): `lib/token-inject.sh`
-    - All placeholders resolved before subagent spawn
-    - `tokenResolution.fullyResolved` validation
-  - **Documentation updates**:
-    - `docs/architecture/CLEO-SUBAGENT.md`: Full 2-tier architecture reference
-    - `docs/CLEO-INJECTION.md`: Global injection for all agents
-    - `docs/guides/ORCHESTRATOR-PROTOCOL.md`: Updated for 2-tier system
-    - `docs/specs/CLEO-SUBAGENT-PROTOCOL-v1.md`: RFC 2119 protocol spec
-    - `docs/guides/SUBAGENT-MIGRATION.md`: Migration guide
-  - **Test suites**:
-    - `tests/unit/cleo-subagent.bats`: 66 tests for base protocol
-    - `tests/integration/protocol-stack.bats`: 81 tests for protocol composition
-    - `tests/integration/migration-validation.bats`: 42 tests for migration paths
-  - **E2E validation** (T2429): Verified cleo-subagent spawnable via Task tool
-  - **Manifest deprecation** (T2415): Added `deprecatedFields` to `skills/manifest.json`
-    - `compatible_subagent_types`: Marked deprecated (historical reference only)
-
-**Changed**
-- **Skill system architecture**: Skills are now protocol identifiers, NOT separate agent types
-  - All spawns use `subagent_type: "cleo-subagent"` with skill as context injection
-  - Dispatch matrix maps task types/keywords to skill NAMES for protocol selection
-- **ct-orchestrator protocol** (T2407): Updated for cleo-subagent spawning
-  - ORC constraints enforced (ORC-001 through ORC-008)
-  - Spawn workflow uses `skill_prepare_spawn()` with full token resolution
-
-**Deprecated**
-- **Skill-specific agent spawning**: Old pattern of spawning different agent types per skill
-  - Use `cleo-subagent` with protocol injection instead
-  - `compatible_subagent_types` field retained for backwards compatibility only
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.72.0)
 </Update>
 
 ## Earlier Releases
