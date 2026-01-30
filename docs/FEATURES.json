@@ -691,7 +691,7 @@
           "description": "47+ documented exit codes for programmatic handling",
           "status": "complete",
           "version": "0.1.0",
-          "docs": "docs/specs/exit-codes.md"
+          "docs": "docs/archive/specs-md/exit-codes.md (archived)"
         },
         {
           "id": "actionable-errors",

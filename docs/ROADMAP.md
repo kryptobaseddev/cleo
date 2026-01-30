@@ -126,8 +126,8 @@ ct update <task-id> --notes "COMPLETE: <summary of deliverables>"
 - Requires: LLM-TASK-ID-SYSTEM-DESIGN-SPEC (task ID format)
 
 ## Key Specifications
-- Spec: docs/specs/TASK-DECOMPOSITION-SPEC.md
-- Report: docs/specs/TASK-DECOMPOSITION-SPEC-IMPLEMENTATION-REPORT.md
+- Spec: [TASK-DECOMPOSITION](developer/specifications/TASK-DECOMPOSITION)
+- Report: [TASK-DECOMPOSITION-implementation](developer/specifications/TASK-DECOMPOSITION-implementation)
 - Target: v0.22.0+
 
 #### T1062: Epic: CLEO Orchestration Platform - Deterministic State Machine for LLM Agent Workflows
@@ -305,7 +305,7 @@ Agent-agnostic sync adapter framework enabling cleo to work with multiple AI cod
 - ID embedding pattern: [T###] prefix
 
 **Reference Docs**:
-- docs/specs/MULTI-AGENT-ABSTRACTION-SPEC.md (authoritative)
+- [MULTI-AGENT-ABSTRACTION](developer/specifications/MULTI-AGENT-ABSTRACTION) (authoritative)
 - claudedocs/CLEO-Rebrand/research/MULTI-AGENT-ABSTRACTION-PLAN.md
 
 **Deferred From**: T650 (CLEO Rebrand v1.0.0)
