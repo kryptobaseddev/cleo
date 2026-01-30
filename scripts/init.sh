@@ -54,11 +54,15 @@ fi
 if [[ -z "${_INIT_BACKUP_SOURCED:-}" ]]; then
     [[ -f "$CLEO_HOME/lib/backup.sh" ]] && source "$CLEO_HOME/lib/backup.sh" && _INIT_BACKUP_SOURCED=true || true
 fi
+if [[ -z "${_INIT_AGENTS_INSTALL_SOURCED:-}" ]]; then
+    [[ -f "$CLEO_HOME/lib/agents-install.sh" ]] && source "$CLEO_HOME/lib/agents-install.sh" && _INIT_AGENTS_INSTALL_SOURCED=true || true
+fi
 
 # Defaults
 FORCE=false
 CONFIRM_WIPE=false
 UPDATE_DOCS=false
+COPY_AGENTS=false
 PROJECT_NAME=""
 FORMAT=""
 QUIET=false
@@ -101,15 +105,23 @@ Options:
   --confirm-wipe      Confirm data destruction when used with --force
   --update-docs       Update agent docs only (CLAUDE.md, AGENTS.md, GEMINI.md)
                       Safe to run on existing projects - does not touch task data
+  --copy-agents       Install agents via copy instead of symlink
+                      (default: symlink for auto-updating)
   -f, --format FMT    Output format: text, json (default: auto-detect)
   --human             Force human-readable text output
   --json              Force JSON output
   -q, --quiet         Suppress non-essential output
   -h, --help          Show this help
 
+AGENT INSTALLATION:
+  By default, agents are installed via symlinks to ~/.cleo/templates/agents/
+  This allows automatic updates when CLEO is updated. Use --copy-agents to
+  install as regular files if your editor doesn't support symlinks.
+
 AGENT DOCUMENTATION UPDATE:
   Use --update-docs to create or update agent documentation files without
   affecting existing task data. Creates files if missing, updates if outdated.
+  Also refreshes agent symlinks to ~/.claude/agents/
 
   Example: cleo init --update-docs
 
@@ -137,6 +149,7 @@ Creates:
   .cleo/schemas/          JSON Schema files
   .cleo/templates/        Injection templates for @-references
   .cleo/.backups/         Backup directory
+  ~/.claude/agents/       Agent definitions (symlinks by default)
 
 JSON Output:
   {
@@ -149,6 +162,7 @@ Examples:
   cleo init                    # Initialize in current directory
   cleo init my-project         # Initialize with project name
   cleo init --update-docs      # Update agent docs on existing project
+  cleo init --copy-agents      # Install agents as files instead of symlinks
   cleo init --json             # JSON output for scripting
 EOF
   exit 0
@@ -170,6 +184,7 @@ while [[ $# -gt 0 ]]; do
     --force) FORCE=true; shift ;;
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
     --update-docs) UPDATE_DOCS=true; shift ;;
+    --copy-agents) COPY_AGENTS=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --human) FORMAT="text"; shift ;;
     --json) FORMAT="json"; shift ;;
@@ -293,6 +308,13 @@ if _project_initialized; then
 
     # Handle --update-docs flag (safe operation, doesn't touch task data)
     if [[ "$UPDATE_DOCS" == true ]]; then
+        # Refresh agent symlinks first (remove and recreate)
+        if declare -f uninstall_agents &>/dev/null && declare -f install_agents &>/dev/null; then
+            log_info "Refreshing agent symlinks..."
+            uninstall_agents "log_info"
+            install_agents "symlink" "log_info"
+        fi
+
         # Source injection library
         if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
             source "$CLEO_HOME/lib/injection.sh"
@@ -993,6 +1015,33 @@ ${project_reference}
   fi
 else
   log_warn "lib/agent-registry.sh not found - agent docs not updated"
+fi
+
+# ==============================================================================
+# AGENT INSTALLATION (via hybrid symlink/copy model)
+# ==============================================================================
+# Install agent definitions to ~/.claude/agents/
+# Default: symlinks for auto-propagating updates
+# Option: --copy-agents for regular file installation
+if declare -f install_agents &>/dev/null; then
+  log_info "Installing agent definitions..."
+
+  # Determine installation mode
+  local agent_mode="symlink"
+  [[ "$COPY_AGENTS" == true ]] && agent_mode="copy"
+
+  # Install agents
+  if install_agents "$agent_mode" "log_info"; then
+    if [[ "$agent_mode" == "symlink" ]]; then
+      log_info "Installed agents via symlinks (auto-updating)"
+    else
+      log_info "Installed agents as files"
+    fi
+  else
+    log_warn "Agent installation failed (agents may not be available)"
+  fi
+else
+  log_warn "lib/agents-install.sh not found - agents not installed"
 fi
 
 # Register project in global registry using HYBRID MODEL

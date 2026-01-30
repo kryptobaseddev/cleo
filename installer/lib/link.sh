@@ -958,6 +958,47 @@ installer_link_remove_plugin() {
 }
 
 # ============================================
+# GLOBAL AGENTS DIRECTORY SETUP
+# ============================================
+
+# Setup global CLEO agents directory
+# Creates ~/.cleo/agents/ and copies agent templates
+# Args: install_dir
+# Returns: 0 on success, 1 on failure
+installer_link_setup_global_agents() {
+    local install_dir="${1:-$INSTALL_DIR}"
+    local global_agents_dir="$HOME/.cleo/agents"
+    local agent_template="$install_dir/templates/agents/cleo-subagent.md"
+
+    installer_log_step "Setting up global CLEO agents directory..."
+
+    # Create global agents directory
+    if ! mkdir -p "$global_agents_dir" 2>/dev/null; then
+        installer_log_error "Failed to create directory: $global_agents_dir"
+        return 1
+    fi
+
+    installer_log_debug "Created directory: $global_agents_dir"
+
+    # Copy cleo-subagent template if it exists
+    if [[ -f "$agent_template" ]]; then
+        if cp "$agent_template" "$global_agents_dir/cleo-subagent.md"; then
+            # Set proper permissions (644)
+            chmod 644 "$global_agents_dir/cleo-subagent.md" 2>/dev/null || true
+            installer_log_info "Installed cleo-subagent to $global_agents_dir"
+        else
+            installer_log_warn "Failed to install cleo-subagent template"
+            return 1
+        fi
+    else
+        installer_log_warn "Agent template not found: $agent_template"
+        return 1
+    fi
+
+    return 0
+}
+
+# ============================================
 # POST-INSTALL SETUP
 # ============================================
 
@@ -1111,6 +1152,7 @@ export -f installer_link_inject_agent_config
 export -f installer_link_setup_all_agents
 export -f installer_link_setup_plugin
 export -f installer_link_remove_plugin
+export -f installer_link_setup_global_agents
 export -f installer_link_setup_plugins
 export -f installer_link_generate_checksums
 export -f installer_link_update_template_versions
