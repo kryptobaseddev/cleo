@@ -5,6 +5,36 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.77.0] - 2026-01-31
+
+### Added
+- **Project-Agnostic Configuration System** (Epic T2741)
+  - Support for 16 testing frameworks: bats, jest, vitest, playwright, cypress, mocha, ava, uvu, tap, node:test, deno, bun, pytest, go, cargo, custom
+  - New `validation.testing` config section for test execution settings
+  - New `testing` config section for comprehensive framework configuration
+  - New `directories` config section for path configuration
+  - New `tools` config section for external tool dependencies
+  - Configuration inheritance via `extends` field with deep merge
+  - `cleo init --detect` command for automatic project detection
+  - `cleo init --dry-run` for detection preview
+  - `project-context.json` generation with LLM hints for agents
+  - Config getter functions: `get_test_command()`, `get_test_framework()`, `get_directory()`, `get_tool_command()`
+  - `load_extended_config()` with circular dependency detection
+  - `validate_release()` and `run_custom_gates()` in release script
+  - 72 unit tests for config getters
+  - Integration tests for init --detect across 6 project types
+  - Documentation at `docs/guides/project-config.mdx`
+
+### Changed
+- Protocol validation TEST-001 now uses configured framework instead of hardcoded BATS
+- validate.sh uses config-based directory paths
+- AGENT-INJECTION.md includes @project-context.json reference and framework examples
+
+### Technical
+- Zero breaking changes - all defaults preserve existing BATS behavior
+- 3-tier detection system: manifest files → dependencies → test files
+- Monorepo detection for workspaces, pnpm, lerna, Cargo
+
 ## [0.76.2] - 2026-01-29
 
 ### Bug Fixes
