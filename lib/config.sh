@@ -610,6 +610,188 @@ export -f get_phase_boost_config
 export -f get_analyze_config
 
 # ============================================================================
+# CONFIGURATION INHERITANCE (extends support)
+# ============================================================================
+
+# Track loaded configs to detect circular dependencies
+declare -a _LOADED_CONFIGS=()
+
+# Check if config has already been loaded (circular dependency detection)
+# Arguments:
+#   $1 - Config path to check
+# Returns: 0 if not loaded, 1 if already loaded
+_is_config_loaded() {
+    local config_path="$1"
+    local loaded
+    for loaded in "${_LOADED_CONFIGS[@]}"; do
+        if [[ "$loaded" == "$config_path" ]]; then
+            return 1  # Already loaded - circular dependency
+        fi
+    done
+    return 0  # Not loaded yet
+}
+
+# Resolve config path (handles ~, relative paths, npm packages)
+# Arguments:
+#   $1 - Config path or package name
+# Returns: Resolved absolute path
+_resolve_config_path() {
+    local config_path="$1"
+
+    # Expand tilde
+    config_path="${config_path/#\~/$HOME}"
+
+    # Handle npm packages (starts with @)
+    if [[ "$config_path" == @* ]]; then
+        # Try to find in node_modules
+        local npm_path="node_modules/${config_path}/config.json"
+        if [[ -f "$npm_path" ]]; then
+            echo "$(realpath "$npm_path")"
+            return 0
+        fi
+        # Not found - return original (will fail later with clear error)
+        echo "$config_path"
+        return 1
+    fi
+
+    # Handle relative paths
+    if [[ "$config_path" != /* ]]; then
+        config_path="$(pwd)/$config_path"
+    fi
+
+    # Resolve to absolute path
+    if [[ -f "$config_path" ]]; then
+        echo "$(realpath "$config_path")"
+        return 0
+    fi
+
+    echo "$config_path"
+    return 1
+}
+
+# Deep merge two JSON objects (right wins for primitives, concat arrays, recursive merge objects)
+# Arguments:
+#   $1 - Base JSON
+#   $2 - Override JSON
+# Returns: Merged JSON
+_deep_merge_json() {
+    local base="$1"
+    local override="$2"
+
+    # Use jq for deep merge
+    echo "$base" | jq -s --argjson override "$override" '
+        def deep_merge(a; b):
+            if (a | type) == "object" and (b | type) == "object" then
+                a * b | to_entries | map(
+                    if .value | type == "object" then
+                        {key: .key, value: deep_merge(a[.key] // {}; .value)}
+                    elif .value | type == "array" then
+                        {key: .key, value: ((a[.key] // []) + .value | unique)}
+                    else
+                        .
+                    end
+                ) | from_entries
+            else
+                b
+            end;
+        deep_merge(.[0]; $override)
+    '
+}
+
+# Load and merge extended configurations
+# Processes the "extends" field recursively with circular dependency detection
+# Arguments:
+#   $1 - Config file path (optional, defaults to PROJECT_CONFIG_FILE)
+# Returns: Merged configuration JSON
+# Exit codes:
+#   0 - Success
+#   6 - Circular dependency detected (E_VALIDATION_FAILED)
+load_extended_config() {
+    local config_file="${1:-$PROJECT_CONFIG_FILE}"
+    local resolved_path
+    local extends_value
+    local extended_config
+    local merged_config
+
+    # Resolve path
+    resolved_path=$(_resolve_config_path "$config_file") || {
+        echo "Error: Cannot resolve config path: $config_file" >&2
+        return 1
+    }
+
+    # Check for circular dependency
+    if ! _is_config_loaded "$resolved_path"; then
+        echo "Error: Circular dependency detected: $resolved_path" >&2
+        return 6  # E_VALIDATION_FAILED
+    fi
+
+    # Mark as loaded
+    _LOADED_CONFIGS+=("$resolved_path")
+
+    # Read config file
+    if [[ ! -f "$resolved_path" ]]; then
+        echo "{}"  # Return empty if file doesn't exist
+        return 0
+    fi
+
+    local config_content
+    config_content=$(cat "$resolved_path")
+
+    # Check for extends field
+    extends_value=$(echo "$config_content" | jq -r '.extends // empty')
+
+    if [[ -z "$extends_value" ]]; then
+        # No extends - return config as-is
+        echo "$config_content"
+        return 0
+    fi
+
+    # Process extends (can be string or array)
+    merged_config="{}"
+
+    if echo "$extends_value" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        # Array of configs - process left to right
+        local ext_path
+        while IFS= read -r ext_path; do
+            extended_config=$(load_extended_config "$ext_path") || return $?
+            merged_config=$(_deep_merge_json "$merged_config" "$extended_config")
+        done < <(echo "$extends_value" | jq -r '.[]')
+    else
+        # Single config string
+        extended_config=$(load_extended_config "$extends_value") || return $?
+        merged_config="$extended_config"
+    fi
+
+    # Merge current config on top (remove extends field from output)
+    local current_without_extends
+    current_without_extends=$(echo "$config_content" | jq 'del(.extends)')
+    merged_config=$(_deep_merge_json "$merged_config" "$current_without_extends")
+
+    echo "$merged_config"
+}
+
+# Check if config uses extends
+# Returns: "true" or "false"
+# Usage: if [[ "$(has_extended_config)" == "true" ]]; then ...
+has_extended_config() {
+    local extends_value
+    extends_value=$(get_config_value "extends" "")
+    if [[ -n "$extends_value" ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+# Reset loaded configs tracking (for testing)
+_reset_loaded_configs() {
+    _LOADED_CONFIGS=()
+}
+
+export -f load_extended_config
+export -f has_extended_config
+
+# ============================================================================
 # DEPRECATED CONFIG PATH MAPPINGS
 # ============================================================================
 
@@ -768,3 +950,277 @@ export -f get_stale_no_update_days
 export -f get_stale_blocked_days
 export -f get_stale_urgent_neglected_days
 export -f get_stale_detection_config
+
+# ============================================================================
+# TESTING CONFIGURATION GETTERS
+# ============================================================================
+
+# Get test execution command from validation.testing.command
+# Falls back to testing.framework.runCommand if validation.testing.command is not set
+# Returns: string (default: ./tests/run-all-tests.sh)
+# Usage: cmd=$(get_test_command)
+get_test_command() {
+    local cmd
+    cmd=$(get_config_value "validation.testing.command" "")
+    if [[ -z "$cmd" ]]; then
+        cmd=$(get_config_value "testing.framework.runCommand" "./tests/run-all-tests.sh")
+    fi
+    echo "$cmd"
+}
+
+# Check if test validation is enabled
+# Returns: "true" or "false" (default: true)
+# Usage: if [[ "$(get_test_validation_enabled)" == "true" ]]; then ...
+get_test_validation_enabled() {
+    get_config_value "validation.testing.enabled" "true"
+}
+
+# Check if tests must pass for operations to proceed
+# Returns: "true" or "false" (default: false)
+# Usage: if [[ "$(get_require_passing_tests)" == "true" ]]; then ...
+get_require_passing_tests() {
+    get_config_value "validation.testing.requirePassingTests" "false"
+}
+
+# Check if tests should run on task completion
+# Returns: "true" or "false" (default: false)
+# Usage: if [[ "$(get_run_tests_on_complete)" == "true" ]]; then ...
+get_run_tests_on_complete() {
+    get_config_value "validation.testing.runOnComplete" "false"
+}
+
+# Get test directory path
+# Returns: string (default: tests)
+# Usage: dir=$(get_test_directory)
+get_test_directory() {
+    local dir
+    dir=$(get_config_value "validation.testing.directory" "")
+    if [[ -z "$dir" ]]; then
+        dir=$(get_config_value "testing.directories.unit" "tests")
+        # Strip trailing slash if present
+        dir="${dir%/}"
+        # Return parent directory (tests/unit -> tests)
+        dir="${dir%/*}"
+        [[ -z "$dir" ]] && dir="tests"
+    fi
+    echo "$dir"
+}
+
+# Get testing framework identifier
+# Returns: string from enum [bats, jest, vitest, playwright, cypress, mocha, ava, uvu, tap, node:test, deno, bun, pytest, go, cargo, custom]
+# Default: bats (preserves CLEO project behavior)
+# Usage: framework=$(get_test_framework)
+get_test_framework() {
+    local framework
+    framework=$(get_config_value "validation.testing.framework" "")
+    if [[ -z "$framework" ]]; then
+        framework=$(get_config_value "testing.framework.name" "bats")
+    fi
+    echo "$framework"
+}
+
+# Get test file extension for current framework
+# Returns: string (default: .bats)
+# Usage: ext=$(get_test_file_extension)
+get_test_file_extension() {
+    get_config_value "testing.framework.fileExtension" ".bats"
+}
+
+# Get test file patterns (glob patterns)
+# Returns: JSON array as string (default: ["**/*.bats"])
+# Usage: patterns=$(get_test_file_patterns)
+get_test_file_patterns() {
+    get_config_value "validation.testing.testFilePatterns" '["**/*.bats"]'
+}
+
+# Get entire validation.testing config section as JSON
+# Returns: JSON object with all validation.testing settings
+# Usage: config_json=$(get_test_validation_config)
+get_test_validation_config() {
+    get_config_section "validation.testing" "effective"
+}
+
+export -f get_test_command
+export -f get_test_validation_enabled
+export -f get_require_passing_tests
+export -f get_run_tests_on_complete
+export -f get_test_directory
+export -f get_test_framework
+export -f get_test_file_extension
+export -f get_test_file_patterns
+export -f get_test_validation_config
+
+# ============================================================================
+# TOOLS CONFIGURATION GETTERS
+# ============================================================================
+
+# Get tool command by tool type
+# Arguments:
+#   $1 - Tool type: jsonProcessor|schemaValidator|testRunner|linter.bash
+# Returns: string (command name)
+# Usage: cmd=$(get_tool_command "jsonProcessor")  # Returns: jq
+get_tool_command() {
+    local tool_type="${1:-}"
+
+    case "$tool_type" in
+        jsonProcessor)
+            get_config_value "tools.jsonProcessor.command" "jq"
+            ;;
+        schemaValidator)
+            get_config_value "tools.schemaValidator.command" "ajv"
+            ;;
+        testRunner)
+            get_config_value "tools.testRunner.command" "bats"
+            ;;
+        linter.bash|bash-linter)
+            get_config_value "tools.linter.bash.command" "shellcheck"
+            ;;
+        *)
+            echo ""
+            return 1
+            ;;
+    esac
+}
+
+# Get tool install command by tool type
+# Arguments:
+#   $1 - Tool type: jsonProcessor|schemaValidator|testRunner|linter.bash
+# Returns: string (install command)
+# Usage: install=$(get_tool_install_command "jsonProcessor")  # Returns: brew install jq
+get_tool_install_command() {
+    local tool_type="${1:-}"
+
+    case "$tool_type" in
+        jsonProcessor)
+            get_config_value "tools.jsonProcessor.installCommand" "brew install jq"
+            ;;
+        schemaValidator)
+            get_config_value "tools.schemaValidator.installCommand" "npm install -g ajv-cli"
+            ;;
+        testRunner)
+            get_config_value "tools.testRunner.installCommand" "npm install -g bats"
+            ;;
+        linter.bash|bash-linter)
+            get_config_value "tools.linter.bash.installCommand" "brew install shellcheck"
+            ;;
+        *)
+            echo ""
+            return 1
+            ;;
+    esac
+}
+
+# Check if a tool is required
+# Arguments:
+#   $1 - Tool type: jsonProcessor|schemaValidator|testRunner|linter.bash
+# Returns: "true" or "false"
+# Usage: if [[ "$(is_tool_required "jsonProcessor")" == "true" ]]; then ...
+is_tool_required() {
+    local tool_type="${1:-}"
+
+    case "$tool_type" in
+        jsonProcessor)
+            get_config_value "tools.jsonProcessor.required" "true"
+            ;;
+        schemaValidator)
+            get_config_value "tools.schemaValidator.required" "false"
+            ;;
+        testRunner)
+            get_config_value "tools.testRunner.required" "true"
+            ;;
+        linter.bash|bash-linter)
+            get_config_value "tools.linter.bash.required" "false"
+            ;;
+        *)
+            echo "false"
+            return 1
+            ;;
+    esac
+}
+
+# Get entire tools config section as JSON
+# Returns: JSON object with all tool settings
+# Usage: config_json=$(get_tools_config)
+get_tools_config() {
+    get_config_section "tools" "effective"
+}
+
+export -f get_tool_command
+export -f get_tool_install_command
+export -f is_tool_required
+export -f get_tools_config
+
+# ============================================================================
+# DIRECTORIES CONFIGURATION GETTERS
+# ============================================================================
+
+# Get directory path by type from directories config section
+# Arguments:
+#   $1 - Directory type: data|schemas|templates|agentOutputs|metrics|documentation|skills|sync|backups|research|researchArchive
+#   $2 - Optional default value
+# Returns: string (relative path from project root)
+# Usage: dir=$(get_directory "schemas")
+# Usage: dir=$(get_directory "metrics" "claudedocs/metrics")
+get_directory() {
+    local dir_type="${1:-}"
+    local default="${2:-}"
+
+    case "$dir_type" in
+        data)
+            get_config_value "directories.data" "${default:-.cleo}"
+            ;;
+        schemas)
+            get_config_value "directories.schemas" "${default:-schemas}"
+            ;;
+        templates)
+            get_config_value "directories.templates" "${default:-templates}"
+            ;;
+        agentOutputs)
+            get_config_value "directories.agentOutputs" "${default:-claudedocs/agent-outputs}"
+            ;;
+        metrics)
+            get_config_value "directories.metrics" "${default:-claudedocs/metrics}"
+            ;;
+        documentation|docs)
+            get_config_value "directories.documentation" "${default:-docs}"
+            ;;
+        skills)
+            get_config_value "directories.skills" "${default:-skills}"
+            ;;
+        sync)
+            get_config_value "directories.sync" "${default:-sync}"
+            ;;
+        backups)
+            get_config_value "directories.backups.root" "${default:-backups}"
+            ;;
+        research)
+            get_config_value "directories.research.output" "${default:-research}"
+            ;;
+        researchArchive)
+            get_config_value "directories.research.archive" "${default:-research/archive}"
+            ;;
+        *)
+            # Unknown type - return default or empty
+            echo "${default:-}"
+            return 1
+            ;;
+    esac
+}
+
+# Get backup directory types array
+# Returns: JSON array of backup types
+# Usage: types=$(get_backup_types)
+get_backup_types() {
+    get_config_value "directories.backups.types" '["snapshot","safety","incremental","archive","migration"]'
+}
+
+# Get entire directories config section as JSON
+# Returns: JSON object with all directory settings
+# Usage: config_json=$(get_directories_config)
+get_directories_config() {
+    get_config_section "directories" "effective"
+}
+
+export -f get_directory
+export -f get_backup_types
+export -f get_directories_config

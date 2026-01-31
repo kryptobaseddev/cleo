@@ -7,7 +7,8 @@
 # PROVIDES: validate_research_protocol, validate_consensus_protocol,
 #           validate_specification_protocol, validate_decomposition_protocol,
 #           validate_implementation_protocol, validate_contribution_protocol,
-#           validate_release_protocol
+#           validate_release_protocol, validate_validation_protocol,
+#           validate_testing_protocol
 #
 # Part of Epic T2679: Protocol Enforcement and RCSD-IVTR Alignment
 # Implements PROTOCOL-ENFORCEMENT-SPEC.md validation functions (Part 3)
@@ -21,6 +22,8 @@ set -euo pipefail
 # Source dependencies
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/exit-codes.sh"
+source "${SCRIPT_DIR}/protocol-validation-common.sh"
+source "${SCRIPT_DIR}/config.sh"
 
 # ============================================================================
 # PROTOCOL VIOLATION EXIT CODES (60-67)
@@ -35,6 +38,9 @@ readonly EXIT_PROTOCOL_IMPLEMENTATION=64
 readonly EXIT_PROTOCOL_CONTRIBUTION=65
 readonly EXIT_PROTOCOL_RELEASE=66
 readonly EXIT_PROTOCOL_GENERIC=67
+readonly EXIT_PROTOCOL_VALIDATION=68
+readonly EXIT_TESTS_SKIPPED=69
+readonly EXIT_COVERAGE_INSUFFICIENT=70
 
 # ============================================================================
 # VALIDATION HELPER FUNCTIONS
@@ -91,17 +97,19 @@ validate_research_protocol() {
     # We assume if we got manifest_entry, this passed
 
     # RSCH-006: MUST include 3-7 key findings
-    local findings_count
-    findings_count=$(echo "$manifest_entry" | jq '.key_findings | length // 0')
-    if [[ $findings_count -lt 3 || $findings_count -gt 7 ]]; then
+    # @task T2749 - Use common library
+    if ! check_key_findings_count "$manifest_entry"; then
+        local findings_count
+        findings_count=$(echo "$manifest_entry" | jq '.key_findings | length // 0')
         violations+=('{"requirement":"RSCH-006","severity":"error","message":"Key findings must be 3-7, got '"$findings_count"'","fix":"Add/remove findings in manifest entry"}')
         score=$((score - 20))
     fi
 
     # RSCH-007: MUST set agent_type: research
-    local agent_type
-    agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
-    if [[ "$agent_type" != "research" ]]; then
+    # @task T2749 - Use common library
+    if ! check_agent_type "$manifest_entry" "research"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
         violations+=('{"requirement":"RSCH-007","severity":"error","message":"agent_type must be research, got '"$agent_type"'","fix":"Update manifest entry agent_type field"}')
         score=$((score - 15))
     fi
@@ -189,9 +197,10 @@ validate_consensus_protocol() {
     fi
 
     # CONS-007: MUST set agent_type: analysis
-    local agent_type
-    agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
-    if [[ "$agent_type" != "analysis" ]]; then
+    # @task T2749 - Use common library
+    if ! check_agent_type "$manifest_entry" "analysis"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
         violations+=('{"requirement":"CONS-007","severity":"error","message":"agent_type must be analysis, got '"$agent_type"'","fix":"Update manifest entry agent_type field"}')
         score=$((score - 15))
     fi
@@ -253,7 +262,8 @@ validate_specification_protocol() {
     fi
 
     # SPEC-002: MUST have version field
-    if ! has_manifest_field "$manifest_entry" "version"; then
+    # @task T2749 - Use common library
+    if ! check_manifest_field_present "$manifest_entry" "version"; then
         violations+=('{"requirement":"SPEC-002","severity":"error","message":"Version field missing","fix":"Add version field to manifest entry"}')
         score=$((score - 20))
     fi
@@ -267,11 +277,44 @@ validate_specification_protocol() {
     fi
 
     # SPEC-007: MUST set agent_type: specification
-    local agent_type
-    agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
-    if [[ "$agent_type" != "specification" ]]; then
+    # @task T2749 - Use common library
+    if ! check_agent_type "$manifest_entry" "specification"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
         violations+=('{"requirement":"SPEC-007","severity":"error","message":"agent_type must be specification, got '"$agent_type"'","fix":"Update manifest entry agent_type field"}')
         score=$((score - 15))
+    fi
+
+    # @task T2750 - Add missing SPEC checks
+
+    # SPEC-004: Conformance criteria section
+    local file_path
+    file_path=$(echo "$manifest_entry" | jq -r '.file // ""')
+    if [[ -n "$file_path" && -f "$file_path" ]]; then
+        if ! grep -qiE "conformance|compliance|requirements" "$file_path" 2>/dev/null; then
+            violations+=('{"requirement":"SPEC-004","severity":"warning","message":"Spec should include conformance criteria section","fix":"Add Conformance or Requirements section"}')
+            score=$((score - 10))
+        fi
+    fi
+
+    # SPEC-005: Related specs documented
+    if ! check_manifest_field_present "$manifest_entry" "related_specs" && \
+       ! check_manifest_field_present "$manifest_entry" "references"; then
+        # Check in file for References section
+        if [[ -n "$file_path" && -f "$file_path" ]]; then
+            if ! grep -qE "^#+ .*References|^#+ .*Related" "$file_path" 2>/dev/null; then
+                violations+=('{"requirement":"SPEC-005","severity":"warning","message":"Spec should document related specifications","fix":"Add References or Related Specs section"}')
+                score=$((score - 5))
+            fi
+        fi
+    fi
+
+    # SPEC-006: Structured format (tables or code blocks)
+    if [[ -n "$file_path" && -f "$file_path" ]]; then
+        if ! grep -qE '^\|.*\|$|^```' "$file_path" 2>/dev/null; then
+            violations+=('{"requirement":"SPEC-006","severity":"warning","message":"Spec should use structured format (tables/code blocks)","fix":"Add tables or code examples"}')
+            score=$((score - 5))
+        fi
     fi
 
     # Build result JSON
@@ -354,6 +397,35 @@ validate_decomposition_protocol() {
         fi
     fi
 
+    # @task T2750 - Add missing DCMP checks
+
+    # DCMP-001: MECE validation (basic heuristic)
+    # Check that tasks don't have overlapping descriptions
+    local tasks_json
+    tasks_json=$(echo "$child_tasks" | jq -c '.')
+    if [[ "$tasks_json" != "[]" && -n "$tasks_json" ]]; then
+        local task_count
+        task_count=$(echo "$child_tasks" | jq 'length')
+        local unique_count
+        unique_count=$(echo "$child_tasks" | jq '[.[].title] | unique | length')
+        if [[ $task_count -ne $unique_count ]]; then
+            violations+=('{"requirement":"DCMP-001","severity":"warning","message":"Decomposition may have overlapping tasks (MECE violation)","fix":"Ensure tasks are mutually exclusive"}')
+            score=$((score - 10))
+        fi
+    fi
+
+    # DCMP-005: No time estimates
+    # Check manifest entry for time estimates (requires manifest_entry parameter, but this function doesn't receive it)
+    # We can check child_tasks for time estimates in their descriptions
+    if [[ "$tasks_json" != "[]" && -n "$tasks_json" ]]; then
+        local tasks_with_estimates
+        tasks_with_estimates=$(echo "$child_tasks" | jq '[.[] | select(.description // "" | test("[0-9]+ ?(hour|day|week|minute|hr|min)s?|takes? (about|around|roughly)"; "i")) | select(.title // "" | test("[0-9]+ ?(hour|day|week|minute|hr|min)s?|takes? (about|around|roughly)"; "i"))] | length')
+        if [[ $tasks_with_estimates -gt 0 ]]; then
+            violations+=('{"requirement":"DCMP-005","severity":"error","message":"Time estimates prohibited in decomposition","fix":"Remove time estimates, use relative sizing"}')
+            score=$((score - 20))
+        fi
+    fi
+
     # Build result JSON
     local valid="true"
     local error_count
@@ -421,9 +493,10 @@ validate_implementation_protocol() {
     fi
 
     # IMPL-007: MUST set agent_type: implementation
-    local agent_type
-    agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
-    if [[ "$agent_type" != "implementation" ]]; then
+    # @task T2749 - Use common library
+    if ! check_agent_type "$manifest_entry" "implementation"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
         violations+=('{"requirement":"IMPL-007","severity":"error","message":"agent_type must be implementation, got '"$agent_type"'","fix":"Update manifest entry agent_type field"}')
         score=$((score - 15))
     fi
@@ -495,9 +568,10 @@ validate_contribution_protocol() {
     fi
 
     # CONT-007: MUST set agent_type: implementation
-    local agent_type
-    agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
-    if [[ "$agent_type" != "implementation" ]]; then
+    # @task T2749 - Use common library
+    if ! check_agent_type "$manifest_entry" "implementation"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // empty')
         violations+=('{"requirement":"CONT-007","severity":"error","message":"agent_type must be implementation, got '"$agent_type"'","fix":"Update manifest entry agent_type field"}')
         score=$((score - 15))
     fi
@@ -540,13 +614,14 @@ validate_contribution_protocol() {
 # ============================================================================
 
 # Validate release protocol compliance
-# Args: version, [changelog_entry], [strict mode]
+# Args: version, [changelog_entry], [manifest_entry], [strict mode]
 # Returns: JSON with {valid, violations, score}
 # Exit: 0 if valid, 66 if violations and strict mode
 validate_release_protocol() {
     local version="$1"
     local changelog_entry="${2:-}"
-    local strict="${3:-false}"
+    local manifest_entry="${3:-{}}"
+    local strict="${4:-false}"
 
     local violations=()
     local score=100
@@ -565,6 +640,47 @@ validate_release_protocol() {
 
     # RLSE-004: Git tag must match version (checked by release script)
     # RLSE-003: Tests must pass (delegated to CI)
+
+    # @task T2750 - Add missing RLSE checks
+    # Note: This function signature doesn't include manifest_entry, so we need to be careful
+    # Some checks are difficult without manifest_entry, but we can add what we can
+
+    # RLSE-005: Breaking changes documented (if major version bump)
+    # We can check this if we have access to the changelog or manifest
+    if [[ "$version" =~ ^[0-9]+\.0\.0$ ]] && [[ -n "$changelog_entry" ]]; then
+        # Major version - check for breaking changes keywords
+        if ! echo "$changelog_entry" | grep -qiE "breaking|break|incompatible|migration"; then
+            violations+=('{"requirement":"RLSE-005","severity":"warning","message":"Major release should document breaking changes","fix":"Add breaking changes section to changelog"}')
+            score=$((score - 10))
+        fi
+    fi
+
+    # RLSE-006: Version consistency (check VERSION file matches)
+    local version_file
+    # Try common VERSION file locations
+    for vfile in "VERSION" "../VERSION" "../../VERSION"; do
+        if [[ -f "$vfile" ]]; then
+            version_file="$vfile"
+            break
+        fi
+    done
+
+    if [[ -n "$version_file" && -f "$version_file" ]]; then
+        local file_version
+        file_version=$(cat "$version_file" 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "$file_version" && "$version" != "$file_version" ]]; then
+            violations+=('{"requirement":"RLSE-006","severity":"error","message":"Version mismatch: release '"$version"' vs VERSION file '"$file_version"'","fix":"Sync versions before release"}')
+            score=$((score - 15))
+        fi
+    fi
+
+    # RLSE-007: agent_type = "documentation" or "release"
+    if [[ "$manifest_entry" != "{}" ]]; then
+        if ! check_agent_type "$manifest_entry" "documentation" && ! check_agent_type "$manifest_entry" "release"; then
+            violations+=('{"requirement":"RLSE-007","severity":"warning","message":"agent_type should be documentation or release","fix":"Set agent_type appropriately"}')  
+            score=$((score - 5))
+        fi
+    fi
 
     # Build result JSON
     local valid="true"
@@ -591,6 +707,226 @@ validate_release_protocol() {
     # Exit code
     if [[ "$valid" == "false" && "$strict" == "true" ]]; then
         return $EXIT_PROTOCOL_RELEASE
+    fi
+
+    return 0
+}
+
+# ============================================================================
+# VALIDATION PROTOCOL VALIDATION (VALID-*)
+# Per protocols/validation.md and PROTOCOL-ENFORCEMENT-SPEC.md Part 4.8
+# ============================================================================
+
+# @task T2727
+# @epic T2724
+# Validate validation protocol compliance
+# Args: task_id, manifest_entry (JSON), [strict mode]
+# Returns: JSON with {valid, violations, score}
+# Exit: 0 if valid, 68 if violations and strict mode
+validate_validation_protocol() {
+    local task_id="$1"
+    local manifest_entry="$2"
+    local strict="${3:-false}"
+
+    local violations=()
+    local score=100
+
+    # VALID-001: MUST verify output matches spec requirements
+    # Check manifest has validation_result field
+    # @task T2749 - Use common library
+    if ! check_manifest_field_present "$manifest_entry" "validation_result"; then
+        violations+=('{"requirement":"VALID-001","severity":"error","message":"Missing validation_result in manifest","fix":"Add validation_result field with pass/fail"}')
+        score=$((score - 20))
+    fi
+
+    # VALID-002: MUST execute test suite
+    # Check for test_execution field
+    # @task T2749 - Use common library
+    if ! check_manifest_field_present "$manifest_entry" "test_execution"; then
+        violations+=('{"requirement":"VALID-002","severity":"warning","message":"No test execution documented","fix":"Add test_execution field"}')
+        score=$((score - 10))
+    fi
+
+    # VALID-003: MUST check protocol compliance
+    # Verify status field
+    # @task T2749 - Use common library
+    if ! check_status_valid "$manifest_entry"; then
+        local status
+        status=$(echo "$manifest_entry" | jq -r '.status // "unknown"')
+        violations+=('{"requirement":"VALID-003","severity":"error","message":"Invalid status: '"$status"'","fix":"Set status to complete/partial/blocked"}')
+        score=$((score - 15))
+    fi
+
+    # VALID-004: MUST document pass/fail with evidence
+    # @task T2749 - Use common library
+    if ! check_manifest_field_present "$manifest_entry" "key_findings"; then
+        violations+=('{"requirement":"VALID-004","severity":"error","message":"Missing key_findings","fix":"Add key_findings array"}')
+        score=$((score - 20))
+    fi
+
+    # VALID-005: MUST include validation summary
+    # Check title contains validation-related keywords
+    local title
+    title=$(echo "$manifest_entry" | jq -r '.title // ""')
+    if ! echo "$title" | grep -qiE 'valid|verify|check|compliance'; then
+        violations+=('{"requirement":"VALID-005","severity":"warning","message":"Title should indicate validation task","fix":"Include validation/verify in title"}')
+        score=$((score - 5))
+    fi
+
+    # VALID-006: MUST set agent_type = "validation"
+    # @task T2749 - Use common library
+    if ! check_agent_type "$manifest_entry" "validation"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // ""')
+        violations+=('{"requirement":"VALID-006","severity":"error","message":"agent_type must be validation, got '"$agent_type"'","fix":"Set agent_type to validation"}')
+        score=$((score - 15))
+    fi
+
+    # VALID-007: Critical validations MUST block progression
+    # This is enforced by lifecycle gates, just verify manifest has blocking_issues if partial
+    local status
+    status=$(echo "$manifest_entry" | jq -r '.status // ""')
+    if [[ "$status" == "partial" ]]; then
+        # @task T2749 - Use common library
+        if ! check_manifest_field_present "$manifest_entry" "needs_followup"; then
+            violations+=('{"requirement":"VALID-007","severity":"warning","message":"Partial status requires needs_followup","fix":"Add needs_followup array with blocking items"}')
+            score=$((score - 5))
+        fi
+    fi
+
+    # Build result JSON
+    local violations_json="[]"
+    if [[ ${#violations[@]} -gt 0 ]]; then
+        violations_json=$(printf '%s\n' "${violations[@]}" | jq -s '.')
+    fi
+
+    local valid="true"
+    [[ $score -lt 70 ]] && valid="false"
+
+    local result
+    result=$(jq -n \
+        --argjson valid "$valid" \
+        --argjson violations "$violations_json" \
+        --argjson score "$score" \
+        '{valid: $valid, violations: $violations, score: $score}')
+
+    echo "$result"
+
+    # Exit with protocol error if strict and invalid
+    if [[ "$strict" == "true" && "$valid" == "false" ]]; then
+        return $EXIT_PROTOCOL_VALIDATION
+    fi
+
+    return 0
+}
+
+# ============================================================================
+# TESTING PROTOCOL VALIDATION (TEST-*)
+# Per protocols/testing.md and PROTOCOL-ENFORCEMENT-SPEC.md Part 4.9
+# ============================================================================
+
+# @task T2727
+# @epic T2724
+# Validate testing protocol compliance
+# Args: task_id, manifest_entry (JSON), [strict mode]
+# Returns: JSON with {valid, violations, score}
+# Exit: 0 if valid, 69/70 if violations and strict mode
+validate_testing_protocol() {
+    local task_id="$1"
+    local manifest_entry="$2"
+    local strict="${3:-false}"
+
+    local violations=()
+    local score=100
+
+    # TEST-001: MUST use configured test framework
+    # Now framework-agnostic - reads from config instead of hardcoding BATS
+    local file
+    file=$(echo "$manifest_entry" | jq -r '.file // ""')
+
+    # Get configured framework and file extension
+    local configured_framework configured_extension test_dir
+    configured_framework=$(get_test_framework)
+    configured_extension=$(get_test_file_extension)
+    test_dir=$(get_test_directory)
+
+    # Build regex pattern for configured framework
+    # Remove leading dot from extension for regex
+    local ext_pattern="${configured_extension#.}"
+    local test_pattern="\\.${ext_pattern}\$|${test_dir}/"
+
+    if [[ -n "$file" ]] && ! echo "$file" | grep -qE "$test_pattern"; then
+        violations+=("{\"requirement\":\"TEST-001\",\"severity\":\"warning\",\"message\":\"Test output not in ${test_dir}/ or ${configured_extension} file (framework: ${configured_framework})\",\"fix\":\"Place tests in ${test_dir}/ directory with ${configured_extension} extension\"}")
+        score=$((score - 10))
+    fi
+
+    # TEST-002: MUST place unit tests in tests/unit/
+    # Advisory - just check if mentioned
+
+    # TEST-003: MUST place integration tests in tests/integration/
+    # Advisory - just check if mentioned
+
+    # TEST-004: MUST achieve 100% pass rate before release
+    local test_results
+    test_results=$(echo "$manifest_entry" | jq -r '.test_results // empty')
+    if [[ -n "$test_results" ]]; then
+        local pass_rate
+        pass_rate=$(echo "$test_results" | jq -r '.pass_rate // 0')
+        if [[ $(echo "$pass_rate < 1.0" | bc -l 2>/dev/null || echo 1) -eq 1 ]] && [[ "$pass_rate" != "1.0" && "$pass_rate" != "1" ]]; then
+            violations+=('{"requirement":"TEST-004","severity":"error","message":"Pass rate '"$pass_rate"' below 100%","fix":"Fix failing tests before completion"}')
+            score=$((score - 30))
+        fi
+    fi
+
+    # TEST-005: MUST cover all MUST requirements
+    # Check for coverage field
+    # @task T2749 - Use common library
+    if ! check_manifest_field_present "$manifest_entry" "coverage_summary"; then
+        violations+=('{"requirement":"TEST-005","severity":"warning","message":"No coverage summary provided","fix":"Add coverage_summary field"}')
+        score=$((score - 10))
+    fi
+
+    # TEST-006: MUST include test summary in manifest
+    # @task T2749 - Use common library
+    if ! check_manifest_field_present "$manifest_entry" "key_findings"; then
+        violations+=('{"requirement":"TEST-006","severity":"error","message":"Missing key_findings for test summary","fix":"Add key_findings array with test results"}')
+        score=$((score - 20))
+    fi
+
+    # TEST-007: MUST set agent_type = "testing"
+    # @task T2749 - Use common library
+    if ! check_agent_type "$manifest_entry" "testing"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // ""')
+        violations+=('{"requirement":"TEST-007","severity":"error","message":"agent_type must be testing, got '"$agent_type"'","fix":"Set agent_type to testing"}')
+        score=$((score - 15))
+    fi
+
+    # Build result JSON
+    local violations_json="[]"
+    if [[ ${#violations[@]} -gt 0 ]]; then
+        violations_json=$(printf '%s\n' "${violations[@]}" | jq -s '.')
+    fi
+
+    local valid="true"
+    [[ $score -lt 70 ]] && valid="false"
+
+    local result
+    result=$(jq -n \
+        --argjson valid "$valid" \
+        --argjson violations "$violations_json" \
+        --argjson score "$score" \
+        '{valid: $valid, violations: $violations, score: $score}')
+
+    echo "$result"
+
+    # Exit with test-specific error codes if strict and invalid
+    if [[ "$strict" == "true" && "$valid" == "false" ]]; then
+        if [[ $score -lt 50 ]]; then
+            return $EXIT_COVERAGE_INSUFFICIENT
+        else
+            return $EXIT_TESTS_SKIPPED
+        fi
     fi
 
     return 0
@@ -642,7 +978,13 @@ validate_protocol() {
             local changelog_entry
             version=$(echo "$additional_data" | jq -r '.version // empty')
             changelog_entry=$(echo "$additional_data" | jq -r '.changelog_entry // empty')
-            validate_release_protocol "$version" "$changelog_entry" "$strict"
+            validate_release_protocol "$version" "$changelog_entry" "$manifest_entry" "$strict"
+            ;;
+        validation)
+            validate_validation_protocol "$task_id" "$manifest_entry" "$strict"
+            ;;
+        testing)
+            validate_testing_protocol "$task_id" "$manifest_entry" "$strict"
             ;;
         *)
             # Unknown protocol type
@@ -668,6 +1010,9 @@ export EXIT_PROTOCOL_IMPLEMENTATION
 export EXIT_PROTOCOL_CONTRIBUTION
 export EXIT_PROTOCOL_RELEASE
 export EXIT_PROTOCOL_GENERIC
+export EXIT_PROTOCOL_VALIDATION
+export EXIT_TESTS_SKIPPED
+export EXIT_COVERAGE_INSUFFICIENT
 
 export -f has_code_changes
 export -f has_manifest_field
@@ -678,4 +1023,6 @@ export -f validate_decomposition_protocol
 export -f validate_implementation_protocol
 export -f validate_contribution_protocol
 export -f validate_release_protocol
+export -f validate_validation_protocol
+export -f validate_testing_protocol
 export -f validate_protocol

@@ -67,6 +67,8 @@ PROJECT_NAME=""
 FORMAT=""
 QUIET=false
 COMMAND_NAME="init"
+DRY_RUN=false
+DETECT_MODE=false
 
 # Source required libraries for LLM-Agent-First compliance
 LIB_DIR="$CLEO_HOME/lib"
@@ -107,6 +109,8 @@ Options:
                       Safe to run on existing projects - does not touch task data
   --copy-agents       Install agents via copy instead of symlink
                       (default: symlink for auto-updating)
+  --detect            Auto-detect project type and test framework
+  --dry-run           Show detection results without writing files (requires --detect)
   -f, --format FMT    Output format: text, json (default: auto-detect)
   --human             Force human-readable text output
   --json              Force JSON output
@@ -161,6 +165,8 @@ JSON Output:
 Examples:
   cleo init                    # Initialize in current directory
   cleo init my-project         # Initialize with project name
+  cleo init --detect --dry-run # Preview project detection without writing files
+  cleo init --detect           # Initialize with auto-detected configuration
   cleo init --update-docs      # Update agent docs on existing project
   cleo init --copy-agents      # Install agents as files instead of symlinks
   cleo init --json             # JSON output for scripting
@@ -178,6 +184,120 @@ generate_timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# Generate project-context.json for LLM agent consumption
+# Called after successful detection
+generate_project_context() {
+    local project_type="$1"
+    local framework="$2"
+    local monorepo="$3"
+
+    local context_file="${TODO_DIR}/project-context.json"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Determine file extension and test style hints based on framework
+    local file_ext test_style common_patterns avoid_patterns
+    case "$framework" in
+        bats)
+            file_ext=".bats"
+            test_style="BATS with @test blocks"
+            common_patterns='["Use setup/teardown for test fixtures","Use load for helper imports","Test one behavior per @test block"]'
+            avoid_patterns='["Avoid complex bash in tests","Avoid hardcoded paths","Avoid testing implementation details"]'
+            ;;
+        jest|vitest)
+            file_ext=".test.ts"
+            test_style="$framework with describe/it blocks"
+            common_patterns='["Use async/await over promises","Mock external dependencies","Group related tests in describe blocks"]'
+            avoid_patterns='["Avoid require() in ESM projects","Avoid any type in strict mode","Avoid testing private functions"]'
+            ;;
+        playwright)
+            file_ext=".spec.ts"
+            test_style="Playwright with test() blocks"
+            common_patterns='["Use page fixtures","Use expect assertions","Use data-testid selectors"]'
+            avoid_patterns='["Avoid hardcoded timeouts","Avoid flaky selectors","Avoid testing implementation"]'
+            ;;
+        pytest)
+            file_ext="_test.py"
+            test_style="pytest with test_ prefix functions"
+            common_patterns='["Use fixtures for setup","Use parametrize for data-driven tests","Use pytest.mark for test organization"]'
+            avoid_patterns='["Avoid unittest style","Avoid print debugging","Avoid testing private methods"]'
+            ;;
+        go)
+            file_ext="_test.go"
+            test_style="go test with TestXxx functions"
+            common_patterns='["Use table-driven tests","Use t.Helper for test helpers","Use subtests with t.Run"]'
+            avoid_patterns='["Avoid global state","Avoid testing private functions","Avoid complex setup"]'
+            ;;
+        cargo)
+            file_ext=".rs"
+            test_style="cargo test with #[test] attributes"
+            common_patterns='["Use assert! and assert_eq! macros","Use mod tests for unit tests","Use #[should_panic] for error tests"]'
+            avoid_patterns='["Avoid unwrap in production code","Avoid println debugging","Avoid testing private functions"]'
+            ;;
+        *)
+            file_ext=".test.js"
+            test_style="Custom test framework"
+            common_patterns='[]'
+            avoid_patterns='[]'
+            ;;
+    esac
+
+    # Determine type system hint
+    local type_system="none"
+    if [[ -f "tsconfig.json" ]]; then
+        type_system="TypeScript"
+        if grep -q '"strict": true' tsconfig.json 2>/dev/null; then
+            type_system="TypeScript strict mode"
+        fi
+    elif [[ "$project_type" == "python" ]]; then
+        type_system="Python with type hints"
+    elif [[ "$project_type" == "rust" ]]; then
+        type_system="Rust (statically typed)"
+    elif [[ "$project_type" == "go" ]]; then
+        type_system="Go (statically typed)"
+    fi
+
+    # Determine file naming convention
+    local file_naming="kebab-case"
+    if [[ "$project_type" == "python" ]]; then
+        file_naming="snake_case"
+    elif [[ "$project_type" == "go" || "$project_type" == "rust" ]]; then
+        file_naming="snake_case"
+    fi
+
+    # Generate project-context.json
+    cat > "$context_file" << EOF
+{
+  "\$schema": "https://cleo-dev.com/schemas/v1/project-context.schema.json",
+  "schemaVersion": "1.0.0",
+  "detectedAt": "$timestamp",
+  "projectTypes": ["$project_type"],
+  "primaryType": "$project_type",
+  "monorepo": $monorepo,
+  "testing": {
+    "framework": "$framework",
+    "testFilePatterns": ["**/*$file_ext"],
+    "directories": {
+      "unit": "tests/unit",
+      "integration": "tests/integration"
+    }
+  },
+  "conventions": {
+    "fileNaming": "$file_naming",
+    "typeSystem": "$type_system"
+  },
+  "llmHints": {
+    "preferredTestStyle": "$test_style",
+    "typeSystem": "$type_system",
+    "commonPatterns": $common_patterns,
+    "avoidPatterns": $avoid_patterns
+  }
+}
+EOF
+
+    log_info "Generated project-context.json"
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -185,6 +305,8 @@ while [[ $# -gt 0 ]]; do
     --confirm-wipe) CONFIRM_WIPE=true; shift ;;
     --update-docs) UPDATE_DOCS=true; shift ;;
     --copy-agents) COPY_AGENTS=true; shift ;;
+    --detect) DETECT_MODE=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
     -f|--format) FORMAT="$2"; shift 2 ;;
     --human) FORMAT="text"; shift ;;
     --json) FORMAT="json"; shift ;;
@@ -218,6 +340,118 @@ log_error()   { [[ "$FORMAT" != "json" ]] && echo "[ERROR] $1" >&2 || true; }
 # Determine project name
 [[ -z "$PROJECT_NAME" ]] && PROJECT_NAME=$(basename "$PWD")
 PROJECT_NAME=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+
+# ============================================================================
+# DETECTION MODE (--detect / --dry-run)
+# ============================================================================
+
+# Validate --dry-run requires --detect
+if [[ "$DRY_RUN" == true ]] && [[ "$DETECT_MODE" != true ]]; then
+    if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
+        output_error "$E_INPUT_INVALID" "--dry-run requires --detect flag" "${EXIT_INVALID_INPUT:-2}" true "Run 'cleo init --detect --dry-run' to preview detection results"
+    else
+        log_error "--dry-run requires --detect flag"
+        log_info "Usage: cleo init --detect --dry-run"
+    fi
+    exit "${EXIT_INVALID_INPUT:-2}"
+fi
+
+# Run detection mode if requested
+if [[ "$DETECT_MODE" == true ]]; then
+    # Source project detection library
+    if [[ -f "$CLEO_HOME/lib/project-detect.sh" ]]; then
+        source "$CLEO_HOME/lib/project-detect.sh"
+    elif [[ -f "$SCRIPT_DIR/../lib/project-detect.sh" ]]; then
+        source "$SCRIPT_DIR/../lib/project-detect.sh"
+    else
+        if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
+            output_error "$E_FILE_NOT_FOUND" "Project detection library not found" "${EXIT_FILE_ERROR:-4}" true "Ensure CLEO is properly installed"
+        else
+            log_error "Project detection library not found at $CLEO_HOME/lib/project-detect.sh"
+        fi
+        exit "${EXIT_FILE_ERROR:-4}"
+    fi
+
+    log_info "Detecting project configuration..."
+
+    # Run full detection
+    detection_result=$(run_full_detection)
+
+    # Extract results
+    project_type=$(echo "$detection_result" | jq -r '.projectType')
+    framework=$(echo "$detection_result" | jq -r '.framework')
+    confidence=$(echo "$detection_result" | jq -r '.confidence')
+    detected_from=$(echo "$detection_result" | jq -r '.detectedFrom')
+    monorepo=$(echo "$detection_result" | jq -r '.monorepo')
+
+    # Dry-run mode - show results and exit
+    if [[ "$DRY_RUN" == true ]]; then
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -nc \
+                --arg version "$VERSION" \
+                --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                --arg projectType "$project_type" \
+                --arg framework "$framework" \
+                --arg confidence "$confidence" \
+                --arg detectedFrom "$detected_from" \
+                --argjson monorepo "$monorepo" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        "format": "json",
+                        "command": "init --detect --dry-run",
+                        "timestamp": $timestamp,
+                        "version": $version
+                    },
+                    "success": true,
+                    "dryRun": true,
+                    "detection": {
+                        "projectType": $projectType,
+                        "framework": $framework,
+                        "confidence": $confidence,
+                        "detectedFrom": $detectedFrom,
+                        "monorepo": $monorepo
+                    },
+                    "suggestedActions": [
+                        "Review detection results above",
+                        "Run without --dry-run to apply configuration",
+                        "Use --force --confirm-wipe to reinitialize existing projects"
+                    ]
+                }'
+        else
+            log_info "Dry-run mode - no files will be written"
+            echo ""
+            echo "Detection Results:"
+            echo "  Project Type:    $project_type"
+            echo "  Test Framework:  $framework"
+            echo "  Confidence:      $confidence"
+            echo "  Detected From:   $detected_from"
+            echo "  Monorepo:        $monorepo"
+            echo ""
+            echo "Suggested Actions:"
+            echo "  1. Review detection results above"
+            echo "  2. Run without --dry-run to apply configuration"
+            echo "  3. Use --force --confirm-wipe to reinitialize existing projects"
+        fi
+        exit 0
+    fi
+
+    # Normal detection mode - continue with initialization using detected values
+    log_info "Project Type:    $project_type"
+    log_info "Test Framework:  $framework"
+    log_info "Confidence:      $confidence"
+    log_info "Detected From:   $detected_from"
+    log_info "Monorepo:        $monorepo"
+    echo ""
+
+    # Store detection results for later use
+    DETECTED_PROJECT_TYPE="$project_type"
+    DETECTED_FRAMEWORK="$framework"
+    DETECTED_MONOREPO="$monorepo"
+
+    # TODO: Apply detection results to config.json
+    # This will be implemented in subsequent tasks (T2782, T2783)
+fi
 
 # ============================================================================
 # CHECK FOR EXISTING INITIALIZATION (with proper safeguards)
@@ -809,6 +1043,15 @@ else
   log_warn "init_migrations_journal function not available (ensure lib/migrate.sh is sourced)"
 fi
 
+# Generate project-context.json if detection mode was used
+if [[ "${DETECT_MODE:-false}" == true ]] && [[ -n "${DETECTED_PROJECT_TYPE:-}" ]]; then
+  log_info "Generating project-context.json from detection results..."
+  generate_project_context \
+    "${DETECTED_PROJECT_TYPE}" \
+    "${DETECTED_FRAMEWORK:-custom}" \
+    "${DETECTED_MONOREPO:-false}"
+fi
+
 # Recalculate checksum from actual tasks array to ensure validity
 log_info "Recalculating checksum from actual tasks array..."
 if command -v jq &> /dev/null && [[ -f "$TODO_DIR/todo.json" ]]; then
@@ -1027,7 +1270,7 @@ if declare -f install_agents &>/dev/null; then
   log_info "Installing agent definitions..."
 
   # Determine installation mode
-  local agent_mode="symlink"
+  agent_mode="symlink"
   [[ "$COPY_AGENTS" == true ]] && agent_mode="copy"
 
   # Install agents

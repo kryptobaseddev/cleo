@@ -1454,7 +1454,8 @@ fi
 
 # 13. Check agent-outputs structure (T1947, T2370)
 if declare -f validate_research_manifest >/dev/null 2>&1; then
-  RESEARCH_OUTPUT_DIR="claudedocs/agent-outputs"
+  # Get agent outputs directory from config (backward compatible with default)
+  RESEARCH_OUTPUT_DIR=$(get_directory "agentOutputs" "claudedocs/agent-outputs")
   RESEARCH_MANIFEST="${RESEARCH_OUTPUT_DIR}/MANIFEST.jsonl"
 
   if [[ ! -d "$RESEARCH_OUTPUT_DIR" ]]; then
