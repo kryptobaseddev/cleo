@@ -35,6 +35,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Source config library
+source "$PROJECT_ROOT/lib/config.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -52,6 +55,7 @@ DRY_RUN=false
 PUSH=false
 SKIP_CHANGELOG=false
 SKIP_COMMIT=false
+SKIP_TESTS=false
 ALLOW_DIRTY=false
 VERSION_ARG=""
 
@@ -72,6 +76,7 @@ Options:
   --dry-run       Show what would happen without changes
   --no-changelog  Skip Mintlify changelog generation
   --no-commit     Skip git commit (just update files)
+  --skip-tests    Skip test execution before release
   --allow-dirty   Allow release with uncommitted changes
   -h, --help      Show this help
 
@@ -105,6 +110,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_COMMIT=true
             shift
             ;;
+        --skip-tests)
+            SKIP_TESTS=true
+            shift
+            ;;
         --allow-dirty)
             ALLOW_DIRTY=true
             shift
@@ -132,6 +141,91 @@ fi
 
 cd "$PROJECT_ROOT"
 
+# Validate release prerequisites using project-agnostic config
+# Returns: 0 if valid, 1 if validation fails
+# Respects --skip-tests flag
+validate_release() {
+    local skip_tests="${1:-false}"
+
+    if [[ "$skip_tests" == "true" ]]; then
+        log_warn "Skipping test validation (--skip-tests)"
+        return 0
+    fi
+
+    # Get test command from config (fallback to default)
+    local test_cmd
+    test_cmd=$(get_test_command)
+
+    local framework
+    framework=$(get_test_framework)
+
+    log_step "Running tests with $framework framework..."
+    log_info "Command: $test_cmd"
+
+    # Execute tests
+    if ! eval "$test_cmd"; then
+        log_error "Tests failed - release blocked"
+        log_info "Fix: Run '$test_cmd' and fix failures before release"
+        return 1
+    fi
+
+    log_info "All tests passed"
+    return 0
+}
+
+# Execute custom validation gates from config
+# Returns: 0 if all required gates pass, 1 if any required gate fails
+run_custom_gates() {
+    local gates_json
+    gates_json=$(get_config_value "orchestrator.validation.customGates" "[]")
+
+    # Check if any gates defined
+    local gate_count
+    gate_count=$(echo "$gates_json" | jq 'length')
+
+    if [[ "$gate_count" -eq 0 ]]; then
+        log_info "No custom validation gates configured"
+        return 0
+    fi
+
+    log_step "Running $gate_count custom validation gate(s)..."
+
+    local failed_required=0
+    local gate_index=0
+
+    while IFS= read -r gate; do
+        local name command required description
+        name=$(echo "$gate" | jq -r '.name')
+        command=$(echo "$gate" | jq -r '.command')
+        required=$(echo "$gate" | jq -r '.required // false')
+        description=$(echo "$gate" | jq -r '.description // ""')
+
+        log_step "Gate: $name${description:+ - $description}"
+
+        # Execute gate command
+        if eval "$command" >/dev/null 2>&1; then
+            log_info "  ✓ $name passed"
+        else
+            if [[ "$required" == "true" ]]; then
+                log_error "  ✗ $name FAILED (required - blocking release)"
+                ((failed_required++))
+            else
+                log_warn "  ⚠ $name failed (optional - continuing)"
+            fi
+        fi
+
+        ((gate_index++))
+    done < <(echo "$gates_json" | jq -c '.[]')
+
+    if [[ $failed_required -gt 0 ]]; then
+        log_error "$failed_required required gate(s) failed - release blocked"
+        return 1
+    fi
+
+    log_info "All required gates passed"
+    return 0
+}
+
 # Check for clean working tree
 if [[ "$ALLOW_DIRTY" != "true" ]] && [[ "$DRY_RUN" != "true" ]]; then
     if ! git diff --quiet HEAD -- VERSION README.md CHANGELOG.md 2>/dev/null; then
@@ -139,6 +233,16 @@ if [[ "$ALLOW_DIRTY" != "true" ]] && [[ "$DRY_RUN" != "true" ]]; then
         log_error "Commit changes first or use --allow-dirty"
         exit 1
     fi
+fi
+
+# Validate release prerequisites (tests)
+if ! validate_release "$SKIP_TESTS"; then
+    exit 1
+fi
+
+# Run custom validation gates
+if ! run_custom_gates; then
+    exit 1
 fi
 
 # Get current version
