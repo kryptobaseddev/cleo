@@ -244,6 +244,90 @@ Loaded for ALL subagents from `agents/cleo-subagent/AGENT.md`:
 
 ---
 
+## Lifecycle Gate Enforcement
+
+<!-- @task T2721 -->
+
+CLEO enforces RCSD-IVTR lifecycle progression through automatic gate checks at spawn time.
+
+### RCSD-IVTR Flow with Gates
+
+```
+research ──┬──► consensus ──┬──► specification ──┬──► decomposition
+           │                │                    │
+           │ GATE           │ GATE               │ GATE
+           │                │                    │
+           └────────────────┴────────────────────┴──► implementation ──► release
+```
+
+Each arrow represents a **lifecycle gate**. Spawning a task for a later stage requires all prior stages to be `completed` or `skipped`.
+
+### Gate Check Behavior
+
+| Enforcement Mode | On Gate Failure | Default |
+|------------------|-----------------|---------|
+| `strict` | Blocks spawn with exit 75 | ✓ |
+| `advisory` | Warns but proceeds | |
+| `off` | Skips all checks | |
+
+**Configuration**: `.cleo/config.json`
+```json
+{
+  "lifecycleEnforcement": {
+    "mode": "strict"
+  }
+}
+```
+
+### Emergency Bypass
+
+**For emergencies only** - temporarily disable enforcement:
+
+```bash
+# Option 1: Set mode to off
+jq '.lifecycleEnforcement.mode = "off"' .cleo/config.json > tmp && mv tmp .cleo/config.json
+
+# Option 2: Environment variable (session only)
+export LIFECYCLE_ENFORCEMENT_MODE=off
+
+# REMEMBER: Restore strict mode after emergency
+jq '.lifecycleEnforcement.mode = "strict"' .cleo/config.json > tmp && mv tmp .cleo/config.json
+```
+
+### Troubleshooting Gate Failures
+
+**Exit Code 75: E_LIFECYCLE_GATE_FAILED**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| "SPAWN BLOCKED: Lifecycle prerequisites not met" | Missing prior RCSD stages | Complete missing stages first |
+| Error shows `missingPrerequisites: "research"` | Research not done for epic | Spawn research task first |
+| Gate fails for new epic | No RCSD manifest exists | Initialize epic with research |
+
+**Check RCSD state**:
+```bash
+jq . .cleo/rcsd/{EPIC_ID}/_manifest.json
+```
+
+**Record stage completion manually** (for imports/migrations):
+```bash
+source lib/lifecycle.sh
+record_rcsd_stage_completion "T1234" "research" "completed"
+```
+
+### Integration with Orchestrator
+
+The orchestrator automatically:
+1. Checks lifecycle gate at Step 6.75 (after protocol validation)
+2. Reads enforcement mode from config
+3. Queries `.cleo/rcsd/{epicId}/_manifest.json` for stage status
+4. Blocks or warns based on mode
+5. Provides actionable fix in error JSON
+
+**See**: `docs/developer/specifications/LIFECYCLE-ENFORCEMENT.mdx` for full specification
+
+---
+
 ## Token Handling
 
 ### Pre-Resolution Requirement
@@ -483,6 +567,16 @@ When all tasks are complete, trigger the release workflow:
 
 ---
 
+## Progressive Disclosure References
+
+For detailed protocol and integration documentation:
+
+- **Base Protocol**: `skills/_shared/subagent-protocol-base.md`
+- **Task System Integration**: `skills/_shared/task-system-integration.md`
+- **Testing Framework Config**: `skills/_shared/testing-framework-config.md`
+
+---
+
 ## References
 
 - **Project Lifecycle**: `docs/specs/PROJECT-LIFECYCLE-SPEC.md`
@@ -492,4 +586,3 @@ When all tasks are complete, trigger the release workflow:
 - **Skill Loading**: `docs/designs/SKILL-LOADING-MECHANISM.md`
 - **Orchestrator Skill**: `skills/ct-orchestrator/SKILL.md`
 - **Subagent Agent**: `agents/cleo-subagent/AGENT.md`
-- **Base Protocol**: `skills/_shared/subagent-protocol-base.md`

@@ -248,7 +248,44 @@ readonly EXIT_CONTEXT_EMERGENCY=53
 readonly EXIT_CONTEXT_STALE=54
 
 # ============================================================================
-# ORCHESTRATOR ERROR CODES (60-69)
+# PROTOCOL VALIDATION ERROR CODES (60-67) - CONFLICT WARNING
+# Per PROTOCOL-ENFORCEMENT-SPEC.md Part 3.3 (Epic T2679)
+# ============================================================================
+#
+# DESIGN CONFLICT: Exit codes 60-67 are ALSO used for orchestrator errors
+# (see EXIT_PROTOCOL_MISSING, etc. below). This creates collision between:
+#   - RCSD-IVTR protocol validation (research, consensus, spec, etc.)
+#   - Orchestrator spawn protocol validation (injection, manifest, etc.)
+#
+# CURRENT STATE (v0.74.4):
+#   - lib/protocol-validation.sh uses 60-67 per PROTOCOL-ENFORCEMENT-SPEC.md
+#   - lib/exit-codes.sh defines orchestrator codes at 60-67 (legacy)
+#   - Both definitions exist simultaneously (undefined behavior)
+#
+# RESOLUTION NEEDED (Follow-up Epic):
+#   - Move orchestrator codes to 68-74 range (preferred)
+#   - Update all orchestrator code references
+#   - Document migration in CHANGELOG.md
+#
+# CURRENT WORKAROUND:
+#   - Protocol validation functions check via lib/protocol-validation.sh
+#   - Orchestrator functions check via lib/exit-codes.sh
+#   - No function uses both simultaneously (isolates conflict)
+#
+# See: claudedocs/agent-outputs/T2697-exit-code-conflict-resolution.md
+#
+# Protocol validation codes (lib/protocol-validation.sh):
+#   60 - EXIT_PROTOCOL_RESEARCH         - Research protocol violation
+#   61 - EXIT_PROTOCOL_CONSENSUS        - Consensus protocol violation
+#   62 - EXIT_PROTOCOL_SPECIFICATION    - Specification protocol violation
+#   63 - EXIT_PROTOCOL_DECOMPOSITION    - Decomposition protocol violation
+#   64 - EXIT_PROTOCOL_IMPLEMENTATION   - Implementation protocol violation
+#   65 - EXIT_PROTOCOL_CONTRIBUTION     - Contribution protocol violation
+#   66 - EXIT_PROTOCOL_RELEASE          - Release protocol violation
+#   67 - EXIT_PROTOCOL_GENERIC          - Generic protocol violation
+#
+# ============================================================================
+# ORCHESTRATOR ERROR CODES (60-69) - LEGACY (conflicting with above)
 # Multi-agent orchestration protocol errors
 # ============================================================================
 
