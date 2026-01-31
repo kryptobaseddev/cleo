@@ -295,6 +295,60 @@ get_timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# @task T2827
+# @epic T2819
+# @why Ensure version headers exist before changelog generation
+# @what Auto-insert version header in CHANGELOG.md if missing
+ensure_changelog_header() {
+    local version="$1"
+    local date="${2:-$(date +%Y-%m-%d)}"
+    local changelog="${3:-CHANGELOG.md}"
+
+    # Skip if changelog doesn't exist yet
+    if [[ ! -f "$changelog" ]]; then
+        log_info "CHANGELOG.md does not exist yet (will be created)"
+        return 0
+    fi
+
+    # Normalize version (strip v prefix for header)
+    local version_no_v="${version#v}"
+
+    # Check if header already exists (idempotent)
+    if grep -q "^## \[${version_no_v}\]" "$changelog"; then
+        log_info "Version header already exists for ${version_no_v}"
+        return 0
+    fi
+
+    log_info "Inserting version header for ${version_no_v} in CHANGELOG.md..."
+
+    # Create version header
+    local header="## [${version_no_v}] - ${date}"
+
+    # Find the line number of "## [Unreleased]"
+    local unreleased_line
+    unreleased_line=$(grep -n "^## \[Unreleased\]" "$changelog" | cut -d: -f1)
+
+    if [[ -z "$unreleased_line" ]]; then
+        log_warn "No ## [Unreleased] section found - version header not inserted"
+        return 0
+    fi
+
+    # Insert header after Unreleased + blank line
+    # Use sed to insert at line after Unreleased
+    local insert_line=$((unreleased_line + 2))
+
+    # Create backup
+    cp "$changelog" "${changelog}.bak"
+
+    # Insert header using sed
+    sed -i "${insert_line}i\\
+${header}\\
+" "$changelog"
+
+    log_info "Version header inserted successfully"
+    return 0
+}
+
 # Validation gates (Part 5 from spec)
 # @task T2739
 validate_release() {
@@ -670,6 +724,11 @@ cmd_ship() {
             exit "$EXIT_VERSION_BUMP_FAILED"
         fi
         log_info "VERSION bumped successfully"
+    fi
+
+    # Step 1.5: Ensure changelog header exists (T2827)
+    if [[ "${SKIP_CHANGELOG:-false}" != "true" ]]; then
+        ensure_changelog_header "$normalized"
     fi
 
     # Step 2: ALWAYS generate changelog (mandatory per CHANGELOG-GENERATION-SPEC.md)

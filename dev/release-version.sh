@@ -50,6 +50,59 @@ log_warn() { echo -e "${YELLOW}⚠${NC} $1"; }
 log_error() { echo -e "${RED}✗${NC} $1" >&2; }
 log_step() { echo -e "${BLUE}→${NC} $1"; }
 
+# Prepare CHANGELOG.md with new version header
+# Creates version header if missing and moves Unreleased content
+prepare_changelog() {
+    local version="$1"
+    local date="$2"  # YYYY-MM-DD format
+    local changelog="${3:-CHANGELOG.md}"
+
+    # Skip if changelog doesn't exist
+    if [[ ! -f "$changelog" ]]; then
+        log_warn "CHANGELOG.md not found, skipping version header preparation"
+        return 0
+    fi
+
+    # Check if version header already exists
+    if grep -q "^## \[${version}\]" "$changelog"; then
+        log_info "Changelog header for $version already exists"
+        return 0
+    fi
+
+    # Check if Unreleased section exists
+    if ! grep -q "^## \[Unreleased\]" "$changelog"; then
+        log_warn "No [Unreleased] section found in changelog, skipping header creation"
+        return 0
+    fi
+
+    log_step "Creating version header for $version in $changelog..."
+
+    # Create new version header
+    local version_header="## [$version] - $date"
+
+    # Use awk to insert new version header after [Unreleased]
+    # This preserves all content and moves unreleased items to new version
+    awk -v header="$version_header" '
+        /^## \[Unreleased\]/ {
+            print
+            # Print the [Unreleased] section header
+            # Then add blank line and new version header
+            getline
+            print
+            print ""
+            print header
+            next
+        }
+        { print }
+    ' "$changelog" > "${changelog}.tmp"
+
+    # Atomic replace
+    mv "${changelog}.tmp" "$changelog"
+
+    log_info "Created version header: $version_header"
+    return 0
+}
+
 # Defaults
 DRY_RUN=false
 PUSH=false
@@ -315,7 +368,11 @@ else
     sed -i "s/version-${CURRENT_VERSION//./\\.}-/version-${NEW_VERSION}-/g" README.md
 fi
 
-# Step 3: Generate Mintlify changelog
+# Step 3a: Prepare CHANGELOG.md with new version header
+RELEASE_DATE=$(date +%Y-%m-%d)
+prepare_changelog "$NEW_VERSION" "$RELEASE_DATE"
+
+# Step 3b: Generate Mintlify changelog
 if [[ "$SKIP_CHANGELOG" != "true" ]]; then
     log_step "Generating Mintlify changelog..."
     if [[ -x "$PROJECT_ROOT/scripts/generate-changelog.sh" ]]; then
