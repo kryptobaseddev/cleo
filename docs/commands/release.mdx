@@ -49,7 +49,7 @@ The `release` command manages the complete release lifecycle from planning to sh
 | `--create-tag` | Create git tag for release (for ship) |
 | `--force-tag` | Overwrite existing git tag (requires --create-tag) |
 | `--push` | Push git tag to remote (requires --create-tag) |
-| `--write-changelog` | Write changelog to CHANGELOG.md (for ship/changelog) |
+| `--write-changelog` | **DEPRECATED** - Changelog is auto-generated (since v0.74.0) |
 | `--skip-changelog` | Skip automatic changelog generation (for ship) |
 | `--output FILE` | Output file for changelog (default: CHANGELOG.md) |
 | `--format, -f FORMAT` | Output format: text \| json (default: auto) |
@@ -78,12 +78,20 @@ Starting in v0.74.0, `cleo release ship` automatically:
 
 ### Task Discovery
 
-Tasks are included in a release if they meet **any** of these criteria:
+Tasks are discovered using a 6-filter pipeline during `cleo release ship`:
 
-- Explicitly assigned via `cleo release plan --tasks T001,T002`
-- Have a label matching the version (e.g., `v0.65.0` or `0.65.0`)
-- Have the `changelog` or `release` label AND completed between release dates
-- Are completed between previous release date and current release date
+| Filter | Purpose |
+|--------|---------|
+| 1. `completedAt` | Must have completion timestamp |
+| 2. Date window | Completed between previous and current release |
+| 3. `status == "done"` | Must be done (not pending/active/blocked) |
+| 4. `type != "epic"` | Excludes organizational epics |
+| 5. Label match | Has version label, `changelog`, or `release` label |
+| 6. Version exclusivity | Tasks with explicit version labels aren't claimed by other releases |
+
+Tasks are included if they:
+- Are explicitly assigned via `cleo release plan --tasks T001,T002`
+- Pass the 6-filter discovery pipeline during ship
 
 ### Skipping Changelog Generation
 
@@ -122,6 +130,12 @@ cleo release create v0.65.0 --target-date 2026-02-01
 cleo release plan v0.65.0 --tasks T2058,T2059
 ```
 
+<Note>
+**Append Behavior**: The `--tasks` option appends to existing tasks and deduplicates automatically.
+Calling `plan --tasks T001` then `plan --tasks T002` results in both tasks being included.
+Use `--remove` to remove specific tasks.
+</Note>
+
 ```bash Ship with Automatic Changelog
 # Recommended: Let the system discover and generate changelog
 cleo release ship v0.65.0 --bump-version --create-tag --push
@@ -133,8 +147,8 @@ cleo release ship v0.65.0 --skip-changelog
 ```
 
 ```bash Ship with Manual Changelog
-# Generate changelog separately first
-cleo release changelog v0.65.0 --write-changelog
+# Generate changelog separately first (deprecated workflow)
+cleo release changelog v0.65.0
 cleo release ship v0.65.0 --skip-changelog
 ```
 

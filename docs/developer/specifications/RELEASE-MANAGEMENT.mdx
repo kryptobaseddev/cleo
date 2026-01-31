@@ -342,7 +342,7 @@ cleo release start <version>    # planned → active (usually automatic)
 cleo release ship <version> [OPTIONS]  # active → released
   --bump-version            # Call dev/bump-version.sh before tagging
   --create-tag              # Create git tag (optional, config-driven)
-  --write-changelog         # Generate changelog via generate-changelog.sh
+  --write-changelog         # DEPRECATED - Changelog is auto-generated (since v0.74.0)
   --push                    # Push tag to remote (optional)
 
 # Verify release readiness
@@ -443,13 +443,18 @@ cleo release ship v0.74.0
 # 5. Update release.status = "released"
 ```
 
-**Task Discovery**:
+**Task Discovery Filters** (6 filters as of v0.77.0):
 
-Tasks are included if they meet ANY of:
-- Explicitly assigned via `cleo release plan --tasks T001,T002`
-- Have label matching version (e.g., `v0.74.0` or `0.74.0`)
-- Have `changelog` or `release` label AND completed between release dates
-- Completed between previous release date and current release
+1. **Completion** - Task must have `completedAt` timestamp
+2. **Date Window** - `completedAt` between previous release and current release
+3. **Status Check** - `status == "done"` (T2807 fix - prevents non-done tasks)
+4. **Type Filter** - `type != "epic"` (excludes organizational tasks)
+5. **Label Match** - Has version label (`v0.77.0`), `changelog`, or `release` label
+6. **Version Exclusivity** - Tasks with explicit version labels (e.g., `v0.76.0`) aren't claimed by other releases (T2808 fix)
+
+Tasks are included if they:
+- Are explicitly assigned via `cleo release plan --tasks T001,T002`
+- Pass the 6-filter discovery pipeline during ship
 
 **Escape Hatch**:
 - `--skip-changelog`: Bypass automatic changelog generation (use sparingly)
@@ -487,9 +492,7 @@ cleo release plan v0.74.0 --tasks T2536,T2537,T2539,T2540,T2541,T2542,T2543
 
 # 4. Ship release (automatic changelog since v0.74.0)
 cleo release ship v0.74.0 --bump-version --create-tag
-
-# Changelog is AUTOMATICALLY generated and appended
-# No need for --write-changelog flag (deprecated)
+# Changelog is auto-generated (--write-changelog deprecated since v0.74.0)
 
 # 5. Push to GitHub
 git push origin main --tags
@@ -656,7 +659,8 @@ cleo release target <version> <YYYY-MM-DD>
 # NEW (dogfooding)
 cleo release create v0.74.0 --name "Release Name"
 cleo release plan v0.74.0 --tasks T001,T002
-cleo release ship v0.74.0 --bump-version --create-tag --write-changelog
+cleo release ship v0.74.0 --bump-version --create-tag
+# Changelog is auto-generated (--write-changelog deprecated since v0.74.0)
 git push origin main --tags
 ```
 
@@ -721,7 +725,8 @@ A conforming implementation MAY:
 # Lifecycle
 cleo release create v0.74.0 --name "Release Name" --target-date 2026-02-01
 cleo release plan v0.74.0 --tasks T001,T002
-cleo release ship v0.74.0 --bump-version --create-tag --write-changelog
+cleo release ship v0.74.0 --bump-version --create-tag
+# Changelog is auto-generated (--write-changelog deprecated since v0.74.0)
 
 # Queries
 cleo release list
