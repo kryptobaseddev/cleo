@@ -1062,3 +1062,55 @@ MOCK
     # Should match ct-task-executor based on "implement" keyword
     assert_output --partial "ct-task-executor"
 }
+
+# ============================================================================
+# _sd_skill_to_protocol tests (T2818)
+# ============================================================================
+
+@test "_sd_skill_to_protocol maps ct-test-writer-bats to testing" {
+    run _sd_skill_to_protocol "ct-test-writer-bats"
+    assert_success
+    assert_output "testing"
+}
+
+@test "_sd_skill_to_protocol maps generic test-writer to testing" {
+    run _sd_skill_to_protocol "ct-test-writer-jest"
+    assert_success
+    assert_output "testing"
+}
+
+@test "_sd_skill_to_protocol maps ct-research-agent to research" {
+    run _sd_skill_to_protocol "ct-research-agent"
+    assert_success
+    assert_output "research"
+}
+
+@test "_sd_skill_to_protocol maps ct-epic-architect to decomposition" {
+    run _sd_skill_to_protocol "ct-epic-architect"
+    assert_success
+    assert_output "decomposition"
+}
+
+@test "_sd_skill_to_protocol maps ct-spec-writer to specification" {
+    run _sd_skill_to_protocol "ct-spec-writer"
+    assert_success
+    assert_output "specification"
+}
+
+@test "_sd_skill_to_protocol maps ct-validator to consensus" {
+    run _sd_skill_to_protocol "ct-validator"
+    assert_success
+    assert_output "consensus"
+}
+
+@test "_sd_skill_to_protocol maps ct-task-executor to implementation" {
+    run _sd_skill_to_protocol "ct-task-executor"
+    assert_success
+    assert_output "implementation"
+}
+
+@test "_sd_skill_to_protocol defaults unknown skills to implementation" {
+    run _sd_skill_to_protocol "ct-unknown-skill"
+    assert_success
+    assert_output "implementation"
+}

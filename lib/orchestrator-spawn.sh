@@ -48,6 +48,10 @@ source "${_OSP_LIB_DIR}/exit-codes.sh"
 source "${_OSP_LIB_DIR}/skill-dispatch.sh"
 # shellcheck source=lib/compliance-check.sh
 source "${_OSP_LIB_DIR}/compliance-check.sh"
+# shellcheck source=lib/protocol-validation.sh
+source "${_OSP_LIB_DIR}/protocol-validation.sh"
+# shellcheck source=lib/lifecycle.sh
+source "${_OSP_LIB_DIR}/lifecycle.sh"
 
 # ============================================================================
 # INTERNAL HELPERS
@@ -121,6 +125,73 @@ _osp_require_jq() {
         return "$EXIT_DEPENDENCY_ERROR"
     fi
     return 0
+}
+
+# Map skill name to protocol type
+# Args: $1 = skill_name
+# Returns: protocol type (research|consensus|specification|decomposition|implementation|contribution|release) or empty
+_osp_skill_to_protocol() {
+    local skill_name="$1"
+
+    # Map based on skill naming conventions and known skills
+    case "$skill_name" in
+        ct-research-agent|*research*)
+            echo "research"
+            ;;
+        ct-validator|*consensus*|*vote*)
+            echo "consensus"
+            ;;
+        ct-spec-writer|*specification*|*spec*)
+            echo "specification"
+            ;;
+        ct-epic-architect|*decomposition*|*architect*)
+            echo "decomposition"
+            ;;
+        ct-task-executor|*executor*|*implementation*)
+            echo "implementation"
+            ;;
+        *contribution*|*merge*)
+            echo "contribution"
+            ;;
+        *release*)
+            echo "release"
+            ;;
+        *)
+            # Default to implementation for unknown skills
+            echo "implementation"
+            ;;
+    esac
+}
+
+# @task T2717
+# Get list of missing prerequisite stages
+# Args: $1 = epic_id, $2 = target_stage
+# Returns: 0 on success
+# Outputs: Comma-separated list of missing stages
+_osp_get_missing_prerequisite_stages() {
+    local epic_id="$1"
+    local target_stage="$2"
+
+    local -a stages=("research" "consensus" "specification" "decomposition" "implementation")
+    local -a missing=()
+
+    local target_idx=-1
+    for i in "${!stages[@]}"; do
+        [[ "${stages[$i]}" == "$target_stage" ]] && target_idx=$i && break
+    done
+
+    for ((i=0; i<target_idx; i++)); do
+        local state
+        state=$(get_rcsd_stage_status "$epic_id" "${stages[$i]}" 2>/dev/null || echo "pending")
+        if [[ "$state" != "completed" && "$state" != "skipped" ]]; then
+            missing+=("${stages[$i]}")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        local IFS=','
+        echo "${missing[*]}"
+    fi
 }
 
 # ============================================================================
@@ -301,6 +372,175 @@ orchestrator_spawn_for_task() {
         return "${EXIT_INVALID_INPUT:-2}"
     fi
     _osp_debug "Pre-spawn compliance passed: all required tokens set"
+
+    # Step 6.5: PROTOCOL VALIDATION
+    # Validate protocol requirements before spawning subagent
+    # Maps skill to protocol type and validates MUST requirements
+    _osp_debug "Protocol validation: checking protocol requirements for skill '$skill_name'"
+    local protocol_type
+    protocol_type=$(_osp_skill_to_protocol "$skill_name")
+    _osp_debug "Detected protocol type: $protocol_type"
+
+    # For protocol validation, we need a minimal manifest entry structure
+    # We'll create it from task data for validation purposes
+    local temp_manifest_entry
+    temp_manifest_entry=$(jq -n \
+        --arg task_id "$task_id" \
+        --arg agent_type "$protocol_type" \
+        --argjson labels "$task_labels" \
+        '{
+            id: $task_id,
+            agent_type: $agent_type,
+            labels: $labels,
+            key_findings: [],
+            status: "pending"
+        }')
+
+    # Run protocol validation (non-strict mode for pre-spawn check)
+    # Strict mode will be enforced at completion time
+    local validation_result
+    validation_result=$(validate_protocol "$task_id" "$protocol_type" "$temp_manifest_entry" "{}" "false" 2>/dev/null || echo '{"valid":false,"violations":[],"score":0}')
+
+    local is_valid
+    is_valid=$(echo "$validation_result" | jq -r '.valid // false')
+
+    if [[ "$is_valid" != "true" ]]; then
+        local violations
+        violations=$(echo "$validation_result" | jq -c '.violations // []')
+        local error_count
+        error_count=$(echo "$violations" | jq '[.[] | select(.severity == "error")] | length')
+
+        if [[ $error_count -gt 0 ]]; then
+            _osp_error "SPAWN BLOCKED: Protocol validation failed with $error_count error(s)"
+            _osp_error "Violations: $(echo "$violations" | jq -c '.')"
+
+            jq -n \
+                --arg task_id "$task_id" \
+                --arg skill "$skill_name" \
+                --arg protocol "$protocol_type" \
+                --argjson violations "$violations" \
+                '{
+                    "_meta": {
+                        "command": "orchestrator",
+                        "operation": "spawn_for_task"
+                    },
+                    "success": false,
+                    "error": {
+                        "code": "E_PROTOCOL_VALIDATION",
+                        "message": "SPAWN BLOCKED: Protocol requirements not met for " + $protocol + " protocol",
+                        "fix": "cleo show " + $task_id + " --validate-protocol",
+                        "alternatives": [
+                            {
+                                "action": "Review protocol requirements",
+                                "command": "cat protocols/" + $protocol + ".md"
+                            },
+                            {
+                                "action": "Fix violations and retry",
+                                "command": "cleo orchestrator spawn " + $task_id
+                            }
+                        ],
+                        "context": {
+                            "taskId": $task_id,
+                            "skill": $skill,
+                            "protocol": $protocol,
+                            "violations": $violations
+                        }
+                    }
+                }'
+            return "${EXIT_PROTOCOL_GENERIC:-67}"
+        else
+            _osp_warn "Protocol validation warnings (non-blocking): $(echo "$violations" | jq -c '.')"
+        fi
+    else
+        _osp_debug "Protocol validation passed for protocol: $protocol_type"
+    fi
+
+    # Step 6.75: LIFECYCLE GATE ENFORCEMENT
+    # @task T2717
+    _osp_debug "Checking lifecycle gate for protocol: $protocol_type"
+
+    # Get parent epic ID (if task has one)
+    local epic_id
+    epic_id=$(echo "$task_json" | jq -r '.task.parentId // empty')
+
+    if [[ -n "$epic_id" ]]; then
+        # Check enforcement mode
+        local enforcement_mode
+        enforcement_mode=$(get_lifecycle_enforcement_mode 2>/dev/null || echo "strict")
+        _osp_debug "Lifecycle enforcement mode: $enforcement_mode"
+
+        if [[ "$enforcement_mode" != "off" ]]; then
+            # Map protocol to RCSD stage
+            local rcsd_stage
+            case "$protocol_type" in
+                research) rcsd_stage="research" ;;
+                consensus) rcsd_stage="consensus" ;;
+                specification) rcsd_stage="specification" ;;
+                decomposition) rcsd_stage="decomposition" ;;
+                implementation|contribution) rcsd_stage="implementation" ;;
+                release) rcsd_stage="release" ;;
+                *) rcsd_stage="" ;;
+            esac
+
+            if [[ -n "$rcsd_stage" ]]; then
+                _osp_debug "Checking prerequisites for stage: $rcsd_stage"
+
+                if ! query_rcsd_prerequisite_status "$epic_id" "$rcsd_stage" 2>/dev/null; then
+                    local missing_stages
+                    missing_stages=$(_osp_get_missing_prerequisite_stages "$epic_id" "$rcsd_stage" 2>/dev/null || echo "unknown")
+
+                    if [[ "$enforcement_mode" == "strict" ]]; then
+                        _osp_error "SPAWN BLOCKED: Lifecycle gate failed - missing prerequisites for $rcsd_stage"
+                        jq -n \
+                            --arg task_id "$task_id" \
+                            --arg skill "$skill_name" \
+                            --arg protocol "$protocol_type" \
+                            --arg stage "$rcsd_stage" \
+                            --arg epic "$epic_id" \
+                            --arg missing "$missing_stages" \
+                            '{
+                                "_meta": {
+                                    "command": "orchestrator",
+                                    "operation": "spawn_for_task"
+                                },
+                                "success": false,
+                                "error": {
+                                    "code": "E_LIFECYCLE_GATE_FAILED",
+                                    "message": "SPAWN BLOCKED: Lifecycle prerequisites not met for " + $stage + " stage",
+                                    "fix": "Complete prerequisite stages first: " + $missing,
+                                    "alternatives": [
+                                        {
+                                            "action": "Check RCSD state",
+                                            "command": "jq . .cleo/rcsd/" + $epic + "/_manifest.json"
+                                        },
+                                        {
+                                            "action": "Set enforcement to advisory",
+                                            "command": "jq '\''.lifecycleEnforcement.mode = \"advisory\"'\'' .cleo/config.json > tmp && mv tmp .cleo/config.json"
+                                        }
+                                    ],
+                                    "context": {
+                                        "taskId": $task_id,
+                                        "epicId": $epic,
+                                        "targetStage": $stage,
+                                        "missingPrerequisites": $missing,
+                                        "enforcementMode": "strict"
+                                    }
+                                }
+                            }'
+                        return "${EXIT_LIFECYCLE_GATE_FAILED:-75}"
+                    else
+                        _osp_warn "Lifecycle gate failed but mode is advisory - proceeding with spawn"
+                    fi
+                else
+                    _osp_debug "Lifecycle gate passed for stage: $rcsd_stage"
+                fi
+            fi
+        else
+            _osp_debug "Lifecycle enforcement is OFF - skipping gate check"
+        fi
+    else
+        _osp_debug "No parent epic - skipping lifecycle gate check"
+    fi
 
     # Step 7: Inject and return complete prompt
     # skill_inject handles: token setting, skill loading, protocol injection
