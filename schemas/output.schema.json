@@ -46,6 +46,10 @@
           "type": "integer",
           "minimum": 0,
           "description": "Execution time in milliseconds (optional)"
+        },
+        "resultsField": {
+          "type": "string",
+          "description": "Name of the field containing primary results (e.g., 'tasks', 'matches', 'data', 'blockedTasks', 'items'). Enables self-documenting JSON for LLM agents. If omitted, defaults to 'tasks' for list commands or 'task' for single-task commands."
         }
       },
       "additionalProperties": false
