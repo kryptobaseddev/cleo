@@ -575,6 +575,9 @@ _sd_skill_to_protocol() {
         ct-task-executor|*executor*|*implementation*)
             echo "implementation"
             ;;
+        ct-test-writer*|*test-writer*)
+            echo "testing"
+            ;;
         *contribution*|*merge*)
             echo "contribution"
             ;;
