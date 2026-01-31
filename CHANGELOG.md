@@ -25,10 +25,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration tests for init --detect across 6 project types
   - Documentation at `docs/guides/project-config.mdx`
 
+### Bug Fixes
+- Bug: Test gate behavior inconsistent with spec (T2805)
+- Bug: Error handling inconsistent in release.sh (T2806)
+- Bug: Missing task status validation in changelog (T2807)
+- Bug: Race condition in multi-release task association (T2808)
+
 ### Changed
 - Protocol validation TEST-001 now uses configured framework instead of hardcoded BATS
 - validate.sh uses config-based directory paths
 - AGENT-INJECTION.md includes @project-context.json reference and framework examples
+
+### Documentation
+- Release: Protocol metrics documentation (T2732)
+- Research: Document Complete Changelog/Release Automation Flow (T2801)
+
+### Other Changes
+- Update release.sh validate_release() to use config getters (T2774)
+- Update release.sh to execute releaseGates array (T2775)
+- Release v0.76.3 with hybrid agent installation (T2800)
+- Consensus: Prioritize and categorize changelog pipeline fixes (T2810)
 
 ### Technical
 - Zero breaking changes - all defaults preserve existing BATS behavior
