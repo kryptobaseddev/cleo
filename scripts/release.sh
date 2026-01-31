@@ -75,6 +75,7 @@ source_lib "error-json.sh"
 source_lib "jq-helpers.sh"
 source_lib "flags.sh"
 source_lib "changelog.sh"
+source_lib "config.sh"  # @task T2823 - For get_release_gates()
 
 # Exit codes (50-59 range for release operations per spec)
 EXIT_RELEASE_NOT_FOUND=50
@@ -401,6 +402,34 @@ validate_release() {
         [[ "$VERBOSE" == true ]] && log_info "Changelog validation passed"
     else
         [[ "$VERBOSE" == true ]] && log_warn "Changelog validation SKIPPED (--skip-changelog)"
+    fi
+
+    # @task T2823 - Dynamic release gates from config
+    local gates
+    gates=$(get_release_gates)
+    if [[ "$gates" != "[]" && -n "$gates" ]]; then
+        [[ "$VERBOSE" == true ]] && log_info "Executing custom release gates..."
+
+        echo "$gates" | jq -c '.[]' | while read -r gate; do
+            local gate_name gate_cmd gate_required gate_timeout
+            gate_name=$(echo "$gate" | jq -r '.name')
+            gate_cmd=$(echo "$gate" | jq -r '.command')
+            gate_required=$(echo "$gate" | jq -r '.required // true')
+            gate_timeout=$(echo "$gate" | jq -r '.timeout // 60')
+
+            [[ "$VERBOSE" == true ]] && log_info "Running gate: $gate_name"
+
+            if timeout "$gate_timeout" bash -c "$gate_cmd" >/dev/null 2>&1; then
+                [[ "$VERBOSE" == true ]] && log_success "Gate passed: $gate_name"
+            else
+                if [[ "$gate_required" == "true" ]]; then
+                    log_error "Required gate failed: $gate_name" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Fix gate failure: $gate_cmd"
+                    return "$EXIT_VALIDATION_FAILED"
+                else
+                    log_warn "Optional gate failed: $gate_name (continuing)"
+                fi
+            fi
+        done
     fi
 
     return 0
