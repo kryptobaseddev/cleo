@@ -43,6 +43,8 @@ This protocol activates when the task involves:
 | RLSE-011 | SHOULD verify documentation is current |
 | RLSE-012 | SHOULD test installation process |
 | RLSE-013 | SHOULD create backup before release |
+| RLSE-014 | SHOULD run test suite for major/minor releases (use `--run-tests`) |
+| RLSE-015 | SHOULD verify tests pass before tagging (opt-in to avoid timeout) |
 
 ### MAY
 
@@ -111,15 +113,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Validation Gates
 
-| Gate | Check | Required |
-|------|-------|----------|
-| Tests | All tests pass | MUST |
-| Lint | No lint errors | MUST |
-| Schema | All schemas valid | MUST |
-| Version | Version bumped correctly | MUST |
-| Changelog | Entry for new version | MUST |
-| Docs | Documentation current | SHOULD |
-| Install | Installation works | SHOULD |
+| Gate | Check | Required | Notes |
+|------|-------|----------|-------|
+| Tests | All tests pass | SHOULD | Opt-in with `--run-tests` flag to avoid timeout |
+| Lint | No lint errors | SHOULD | Project-dependent |
+| Schema | All schemas valid | MUST | Always enforced |
+| Version | Version bumped correctly | MUST | If `--bump-version` used |
+| Changelog | Entry for new version | MUST | Unless `--skip-changelog` |
+| Docs | Documentation current | SHOULD | Manual verification |
+| Install | Installation works | SHOULD | Manual verification |
 
 ### Release Checklist
 
@@ -129,12 +131,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Pre-Release
 
 - [ ] All features complete and merged
-- [ ] Tests passing (./tests/run-all-tests.sh)
+- [ ] Tests passing (recommended: ./tests/run-all-tests.sh)
 - [ ] Version bumped (./dev/bump-version.sh X.Y.Z)
 - [ ] Version consistency verified (./dev/validate-version.sh)
 - [ ] Changelog updated
 - [ ] Documentation current
 - [ ] Breaking changes documented
+- [ ] For major/minor: Run `cleo release ship --run-tests` to validate
 
 ### Release
 
@@ -284,12 +287,12 @@ Release complete. See MANIFEST.jsonl for summary.
 
 | Pattern | Why Avoid |
 |---------|-----------|
-| Releasing without tests | Quality risk |
 | Skipping version bump | Version confusion |
 | Missing changelog entry | Lost history |
 | Undocumented breaking changes | User frustration |
 | No release tag | Cannot reference version |
 | Incomplete checklist | Missed steps |
+| Major releases without `--run-tests` | Quality risk for breaking changes |
 
 ---
 

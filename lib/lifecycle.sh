@@ -151,6 +151,49 @@ validate_lifecycle_transition() {
 }
 
 # ============================================================================
+# LIFECYCLE ENFORCEMENT MODE
+# ============================================================================
+
+# @task T2718
+# Get lifecycle enforcement mode from config
+# Returns: 0 on success
+# Outputs: Mode string (strict|advisory|off)
+get_lifecycle_enforcement_mode() {
+    local config_path=".cleo/config.json"
+
+    if [[ ! -f "$config_path" ]]; then
+        echo "strict"  # Default
+        return 0
+    fi
+
+    local mode
+    mode=$(jq -r '.lifecycleEnforcement.mode // "strict"' "$config_path" 2>/dev/null)
+
+    # Validate mode
+    case "$mode" in
+        strict|advisory|off)
+            echo "$mode"
+            ;;
+        *)
+            echo "strict"  # Default on invalid
+            ;;
+    esac
+
+    return 0
+}
+export -f get_lifecycle_enforcement_mode
+
+# @task T2718
+_lifecycle_debug() {
+    [[ -n "${LIFECYCLE_DEBUG:-}" ]] && echo "[lifecycle] DEBUG: $1" >&2
+    return 0
+}
+
+_lifecycle_warn() {
+    echo "[lifecycle] WARN: $1" >&2
+}
+
+# ============================================================================
 # LIFECYCLE GATE ENFORCEMENT
 # ============================================================================
 
@@ -163,6 +206,17 @@ check_lifecycle_gate() {
     local task_id="$1"
     local target_state="$2"
     local todo_file="$3"
+
+    # @task T2718
+    # Check enforcement mode first
+    local enforcement_mode
+    enforcement_mode=$(get_lifecycle_enforcement_mode)
+
+    # If mode is off, skip all checks
+    if [[ "$enforcement_mode" == "off" ]]; then
+        _lifecycle_debug "Enforcement mode is OFF - skipping gate check"
+        return 0
+    fi
 
     # Get task
     local task_json
@@ -189,35 +243,39 @@ check_lifecycle_gate() {
             ;;
         "consensus")
             # Requires research completion
-            [[ "$current_state" == "research" ]] && return 0
-            return "$EXIT_LIFECYCLE_GATE_FAILED"
+            if [[ "$current_state" == "research" ]]; then
+                return 0
+            fi
             ;;
         "specification")
             # Requires consensus completion
-            [[ "$current_state" == "consensus" ]] && return 0
-            return "$EXIT_LIFECYCLE_GATE_FAILED"
+            if [[ "$current_state" == "consensus" ]]; then
+                return 0
+            fi
             ;;
         "decomposition")
             # Requires specification completion
-            [[ "$current_state" == "specification" ]] && return 0
-            return "$EXIT_LIFECYCLE_GATE_FAILED"
+            if [[ "$current_state" == "specification" ]]; then
+                return 0
+            fi
             ;;
         "implementation")
             # Requires decomposition completion (or specification for simple tasks)
             if [[ "$current_state" == "decomposition" || "$current_state" == "specification" ]]; then
                 return 0
             fi
-            return "$EXIT_LIFECYCLE_GATE_FAILED"
             ;;
         "validation")
             # Requires implementation completion
-            [[ "$current_state" == "implementation" ]] && return 0
-            return "$EXIT_LIFECYCLE_GATE_FAILED"
+            if [[ "$current_state" == "implementation" ]]; then
+                return 0
+            fi
             ;;
         "testing")
             # Requires validation completion
-            [[ "$current_state" == "validation" ]] && return 0
-            return "$EXIT_LIFECYCLE_GATE_FAILED"
+            if [[ "$current_state" == "validation" ]]; then
+                return 0
+            fi
             ;;
         "release")
             # Requires testing completion AND all verification gates
@@ -232,11 +290,17 @@ check_lifecycle_gate() {
                     fi
                 fi
             fi
-            return "$EXIT_LIFECYCLE_GATE_FAILED"
             ;;
     esac
 
-    return 0
+    # @task T2718
+    # Gate failed - check enforcement mode
+    if [[ "$enforcement_mode" == "advisory" ]]; then
+        _lifecycle_warn "Gate failed but mode is advisory - allowing spawn"
+        return 0  # Allow spawn despite failure
+    fi
+
+    return "$EXIT_LIFECYCLE_GATE_FAILED"
 }
 
 # Enforce all release gates before allowing release
@@ -375,6 +439,107 @@ get_lifecycle_history() {
 }
 
 # ============================================================================
+# RCSD STATE TRACKING
+# ============================================================================
+
+# @task T2716
+# Get RCSD pipeline state for an epic
+# Args: $1 = epic_id
+# Returns: 0 on success, EXIT_NOT_FOUND if no manifest
+# Outputs: JSON object with stage statuses
+get_epic_rcsd_state() {
+    local epic_id="$1"
+    local manifest_path=".cleo/rcsd/${epic_id}/_manifest.json"
+
+    if [[ ! -f "$manifest_path" ]]; then
+        return "${EXIT_NOT_FOUND:-4}"
+    fi
+
+    jq '.status // {}' "$manifest_path"
+}
+
+# @task T2716
+# Get status of a specific RCSD stage
+# Args: $1 = epic_id, $2 = stage_name
+# Returns: 0 on success
+# Outputs: Stage state (pending|in_progress|completed|skipped|failed)
+get_rcsd_stage_status() {
+    local epic_id="$1"
+    local stage="$2"
+    local manifest_path=".cleo/rcsd/${epic_id}/_manifest.json"
+
+    if [[ ! -f "$manifest_path" ]]; then
+        echo "pending"
+        return 0
+    fi
+
+    jq -r --arg stage "$stage" '.status[$stage].state // "pending"' "$manifest_path"
+}
+
+# @task T2716
+# Check if prerequisite stages are completed for target stage
+# Args: $1 = epic_id, $2 = target_stage (research|consensus|specification|decomposition|...)
+# Returns: 0 if prerequisites met, EXIT_LIFECYCLE_GATE_FAILED if not
+query_rcsd_prerequisite_status() {
+    local epic_id="$1"
+    local target_stage="$2"
+
+    # Define stage order (RCSD → Implementation)
+    local -a stages=("research" "consensus" "specification" "decomposition" "implementation" "validation" "testing" "release")
+
+    # Get target index
+    local target_idx=-1
+    for i in "${!stages[@]}"; do
+        [[ "${stages[$i]}" == "$target_stage" ]] && target_idx=$i && break
+    done
+
+    # If stage not found, fail
+    if [[ $target_idx -eq -1 ]]; then
+        return "${EXIT_LIFECYCLE_GATE_FAILED:-75}"
+    fi
+
+    # Check all prior stages
+    local state
+    for ((i=0; i<target_idx; i++)); do
+        state=$(get_rcsd_stage_status "$epic_id" "${stages[$i]}")
+        if [[ "$state" != "completed" && "$state" != "skipped" ]]; then
+            return "${EXIT_LIFECYCLE_GATE_FAILED:-75}"
+        fi
+    done
+
+    return 0
+}
+
+# @task T2716
+# Record completion of an RCSD stage
+# Args: $1 = epic_id, $2 = stage_name, $3 = status (completed|skipped|failed)
+# Returns: 0 on success
+record_rcsd_stage_completion() {
+    local epic_id="$1"
+    local stage="$2"
+    local status="${3:-completed}"
+    local manifest_path=".cleo/rcsd/${epic_id}/_manifest.json"
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Ensure directory exists
+    mkdir -p ".cleo/rcsd/${epic_id}"
+
+    # Create or update manifest
+    if [[ ! -f "$manifest_path" ]]; then
+        # Initialize manifest
+        jq -n --arg id "$epic_id" --arg stage "$stage" --arg status "$status" --arg ts "$timestamp" \
+            '{taskId: $id, status: {($stage): {state: $status, completedAt: $ts}}}' > "$manifest_path"
+    else
+        # Update existing
+        local tmp_file="${manifest_path}.tmp"
+        jq --arg stage "$stage" --arg status "$status" --arg ts "$timestamp" \
+            '.status[$stage] = {state: $status, completedAt: $ts}' "$manifest_path" > "$tmp_file"
+        mv "$tmp_file" "$manifest_path"
+    fi
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -385,3 +550,7 @@ export -f validate_lifecycle_transition
 export -f check_lifecycle_gate
 export -f enforce_release_gates
 export -f get_lifecycle_history
+export -f get_epic_rcsd_state
+export -f get_rcsd_stage_status
+export -f query_rcsd_prerequisite_status
+export -f record_rcsd_stage_completion
