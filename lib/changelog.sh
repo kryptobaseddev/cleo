@@ -95,6 +95,14 @@ populate_release_tasks() {
     ' "$todo_file")
 
     # Find candidate tasks in date window + label filter
+    # @task T2807
+    # @epic T2802
+    # @why Prevent non-done tasks from appearing in changelog (data integrity)
+    # @what Add status validation check to changelog task filtering
+    # @task T2808
+    # @epic T2802
+    # @why Prevent task double-counting across releases (data integrity)
+    # @what Add version label priority filter - explicit labels beat generic labels
     local task_ids
     task_ids=$(jq -r \
         --arg start "$prev_timestamp" \
@@ -107,14 +115,21 @@ populate_release_tasks() {
          select(.completedAt != null) |
          # Filter 2: Must be in date window
          select(.completedAt >= $start and .completedAt <= $end) |
-         # Filter 3: Exclude epics (organizational tasks)
+         # Filter 3: Must have status="done"
+         select(.status == "done") |
+         # Filter 4: Exclude epics (organizational tasks)
          select(.type != "epic") |
-         # Filter 4: Must have relevant label
+         # Filter 5: Must have relevant label
          select(
             (.labels // []) | (
                 index($v1) or index($v2) or
                 index("changelog") or index("release")
             )
+         ) |
+         # Filter 6: Exclude tasks already claimed by other versions explicit labels
+         select(
+            [(.labels // [])[] | select(. | startswith("v") and test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))] as $version_labels |
+            ($version_labels | length == 0) or ($version_labels | index($v2))
          ) |
          .id
         ]
