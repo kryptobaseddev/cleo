@@ -25,12 +25,10 @@ readonly INJECTION_VERSION_PATTERN='CLEO:START( v([0-9]+\.[0-9]+\.[0-9]+))? -->'
 readonly INJECTION_TEMPLATE_MAIN="templates/AGENT-INJECTION.md"
 readonly INJECTION_TEMPLATE_DIR="templates/agents"
 
-# Agent-specific header files (filename without path)
+# Legacy header system removed - all agents use unified AGENT-INJECTION.md
+# Header files were never implemented (injection_apply ignores content param)
 declare -A INJECTION_HEADERS=(
-    ["GEMINI.md"]="GEMINI-HEADER.md"
-    ["CODEX.md"]="CODEX-HEADER.md"
-    ["KIMI.md"]="KIMI-HEADER.md"
-    # CLAUDE.md and AGENTS.md use main template only (no header)
+    # No agent-specific headers - all use @.cleo/templates/AGENT-INJECTION.md
 )
 
 # Validation key names for JSON output
