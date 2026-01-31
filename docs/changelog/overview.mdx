@@ -352,6 +352,175 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.6)
 </Update>
 
+<Update label="January 2026" description="v0.73.5" tags={["Fix", "Feature", "Installer"]}>
+## Skills Documentation Overhaul
+
+
+**Added**
+- **Skills Marketplace Integration Improvements** (T2495, T2496):
+  - New `--mp` flag as shortcut for marketplace search/install (replaces verbose `--source skillsmp`)
+  - New `--all` flag to search both local and marketplace
+  - New `cleo skills installed` command to list marketplace-installed skills
+  - New `cleo skills update [SKILL]` command to check for skill updates
+  - Marketplace skill tracking registry (`skills/mp/installed.json`)
+  - Records: name, scopedName, author, stars, version, path, timestamps
+
+- **Skills Documentation Overhaul**:
+  - `docs/skills/architecture.mdx`: 2-tier universal subagent architecture, protocol injection flow
+  - `docs/skills/manifest.mdx`: Complete manifest schema documentation
+  - `docs/skills/marketplace.mdx`: Marketplace integration guide (renamed from skillsmp.mdx)
+  - `docs/skills/development.mdx`: Skill creation guide
+  - `docs/skills/index.mdx`: Updated with full skill taxonomy (15 skills by tier)
+
+**Fixed**
+- **scripts/skills.sh line 10**: Missing `#` comment character caused script execution during sourcing
+- **skills.sh search logic**: No longer requires config file for marketplace API access
+- **skills.sh install logic**: No longer requires config file for marketplace installs
+
+**Changed**
+- Marketplace search/install now works without any configuration (agentskills.in public API)
+- Renamed `skillsmp.mdx` to `marketplace.mdx` for clarity
+- Updated all documentation to use `--mp` flag instead of `--source skillsmp`
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.5)
+</Update>
+
+<Update label="January 2026" description="v0.73.4" tags={["Fix", "Feature"]}>
+## Changelog MDX Escaping
+
+
+**Fixed**
+- **Changelog MDX Escaping**: Escape `<` before numbers in Mintlify MDX output to prevent rendering issues
+
+**Added**
+- **Automated Release Script**: New `dev/release-version.sh` for streamlined version bumping, changelog updates, and git tagging
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.4)
+</Update>
+
+<Update label="January 2026" description="v0.73.3" tags={["Fix", "Feature", "Skills"]}>
+## Context Tracking Cross-Session Bug
+
+
+**Fixed**
+- **Context Tracking Cross-Session Bug**:
+  - `get_current_session_id()` in `lib/context-monitor.sh` and `lib/context-alert.sh` was ignoring `CLEO_SESSION` environment variable
+  - Context alerts were showing data from wrong session when multiple Claude Code conversations ran simultaneously
+  - Both functions now check `CLEO_SESSION` env var first, then fall back to `.current-session` file
+
+**Added**
+- **Epic T2483: Skills & Orchestration Documentation Overhaul**
+  - `docs/guides/SKILL-DISPATCH-ALGORITHM.md`: Step-by-step dispatch decision tree
+  - `docs/guides/PROTOCOL-INJECTION-FLOW.md`: Full task → skill → prompt pipeline
+  - `docs/specs/PROTOCOL-STACK-SPEC.md`: RFC 2119 for base + 7 conditional protocols
+  - `docs/guides/MANIFEST-SCHEMA.md`: Complete manifest.json field reference
+  - `docs/troubleshooting/DISPATCH-DEBUG.md`: Debugging guide for dispatch issues
+  - Updated `docs/docs.json` Mintlify navigation with Skills Architecture section
+  - Documentation coverage improved from ~35% to ~75%
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.3)
+</Update>
+
+<Update label="January 2026" description="v0.73.2" tags={["Fix", "Feature", "Orchestrator"]}>
+## Session Hook Testing
+
+
+**Added**
+- **Epic T2450: Orchestrator Spawn Flow and Compliance Integration** (Complete)
+  - **Bug Fix** (T2449, T2451):
+    - Fixed sed escaping bug in `lib/token-inject.sh:727` causing empty prompts
+    - Replaced sed with bash parameter expansion for safe multiline/special char handling
+    - All 51 token injection tests pass
+  - **Compliance Verification** (T2452, T2453):
+    - Pre-spawn compliance: Token validation before spawn
+    - Post-spawn compliance: Manifest entry, output file, return message verification
+    - Non-blocking by default with configurable strict mode
+  - **Metrics Integration** (T2454, T2455):
+    - Spawn metrics linked to T2163 usage tracking epic
+    - Compliance violations linked to T1954 self-improvement tracking
+    - Captures: spawn count, token usage, compliance rate, failure reasons
+  - **E2E Testing** (T2456):
+    - `tests/integration/orchestrator-spawn-e2e.bats`: 15 comprehensive tests (543 lines)
+    - Validates full spawn → inject → execute → manifest → return flow
+  - **Session Hook Testing**:
+    - `tests/unit/sessionstart-hook.bats`: 19 unit tests (234 lines)
+  - **Documentation** (T2457):
+    - Updated `docs/guides/ORCHESTRATOR-PROTOCOL.md` with compliance verification details
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.2)
+</Update>
+
+<Update label="January 2026" description="v0.73.1" tags={["Fix", "Feature", "Installer"]}>
+## Test Coverage
+
+
+**Added**
+- **Epic T2431: Skill System Enhancement & Dynamic Skill Discovery**
+  - **Dynamic Agent Registry System** (T2442, T2447, T2448):
+    - `templates/agent-registry.json`: Central registry for 16 LLM coding agents
+    - Supported agents: claude-code, cursor, windsurf, codex, gemini-cli, github-copilot, opencode, cline, kimi, roo, continue, antigravity, goose, kiro-cli, amp, trae
+    - Priority tiers: tier1 (claude-code, cursor, windsurf), tier2 (5 agents), tier3 (8 agents)
+    - No more hardcoded arrays - all agent data loaded dynamically from JSON
+    - `lib/agent-registry.sh`: New registry API (`ar_*` functions)
+    - `lib/agent-config.sh`: Refactored to use dynamic registry
+  - **Skill Taxonomy System** (T2432, T2434):
+    - `docs/specs/SKILL-TAXONOMY-SPEC.md`: 4-tier hierarchy (0-3)
+    - 9 functional categories: orchestration, research, design, implementation, testing, documentation, validation, integration, utility
+    - Dispatch matrix with category-based, keyword, label, and type matching
+  - **Dynamic Skill Discovery** (T2435, T2436):
+    - `docs/designs/DYNAMIC-SKILL-REGISTRATION.md`: Registration system design
+    - `lib/skill-discovery.sh`: Auto-discovery of skills in `skills/` directory
+    - Functions: `discover_skills()`, `validate_skill()`, `register_skill()`, `sync_manifest()`
+  - **Skill CLI Command** (T2440):
+    - `scripts/skills.sh`: New command group `cleo skills`
+    - Subcommands: `list`, `discover`, `validate`, `info`, `install`
+  - **Dispatch Matrix Enhancement** (T2437):
+    - Category-based dispatch: `skill_dispatch_by_category()`
+    - Tier functions: `skill_get_tier()`, `skill_is_tier()`
+    - 10 skill categories with explicit mappings
+  - **Test Coverage** (T2438): 31 unit tests in `tests/unit/skill-discovery.bats`
+  - **Documentation** (T2439): Updated `docs/CLEO-SKILLS-INVENTORY.md`, `docs/guides/skill-development.md`
+  - **Global Injection Update** (T2443, T2444):
+    - `installer/lib/link.sh`: Uses dynamic registry for all agent setup
+    - RFC 2119 time estimates prohibition block in global injection
+- **Epic T2089: Claude CLI Aliases - Cross-Platform Support Complete**
+  - **Windows Support** (T2111):
+    - `normalize_windows_path()`: Path separator conversion for Windows
+    - `get_windows_documents_path()`: Localized Documents folder detection via PowerShell
+    - `ensure_powershell_profile_dir()`: PowerShell profile directory creation with Windows fallback
+    - `setup_cmd_autorun()`: CMD.exe registry AutoRun configuration
+    - `check_cmd_autorun()`: Registry query for current AutoRun status
+    - New CLI flag: `--cmd-autorun` for automatic CMD alias loading
+  - **Collision Detection** (T2119):
+    - `detect_existing_aliases()`: Find aliases/functions matching our names
+    - `detect_legacy_claude_aliases()`: Recognize function-based patterns
+    - `check_alias_collisions()`: Report non-Claude collisions
+    - Doctor integration with legacy detection and `--force` suggestion
+  - **Test Coverage**: 78 unit tests for claude-aliases library
+  - **Supported Shells**: bash, zsh, PowerShell (cross-platform), CMD.exe
+
+**Fixed**
+- **Doctor Command Bug Fixes** (T1469 HITL Testing):
+  - **T1965**: Fixed schema version comparison - was comparing object instead of `.version` subfield from `project-info.json`, causing false "Outdated schemas" warnings
+  - **T1966**: Fixed `--clean-temp` showing stale counts - moved cleanup to Phase 1b (before validation) so health check shows accurate post-cleanup data
+  - **T1968**: Fixed double counting of orphaned and temp projects - orphan check now runs before temp check to prevent increment of both counters
+  - **T1964**: Verified ISSUES column truncation already fixed (shows full text)
+  - **T1967**: Verified agent config registry working correctly
+
+**Validated**
+- **Migration Automation System** (T1482-T1485):
+  - Pre-commit hook exists with PATCH/MINOR/MAJOR auto-generation logic
+  - Developer mode bypass and runtime protection working correctly
+  - Agent documentation sanitization verified - no low-level `migrate` command references
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.1)
+</Update>
+
 ## Earlier Releases
 
 For the complete release history, see:
