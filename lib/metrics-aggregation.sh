@@ -28,6 +28,8 @@ _MA_LIB_DIR="${BASH_SOURCE[0]%/*}"
 source "${_MA_LIB_DIR}/exit-codes.sh"
 # shellcheck source=lib/metrics-enums.sh
 source "${_MA_LIB_DIR}/metrics-enums.sh"
+# shellcheck source=lib/metrics-common.sh
+source "${_MA_LIB_DIR}/metrics-common.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -47,15 +49,14 @@ _MA_GLOBAL_FILE="GLOBAL.jsonl"
 # HELPER FUNCTIONS
 # ============================================================================
 
+# @task T2753 - Migrated common functions to metrics-common.sh
+# Use ensure_metrics_dir, get_compliance_path, iso_timestamp from metrics-common.sh
+
 # _ma_ensure_project_metrics_dir - Create project metrics directory if missing
 # Returns: 0 on success, 3 on failure
 _ma_ensure_project_metrics_dir() {
-    if [[ ! -d "$_MA_PROJECT_METRICS_DIR" ]]; then
-        if ! mkdir -p "$_MA_PROJECT_METRICS_DIR" 2>/dev/null; then
-            return "$EXIT_FILE_ERROR"
-        fi
-    fi
-    return 0
+    ensure_metrics_dir "$_MA_PROJECT_METRICS_DIR" >/dev/null
+    return $?
 }
 
 # _ma_ensure_global_metrics_dir - Create global metrics directory if missing
@@ -71,7 +72,7 @@ _ma_ensure_global_metrics_dir() {
 
 # _ma_get_project_compliance_path - Get project compliance file path
 _ma_get_project_compliance_path() {
-    echo "${_MA_PROJECT_METRICS_DIR}/${_MA_COMPLIANCE_FILE}"
+    get_compliance_path "$_MA_PROJECT_METRICS_DIR"
 }
 
 # _ma_get_global_path - Get global metrics file path
@@ -81,7 +82,7 @@ _ma_get_global_path() {
 
 # _ma_iso_timestamp - Generate ISO 8601 timestamp
 _ma_iso_timestamp() {
-    date -u +%Y-%m-%dT%H:%M:%SZ
+    iso_timestamp
 }
 
 # _ma_get_project_name - Get current project name from git or directory

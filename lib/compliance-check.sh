@@ -27,6 +27,8 @@ source "${_CC_LIB_DIR}/exit-codes.sh"
 source "${_CC_LIB_DIR}/metrics-enums.sh"
 # shellcheck source=lib/research-manifest.sh
 source "${_CC_LIB_DIR}/research-manifest.sh"
+# shellcheck source=lib/metrics-common.sh
+source "${_CC_LIB_DIR}/metrics-common.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -48,25 +50,24 @@ _CC_VIOLATION_EPIC="T1954"
 # HELPER FUNCTIONS
 # ============================================================================
 
-# _cc_ensure_metrics_dir - Create metrics directory if missing
+# @task T2753 - Migrated to metrics-common.sh
+# Use ensure_metrics_dir, get_compliance_path, iso_timestamp from metrics-common.sh
+
+# _cc_ensure_metrics_dir - Wrapper for ensure_metrics_dir
 # Returns: 0 on success, 3 on failure
 _cc_ensure_metrics_dir() {
-    if [[ ! -d "$_CC_METRICS_DIR" ]]; then
-        if ! mkdir -p "$_CC_METRICS_DIR" 2>/dev/null; then
-            return "$EXIT_FILE_ERROR"
-        fi
-    fi
-    return 0
+    ensure_metrics_dir "$_CC_METRICS_DIR" >/dev/null
+    return $?
 }
 
 # _cc_get_compliance_path - Get full path to compliance metrics file
 _cc_get_compliance_path() {
-    echo "${_CC_METRICS_DIR}/${_CC_COMPLIANCE_FILE}"
+    get_compliance_path "$_CC_METRICS_DIR"
 }
 
 # _cc_iso_timestamp - Generate ISO 8601 timestamp
 _cc_iso_timestamp() {
-    date -u +%Y-%m-%dT%H:%M:%SZ
+    iso_timestamp
 }
 
 # ============================================================================
