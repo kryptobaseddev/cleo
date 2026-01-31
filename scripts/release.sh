@@ -37,7 +37,6 @@
 #   cleo release list
 #   cleo release show v0.65.0
 #   cleo release changelog v0.65.0
-#   cleo release changelog v0.65.0 --write-changelog
 #
 # Version: 0.2.0
 # Part of: cleo CLI - Release Management (T2073)
@@ -143,7 +142,6 @@ Options:
     --push               Push git tag to remote (requires --create-tag)
     --run-tests          Run test suite during validation (opt-in, slow)
     --skip-validation    Skip all validation gates (for emergency releases)
-    --write-changelog    Write changelog to CHANGELOG.md (for ship/changelog)
     --output FILE        Output file for changelog (default: CHANGELOG.md)
     --format, -f FORMAT  Output format: text | json (default: auto)
     --json               Shortcut for --format json
@@ -156,7 +154,6 @@ Release Status Flow:
 Examples:
     cleo release create v0.65.0 --target-date 2026-02-01
     cleo release plan v0.65.0 --tasks T2058,T2059
-    cleo release ship v0.65.0 --bump-version --create-tag --write-changelog
     cleo release ship v0.65.0 --bump-version --create-tag --push
     cleo release ship v0.65.0 --notes "Schema 2.8.0 release"
     cleo release list
@@ -203,7 +200,12 @@ fi
 # Helper Functions
 #####################################################################
 
-# Format-aware log_error
+# @task T2806
+# @epic T2802
+# @why Standardize error handling for better agent/user experience
+# @what Convert all release.sh errors to JSON format with fix suggestions
+
+# Format-aware log_error - Uses lib/error-json.sh for proper JSON output
 log_error() {
     local message="$1"
     local error_code="${2:-E_UNKNOWN}"
@@ -215,6 +217,20 @@ log_error() {
     else
         echo -e "${RED}[ERROR]${NC} $message" >&2
         [[ -n "$suggestion" ]] && echo -e "${DIM}Suggestion: $suggestion${NC}" >&2
+    fi
+}
+
+# Format-aware log_warn - Outputs warnings properly in JSON/text
+log_warn() {
+    local message="$1"
+
+    if [[ "$FORMAT" == "json" ]]; then
+        # For JSON format, warnings should be in structured format
+        # Note: release.sh doesn't currently include warnings in JSON output
+        # but this provides consistency if needed in future
+        return 0
+    else
+        echo -e "${YELLOW}[WARN]${NC} $message" >&2
     fi
 }
 
@@ -355,14 +371,28 @@ validate_release() {
             return "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
 
-        # Check 3: All task IDs exist in todo.json
+        # Check 3: All task IDs exist in todo.json AND have status="done"
+        # @task T2807
+        # @epic T2802
+        # @why Prevent non-done tasks from appearing in changelog (data integrity)
+        # @what Add status validation check to changelog task filtering
         local task_ids
         task_ids=$(grep -oP '\(T\d+\)' <<< "$section_content" | tr -d '()' || echo "")
         if [[ -n "$task_ids" ]]; then
             while IFS= read -r task_id; do
                 [[ -z "$task_id" ]] && continue
+
+                # Check task exists
                 if ! jq -e ".tasks[] | select(.id == \"$task_id\")" "$TODO_FILE" >/dev/null 2>&1; then
                     log_error "Invalid task ID in changelog" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Task $task_id in CHANGELOG.md not found in todo.json"
+                    return "$EXIT_VALIDATION_FAILED"
+                fi
+
+                # Check task status is "done"
+                local task_status
+                task_status=$(jq -r ".tasks[] | select(.id == \"$task_id\") | .status" "$TODO_FILE")
+                if [[ "$task_status" != "done" ]]; then
+                    log_error "Task $task_id in changelog is not done" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Task $task_id has status '$task_status' but must be 'done' to appear in changelog"
                     return "$EXIT_VALIDATION_FAILED"
                 fi
             done <<< "$task_ids"

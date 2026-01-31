@@ -179,8 +179,8 @@ EOF
     # Verify CHANGELOG.md was created
     [[ -f "$CHANGELOG_FILE" ]]
 
-    # Verify changelog contains version header
-    grep -q "^## \[v0.65.0\]" "$CHANGELOG_FILE"
+    # Verify changelog contains version header (without 'v' per Keep a Changelog standard)
+    grep -q "^## \[0.65.0\]" "$CHANGELOG_FILE"
 
     # Verify changelog contains sections
     grep -q "### Features" "$CHANGELOG_FILE"
