@@ -101,7 +101,7 @@ create_empty_todo() {
   "tasks": [],
   "focus": {"currentPhase": "setup"},
   "labels": {},
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "lastUpdated": "2025-12-01T12:00:00Z"
 }
 EOF
