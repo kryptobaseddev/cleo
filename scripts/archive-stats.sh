@@ -166,7 +166,7 @@ if [[ ! -f "$ARCHIVE_FILE" ]]; then
             --arg report "$REPORT_TYPE" \
             '{
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-                "_meta": {"format": "json", "command": "archive-stats", "timestamp": $ts, "version": $ver},
+                "_meta": {"format": "json", "command": "archive-stats", "timestamp": $ts, "version": $ver, "resultsField": "data"},
                 "success": true,
                 "report": $report,
                 "data": {"totalArchived": 0, "message": "No archive file found"},
@@ -448,7 +448,7 @@ if [[ "$FORMAT" == "json" ]]; then
         --argjson filters "$FILTER_INFO" \
         '{
             "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-            "_meta": {"format": "json", "command": "archive-stats", "timestamp": $ts, "version": $ver},
+            "_meta": {"format": "json", "command": "archive-stats", "timestamp": $ts, "version": $ver, "resultsField": "data"},
             "success": true,
             "report": $report,
             "filters": $filters,

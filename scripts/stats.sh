@@ -521,7 +521,8 @@ generate_statistics() {
     "version": "$version",
     "command": "stats",
     "timestamp": "$timestamp",
-    "period_days": $period_days
+    "period_days": $period_days,
+    "resultsField": "data"
   },
   "success": true,
   "data": {
