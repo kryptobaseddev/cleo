@@ -288,14 +288,16 @@ if [[ "$ALLOW_DIRTY" != "true" ]] && [[ "$DRY_RUN" != "true" ]]; then
     fi
 fi
 
-# Validate release prerequisites (tests)
-if ! validate_release "$SKIP_TESTS"; then
-    exit 1
-fi
+# Validate release prerequisites (tests) - skip in dry-run mode
+if [[ "$DRY_RUN" != "true" ]]; then
+    if ! validate_release "$SKIP_TESTS"; then
+        exit 1
+    fi
 
-# Run custom validation gates
-if ! run_custom_gates; then
-    exit 1
+    # Run custom validation gates
+    if ! run_custom_gates; then
+        exit 1
+    fi
 fi
 
 # Get current version
