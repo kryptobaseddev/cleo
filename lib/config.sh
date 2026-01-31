@@ -1224,3 +1224,22 @@ get_directories_config() {
 export -f get_directory
 export -f get_backup_types
 export -f get_directories_config
+
+# ============================================================================
+# RELEASE GATES CONFIGURATION GETTERS
+# ============================================================================
+
+# @task T2823
+# Get release gates array from config
+# Returns: JSON array of release gate objects (default: [])
+# Usage: gates=$(get_release_gates)
+get_release_gates() {
+    local config_file="${CONFIG_FILE:-.cleo/config.json}"
+    if [[ -f "$config_file" ]]; then
+        jq -c '.validation.releaseGates // []' "$config_file" 2>/dev/null || echo "[]"
+    else
+        echo "[]"
+    fi
+}
+
+export -f get_release_gates
