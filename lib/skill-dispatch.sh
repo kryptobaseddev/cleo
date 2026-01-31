@@ -552,13 +552,49 @@ skill_dispatch_validate() {
 # PUBLIC API - INJECTION
 # ============================================================================
 
+# _sd_skill_to_protocol - Map skill name to conditional protocol type
+# Args: $1 = skill name
+# Output: protocol type name (research, consensus, specification, etc.)
+_sd_skill_to_protocol() {
+    local skill_name="$1"
+
+    # Map based on skill naming conventions and known skills
+    case "$skill_name" in
+        ct-research-agent|*research*)
+            echo "research"
+            ;;
+        ct-validator|*consensus*|*vote*)
+            echo "consensus"
+            ;;
+        ct-spec-writer|*specification*|*spec*)
+            echo "specification"
+            ;;
+        ct-epic-architect|*decomposition*|*architect*)
+            echo "decomposition"
+            ;;
+        ct-task-executor|*executor*|*implementation*)
+            echo "implementation"
+            ;;
+        *contribution*|*merge*)
+            echo "contribution"
+            ;;
+        *release*)
+            echo "release"
+            ;;
+        *)
+            # Default to implementation for unknown skills
+            echo "implementation"
+            ;;
+    esac
+}
+
 # skill_inject - Inject skill into subagent prompt with protocol
 # Args: $1 = skill name
 #       $2 = task ID (for token injection)
 #       $3 = date (for token injection)
 #       $4 = topic slug (for token injection)
 # Returns: 0 on success, appropriate exit code on failure
-# Output: Full prompt content (skill + protocol) to stdout
+# Output: Full prompt content (conditional protocol + base protocol + skill) to stdout
 skill_inject() {
     local skill_name="$1"
     local task_id="$2"
@@ -598,21 +634,59 @@ skill_inject() {
     local skill_content
     skill_content=$(ti_load_template "$skill_file")
 
+    # Map skill to protocol type
+    local protocol_type
+    protocol_type=$(_sd_skill_to_protocol "$skill_name")
+
+    # Load conditional protocol if exists
+    local conditional_protocol=""
+    local conditional_protocol_file="${_SD_PROJECT_ROOT}/protocols/${protocol_type}.md"
+    if [[ -f "$conditional_protocol_file" ]]; then
+        conditional_protocol=$(ti_load_template "$conditional_protocol_file")
+        _sd_debug "Loaded conditional protocol: ${protocol_type}.md"
+    else
+        _sd_debug "No conditional protocol found: ${conditional_protocol_file}"
+    fi
+
     # Load protocol base if exists
     local protocol_content=""
     if [[ -f "$_SD_PROTOCOL_BASE" ]]; then
         protocol_content=$(ti_load_template "$_SD_PROTOCOL_BASE")
     fi
 
-    # Combine: protocol header + skill content
-    if [[ -n "$protocol_content" ]]; then
+    # Combine: conditional protocol + base protocol + skill content
+    # Order: conditional first, then base, then skill
+    if [[ -n "$conditional_protocol" ]] || [[ -n "$protocol_content" ]]; then
         cat <<EOF
 ## Subagent Protocol (Auto-injected)
+
+EOF
+        # Add conditional protocol if present
+        if [[ -n "$conditional_protocol" ]]; then
+            cat <<EOF
+### Conditional Protocol: ${protocol_type}
+
+${conditional_protocol}
+
+---
+
+EOF
+        fi
+
+        # Add base protocol if present
+        if [[ -n "$protocol_content" ]]; then
+            cat <<EOF
+### Base Protocol
 
 ${protocol_content}
 
 ---
 
+EOF
+        fi
+
+        # Add skill content
+        cat <<EOF
 ## Skill: ${skill_name}
 
 ${skill_content}
