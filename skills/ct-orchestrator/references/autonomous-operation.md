@@ -21,6 +21,7 @@ Use this protocol block when operating autonomously:
 | AUTO-006 | MUST | Handle partial/blocked by creating followup tasks |
 | CTX-002 | MUST | Auto-stop at 80% context; generate handoff |
 | SESS-001 | MUST | Start with `cleo session list` |
+| TOOL-001 | MUST NOT | Use TaskOutput tool (read manifest key_findings only) |
 
 ### WORKFLOW
 
@@ -39,6 +40,7 @@ Use this protocol block when operating autonomously:
 
 - Subagent spawning subagents
 - Reading full output files (use manifest summaries)
+- Using TaskOutput tool to read subagent results (use manifest summaries only)
 - Skipping manifest verification between spawns
 - Continuing past 80% context without handoff
 - Spawning out of dependency wave order
@@ -54,6 +56,7 @@ Use this protocol block when operating autonomously:
 | "epic-architect creates full chain" | Decomposition is spawned subagent | AUTO-003 |
 | Skip verification between spawns | Verify manifest before next spawn | AUTO-004 |
 | No wave ordering | Use `cleo orchestrator analyze` | AUTO-005 |
+| "Read TaskOutput for results" | Read manifest key_findings only | TOOL-001 |
 
 ## Decision Trees
 

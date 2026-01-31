@@ -78,6 +78,8 @@ fi
 3. Spawn subagent         ->  Task tool with validated prompt
 4. Receive return message ->  VALIDATE against allowed formats
 5. Verify manifest entry  ->  cleo research show <id> BEFORE proceeding
+5.5. Verify handoff pattern ->  Manifest key_findings used, NOT TaskOutput
+5.6. Extract handoff context ->  key_findings + file path for next spawn
 6. Verify research link   ->  cleo show <task> | check linkedResearch
 7. Link if missing        ->  cleo research link <task> <research-id>
 8. Continue or escalate   ->  Only spawn next if manifest AND link confirmed
@@ -94,6 +96,43 @@ fi
 | No manifest entry | `cleo research show` returns error | Re-spawn with explicit manifest requirement |
 | No research link | `jq '.task.linkedResearch'` empty | Orchestrator links via `cleo research link` |
 | Spawning before verification | Multiple agents, missing entries | Stop, verify all, then resume |
+| Using TaskOutput for results | TOOL-001 violation | Read manifest key_findings only |
+
+---
+
+## Step 7.5: Handoff Validation
+
+After each subagent returns, orchestrator MUST validate handoff compliance:
+
+```bash
+# 1. Verify manifest entry (already in Step 5)
+manifest_entry=$(cleo research show "$research_id" --json)
+
+# 2. Extract handoff context (NOT TaskOutput)
+key_findings=$(echo "$manifest_entry" | jq -r '.key_findings[]')
+output_file=$(echo "$manifest_entry" | jq -r '.file')
+
+# 3. Build next spawn prompt with handoff
+next_prompt="## Context from Previous Agent
+Key Findings:
+$key_findings
+
+Reference file (if details needed): $output_file
+
+## Your Task
+..."
+
+# 4. CRITICAL: Do NOT call TaskOutput
+# TaskOutput violates TOOL-001 and breaks handoff chain
+```
+
+### Handoff Validation Checks
+
+| Check | Constraint | Action if Failed |
+|-------|------------|------------------|
+| key_findings extracted | HNDOFF-001 | Re-query manifest |
+| file path included | HNDOFF-003 | Add to prompt |
+| TaskOutput NOT called | TOOL-001 | Block, re-spawn |
 
 ---
 
@@ -130,6 +169,8 @@ log_compliance_metrics "$metrics"
 | Manifest entry exists | OUT-002 | high |
 | Research link present | Task linkage | medium |
 | Return format valid | OUT-003 | low |
+| Handoff via manifest | HNDOFF-001 | high |
+| No TaskOutput usage | TOOL-001 | critical |
 
 ---
 
