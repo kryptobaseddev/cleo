@@ -17,12 +17,21 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
-<Update label="January 2026" description="v0.77.1" tags={["Core"]}>
-## v0.77.1 Release
+<Update label="January 2026" description="v0.77.2" tags={["Fix", "Feature"]}>
+## release
 
 
+**Fixed**
 
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.77.1)
+- **release**: Implement dynamic `releaseGates` from config (T2823)
+  - Add `get_release_gates()` function to `lib/config.sh`
+  - Integrate gate execution loop in `validate_release()`
+  - Support required vs optional gates with configurable timeout
+  - Backward compatible: empty array preserves current behavior
+  - Add 8 unit tests for release gates
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.77.2)
 </Update>
 
 <Update label="January 2026" description="v0.77.1" tags={["Core"]}>
