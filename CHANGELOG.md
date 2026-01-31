@@ -5,6 +5,19 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.77.2] - 2026-01-31
+
+### Fixed
+
+- **release**: Implement dynamic `releaseGates` from config (T2823)
+  - Add `get_release_gates()` function to `lib/config.sh`
+  - Integrate gate execution loop in `validate_release()`
+  - Support required vs optional gates with configurable timeout
+  - Backward compatible: empty array preserves current behavior
+  - Add 8 unit tests for release gates
+
+## [0.77.1] - 2026-01-31
+
 ## [0.77.1] - 2026-01-31
 
 ## [0.77.0] - 2026-01-31
@@ -45,13 +58,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other Changes
 - Update release.sh validate_release() to use config getters (T2774)
 - Update release.sh to execute releaseGates array (T2775)
-- Release v0.76.3 with hybrid agent installation (T2800)
 - Consensus: Prioritize and categorize changelog pipeline fixes (T2810)
 
 ### Technical
 - Zero breaking changes - all defaults preserve existing BATS behavior
 - 3-tier detection system: manifest files → dependencies → test files
 - Monorepo detection for workspaces, pnpm, lerna, Cargo
+
+## [0.76.3] - 2026-01-30
+
+### Added
+- feat(agents): Hybrid symlink/copy agent installation (T2787)
+  - Default: symlink from ~/.cleo/agents/ for auto-updates
+  - --copy-agents flag for project isolation
+  - lib/agents-install.sh with install_agent(), install_agents() functions
+  - 31 BATS tests for comprehensive coverage
 
 ## [0.76.2] - 2026-01-29
 
