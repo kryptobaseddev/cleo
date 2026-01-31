@@ -75,6 +75,12 @@ prepare_changelog() {
         return 0
     fi
 
+    # Check if version header already exists
+    if grep -q "^## \[${version}\]" "$changelog"; then
+        log_info "Version ${version} already exists in changelog"
+        return 0
+    fi
+
     log_step "Creating version header for $version in $changelog..."
 
     # Create new version header
