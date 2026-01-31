@@ -687,7 +687,8 @@ case "$FORMAT" in
                     "version": $version,
                     "command": "find",
                     "timestamp": $timestamp,
-                    "execution_ms": $execution_ms
+                    "execution_ms": $execution_ms,
+                    "resultsField": "matches"
                 },
                 "success": true,
                 "query": {

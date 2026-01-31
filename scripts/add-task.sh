@@ -90,6 +90,12 @@ if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   source "$LIB_DIR/context-alert.sh"
 fi
 
+# Source protocol validation library for protocol enforcement (T2695)
+if [[ -f "$LIB_DIR/protocol-validation.sh" ]]; then
+  # shellcheck source=../lib/protocol-validation.sh
+  source "$LIB_DIR/protocol-validation.sh"
+fi
+
 # Source centralized flag parsing
 if [[ -f "$LIB_DIR/flags.sh" ]]; then
   # shellcheck source=../lib/flags.sh

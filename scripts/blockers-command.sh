@@ -334,7 +334,8 @@ list_blocked_tasks() {
           format: "json",
           version: $version,
           command: "blockers list",
-          timestamp: $timestamp
+          timestamp: $timestamp,
+          resultsField: "blockedTasks"
         },
         "success": true,
         summary: {
@@ -529,7 +530,8 @@ analyze_blocking_chains() {
           format: "json",
           version: $version,
           command: "blockers analyze",
-          timestamp: $timestamp
+          timestamp: $timestamp,
+          resultsField: "blockedTasks"
         },
         "success": true,
         summary: {

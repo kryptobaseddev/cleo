@@ -2335,7 +2335,8 @@ cmd_gc() {
           "format": "json",
           "command": "session gc",
           "timestamp": $ts,
-          "version": $version
+          "version": $version,
+          "resultsField": "items"
         },
         "success": true,
         "mode": $mode,

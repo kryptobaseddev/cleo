@@ -100,6 +100,12 @@ if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
   source "$LIB_DIR/context-alert.sh"
 fi
 
+# Source protocol validation library for protocol enforcement (T2695)
+if [[ -f "$LIB_DIR/protocol-validation.sh" ]]; then
+  # shellcheck source=../lib/protocol-validation.sh
+  source "$LIB_DIR/protocol-validation.sh"
+fi
+
 # Source task-mutate library for centralized mutations with updatedAt (T2067)
 if [[ -f "$LIB_DIR/task-mutate.sh" ]]; then
   # shellcheck source=../lib/task-mutate.sh
@@ -500,6 +506,83 @@ fi
 
 # Capture before state
 BEFORE_STATE=$(echo "$TASK" | jq '{status, completedAt}')
+
+# T2695: Protocol validation before completion
+# Check if task labels indicate a protocol type that requires validation
+if declare -f validate_implementation_protocol >/dev/null 2>&1; then
+  TASK_LABELS=$(echo "$TASK" | jq -c '.labels // []')
+  TASK_TYPE=$(echo "$TASK" | jq -r '.type // "task"')
+
+  # Check if task has implementation-related labels
+  HAS_IMPL_LABEL=$(echo "$TASK_LABELS" | jq 'map(select(. == "implementation" or . == "ivtr-i")) | length > 0')
+
+  if [[ "$HAS_IMPL_LABEL" == "true" || "$TASK_TYPE" == "implementation" ]]; then
+    # Create minimal manifest entry for validation
+    MANIFEST_ENTRY=$(echo "$TASK" | jq --arg date "$(date +%Y-%m-%d)" '{
+      id: .id,
+      agent_type: "implementation",
+      labels: .labels,
+      key_findings: [],
+      status: "complete"
+    }')
+
+    # Run implementation protocol validation (non-strict for now)
+    VALIDATION_RESULT=$(validate_implementation_protocol "$TASK_ID" "$MANIFEST_ENTRY" "false" 2>/dev/null || echo '{"valid":false,"violations":[],"score":0}')
+    IS_VALID=$(echo "$VALIDATION_RESULT" | jq -r '.valid // false')
+
+    if [[ "$IS_VALID" != "true" ]]; then
+      VIOLATIONS=$(echo "$VALIDATION_RESULT" | jq -c '.violations // []')
+      ERROR_COUNT=$(echo "$VIOLATIONS" | jq '[.[] | select(.severity == "error")] | length')
+
+      if [[ $ERROR_COUNT -gt 0 ]]; then
+        # Protocol violation - output error and exit
+        if [[ "$FORMAT" == "json" ]]; then
+          jq -n \
+            --arg task_id "$TASK_ID" \
+            --argjson violations "$VIOLATIONS" \
+            '{
+              "_meta": {
+                "command": "complete",
+                "timestamp": (now | todate),
+                "version": "'"${VERSION:-unknown}"'"
+              },
+              "success": false,
+              "error": {
+                "code": "E_PROTOCOL_VIOLATION",
+                "message": "Implementation protocol requirements not met. Cannot complete task.",
+                "fix": "Fix protocol violations listed below",
+                "alternatives": [
+                  {
+                    "action": "Review implementation protocol requirements",
+                    "command": "cat protocols/implementation.md"
+                  },
+                  {
+                    "action": "Skip validation (not recommended)",
+                    "command": "cleo complete " + $task_id + " --skip-validation"
+                  }
+                ],
+                "context": {
+                  "taskId": $task_id,
+                  "protocol": "implementation",
+                  "violations": $violations
+                }
+              }
+            }'
+        else
+          log_error "Protocol validation failed: Implementation protocol requirements not met"
+          echo "Violations:" >&2
+          echo "$VIOLATIONS" | jq -r '.[] | "  - [\(.severity | ascii_upcase)] \(.requirement): \(.message)"' >&2
+          echo "" >&2
+          echo "Fix violations or use --skip-validation to bypass (not recommended)" >&2
+        fi
+        exit "${EXIT_PROTOCOL_IMPLEMENTATION:-64}"
+      elif [[ $(echo "$VIOLATIONS" | jq 'length') -gt 0 ]]; then
+        # Warnings only - log but allow completion
+        [[ "$FORMAT" != "json" ]] && log_warn "Protocol validation warnings (non-blocking): $(echo "$VIOLATIONS" | jq -c '.')"
+      fi
+    fi
+  fi
+fi
 
 # Update task with completion
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
