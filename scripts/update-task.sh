@@ -657,9 +657,30 @@ fi
 # ============================================================================
 # SESSION ENFORCEMENT (Epic-Bound Sessions v0.40.0)
 # Require active session for write operations when multiSession.enabled=true
+# EXCEPTION: Notes-only updates are allowed without session (T2863)
 # ============================================================================
+is_notes_only_update() {
+  # Check if ONLY notes are being updated (no other fields)
+  # Use ${VAR:-} to handle potentially unset variables
+  [[ -n "${NOTE_TO_ADD:-}" ]] && \
+  [[ -z "${NEW_TITLE:-}" ]] && \
+  [[ -z "${NEW_STATUS:-}" ]] && \
+  [[ -z "${NEW_PRIORITY:-}" ]] && \
+  [[ -z "${NEW_DESCRIPTION:-}" ]] && \
+  [[ -z "${NEW_PHASE:-}" ]] && \
+  [[ -z "${NEW_TYPE:-}" ]] && \
+  [[ -z "${NEW_PARENT_ID:-}" ]] && \
+  [[ -z "${NEW_SIZE:-}" ]] && \
+  [[ -z "${LABELS_TO_ADD:-}" ]] && \
+  [[ -z "${LABELS_TO_REMOVE:-}" ]] && \
+  [[ -z "${DEPENDS_TO_ADD:-}" ]] && \
+  [[ -z "${DEPENDS_TO_REMOVE:-}" ]]
+}
+
 if declare -f require_active_session >/dev/null 2>&1; then
-  if ! require_active_session "update" "$FORMAT"; then
+  if is_notes_only_update; then
+    : # Notes-only update - bypassing session requirement (T2863)
+  elif ! require_active_session "update" "$FORMAT"; then
     exit $?
   fi
 fi
@@ -698,14 +719,15 @@ else
 fi
 
 # Check if task is already done - allow metadata-only updates
+# Notes are ALLOWED on completed tasks for post-completion info (T2863)
 if [[ "$CURRENT_STATUS" == "done" ]]; then
-  # Work fields are immutable for completed tasks
+  # Work fields are immutable for completed tasks (except notes)
   BLOCKED_FIELDS=()
   [[ -n "$NEW_TITLE" ]] && BLOCKED_FIELDS+=("--title")
   [[ -n "$NEW_DESCRIPTION" ]] && BLOCKED_FIELDS+=("--description")
   [[ -n "$NEW_STATUS" ]] && BLOCKED_FIELDS+=("--status")
   [[ -n "$NEW_PRIORITY" ]] && BLOCKED_FIELDS+=("--priority")
-  [[ -n "$NOTE_TO_ADD" ]] && BLOCKED_FIELDS+=("--notes")
+  # Notes are allowed - removed from blocked fields (T2863)
   [[ -n "$NEW_PHASE" ]] && BLOCKED_FIELDS+=("--phase")
   [[ -n "$NEW_BLOCKED_BY" ]] && BLOCKED_FIELDS+=("--blocked-by")
   [[ -n "$FILES_TO_ADD" || -n "$FILES_TO_SET" || "$CLEAR_FILES" == true ]] && BLOCKED_FIELDS+=("--files")
@@ -715,7 +737,7 @@ if [[ "$CURRENT_STATUS" == "done" ]]; then
   if [[ ${#BLOCKED_FIELDS[@]} -gt 0 ]]; then
     BLOCKED_LIST=$(IFS=', '; echo "${BLOCKED_FIELDS[*]}")
     if [[ "$FORMAT" == "json" ]]; then
-      output_error "$E_TASK_INVALID_STATUS" "Cannot update work fields on completed task $TASK_ID: $BLOCKED_LIST" "$EXIT_VALIDATION_ERROR" false "Completed tasks allow metadata corrections only: --type, --parent, --size, --labels"
+      output_error "$E_TASK_INVALID_STATUS" "Cannot update work fields on completed task $TASK_ID: $BLOCKED_LIST" "$EXIT_VALIDATION_ERROR" false "Completed tasks allow: --notes, --type, --parent, --size, --labels"
     else
       log_error "Cannot update work fields on completed task $TASK_ID"
       log_info "Blocked fields: $BLOCKED_LIST"
