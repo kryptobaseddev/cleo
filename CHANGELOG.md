@@ -5,12 +5,31 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.78.1] - 2026-02-01
+## [0.79.0] - 2026-02-01
+
+### Features
+- **metrics**: Token Usage Tracking Epic Complete (T2163, T2897)
+  - `cleo otel sessions` - Display session-level token data (T2906)
+  - `cleo otel spawns` - Display spawn tracking data (T2906)
+  - `cleo otel summary` - Combined session + spawn overview (T2906)
+  - Session start/end token capture with delta calculation (T2900, T2901)
+  - Spawn prompt/output token tracking functions (T2902, T2903)
+  - CLEO_TRACK_TOKENS environment variable for zero-overhead disabling (T2898)
+
+### Tests
+- 16 integration tests for session-level token tracking (T2904)
+- 9 integration tests for spawn attribution tracking (T2905)
+- All 46 value-metrics integration tests passing
+
+### Infrastructure
+- Extended scripts/otel.sh with filter/aggregation subcommands
+- TOKEN_USAGE.jsonl event types: session_start, session_end, spawn_output, spawn_complete
 
 ## [0.78.1] - 2026-02-01
 
 ### Bug Fixes
 - **init**: Create CLAUDE.md, AGENTS.md, GEMINI.md in new projects (T2946)
+
 ## [0.78.0] - 2026-02-01
 
 ### Features

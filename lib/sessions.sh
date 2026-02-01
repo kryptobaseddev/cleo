@@ -48,6 +48,11 @@ if [[ -f "$_LIB_DIR/error-json.sh" ]]; then
     source "$_LIB_DIR/error-json.sh"
 fi
 
+# Source token-estimation for session tracking (T2900)
+if [[ -f "$_LIB_DIR/token-estimation.sh" ]]; then
+    source "$_LIB_DIR/token-estimation.sh"
+fi
+
 # Source metrics-aggregation for session metrics capture (T1996/T2000)
 if [[ -f "$_LIB_DIR/metrics-aggregation.sh" ]]; then
     source "$_LIB_DIR/metrics-aggregation.sh"
@@ -638,6 +643,33 @@ start_session() {
     unlock_file "$sessions_fd"
     trap - EXIT ERR
 
+    # Capture starting tokens for tracking (T2900)
+    if _te_tracking_enabled 2>/dev/null; then
+        local start_tokens=0
+
+        # Try to read current token count from most recent context state
+        # Context state for this session may not exist yet, so fall back to most recent
+        local context_file
+        context_file=$(find .cleo -maxdepth 1 -name ".context-state-*.json" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || echo "")
+
+        if [[ -n "$context_file" && -f "$context_file" ]]; then
+            start_tokens=$(jq -r '.contextWindow.currentTokens // 0' "$context_file" 2>/dev/null || echo 0)
+        fi
+
+        # Build context JSON with session metadata
+        local scope_type focus_context
+        scope_type=$(echo "$scope_def" | jq -r '.type')
+        focus_context=$(jq -nc \
+            --arg session "$session_id" \
+            --arg scope "$scope_type" \
+            --arg focus "$focus_task" \
+            '{session_id: $session, scope_type: $scope, focus_task: $focus}')
+
+        # Log session start with token count
+        # Args: event_type, tokens, source, task_id, context
+        log_token_event "session_start" "$start_tokens" "session" "$focus_task" "$focus_context" 2>/dev/null || true
+    fi
+
     echo "$session_id"
     return 0
 }
@@ -1004,6 +1036,62 @@ end_session() {
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"
     trap - EXIT ERR
+
+    # Finalize token tracking (T2901)
+    if type -t _te_tracking_enabled &>/dev/null && _te_tracking_enabled; then
+        local context_file
+        context_file="$(get_cleo_dir)/.context-state-${session_id}.json"
+
+        local end_tokens=0
+        if [[ -f "$context_file" ]]; then
+            end_tokens=$(jq -r '.contextWindow.currentTokens // 0' "$context_file" 2>/dev/null || echo 0)
+        fi
+
+        # Extract start tokens from session info (from startMetrics)
+        local start_tokens
+        start_tokens=$(echo "$session_info" | jq -r '.startMetrics.tokens.start // 0')
+
+        # Calculate consumed tokens (handle context resets gracefully)
+        local consumed=$((end_tokens - start_tokens))
+        [[ $consumed -lt 0 ]] && consumed=0
+
+        # Extract session timestamps and stats for SESSIONS.jsonl
+        local start_ts end_ts tasks_done focus_changes
+        start_ts=$(echo "$session_info" | jq -r '.startedAt')
+        end_ts="$timestamp"
+        tasks_done=$(echo "$session_info" | jq -r '.stats.tasksCompleted // 0')
+        focus_changes=$(echo "$session_info" | jq -r '.stats.focusChanges // 0')
+
+        # Append to SESSIONS.jsonl
+        local sessions_metrics
+        sessions_metrics="$(get_cleo_dir)/metrics/SESSIONS.jsonl"
+        mkdir -p "$(dirname "$sessions_metrics")"
+
+        jq -n \
+            --arg sid "$session_id" \
+            --arg start_timestamp "$start_ts" \
+            --arg end_timestamp "$end_ts" \
+            --argjson start "$start_tokens" \
+            --argjson end "$end_tokens" \
+            --argjson consumed "$consumed" \
+            --argjson tasks_completed "$tasks_done" \
+            --argjson focus_changes "$focus_changes" \
+            '{
+                session_id: $sid,
+                start_timestamp: $start_timestamp,
+                end_timestamp: $end_timestamp,
+                tokens: {
+                    start: $start,
+                    end: $end,
+                    consumed: $consumed,
+                    max: 200000
+                },
+                stats: {
+                    tasks_completed: $tasks_completed,
+                    focus_changes: $focus_changes
+                }
+            }' >> "$sessions_metrics" 2>/dev/null || true
+    fi
 
     # Capture and log session end metrics (T1996/T2000)
     if type -t capture_session_end_metrics &>/dev/null && type -t log_session_metrics &>/dev/null; then
