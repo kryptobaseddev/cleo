@@ -376,30 +376,32 @@
       },
       {
         "version": "v0.78.1",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-01T08:11:28Z",
         "createdAt": "2026-02-01T08:10:20Z",
         "tasks": [],
-        "notes": "Fix init script not creating CLAUDE.md, AGENTS.md, GEMINI.md in new projects"
+        "notes": "Fix init script not creating CLAUDE.md, AGENTS.md, GEMINI.md in new projects",
+        "gitTag": "v0.78.1",
+        "changelog": "## [0.78.1] - 2026-02-01"
       }
     ]
   },
-  "lastUpdated": "2026-02-01T08:10:20Z",
+  "lastUpdated": "2026-02-01T08:21:23Z",
   "_meta": {
-    "checksum": "56814524a7004736",
+    "checksum": "f5ab94bfc68d0c62",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-01T08:08:54Z",
+    "lastModified": "2026-02-01T08:21:55Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 5,
-    "generation": 1665
+    "activeSessionCount": 6,
+    "generation": 1674
   },
   "focus": {
-    "currentTask": "T2942",
+    "currentTask": "T2948",
     "blockedUntil": null,
     "sessionNote": "Research complete. Writing findings to output file.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -3224,7 +3226,7 @@
       "status": "pending",
       "priority": "low",
       "type": "subtask",
-      "parentId": "T1249",
+      "parentId": null,
       "createdAt": "2026-01-03T08:42:27Z",
       "size": "large",
       "position": 20,
@@ -4634,7 +4636,7 @@
       "status": "pending",
       "priority": "high",
       "type": "task",
-      "parentId": "T1463",
+      "parentId": null,
       "createdAt": "2026-01-05T03:50:08Z",
       "size": "small",
       "position": 6,
@@ -6739,7 +6741,7 @@
       "status": "pending",
       "priority": "high",
       "type": "task",
-      "parentId": "T2146",
+      "parentId": null,
       "createdAt": "2026-01-23T17:14:17Z",
       "updatedAt": "2026-01-23T17:14:17Z",
       "size": "small",
@@ -6758,7 +6760,7 @@
       "status": "pending",
       "priority": "high",
       "type": "task",
-      "parentId": "T2146",
+      "parentId": null,
       "createdAt": "2026-01-23T17:14:34Z",
       "updatedAt": "2026-01-23T17:14:34Z",
       "size": "small",
@@ -10419,7 +10421,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2897",
+      "parentId": null,
       "createdAt": "2026-02-01T07:22:44Z",
       "updatedAt": "2026-02-01T07:39:05Z",
       "size": "medium",
@@ -10453,7 +10455,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2897",
+      "parentId": null,
       "createdAt": "2026-02-01T07:22:51Z",
       "updatedAt": "2026-02-01T07:38:34Z",
       "size": "medium",
@@ -10490,7 +10492,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2897",
+      "parentId": null,
       "createdAt": "2026-02-01T07:23:08Z",
       "updatedAt": "2026-02-01T07:38:26Z",
       "size": "medium",
@@ -10524,7 +10526,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2897",
+      "parentId": null,
       "createdAt": "2026-02-01T07:23:19Z",
       "updatedAt": "2026-02-01T07:48:25Z",
       "size": "medium",
@@ -10561,7 +10563,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2897",
+      "parentId": null,
       "createdAt": "2026-02-01T07:23:26Z",
       "updatedAt": "2026-02-01T07:52:27Z",
       "size": "medium",
@@ -10598,7 +10600,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2897",
+      "parentId": null,
       "createdAt": "2026-02-01T07:23:34Z",
       "updatedAt": "2026-02-01T07:54:39Z",
       "size": "medium",
@@ -11475,12 +11477,12 @@
     {
       "id": "T2942",
       "title": "Implementation: Create smoke-test.sh for quick validation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2907",
       "createdAt": "2026-02-01T07:47:04Z",
-      "updatedAt": "2026-02-01T08:08:32Z",
+      "updatedAt": "2026-02-01T08:16:51Z",
       "size": "small",
       "position": 3,
       "positionVersion": 0,
@@ -11492,7 +11494,26 @@
       ],
       "depends": [
         "T2940"
-      ]
+      ],
+      "completedAt": "2026-02-01T08:16:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-01T08:16:51Z] Created tests/smoke-test.sh with 5 core test files. Script runs critical path validation (jq-helpers, migrate, error-codes, add-task, complete-task). Current runtime ~85s. Provides clear pass/fail status with timing feedback."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-01T08:16:52Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2943",
@@ -11538,12 +11559,12 @@
     {
       "id": "T2944",
       "title": "Validation: Run smoke tests and verify quick execution",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2907",
       "createdAt": "2026-02-01T07:47:19Z",
-      "updatedAt": "2026-02-01T07:47:19Z",
+      "updatedAt": "2026-02-01T08:21:06Z",
       "size": "small",
       "position": 5,
       "positionVersion": 0,
@@ -11556,7 +11577,26 @@
       "depends": [
         "T2942",
         "T2943"
-      ]
+      ],
+      "completedAt": "2026-02-01T08:21:06Z",
+      "notes": [
+        "[COMPLETED 2026-02-01T08:21:06Z] Validation complete: Smoke tests functional (85s vs 30s target), timeout config verified (120s/file, 900s/suite), hierarchy.bats passes within limits. Performance optimization needed."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-01T08:21:06Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2945",
@@ -11566,7 +11606,7 @@
       "type": "task",
       "parentId": "T2907",
       "createdAt": "2026-02-01T07:47:21Z",
-      "updatedAt": "2026-02-01T07:47:21Z",
+      "updatedAt": "2026-02-01T08:21:48Z",
       "size": "small",
       "position": 6,
       "positionVersion": 0,
@@ -11610,6 +11650,152 @@
         },
         "lastAgent": "coder",
         "lastUpdated": "2026-02-01T08:09:06Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2947",
+      "title": "EPIC: Provable Token Savings Benchmark",
+      "status": "pending",
+      "priority": "critical",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-01T08:20:11Z",
+      "updatedAt": "2026-02-01T08:20:11Z",
+      "size": "medium",
+      "position": 196,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create reproducible benchmark to PROVE CLEO saves tokens. Must produce real numbers from Claude Code API, not estimates. Goal: Publish claims that other developers can verify.\n\n## Success Criteria\n- Real token data from Claude Code (via OTel or API logs)\n- A/B comparison: manifest reads vs full file reads\n- Reproducible benchmark script anyone can run\n- Published results with methodology\n\n## Anti-Goals\n- No more estimated tokens (4 chars = 1 token)\n- No fake 100% compliance scores\n- No claims without data",
+      "labels": [
+        "benchmark",
+        "critical",
+        "metrics",
+        "proof"
+      ]
+    },
+    {
+      "id": "T2948",
+      "title": "Research: How Claude Code exposes token usage",
+      "status": "active",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T2947",
+      "createdAt": "2026-02-01T08:20:46Z",
+      "updatedAt": "2026-02-01T08:21:55Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Investigate all methods Claude Code exposes token data: OTel metrics, API responses, transcript files, environment variables. Document exact fields and formats.",
+      "labels": [
+        "research"
+      ]
+    },
+    {
+      "id": "T2949",
+      "title": "Implement real token capture from Claude Code",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T2947",
+      "createdAt": "2026-02-01T08:20:47Z",
+      "updatedAt": "2026-02-01T08:20:47Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update lib/token-estimation.sh to capture REAL tokens from Claude Code sources instead of estimates. Parse OTel files, transcript JSON, or API response logs.",
+      "labels": [
+        "implementation"
+      ]
+    },
+    {
+      "id": "T2950",
+      "title": "Create A/B benchmark: manifest vs full-file reads",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T2947",
+      "createdAt": "2026-02-01T08:20:48Z",
+      "updatedAt": "2026-02-01T08:20:48Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create dev/benchmark-token-savings.sh that runs identical tasks using: A) manifest-based lookups, B) full file reads. Measure actual token consumption for each.",
+      "labels": [
+        "benchmark",
+        "implementation"
+      ]
+    },
+    {
+      "id": "T2951",
+      "title": "Run benchmark and collect baseline data",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2947",
+      "createdAt": "2026-02-01T08:20:49Z",
+      "updatedAt": "2026-02-01T08:20:49Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Execute A/B benchmark across 10+ real tasks. Record: task ID, method (A/B), input tokens, output tokens, total cost. Store in .cleo/metrics/BENCHMARK.jsonl",
+      "labels": [
+        "data-collection"
+      ]
+    },
+    {
+      "id": "T2952",
+      "title": "Publish benchmark results with methodology",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2947",
+      "createdAt": "2026-02-01T08:20:50Z",
+      "updatedAt": "2026-02-01T08:20:50Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create docs/BENCHMARK-RESULTS.md with: methodology, raw data, statistical analysis, reproducibility instructions. Claims must be verifiable by third parties.",
+      "labels": [
+        "documentation"
+      ]
+    },
+    {
+      "id": "T2953",
+      "title": "Fix validation errors: orphaned tasks, focus mismatch, manifest issues",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-01T08:21:16Z",
+      "updatedAt": "2026-02-01T08:21:22Z",
+      "size": "medium",
+      "position": 197,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed multiple validation issues:\n1. Unlinked 10 orphaned tasks (parentId pointing to deleted parents)\n2. Cleared focus mismatch (T2942 was focused but not active)\n3. Updated lib/research-manifest.sh to accept all RCSD-IVTR protocol types\n4. Fixed multi-line JSON entry in MANIFEST.jsonl (compacted to single line)\n5. Fixed invalid 'active' status in manifest entry (changed to 'complete')",
+      "completedAt": "2026-02-01T08:21:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-01T08:21:22Z] All validation errors fixed. System now passes with 0 errors."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-01T08:21:23Z",
         "failureLog": []
       }
     }

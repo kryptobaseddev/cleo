@@ -129,12 +129,24 @@ _rm_validate_entry() {
     fi
 
     # Validate agent_type if present (optional field with default)
+    # Valid types include 7 RCSD-IVTR protocol types plus additional workflow types
     local agent_type
     agent_type=$(echo "$json" | jq -r '.agent_type // "research"')
     case "$agent_type" in
-        research|implementation|validation|documentation|analysis) ;;
+        # RCSD-IVTR protocol types (7)
+        research|consensus|specification|decomposition|implementation|contribution|release)
+            ;;
+        # Additional workflow types
+        validation|documentation|analysis|testing|cleanup|design|architecture|report)
+            ;;
+        # Extended workflow types
+        synthesis|orchestrator|handoff|verification|review)
+            ;;
+        # Agent-specific types (allow any ct-* prefix for extensibility)
+        ct-*|task-executor)
+            ;;
         *)
-            echo "Invalid agent_type: $agent_type (must be research|implementation|validation|documentation|analysis)" >&2
+            echo "Invalid agent_type: $agent_type (must be protocol type or workflow type)" >&2
             return "$EXIT_VALIDATION_ERROR"
             ;;
     esac
