@@ -26,17 +26,29 @@ TOKEN_FILE="$METRICS_DIR/TOKEN_USAGE.jsonl"
 
 show_usage() {
     cat << 'EOF'
-Usage: cleo otel <command>
+Usage: cleo otel <command> [options]
 
 Commands:
-  status   Show token tracking status and recent activity
-  summary  Show token usage summary (savings, totals)
-  clear    Clear token tracking data (with backup)
+  status             Show token tracking status and recent activity
+  summary            Show combined token usage summary (sessions + spawns)
+  sessions [opts]    Show session-level token data
+  spawns [opts]      Show spawn-level token data
+  clear              Clear token tracking data (with backup)
+
+Options:
+  --session <id>     Filter by session ID
+  --task <id>        Filter by task ID
+  --epic <id>        Filter by epic ID
+  --format json      Output as JSON (default: table)
 
 Examples:
-  cleo otel status   # Check tracking status
-  cleo otel summary  # View token savings
-  cleo otel clear    # Reset tracking data
+  cleo otel status                    # Check tracking status
+  cleo otel summary                   # View combined overview
+  cleo otel sessions                  # Show all sessions
+  cleo otel sessions --session session_20260131_234218_189265
+  cleo otel spawns --task T2906       # Show spawns for specific task
+  cleo otel spawns --format json      # JSON output
+  cleo otel clear                     # Reset tracking data
 EOF
 }
 
@@ -75,6 +87,110 @@ otel_status() {
 EOF
 }
 
+otel_sessions() {
+    local token_file="$TOKEN_FILE"
+    local session_filter=""
+    local task_filter=""
+    local format="table"
+
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --session) session_filter="$2"; shift 2 ;;
+            --task) task_filter="$2"; shift 2 ;;
+            --format) format="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ ! -f "$token_file" ]] || [[ ! -s "$token_file" ]]; then
+        echo '{"success":true,"message":"No session data yet","sessions":[]}'
+        return 0
+    fi
+
+    # Build jq filter
+    local jq_filter='select(.event_type == "session_start")'
+    [[ -n "$session_filter" ]] && jq_filter="$jq_filter | select(.context.session_id == \"$session_filter\")"
+    [[ -n "$task_filter" ]] && jq_filter="$jq_filter | select(.task_id == \"$task_filter\")"
+
+    # Get session data
+    local sessions
+    sessions=$(jq -s "map($jq_filter) | sort_by(.timestamp) | reverse" "$token_file" 2>/dev/null)
+
+    if [[ "$format" == "json" ]]; then
+        echo "$sessions" | jq '{success: true, sessions: .}'
+    else
+        # Table format
+        echo "SESSION DATA"
+        echo "============"
+        echo ""
+        printf "%-30s %-10s %-15s %12s\n" "SESSION_ID" "TASK" "TIMESTAMP" "TOKENS"
+        echo "$(printf '%0.s-' {1..75})"
+        echo "$sessions" | jq -r '.[] | [.context.session_id, .task_id, .timestamp, .estimated_tokens] | @tsv' | \
+            while IFS=$'\t' read -r sid tid ts tok; do
+                printf "%-30s %-10s %-15s %12s\n" "$sid" "$tid" "${ts:0:16}" "$tok"
+            done
+        echo ""
+        echo "Total sessions: $(echo "$sessions" | jq 'length')"
+        echo "Total tokens: $(echo "$sessions" | jq 'map(.estimated_tokens // 0) | add // 0')"
+    fi
+}
+
+otel_spawns() {
+    local token_file="$TOKEN_FILE"
+    local task_filter=""
+    local epic_filter=""
+    local format="table"
+
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --task) task_filter="$2"; shift 2 ;;
+            --epic) epic_filter="$2"; shift 2 ;;
+            --format) format="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ ! -f "$token_file" ]] || [[ ! -s "$token_file" ]]; then
+        echo '{"success":true,"message":"No spawn data yet","spawns":[]}'
+        return 0
+    fi
+
+    # Build jq filter for spawn-related events (skill_inject, manifest reads, etc.)
+    local jq_filter='select(.event_type != "session_start")'
+    [[ -n "$task_filter" ]] && jq_filter="$jq_filter | select(.task_id == \"$task_filter\")"
+
+    # Get spawn data
+    local spawns
+    spawns=$(jq -s "map($jq_filter) | sort_by(.timestamp) | reverse" "$token_file" 2>/dev/null)
+
+    if [[ "$format" == "json" ]]; then
+        echo "$spawns" | jq '{success: true, spawns: .}'
+    else
+        # Table format
+        echo "SPAWN DATA"
+        echo "=========="
+        echo ""
+        printf "%-20s %-10s %-15s %-40s %12s\n" "EVENT_TYPE" "TASK" "TIMESTAMP" "SOURCE" "TOKENS"
+        echo "$(printf '%0.s-' {1..105})"
+        echo "$spawns" | jq -r '.[] | [.event_type, .task_id, .timestamp, .source, .estimated_tokens] | @tsv' | \
+            while IFS=$'\t' read -r evt tid ts src tok; do
+                # Truncate source path
+                src_short="${src##*/}"
+                [[ ${#src_short} -gt 38 ]] && src_short="${src_short:0:35}..."
+                printf "%-20s %-10s %-15s %-40s %12s\n" "$evt" "$tid" "${ts:0:16}" "$src_short" "$tok"
+            done
+        echo ""
+        echo "Total spawn events: $(echo "$spawns" | jq 'length')"
+        echo "Total tokens: $(echo "$spawns" | jq 'map(.estimated_tokens // 0) | add // 0')"
+        echo ""
+        # Breakdown by event type
+        echo "By event type:"
+        echo "$spawns" | jq -r 'group_by(.event_type) | map({type: .[0].event_type, count: length, tokens: (map(.estimated_tokens // 0) | add)}) | .[] | "  \(.type): \(.count) events, \(.tokens) tokens"'
+    fi
+}
+
 otel_summary() {
     local token_file="$TOKEN_FILE"
 
@@ -83,12 +199,20 @@ otel_summary() {
         return 0
     fi
 
-    # Calculate summary stats
+    # Calculate summary stats with session/spawn breakdown
     local stats
     stats=$(jq -s '
         {
             total_events: length,
             total_tokens: (map(.estimated_tokens // 0) | add),
+            sessions: {
+                count: (map(select(.event_type == "session_start")) | length),
+                tokens: (map(select(.event_type == "session_start") | .estimated_tokens // 0) | add // 0)
+            },
+            spawns: {
+                count: (map(select(.event_type != "session_start")) | length),
+                tokens: (map(select(.event_type != "session_start") | .estimated_tokens // 0) | add // 0)
+            },
             by_type: (group_by(.event_type) | map({
                 type: .[0].event_type,
                 count: length,
@@ -97,7 +221,8 @@ otel_summary() {
             recent: (sort_by(.timestamp) | reverse | .[0:5] | map({
                 event: .event_type,
                 tokens: .estimated_tokens,
-                source: (.source | split("/") | last)
+                source: (.source | split("/") | last),
+                task: .task_id
             }))
         }
     ' "$token_file" 2>/dev/null)
@@ -122,6 +247,8 @@ otel_clear() {
 case "${1:-}" in
     status)  otel_status ;;
     summary) otel_summary ;;
+    sessions) shift; otel_sessions "$@" ;;
+    spawns)  shift; otel_spawns "$@" ;;
     clear)   otel_clear ;;
     -h|--help|"") show_usage ;;
     *)       echo '{"success":false,"error":"Unknown command: '"$1"'"}'; exit 1 ;;

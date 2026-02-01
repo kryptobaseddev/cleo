@@ -11,12 +11,16 @@
 #   log_token_event        - Core event logging
 #   get_token_summary      - Summarize token usage for a session/task
 #   compare_token_usage    - Compare manifest vs full file usage
+#   te_status              - Get tracking enabled/disabled status
 #
 # This library estimates token consumption since Claude Code doesn't expose
 # actual token counts. Uses rough heuristic: 1 token ≈ 4 characters.
 #
-# @task T2833
-# @epic T2724
+# ENVIRONMENT:
+#   CLEO_TRACK_TOKENS - Set to 0 to disable tracking, 1 to enable (default: 1)
+#
+# @task T2833, T2898
+# @epic T2724, T2897
 # @why CLEO needs to prove it saves tokens - this enables measurement
 # @what Token estimation and tracking for value proof metrics
 
@@ -45,6 +49,13 @@ declare -gA _TE_SESSION_TOKENS=()
 # ============================================================================
 # INTERNAL HELPERS
 # ============================================================================
+
+# Check if token tracking is enabled via CLEO_TRACK_TOKENS environment variable
+# Returns: 0 (true) if enabled, 1 (false) if disabled
+# Default: enabled (CLEO_TRACK_TOKENS=1)
+_te_tracking_enabled() {
+    [[ "${CLEO_TRACK_TOKENS:-1}" == "1" ]]
+}
 
 _te_debug() {
     [[ -n "${TOKEN_ESTIMATION_DEBUG:-}" ]] && echo "[token-estimation] DEBUG: $1" >&2
@@ -109,7 +120,11 @@ estimate_tokens_from_file() {
 #       $3 = source (file path or description)
 #       $4 = optional: task_id
 #       $5 = optional: additional context JSON
+# Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
 log_token_event() {
+    # Early return if tracking disabled - zero overhead
+    _te_tracking_enabled || return 0
+
     local event_type="$1"
     local tokens="$2"
     local source="$3"
@@ -160,7 +175,11 @@ log_token_event() {
 # Args: $1 = file_path
 #       $2 = purpose (manifest|full_file|skill|protocol)
 #       $3 = optional: task_id
+# Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
 track_file_read() {
+    # Early return if tracking disabled - zero overhead
+    _te_tracking_enabled || return 0
+
     local file_path="$1"
     local purpose="$2"
     local task_id="${3:-}"
@@ -185,7 +204,11 @@ track_file_read() {
 # Args: $1 = query_type (find|show|list)
 #       $2 = result_count
 #       $3 = optional: task_id
+# Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
 track_manifest_query() {
+    # Early return if tracking disabled - zero overhead
+    _te_tracking_enabled || return 0
+
     local query_type="$1"
     local result_count="$2"
     local task_id="${3:-}"
@@ -204,7 +227,11 @@ track_manifest_query() {
 #       $2 = skill_tier
 #       $3 = tokens (pre-calculated)
 #       $4 = optional: task_id
+# Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
 track_skill_injection() {
+    # Early return if tracking disabled - zero overhead
+    _te_tracking_enabled || return 0
+
     local skill_name="$1"
     local tier="$2"
     local tokens="$3"
@@ -218,7 +245,11 @@ track_skill_injection() {
 # Args: $1 = prompt_text
 #       $2 = task_id
 #       $3 = skills_used (comma-separated)
+# Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
 track_prompt_build() {
+    # Early return if tracking disabled - zero overhead
+    _te_tracking_enabled || return 0
+
     local prompt="$1"
     local task_id="$2"
     local skills_used="$3"
@@ -230,6 +261,62 @@ track_prompt_build() {
         "{\"skills\":\"$skills_used\"}"
 
     echo "$tokens"
+}
+
+# track_spawn_output - Log subagent output tokens after completion
+# Args: $1 = task_id
+#       $2 = output_text (from manifest, file, or return message)
+#       $3 = optional: session_id
+# Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
+# @task T2903
+# @epic T2897
+track_spawn_output() {
+    # Early return if tracking disabled - zero overhead
+    _te_tracking_enabled || return 0
+
+    local task_id="$1"
+    local output_text="$2"
+    local session_id="${3:-}"
+
+    local tokens
+    tokens=$(estimate_tokens "$output_text")
+
+    log_token_event "spawn_output" "$tokens" "subagent_response" "$task_id" \
+        "{\"session_id\":\"$session_id\"}"
+
+    echo "$tokens"
+}
+
+# track_spawn_complete - Log complete spawn cycle (prompt + output)
+# Args: $1 = task_id
+#       $2 = prompt_tokens (from track_prompt_build)
+#       $3 = output_tokens (from track_spawn_output)
+#       $4 = optional: session_id
+# Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
+# @task T2903
+# @epic T2897
+track_spawn_complete() {
+    # Early return if tracking disabled - zero overhead
+    _te_tracking_enabled || return 0
+
+    local task_id="$1"
+    local prompt_tokens="$2"
+    local output_tokens="$3"
+    local session_id="${4:-}"
+
+    local total_tokens=$((prompt_tokens + output_tokens))
+
+    # Calculate savings vs full file approach
+    # Baseline: Reading full files instead of manifest would be ~10x more tokens
+    local baseline_tokens=$((total_tokens * 10))
+    local saved_tokens=$((baseline_tokens - total_tokens))
+    local savings_percent=0
+    [[ $baseline_tokens -gt 0 ]] && savings_percent=$(( (saved_tokens * 100) / baseline_tokens ))
+
+    log_token_event "spawn_complete" "$total_tokens" "spawn_cycle" "$task_id" \
+        "{\"prompt_tokens\":$prompt_tokens,\"output_tokens\":$output_tokens,\"total_tokens\":$total_tokens,\"baseline_tokens\":$baseline_tokens,\"saved_tokens\":$saved_tokens,\"savings_percent\":$savings_percent,\"session_id\":\"$session_id\"}"
+
+    echo "$total_tokens"
 }
 
 # ============================================================================
@@ -418,6 +505,16 @@ compare_manifest_vs_full() {
         }'
 }
 
+# te_status - Get tracking status
+# Returns: JSON with tracking enabled status and environment variable value
+te_status() {
+    if _te_tracking_enabled; then
+        echo '{"tracking_enabled":true,"env_var":"'"${CLEO_TRACK_TOKENS:-1}"'"}'
+    else
+        echo '{"tracking_enabled":false,"env_var":"'"${CLEO_TRACK_TOKENS:-1}"'"}'
+    fi
+}
+
 # ============================================================================
 # EXPORTS
 # ============================================================================
@@ -429,7 +526,10 @@ export -f track_file_read
 export -f track_manifest_query
 export -f track_skill_injection
 export -f track_prompt_build
+export -f track_spawn_output
+export -f track_spawn_complete
 export -f start_token_session
 export -f end_token_session
 export -f get_token_summary
 export -f compare_manifest_vs_full
+export -f te_status
