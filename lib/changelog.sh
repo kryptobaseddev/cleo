@@ -383,6 +383,29 @@ append_to_changelog() {
     local output_file="${2:-$CHANGELOG_FILE}"
     local todo_file="${3:-$TODO_FILE}"
 
+    # Normalize version (remove v prefix for comparison)
+    local version_no_v="${version#v}"
+
+    # IDEMPOTENCY CHECK: Skip if version header already exists with content
+    # This prevents duplicate entries when called multiple times
+    if [[ -f "$output_file" ]]; then
+        if grep -q "^## \[${version_no_v}\]" "$output_file"; then
+            # Check if it has content (not just empty header)
+            local header_line
+            header_line=$(grep -n "^## \[${version_no_v}\]" "$output_file" | head -1 | cut -d: -f1)
+            local next_line=$((header_line + 1))
+            local next_content
+            next_content=$(sed -n "${next_line}p" "$output_file")
+            # If next line is not empty and not another version header, content exists
+            if [[ -n "$next_content" && ! "$next_content" =~ ^##\  ]]; then
+                log_info "Changelog entry already exists for ${version_no_v} - skipping"
+                return 0
+            fi
+            # Header exists but is empty - we'll replace it below
+            log_info "Found empty header for ${version_no_v} - adding content"
+        fi
+    fi
+
     local changelog_content
     changelog_content=$(generate_changelog "$version" "" "$todo_file")
 

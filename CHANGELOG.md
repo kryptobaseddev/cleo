@@ -5,9 +5,16 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.78.0] - 2026-01-31
-
 ## [0.78.0] - 2026-02-01
+
+_Maintenance release - no new features. Investigation and fixes for changelog generation._
+
+## [0.77.6] - 2026-02-01
+
+### Bug Fixes
+- **release**: Ensure release commit created before tagging (T2867)
+
+## [0.77.5] - 2026-02-01
 
 ### Features
 - **release**: Complete Release System v2 implementation (T2666)
@@ -18,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Changelog: lib/changelog.sh (auto-generate from conventional commits)
 
 ### Bug Fixes
+- **release**: Auto-generate release notes from commits when CHANGELOG missing (T2867)
+- **changelog**: Correct v0.77.4 changelog entry content (T2867)
 - **release**: Fix empty array validation for gates/artifacts (T2868)
 - **release**: Fix npm package name regex pattern (T2869)
 - **release**: Fix subshell-safe artifact handler dispatch (T2870)
@@ -34,17 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed `--notes` from blocked fields for done tasks
   - Enables post-completion documentation without restarting sessions
 
+## [0.77.3] - 2026-01-31
+
 ### Features
-- **release**: Project-agnostic release system v2 (T2666)
-  - Research on release patterns across package ecosystems (T2667)
-  - Release Configuration Schema v2 (T2668)
-  - Release config loader and validator (T2669)
-  - CI/CD template generator (T2670)
-  - Artifact type handlers (T2671)
-  - Release provenance tracking (T2672)
-  - Updated protocols/release.md (T2673)
-  - Integration tests for release system (T2674)
-  - Release configuration guide (T2675)
+- **orchestrator**: Add TaskOutput prohibition and handoff chain constraints (T2832)
+
+### Bug Fixes
+- **schema**: Sync config schema version with data (T2841)
+- **release**: Prevent duplicate changelog headers (T2840)
+- **release**: Skip validation in --dry-run mode (T2826)
+- **release**: Auto-generate changelog version headers (T2826)
+- **tests**: Add schemaVersion to test fixture (T2820)
 
 ## [0.77.2] - 2026-01-31
 
@@ -452,10 +461,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.77.6] - 2026-01-31
+_No unreleased changes_
 
-### Bug Fixes
-- **release**: Ensure release commit created before tagging (T2867)
 ## [0.72.1] - 2026-01-27
 
 ### Fixed
