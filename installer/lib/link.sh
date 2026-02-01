@@ -348,7 +348,7 @@ _get_cmd_script() {
         # Orchestration and automation
         orchestrator) echo "orchestrator.sh" ;; safestop) echo "safestop.sh" ;; sequence) echo "sequence.sh" ;;
         # Metrics and compliance
-        compliance) echo "compliance.sh" ;;
+        compliance) echo "compliance.sh" ;; otel) echo "otel.sh" ;;
         # Other tools
         roadmap) echo "roadmap.sh" ;; claude-migrate) echo "claude-migrate.sh" ;;
         release) echo "release.sh" ;; docs) echo "docs.sh" ;;
@@ -373,7 +373,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance roadmap claude-migrate release docs"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance otel roadmap claude-migrate release docs"
 }
 
 cmd="${1:-help}"

@@ -98,6 +98,8 @@ source "${_SD_LIB_DIR}/exit-codes.sh"
 source "${_SD_LIB_DIR}/skill-validate.sh"
 # shellcheck source=lib/token-inject.sh
 source "${_SD_LIB_DIR}/token-inject.sh"
+# shellcheck source=lib/token-estimation.sh
+source "${_SD_LIB_DIR}/token-estimation.sh"
 
 # ============================================================================
 # INTERNAL HELPERS
@@ -1367,6 +1369,13 @@ ${skill_content}"
         done
     fi
 
+    # Step 8: Track skill injection for token metrics
+    local estimated_tokens
+    estimated_tokens=$(estimate_tokens "$full_prompt")
+    if declare -f track_skill_injection >/dev/null 2>&1; then
+        track_skill_injection "$skill_name" "$tier" "$estimated_tokens" "$task_id" 2>/dev/null || true
+    fi
+
     # Extract additional context for JSON output
     local date_today topic_slug epic_id title
     date_today="${TI_DATE:-$(date +%Y-%m-%d)}"
@@ -1425,6 +1434,201 @@ ${skill_content}"
 }
 
 # ============================================================================
+# MULTI-SKILL COMPOSITION (T2833)
+# ============================================================================
+
+# skill_prepare_spawn_multi - Compose multiple skills with progressive disclosure
+# Usage: skill_prepare_spawn_multi "T1234" "ct-research-agent" "drizzle-orm" "svelte5-sveltekit"
+# Returns: Combined prompt with skills in priority order, using progressive loading
+#
+# The first skill is loaded fully (primary skill).
+# Secondary skills use progressive disclosure (frontmatter + first section only).
+# This enables "skill recipes" where multiple specialized skills combine.
+#
+# @task T2833
+# @why Single skill limitation prevents optimal context for multi-domain tasks
+# @what Multi-skill composition with token tracking
+skill_prepare_spawn_multi() {
+    local task_id="$1"
+    shift
+    local skills=("$@")
+
+    _sd_require_jq || return $?
+
+    if [[ ${#skills[@]} -eq 0 ]]; then
+        _sd_error "At least one skill required"
+        return "$EXIT_INVALID_INPUT"
+    fi
+
+    # If only one skill, use standard function
+    if [[ ${#skills[@]} -eq 1 ]]; then
+        skill_prepare_spawn "${skills[0]}" "$task_id"
+        return $?
+    fi
+
+    _sd_debug "Composing ${#skills[@]} skills for task $task_id"
+
+    # Set base context from task
+    if declare -f ti_set_full_context >/dev/null 2>&1; then
+        ti_set_full_context "$task_id" || true
+    fi
+
+    # Load protocol base
+    local protocol_content=""
+    if [[ -f "$_SD_PROTOCOL_BASE" ]]; then
+        protocol_content=$(cat "$_SD_PROTOCOL_BASE" 2>/dev/null)
+        if declare -f ti_inject_tokens >/dev/null 2>&1; then
+            protocol_content=$(ti_inject_tokens "$protocol_content")
+        fi
+    fi
+
+    # Build combined prompt
+    local combined_prompt=""
+    local skill_manifest_arr=()
+    local total_tokens=0
+    local primary_skill="${skills[0]}"
+    local is_first=true
+
+    for skill in "${skills[@]}"; do
+        local metadata tier skill_path skill_content skill_tokens
+
+        # Get skill metadata
+        metadata=$(skill_get_metadata "$skill" 2>/dev/null)
+        if [[ -z "$metadata" || "$metadata" == "null" ]]; then
+            _sd_warn "Skill not found: $skill, skipping"
+            continue
+        fi
+
+        tier=$(echo "$metadata" | jq -r '.tier // 2')
+        skill_path=$(echo "$metadata" | jq -r '.path // ""')
+        local skill_file="${_SD_PROJECT_ROOT}/${skill_path}/SKILL.md"
+
+        if [[ ! -f "$skill_file" ]]; then
+            _sd_warn "Skill file not found: $skill_file"
+            continue
+        fi
+
+        # Load skill content based on position
+        if [[ "$is_first" == "true" ]]; then
+            # Primary skill: full content
+            skill_content=$(cat "$skill_file")
+            _sd_debug "Loaded full content for primary skill: $skill"
+            is_first=false
+        else
+            # Secondary skills: progressive disclosure (frontmatter + first section)
+            skill_content=$(_sd_load_progressive "$skill_file")
+            _sd_debug "Loaded progressive content for secondary skill: $skill"
+        fi
+
+        # Inject tokens if available
+        if declare -f ti_inject_tokens >/dev/null 2>&1; then
+            skill_content=$(ti_inject_tokens "$skill_content")
+        fi
+
+        # Estimate tokens
+        skill_tokens=$(( ${#skill_content} / 4 ))
+        total_tokens=$((total_tokens + skill_tokens))
+
+        # Add to combined prompt
+        combined_prompt+="
+---
+
+## Skill: ${skill} (Tier ${tier})
+
+${skill_content}
+"
+
+        # Track skill in manifest
+        skill_manifest_arr+=("{\"skill\":\"$skill\",\"tier\":$tier,\"tokens\":$skill_tokens,\"mode\":\"$([ "$skill" == "$primary_skill" ] && echo 'full' || echo 'progressive')\"}")
+    done
+
+    # Add protocol header if available
+    if [[ -n "$protocol_content" ]]; then
+        local protocol_tokens=$(( ${#protocol_content} / 4 ))
+        total_tokens=$((total_tokens + protocol_tokens))
+
+        combined_prompt="## Subagent Protocol (Auto-injected)
+
+${protocol_content}
+
+---
+
+## Skills Loaded (${#skills[@]} total)
+${combined_prompt}"
+    fi
+
+    # Build skills JSON array
+    local skills_json
+    skills_json=$(printf '%s\n' "${skill_manifest_arr[@]}" | jq -s '.')
+
+    # Extract context
+    local date_today topic_slug epic_id
+    date_today="${TI_DATE:-$(date +%Y-%m-%d)}"
+    topic_slug="${TI_TOPIC_SLUG:-task-${task_id}}"
+    epic_id="${TI_EPIC_ID:-}"
+
+    # Log token usage if available
+    if declare -f track_skill_injection >/dev/null 2>&1; then
+        for skill in "${skills[@]}"; do
+            local st
+            st=$(echo "$skills_json" | jq -r --arg s "$skill" '.[] | select(.skill == $s) | .tokens')
+            track_skill_injection "$skill" "$(echo "$skills_json" | jq -r --arg s "$skill" '.[] | select(.skill == $s) | .tier')" "$st" "$task_id" 2>/dev/null || true
+        done
+    fi
+
+    # Build output JSON
+    jq -n \
+        --arg task "$task_id" \
+        --argjson skill_count "${#skills[@]}" \
+        --argjson skills "$skills_json" \
+        --argjson total_tokens "$total_tokens" \
+        --arg primary "$primary_skill" \
+        --arg prompt "$combined_prompt" \
+        --arg date "$date_today" \
+        --arg topic_slug "$topic_slug" \
+        --arg epic_id "$epic_id" \
+        '{
+            taskId: $task,
+            composition: {
+                skillCount: $skill_count,
+                primarySkill: $primary,
+                skills: $skills,
+                totalEstimatedTokens: $total_tokens
+            },
+            spawnContext: {
+                date: $date,
+                topicSlug: $topic_slug,
+                epicId: (if $epic_id == "" then null else $epic_id end)
+            },
+            prompt: $prompt
+        }'
+
+    return 0
+}
+
+# _sd_load_progressive - Load skill with progressive disclosure
+# Args: $1 = skill file path
+# Returns: Frontmatter + first section only
+_sd_load_progressive() {
+    local file="$1"
+
+    # Extract frontmatter and first section
+    awk '
+        BEGIN { in_fm=0; after_fm=0; in_section=0 }
+        /^---$/ && !in_fm && !after_fm { in_fm=1; print; next }
+        /^---$/ && in_fm { in_fm=0; after_fm=1; print; print ""; next }
+        in_fm { print; next }
+        after_fm && /^##? / && !in_section { in_section=1; print; next }
+        after_fm && /^##? / && in_section { exit }
+        in_section { print }
+    ' "$file"
+
+    # Add progressive disclosure note
+    echo ""
+    echo "> **Note**: This skill is loaded in progressive mode. Request full content if needed."
+}
+
+# ============================================================================
 # EXPORT FUNCTIONS
 # ============================================================================
 
@@ -1456,3 +1660,4 @@ export -f skill_check_compatibility
 export -f skill_list_by_tier
 export -f skill_auto_dispatch
 export -f skill_prepare_spawn
+export -f skill_prepare_spawn_multi

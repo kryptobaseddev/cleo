@@ -18,14 +18,28 @@
 
 ### Metrics & Value Tracking (T2833)
 
-CLEO tracks its own value through real metrics. Enable OpenTelemetry for token tracking:
+CLEO tracks its own value through real metrics. Enable OpenTelemetry for token tracking.
+
+#### Enabling Real Token Tracking
+
+To capture actual token usage from Claude Code:
 
 ```bash
-# Add to shell profile for persistent metrics
+# One-time setup: Add to your shell profile
+echo 'source /path/to/project/.cleo/setup-otel.sh' >> ~/.bashrc
+# OR for zsh:
+echo 'source /path/to/project/.cleo/setup-otel.sh' >> ~/.zshrc
+
+# Then restart your shell or source it now
+source .cleo/setup-otel.sh
+```
+
+The setup script configures these environment variables:
+```bash
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
 export OTEL_METRICS_EXPORTER=otlp
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
-export OTEL_EXPORTER_OTLP_ENDPOINT=file://.cleo/metrics/otel/
+export OTEL_EXPORTER_OTLP_ENDPOINT="file://${HOME}/.cleo/metrics/otel/"
 ```
 
 **What Claude Code Captures** (when OpenTelemetry is enabled):
@@ -33,9 +47,29 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=file://.cleo/metrics/otel/
 - `claude_code.api_request` - Per-request details (input tokens, output tokens, cache tokens)
 
 **What CLEO Measures**:
-- **Token savings**: Manifest reads vs full file reads (~90% reduction)
+- **Token savings**: Manifest reads vs full file reads (measured via compliance tracking)
 - **Validation impact**: Protocol violations caught before completion
 - **Skill composition**: Multi-skill progressive loading efficiency
+
+**Data Quality Notes**:
+
+**Historical Data (pre-2026-01-30)**: Legacy testing artifacts using commit-hash identifiers.
+These entries have estimated validation scores and cannot be backfilled to real validation.
+
+**Current Data (2026-01-30+)**: Real task-based validation using manifest entries.
+All new compliance entries use actual protocol validators.
+
+To check data quality:
+```bash
+# View compliance summary with validation breakdown
+cleo compliance value
+
+# Check real vs estimated validation percentage
+cleo compliance value --json | jq '.validation.real_percentage'
+
+# View only real validation entries (filter legacy)
+jq 'select(.linkedTask != null and (.linkedTask | startswith("T")))' .cleo/metrics/COMPLIANCE.jsonl
+```
 
 **Specification**: See `docs/specs/CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md` for complete documentation.
 
