@@ -1143,12 +1143,22 @@ if [[ -f "$CLEO_HOME/lib/agent-registry.sh" ]]; then
   if ar_load_registry; then
     log_info "Processing agent injections via registry..."
 
-    # Get all agents (sorted by priority tiers)
-    all_agents=$(ar_list_installed_by_tier "all")
+    # Get ALL agents from registry - we need to always create CLAUDE.md for Claude Code
+    # regardless of whether ~/.claude exists (CLEO is specifically for Claude Code users)
+    all_agents=$(ar_list_agents)
+
+    # Reset IFS to default for proper word splitting (backup.sh sets IFS=$'\n\t')
+    _SAVED_IFS="$IFS"
+    IFS=$' \t\n'
 
     for agent_id in $all_agents; do
-      # Skip if not installed
-      if ! ar_is_installed "$agent_id"; then
+      # Determine if agent is installed (has global directory)
+      agent_is_installed=false
+      ar_is_installed "$agent_id" && agent_is_installed=true
+
+      # Skip non-Claude agents if not installed
+      # Claude Code is ALWAYS processed since CLEO is specifically for Claude Code users
+      if [[ "$agent_id" != "claude-code" ]] && [[ "$agent_is_installed" == "false" ]]; then
         continue
       fi
 
@@ -1175,25 +1185,25 @@ ${global_reference}
         if grep -q "<!-- CLEO:START -->" "$global_target" 2>/dev/null; then
           current_block=$(sed -n '/<!-- CLEO:START -->/,/<!-- CLEO:END -->/p' "$global_target" 2>/dev/null || true)
           if [[ "$current_block" == "$global_block" ]]; then
-            ((global_skipped++))
+            ((global_skipped++)) || true
           else
             # Update block
             temp_file=$(mktemp)
             awk '/<!-- CLEO:START/,/<!-- CLEO:END -->/ { next } { print }' "$global_target" > "$temp_file"
             echo "$global_block" | cat - "$temp_file" > "$global_target"
             rm -f "$temp_file"
-            ((global_updated++))
+            ((global_updated++)) || true
           fi
         else
           # Add block to existing file
           echo "$global_block" | cat - "$global_target" > "${global_target}.tmp"
           mv "${global_target}.tmp" "$global_target"
-          ((global_updated++))
+          ((global_updated++)) || true
         fi
       else
         # Create new file with block
         echo "$global_block" > "$global_target"
-        ((global_updated++))
+        ((global_updated++)) || true
       fi
 
       # ==============================================================================
@@ -1213,27 +1223,30 @@ ${project_reference}
         if grep -q "<!-- CLEO:START -->" "$project_target" 2>/dev/null; then
           current_block=$(sed -n '/<!-- CLEO:START -->/,/<!-- CLEO:END -->/p' "$project_target" 2>/dev/null || true)
           if [[ "$current_block" == "$project_block" ]]; then
-            ((project_skipped++))
+            ((project_skipped++)) || true
           else
             # Update block
             temp_file=$(mktemp)
             awk '/<!-- CLEO:START/,/<!-- CLEO:END -->/ { next } { print }' "$project_target" > "$temp_file"
             echo "$project_block" | cat - "$temp_file" > "$project_target"
             rm -f "$temp_file"
-            ((project_updated++))
+            ((project_updated++)) || true
           fi
         else
           # Add block to existing file
           echo "$project_block" | cat - "$project_target" > "${project_target}.tmp"
           mv "${project_target}.tmp" "$project_target"
-          ((project_updated++))
+          ((project_updated++)) || true
         fi
       else
         # Create new file with block
         echo "$project_block" > "$project_target"
-        ((project_updated++))
+        ((project_updated++)) || true
       fi
     done
+
+    # Restore IFS
+    IFS="$_SAVED_IFS"
 
     # Report results
     if [[ "$global_updated" -gt 0 ]]; then
