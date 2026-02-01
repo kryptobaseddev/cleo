@@ -1,0 +1,15 @@
+{
+  "name": "@cleo-test/mock-npm-package",
+  "version": "1.0.0",
+  "description": "Mock npm package for CLEO release system testing",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Mock test passed\"",
+    "build": "echo \"Mock build completed\""
+  },
+  "keywords": ["test", "mock"],
+  "author": "CLEO Test Suite",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}

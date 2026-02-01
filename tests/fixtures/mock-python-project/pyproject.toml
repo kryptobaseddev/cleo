@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cleo-test-mock-python"
+version = "1.0.0"
+description = "Mock Python package for CLEO release system testing"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "CLEO Test Suite"}
+]
+keywords = ["test", "mock"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+]
+
+[project.urls]
+Homepage = "https://github.com/cleo/cleo"
+Repository = "https://github.com/cleo/cleo"
