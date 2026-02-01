@@ -19,6 +19,7 @@
 #   list                 List all releases
 #   show <version>       Show release details
 #   changelog <version>  Generate changelog for a release
+#   init-ci              Initialize CI/CD workflow configuration
 #
 # Options:
 #   --target-date DATE   Set target release date (YYYY-MM-DD)
@@ -76,6 +77,8 @@ source_lib "jq-helpers.sh"
 source_lib "flags.sh"
 source_lib "changelog.sh"
 source_lib "config.sh"  # @task T2823 - For get_release_gates()
+source_lib "release.sh" # @task T2845 - Release workflow functions
+source_lib "release-ci.sh" # @task T2670 - CI/CD template generation
 
 # Exit codes (50-59 range for release operations per spec)
 EXIT_RELEASE_NOT_FOUND=50
@@ -106,6 +109,12 @@ FORCE_TAG=""
 VERBOSE=""
 RUN_TESTS=""
 SKIP_VALIDATION=""
+DRY_RUN=""
+SKIP_COMMIT=""
+SKIP_CHANGELOG=""
+CI_PLATFORM=""
+CI_OUTPUT=""
+CI_FORCE=""
 
 # Initialize flag defaults
 init_flag_defaults 2>/dev/null || true
@@ -131,6 +140,7 @@ Subcommands:
     list                 List all releases
     show <version>       Show release details
     changelog <version>  Generate changelog from release tasks
+    init-ci              Initialize CI/CD workflow configuration
 
 Options:
     --target-date DATE   Set target release date (YYYY-MM-DD)
@@ -140,10 +150,15 @@ Options:
     --bump-version       Bump VERSION file via dev/bump-version.sh (for ship)
     --create-tag         Create git tag for release (for ship)
     --force-tag          Overwrite existing git tag (requires --create-tag)
-    --push               Push git tag to remote (requires --create-tag)
+    --push               Push changes and tag to remote (for ship)
+    --dry-run            Show what would happen without making changes (for ship)
+    --no-commit          Skip git commit (just update files) (for ship)
+    --no-changelog       Skip changelog generation (for ship)
     --run-tests          Run test suite during validation (opt-in, slow)
     --skip-validation    Skip all validation gates (for emergency releases)
     --output FILE        Output file for changelog (default: CHANGELOG.md)
+    --platform PLATFORM  CI platform (github-actions|gitlab-ci|circleci) (for init-ci)
+    --force              Overwrite existing CI config file (for init-ci)
     --format, -f FORMAT  Output format: text | json (default: auto)
     --json               Shortcut for --format json
     --human              Shortcut for --format text
@@ -156,10 +171,14 @@ Examples:
     cleo release create v0.65.0 --target-date 2026-02-01
     cleo release plan v0.65.0 --tasks T2058,T2059
     cleo release ship v0.65.0 --bump-version --create-tag --push
+    cleo release ship v0.65.0 --dry-run  # Preview what would happen
     cleo release ship v0.65.0 --notes "Schema 2.8.0 release"
     cleo release list
     cleo release show v0.65.0
     cleo release changelog v0.65.0
+    cleo release init-ci  # Use platform from config
+    cleo release init-ci --platform gitlab-ci --dry-run
+    cleo release init-ci --platform github-actions --force
 
 EOF
     exit "${EXIT_SUCCESS:-0}"
@@ -682,6 +701,40 @@ cmd_ship() {
     local normalized
     normalized=$(normalize_version "$version")
 
+    # DRY RUN: Preview mode
+    if [[ "$DRY_RUN" == "true" ]]; then
+        [[ "$FORMAT" != "json" ]] && echo ""
+        [[ "$FORMAT" != "json" ]] && log_warn "DRY RUN - Would perform:"
+        [[ "$FORMAT" != "json" ]] && echo "  1. Auto-populate release tasks from completed work"
+        [[ "$BUMP_VERSION" == "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  2. Bump VERSION to ${normalized#v}"
+        [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  3. Prepare CHANGELOG.md header for $normalized"
+        [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  4. Generate changelog from commits"
+        [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  5. Generate task-based changelog"
+        [[ "$FORMAT" != "json" ]] && echo "  6. Run validation gates"
+        [[ "$SKIP_COMMIT" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  7. Git commit: 'chore: Release ${normalized#v}'"
+        [[ "$CREATE_TAG" == "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  8. Git tag: $normalized"
+        [[ "$PUSH_TAG" == "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  9. Git push origin main --tags"
+        [[ "$FORMAT" != "json" ]] && echo "  10. Mark release as 'released' in todo.json"
+
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -n \
+                --arg version "$VERSION" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        "format": "json",
+                        "command": "release ship",
+                        "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+                        "version": $version
+                    },
+                    "success": true,
+                    "dryRun": true,
+                    "message": "Dry run completed - no changes made"
+                }'
+        fi
+        return 0
+    fi
+
     # Check if release exists
     if ! release_exists "$normalized"; then
         log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "$EXIT_RELEASE_NOT_FOUND" "Create it first: cleo release create $normalized"
@@ -731,6 +784,62 @@ cmd_ship() {
         ensure_changelog_header "$normalized"
     fi
 
+    # Step 1.75: Auto-generate changelog from commits (T2842)
+    # Check if config enables auto-generation (default: true)
+    local auto_generate_changelog="true"
+    if command -v jq >/dev/null 2>&1 && [[ -f ".cleo/config.json" ]]; then
+        auto_generate_changelog=$(jq -r '.release.changelog.autoGenerate // true' ".cleo/config.json" 2>/dev/null || echo "true")
+    fi
+
+    if [[ "${SKIP_CHANGELOG:-false}" != "true" && "$auto_generate_changelog" == "true" ]]; then
+        log_info "Auto-generating changelog from git commits..."
+
+        # Generate changelog content from commits since last tag
+        local git_changelog_content
+        if git_changelog_content=$(generate_changelog_from_commits "last-tag" "HEAD" 2>/dev/null); then
+            if [[ -n "$git_changelog_content" && "$git_changelog_content" != "null" ]]; then
+                # Insert into CHANGELOG.md under the version header
+                local changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
+                local version_no_v="${normalized#v}"
+
+                if [[ -f "$changelog_file" ]]; then
+                    # Find the version header line
+                    local version_line
+                    version_line=$(grep -n "^## \[${version_no_v}\]" "$changelog_file" | head -1 | cut -d: -f1)
+
+                    if [[ -n "$version_line" ]]; then
+                        # Create temp file with git-generated content inserted
+                        local temp_file
+                        temp_file=$(mktemp)
+
+                        # Copy everything up to and including version header
+                        head -n "$version_line" "$changelog_file" > "$temp_file"
+
+                        # Add blank line
+                        echo "" >> "$temp_file"
+
+                        # Add git-generated content
+                        echo "$git_changelog_content" >> "$temp_file"
+
+                        # Add rest of file (skip old empty section if exists)
+                        tail -n +$((version_line + 1)) "$changelog_file" | \
+                            awk 'BEGIN {skip=1} /^### |^## \[/ {skip=0} !skip {print}' >> "$temp_file"
+
+                        # Replace original
+                        mv "$temp_file" "$changelog_file"
+                        log_info "Auto-generated changelog inserted for $version_no_v"
+                    else
+                        log_warn "Version header not found - skipping auto-generation"
+                    fi
+                fi
+            else
+                log_info "No commits found for auto-generation"
+            fi
+        else
+            log_warn "Git changelog auto-generation failed (non-fatal)"
+        fi
+    fi
+
     # Step 2: ALWAYS generate changelog (mandatory per CHANGELOG-GENERATION-SPEC.md)
     local changelog_content=""
     local changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
@@ -759,6 +868,34 @@ cmd_ship() {
     if ! validate_release "$normalized"; then
         log_error "Release validation failed" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Fix validation errors before shipping"
         exit "$EXIT_VALIDATION_FAILED"
+    fi
+
+    # Step 3.5: Create git commit if requested (before tagging)
+    local git_commit_created=false
+    if [[ "$SKIP_COMMIT" != "true" ]]; then
+        log_info "Creating release commit..."
+
+        # Stage files for commit
+        local files_to_stage="VERSION README.md"
+        [[ -f "CHANGELOG.md" ]] && files_to_stage="$files_to_stage CHANGELOG.md"
+        [[ -f "docs/changelog/overview.mdx" ]] && files_to_stage="$files_to_stage docs/changelog/overview.mdx"
+
+        git add $files_to_stage 2>/dev/null || {
+            log_warn "Some files could not be staged (may not exist)"
+        }
+
+        # Create commit
+        local version_no_v="${normalized#v}"
+        if git commit -m "chore: Release v$version_no_v
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>" 2>/dev/null; then
+            git_commit_created=true
+            log_info "Release commit created"
+        else
+            log_warn "Nothing to commit or commit failed (continuing)"
+        fi
+    else
+        log_info "Skipping git commit (--no-commit)"
     fi
 
     # Step 4: Create git tag if requested
@@ -800,20 +937,36 @@ $release_desc"
         git_tag_created=true
         log_info "Git tag $normalized created"
 
-        # Push tag if requested
-        if [[ "$PUSH_TAG" == "true" ]]; then
-            log_info "Pushing tag to remote..."
+    fi
 
-            # Detect if credentials are available (non-interactive check)
-            if ! git ls-remote --exit-code --tags origin >/dev/null 2>&1; then
-                log_warn "Git credential check failed - remote may not be accessible"
-                log_warn "Run manually: git push origin $normalized"
-            else
-                # Use GIT_TERMINAL_PROMPT=0 to prevent hang on credential prompt
-                # Use GIT_SSH_COMMAND to disable interactive SSH
+    # Step 5: Push to remote if requested
+    if [[ "$PUSH_TAG" == "true" ]]; then
+        log_info "Pushing to remote..."
+
+        # Detect if credentials are available (non-interactive check)
+        if ! git ls-remote --exit-code --tags origin >/dev/null 2>&1; then
+            log_warn "Git credential check failed - remote may not be accessible"
+            log_warn "Run manually: git push origin main --tags"
+        else
+            # Push both commits and tags
+            # Use GIT_TERMINAL_PROMPT=0 to prevent hang on credential prompt
+            # Use GIT_SSH_COMMAND to disable interactive SSH
+            local push_success=true
+
+            # Push main branch if we created a commit
+            if [[ "$git_commit_created" == true ]]; then
+                if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin main 2>&1; then
+                    log_error "Failed to push commits to remote" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Push manually: git push origin main"
+                    push_success=false
+                else
+                    log_info "Commits pushed to remote"
+                fi
+            fi
+
+            # Push tags
+            if [[ "$git_tag_created" == true ]] && [[ "$push_success" == true ]]; then
                 if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin "$normalized" 2>&1; then
                     log_error "Failed to push tag to remote" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Push manually: git push origin $normalized"
-                    # Don't exit - tag was created successfully locally
                 else
                     log_info "Tag pushed to remote"
                 fi
@@ -821,7 +974,7 @@ $release_desc"
         fi
     fi
 
-    # Step 5: Update release status to shipped
+    # Step 6: Update release status to shipped
     local timestamp
     timestamp=$(get_timestamp)
 
@@ -1108,6 +1261,53 @@ cmd_show() {
 }
 
 #####################################################################
+# Subcommand: init-ci
+#####################################################################
+
+# @task T2670
+# @epic T2666
+cmd_init_ci() {
+    log_info "Initializing CI/CD workflow configuration..."
+
+    # Call generate_ci_config from lib/release-ci.sh
+    if declare -f generate_ci_config >/dev/null 2>&1; then
+        if generate_ci_config "$CI_PLATFORM" "$CI_OUTPUT" "$DRY_RUN" "$CI_FORCE"; then
+            if [[ "$FORMAT" == "json" ]]; then
+                local platform="${CI_PLATFORM:-$(get_ci_platform)}"
+                local output="${CI_OUTPUT:-${PLATFORM_PATHS[$platform]}}"
+                jq -n \
+                    --arg version "$VERSION" \
+                    --arg platform "$platform" \
+                    --arg output "$output" \
+                    --argjson dryRun "$DRY_RUN" \
+                    '{
+                        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                        "_meta": {
+                            "format": "json",
+                            "command": "release init-ci",
+                            "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+                            "version": $version
+                        },
+                        "success": true,
+                        "platform": $platform,
+                        "outputFile": $output,
+                        "dryRun": $dryRun
+                    }'
+            else
+                echo -e "${GREEN}${CHECK_MARK}${NC} CI/CD configuration initialized"
+            fi
+            return 0
+        else
+            log_error "CI/CD configuration failed" "E_CI_INIT_FAILED" 72 "Check platform support and template availability"
+            exit 72
+        fi
+    else
+        log_error "CI template generator not available" "E_CI_INIT_FAILED" 72 "lib/release-ci.sh not loaded"
+        exit 72
+    fi
+}
+
+#####################################################################
 # Argument Parsing
 #####################################################################
 
@@ -1130,11 +1330,11 @@ parse_args() {
     # Parse subcommand and command-specific arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            create|plan|ship|list|show|changelog)
+            create|plan|ship|list|show|changelog|init-ci)
                 SUBCOMMAND="$1"
                 shift
                 # Get version argument for subcommands that need it
-                if [[ "$SUBCOMMAND" != "list" && $# -gt 0 && ! "$1" =~ ^- ]]; then
+                if [[ "$SUBCOMMAND" != "list" && "$SUBCOMMAND" != "init-ci" && $# -gt 0 && ! "$1" =~ ^- ]]; then
                     VERSION_ARG="$1"
                     shift
                 fi
@@ -1179,6 +1379,22 @@ parse_args() {
                 shift
                 continue
                 ;;
+            --force)
+                # Can be used for both --force-tag and CI init --force
+                if [[ "$SUBCOMMAND" == "init-ci" ]]; then
+                    CI_FORCE="true"
+                else
+                    FORCE_TAG="true"
+                fi
+                shift
+                continue
+                ;;
+            --platform)
+                shift
+                CI_PLATFORM="$1"
+                shift
+                continue
+                ;;
             --run-tests)
                 RUN_TESTS="true"
                 shift
@@ -1194,6 +1410,21 @@ parse_args() {
                 shift
                 continue
                 ;;
+            --dry-run)
+                DRY_RUN="true"
+                shift
+                continue
+                ;;
+            --no-commit)
+                SKIP_COMMIT="true"
+                shift
+                continue
+                ;;
+            --no-changelog)
+                SKIP_CHANGELOG="true"
+                shift
+                continue
+                ;;
             --write-changelog)
                 WRITE_CHANGELOG="true"
                 shift
@@ -1201,7 +1432,12 @@ parse_args() {
                 ;;
             --output)
                 shift
-                CHANGELOG_OUTPUT="$1"
+                # Can be used for both changelog and CI output
+                if [[ "$SUBCOMMAND" == "init-ci" ]]; then
+                    CI_OUTPUT="$1"
+                else
+                    CHANGELOG_OUTPUT="$1"
+                fi
                 shift
                 continue
                 ;;
@@ -1290,12 +1526,15 @@ main() {
             fi
             cmd_changelog "$VERSION_ARG"
             ;;
+        init-ci)
+            cmd_init_ci
+            ;;
         "")
-            log_error "Subcommand required" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog"
+            log_error "Subcommand required" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog, init-ci"
             usage
             ;;
         *)
-            log_error "Unknown subcommand: $SUBCOMMAND" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog"
+            log_error "Unknown subcommand: $SUBCOMMAND" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog, init-ci"
             exit "${EXIT_INVALID_INPUT:-2}"
             ;;
     esac

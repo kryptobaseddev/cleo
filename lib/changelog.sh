@@ -464,6 +464,167 @@ get_release_notes() {
     ' "$todo_file"
 }
 
+# generate_changelog_from_commits - Generate changelog from git commits
+#
+# Args:
+#   $1 - (optional) since_ref - git ref to start from (tag, commit, or "last-tag" for auto-detect)
+#   $2 - (optional) until_ref - git ref to end at (default: HEAD)
+#
+# Output: Markdown changelog entries grouped by conventional commit type
+#
+# Algorithm:
+#   1. Get commits since last tag (or specified ref)
+#   2. Parse conventional commit format: type(scope): description (T####)
+#   3. Group by type: feat, fix, docs, refactor, test, chore, breaking
+#   4. Extract task IDs from commit messages
+#   5. Generate Keep-a-Changelog format entries
+#
+# @task T2842
+# @epic T2666
+generate_changelog_from_commits() {
+    local since_ref="${1:-last-tag}"
+    local until_ref="${2:-HEAD}"
+
+    # Auto-detect last tag if requested
+    if [[ "$since_ref" == "last-tag" ]]; then
+        since_ref=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        if [[ -z "$since_ref" ]]; then
+            # No tags exist, use first commit
+            since_ref=$(git rev-list --max-parents=0 HEAD 2>/dev/null || echo "HEAD")
+        fi
+    fi
+
+    # Get commits in range
+    local commit_range
+    if [[ -n "$since_ref" && "$since_ref" != "HEAD" ]]; then
+        commit_range="${since_ref}..${until_ref}"
+    else
+        commit_range="$until_ref"
+    fi
+
+    # Parse commits and generate JSON for processing
+    # Format: type|scope|description|taskIds
+    local commits_json
+    commits_json=$(git log --pretty=format:"%s" --no-merges "$commit_range" 2>/dev/null | \
+        awk '
+        BEGIN {
+            print "["
+            first = 1
+        }
+        {
+            # Parse conventional commit format: type(scope): description (T####)
+            subject = $0
+
+            # Match pattern: type(scope): description or type: description
+            if (match(subject, /^([a-z]+)(\([^)]+\))?:/)) {
+                # Extract the matched prefix
+                matched_prefix = substr(subject, 1, RLENGTH)
+                # Get description after ": "
+                desc = substr(subject, RLENGTH + 1)
+                # Remove leading space from description
+                sub(/^ /, "", desc)
+
+                # Extract type
+                if (match(matched_prefix, /^[a-z]+/)) {
+                    type = substr(matched_prefix, 1, RLENGTH)
+                }
+
+                # Extract scope (if present)
+                scope = ""
+                if (match(matched_prefix, /\([^)]+\)/)) {
+                    scope_with_parens = substr(matched_prefix, RSTART, RLENGTH)
+                    # Remove parentheses
+                    scope = substr(scope_with_parens, 2, length(scope_with_parens) - 2)
+                }
+
+                # Extract task IDs (T####)
+                task_ids = ""
+                temp = desc
+                while (match(temp, /\(T[0-9]+\)/)) {
+                    task_id = substr(temp, RSTART+1, RLENGTH-2)
+                    if (task_ids == "") {
+                        task_ids = task_id
+                    } else {
+                        task_ids = task_ids "," task_id
+                    }
+                    temp = substr(temp, RSTART+RLENGTH)
+                }
+
+                # Clean description (remove task IDs)
+                gsub(/ ?\(T[0-9]+\)/, "", desc)
+
+                # Escape quotes in description and scope
+                gsub(/"/, "\\\"", desc)
+                gsub(/"/, "\\\"", scope)
+
+                # Output JSON
+                if (!first) print ","
+                printf "  {\"type\":\"%s\",\"scope\":\"%s\",\"description\":\"%s\",\"taskIds\":\"%s\"}", type, scope, desc, task_ids
+                first = 0
+            }
+        }
+        END {
+            print ""
+            print "]"
+        }
+    ')
+
+    # Group by type and generate markdown using jq
+    echo "$commits_json" | jq -r '
+        # Group by type
+        group_by(.type) |
+        map({
+            type: .[0].type,
+            entries: map(
+                if .scope != "" then
+                    "- **" + .scope + "**: " + .description +
+                    (if .taskIds != "" then " (" + .taskIds + ")" else "" end)
+                else
+                    "- " + .description +
+                    (if .taskIds != "" then " (" + .taskIds + ")" else "" end)
+                end
+            )
+        }) |
+
+        # Map type to section header
+        map(
+            if .type == "feat" then
+                {section: "### Features", entries: .entries}
+            elif .type == "fix" then
+                {section: "### Bug Fixes", entries: .entries}
+            elif .type == "docs" then
+                {section: "### Documentation", entries: .entries}
+            elif .type == "refactor" then
+                {section: "### Refactoring", entries: .entries}
+            elif .type == "test" then
+                {section: "### Tests", entries: .entries}
+            elif .type == "chore" then
+                {section: "### Other Changes", entries: .entries}
+            elif .type == "breaking" then
+                {section: "### Breaking Changes", entries: .entries}
+            else
+                {section: "### Other Changes", entries: .entries}
+            end
+        ) |
+
+        # Sort sections (breaking first, then standard order)
+        sort_by(
+            if .section == "### Breaking Changes" then 0
+            elif .section == "### Features" then 1
+            elif .section == "### Bug Fixes" then 2
+            elif .section == "### Documentation" then 3
+            elif .section == "### Refactoring" then 4
+            elif .section == "### Tests" then 5
+            else 6
+            end
+        ) |
+
+        # Generate markdown
+        map(.section + "\n" + (.entries | join("\n"))) |
+        join("\n\n")
+    '
+}
+
 # extract_changelog_section - Extract version section from CHANGELOG.md
 #
 # Args:
