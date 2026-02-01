@@ -5,6 +5,44 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.78.0] - 2026-02-01
+
+### Features
+- **metrics**: Complete Token Usage Tracking system (T2163)
+  - `cleo otel status` - Show token tracking status and breakdown (T2890)
+  - `cleo otel summary` - Show detailed token usage by type (T2890)
+  - `cleo otel clear` - Clear tracking data with backup (T2890)
+  - OpenTelemetry integration for Claude Code metrics (T2849)
+  - Token tracking in orchestrator spawn workflow (T2851)
+  - Token tracking in skill dispatch/injection (T2852)
+  - A/B testing framework for measuring CLEO value (T2858)
+  - Centralized token tracking architecture (T2897)
+
+- **validation**: Real compliance metrics system
+  - Removed hardcoded 100% compliance scores (T2832)
+  - Manifest-based real validation at task completion
+  - Validation backfill script for historical data (T2853, T2857)
+
+- **orchestrator**: First fully autonomous release (T2891)
+  - Complete RCSD → IVTR pipeline execution
+  - Subagent coordination without human intervention
+  - Full audit trail in MANIFEST.jsonl
+
+### Infrastructure
+- New libraries: lib/otel-integration.sh, lib/token-estimation.sh, lib/ab-test.sh
+- Metrics directory structure: .cleo/metrics/TOKEN_USAGE.jsonl
+- Shell setup script: .cleo/setup-otel.sh
+
+### Documentation
+- CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md
+- METRICS-VALUE-PROOF-SPEC.md
+- Updated CLAUDE.md with real metrics examples (T2859)
+
+### Tests
+- BATS tests for token-estimation.sh (T2854)
+- BATS tests for otel-integration.sh (T2855)
+- Integration tests for value metrics flow (T2856)
+
 ## [0.77.6] - 2026-02-01
 
 ### Bug Fixes

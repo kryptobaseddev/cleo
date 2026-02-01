@@ -52,6 +52,8 @@ source "${_OSP_LIB_DIR}/compliance-check.sh"
 source "${_OSP_LIB_DIR}/protocol-validation.sh"
 # shellcheck source=lib/lifecycle.sh
 source "${_OSP_LIB_DIR}/lifecycle.sh"
+# shellcheck source=lib/token-estimation.sh
+source "${_OSP_LIB_DIR}/token-estimation.sh"
 
 # ============================================================================
 # INTERNAL HELPERS
@@ -554,6 +556,11 @@ orchestrator_spawn_for_task() {
         return "$inject_rc"
     fi
 
+    # Step 7.5: Track prompt build tokens (T2851)
+    _osp_debug "Tracking token usage for prompt build..."
+    track_prompt_build "$prompt_content" "$task_id" "$skill_name" 2>/dev/null || \
+        _osp_warn "Failed to track prompt tokens (non-blocking)"
+
     # Step 8: MANDATORY protocol validation - fail loudly if missing
     # This check ensures ALL spawned subagents have the protocol block
     _osp_debug "Validating protocol injection in generated prompt..."
@@ -602,43 +609,13 @@ orchestrator_spawn_for_task() {
     local spawn_timestamp
     spawn_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    # Step 9: Record spawn attempt in compliance metrics
-    _osp_debug "Recording spawn attempt in compliance metrics"
-    if command -v log_compliance_metrics &>/dev/null; then
-        local spawn_metrics
-        spawn_metrics=$(jq -n \
-            --arg timestamp "$spawn_timestamp" \
-            --arg task_id "$task_id" \
-            --arg skill "$skill_name" \
-            '{
-                "timestamp": $timestamp,
-                "source_id": $task_id,
-                "source_type": "orchestrator",
-                "compliance": {
-                    "compliance_pass_rate": 1.0,
-                    "rule_adherence_score": 1.0,
-                    "violation_count": 0,
-                    "violation_severity": "none",
-                    "manifest_integrity": "valid"
-                },
-                "efficiency": {
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "context_utilization": 0,
-                    "token_utilization_rate": 0
-                },
-                "_context": {
-                    "agent_type": "orchestrator",
-                    "operation": "spawn",
-                    "skill": $skill,
-                    "protocol_validated": true,
-                    "tokens_validated": true
-                }
-            }')
-        log_compliance_metrics "$spawn_metrics" 2>/dev/null || _osp_debug "Failed to log spawn metrics (non-critical)"
-    else
-        _osp_debug "Compliance metrics logging not available (non-critical)"
-    fi
+    # Step 9: Record spawn attempt (NOT compliance - that happens at completion)
+    # T2832: Removed hardcoded 100% compliance. Real validation happens in cleo complete.
+    # This only logs that a spawn was initiated - actual compliance is measured when
+    # the subagent completes and its manifest entry is validated.
+    _osp_debug "Spawn prepared for task $task_id with skill $skill_name"
+    # Note: Compliance metrics are logged by validate_and_log() at task completion time,
+    # using actual manifest entries and real protocol validation - not hardcoded values.
 
     # Output as JSON with all metadata for Task tool
     jq -n \
