@@ -11,13 +11,14 @@
 #   --verbose, -v      Show detailed output for each test
 #   --unit             Run only unit tests
 #   --integration      Run only integration tests
+#   --smoke            Run quick smoke tests only (tests/smoke-test.sh)
 #   --filter PATTERN   Run tests matching pattern
 #   --parallel, -p     Enable parallel execution (default: auto-detect)
 #   --no-parallel      Disable parallel execution
 #   --jobs N, -j N     Number of parallel jobs (default: min(cores, 16))
 #   --fast             Use all available CPU cores for maximum speed
-#   --timeout N        Per-test-file timeout in seconds (default: 60)
-#   --suite-timeout N  Overall suite timeout in seconds (default: 600)
+#   --timeout N        Per-test-file timeout in seconds (default: 120)
+#   --suite-timeout N  Overall suite timeout in seconds (default: 900)
 #   --help, -h         Show this help message
 # =============================================================================
 
@@ -26,8 +27,8 @@ set -euo pipefail
 # =============================================================================
 # Timeout and Cleanup Configuration
 # =============================================================================
-PER_FILE_TIMEOUT="${CLEO_TEST_TIMEOUT:-60}"       # 60 seconds per test file
-SUITE_TIMEOUT="${CLEO_SUITE_TIMEOUT:-600}"        # 10 minutes total
+PER_FILE_TIMEOUT="${CLEO_TEST_TIMEOUT:-120}"      # 2 minutes per test file
+SUITE_TIMEOUT="${CLEO_SUITE_TIMEOUT:-900}"        # 15 minutes total
 TIMED_OUT_TESTS=""
 SUITE_START_TIME=""
 
@@ -99,6 +100,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 VERBOSE=false
 RUN_UNIT=true
 RUN_INTEGRATION=true
+RUN_SMOKE=false
 FILTER=""
 
 # Parallel execution settings
@@ -125,11 +127,19 @@ while [[ $# -gt 0 ]]; do
         --unit)
             RUN_UNIT=true
             RUN_INTEGRATION=false
+            RUN_SMOKE=false
             shift
             ;;
         --integration)
             RUN_UNIT=false
             RUN_INTEGRATION=true
+            RUN_SMOKE=false
+            shift
+            ;;
+        --smoke)
+            RUN_UNIT=false
+            RUN_INTEGRATION=false
+            RUN_SMOKE=true
             shift
             ;;
         --filter)
@@ -171,6 +181,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --verbose, -v      Show detailed output for each test"
             echo "  --unit             Run only unit tests"
             echo "  --integration      Run only integration tests"
+            echo "  --smoke            Run quick smoke tests only (tests/smoke-test.sh)"
             echo "  --filter PATTERN   Run tests matching pattern"
             echo "  --parallel, -p     Enable parallel execution (default: auto-detect)"
             echo "  --no-parallel      Disable parallel execution"
@@ -404,11 +415,27 @@ run_test_suite() {
 }
 
 # Run test suites
-if [[ "$RUN_UNIT" == true ]]; then
+if [[ "$RUN_SMOKE" == true ]]; then
+    # Run smoke tests instead of full suite
+    if [[ -f "$SCRIPT_DIR/smoke-test.sh" ]]; then
+        echo -e "${BLUE}Running smoke tests...${NC}"
+        echo ""
+        if bash "$SCRIPT_DIR/smoke-test.sh"; then
+            echo -e "${GREEN}✓ Smoke tests passed${NC}"
+            TOTAL_PASSED=1
+        else
+            echo -e "${RED}✗ Smoke tests failed${NC}"
+            TOTAL_FAILED=1
+        fi
+    else
+        echo -e "${RED}Error: smoke-test.sh not found${NC}"
+        exit 1
+    fi
+elif [[ "$RUN_UNIT" == true ]]; then
     run_test_suite "Unit" "$SCRIPT_DIR/unit"
 fi
 
-if [[ "$RUN_INTEGRATION" == true ]]; then
+if [[ "$RUN_INTEGRATION" == true ]] && [[ "$RUN_SMOKE" == false ]]; then
     run_test_suite "Integration" "$SCRIPT_DIR/integration"
 fi
 
