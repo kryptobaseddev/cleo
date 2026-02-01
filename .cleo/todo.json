@@ -363,16 +363,18 @@
       },
       {
         "version": "v0.77.6",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-01T06:12:24Z",
         "createdAt": "2026-02-01T06:12:16Z",
         "tasks": [],
-        "notes": null
+        "notes": null,
+        "gitTag": "v0.77.6",
+        "changelog": "## [0.77.6] - 2026-01-31"
       }
     ]
   },
-  "lastUpdated": "2026-02-01T06:12:16Z",
+  "lastUpdated": "2026-02-01T06:12:24Z",
   "_meta": {
     "checksum": "3a73d6ae66361f34",
     "configVersion": "2.1.0",
