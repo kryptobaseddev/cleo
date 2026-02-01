@@ -18,11 +18,15 @@ _Maintenance release - no new features. Investigation and fixes for changelog ge
 
 ### Features
 - **release**: Complete Release System v2 implementation (T2666)
-  - Config loading: lib/release-config.sh (validation, artifact types, gates)
-  - CI templates: lib/release-ci.sh (GitHub Actions, GitLab CI, CircleCI)
-  - Artifacts: lib/release-artifacts.sh (9 types: npm, PyPI, Go, Cargo, Ruby, Docker, GitHub, tarball)
-  - Provenance: lib/release-provenance.sh (SLSA Level 3 tracking)
-  - Changelog: lib/changelog.sh (auto-generate from conventional commits)
+  - Research on release patterns across package ecosystems (T2667)
+  - Release Configuration Schema v2 (T2668)
+  - Release config loader and validator (T2669)
+  - CI/CD template generator (T2670)
+  - Artifact type handlers (T2671)
+  - Release provenance tracking (T2672)
+  - Updated protocols/release.md (T2673)
+  - Integration tests for release system (T2674)
+  - Release configuration guide (T2675)
 
 ### Bug Fixes
 - **release**: Auto-generate release notes from commits when CHANGELOG missing (T2867)
