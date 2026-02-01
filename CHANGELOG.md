@@ -5,65 +5,26 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.77.5] - 2026-01-31
+## [0.77.6] - 2026-01-31
 
-### Bug Fixes
-- BUGFIX: Implement dynamic releaseGates execution in release.sh (T2823)
-- Bug: release-version.sh missing auto-generated changelog header (T2826)
-- BUGFIX: Config schema version mismatch blocks ct upgrade (T2841)
-- Bug: Release tags pushed without CHANGELOG entry (T2867)
-
-### Documentation
-- Update: protocols/release.md for v2 (T2673)
-- Docs: Release configuration guide (T2675)
-
-### Tests
-- Test: Release system v2 integration tests (T2674)
-
-### Other Changes
-- Research: Survey release patterns across package ecosystems (T2667)
-- Spec: Release Configuration Schema v2 (T2668)
-- Implement: Release config loader and validator (T2669)
-- Implement: CI/CD template generator (T2670)
-- Implement: Artifact type handlers (T2671)
-- Implement: Release provenance tracking (T2672)
-- Validate and release v0.77.1 patch (T2824)
-- Release: Commit and push changelog fixes (T2828)
-- CRITICAL: Auto-generate changelog from conventional commits (T2842)
-- Commit: Release System v2 implementation (T2861)
-
-## [0.77.5] - 2026-01-31
+## [0.78.0] - 2026-02-01
 
 ### Features
-- **release**: Complete release system v2 implementation (T2666)
+- **release**: Complete Release System v2 implementation (T2666)
+  - Config loading: lib/release-config.sh (validation, artifact types, gates)
+  - CI templates: lib/release-ci.sh (GitHub Actions, GitLab CI, CircleCI)
+  - Artifacts: lib/release-artifacts.sh (9 types: npm, PyPI, Go, Cargo, Ruby, Docker, GitHub, tarball)
+  - Provenance: lib/release-provenance.sh (SLSA Level 3 tracking)
+  - Changelog: lib/changelog.sh (auto-generate from conventional commits)
 
 ### Bug Fixes
-- **release**: Auto-generate release notes from commits when CHANGELOG missing (T2867)
-- **changelog**: Correct v0.77.4 changelog entry content (T2867)
-### Bug Fixes
-- BUGFIX: Implement dynamic releaseGates execution in release.sh (T2823)
-- Bug: release-version.sh missing auto-generated changelog header (T2826)
-- BUGFIX: Config schema version mismatch blocks ct upgrade (T2841)
-- Bug: Release tags pushed without CHANGELOG entry (T2867)
-
-### Documentation
-- Update: protocols/release.md for v2 (T2673)
-- Docs: Release configuration guide (T2675)
+- **release**: Fix empty array validation for gates/artifacts (T2868)
+- **release**: Fix npm package name regex pattern (T2869)
+- **release**: Fix subshell-safe artifact handler dispatch (T2870)
+- **tests**: Skip go module tests when go command unavailable (T2871)
 
 ### Tests
-- Test: Release system v2 integration tests (T2674)
-
-### Other Changes
-- Research: Survey release patterns across package ecosystems (T2667)
-- Spec: Release Configuration Schema v2 (T2668)
-- Implement: Release config loader and validator (T2669)
-- Implement: CI/CD template generator (T2670)
-- Implement: Artifact type handlers (T2671)
-- Implement: Release provenance tracking (T2672)
-- Validate and release v0.77.1 patch (T2824)
-- Release: Commit and push changelog fixes (T2828)
-- CRITICAL: Auto-generate changelog from conventional commits (T2842)
-- Commit: Release System v2 implementation (T2861)
+- Release system v2: 96 tests (30 config, 25 provenance, 41 integration) (T2872)
 
 ## [0.77.4] - 2026-01-31
 
@@ -491,21 +452,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.77.5] - 2026-01-31
+## [0.77.6] - 2026-01-31
 
 ### Bug Fixes
-- **release**: Auto-generate release notes from commits when CHANGELOG missing (T2867)
-- **changelog**: Correct v0.77.4 changelog entry content (T2867)
-## [0.77.4] - 2026-01-31
-
-### Features
-- **release**: Project-agnostic release system v2 (T2666)
-
-### Bug Fixes
-- **update**: Allow notes on completed tasks without session (T2863)
-## [0.77.3] - 2026-01-31
-_No unreleased changes_
-
+- **release**: Ensure release commit created before tagging (T2867)
 ## [0.72.1] - 2026-01-27
 
 ### Fixed
