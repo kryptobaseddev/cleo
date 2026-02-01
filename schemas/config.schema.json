@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/config.schema.json",
-  "schemaVersion": "2.9.0",
+  "schemaVersion": "2.10.0",
   "title": "CLEO Configuration Schema",
   "description": "Configuration for archive policies, validation rules, logging, and session behavior.",
   "type": "object",
@@ -411,6 +411,42 @@
               "description": "Strict mode: require frontmatter on all claudedocs/ files. When false, legacy files without frontmatter are allowed with warning."
             }
           }
+        },
+        "releaseGates": {
+          "type": "array",
+          "description": "DEPRECATED: Use release.gates instead. Validation gates for release operations.",
+          "x-deprecated": true,
+          "x-deprecated-by": "release.gates",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "command"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "description": "Unique gate identifier."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Shell command to execute."
+              },
+              "required": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true, gate failure blocks release."
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description."
+              }
+            }
+          },
+          "default": []
         },
         "testing": {
           "type": "object",
@@ -1525,6 +1561,111 @@
         }
       }
     },
+    "release": {
+      "type": "object",
+      "description": "Release system configuration including validation gates for pre-release checks.",
+      "additionalProperties": false,
+      "properties": {
+        "gates": {
+          "type": "array",
+          "description": "Validation gates executed before release. Each gate is a command that must exit 0 to pass.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "command"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "description": "Unique gate identifier (snake_case or kebab-case)."
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Shell command to execute. Exit 0 = pass, non-zero = fail."
+              },
+              "required": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true, gate failure blocks release. If false, failure is logged as warning."
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description of what this gate validates."
+              }
+            }
+          },
+          "default": []
+        },
+        "changelog": {
+          "type": "object",
+          "description": "Changelog generation and output configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable changelog generation during release."
+            },
+            "autoGenerate": {
+              "type": "boolean",
+              "default": false,
+              "description": "Automatically generate changelog from commits and task history."
+            },
+            "source": {
+              "type": "string",
+              "default": "CHANGELOG.md",
+              "description": "Source file for changelog content."
+            },
+            "outputs": {
+              "type": "array",
+              "description": "Output targets for changelog generation. Supports multiple documentation platforms.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "platform",
+                  "path"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "mintlify",
+                      "docusaurus",
+                      "github",
+                      "gitbook",
+                      "plain",
+                      "custom"
+                    ],
+                    "description": "Documentation platform type. Determines format and transformations applied."
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable this output target."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Output file path relative to project root."
+                  }
+                }
+              },
+              "default": [
+                {
+                  "platform": "mintlify",
+                  "enabled": true,
+                  "path": "docs/changelog/overview.mdx"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
     "retention": {
       "type": "object",
       "description": "Retention policies for session archival and cleanup. Controls automatic session lifecycle management.",
@@ -1666,7 +1807,9 @@
           "properties": {
             "customGates": {
               "type": "array",
-              "description": "Custom validation gates executed before spawning next subagent. Empty array uses only core gates (manifest, file, task status).",
+              "description": "DEPRECATED: Use release.gates instead. Custom validation gates executed before spawning next subagent. Empty array uses only core gates (manifest, file, task status).",
+              "x-deprecated": true,
+              "x-deprecated-by": "release.gates",
               "items": {
                 "type": "object",
                 "additionalProperties": false,

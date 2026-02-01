@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# @task T2823 - Release gates unit tests
+# @task T2823 T2844 - Release gates unit tests
 
 setup() {
     load '../test_helper/common_setup'
@@ -120,4 +120,100 @@ EOF
     rm -f "$TEST_CONFIG"
     result=$(get_release_gates)
     [[ "$result" == "[]" ]]
+}
+
+# @task T2844 - New location tests
+@test "get_release_gates_new returns gates from new release.gates location" {
+    cat > "$TEST_CONFIG" << 'EOF'
+{
+  "release": {
+    "gates": [
+      {"name": "lint", "command": "echo ok", "required": true}
+    ]
+  }
+}
+EOF
+    result=$(get_release_gates_new)
+    echo "$result" | jq -e '.[0].name == "lint"'
+}
+
+@test "get_release_gates_new falls back to validation.releaseGates with warning" {
+    cat > "$TEST_CONFIG" << 'EOF'
+{
+  "validation": {
+    "releaseGates": [
+      {"name": "old-gate", "command": "echo old", "required": true}
+    ]
+  }
+}
+EOF
+    # Capture stderr and stdout separately
+    stderr_file=$(mktemp)
+    result=$(get_release_gates_new 2>"$stderr_file")
+    stderr_content=$(cat "$stderr_file")
+    rm -f "$stderr_file"
+
+    # Should contain deprecation warning in stderr
+    [[ "$stderr_content" =~ "DEPRECATION" ]]
+    # Should still return the gates in stdout
+    echo "$result" | jq -e '.[0].name == "old-gate"'
+}
+
+@test "get_release_gates_new falls back to orchestrator.validation.customGates with warning" {
+    cat > "$TEST_CONFIG" << 'EOF'
+{
+  "orchestrator": {
+    "validation": {
+      "customGates": [
+        {"name": "custom-gate", "command": "echo custom", "required": false}
+      ]
+    }
+  }
+}
+EOF
+    # Capture stderr and stdout separately
+    stderr_file=$(mktemp)
+    result=$(get_release_gates_new 2>"$stderr_file")
+    stderr_content=$(cat "$stderr_file")
+    rm -f "$stderr_file"
+
+    # Should contain deprecation warning in stderr
+    [[ "$stderr_content" =~ "DEPRECATION" ]]
+    # Should still return the gates in stdout
+    echo "$result" | jq -e '.[0].name == "custom-gate"'
+}
+
+@test "get_release_gates_new prefers new location over old" {
+    cat > "$TEST_CONFIG" << 'EOF'
+{
+  "release": {
+    "gates": [
+      {"name": "new-gate", "command": "echo new", "required": true}
+    ]
+  },
+  "validation": {
+    "releaseGates": [
+      {"name": "old-gate", "command": "echo old", "required": true}
+    ]
+  }
+}
+EOF
+    result=$(get_release_gates_new)
+    # Should use new location without warning
+    [[ ! "$result" =~ "DEPRECATION" ]]
+    echo "$result" | jq -e '.[0].name == "new-gate"'
+}
+
+@test "get_release_gates wraps get_release_gates_new for backward compatibility" {
+    cat > "$TEST_CONFIG" << 'EOF'
+{
+  "release": {
+    "gates": [
+      {"name": "test", "command": "echo test", "required": true}
+    ]
+  }
+}
+EOF
+    result=$(get_release_gates)
+    echo "$result" | jq -e '.[0].name == "test"'
 }
