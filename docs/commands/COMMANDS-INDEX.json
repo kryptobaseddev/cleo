@@ -1714,5 +1714,10 @@
     "skillManagement": "skills",
     "documentationGaps": "docs gap-check",
     "driftDetection": "docs sync"
+  },
+  "backfill-validation": {
+    "script": "backfill-validation.sh",
+    "description": "Backfill validation data for existing tasks",
+    "category": "maintenance"
   }
 }

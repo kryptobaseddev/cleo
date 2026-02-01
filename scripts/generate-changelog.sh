@@ -1,18 +1,84 @@
 #!/usr/bin/env bash
-# Generate Mintlify changelog from CHANGELOG.md
-# Usage: ./scripts/generate-changelog.sh [LIMIT]
+# Generate changelog for configured documentation platforms
+# Usage: ./scripts/generate-changelog.sh [LIMIT] [--platform PLATFORM]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-CHANGELOG_SRC="$PROJECT_ROOT/CHANGELOG.md"
-CHANGELOG_DST="$PROJECT_ROOT/docs/changelog/overview.mdx"
+LIB_DIR="$PROJECT_ROOT/lib"
+
+# Source config library
+source "$LIB_DIR/config.sh"
 
 LIMIT="${1:-15}"
+PLATFORM="${2:-}"
 
-# Write MDX header
-cat > "$CHANGELOG_DST" << 'HEADER'
+# Get changelog configuration
+get_changelog_source() {
+    jq -r '.release.changelog.source // "CHANGELOG.md"' "$PROJECT_CONFIG_FILE" 2>/dev/null || echo "CHANGELOG.md"
+}
+
+# Get changelog output path for a specific platform
+get_changelog_output_path() {
+    local platform="${1:-mintlify}"
+    local config_path
+    config_path=$(jq -r ".release.changelog.outputs[]? | select(.platform == \"$platform\" and .enabled == true) | .path // empty" "$PROJECT_CONFIG_FILE" 2>/dev/null)
+
+    if [[ -z "$config_path" ]]; then
+        # Default paths by platform
+        case "$platform" in
+            mintlify) echo "docs/changelog/overview.mdx" ;;
+            docusaurus) echo "docs/changelog.md" ;;
+            github) echo "CHANGELOG.md" ;;
+            plain) echo "CHANGELOG.md" ;;
+            *) echo "" ;;
+        esac
+    else
+        echo "$config_path"
+    fi
+}
+
+# Get all enabled platforms
+get_enabled_platforms() {
+    jq -r '.release.changelog.outputs[]? | select(.enabled == true) | .platform' "$PROJECT_CONFIG_FILE" 2>/dev/null || echo "mintlify"
+}
+
+CHANGELOG_SRC="$PROJECT_ROOT/$(get_changelog_source)"
+
+# Generate changelog for a specific platform
+generate_for_platform() {
+    local platform="$1"
+    local output_path="$2"
+    local dst="$PROJECT_ROOT/$output_path"
+
+    echo "Generating changelog for platform: $platform → $output_path"
+
+    case "$platform" in
+        mintlify)
+            generate_mintlify "$dst"
+            ;;
+        docusaurus)
+            generate_docusaurus "$dst"
+            ;;
+        plain|github)
+            # For plain/github, just copy source
+            cp "$CHANGELOG_SRC" "$dst"
+            echo "Copied source to $output_path"
+            ;;
+        *)
+            echo "Warning: Unknown platform '$platform', skipping"
+            return 1
+            ;;
+    esac
+}
+
+# Generate Mintlify MDX format
+generate_mintlify() {
+    local dst="$1"
+
+    # Write MDX header
+    cat > "$dst" << 'HEADER'
 ---
 title: "Changelog"
 description: "CLEO release history and product updates"
@@ -34,8 +100,8 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 HEADER
 
-# Use awk to parse and convert CHANGELOG.md
-awk -v limit="$LIMIT" '
+    # Use awk to parse and convert CHANGELOG.md to Mintlify format
+    awk -v limit="$LIMIT" '
 BEGIN {
     count = 0
     in_version = 0
@@ -135,13 +201,13 @@ END {
         output_version()
     }
 }
-' "$CHANGELOG_SRC" >> "$CHANGELOG_DST"
+' "$CHANGELOG_SRC" >> "$dst"
 
-# Escape < followed by numbers (e.g., <200ms) to prevent MDX/JSX parse errors
-sed -i 's/<\([0-9]\)/\&lt;\1/g' "$CHANGELOG_DST"
+    # Escape < followed by numbers (e.g., <200ms) to prevent MDX/JSX parse errors
+    sed -i 's/<\([0-9]\)/\&lt;\1/g' "$dst"
 
-# Add footer
-cat >> "$CHANGELOG_DST" << 'FOOTER'
+    # Add footer
+    cat >> "$dst" << 'FOOTER'
 ## Earlier Releases
 
 For the complete release history, see:
@@ -149,4 +215,62 @@ For the complete release history, see:
 - [GitHub Releases](https://github.com/kryptobaseddev/cleo/releases) - Release artifacts and notes
 FOOTER
 
-echo "Generated $CHANGELOG_DST"
+    echo "✓ Generated Mintlify changelog: $dst"
+}
+
+# Generate Docusaurus markdown format
+generate_docusaurus() {
+    local dst="$1"
+
+    # Write markdown header
+    cat > "$dst" << 'HEADER'
+---
+id: changelog
+title: Changelog
+sidebar_label: Changelog
+---
+
+# Changelog
+
+All notable changes to CLEO will be documented in this file.
+
+HEADER
+
+    # Use simpler format for Docusaurus (just copy/transform from source)
+    awk -v limit="$LIMIT" '
+BEGIN { count = 0 }
+
+# Pass through version headers
+/^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ {
+    if (count >= limit) exit
+    count++
+}
+
+# Skip Unreleased
+/^## \[Unreleased\]/ { next }
+
+# Pass through all other content when within limit
+count > 0 && count <= limit { print }
+' "$CHANGELOG_SRC" >> "$dst"
+
+    echo "✓ Generated Docusaurus changelog: $dst"
+}
+
+# Main execution
+if [[ -n "$PLATFORM" ]]; then
+    # Generate for specific platform only
+    output_path=$(get_changelog_output_path "$PLATFORM")
+    if [[ -z "$output_path" ]]; then
+        echo "Error: Platform '$PLATFORM' not enabled or not found in config" >&2
+        exit 1
+    fi
+    generate_for_platform "$PLATFORM" "$output_path"
+else
+    # Generate for all enabled platforms
+    while IFS= read -r platform; do
+        output_path=$(get_changelog_output_path "$platform")
+        if [[ -n "$output_path" ]]; then
+            generate_for_platform "$platform" "$output_path" || true
+        fi
+    done < <(get_enabled_platforms)
+fi

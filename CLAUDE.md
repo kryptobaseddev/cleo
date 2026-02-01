@@ -16,6 +16,29 @@
 ### Critical Philosophy
 **NO TIME ESTIMATES** - This system explicitly prohibits estimating hours, days, or duration for any task. Instead, describe scope, complexity, and dependencies using relative sizing (small/medium/large) when needed.
 
+### Metrics & Value Tracking (T2833)
+
+CLEO tracks its own value through real metrics. Enable OpenTelemetry for token tracking:
+
+```bash
+# Add to shell profile for persistent metrics
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+export OTEL_EXPORTER_OTLP_ENDPOINT=file://.cleo/metrics/otel/
+```
+
+**What Claude Code Captures** (when OpenTelemetry is enabled):
+- `claude_code.token.usage` - Aggregated token counts per session
+- `claude_code.api_request` - Per-request details (input tokens, output tokens, cache tokens)
+
+**What CLEO Measures**:
+- **Token savings**: Manifest reads vs full file reads (~90% reduction)
+- **Validation impact**: Protocol violations caught before completion
+- **Skill composition**: Multi-skill progressive loading efficiency
+
+**Specification**: See `docs/specs/CLEO-METRICS-VALIDATION-SYSTEM-SPEC.md` for complete documentation.
+
 ### Documentation Standards
 @docs/CLEO-DOCUMENTATION-SOP.md
 

@@ -1229,17 +1229,80 @@ export -f get_directories_config
 # RELEASE GATES CONFIGURATION GETTERS
 # ============================================================================
 
-# @task T2823
-# Get release gates array from config
+# @task T2844
+# Get release gates array from config (new location)
 # Returns: JSON array of release gate objects (default: [])
-# Usage: gates=$(get_release_gates)
-get_release_gates() {
+# Usage: gates=$(get_release_gates_new)
+get_release_gates_new() {
     local config_file="${CONFIG_FILE:-.cleo/config.json}"
     if [[ -f "$config_file" ]]; then
-        jq -c '.validation.releaseGates // []' "$config_file" 2>/dev/null || echo "[]"
+        # Try new location first, fall back to old locations with warning
+        local gates
+        gates=$(jq -c '.release.gates // empty' "$config_file" 2>/dev/null)
+
+        if [[ -n "$gates" && "$gates" != "null" ]]; then
+            echo "$gates"
+            return 0
+        fi
+
+        # Check old locations and warn
+        local old_gates
+        old_gates=$(jq -c '.validation.releaseGates // .orchestrator.validation.customGates // []' "$config_file" 2>/dev/null)
+
+        if [[ -n "$old_gates" && "$old_gates" != "[]" && "$old_gates" != "null" ]]; then
+            echo "DEPRECATION: Using validation.releaseGates or orchestrator.validation.customGates. Please migrate to release.gates" >&2
+            echo "$old_gates"
+            return 0
+        fi
+
+        echo "[]"
     else
         echo "[]"
     fi
 }
 
+# @task T2823 T2844
+# Get release gates array from config (legacy wrapper)
+# DEPRECATED: Use get_release_gates_new() instead
+# Returns: JSON array of release gate objects (default: [])
+# Usage: gates=$(get_release_gates)
+get_release_gates() {
+    get_release_gates_new
+}
+
+# @task T2848
+# Get enabled changelog platforms from config
+# Returns: Space-separated list of platform names (default: mintlify)
+# Usage: while IFS= read -r platform; do ...; done < <(get_changelog_platforms)
+get_changelog_platforms() {
+    jq -r '.release.changelog.outputs[]? | select(.enabled == true) | .platform' "$PROJECT_CONFIG_FILE" 2>/dev/null || echo "mintlify"
+}
+
+# @task T2848
+# Get changelog output path for a specific platform
+# Args: $1 - Platform name (mintlify, docusaurus, github, plain, custom)
+# Returns: Output file path (relative to project root)
+# Usage: path=$(get_changelog_output_path "mintlify")
+get_changelog_output_path() {
+    local platform="${1:-mintlify}"
+    local config_path
+    config_path=$(jq -r ".release.changelog.outputs[]? | select(.platform == \"$platform\" and .enabled == true) | .path // empty" "$PROJECT_CONFIG_FILE" 2>/dev/null)
+
+    if [[ -z "$config_path" ]]; then
+        # Default paths by platform
+        case "$platform" in
+            mintlify) echo "docs/changelog/overview.mdx" ;;
+            docusaurus) echo "docs/changelog.md" ;;
+            github) echo "CHANGELOG.md" ;;
+            plain) echo "CHANGELOG.md" ;;
+            *) echo "" ;;
+        esac
+    else
+        echo "$config_path"
+    fi
+}
+
+export -f get_release_gates_new
 export -f get_release_gates
+export -f get_changelog_platforms
+export -f get_changelog_output_path
