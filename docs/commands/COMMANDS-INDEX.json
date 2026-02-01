@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.3.0",
     "lastUpdated": "2026-01-27",
-    "totalCommands": 65,
+    "totalCommands": 66,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -59,6 +59,7 @@
       "sync"
     ],
     "maintenance": [
+      "backfill-validation",
       "backup",
       "claude-migrate",
       "config",
@@ -171,6 +172,24 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
+    },
+    {
+      "name": "backfill-validation",
+      "script": "backfill-validation.sh",
+      "category": "maintenance",
+      "doc": null,
+      "synopsis": "Backfill real validation scores for historical COMPLIANCE.jsonl entries",
+      "flags": [
+        "--dry-run",
+        "--limit"
+      ],
+      "exitCodes": [
+        0,
+        1
+      ],
+      "jsonOutput": false,
+      "agentRelevance": "low",
+      "note": "Dev tool for retrospectively validating agent outputs"
     },
     {
       "name": "backup",
@@ -1714,10 +1733,5 @@
     "skillManagement": "skills",
     "documentationGaps": "docs gap-check",
     "driftDetection": "docs sync"
-  },
-  "backfill-validation": {
-    "script": "backfill-validation.sh",
-    "description": "Backfill validation data for existing tasks",
-    "category": "maintenance"
   }
 }
