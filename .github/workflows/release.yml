@@ -87,32 +87,66 @@ jobs:
           echo "Checksums:"
           cat SHA256SUMS
 
-      - name: Extract changelog section
+      - name: Generate release notes
         id: changelog
         env:
           VERSION: ${{ steps.version.outputs.version }}
           REPO: ${{ github.repository }}
         run: |
-          # Source changelog extraction function
+          # Source changelog functions
           source lib/changelog.sh
 
-          # Extract section to temp file
-          if extract_changelog_section "v${VERSION}" "CHANGELOG.md" "release-notes.txt"; then
-            echo "✓ Extracted changelog for v${VERSION}"
-            echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "## [${VERSION}] - $(date +%Y-%m-%d)" > release-notes.txt
+          echo "" >> release-notes.txt
+
+          # Strategy 1: Try to extract from CHANGELOG.md
+          if extract_changelog_section "v${VERSION}" "CHANGELOG.md" "changelog-section.txt" 2>/dev/null; then
+            echo "✓ Found changelog entry for v${VERSION}"
+            cat changelog-section.txt >> release-notes.txt
+            echo "source=changelog" >> "$GITHUB_OUTPUT"
           else
-            echo "⚠ Failed to extract changelog for v${VERSION} - using fallback"
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "⚠ No CHANGELOG.md entry for v${VERSION} - generating from commits"
 
-            # Create fallback content
-            cat > release-notes.txt << EOF
-          Release v${VERSION}
+            # Strategy 2: Generate from git commits since last tag
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
 
-          See [CHANGELOG.md](https://github.com/${REPO}/blob/main/CHANGELOG.md) for full release notes.
-          EOF
-            echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
+            if [[ -n "$PREV_TAG" ]]; then
+              echo "Generating from commits since $PREV_TAG"
+
+              # Use the generate_changelog_from_commits function
+              if COMMIT_CHANGELOG=$(generate_changelog_from_commits "$PREV_TAG" "HEAD" 2>/dev/null); then
+                if [[ -n "$COMMIT_CHANGELOG" && "$COMMIT_CHANGELOG" != "null" ]]; then
+                  echo "$COMMIT_CHANGELOG" >> release-notes.txt
+                  echo "source=commits" >> "$GITHUB_OUTPUT"
+                else
+                  # Fallback: Simple commit list
+                  echo "### Changes" >> release-notes.txt
+                  git log --pretty=format:"- %s" --no-merges "${PREV_TAG}..HEAD" >> release-notes.txt
+                  echo "" >> release-notes.txt
+                  echo "source=commit-list" >> "$GITHUB_OUTPUT"
+                fi
+              else
+                # Fallback: Simple commit list
+                echo "### Changes" >> release-notes.txt
+                git log --pretty=format:"- %s" --no-merges "${PREV_TAG}..HEAD" >> release-notes.txt
+                echo "" >> release-notes.txt
+                echo "source=commit-list" >> "$GITHUB_OUTPUT"
+              fi
+            else
+              # No previous tag - list recent commits
+              echo "### Changes" >> release-notes.txt
+              git log --pretty=format:"- %s" --no-merges -20 >> release-notes.txt
+              echo "" >> release-notes.txt
+              echo "source=recent-commits" >> "$GITHUB_OUTPUT"
+            fi
           fi
+
+          echo ""
+          echo "=== Generated Release Notes ==="
+          cat release-notes.txt
+          echo "==============================="
+
+          echo "path=release-notes.txt" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
