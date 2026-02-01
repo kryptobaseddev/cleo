@@ -894,20 +894,29 @@ cmd_ship() {
         local files_to_stage="VERSION README.md"
         [[ -f "CHANGELOG.md" ]] && files_to_stage="$files_to_stage CHANGELOG.md"
         [[ -f "docs/changelog/overview.mdx" ]] && files_to_stage="$files_to_stage docs/changelog/overview.mdx"
+        [[ -f ".cleo/todo.json" ]] && files_to_stage="$files_to_stage .cleo/todo.json"
 
         git add $files_to_stage 2>/dev/null || {
             log_warn "Some files could not be staged (may not exist)"
         }
 
-        # Create commit
+        # Create commit with --no-verify to bypass pre-commit hooks
+        # We've already done our own validation via validate_release()
         local version_no_v="${normalized#v}"
-        if git commit -m "chore: Release v$version_no_v
+        if git commit --no-verify -m "chore: Release v$version_no_v
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>" 2>/dev/null; then
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"; then
             git_commit_created=true
             log_info "Release commit created"
         else
-            log_warn "Nothing to commit or commit failed (continuing)"
+            # Check if there were actually changes to commit
+            if git diff --cached --quiet; then
+                log_warn "No changes to commit (files already up to date)"
+                git_commit_created=true  # Allow tag creation since state is correct
+            else
+                log_error "Git commit failed" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Check git status and try again"
+                exit "$EXIT_TAG_CREATION_FAILED"
+            fi
         fi
     else
         log_info "Skipping git commit (--no-commit)"

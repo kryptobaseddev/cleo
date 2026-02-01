@@ -5,6 +5,66 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.77.5] - 2026-01-31
+
+### Bug Fixes
+- BUGFIX: Implement dynamic releaseGates execution in release.sh (T2823)
+- Bug: release-version.sh missing auto-generated changelog header (T2826)
+- BUGFIX: Config schema version mismatch blocks ct upgrade (T2841)
+- Bug: Release tags pushed without CHANGELOG entry (T2867)
+
+### Documentation
+- Update: protocols/release.md for v2 (T2673)
+- Docs: Release configuration guide (T2675)
+
+### Tests
+- Test: Release system v2 integration tests (T2674)
+
+### Other Changes
+- Research: Survey release patterns across package ecosystems (T2667)
+- Spec: Release Configuration Schema v2 (T2668)
+- Implement: Release config loader and validator (T2669)
+- Implement: CI/CD template generator (T2670)
+- Implement: Artifact type handlers (T2671)
+- Implement: Release provenance tracking (T2672)
+- Validate and release v0.77.1 patch (T2824)
+- Release: Commit and push changelog fixes (T2828)
+- CRITICAL: Auto-generate changelog from conventional commits (T2842)
+- Commit: Release System v2 implementation (T2861)
+
+## [0.77.5] - 2026-01-31
+
+### Features
+- **release**: Complete release system v2 implementation (T2666)
+
+### Bug Fixes
+- **release**: Auto-generate release notes from commits when CHANGELOG missing (T2867)
+- **changelog**: Correct v0.77.4 changelog entry content (T2867)
+### Bug Fixes
+- BUGFIX: Implement dynamic releaseGates execution in release.sh (T2823)
+- Bug: release-version.sh missing auto-generated changelog header (T2826)
+- BUGFIX: Config schema version mismatch blocks ct upgrade (T2841)
+- Bug: Release tags pushed without CHANGELOG entry (T2867)
+
+### Documentation
+- Update: protocols/release.md for v2 (T2673)
+- Docs: Release configuration guide (T2675)
+
+### Tests
+- Test: Release system v2 integration tests (T2674)
+
+### Other Changes
+- Research: Survey release patterns across package ecosystems (T2667)
+- Spec: Release Configuration Schema v2 (T2668)
+- Implement: Release config loader and validator (T2669)
+- Implement: CI/CD template generator (T2670)
+- Implement: Artifact type handlers (T2671)
+- Implement: Release provenance tracking (T2672)
+- Validate and release v0.77.1 patch (T2824)
+- Release: Commit and push changelog fixes (T2828)
+- CRITICAL: Auto-generate changelog from conventional commits (T2842)
+- Commit: Release System v2 implementation (T2861)
+
 ## [0.77.4] - 2026-01-31
 
 ### Bug Fixes
@@ -431,6 +491,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.77.5] - 2026-01-31
+
+### Bug Fixes
+- **release**: Auto-generate release notes from commits when CHANGELOG missing (T2867)
+- **changelog**: Correct v0.77.4 changelog entry content (T2867)
 ## [0.77.4] - 2026-01-31
 
 ### Features
