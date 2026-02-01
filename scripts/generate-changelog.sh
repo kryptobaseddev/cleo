@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate changelog for configured documentation platforms
-# Usage: ./scripts/generate-changelog.sh [LIMIT] [--platform PLATFORM]
+# Usage: ./scripts/generate-changelog.sh [LIMIT] [--platform TARGET_PLATFORM]
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ LIB_DIR="$PROJECT_ROOT/lib"
 source "$LIB_DIR/config.sh"
 
 LIMIT="${1:-15}"
-PLATFORM="${2:-}"
+TARGET_PLATFORM="${2:-}"
 
 # Get changelog configuration
 get_changelog_source() {
@@ -257,14 +257,14 @@ count > 0 && count <= limit { print }
 }
 
 # Main execution
-if [[ -n "$PLATFORM" ]]; then
+if [[ -n "$TARGET_PLATFORM" ]]; then
     # Generate for specific platform only
-    output_path=$(get_changelog_output_path "$PLATFORM")
+    output_path=$(get_changelog_output_path "$TARGET_PLATFORM")
     if [[ -z "$output_path" ]]; then
-        echo "Error: Platform '$PLATFORM' not enabled or not found in config" >&2
+        echo "Error: Platform '$TARGET_PLATFORM' not enabled or not found in config" >&2
         exit 1
     fi
-    generate_for_platform "$PLATFORM" "$output_path"
+    generate_for_platform "$TARGET_PLATFORM" "$output_path"
 else
     # Generate for all enabled platforms
     while IFS= read -r platform; do

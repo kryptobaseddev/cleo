@@ -856,6 +856,21 @@ cmd_ship() {
             exit "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
 
+        # T2864: Validate changelog content is not empty before appending
+        # This prevents creating empty version headers that break GitHub release notes
+        local version_no_v="${normalized#v}"
+        local changelog_section_content
+        changelog_section_content=$(extract_changelog_section "$version_no_v" "$changelog_file" 2>/dev/null || echo "")
+
+        # Check if we have content from either git commits OR task-based generation
+        if [[ -z "$changelog_section_content" || "$changelog_section_content" =~ ^[[:space:]]*$ ]] && \
+           [[ -z "$changelog_content" || "$changelog_content" =~ ^[[:space:]]*$ ]] && \
+           [[ -z "${git_changelog_content:-}" || "${git_changelog_content:-}" =~ ^[[:space:]]*$ ]]; then
+            log_error "Changelog content is empty" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" \
+                "No changelog content generated from commits or tasks. Add tasks with labels (feat, fix, docs) or commits with conventional format."
+            exit "$EXIT_CHANGELOG_GENERATION_FAILED"
+        fi
+
         # Append to CHANGELOG.md
         if ! append_to_changelog "$normalized" "$changelog_file" "$TODO_FILE"; then
             log_error "Failed to write CHANGELOG.md" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check file permissions"
