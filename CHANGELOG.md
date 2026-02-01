@@ -5,6 +5,26 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.77.4] - 2026-01-31
+
+### Bug Fixes
+- **update**: Allow notes on completed tasks without session (T2863)
+  - Added `is_notes_only_update()` function to bypass session requirement
+  - Removed `--notes` from blocked fields for done tasks
+  - Enables post-completion documentation without restarting sessions
+
+### Features
+- **release**: Project-agnostic release system v2 (T2666)
+  - Research on release patterns across package ecosystems (T2667)
+  - Release Configuration Schema v2 (T2668)
+  - Release config loader and validator (T2669)
+  - CI/CD template generator (T2670)
+  - Artifact type handlers (T2671)
+  - Release provenance tracking (T2672)
+  - Updated protocols/release.md (T2673)
+  - Integration tests for release system (T2674)
+  - Release configuration guide (T2675)
+
 ## [0.77.2] - 2026-01-31
 
 ### Fixed
@@ -17,6 +37,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add 8 unit tests for release gates
 
 ## [0.77.1] - 2026-01-31
+
+### Features
+- **output**: Add resultsField for self-documenting JSON (T2818)
+- **skills**: Protocol mapping and dispatch improvements (T2716, T2818)
+- **lifecycle**: Gate enforcement and progressive disclosure (T2721)
+
+### Bug Fixes
+- **changelog**: Status validation and version label filters (T2807, T2808)
+- **scripts**: Various CLI command improvements
+
+### Refactoring
+- **metrics**: Extract common utilities to metrics-common.sh (T2753)
+
+### Documentation
+- **reports**: Add verification reports from IVTR validation
+- **guides**: Add installation modes and protocol validation tests
+- **release**: Update release docs with T2807/T2808 fixes (T2802)
+
+### Other Changes
+- Cleanup legacy files and sync version
 
 ## [0.77.0] - 2026-01-31
 
@@ -391,7 +431,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.77.4] - 2026-01-31
 
+### Features
+- **release**: Project-agnostic release system v2 (T2666)
+
+### Bug Fixes
+- **update**: Allow notes on completed tasks without session (T2863)
 ## [0.77.3] - 2026-01-31
 _No unreleased changes_
 
