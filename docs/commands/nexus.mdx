@@ -1,0 +1,344 @@
+---
+title: "nexus"
+description: "Cross-project intelligence and global task graph management"
+icon: "globe"
+---
+
+# cleo nexus
+
+Manage the CLEO Nexus global intelligence system for cross-project task discovery and dependency analysis.
+
+## Synopsis
+
+```bash
+cleo nexus <subcommand> [options]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `init` | Initialize the Nexus global registry |
+| `register` | Register a project with Nexus |
+| `unregister` | Remove a project from Nexus |
+| `list` | List all registered projects |
+| `query` | Query a task across projects |
+| `discover` | Find related tasks across projects |
+| `deps` | Analyze cross-project dependencies |
+| `sync` | Synchronize project metadata |
+
+---
+
+## nexus init
+
+Initialize the Nexus global registry.
+
+```bash
+cleo nexus init [--force]
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Reinitialize even if already exists |
+
+### Examples
+
+```bash
+# Initialize Nexus
+cleo nexus init
+
+# Force reinitialize
+cleo nexus init --force
+```
+
+---
+
+## nexus register
+
+Register a project with Nexus.
+
+```bash
+cleo nexus register <path> --name <name> [--permissions <level>]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `path` | Yes | Path to the project directory (must contain `.cleo/`) |
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--name` | Required | Unique name for the project |
+| `--permissions` | `read` | Permission level: `read`, `write`, or `execute` |
+| `--json` | - | Output in JSON format |
+
+### Examples
+
+```bash
+# Register with read-only access
+cleo nexus register /path/to/project --name my-app
+
+# Register with write access
+cleo nexus register /path/to/project --name api --permissions write
+
+# Register with full access
+cleo nexus register /path/to/project --name infra --permissions execute
+```
+
+---
+
+## nexus unregister
+
+Remove a project from Nexus.
+
+```bash
+cleo nexus unregister <name>
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `name` | Yes | Name of the project to unregister |
+
+### Examples
+
+```bash
+# Unregister a project
+cleo nexus unregister my-app
+
+# Verify removal
+cleo nexus list
+```
+
+---
+
+## nexus list
+
+List all registered projects.
+
+```bash
+cleo nexus list [--json]
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format |
+
+### Output
+
+```
+┌─────────┬─────────────────────────┬───────────┬───────┐
+│ Name    │ Path                    │ Permissions│ Tasks │
+├─────────┼─────────────────────────┼───────────┼───────┤
+│ backend │ /projects/backend       │ execute   │ 42    │
+│ frontend│ /projects/frontend      │ write     │ 38    │
+│ infra   │ /projects/infra         │ read      │ 15    │
+└─────────┴─────────────────────────┴───────────┴───────┘
+```
+
+---
+
+## nexus query
+
+Query a task across projects using the unified query syntax.
+
+```bash
+cleo nexus query <project:task_id> [--json]
+```
+
+### Query Syntax
+
+| Syntax | Meaning |
+|--------|---------|
+| `project:T001` | Task T001 in named project |
+| `.:T001` | Task T001 in current project |
+| `*:T001` | Search T001 in all projects |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format |
+
+### Examples
+
+```bash
+# Query specific project
+cleo nexus query backend:T001
+
+# Query current project
+cleo nexus query .:T001
+
+# Search all projects (wildcard)
+cleo nexus query "*:T001"
+
+# JSON output
+cleo nexus query backend:T001 --json
+```
+
+---
+
+## nexus discover
+
+Find related tasks across all registered projects.
+
+```bash
+cleo nexus discover <project:task_id> [--method <method>] [--limit <n>] [--json]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `project:task_id` | Yes | Source task to find relations for |
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--method` | `auto` | Discovery method: `labels`, `description`, `hierarchy`, `auto` |
+| `--limit` | `10` | Maximum number of results |
+| `--json` | - | Output in JSON format |
+
+### Discovery Methods
+
+| Method | Description |
+|--------|-------------|
+| `labels` | Match by shared labels/topics (Jaccard similarity) |
+| `description` | Match by description keywords (NLP extraction) |
+| `hierarchy` | Match by tree proximity (LCA algorithm) |
+| `auto` | Combine all methods with weighted scoring |
+
+### Examples
+
+```bash
+# Discover related tasks
+cleo nexus discover backend:T001
+
+# Use specific method
+cleo nexus discover backend:T001 --method labels
+
+# Limit results
+cleo nexus discover backend:T001 --limit 5
+
+# JSON output
+cleo nexus discover backend:T001 --json
+```
+
+---
+
+## nexus deps
+
+Analyze cross-project dependencies.
+
+```bash
+cleo nexus deps <project:task_id> [--reverse] [--transitive] [--json]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `project:task_id` | Yes | Task to analyze dependencies for |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--reverse` | Show tasks that depend on this task (blocking analysis) |
+| `--transitive` | Include transitive dependencies |
+| `--json` | Output in JSON format |
+
+### Examples
+
+```bash
+# Show what a task depends on
+cleo nexus deps frontend:T001
+
+# Show what depends on this task
+cleo nexus deps backend:T001 --reverse
+
+# Include transitive dependencies
+cleo nexus deps frontend:T001 --transitive
+
+# JSON output
+cleo nexus deps frontend:T001 --json
+```
+
+---
+
+## nexus sync
+
+Synchronize project metadata with Nexus.
+
+```bash
+cleo nexus sync [<project>] [--force]
+```
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `project` | No | Specific project to sync (default: all) |
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Force full resync (ignores checksums) |
+
+### Examples
+
+```bash
+# Sync all projects
+cleo nexus sync
+
+# Sync specific project
+cleo nexus sync backend
+
+# Force full resync
+cleo nexus sync --force
+```
+
+---
+
+## Exit Codes
+
+| Code | Constant | Description |
+|------|----------|-------------|
+| 0 | Success | Operation completed |
+| 70 | `E_NEXUS_NOT_INITIALIZED` | Nexus not initialized |
+| 71 | `E_NEXUS_PROJECT_NOT_FOUND` | Project not registered |
+| 72 | `E_NEXUS_PERMISSION_DENIED` | Insufficient permissions |
+| 73 | `E_NEXUS_INVALID_SYNTAX` | Invalid query syntax |
+| 74 | `E_NEXUS_ALREADY_REGISTERED` | Project already registered |
+
+---
+
+## Permission Levels
+
+| Level | Numeric | Capabilities |
+|-------|---------|--------------|
+| `read` | 1 | Query tasks, discover relationships |
+| `write` | 2 | read + modify task fields |
+| `execute` | 3 | write + create/delete tasks, run workflows |
+
+<Info>
+Operations within the current project always have full permissions, regardless of Nexus registration.
+</Info>
+
+---
+
+## Related
+
+- [Nexus Guide](/guides/nexus) - Comprehensive usage guide
+- [Cognitive Architecture](/concepts/cognitive-architecture) - Neural brain concepts
+- [Multi-Agent Guide](/guides/multi-agent) - Cross-project agent coordination

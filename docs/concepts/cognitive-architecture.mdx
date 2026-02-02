@@ -1,0 +1,529 @@
+---
+title: "Cognitive Architecture"
+description: "CLEO as a neural brain for autonomous AI agents with vectorless RAG and hierarchical reasoning"
+icon: "brain"
+---
+
+# CLEO Cognitive Architecture
+
+**CLEO as a Neural Brain for Autonomous AI Agents**
+
+CLEO transforms AI agents from stateless responders into **systematic reasoning systems with persistent memory**. Unlike traditional vector-based RAG systems that rely on similarity search, CLEO implements a **PageIndex-inspired vectorless RAG** that uses hierarchical reasoning for context retrieval.
+
+<Info>
+**Key Innovation**: "Similarity does not equal relevance - what we truly need in retrieval is relevance, and that requires reasoning."
+</Info>
+
+## Performance Comparison
+
+| Approach | Accuracy (FinanceBench) | Method |
+|----------|------------------------|--------|
+| Traditional Vector RAG | ~30-50% | Similarity search |
+| CLEO Graph-RAG | ~98.7% | Hierarchical reasoning |
+
+---
+
+## Neural Network Mappings
+
+CLEO exhibits neural-like behaviors through its task graph architecture:
+
+| Neural Concept | CLEO Implementation |
+|----------------|---------------------|
+| **Neurons** | Tasks (spanning all projects via Nexus) |
+| **Synapses** | `relates` field entries (knowledge graph edges) |
+| **Weights** | Hierarchy boosts: Sibling (+0.15), Cousin (+0.08), Ancestor (+0.04) |
+| **Activation** | Similarity scores 0.0-1.0 determine signal strength |
+| **Propagation** | Context flows parent→child with exponential decay |
+| **Memory Indexing** | Dual-index (forward + reverse) for O(1) lookup |
+| **Adaptation** | Configurable thresholds via config.json |
+
+---
+
+## The Complete Brain Hierarchy
+
+CLEO implements a **fractal neural architecture** where each level contains the same patterns:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     CLEO NEXUS (Global Brain)                       │
+│                     ~/.cleo/nexus/registry.json                     │
+│                                                                     │
+│   ┌──────────────────┐    ┌──────────────────┐    ┌────────────┐  │
+│   │   PROJECT A      │    │   PROJECT B      │    │ PROJECT C  │  │
+│   │  (Macro-Neuron)  │◄──►│  (Macro-Neuron)  │◄──►│ (Macro-N)  │  │
+│   │                  │    │                  │    │            │  │
+│   │  ┌────┐ ┌────┐  │    │  ┌────┐ ┌────┐  │    │  ┌────┐    │  │
+│   │  │Epic│ │Epic│  │    │  │Epic│ │Epic│  │    │  │Epic│    │  │
+│   │  └─┬──┘ └─┬──┘  │    │  └─┬──┘ └────┘  │    │  └─┬──┘    │  │
+│   │    │      │     │    │    │             │    │    │       │  │
+│   │ ┌──┴─┐ ┌──┴─┐   │    │ ┌──┴─┐          │    │ ┌──┴─┐     │  │
+│   │ │Task│ │Task│   │    │ │Task│──────────┼────┼─►Task│     │  │
+│   │ └────┘ └────┘   │    │ └────┘          │    │ └────┘     │  │
+│   └──────────────────┘    └──────────────────┘    └────────────┘  │
+│                                                                     │
+│   Cross-Project Edges (depends: "projectB:T001")                   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Level 1: Global Brain (Nexus)
+
+At the highest level, **CLEO Nexus** acts as the global cortex:
+
+| Component | Neural Analog | Description |
+|-----------|---------------|-------------|
+| `~/.cleo/nexus/` | Brain | Central intelligence hub |
+| `registry.json` | Cortex Map | Index of all project neurons |
+| Cross-project deps | Long-range axons | Connections spanning projects |
+
+### Level 2: Projects as Macro-Neurons
+
+Each registered project is a **macro-neuron** in the global brain:
+
+| Component | Neural Analog | Description |
+|-----------|---------------|-------------|
+| Project | Macro-Neuron | Self-contained processing unit |
+| `.cleo/` directory | Nucleus | Local state and memory |
+| `todo.json` | Dendrites | Input structure (tasks to process) |
+| `todo-archive.json` | Long-term memory | Completed task storage |
+| Project permissions | Myelin sheath | Access control (read/write/execute) |
+
+### Level 3: Epics as Neural Clusters
+
+Within each project, **Epics** are clusters of related neurons:
+
+| Component | Neural Analog | Description |
+|-----------|---------------|-------------|
+| Epic | Neural Cluster | Group of related tasks |
+| Epic children | Cluster neurons | Tasks belonging to the epic |
+| Epic labels | Cluster tags | Semantic categorization |
+
+### Level 4: Tasks as Individual Neurons
+
+At the atomic level, **Tasks** are individual neurons:
+
+| Component | Neural Analog | Description |
+|-----------|---------------|-------------|
+| Task | Neuron | Single unit of work/memory |
+| `depends` field | Axon terminals | Output connections |
+| `relates` field | Dendrites | Input/association connections |
+| Task status | Activation state | pending/active/blocked/done |
+| Labels | Neurotransmitter types | Semantic classification |
+| Notes | Memory content | Stored information |
+
+### Cross-Project Synapses
+
+Tasks can form **cross-project dependencies** that span macro-neurons:
+
+```bash
+# In project-frontend/todo.json
+{
+  "id": "T002",
+  "title": "Create login page",
+  "depends": ["T001", "project-backend:T003"]  # Cross-project synapse!
+}
+```
+
+This creates a direct neural pathway from `project-frontend:T002` to `project-backend:T003`.
+
+<Note>
+**Key Insight**: The same patterns repeat at each level - neurons (tasks) within clusters (epics) within macro-neurons (projects) within the global brain (Nexus). This is how biological neural networks organize.
+</Note>
+
+---
+
+## Core Architecture: Vectorless RAG
+
+CLEO's retrieval system eliminates vector databases in favor of:
+
+### 1. Hierarchical Semantic Trees
+
+The Epic→Task→Subtask hierarchy mirrors document table-of-contents structure:
+
+```
+Epic: Authentication System Overhaul
+├── Task: Research OAuth providers
+│   ├── Subtask: Evaluate Auth0
+│   └── Subtask: Evaluate Clerk
+├── Task: Design token management
+└── Task: Implement login flow
+```
+
+### 2. LLM Reasoning Over Structure
+
+Instead of embedding similarity, CLEO uses the LLM to reason about:
+- Task relationships and dependencies
+- Hierarchical context inheritance
+- Semantic relevance through structure
+
+### 3. Five Discovery Methods
+
+From `lib/graph-rag.sh`:
+
+| Method | Algorithm | Use Case |
+|--------|-----------|----------|
+| **Label-Based** | Jaccard similarity on shared tags | Finding tasks with common labels |
+| **Description-Based** | Keyword extraction + stopword removal + Jaccard | Semantic text matching |
+| **File-Based** | Relationship through shared code files | Code-centric discovery |
+| **Hierarchy-Based** | LCA (Lowest Common Ancestor) + tree distance | Structural relationships |
+| **Auto Mode** | Merges all methods with hierarchy boosting | Default comprehensive search |
+
+---
+
+## Context Propagation (Memory Inheritance)
+
+CLEO implements "memory decay" where distant information weakens - similar to neural networks:
+
+```
+Self:        weight 1.0   (100% own context)
+Parent:      weight 0.5   (50% parent context inherited)
+Grandparent: weight 0.25  (25% grandparent context)
+```
+
+This creates natural context scoping where:
+- Immediate task context is strongest
+- Epic-level context provides background
+- Distant ancestors contribute minimally
+
+### Scoring Formula
+
+```
+final_score = min(1.0, base_score + hierarchy_boost)
+
+Where:
+  base_score = max(labels_score, description_score, files_score)
+  hierarchy_boost = sibling_boost + cousin_boost + ancestor_boost
+```
+
+---
+
+## Key Algorithms
+
+### Lowest Common Ancestor (LCA)
+
+```bash
+_find_lca(task_a, task_b)  # Find shared ancestor in hierarchy
+_tree_distance(a, b)       # Calculate graph distance between tasks
+```
+
+The LCA algorithm enables:
+- Finding related tasks through common parents
+- Calculating semantic distance in the hierarchy
+- Boosting relevance for structurally close tasks
+
+### Graph Cache (O(1) Index)
+
+CLEO maintains dual indexes for instant lookup:
+
+```
+Forward Index:  task → dependencies (what this task needs)
+Reverse Index:  task → dependents (what depends on this task)
+```
+
+<AccordionGroup>
+  <Accordion title="Cache Features" icon="bolt">
+    - **Checksum-based invalidation**: Automatic rebuild on structure changes
+    - **Persistent**: Cache survives across sessions
+    - **O(1) lookup**: Instant dependency queries
+    - **Location**: `.cleo/.cache/`
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## The `relates` Field: Knowledge Graph Edges
+
+Tasks connect through typed relationships:
+
+| Relation Type | Meaning |
+|---------------|---------|
+| `relates-to` | General semantic relationship |
+| `spawned-from` | Task created from another task's work |
+| `deferred-to` | Work postponed to another task |
+| `supersedes` | Replaces an older task |
+| `duplicates` | Same work as another task |
+
+These create undirected edges in the knowledge graph, enabling:
+- Cross-cutting context discovery
+- Dependency chain analysis
+- Impact assessment for changes
+
+---
+
+## CLEO Nexus: Cross-Project Neural Brain
+
+The Nexus system (v0.80.0+) extends CLEO's brain across multiple projects, creating a **unified global graph** where each project is a node containing its own task subgraph.
+
+### The Global Graph Model
+
+```
+                    ┌─────────────────────────────────────┐
+                    │         NEXUS GLOBAL GRAPH          │
+                    │                                     │
+   ┌────────────────┤                                     ├────────────────┐
+   │                │                                     │                │
+   ▼                ▼                                     ▼                ▼
+┌──────┐  edge   ┌──────┐                             ┌──────┐  edge   ┌──────┐
+│ CLEO │◄───────►│ API  │                             │ WEB  │◄───────►│MOBILE│
+│      │         │      │                             │      │         │      │
+└───┬──┘         └───┬──┘                             └───┬──┘         └───┬──┘
+    │                │                                    │                │
+    ▼                ▼                                    ▼                ▼
+┌───────────┐   ┌───────────┐                       ┌───────────┐   ┌───────────┐
+│ Epic:Auth │   │ Epic:API  │                       │ Epic:UI   │   │Epic:Native│
+│ ├─T001    │   │ ├─T001    │                       │ ├─T001    │   │ ├─T001    │
+│ ├─T002────┼───┼─►T002     │                       │ ├─T002◄───┼───┼─┤T002     │
+│ └─T003    │   │ └─T003    │                       │ └─T003    │   │ └─T003    │
+└───────────┘   └───────────┘                       └───────────┘   └───────────┘
+```
+
+Each project node contains:
+- Its own **task graph** (epics, tasks, subtasks)
+- **Intra-project edges** (depends within project)
+- **Inter-project edges** (depends across projects via `project:task_id` syntax)
+
+### Commands
+
+| Command | Purpose |
+|---------|---------|
+| `cleo nexus init` | Initialize the global brain |
+| `cleo nexus register <path>` | Register a project's task graph |
+| `cleo nexus list` | List registered projects |
+| `cleo nexus query <project:task>` | Query task across projects |
+| `cleo nexus discover <task>` | Cross-project semantic search |
+| `cleo nexus deps <task>` | Analyze dependencies across projects |
+| `cleo nexus sync` | Sync project metadata |
+| `cleo nexus unregister` | Remove a project |
+
+### Query Syntax
+
+Nexus uses a unified query syntax for cross-project operations:
+
+```bash
+# Query specific project
+cleo nexus query myproject:T001
+
+# Query current project
+cleo nexus query .:T001
+
+# Query all projects (wildcard)
+cleo nexus query "*:T001"
+```
+
+### Permission Control
+
+Three-tier access model:
+
+<Tabs>
+  <Tab title="Read" icon="eye">
+    **Query tasks and relationships**
+
+    - View task details
+    - Query dependencies
+    - Discover related tasks
+
+    ```bash
+    cleo nexus register ./project --permissions read
+    ```
+  </Tab>
+
+  <Tab title="Write" icon="pen">
+    **Modify task state**
+
+    - All read permissions
+    - Update task status
+    - Add notes and labels
+
+    ```bash
+    cleo nexus register ./project --permissions write
+    ```
+  </Tab>
+
+  <Tab title="Execute" icon="play">
+    **Run workflows and automation**
+
+    - All write permissions
+    - Run orchestrator workflows
+    - Execute automation
+
+    ```bash
+    cleo nexus register ./project --permissions execute
+    ```
+  </Tab>
+</Tabs>
+
+### Example Usage
+
+```bash
+# Initialize Nexus (once)
+cleo nexus init
+
+# Register projects
+cleo nexus register ~/projects/backend --name backend --permissions execute
+cleo nexus register ~/projects/frontend --name frontend --permissions write
+
+# Discover related tasks across all projects
+cleo nexus discover backend:T001 --limit 5
+
+# Analyze cross-project dependencies
+cleo nexus deps frontend:T002 --reverse
+```
+
+---
+
+## Practical Benefits for Autonomous Agents
+
+### 1. Persistent Goals
+
+<Card title="Memory Persistence" icon="database">
+Tasks survive context window resets. The agent can:
+- Resume work from where it left off
+- Maintain long-term objectives
+- Track progress across sessions
+</Card>
+
+### 2. Extreme Context Efficiency
+
+```bash
+ct find "query"   # 99% less context than ct list
+ct show T1234     # Full details only when needed
+```
+
+The "query before expand" pattern minimizes token usage.
+
+### 3. Systematic Reasoning
+
+The RCSD pipeline prevents "jumping to code":
+
+```
+Research → Consensus → Specification → Decomposition
+```
+
+Each phase has:
+- Defined inputs and outputs
+- Validation gates
+- Evidence requirements
+
+### 4. Multi-Agent Coordination
+
+2-tier architecture enables parallel work:
+
+```
+Tier 0: ORCHESTRATOR
+├── Coordinates workflows
+├── Spawns subagents via Task tool
+└── Reads manifest summaries only
+
+Tier 1: CLEO-SUBAGENT (universal executor)
+├── Receives fully-resolved prompts
+├── Executes delegated work
+└── Outputs: file + manifest entry + summary
+```
+
+---
+
+## Agent Integration Pattern
+
+To use CLEO as your agent's cognitive backbone:
+
+<Steps>
+  <Step title="Initialize CLEO">
+    ```bash
+    cleo init
+    ```
+  </Step>
+
+  <Step title="Start a Session">
+    ```bash
+    cleo session start --scope epic:T001 --auto-focus --name "Work Session"
+    ```
+  </Step>
+
+  <Step title="Query Before Acting">
+    ```bash
+    cleo find "relevant query"  # Minimal context
+    cleo show T1234             # Full details when needed
+    ```
+  </Step>
+
+  <Step title="Track Progress">
+    ```bash
+    cleo focus set T1234        # Set active task
+    cleo complete T1234         # Mark complete
+    cleo next                   # Get next suggestion
+    ```
+  </Step>
+
+  <Step title="End Session">
+    ```bash
+    cleo session end --note "Progress summary"
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Data Directory Structure
+
+```
+.cleo/                      # Project-level data
+├── todo.json              # Active task graph (neurons)
+├── todo-archive.json      # Completed tasks
+├── config.json            # Configuration (adaptation)
+├── todo-log.json          # Immutable audit trail
+├── sessions.json          # Session state
+├── .cache/                # Graph indexes (O(1) lookup)
+│   ├── hierarchy.index.json
+│   ├── children.index.json
+│   └── depth.index.json
+└── .backups/              # Automatic backups
+
+~/.cleo/nexus/             # Global brain (cross-project)
+├── registry.json          # Registered projects
+└── cache/                 # Cross-project indexes
+```
+
+---
+
+## Why This Matters
+
+Traditional AI agents suffer from:
+
+| Problem | CLEO Solution |
+|---------|---------------|
+| **Amnesia** | Persistent task state with semantic retrieval |
+| **Impulsivity** | RCSD/IVTR protocols enforce systematic reasoning |
+| **Isolation** | Multi-agent orchestration with manifest communication |
+| **Inefficiency** | Graph-based O(1) lookups and minimal context queries |
+
+<Note>
+This transforms AI from "smart autocomplete" to **"systematic reasoning system with externalized cognition."**
+</Note>
+
+---
+
+## References
+
+- [CLEO GitHub Repository](https://github.com/kryptobaseddev/cleo)
+- [PageIndex Paper](https://arxiv.org/abs/2401.07883) - Vectorless RAG research
+- [Graph-RAG Library](/developer/specifications/LIBRARY-ARCHITECTURE) - Implementation details
+- [Nexus Command Reference](/commands/nexus) - Full CLI documentation
+- [Multi-Agent Guide](/guides/multi-agent) - Agent coordination patterns
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Task Hierarchy" icon="sitemap" href="/concepts/task-hierarchy">
+    Understanding the Epic→Task→Subtask structure
+  </Card>
+  <Card title="Sessions" icon="clock" href="/concepts/sessions">
+    Managing work across context windows
+  </Card>
+  <Card title="Multi-Agent" icon="users" href="/guides/multi-agent">
+    Coordinating multiple AI agents
+  </Card>
+  <Card title="Nexus Guide" icon="globe" href="/guides/nexus">
+    Cross-project intelligence setup
+  </Card>
+</CardGroup>

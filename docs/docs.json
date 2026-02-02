@@ -73,6 +73,7 @@
             "group": "Core Concepts",
             "pages": [
               "concepts/vision",
+              "concepts/cognitive-architecture",
               "concepts/task-hierarchy",
               "concepts/sessions",
               "concepts/phases"
@@ -108,6 +109,7 @@
             "pages": [
               "guides/multi-agent",
               "guides/orchestrator",
+              "guides/nexus",
               "guides/todowrite-sync",
               "guides/contribution-protocol"
             ]
@@ -270,6 +272,7 @@
               "commands/export-tasks",
               "commands/import-tasks",
               "commands/inject",
+              "commands/nexus",
               "commands/orchestrator",
               "commands/research",
               "commands/sequence"
