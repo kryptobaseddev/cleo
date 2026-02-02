@@ -398,16 +398,17 @@
       },
       {
         "version": "v0.80.0",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-02T08:09:06Z",
         "createdAt": "2026-02-02T08:07:54Z",
         "tasks": [],
-        "notes": "CLEO Nexus: Global Intelligence System - Cross-project task discovery and dependency analysis"
+        "notes": "CLEO Nexus: Global Intelligence System - Cross-project task discovery and dependency analysis",
+        "gitTag": "v0.80.0"
       }
     ]
   },
-  "lastUpdated": "2026-02-02T08:07:54Z",
+  "lastUpdated": "2026-02-02T08:09:06Z",
   "_meta": {
     "checksum": "d532543afc09bcd2",
     "configVersion": "2.1.0",
