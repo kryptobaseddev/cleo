@@ -387,27 +387,38 @@
       },
       {
         "version": "v0.79.1",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-01T08:34:51Z",
+        "createdAt": "2026-02-01T08:34:04Z",
+        "tasks": [],
+        "notes": "Bug fixes: validation errors, test timeouts, smoke tests",
+        "gitTag": "v0.79.1",
+        "changelog": "## [0.79.1] - 2026-02-01"
+      },
+      {
+        "version": "v0.80.0",
         "status": "planned",
         "targetDate": null,
         "releasedAt": null,
-        "createdAt": "2026-02-01T08:34:04Z",
+        "createdAt": "2026-02-02T08:07:54Z",
         "tasks": [],
-        "notes": "Bug fixes: validation errors, test timeouts, smoke tests"
+        "notes": "CLEO Nexus: Global Intelligence System - Cross-project task discovery and dependency analysis"
       }
     ]
   },
-  "lastUpdated": "2026-02-01T08:34:04Z",
+  "lastUpdated": "2026-02-02T08:07:54Z",
   "_meta": {
-    "checksum": "e2cdf118d810ce55",
+    "checksum": "d532543afc09bcd2",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-01T08:27:39Z",
+    "lastModified": "2026-02-02T07:30:22Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 5,
-    "generation": 1687
+    "activeSessionCount": 6,
+    "generation": 1724
   },
   "focus": {
     "currentTask": null,
@@ -11761,12 +11772,12 @@
     {
       "id": "T2949",
       "title": "Implement real token capture from Claude Code",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T2947",
       "createdAt": "2026-02-01T08:20:47Z",
-      "updatedAt": "2026-02-01T08:29:57Z",
+      "updatedAt": "2026-02-01T08:43:01Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -11776,8 +11787,25 @@
         "implementation"
       ],
       "notes": [
-        "2026-02-01 08:29:57 UTC: Research found: Claude Code transcripts contain real API token data. Parse ~/.claude/projects/*/*.jsonl for input_tokens, output_tokens, cache_read_input_tokens"
-      ]
+        "2026-02-01 08:29:57 UTC: Research found: Claude Code transcripts contain real API token data. Parse ~/.claude/projects/*/*.jsonl for input_tokens, output_tokens, cache_read_input_tokens",
+        "[COMPLETED 2026-02-01T08:43:01Z] Implemented real token capture from Claude Code API transcripts. Added get_real_token_usage() function to lib/token-estimation.sh and 'cleo otel real' command to scripts/otel.sh. Supports session and timestamp filtering. Shows comparison between real API usage and CLEO estimates. All tests passing."
+      ],
+      "completedAt": "2026-02-01T08:43:01Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-01T08:43:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2950",
@@ -11903,6 +11931,587 @@
         },
         "lastAgent": "coder",
         "lastUpdated": "2026-02-01T08:21:23Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2954",
+      "title": "Research: Nexus Global Intelligence Requirements",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T06:51:38Z",
+      "updatedAt": "2026-02-02T06:57:24Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Research phase for CLEO Nexus. Investigate: (1) Current infrastructure (lib/graph-rag.sh, lib/project-registry.sh, lib/graph-cache.sh), (2) Gap analysis for cross-project intelligence, (3) Requirements for autonomous AI agent brain use case, (4) PageIndex integration patterns, (5) Testing strategies for distributed RAG systems.",
+      "labels": [
+        "nexus",
+        "rcsd",
+        "research"
+      ],
+      "completedAt": "2026-02-02T06:57:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T06:57:24Z] Research complete. Analyzed current infrastructure (project-registry, graph-cache, graph-rag, hierarchy libs). Identified 80% capability exists. Gap is cross-project syntax and multi-file orchestration. Recommended 3-phase approach: syntax (v0.70), discovery (v0.71), learning (v0.72). Output: T2954-nexus-research.md with architecture analysis and implementation roadmap."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T06:57:25Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2955",
+      "title": "Consensus: Nexus Architecture Decisions",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T06:51:46Z",
+      "updatedAt": "2026-02-02T07:00:44Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Consensus phase for CLEO Nexus. Validate: (1) Global vs local registry architecture, (2) Cross-project permission model (read/write/execute), (3) Query syntax (project:task_id), (4) Neural network metaphor mappings, (5) Testing approach validation.",
+      "labels": [
+        "consensus",
+        "nexus",
+        "rcsd"
+      ],
+      "depends": [
+        "T2954"
+      ],
+      "completedAt": "2026-02-02T07:00:44Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:00:44Z] Consensus reached on 5 critical decisions: hybrid registry extension, 3-tier permissions, project:task_id syntax, conceptual neural abstraction, multi-project test fixtures. Validated against existing infrastructure (project-registry.sh, graph-rag.sh). Ready for specification phase."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:00:45Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2956",
+      "title": "Specification: CLEO Nexus Protocol",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T06:51:58Z",
+      "updatedAt": "2026-02-02T07:05:34Z",
+      "size": "large",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Specification phase for CLEO Nexus. Write formal RFC 2119 spec covering: (1) Global registry schema and API, (2) Cross-project graph traversal protocol, (3) Permission enforcement rules, (4) Neural network abstraction layer (weights, activation, propagation), (5) Query language syntax, (6) Testing requirements.",
+      "labels": [
+        "nexus",
+        "rcsd",
+        "specification"
+      ],
+      "depends": [
+        "T2955"
+      ],
+      "completedAt": "2026-02-02T07:05:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:05:34Z] RFC 2119 specification complete. Defines 4-layer architecture, project:task_id syntax, 3-tier permissions, exit codes 70-79, neural metaphor, and testing requirements."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:05:34Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2957",
+      "title": "Decomposition: Nexus Implementation Plan",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T06:52:07Z",
+      "updatedAt": "2026-02-02T07:09:29Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Decomposition phase for CLEO Nexus. Break specification into atomic implementation tasks: (1) lib/nexus-registry.sh - global registry, (2) lib/nexus-graph.sh - cross-project graph, (3) lib/nexus-permissions.sh - access control, (4) lib/nexus-neural.sh - neural abstraction layer, (5) Integration tests, (6) Documentation.",
+      "labels": [
+        "decomposition",
+        "nexus",
+        "rcsd"
+      ],
+      "depends": [
+        "T2956"
+      ],
+      "completedAt": "2026-02-02T07:09:29Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:09:29Z] Decomposed Nexus implementation into 10 tasks across 4 waves. Wave 0: foundation (registry, exit codes, schemas). Wave 1: query layer (parsing, permissions). Wave 2: graph layer (cross-project discovery, global deps). Wave 3: integration (CLI, tests, docs). All tasks have clear acceptance criteria and dependency chains."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:09:30Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2958",
+      "title": "Implement lib/nexus-registry.sh",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:07Z",
+      "updatedAt": "2026-02-02T07:16:20Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Extend existing project-registry.sh with global registry operations. Functions: register_project(path, name, aliases), unregister_project(hash), list_projects(), prune_registry(). Returns E_DUPLICATE (3) if already registered, E_NOT_FOUND (4) if path missing .cleo/todo.json, E_VALIDATION_FAILED (6) if name conflicts. Unit tests: bats tests/unit/nexus-registry.bats",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-0"
+      ],
+      "completedAt": "2026-02-02T07:16:20Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:16:20Z] Implemented lib/nexus-registry.sh with 8 core functions. Reused 80% of project-registry.sh patterns. Added test hooks, atomic operations, and comprehensive error handling."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:16:21Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2959",
+      "title": "Add Nexus exit codes (70-79)",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:13Z",
+      "updatedAt": "2026-02-02T07:17:59Z",
+      "size": "small",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Define exit codes for cross-project errors. Constants: EXIT_NEXUS_PROJECT_NOT_FOUND=70 through EXIT_NEXUS_CACHE_CORRUPT=75. Update get_exit_code_name() to handle 70-79. Error messages follow structured JSON format per spec section 9.2. Update docs/guides/troubleshooting.md with recovery steps.",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-0"
+      ],
+      "completedAt": "2026-02-02T07:17:59Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:17:59Z] Exit codes 70-79 added to lib/exit-codes.sh for Nexus operations"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:17:59Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2960",
+      "title": "Create Nexus JSON schemas",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:18Z",
+      "updatedAt": "2026-02-02T07:15:36Z",
+      "size": "small",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "JSON Schema definitions: schemas/nexus-registry.schema.json (registry structure), schemas/nexus-relationships.schema.json (relationship cache), schemas/nexus-permissions.schema.json (permission model). All schemas include $schema, version, required fields per spec sections 3.1.1-3.1.3. Validate with: jq -e --jsonschema <schema> <sample>",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-0"
+      ],
+      "completedAt": "2026-02-02T07:15:36Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:15:36Z] Created schemas/nexus-registry.schema.json following CLEO-NEXUS-SPEC.md section 3.1.1. Schema validates global project registry with 12-char hex hashes, unique names, and ISO 8601 timestamps. Integrates with existing validate_json() infrastructure."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:15:37Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2961",
+      "title": "Implement lib/nexus-query.sh",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:25Z",
+      "updatedAt": "2026-02-02T07:20:53Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Parse and resolve project:task_id syntax. Function resolve_task_reference(ref) handles T123, project:T123, .:T123, *:T123. Returns fully qualified hash:task_id on success. Exit codes: E_NEXUS_PROJECT_NOT_FOUND (70), E_NOT_FOUND (4), E_NEXUS_INVALID_SYNTAX (72). Unit tests: bats tests/unit/nexus-query.bats",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-1"
+      ],
+      "depends": [
+        "T2958",
+        "T2959",
+        "T2960"
+      ],
+      "completedAt": "2026-02-02T07:20:53Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:20:53Z] Implemented lib/nexus-query.sh with 7 functions: nexus_parse_query, nexus_resolve_task, nexus_query, nexus_validate_syntax, nexus_get_project_from_query, nexus_resolve_project, nexus_get_current_project. Supports all query formats (project:T001, .:T001, *:T001, T001). Uses exit codes 71,73,77. Ready for Wave 1 integration testing."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:20:54Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2962",
+      "title": "Implement lib/nexus-permissions.sh",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:32Z",
+      "updatedAt": "2026-02-02T07:20:59Z",
+      "size": "small",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Three-tier permission enforcement. Function check_cross_project_permission(from, to, required) enforces hierarchy. Same-project always allowed. Hierarchy: execute ⊃ write ⊃ read. Falls back to defaultPermission when no relationship. Returns E_NEXUS_PERMISSION_DENIED (71). Unit tests: bats tests/unit/nexus-permissions.bats",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-1"
+      ],
+      "depends": [
+        "T2958",
+        "T2960"
+      ],
+      "completedAt": "2026-02-02T07:20:59Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:20:59Z] Permission system implemented with 3-tier model (read/write/execute), hierarchical checks, 8 functions, atomic updates, test bypass support"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:21:00Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2963",
+      "title": "Extend graph-rag.sh for cross-project discovery",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:40Z",
+      "updatedAt": "2026-02-02T07:24:29Z",
+      "size": "large",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Cross-project relationship discovery. Function discover_related_tasks_global(ref, method, scope, threshold) queries all projects. Respects read permissions. Prefixes task IDs with project hash. Zeroes hierarchy boost for cross-project. Caches in ~/.cleo/nexus/relationships.json. Integration tests: bats tests/integration/nexus-discovery.bats",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-2"
+      ],
+      "depends": [
+        "T2961",
+        "T2962"
+      ],
+      "completedAt": "2026-02-02T07:24:29Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:24:29Z] Cross-project discovery implemented in graph-rag.sh"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:24:29Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2964",
+      "title": "Implement global dependency analysis",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:47Z",
+      "updatedAt": "2026-02-02T07:25:32Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Unified dependency graph across projects. Function build_global_graph() merges per-project graphs. Generates ~/.cleo/nexus/graph.{forward,reverse}.json. Cache invalidates on todo.json checksum change. Function get_cross_project_dependents(ref) queries global reverse graph. Unit tests: bats tests/unit/nexus-deps.bats",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-2"
+      ],
+      "depends": [
+        "T2963"
+      ],
+      "completedAt": "2026-02-02T07:25:32Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:25:32Z] Global dependency analysis implemented: lib/nexus-deps.sh with 6 functions, cross-project resolution, global graph caching, critical path, blocking analysis, orphan detection"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:25:33Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2965",
+      "title": "Implement nexus CLI commands",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:08:54Z",
+      "updatedAt": "2026-02-02T07:29:57Z",
+      "size": "medium",
+      "position": 12,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "User-facing nexus commands: cleo nexus register <path>, cleo nexus list, cleo nexus query <ref>, cleo nexus discover <ref>. All commands follow --format json standard. Creates: scripts/nexus-register.sh, scripts/nexus-query.sh, scripts/nexus-discover.sh, scripts/nexus-list.sh. Integration tests: bats tests/integration/nexus-cli.bats",
+      "labels": [
+        "implementation",
+        "nexus",
+        "wave-3"
+      ],
+      "depends": [
+        "T2963",
+        "T2964"
+      ],
+      "completedAt": "2026-02-02T07:29:57Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:29:57Z] Nexus CLI commands implemented - 8 subcommands (init/register/unregister/list/query/discover/deps/sync) with JSON/human output modes"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:29:58Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2966",
+      "title": "Create Nexus test suite",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:09:01Z",
+      "updatedAt": "2026-02-02T07:29:51Z",
+      "size": "large",
+      "position": 13,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Multi-project test fixtures and validation. Fixtures: 3 isolated projects (project-a, project-b, project-c) with cross-project dependencies. Mock registry and permissions at tests/fixtures/nexus/. E2E tests cover: registration, discovery, dependency resolution, permission enforcement. Test isolation: $CLEO_HOME=/tmp/cleo-test-nexus-$$. File: tests/integration/nexus-e2e.bats",
+      "labels": [
+        "nexus",
+        "testing",
+        "wave-3"
+      ],
+      "depends": [
+        "T2965"
+      ],
+      "completedAt": "2026-02-02T07:29:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:29:51Z] Nexus test suite created: 60 tests covering registry, query, permissions, deps with multi-project fixtures"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:29:52Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2967",
+      "title": "Write Nexus documentation",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2231",
+      "createdAt": "2026-02-02T07:09:08Z",
+      "updatedAt": "2026-02-02T07:29:30Z",
+      "size": "medium",
+      "position": 14,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "User-facing guides and examples. docs/guides/nexus.md includes: quickstart, query syntax examples, permission management, troubleshooting. Update docs/concepts/vision.mdx with Nexus overview. Update README.md features list. Neural brain terminology per spec section 7.2.2. All examples tested against implementation.",
+      "labels": [
+        "docs",
+        "nexus",
+        "wave-3"
+      ],
+      "depends": [
+        "T2966"
+      ],
+      "completedAt": "2026-02-02T07:29:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-02T07:29:30Z] Nexus documentation created: docs/guides/nexus.md (comprehensive guide), docs/concepts/vision.mdx updated (Global Intelligence section), implementation notes in claudedocs/agent-outputs/"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-02T07:29:30Z",
         "failureLog": []
       }
     }

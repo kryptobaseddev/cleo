@@ -5,6 +5,8 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.80.0] - 2026-02-02
+
 ## [0.79.1] - 2026-02-01
 
 ## [0.79.1] - 2026-02-01
@@ -532,6 +534,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-02-02
+
+### Bug Fixes
+- **tests**: Reduce smoke test to 2 files for <30s target (T2907)
 ## [0.79.1] - 2026-02-01
 
 ### Bug Fixes
