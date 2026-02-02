@@ -352,6 +352,7 @@ _get_cmd_script() {
         # Other tools
         roadmap) echo "roadmap.sh" ;; claude-migrate) echo "claude-migrate.sh" ;;
         release) echo "release.sh" ;; docs) echo "docs.sh" ;;
+        nexus) echo "nexus.sh" ;;
         *) echo "" ;;
     esac
 }
@@ -373,7 +374,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance otel roadmap claude-migrate release docs"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance otel roadmap claude-migrate release docs nexus"
 }
 
 cmd="${1:-help}"
