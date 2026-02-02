@@ -1,8 +1,9 @@
 {
   "_meta": {
-    "schemaVersion": "2.9.0",
+    "schemaVersion": "2.10.0",
     "createdAt": "2026-01-28T01:43:00Z",
-    "updatedAt": "2026-01-28T01:43:00Z"
+    "updatedAt": "2026-01-28T01:43:00Z",
+    "version": "2.10.0"
   },
   "project": {
     "name": "claude-todo",
@@ -12,10 +13,19 @@
     "enabled": true,
     "maxConcurrentSessions": 10,
     "maxActiveTasksPerScope": 1,
-    "scopeValidation": "strict"
+    "scopeValidation": "strict",
+    "enforcement": "none"
   },
   "retention": {
     "autoEndActiveAfterDays": 7,
     "sessionTimeoutWarningHours": 72
+  },
+  "session": {
+    "enforcement": "strict",
+    "maxConcurrent": 15
+  },
+  "version": "2.10.0",
+  "release": {
+    "gates": []
   }
 }
