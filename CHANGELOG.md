@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.80.0] - 2026-02-02
 
+### Features
+- **nexus**: CLEO Nexus Global Intelligence System (T2231)
+  - Cross-project task discovery and dependency analysis
+  - `cleo nexus init` - Initialize global registry (~/.cleo/nexus/)
+  - `cleo nexus register <path>` - Register projects with permissions
+  - `cleo nexus query <project:task_id>` - Query tasks across projects
+  - `cleo nexus discover <task>` - Find related tasks globally
+  - `cleo nexus deps <task>` - Cross-project dependency analysis
+  - `cleo nexus sync` - Sync project metadata
+
+- **nexus**: Query syntax support (T2961)
+  - `project:task_id` format for cross-project references
+  - `.:T001` for current project
+  - `*:T001` for wildcard search across all projects
+
+- **nexus**: Three-tier permission model (T2962)
+  - `read` - Query tasks, discover relationships
+  - `write` - Modify task fields, add relationships
+  - `execute` - Create/delete tasks, run commands
+
+- **nexus**: Neural brain semantics for autonomous agents
+  - Memory persistence across sessions and projects
+  - Context propagation with decay (0.5 per level)
+  - Relationship discovery without human guidance
+
+### Infrastructure
+- `lib/nexus-registry.sh` - Global project registry CRUD (T2958)
+- `lib/nexus-query.sh` - Query parser with syntax validation (T2961)
+- `lib/nexus-permissions.sh` - Permission enforcement (T2962)
+- `lib/nexus-deps.sh` - Cross-project dependency analysis (T2964)
+- `schemas/nexus-registry.schema.json` - Registry validation (T2960)
+- Exit codes 70-79 reserved for Nexus errors (T2959)
+
+### Documentation
+- `docs/guides/nexus.md` - User guide (T2967)
+- `docs/specs/CLEO-NEXUS-SPEC.md` - RFC 2119 specification (T2956)
+
+### Tests
+- 41 unit tests in `tests/unit/nexus.bats` (T2966)
+- 24 functional tests in `tests/functional/nexus-functional-test.sh`
+- All tests passing in production-like environment
+
 ## [0.79.1] - 2026-02-01
 
 ## [0.79.1] - 2026-02-01
