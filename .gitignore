@@ -23,6 +23,9 @@
 #
 # CRITICAL: Never ignore .cleo/todo*.json - they contain all task data!
 
+# Metrics data - OTel exports (large, session-specific)
+.cleo/metrics/otel/
+
 # ============================================================
 # Claude Session Working Documents
 # ============================================================

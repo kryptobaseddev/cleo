@@ -130,3 +130,213 @@
 {"session_id":"session_20260127_215024_34de9f","start_timestamp":"2026-01-28T05:50:24Z","end_timestamp":"2026-01-28T05:53:06Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
 {"session_id":"session_20260127_220442_af32fc","start_timestamp":"2026-01-28T06:04:42Z","end_timestamp":"2026-01-28T06:11:42Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
 {"session_id":"session_20260127_221258_c83952","start_timestamp":"2026-01-28T06:12:58Z","end_timestamp":"2026-01-28T06:13:33Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_212833_4a2838","start_timestamp":"2026-01-28T05:28:33Z","end_timestamp":"2026-01-28T06:30:38Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_223041_896624","start_timestamp":"2026-01-28T06:30:41Z","end_timestamp":"2026-01-28T06:38:51Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":4,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_223944_c8a010","start_timestamp":"2026-01-28T06:39:44Z","end_timestamp":"2026-01-28T06:51:11Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":5,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_225124_594649","start_timestamp":"2026-01-28T06:51:24Z","end_timestamp":"2026-01-28T06:58:59Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":4,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_230021_318955","start_timestamp":"2026-01-28T07:00:21Z","end_timestamp":"2026-01-28T07:01:23Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_001158_d9652b","start_timestamp":"2026-01-28T08:11:58Z","end_timestamp":"2026-01-28T08:27:30Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_002742_d4e2a6","start_timestamp":"2026-01-28T08:27:42Z","end_timestamp":"2026-01-28T08:34:12Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_003418_d54079","start_timestamp":"2026-01-28T08:34:18Z","end_timestamp":"2026-01-28T08:43:10Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":5,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_004414_1e4d48","start_timestamp":"2026-01-28T08:44:14Z","end_timestamp":"2026-01-28T08:50:13Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":4,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_010322_9d1f00","start_timestamp":"2026-01-28T09:03:22Z","end_timestamp":"2026-01-28T09:05:43Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_010655_c24e8d","start_timestamp":"2026-01-28T09:06:55Z","end_timestamp":"2026-01-28T09:14:57Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":6,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_010655_c24e8d","start_timestamp":"2026-01-28T09:06:55Z","end_timestamp":"2026-01-28T09:16:19Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":6,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260126_144226_a7fbdf","start_timestamp":"2026-01-26T22:42:26Z","end_timestamp":"2026-01-28T09:36:51Z","tokens":{"start":63752,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":8,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_011602_cd6e09","start_timestamp":"2026-01-28T09:16:02Z","end_timestamp":"2026-01-28T09:57:00Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":14,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_221258_c83952","start_timestamp":"2026-01-28T06:12:58Z","end_timestamp":"2026-01-28T16:19:52Z","tokens":{"start":0,"end":127145,"consumed":127145,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.6357}}
+{"session_id":"session_20260128_082023_fe6f30","start_timestamp":"2026-01-28T16:20:23Z","end_timestamp":"2026-01-28T16:28:45Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260128_082854_dacb04","start_timestamp":"2026-01-28T16:28:54Z","end_timestamp":"2026-01-28T16:52:03Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":17,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260126_150327_1d2580","start_timestamp":"2026-01-26T23:03:27Z","end_timestamp":"2026-01-29T21:47:04Z","tokens":{"start":0,"end":167621,"consumed":167621,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.8381}}
+{"session_id":"session_20260129_134724_337ba9","start_timestamp":"2026-01-29T21:47:24Z","end_timestamp":"2026-01-29T22:11:14Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":10,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_155137_65a7aa","start_timestamp":"2026-01-29T23:51:37Z","end_timestamp":"2026-01-29T23:52:06Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_155209_c74355","start_timestamp":"2026-01-29T23:52:09Z","end_timestamp":"2026-01-29T23:58:25Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_160525_c7f7f0","start_timestamp":"2026-01-30T00:05:25Z","end_timestamp":"2026-01-30T00:16:03Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_161756_b4817e","start_timestamp":"2026-01-30T00:17:56Z","end_timestamp":"2026-01-30T00:18:30Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_161846_642b7f","start_timestamp":"2026-01-30T00:18:46Z","end_timestamp":"2026-01-30T00:19:55Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_161958_72ec30","start_timestamp":"2026-01-30T00:19:58Z","end_timestamp":"2026-01-30T00:46:48Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":4,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_165102_a0a3e1","start_timestamp":"2026-01-30T00:51:02Z","end_timestamp":"2026-01-30T00:51:30Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_174349_e6d2fb","start_timestamp":"2026-01-30T01:43:49Z","end_timestamp":"2026-01-30T01:46:32Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_174726_2be780","start_timestamp":"2026-01-30T01:47:26Z","end_timestamp":"2026-01-30T01:49:03Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_174135_3a9443","start_timestamp":"2026-01-30T01:41:35Z","end_timestamp":"2026-01-30T01:55:05Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":7,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_220108_0e3504","start_timestamp":"2026-01-30T06:01:08Z","end_timestamp":"2026-01-30T06:12:51Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_221254_8944f5","start_timestamp":"2026-01-30T06:12:54Z","end_timestamp":"2026-01-30T06:12:57Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_221259_a7bfe1","start_timestamp":"2026-01-30T06:12:59Z","end_timestamp":"2026-01-30T06:13:48Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_220108_0e3504","start_timestamp":"2026-01-30T06:01:08Z","end_timestamp":"2026-01-30T06:14:12Z","tokens":{"start":0,"end":136853,"consumed":136853,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.6843}}
+{"session_id":"session_20260129_221421_e69fdd","start_timestamp":"2026-01-30T06:14:21Z","end_timestamp":"2026-01-30T06:18:41Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_221848_3fec19","start_timestamp":"2026-01-30T06:18:48Z","end_timestamp":"2026-01-30T06:27:00Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_223305_636a32","start_timestamp":"2026-01-30T06:33:05Z","end_timestamp":"2026-01-30T06:46:07Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":7,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_224756_1a269c","start_timestamp":"2026-01-30T06:47:56Z","end_timestamp":"2026-01-30T06:48:01Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_164325_2b6aab","start_timestamp":"2026-01-28T00:43:25Z","end_timestamp":"2026-01-30T18:28:21Z","tokens":{"start":0,"end":176827,"consumed":176827,"max":200000},"stats":{"tasks_completed":0,"focus_changes":8,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.8841}}
+{"session_id":"session_20260127_164325_2b6aab","start_timestamp":"2026-01-28T00:43:25Z","end_timestamp":"2026-01-30T18:44:03Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":8,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_175752_dee0e6","start_timestamp":"2026-01-28T01:57:52Z","end_timestamp":"2026-01-30T18:44:05Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":10,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_212833_4a2838","start_timestamp":"2026-01-28T05:28:33Z","end_timestamp":"2026-01-30T18:44:08Z","tokens":{"start":0,"end":97481,"consumed":97481,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4874}}
+{"session_id":"session_20260127_221258_c83952","start_timestamp":"2026-01-28T06:12:58Z","end_timestamp":"2026-01-30T18:44:10Z","tokens":{"start":0,"end":97481,"consumed":97481,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4874}}
+{"session_id":"session_20260130_103233_c8d5dd","start_timestamp":"2026-01-30T18:32:33Z","end_timestamp":"2026-01-30T18:45:39Z","tokens":{"start":82175,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":5,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_103233_c8d5dd","start_timestamp":"2026-01-30T18:32:33Z","end_timestamp":"2026-01-30T18:45:40Z","tokens":{"start":82175,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":5,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_104806_8dc450","start_timestamp":"2026-01-30T18:48:06Z","end_timestamp":"2026-01-30T18:50:04Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_104806_8dc450","start_timestamp":"2026-01-30T18:48:06Z","end_timestamp":"2026-01-30T18:51:10Z","tokens":{"start":0,"end":111171,"consumed":111171,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.5559}}
+{"session_id":"session_20260130_105406_682451","start_timestamp":"2026-01-30T18:54:06Z","end_timestamp":"2026-01-30T18:54:45Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_105448_f114cb","start_timestamp":"2026-01-30T18:54:48Z","end_timestamp":"2026-01-30T19:08:42Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_222703_446ed1","start_timestamp":"2026-01-30T06:27:03Z","end_timestamp":"2026-01-30T19:11:03Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_165745_6eb69a","start_timestamp":"2026-01-28T00:57:45Z","end_timestamp":"2026-01-30T19:22:10Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_172152_40b5ab","start_timestamp":"2026-01-28T01:21:52Z","end_timestamp":"2026-01-30T19:22:13Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":7,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_202732_2cce19","start_timestamp":"2026-01-28T04:27:32Z","end_timestamp":"2026-01-30T19:22:15Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260127_221144_24b0b1","start_timestamp":"2026-01-28T06:11:44Z","end_timestamp":"2026-01-30T19:22:18Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_112230_207781","start_timestamp":"2026-01-30T19:22:31Z","end_timestamp":"2026-01-30T19:24:00Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_174726_2be780","start_timestamp":"2026-01-30T01:47:26Z","end_timestamp":"2026-01-30T19:26:11Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_112718_a738f6","start_timestamp":"2026-01-30T19:27:18Z","end_timestamp":"2026-01-30T19:27:46Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_110912_d9ce86","start_timestamp":"2026-01-30T19:09:12Z","end_timestamp":"2026-01-30T19:34:10Z","tokens":{"start":0,"end":162756,"consumed":162756,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.8138}}
+{"session_id":"session_20260131_101938_e86fae","start_timestamp":"2026-01-31T18:19:38Z","end_timestamp":"2026-01-31T18:20:16Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_101904_f56b37","start_timestamp":"2026-01-31T18:19:04Z","end_timestamp":"2026-01-31T18:22:14Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260129_174726_2be780","start_timestamp":"2026-01-30T01:47:26Z","end_timestamp":"2026-01-31T19:57:09Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":2},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_122318_c3b8ba","start_timestamp":"2026-01-31T20:23:18Z","end_timestamp":"2026-01-31T20:23:23Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_122318_c3b8ba","start_timestamp":"2026-01-31T20:23:18Z","end_timestamp":"2026-01-31T20:25:24Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_123009_fafb0e","start_timestamp":"2026-01-31T20:30:09Z","end_timestamp":"2026-01-31T20:35:31Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_122517_6dfbac","start_timestamp":"2026-01-31T20:25:17Z","end_timestamp":"2026-01-31T20:37:27Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_123534_b575d4","start_timestamp":"2026-01-31T20:35:34Z","end_timestamp":"2026-01-31T20:41:15Z","tokens":{"start":129066,"end":168240,"consumed":39174,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.1959}}
+{"session_id":"session_20260131_122517_6dfbac","start_timestamp":"2026-01-31T20:25:17Z","end_timestamp":"2026-01-31T20:46:12Z","tokens":{"start":0,"end":90350,"consumed":90350,"max":200000},"stats":{"tasks_completed":0,"focus_changes":7,"suspend_count":0,"resume_count":1},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4517}}
+{"session_id":"session_20260131_154746_7c52ff","start_timestamp":"2026-01-31T23:47:46Z","end_timestamp":"2026-01-31T23:49:18Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_172102_8c75ec","start_timestamp":"2026-02-01T01:21:02Z","end_timestamp":"2026-02-01T02:00:50Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":13,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_180140_81b68d","start_timestamp":"2026-02-01T02:01:40Z","end_timestamp":"2026-02-01T02:02:13Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_174541_a64ceb","start_timestamp":"2026-02-01T01:45:41Z","end_timestamp":"2026-02-01T02:04:56Z","tokens":{"start":0,"end":95176,"consumed":95176,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4759}}
+{"session_id":"session_20260131_180458_aef902","start_timestamp":"2026-02-01T02:04:58Z","end_timestamp":"2026-02-01T02:05:13Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_180516_0e315c","start_timestamp":"2026-02-01T02:05:16Z","end_timestamp":"2026-02-01T02:14:02Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_181453_741612","start_timestamp":"2026-02-01T02:14:53Z","end_timestamp":"2026-02-01T02:14:57Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_182340_f5c66e","start_timestamp":"2026-02-01T02:23:40Z","end_timestamp":"2026-02-01T02:25:40Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_182637_174257","start_timestamp":"2026-02-01T02:26:37Z","end_timestamp":"2026-02-01T02:27:25Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_182729_f848ad","start_timestamp":"2026-02-01T02:27:29Z","end_timestamp":"2026-02-01T02:28:17Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_183139_dd7463","start_timestamp":"2026-02-01T02:31:39Z","end_timestamp":"2026-02-01T02:32:04Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_215538_f86544","start_timestamp":"2026-02-01T05:55:38Z","end_timestamp":"2026-02-01T05:56:23Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260130_104803_f6bc5c","start_timestamp":"2026-01-30T18:48:03Z","end_timestamp":"2026-02-01T05:56:30Z","tokens":{"start":0,"end":63682,"consumed":63682,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.3184}}
+{"session_id":"session_20260129_174647_0e6c6c","start_timestamp":"2026-01-30T01:46:47Z","end_timestamp":"2026-02-01T05:56:33Z","tokens":{"start":0,"end":63682,"consumed":63682,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.3184}}
+{"session_id":"session_20260130_104108_a97aee","start_timestamp":"2026-01-30T18:41:08Z","end_timestamp":"2026-02-01T05:56:36Z","tokens":{"start":0,"end":85222,"consumed":85222,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4261}}
+{"session_id":"session_20260131_183256_590460","start_timestamp":"2026-02-01T02:32:56Z","end_timestamp":"2026-02-01T05:56:38Z","tokens":{"start":0,"end":85222,"consumed":85222,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4261}}
+{"session_id":"session_20260131_103122_51f106","start_timestamp":"2026-01-31T18:31:22Z","end_timestamp":"2026-02-01T05:56:40Z","tokens":{"start":0,"end":85400,"consumed":85400,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4270}}
+{"session_id":"session_20260129_220558_f33c8d","start_timestamp":"2026-01-30T06:05:58Z","end_timestamp":"2026-02-01T05:56:43Z","tokens":{"start":0,"end":85400,"consumed":85400,"max":200000},"stats":{"tasks_completed":0,"focus_changes":7,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4270}}
+{"session_id":"session_20260131_181616_c3dbd2","start_timestamp":"2026-02-01T02:16:16Z","end_timestamp":"2026-02-01T05:56:45Z","tokens":{"start":0,"end":85400,"consumed":85400,"max":200000},"stats":{"tasks_completed":0,"focus_changes":15,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4270}}
+{"session_id":"session_20260131_122737_85de23","start_timestamp":"2026-01-31T20:27:37Z","end_timestamp":"2026-02-01T05:56:48Z","tokens":{"start":0,"end":85400,"consumed":85400,"max":200000},"stats":{"tasks_completed":0,"focus_changes":8,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4270}}
+{"session_id":"session_20260131_180530_28f2f1","start_timestamp":"2026-02-01T02:05:30Z","end_timestamp":"2026-02-01T05:56:50Z","tokens":{"start":0,"end":85400,"consumed":85400,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.4270}}
+{"session_id":"session_20260131_220919_ab0fcc","start_timestamp":"2026-02-01T06:09:19Z","end_timestamp":"2026-02-01T06:13:35Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_221404_fced5a","start_timestamp":"2026-02-01T06:14:04Z","end_timestamp":"2026-02-01T06:21:04Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":4,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_222158_0a8326","start_timestamp":"2026-02-01T06:21:58Z","end_timestamp":"2026-02-01T06:24:11Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_224224_f0ae41","start_timestamp":"2026-02-01T06:42:24Z","end_timestamp":"2026-02-01T06:43:27Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_224332_884cbf","start_timestamp":"2026-02-01T06:43:32Z","end_timestamp":"2026-02-01T06:46:48Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_225355_310c79","start_timestamp":"2026-02-01T06:53:55Z","end_timestamp":"2026-02-01T07:02:18Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_231058_a449a8","start_timestamp":"2026-02-01T07:10:58Z","end_timestamp":"2026-02-01T07:12:10Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_230221_db5d1b","start_timestamp":"2026-02-01T07:02:21Z","end_timestamp":"2026-02-01T07:20:33Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":7,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_231214_90fbde","start_timestamp":"2026-02-01T07:12:14Z","end_timestamp":"2026-02-01T07:25:27Z","tokens":{"start":0,"end":66938,"consumed":66938,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0.0000,"human_intervention_rate":0.0000,"context_utilization":0.3347}}
+{"session_id":"session_20260131_232826_9c9c52","start_timestamp":"2026-02-01T07:28:26Z","end_timestamp":"2026-02-01T07:33:04Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":3,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{"session_id":"session_20260131_233509_3a8628","start_timestamp":"2026-02-01T07:35:09Z","end_timestamp":"2026-02-01T07:37:34Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":5,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260131_233740_cb9b5e",
+  "start_timestamp": "2026-02-01T07:37:40Z",
+  "end_timestamp": "2026-02-01T07:38:45Z",
+  "tokens": {
+    "start": 0,
+    "end": 130789,
+    "consumed": 130789,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 1
+  }
+}
+{"session_id":"session_20260131_233740_cb9b5e","start_timestamp":"2026-02-01T07:37:40Z","end_timestamp":"2026-02-01T07:38:45Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260131_233852_372961",
+  "start_timestamp": "2026-02-01T07:38:52Z",
+  "end_timestamp": "2026-02-01T07:40:09Z",
+  "tokens": {
+    "start": 0,
+    "end": 165001,
+    "consumed": 165001,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 1
+  }
+}
+{"session_id":"session_20260131_233852_372961","start_timestamp":"2026-02-01T07:38:52Z","end_timestamp":"2026-02-01T07:40:09Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260131_234633_cfbd48",
+  "start_timestamp": "2026-02-01T07:46:33Z",
+  "end_timestamp": "2026-02-01T07:47:55Z",
+  "tokens": {
+    "start": 0,
+    "end": 147815,
+    "consumed": 147815,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 1
+  }
+}
+{"session_id":"session_20260131_234633_cfbd48","start_timestamp":"2026-02-01T07:46:33Z","end_timestamp":"2026-02-01T07:47:55Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260131_234218_189265",
+  "start_timestamp": "2026-02-01T07:42:18Z",
+  "end_timestamp": "2026-02-01T07:58:40Z",
+  "tokens": {
+    "start": 0,
+    "end": 91952,
+    "consumed": 91952,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 7
+  }
+}
+{"session_id":"session_20260131_234218_189265","start_timestamp":"2026-02-01T07:42:18Z","end_timestamp":"2026-02-01T07:58:41Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":7,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260201_002151_6cf0f1",
+  "start_timestamp": "2026-02-01T08:21:51Z",
+  "end_timestamp": "2026-02-01T08:27:39Z",
+  "tokens": {
+    "start": 0,
+    "end": 130941,
+    "consumed": 130941,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 2
+  }
+}
+{"session_id":"session_20260201_002151_6cf0f1","start_timestamp":"2026-02-01T08:21:51Z","end_timestamp":"2026-02-01T08:27:39Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":2,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260201_225214_2cf0d8",
+  "start_timestamp": "2026-02-02T06:52:14Z",
+  "end_timestamp": "2026-02-02T07:13:48Z",
+  "tokens": {
+    "start": 0,
+    "end": 113738,
+    "consumed": 113738,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 8
+  }
+}
+{"session_id":"session_20260201_225214_2cf0d8","start_timestamp":"2026-02-02T06:52:14Z","end_timestamp":"2026-02-02T07:13:48Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":8,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260201_231351_89e0cb",
+  "start_timestamp": "2026-02-02T07:13:51Z",
+  "end_timestamp": "2026-02-02T07:30:22Z",
+  "tokens": {
+    "start": 0,
+    "end": 139048,
+    "consumed": 139048,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 8
+  }
+}
+{"session_id":"session_20260201_231351_89e0cb","start_timestamp":"2026-02-02T07:13:51Z","end_timestamp":"2026-02-02T07:30:22Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":8,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
