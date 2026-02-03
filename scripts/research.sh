@@ -97,6 +97,8 @@ ARCHIVE_PERCENT=""
 
 # Validate subcommand options
 VALIDATE_FIX="false"
+VALIDATE_PROTOCOL="false"
+VALIDATE_TASK_ID=""
 
 # Archive-list subcommand options
 ARCHIVE_LIST_LIMIT="50"
@@ -499,6 +501,14 @@ while [[ $# -gt 0 ]]; do
         case $1 in
           --fix)
             VALIDATE_FIX="true"
+            shift
+            ;;
+          --protocol)
+            VALIDATE_PROTOCOL="true"
+            shift
+            ;;
+          T[0-9]*)
+            VALIDATE_TASK_ID="$1"
             shift
             ;;
           *)
@@ -2182,6 +2192,118 @@ run_archive() {
 # ============================================================================
 
 run_validate() {
+  # Check if --protocol mode
+  if [[ "$VALIDATE_PROTOCOL" == "true" ]]; then
+    # Protocol validation mode - requires task ID
+    if [[ -z "$VALIDATE_TASK_ID" ]]; then
+      if [[ "${FORMAT:-json}" == "json" ]]; then
+        jq -nc \
+          --arg error "Task ID required for protocol validation" \
+          --arg usage "cleo research validate T#### --protocol" \
+          '{
+            "success": false,
+            "error": {
+              "message": $error,
+              "usage": $usage
+            }
+          }'
+      else
+        echo "Error: Task ID required for protocol validation" >&2
+        echo "Usage: cleo research validate T#### --protocol" >&2
+      fi
+      exit 2
+    fi
+
+    # Source protocol validation library
+    source "$LIB_DIR/protocol-validation.sh" 2>/dev/null || {
+      echo '{"success": false, "error": {"message": "Failed to load protocol-validation.sh"}}' >&2
+      exit 1
+    }
+
+    # Find manifest entry for this task
+    local manifest_path
+    manifest_path="$(_rm_get_output_dir)/MANIFEST.jsonl"
+
+    if [[ ! -f "$manifest_path" ]]; then
+      if [[ "${FORMAT:-json}" == "json" ]]; then
+        jq -nc \
+          --arg error "No research manifest found" \
+          '{
+            "success": false,
+            "error": {
+              "message": $error
+            }
+          }'
+      else
+        echo "Error: No research manifest found" >&2
+      fi
+      exit 4
+    fi
+
+    # Search for manifest entry linked to this task
+    local manifest_entry
+    manifest_entry=$(jq -r --arg task_id "$VALIDATE_TASK_ID" \
+      'select(.linked_tasks // [] | any(. == $task_id))' \
+      "$manifest_path" | head -1)
+
+    if [[ -z "$manifest_entry" ]]; then
+      if [[ "${FORMAT:-json}" == "json" ]]; then
+        jq -nc \
+          --arg task_id "$VALIDATE_TASK_ID" \
+          --arg error "No manifest entry found for task" \
+          '{
+            "success": false,
+            "error": {
+              "message": $error,
+              "taskId": $task_id
+            }
+          }'
+      else
+        echo "Error: No manifest entry found for task $VALIDATE_TASK_ID" >&2
+      fi
+      exit 4
+    fi
+
+    # Run protocol validation (strict mode)
+    local result
+    result=$(validate_research_protocol "$VALIDATE_TASK_ID" "$manifest_entry" "true")
+    local exit_code=$?
+
+    # Output result
+    if [[ "${FORMAT:-json}" == "json" ]]; then
+      echo "$result"
+    else
+      # Human-readable format
+      local valid
+      valid=$(echo "$result" | jq -r '.valid')
+      local score
+      score=$(echo "$result" | jq -r '.score')
+      local violations
+      violations=$(echo "$result" | jq -r '.violations | length')
+
+      echo ""
+      echo "Protocol Validation: Research"
+      echo "============================="
+      echo ""
+      echo "  Task ID: $VALIDATE_TASK_ID"
+      echo "  Valid:   $valid"
+      echo "  Score:   $score/100"
+      echo "  Violations: $violations"
+      echo ""
+
+      if [[ "$violations" -gt 0 ]]; then
+        echo "Violations:"
+        echo "$result" | jq -r '.violations[] | "  - [\(.severity | ascii_upcase)] \(.requirement): \(.message)"'
+        echo ""
+        echo "Fixes:"
+        echo "$result" | jq -r '.violations[] | "  - \(.fix)"'
+        echo ""
+      fi
+    fi
+
+    exit "$exit_code"
+  fi
+
   # Determine output format
   local format="${FORMAT:-}"
   if [[ -z "$format" ]]; then

@@ -247,9 +247,13 @@ nexus_parse_query() {
 #######################################
 nexus_resolve_project() {
     local project_name="${1:-}"
+    local format="${2:-}"
 
     if [[ -z "$project_name" ]]; then
-        echo "ERROR: Project name required" >&2
+        # Only output error to stderr if not in JSON mode
+        if [[ "$format" != "--json" ]]; then
+            echo "ERROR: Project name required" >&2
+        fi
         return 1
     fi
 
@@ -261,7 +265,10 @@ nexus_resolve_project() {
                 pwd
                 return 0
             else
-                echo "ERROR: Current directory is not a CLEO project" >&2
+                # Only output error to stderr if not in JSON mode
+                if [[ "$format" != "--json" ]]; then
+                    echo "ERROR: Current directory is not a CLEO project" >&2
+                fi
                 return 1
             fi
             ;;
@@ -276,7 +283,10 @@ nexus_resolve_project() {
             project_json=$(nexus_get_project "$project_name")
 
             if [[ "$project_json" == "{}" ]]; then
-                echo "ERROR: Project not found in registry: $project_name" >&2
+                # Only output error to stderr if not in JSON mode
+                if [[ "$format" != "--json" ]]; then
+                    echo "ERROR: Project not found in registry: $project_name" >&2
+                fi
                 return "$EXIT_NEXUS_PROJECT_NOT_FOUND"
             fi
 
@@ -285,7 +295,10 @@ nexus_resolve_project() {
             path=$(echo "$project_json" | jq -r '.path // empty')
 
             if [[ -z "$path" ]]; then
-                echo "ERROR: Project has no path: $project_name" >&2
+                # Only output error to stderr if not in JSON mode
+                if [[ "$format" != "--json" ]]; then
+                    echo "ERROR: Project has no path: $project_name" >&2
+                fi
                 return "$EXIT_NEXUS_PROJECT_NOT_FOUND"
             fi
 
@@ -321,6 +334,7 @@ nexus_resolve_project() {
 #######################################
 nexus_resolve_task() {
     local query="${1:-}"
+    local format="${2:-}"
 
     # Parse query
     local parsed
@@ -379,11 +393,14 @@ nexus_resolve_task() {
 
     # Named project - resolve path
     local project_path
-    project_path=$(nexus_resolve_project "$project") || return $?
+    project_path=$(nexus_resolve_project "$project" "$format") || return $?
 
     local todo_file="${project_path}/.cleo/todo.json"
     if [[ ! -f "$todo_file" ]]; then
-        echo "ERROR: Project todo.json not found: $todo_file" >&2
+        # Only output error to stderr if not in JSON mode
+        if [[ "$format" != "--json" ]]; then
+            echo "ERROR: Project todo.json not found: $todo_file" >&2
+        fi
         return "$EXIT_NOT_FOUND"
     fi
 
@@ -392,7 +409,10 @@ nexus_resolve_task() {
     task=$(jq --arg id "$task_id" '.tasks[] | select(.id == $id)' "$todo_file" 2>/dev/null)
 
     if [[ -z "$task" ]]; then
-        echo "ERROR: Task not found: $task_id in project $project" >&2
+        # Only output error to stderr if not in JSON mode
+        if [[ "$format" != "--json" ]]; then
+            echo "ERROR: Task not found: $task_id in project $project" >&2
+        fi
         return "$EXIT_NOT_FOUND"
     fi
 
@@ -432,21 +452,29 @@ nexus_query() {
     local format="${2:-}"
 
     if [[ -z "$query" ]]; then
-        echo "ERROR: Query string required" >&2
+        # Only output error to stderr if not in JSON mode
+        if [[ "$format" != "--json" ]]; then
+            echo "ERROR: Query string required" >&2
+        fi
         return 1
     fi
 
     # Validate syntax
     if ! nexus_validate_syntax "$query"; then
-        echo "ERROR: Invalid query syntax: $query" >&2
-        echo "Expected formats: T001, project:T001, .:T001, *:T001" >&2
+        # Only output error to stderr if not in JSON mode
+        if [[ "$format" != "--json" ]]; then
+            echo "ERROR: Invalid query syntax: $query" >&2
+            echo "Expected formats: T001, project:T001, .:T001, *:T001" >&2
+        fi
         return "$EXIT_NEXUS_INVALID_SYNTAX"
     fi
 
     # Resolve task
     local result
-    if ! result=$(nexus_resolve_task "$query"); then
-        return $?
+    result=$(nexus_resolve_task "$query" "$format")
+    local resolve_exit=$?
+    if [[ $resolve_exit -ne 0 ]]; then
+        return $resolve_exit
     fi
 
     # Output based on format

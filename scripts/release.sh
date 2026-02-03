@@ -19,6 +19,7 @@
 #   list                 List all releases
 #   show <version>       Show release details
 #   changelog <version>  Generate changelog for a release
+#   validate <task-id>   Validate release protocol compliance for a task
 #   init-ci              Initialize CI/CD workflow configuration
 #
 # Options:
@@ -115,6 +116,7 @@ SKIP_CHANGELOG=""
 CI_PLATFORM=""
 CI_OUTPUT=""
 CI_FORCE=""
+STRICT=""
 
 # Initialize flag defaults
 init_flag_defaults 2>/dev/null || true
@@ -1331,6 +1333,110 @@ cmd_init_ci() {
     fi
 }
 
+# cmd_validate - Validate release protocol compliance for a task
+# Args: $1 = task_id
+cmd_validate() {
+    local task_id="$1"
+
+    # Source protocol validation library if not already loaded
+    if ! declare -f validate_release_protocol &>/dev/null; then
+        if [[ -f "$LIB_DIR/protocol-validation.sh" ]]; then
+            source "$LIB_DIR/protocol-validation.sh"
+        else
+            log_error "Protocol validation library not found" "E_FILE_NOT_FOUND" "$EXIT_NOT_FOUND"
+            exit "$EXIT_NOT_FOUND"
+        fi
+    fi
+
+    local manifest_path="claudedocs/agent-outputs/MANIFEST.jsonl"
+
+    # Find manifest entry for task
+    if [[ ! -f "$manifest_path" ]]; then
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -nc \
+                --arg error "Manifest not found: $manifest_path" \
+                --argjson exit_code "$EXIT_NOT_FOUND" \
+                '{
+                    "success": false,
+                    "error": {
+                        "message": $error,
+                        "code": "E_FILE_NOT_FOUND",
+                        "exitCode": $exit_code
+                    }
+                }'
+        else
+            echo "Error: Manifest not found: $manifest_path" >&2
+        fi
+        exit "$EXIT_NOT_FOUND"
+    fi
+
+    local manifest_entry
+    manifest_entry=$(grep "\"linked_tasks\".*\"$task_id\"" "$manifest_path" | tail -1 || true)
+
+    if [[ -z "$manifest_entry" ]]; then
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -nc \
+                --arg task_id "$task_id" \
+                --arg error "No manifest entry found for task" \
+                --argjson exit_code "$EXIT_NOT_FOUND" \
+                '{
+                    "success": false,
+                    "error": {
+                        "message": $error,
+                        "taskId": $task_id,
+                        "code": "E_TASK_NOT_FOUND",
+                        "exitCode": $exit_code
+                    }
+                }'
+        else
+            echo "Error: No manifest entry found for task $task_id" >&2
+        fi
+        exit "$EXIT_NOT_FOUND"
+    fi
+
+    # Validate release protocol (strict mode if --strict flag was set)
+    local strict="${STRICT:-false}"
+    set +e
+    local result
+    result=$(validate_release_protocol "$task_id" "$manifest_entry" "$strict")
+    local exit_code=$?
+    set -e
+
+    # Output result
+    if [[ "$FORMAT" == "json" ]]; then
+        echo "$result"
+    else
+        # Human-readable format
+        local valid
+        valid=$(echo "$result" | jq -r '.valid')
+        local score
+        score=$(echo "$result" | jq -r '.score')
+        local violations_count
+        violations_count=$(echo "$result" | jq -r '.violations | length')
+
+        echo ""
+        echo "Release Protocol Validation"
+        echo "==========================="
+        echo ""
+        echo "  Task ID:    $task_id"
+        echo "  Valid:      $valid"
+        echo "  Score:      $score/100"
+        echo "  Violations: $violations_count"
+        echo ""
+
+        if [[ "$violations_count" -gt 0 ]]; then
+            echo "Violations:"
+            echo "$result" | jq -r '.violations[] | "  - [\(.severity | ascii_upcase)] \(.requirement): \(.message)"'
+            echo ""
+            echo "Fixes:"
+            echo "$result" | jq -r '.violations[] | "  - \(.fix)"'
+            echo ""
+        fi
+    fi
+
+    exit "$exit_code"
+}
+
 #####################################################################
 # Argument Parsing
 #####################################################################
@@ -1354,7 +1460,7 @@ parse_args() {
     # Parse subcommand and command-specific arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            create|plan|ship|list|show|changelog|init-ci)
+            create|plan|ship|list|show|changelog|init-ci|validate)
                 SUBCOMMAND="$1"
                 shift
                 # Get version argument for subcommands that need it
@@ -1426,6 +1532,11 @@ parse_args() {
                 ;;
             --skip-validation)
                 SKIP_VALIDATION="true"
+                shift
+                continue
+                ;;
+            --strict)
+                STRICT="true"
                 shift
                 continue
                 ;;
@@ -1553,12 +1664,19 @@ main() {
         init-ci)
             cmd_init_ci
             ;;
+        validate)
+            if [[ -z "$VERSION_ARG" ]]; then
+                log_error "Task ID required. Usage: cleo release validate <task-id>" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}"
+                exit "${EXIT_INVALID_INPUT:-2}"
+            fi
+            cmd_validate "$VERSION_ARG"
+            ;;
         "")
-            log_error "Subcommand required" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog, init-ci"
+            log_error "Subcommand required" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog, init-ci, validate"
             usage
             ;;
         *)
-            log_error "Unknown subcommand: $SUBCOMMAND" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog, init-ci"
+            log_error "Unknown subcommand: $SUBCOMMAND" "E_INVALID_INPUT" "${EXIT_INVALID_INPUT:-2}" "Valid subcommands: create, plan, ship, list, show, changelog, init-ci, validate"
             exit "${EXIT_INVALID_INPUT:-2}"
             ;;
     esac

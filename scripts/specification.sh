@@ -87,14 +87,16 @@ validate_task() {
 
     # Find manifest entry for task
     if [[ ! -f "$manifest_path" ]]; then
-        error_exit $EXIT_NOT_FOUND "Manifest not found: $manifest_path"
+        output_error "$E_FILE_NOT_FOUND" "Manifest not found: $manifest_path" "$EXIT_NOT_FOUND" true
+        exit "$EXIT_NOT_FOUND"
     fi
 
     local manifest_entry
     manifest_entry=$(grep "\"linked_tasks\".*\"$task_id\"" "$manifest_path" | tail -1 || true)
 
     if [[ -z "$manifest_entry" ]]; then
-        error_exit $EXIT_NOT_FOUND "No manifest entry found for task $task_id"
+        output_error "$E_TASK_NOT_FOUND" "No manifest entry found for task $task_id" "$EXIT_NOT_FOUND" true
+        exit "$EXIT_NOT_FOUND"
     fi
 
     # Extract spec file path from manifest if not provided
@@ -103,11 +105,18 @@ validate_task() {
     fi
 
     # Validate specification protocol
+    # Temporarily disable -e to capture both output and exit code
+    set +e
     local result
     result=$(validate_specification_protocol "$task_id" "$manifest_entry" "$SPEC_FILE" "$STRICT")
+    local exit_code=$?
+    set -e
 
     # Output result
     echo "$result"
+
+    # Propagate exit code in strict mode
+    exit $exit_code
 }
 
 # check_manifest - Validate specification protocol from manifest file
@@ -116,7 +125,8 @@ check_manifest() {
     local manifest_file="$1"
 
     if [[ ! -f "$manifest_file" ]]; then
-        error_exit $EXIT_NOT_FOUND "Manifest file not found: $manifest_file"
+        output_error "$E_FILE_NOT_FOUND" "Manifest file not found: $manifest_file" "$EXIT_NOT_FOUND" true
+        exit "$EXIT_NOT_FOUND"
     fi
 
     local manifest_entry
@@ -132,11 +142,18 @@ check_manifest() {
     fi
 
     # Validate specification protocol
+    # Temporarily disable -e to capture both output and exit code
+    set +e
     local result
     result=$(validate_specification_protocol "$task_id" "$manifest_entry" "$SPEC_FILE" "$STRICT")
+    local exit_code=$?
+    set -e
 
     # Output result
     echo "$result"
+
+    # Propagate exit code in strict mode
+    exit $exit_code
 }
 
 # ============================================================================
