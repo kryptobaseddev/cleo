@@ -340,3 +340,35 @@
   }
 }
 {"session_id":"session_20260201_231351_89e0cb","start_timestamp":"2026-02-02T07:13:51Z","end_timestamp":"2026-02-02T07:30:22Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":8,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260202_224711_bea313",
+  "start_timestamp": "2026-02-03T06:47:11Z",
+  "end_timestamp": "2026-02-03T06:47:24Z",
+  "tokens": {
+    "start": 0,
+    "end": 94386,
+    "consumed": 94386,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 1
+  }
+}
+{"session_id":"session_20260202_224711_bea313","start_timestamp":"2026-02-03T06:47:11Z","end_timestamp":"2026-02-03T06:47:25Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}
+{
+  "session_id": "session_20260202_224727_014566",
+  "start_timestamp": "2026-02-03T06:47:27Z",
+  "end_timestamp": "2026-02-03T06:57:21Z",
+  "tokens": {
+    "start": 0,
+    "end": 69987,
+    "consumed": 69987,
+    "max": 200000
+  },
+  "stats": {
+    "tasks_completed": 0,
+    "focus_changes": 1
+  }
+}
+{"session_id":"session_20260202_224727_014566","start_timestamp":"2026-02-03T06:47:27Z","end_timestamp":"2026-02-03T06:57:22Z","tokens":{"start":0,"end":0,"consumed":0,"max":200000},"stats":{"tasks_completed":0,"focus_changes":1,"suspend_count":0,"resume_count":0},"efficiency":{"session_efficiency_score":0,"human_intervention_rate":0.0000,"context_utilization":0}}

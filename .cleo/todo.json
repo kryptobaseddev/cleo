@@ -408,18 +408,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-02T08:09:06Z",
+  "lastUpdated": "2026-02-03T07:19:06Z",
   "_meta": {
-    "checksum": "d532543afc09bcd2",
+    "checksum": "10c62a5e6af972b6",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-02T07:30:22Z",
+    "lastModified": "2026-02-03T07:16:36Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 6,
-    "generation": 1724
+    "activeSessionCount": 8,
+    "generation": 1746
   },
   "focus": {
     "currentTask": null,
@@ -7853,7 +7853,7 @@
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-01-24T10:29:26Z",
-      "updatedAt": "2026-01-26T22:19:58Z",
+      "updatedAt": "2026-02-03T06:47:24Z",
       "size": "large",
       "position": 136,
       "positionVersion": 3,
@@ -12513,6 +12513,441 @@
         },
         "lastAgent": "coder",
         "lastUpdated": "2026-02-02T07:29:30Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2968",
+      "title": "EPIC: CLEO Strategic Inflection Point Review",
+      "status": "done",
+      "priority": "critical",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-03T06:47:18Z",
+      "updatedAt": "2026-02-03T07:09:35Z",
+      "size": "large",
+      "position": 198,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Comprehensive review of CLEO at critical inflection point. Analyze current state, review Cognee for inspiration, determine strategic direction for CLEO as a 'BRAIN' for AI systems managing small to extremely large project systems.\n\n## Scope\n1. CLEO Current State Analysis - What we have, what works, what's complex\n2. Cognee Analysis - Architecture, patterns, what's transferable\n3. Strategic Synthesis - Direction for CLEO + Nexus + TypeScript + MCP\n4. Roadmap Recommendations - Priority ordering and approach\n\n## Key Questions\n- Should CLEO incorporate Cognee patterns or remain distinct?\n- What's the relationship between Nexus vision and Cognee's approach?\n- How do TypeScript migration and MCP server fit the BRAIN vision?\n- What simplifications vs. extensions does CLEO need?\n\n## References\n- docs/specs/CLEO-NEXUS-SPEC.md - Nexus global intelligence spec\n- T2021 - TypeScript Epic\n- T2908 - MCP Server Epic\n- T2233 - Nexus Global Registry Epic\n- /mnt/projects/cognee - Cognee source for analysis",
+      "labels": [
+        "architecture",
+        "cognee",
+        "inflection-point",
+        "nexus",
+        "review",
+        "strategic"
+      ],
+      "completedAt": "2026-02-03T07:09:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:09:35Z] Strategic inflection point review complete. See docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md for formal specification."
+      ]
+    },
+    {
+      "id": "T2969",
+      "title": "Research: CLEO Current State Assessment",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2968",
+      "createdAt": "2026-02-03T06:47:38Z",
+      "updatedAt": "2026-02-03T06:56:03Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Comprehensive assessment of CLEO's current state at v0.80.0.\n\n## Analysis Areas\n1. **Architecture Complexity**: Map lib/, scripts/, schemas/ structure\n2. **Feature Surface**: Count commands, operations, capabilities\n3. **What Works Well**: Identify strengths and validated patterns\n4. **Pain Points**: Complexity, maintenance burden, unclear boundaries\n5. **Existing Plans**: Summarize T2021 (TS), T2908 (MCP), T2233 (Nexus)\n\n## Outputs\n- Feature/capability inventory\n- Complexity hotspots\n- Dependency graph of major subsystems\n- SWOT-style assessment\n\n## Success Criteria\n- Clear picture of what CLEO is today\n- Identified areas of unnecessary complexity\n- List of core vs. peripheral features",
+      "labels": [
+        "analysis",
+        "current-state",
+        "rcsd",
+        "research"
+      ],
+      "completedAt": "2026-02-03T06:56:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T06:56:03Z] Research completed by subagent. See manifest entry T2969-cleo-current-state-assessment for key findings."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T06:56:03Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2970",
+      "title": "Research: Cognee Architecture and Patterns Analysis",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2968",
+      "createdAt": "2026-02-03T06:47:49Z",
+      "updatedAt": "2026-02-03T06:52:51Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Deep analysis of Cognee project to understand its architecture and patterns for potential CLEO inspiration.\n\n## Research Sources\n- /mnt/projects/cognee - Local clone\n- https://github.com/topoteretes/cognee - Repository\n- Context7 docs for Cognee patterns\n\n## Analysis Areas\n1. **Core Architecture**: How Cognee structures knowledge management\n2. **Graph/Memory Patterns**: Knowledge graph, memory systems\n3. **MCP Integration**: How cognee-mcp works\n4. **Pipeline System**: Data processing and transformation\n5. **API Design**: How operations are exposed\n6. **Scalability Approach**: Small to large project handling\n\n## Key Questions\n- What problems does Cognee solve that CLEO also needs to solve?\n- What patterns are transferable vs. Cognee-specific?\n- How does Cognee handle cross-project intelligence?\n- What's Cognee's approach to task/knowledge relationships?\n\n## Outputs\n- Architecture diagram of Cognee\n- Pattern catalog with applicability to CLEO\n- Gap analysis: what Cognee has that CLEO lacks\n- Anti-patterns: what to avoid",
+      "labels": [
+        "cognee",
+        "external-analysis",
+        "rcsd",
+        "research"
+      ],
+      "completedAt": "2026-02-03T06:52:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T06:52:51Z] Completed comprehensive architecture analysis of Cognee. Documented three-tier storage system, pipeline abstraction, MCP server patterns, and identified 7 high-value transferable patterns for CLEO. Deliverables: 10-section research document with gap analysis and strategic recommendations."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T06:52:51Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2971",
+      "title": "Research: BRAIN Vision Requirements Analysis",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2968",
+      "createdAt": "2026-02-03T06:48:00Z",
+      "updatedAt": "2026-02-03T07:00:51Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Define what 'BRAIN for AI systems' means concretely - the vision for CLEO as an intelligence layer managing small to extremely large project systems.\n\n## Vision Scope\n- What does a 'BRAIN' need to do?\n- How does it differ from a task manager?\n- What makes it suitable for 'extremely large' systems?\n\n## Capability Requirements\n1. **Memory/Knowledge**: How knowledge persists and retrieves\n2. **Cross-Project Intelligence**: Nexus vision requirements\n3. **Agent Coordination**: Multi-agent orchestration needs\n4. **Scalability**: 1 project vs. 100+ projects\n5. **Learning/Adaptation**: Does the BRAIN need to learn?\n\n## Comparison Matrix\n- CLEO vs. Cognee vs. Other systems (Linear, Jira, etc.)\n- Where does CLEO differentiate?\n- What's the unique value proposition?\n\n## Outputs\n- BRAIN capability requirements document\n- Prioritized feature list for BRAIN vision\n- Gap analysis against current CLEO\n- Architectural requirements for scale",
+      "labels": [
+        "brain",
+        "rcsd",
+        "requirements",
+        "research",
+        "vision"
+      ],
+      "depends": [
+        "T2969"
+      ],
+      "completedAt": "2026-02-03T07:00:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:00:51Z] BRAIN vision requirements defined: 5 cognitive capabilities (Memory, Reasoning, Learning, Planning, Coordination), 4 scale tiers (S/M/L/XL), 23 capability gaps identified, prioritized 3-phase roadmap. Key finding: CLEO is Tier S today, Phase 1 targets Tier M with MCP Server + Semantic Search + Research Indexing. See manifest for detailed findings."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T07:00:52Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2972",
+      "title": "Consensus: Strategic Direction Decision",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2968",
+      "createdAt": "2026-02-03T06:48:08Z",
+      "updatedAt": "2026-02-03T07:04:10Z",
+      "size": "small",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Synthesize research findings and make strategic decisions about CLEO's direction.\n\n## Decision Areas\n1. **Cognee Integration**: Incorporate patterns vs. remain distinct\n2. **Nexus Priority**: How central is Nexus to the vision?\n3. **TypeScript Migration**: Priority and approach\n4. **MCP Server**: Priority and scope\n5. **Simplification vs. Extension**: What to cut vs. add\n\n## Input Requirements\n- T2969: CLEO Current State Assessment\n- T2970: Cognee Architecture Analysis  \n- T2971: BRAIN Vision Requirements\n\n## Decision Framework\n- Vote on each decision area\n- Document rationale\n- Identify dependencies between decisions\n\n## Outputs\n- Decision record with rationale\n- Priority matrix for major initiatives\n- Go/No-Go recommendations\n- Risk assessment for chosen direction",
+      "labels": [
+        "consensus",
+        "decisions",
+        "rcsd",
+        "strategic"
+      ],
+      "depends": [
+        "T2969",
+        "T2970",
+        "T2971"
+      ],
+      "completedAt": "2026-02-03T07:04:10Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:04:10Z] Strategic consensus reached with evidence-based voting. MCP Server immediate priority, simplify first, incremental TypeScript, validate Nexus before expansion. See manifest for full decision matrix and rationale."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T07:04:11Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2973",
+      "title": "Specification: CLEO Strategic Roadmap",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2968",
+      "createdAt": "2026-02-03T06:48:18Z",
+      "updatedAt": "2026-02-03T07:09:18Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create formal specification document for CLEO's strategic direction based on consensus decisions.\n\n## Specification Content\n1. **Vision Statement**: What CLEO becomes (BRAIN for AI systems)\n2. **Architecture Evolution**: Current → Target state\n3. **Phase Plan**: Ordered implementation phases\n4. **Integration Strategy**: How Cognee patterns (if any) integrate\n5. **Migration Path**: Bash → TypeScript transition plan\n6. **MCP Server Scope**: What the MCP server exposes\n\n## RFC 2119 Requirements\n- MUST: Non-negotiable requirements\n- SHOULD: Strong recommendations\n- MAY: Optional enhancements\n\n## Cross-References\n- Link to Nexus spec (CLEO-NEXUS-SPEC.md)\n- Link to existing epics (T2021, T2908, T2233)\n- Link to research outputs\n\n## Outputs\n- docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md\n- Updated docs/concepts/vision.mdx\n- Priority-ordered backlog recommendations",
+      "labels": [
+        "rcsd",
+        "roadmap",
+        "specification",
+        "strategic"
+      ],
+      "depends": [
+        "T2972"
+      ],
+      "completedAt": "2026-02-03T07:09:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:09:18Z] Strategic roadmap specification complete. Defines 4-phase evolution: Phase 0 (Simplify+MCP, Months 1-2), Phase 1 (Validation, 60-90 days), Phase 2 (Intelligence, Months 4-9), Phase 3 (Scale, Months 10-18). Evidence-first approach: validate Nexus/MCP adoption before expansion, gate progression on strict criteria, rollback if validation fails. Preserves agent-first design (protocol enforcement, anti-hallucination). Incremental TypeScript via MCP server → hotspots → expand. See docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T07:09:18Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2974",
+      "title": "EPIC: CLEO Consolidation Sprint - Inflection Point Execution",
+      "status": "pending",
+      "priority": "medium",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-03T07:14:42Z",
+      "updatedAt": "2026-02-03T07:14:42Z",
+      "size": "medium",
+      "position": 199,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Execute Phase 0 of CLEO Strategic Roadmap (docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md). Focus: (1) Archive/merge 41 duplicate epics, (2) Evaluate 67 commands for trimming, (3) Consolidate 163 files to ~100, (4) Validate core strengths (RCSD/IVTR, Graph-RAG, Epic Tasks). Gate: 30% file reduction before any new features.",
+      "labels": [
+        "consolidation",
+        "inflection-point",
+        "strategic"
+      ]
+    },
+    {
+      "id": "T2975",
+      "title": "EPIC: CLEO Consolidation Sprint - Phase 0 Execution",
+      "status": "pending",
+      "priority": "medium",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-03T07:14:51Z",
+      "updatedAt": "2026-02-03T07:14:51Z",
+      "size": "medium",
+      "position": 200,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Execute Phase 0 of CLEO Strategic Roadmap. Focus: Archive duplicates, evaluate commands, consolidate files, validate core strengths.",
+      "labels": [
+        "consolidation",
+        "phase-0",
+        "strategic"
+      ]
+    },
+    {
+      "id": "T2976",
+      "title": "Research: Epic Sprawl Analysis - Identify duplicates and stale epics",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2975",
+      "createdAt": "2026-02-03T07:15:09Z",
+      "updatedAt": "2026-02-03T07:19:06Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Analyze 41 pending epics. Identify: (1) Duplicates to merge (T1954/T1955, T2482/T2483), (2) Stale epics >60 days without activity, (3) Completed work not marked done (Nexus T2231/T2233/T2234). Output: Categorized list with recommendations for archive/merge/close.",
+      "labels": [
+        "cleanup",
+        "epics",
+        "research"
+      ],
+      "completedAt": "2026-02-03T07:19:06Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:19:06Z] Research complete. Analysis identified 2 duplicates to merge (T1954/T1955, T2482/T2483), 10 completed epics to close (including Nexus T2231/T2233/T2234 shipped in v0.80.0), 5 stale epics to archive, and 28 active epics to keep. Recommendations will reduce pending epics by 28% (43 to ~28-31). Output: claudedocs/agent-outputs/T2976-epic-sprawl-analysis.md with actionable merge/close/archive commands."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T07:19:06Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2977",
+      "title": "Research: Command Sprawl Analysis - Evaluate 67 CLI commands",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2975",
+      "createdAt": "2026-02-03T07:15:11Z",
+      "updatedAt": "2026-02-03T07:18:10Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Analyze 67 CLI commands in scripts/. Identify: (1) Redundant commands with overlapping functionality, (2) Rarely used commands (candidates for deprecation), (3) Core commands that form essential workflow. Output: Tiered classification (essential/useful/deprecate) with usage evidence.",
+      "labels": [
+        "cleanup",
+        "commands",
+        "research"
+      ],
+      "completedAt": "2026-02-03T07:18:10Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:18:10Z] Analyzed 67 commands: 20 essential, 32 useful, 15 deprecate. Identified 7 architecture violations (dev tools in scripts/), 9 consolidation opportunities. Evidence: agentRelevance ratings, workflow analysis, functional overlap."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T07:18:10Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2978",
+      "title": "Research: Library Consolidation Analysis - 96 lib files to ~50",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2975",
+      "createdAt": "2026-02-03T07:15:14Z",
+      "updatedAt": "2026-02-03T07:18:39Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Analyze 96 lib/*.sh files. Identify: (1) Agent system consolidation (14→3 files), (2) Nexus consolidation (5→1 files), (3) Sessions consolidation (6→2 files), (4) Protocol consolidation (5→2 files). Output: File-by-file consolidation map per CLEO-STRATEGIC-ROADMAP-SPEC.md Phase 0.",
+      "labels": [
+        "cleanup",
+        "libraries",
+        "research"
+      ],
+      "completedAt": "2026-02-03T07:18:39Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:18:39Z] Consolidated analysis complete: Agent system (13→3), Nexus (4→1), Sessions (3→2), Protocols (4→2). Identified migrate.sh snapshot strategy (2,884→<1,000 lines) and sessions.sh split requirement (3,098 lines). Overall projection: 96→50-60 files (38-48% reduction)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T07:18:39Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T2979",
+      "title": "Research: Core Strengths Validation - RCSD/IVTR, Graph-RAG, Task System",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2975",
+      "createdAt": "2026-02-03T07:15:16Z",
+      "updatedAt": "2026-02-03T07:18:26Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Challenge and validate CLEO core strengths: (1) RCSD-IVTR protocol system - is it working? overengineered? (2) Graph-RAG vectorless search - real value vs complexity? (3) Epic/Task hierarchy - effective or constraining? (4) Manifest cross-agent communication - working well? Output: Honest assessment with improvement recommendations.",
+      "labels": [
+        "core",
+        "research",
+        "validation"
+      ],
+      "completedAt": "2026-02-03T07:18:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-03T07:18:26Z] Honest critical assessment of CLEO core systems. Manifest system is clear win. Graph-RAG is unused complexity (835 lines, zero usage). Protocols need consolidation (9→5). Task hierarchy underutilized but well-designed."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-03T07:18:27Z",
         "failureLog": []
       }
     }
