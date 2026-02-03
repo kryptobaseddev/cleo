@@ -1,25 +1,27 @@
 ---
 title: "CLEO Strategic Roadmap"
-version: "1.0.0"
+version: "1.1.0"
 status: "stable"
 created: "2026-02-03"
+updated: "2026-02-03"
 epic: "T2968"
 authors: ["Claude Opus 4.5", "CLEO Development Team"]
 ---
 
 # CLEO Strategic Roadmap Specification
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: STABLE
 **Date**: 2026-02-03
 **Epic**: T2968 - CLEO Strategic Inflection Point Review
 **Specification Task**: T2973
+**Revision Task**: T2998
 
 ---
 
 ## 1. Executive Summary
 
-This specification defines CLEO's evolution from a Bash-based task manager (Tier S: solo developer, single project) to a cognitive infrastructure system (Tier M: 2-3 projects, cross-project intelligence) and beyond. The roadmap adopts an **evidence-first, incremental approach**: validate assumptions before expansion, simplify before extending, and maintain agent-first design as core differentiator.
+This specification defines CLEO's evolution from a Bash-based task manager (Tier S: solo developer, single project) to a cognitive infrastructure system (Tier M: 2-3 projects, cross-project intelligence) and beyond. The roadmap adopts an **evidence-first, incremental approach**: validate assumptions before expansion, fix implementation gaps before consolidation, and maintain agent-first design as core differentiator.
 
 ### 1.1 Vision Statement
 
@@ -31,8 +33,8 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 |-------|-----------|---------------|--------------|
 | **B**ase (Memory) | Task/session storage | Tier S (single project) | Tier M (2-3 projects, MCP interface) |
 | **R**easoning | Graph-RAG semantic discovery | Local graph only | Global cross-project intelligence |
-| **A**gent | Orchestrator + subagents | Protocol enforcement, 7 protocols | Agent registry, capability routing |
-| **I**ntelligence | Validation + compliance | Anti-hallucination, lifecycle gates | Semantic search, pattern extraction |
+| **A**gent | Orchestrator + subagents | Protocol enforcement, 9 protocols | Agent registry, capability routing |
+| **I**ntelligence | Validation + compliance | Anti-hallucination, lifecycle gates | Pattern extraction, adaptive prioritization |
 | **N**etwork | Isolated projects | Registry (v0.80.0, unvalidated) | Tier M/L cross-project coordination |
 
 **From**: Task manager with anti-hallucination validation
@@ -41,7 +43,7 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 ### 1.2 Design Principles
 
 1. **Evidence > Speculation**: Validate usage before expanding features (Nexus, MCP)
-2. **Simplify First**: Reduce 163 files before adding complexity
+2. **Fix Before Simplify**: Address implementation gaps (missing CLI wrappers) before consolidation
 3. **Incremental Migration**: TypeScript via MCP server, expand only if proven
 4. **Agent-First**: Protocol enforcement, RCSD lifecycle, anti-hallucination remain core
 5. **Scale Tiers**: S (1 project) → M (2-3) → L (3-10) → XL (10-100+)
@@ -67,11 +69,10 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 - Exit code system (72 codes)
 
 **Pain Points**:
-- File sprawl (96 library modules)
-- Migration accumulation (85+ functions)
-- Session complexity (60+ functions in single file)
+- Implementation gaps (missing protocol CLI, Nexus CLI)
 - Technical debt (1,111 TODO comments)
 - Nexus premature complexity (5 files, zero usage data)
+- 22% protocol enforcement (orphaned code)
 
 ### 2.2 Unvalidated Assets
 
@@ -87,29 +88,35 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 
 ### 3.1 Phase 0: Foundation (Months 1-2)
 
-**Goal**: Simplify current complexity + deliver MCP Server for LLM integration
+**Goal**: Fix implementation gaps + deliver MCP Server for LLM integration
 
-#### 3.1.1 Simplification (Epic 1)
+#### 3.1.1 Architecture Validation Results (Research T2992-T2996)
 
-**File Consolidation** (Target: 96 lib files → 50-60 files)
+**Research Finding**: Domain research (T2992-T2996) validated that CLEO's current architecture is **sound**. The original consolidation goals addressed symptoms (file count, orphaned code) rather than root causes (implementation gaps).
 
-The following consolidations **MUST** be completed:
+**Architecture Validation Summary**:
 
-| Consolidation | Current Files | Target Structure | Reduction |
-|---------------|---------------|------------------|-----------|
-| Agent system | 14 files | `lib/agent/{orchestrator,skills,registry}.sh` | 14 → 3 |
-| Nexus | 5 files | `lib/nexus/nexus.sh` (single file) | 5 → 1 |
-| Sessions | 6 files | `lib/sessions/{core,enforcement}.sh` | 6 → 2 |
-| Protocols | 5 files | `lib/protocols/{validation,lifecycle}.sh` | 5 → 2 |
+| Domain | Research Task | Finding | Recommended Action |
+|--------|--------------|---------|-------------------|
+| **Command System** | T2992 | NO duplicates, sound architecture | Relocate 5 dev scripts only (scripts/→dev/) |
+| **Protocol System** | T2993, T2997 | ALL 9 protocols required (7 conditional + 2 enforcement) | Add missing CLI wrappers (consensus.sh, contribution.sh) |
+| **Migration System** | T2994 | All 17 migrations production-required | Keep current organization, NO snapshotting |
+| **Graph-RAG/Nexus** | T2995 | Three systems serve distinct purposes | Add missing Nexus CLI commands (query, discover, search) |
+| **BRAIN Vision** | T2996 | 4.2/5 alignment, missing learning infrastructure | Add BRAIN Certification gate (Phase 3.5) |
 
-**Migration Cleanup** (Target: migrate.sh from 2,884 lines → <1,000 lines)
+**Revised Phase 0 Goal**: Fix **implementation gaps**, not consolidation.
 
-The following migration strategy **MUST** be implemented:
+#### 3.1.2 Implementation Gap Resolution (Epic 1)
 
-1. **Migration Snapshots**: Collapse pre-v1.0 migrations into single snapshot function
-2. **External Migrations**: Move version-specific migrations to `migrations/v*.sh` files
-3. **Minimum Version Policy**: Drop migrations older than 6 months (configurable)
-4. **Lazy Loading**: Load migration functions on-demand, not at startup
+The following gaps were identified by domain research and **MUST** be addressed:
+
+| Gap | Research Source | Implementation | Priority |
+|-----|-----------------|----------------|----------|
+| **Missing protocol CLI** | T2993/T2997 | Add `scripts/consensus.sh`, `scripts/contribution.sh` | High |
+| **Misplaced dev scripts** | T2992 | Move 5 scripts from `scripts/` to `dev/` | Medium |
+| **Missing Nexus CLI** | T2995 | Add `nexus query`, `nexus discover`, `nexus search` | High |
+| **Orphaned protocol code** | T2997 | Connect 3250 LOC to CLI entry points | High |
+| **22% protocol enforcement** | T2997 | CLI wrappers expose validation (target 40%) | High |
 
 **Technical Debt** (Target: 1,111 TODO comments → <100)
 
@@ -120,13 +127,19 @@ The following cleanup **MUST** occur:
 3. Archive orphaned code paths (unused functions)
 4. Update stale documentation (last modified >1 year)
 
-**Success Criteria**:
-- File count: 163 → 100 files (38% reduction)
-- Largest file: 3,098 lines → <2,000 lines
-- TODO comments: 1,111 → <100
-- Test pass rate: Maintain 100% (no regressions)
+**Success Criteria** (Revised based on research):
 
-#### 3.1.2 MCP Server Implementation (Epic 2)
+| Metric | Original Target | Revised Target | Rationale |
+|--------|-----------------|----------------|-----------|
+| **File Count** | 163 → 100 | 163 → ~160 | Only relocate 5 dev scripts (research T2992) |
+| **Protocol CLI** | N/A | +2 commands | Add consensus.sh, contribution.sh (research T2997) |
+| **Nexus CLI** | N/A | +3 commands | Add query, discover, search (research T2995) |
+| **Protocol Enforcement** | N/A | 22% → 40% | Connect orphaned code to CLI wrappers (research T2997) |
+| **TODO Comments** | 1,111 → <100 | 1,111 → <100 | Unchanged |
+| **Test Pass Rate** | 100% | 100% | Unchanged |
+| **Architecture Validation** | N/A | Complete | Research T2992-T2996 confirms sound design |
+
+#### 3.1.3 MCP Server Implementation (Epic 2)
 
 **Architecture** (TypeScript + FastMCP)
 
@@ -199,7 +212,9 @@ The MCP server **MAY**:
 
 ### 3.2 Phase 1: Validation (Months 2-4)
 
-**Goal**: Validate Nexus usage + MCP adoption before further investment
+**Goal**: Validate Nexus usage + MCP adoption + resolve strategic direction
+
+**Critical Decision Gate**: At Phase 1 completion, CLEO **MUST** explicitly commit to either **BRAIN expansion** OR **simplification**. Both paths cannot coexist.
 
 #### 3.2.1 Nexus Validation Gate
 
@@ -250,6 +265,38 @@ The MCP server **MAY**:
 - Document lessons learned for future TypeScript attempts
 
 **Validation Timeline**: 90 days from MCP server release
+
+#### 3.2.3 Strategic Direction Decision Gate (NEW - from T2996)
+
+**Context**: Research T2996 identified unresolved tension between competing visions:
+- **Simplify**: Reduce complexity, maintain Tier S scope (solo developer, single project)
+- **Expand**: Build BRAIN cognitive infrastructure, target Tier M/L scale
+
+**Decision Criteria** (evaluated at Month 4):
+
+| Criterion | Threshold | Path |
+|-----------|-----------|------|
+| **Nexus validation** | ALL criteria met | → BRAIN expansion |
+| **MCP adoption** | ≥3 developers, >500 queries/dev/month | → BRAIN expansion |
+| **Community engagement** | >5 external contributions in 120 days | → BRAIN expansion |
+| **ANY criterion fails** | Below threshold | → Simplification path |
+
+**If BRAIN Expansion Path** (Month 4+):
+1. Add Phase 2.5: Learning Infrastructure (pattern extraction, adaptive prioritization)
+2. Add Phase 3.5: BRAIN Certification gate (5-dimension capability audit)
+3. Commit to PostgreSQL backend (Phase 3)
+4. Remove "archive Nexus" fallback
+5. Full TypeScript hotspot migration (sessions, migrate, orchestrator)
+
+**If Simplification Path** (Month 4+):
+1. Archive Nexus spec to `archive/specs/CLEO-NEXUS-SPEC-v0.80.0.md`
+2. Consolidate Nexus (5 files → 1 file, basic references only)
+3. Abandon TypeScript expansion beyond MCP server
+4. Focus on Bash CLI optimization
+5. Explicitly scope as "Tier S task manager" (no Tier M/L claims)
+6. Remove Phase 2-3 from roadmap
+
+**This decision MUST be made explicitly** - "wait and see" is not an option after Phase 1 validation.
 
 ### 3.3 Phase 2: Intelligence (Months 4-9)
 
@@ -349,13 +396,49 @@ The research index **SHOULD**:
 
 **Timeline**: 2-3 weeks
 
-### 3.4 Phase 3: Scale (Months 10-18)
+### 3.4 Phase 2.5: Learning Infrastructure (NEW - from T2996)
 
-**Precondition**: Phase 2 MUST validate TypeScript value AND demonstrate Tier M usage (5+ projects)
+**Precondition**: Phase 2 semantic search MUST be operational
+
+**Goal**: Add pattern extraction and adaptive behavior for BRAIN Intelligence dimension
+
+#### 3.4.1 Pattern Extraction Engine (Epic)
+
+**Requirements** (RFC 2119)
+
+The pattern extraction system **MUST**:
+1. Analyze completed epics → extract common task sequences
+2. Identify blocked tasks → correlate with labels/structure
+3. Learn which task types block others → suggest priority adjustments
+4. Summarize completed epics → distill key decisions
+
+The pattern extraction system **SHOULD**:
+1. Extract ≥10 actionable patterns from 50 completed epics
+2. Store patterns in SQLite with metadata (confidence, frequency)
+3. Provide pattern API via MCP `orchestrate.patterns` domain
+4. Support pattern suggestions during epic planning
+
+**Success Criteria**:
+- Pattern extraction: ≥10 actionable patterns from 50 epics
+- Blocker reduction: >20% via adaptive prioritization
+- Epic summaries: Used in ≥50% of new epic planning
+- Pattern relevance: >70% user satisfaction
+
+**Timeline**: 4-6 weeks
+
+**Components**:
+1. Workflow Pattern Mining (4-6 weeks)
+2. Anti-Pattern Detection (2-3 weeks)
+3. Adaptive Prioritization (3-4 weeks)
+4. Epic Consolidation (2-3 weeks)
+
+### 3.5 Phase 3: Scale (Months 10-18)
+
+**Precondition**: Phase 2 MUST validate TypeScript value AND demonstrate Tier M usage (5+ projects) AND Phase 1 decision = BRAIN expansion
 
 **Goal**: Support Tier L scale (3-10 projects, 5-20 concurrent agents)
 
-#### 3.4.1 Agent Coordination (Epic: Agent Registry + Capability Routing)
+#### 3.5.1 Agent Coordination (Epic: Agent Registry + Capability Routing)
 
 **Requirements** (RFC 2119)
 
@@ -380,7 +463,7 @@ The agent coordination system **SHOULD**:
 
 **Timeline**: 6-8 weeks
 
-#### 3.4.2 Cross-Project Intelligence (Epic: PostgreSQL Backend)
+#### 3.5.2 Cross-Project Intelligence (Epic: PostgreSQL Backend)
 
 **Precondition**: Nexus validation MUST succeed + Tier L usage demonstrated
 
@@ -406,6 +489,62 @@ The PostgreSQL backend **SHOULD**:
 - Migration: Zero data loss from JSON → PostgreSQL
 
 **Timeline**: 8-12 weeks
+
+### 3.6 Phase 3.5: BRAIN Certification (NEW - from T2996)
+
+**Precondition**: Phase 3 complete AND all Tier L capabilities demonstrated
+
+**Goal**: Validate CLEO achieves BRAIN model across all 5 dimensions before declaring "cognitive infrastructure" capability
+
+#### 3.6.1 BRAIN Capability Audit
+
+**Requirements** (RFC 2119)
+
+Before declaring Tier L capability or "CLEO as BRAIN" status, the system **MUST** demonstrate:
+
+| BRAIN Dimension | Capability | Validation Method | Success Criteria |
+|-----------------|------------|-------------------|------------------|
+| **Base (Memory)** | Multi-modal storage with semantic retrieval | Performance benchmark | Query <3s for 10K tasks, vector search operational |
+| **Reasoning** | Cross-project pattern detection | Blind test on 50 epics | Identify similar tasks across 3 projects with >80% accuracy |
+| **Agent** | Autonomous multi-agent coordination | Load test | 5 subagents complete epic without HITL, <5% error rate |
+| **Intelligence** | Learning from past interactions | Historical analysis | Extract ≥10 actionable patterns, suggest optimizations |
+| **Network** | Cross-project intelligence sharing | Multi-project usage | Transfer learned patterns between projects, >70% relevance |
+
+**Additional Capabilities** (from T2996 gap analysis):
+
+| Missing Capability | Implementation | Validation |
+|-------------------|----------------|------------|
+| **Persistent Learning** | Pattern extraction from completed work | Workflow optimization based on 50+ completed epics |
+| **Causal Reasoning** | Impact propagation ("changing X affects Y tasks") | Predict downstream effects with ±20% accuracy |
+| **Temporal Intelligence** | Historical timeline analysis (NOT estimates) | "Similar epics took 2-3 weeks" context (no commitments) |
+| **Memory Consolidation** | Epic completion → summary artifact | Distill 10 epics into reusable knowledge base |
+
+**Success Criteria**:
+- ALL 5 BRAIN dimensions certified
+- ALL 4 additional capabilities demonstrated
+- Zero critical failures in 60-day production bake period
+- >50% user satisfaction with cognitive features (survey)
+
+**If Certification Fails**:
+- Document which dimensions failed
+- Revert to "Tier M task manager with agent orchestration" (NOT "cognitive infrastructure")
+- Create remediation epic for failed dimensions
+- Re-attempt certification after fixes (3-6 month cycle)
+
+**Timeline**: 4-6 weeks after Phase 3 completion
+
+**Certification Approval**: HITL sign-off required before "CLEO v2.0: BRAIN" release
+
+**Clarification: Temporal Intelligence vs Time Estimates** (from T2996)
+
+**Keep**: "No time estimates **by humans or agents**" (prevents hallucination)
+**Add**: "Historical timeline analysis **for context only**" (enables learning)
+
+**Examples**:
+- ❌ PROHIBITED: "This task will take 3 hours"
+- ✅ ALLOWED: "Similar tasks historically took 2-4 days (median 3 days, 80% CI)"
+
+**Rationale**: Temporal reasoning for **learning** is distinct from **estimation** for commitment.
 
 ---
 
@@ -543,14 +682,16 @@ Communication **MUST** occur via one of:
 
 ## 6. Success Criteria
 
-### 6.1 Phase 0 Success (Simplification + MCP)
+### 6.1 Phase 0 Success (Implementation Gaps + MCP)
 
-**Quantitative Metrics**
+**Quantitative Metrics** (REVISED based on research)
 
 | Metric | Baseline | Target | Measurement |
 |--------|----------|--------|-------------|
-| **File Count** | 163 files | 100 files | File system audit |
-| **Largest File** | 3,098 lines | <2,000 lines | LOC count |
+| **File Count** | 163 files | ~160 files | File system audit (5 dev scripts relocated) |
+| **Protocol CLI Commands** | 7 commands | 9 commands | Add consensus.sh, contribution.sh |
+| **Nexus CLI Commands** | 2 commands | 5 commands | Add query, discover, search |
+| **Protocol Enforcement** | 22% | 40% | Connect orphaned code to CLI |
 | **TODO Comments** | 1,111 | <100 | `grep -r TODO` |
 | **MCP Token Reduction** | 32,500 tokens | <3,500 tokens | MCP tool definitions |
 | **Test Pass Rate** | 100% | 100% | BATS test suite |
@@ -559,8 +700,8 @@ Communication **MUST** occur via one of:
 
 The following **MUST** be validated by code review:
 
-1. Consolidated modules have clear boundaries (no cross-contamination)
-2. Migration snapshots reduce migrate.sh by >60%
+1. Protocol CLI wrappers expose validation (consensus, contribution)
+2. Nexus commands functional (query, discover, search)
 3. MCP server passes all integration tests (Claude Code, Cursor)
 4. No breaking changes for existing CLI users
 5. Documentation updated (CLAUDE.md, specs/, guides/)
@@ -589,6 +730,13 @@ All of the following **MUST** be true:
 - [ ] <3s query response time (p95)
 - [ ] <5% error rate
 
+**Strategic Direction Decision**
+
+The following **MUST** be decided explicitly (no "wait and see"):
+
+- [ ] IF all gates pass → commit to BRAIN expansion (add Phase 2.5, 3.5)
+- [ ] IF any gate fails → commit to simplification (archive specs, CLI-only)
+
 **Timeline**: End of Month 4
 
 ### 6.3 Phase 2 Success (Intelligence)
@@ -615,7 +763,22 @@ All of the following **MUST** be true for EACH migrated hotspot:
 
 **Timeline**: End of Month 9
 
-### 6.4 Phase 3 Success (Scale)
+### 6.4 Phase 2.5 Success (Learning Infrastructure)
+
+**Pattern Extraction**
+
+All of the following **MUST** be validated:
+
+- [ ] ≥10 actionable patterns extracted from 50 completed epics
+- [ ] Patterns stored in SQLite with metadata
+- [ ] Pattern API exposed via MCP `orchestrate.patterns`
+- [ ] Blocker reduction >20% via adaptive prioritization
+- [ ] Epic summaries used in ≥50% of new epic planning
+- [ ] >70% user satisfaction with pattern relevance
+
+**Timeline**: End of Month 11
+
+### 6.5 Phase 3 Success (Scale)
 
 **Agent Coordination**
 
@@ -639,6 +802,34 @@ All of the following **MUST** be true:
 
 **Timeline**: End of Month 18
 
+### 6.6 Phase 3.5 Success (BRAIN Certification)
+
+**BRAIN Dimensions**
+
+All 5 dimensions **MUST** be certified:
+
+- [ ] **Base (Memory)**: Query <3s for 10K tasks, vector search operational
+- [ ] **Reasoning**: Identify similar tasks across 3 projects with >80% accuracy
+- [ ] **Agent**: 5 subagents complete epic without HITL, <5% error rate
+- [ ] **Intelligence**: Extract ≥10 actionable patterns, suggest optimizations
+- [ ] **Network**: Transfer learned patterns between projects, >70% relevance
+
+**Additional Capabilities**
+
+All 4 capabilities **MUST** be demonstrated:
+
+- [ ] **Persistent Learning**: Workflow optimization based on 50+ epics
+- [ ] **Causal Reasoning**: Predict downstream effects with ±20% accuracy
+- [ ] **Temporal Intelligence**: Historical analysis (no commitments)
+- [ ] **Memory Consolidation**: Distill 10 epics into knowledge base
+
+**Final Criteria**:
+- [ ] Zero critical failures in 60-day production bake period
+- [ ] >50% user satisfaction with cognitive features (survey)
+- [ ] HITL sign-off before "CLEO v2.0: BRAIN" release
+
+**Timeline**: End of Month 19-20
+
 ---
 
 ## 7. Risk Assessment
@@ -656,7 +847,7 @@ All of the following **MUST** be true:
 
 | Decision | Risk | Mitigation |
 |----------|------|------------|
-| **Simplification First** | Delays new features (MCP, Nexus expansion), potential for churn during consolidation | Parallel with MCP server development. Focus on high-value consolidations only. |
+| **Implementation Gaps First** | Delays consolidation (163 files remain), increases maintenance | Gaps are foundational - fix before consolidation or gaps persist in consolidated code. |
 | **Cognee Patterns** | Over-engineering (graph DB, vector search), complexity creep | Adopt proven patterns only. Defer speculative features (graph DB to Tier XL). |
 | **Hybrid Bash/TypeScript** | Maintenance burden (two languages), FFI complexity, debugging difficulty | Clear layer separation. Use CLI wrappers (simple FFI). Maintain hybrid only during migration. |
 | **Semantic Search** | Relevance tuning difficulty, embedding maintenance cost, query performance | Use battle-tested SQLite-vec. Validate with 80% user satisfaction threshold. |
@@ -665,8 +856,8 @@ All of the following **MUST** be true:
 
 | Decision | Risk | Mitigation |
 |----------|------|------------|
-| **File Consolidation** | Merge conflicts, temporary confusion | Clear migration guide. Preserve git history. Update imports systematically. |
-| **Migration Snapshots** | Loss of granular version history | Archive old migrations. Document snapshot creation process. |
+| **Dev Script Relocation** | Temporary confusion about script locations | Clear migration guide. Update imports systematically. Document in CLAUDE.md. |
+| **Protocol CLI Addition** | Increased command surface area | Commands wrap existing lib functions. No new logic. Test coverage required. |
 | **TODO Cleanup** | Missed TODOs become lost work | Convert to tracked tasks before deletion. Code review required. |
 
 ### 7.4 Rollback Triggers
@@ -707,16 +898,17 @@ Each phase **MUST** pass validation gate before proceeding:
 ```
 Phase 0: Foundation
     ↓
-GATE 1: Simplification + MCP Server Complete
+GATE 1: Implementation Gaps Fixed + MCP Server Complete
     ├─ All Phase 0 success criteria met?
     ├─ Test pass rate 100%?
     └─ Zero critical bugs?
     ↓
 Phase 1: Validation (60-90 days)
     ↓
-GATE 2: Nexus + MCP Adoption Validated
+GATE 2: Nexus + MCP Adoption Validated + Strategic Direction Decided
     ├─ Nexus validation criteria met?
     ├─ MCP validation criteria met?
+    ├─ Strategic direction decision made (BRAIN vs Simplification)?
     └─ Performance benchmarks pass?
     ↓
 Phase 2: Intelligence
@@ -726,7 +918,19 @@ GATE 3: TypeScript Value Demonstrated
     ├─ TypeScript hotspots validated?
     └─ Developer preference >50% TypeScript?
     ↓
+Phase 2.5: Learning Infrastructure
+    ↓
+GATE 4: Pattern Extraction Validated
+    ├─ ≥10 actionable patterns extracted?
+    ├─ Blocker reduction >20%?
+    └─ Epic summaries used ≥50%?
+    ↓
 Phase 3: Scale
+    ↓
+GATE 5: BRAIN Certification
+    ├─ All 5 BRAIN dimensions certified?
+    ├─ All 4 additional capabilities demonstrated?
+    └─ HITL sign-off granted?
 ```
 
 ### 8.2 Gate Enforcement (RFC 2119)
@@ -799,22 +1003,24 @@ The following **MUST** be considered:
 ### 9.1 Gantt Chart (ASCII)
 
 ```
-Month:    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18
-          ─────────────────────────────────────────────────────────────────────────────────────
+Month:    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20
+          ─────────────────────────────────────────────────────────────────────────────────────────────────
 Phase 0:  ████████
           │      │
-          │      └─► GATE 1: Simplification + MCP Complete
+          │      └─► GATE 1: Implementation Gaps + MCP Complete
           │
-          ├─ File Consolidation
-          ├─ Migration Cleanup
+          ├─ Protocol CLI (consensus, contribution)
+          ├─ Nexus CLI (query, discover, search)
+          ├─ Dev Script Relocation
           └─ MCP Server Core/Features/Integration
 
 Phase 1:        ████████
                 │      │
-                │      └─► GATE 2: Nexus + MCP Validation (60-90 days)
+                │      └─► GATE 2: Nexus + MCP Validation + Strategic Decision
                 │
                 ├─ Nexus Usage Tracking
-                └─ MCP Adoption Metrics
+                ├─ MCP Adoption Metrics
+                └─ BRAIN vs Simplification Decision
 
 Phase 2:                ████████████████████
                         │                  │
@@ -824,50 +1030,74 @@ Phase 2:                ██████████████████�
                         ├─ TypeScript Hotspot Migration (sessions, migrate, orchestrator)
                         └─ Research Indexing
 
-Phase 3:                                    ████████████████████████
-                                            │                      │
-                                            │                      └─► Tier L Capability Validated
+Phase 2.5:                                  ████████
+                                            │      │
+                                            │      └─► GATE 4: Pattern Extraction Validated
                                             │
-                                            ├─ Agent Coordination
-                                            └─ PostgreSQL Backend (if Nexus validated)
+                                            ├─ Workflow Pattern Mining
+                                            ├─ Anti-Pattern Detection
+                                            ├─ Adaptive Prioritization
+                                            └─ Epic Consolidation
+
+Phase 3:                                            ████████████████████████
+                                                    │                      │
+                                                    │                      └─► Tier L Validated
+                                                    │
+                                                    ├─ Agent Coordination
+                                                    └─ PostgreSQL Backend (if Nexus validated)
+
+Phase 3.5:                                                                    ████
+                                                                              │  │
+                                                                              │  └─► BRAIN Certified
+                                                                              │
+                                                                              └─ BRAIN Capability Audit
 ```
 
 ### 9.2 Milestone Dates (Estimated)
 
 | Milestone | Month | Description |
 |-----------|-------|-------------|
-| **Phase 0 Start** | 1 | Simplification + MCP server development begins |
-| **GATE 1** | 2 | File consolidation + MCP server core complete |
+| **Phase 0 Start** | 1 | Implementation gaps + MCP server development begins |
+| **GATE 1** | 2 | Protocol CLI + Nexus CLI + MCP server core complete |
 | **MCP Server Release** | 3 | MCP server v1.0.0 shipped to production |
 | **Phase 1 Start** | 3 | Validation period begins (60-90 days) |
-| **GATE 2** | 4 | Nexus + MCP validation results available |
+| **GATE 2** | 4 | Nexus + MCP validation results + strategic decision |
 | **Phase 2 Start** | 4 | Semantic search + TypeScript hotspots (if Gate 2 passes) |
 | **Semantic Search Release** | 6 | SQLite-vec integration complete |
 | **TypeScript Hotspots Complete** | 9 | Sessions, migrate, orchestrator migrated |
 | **GATE 3** | 9 | TypeScript value validation |
-| **Phase 3 Start** | 10 | Agent coordination + PostgreSQL (if Gate 3 passes) |
-| **Agent Registry Release** | 12 | Agent coordination operational |
+| **Phase 2.5 Start** | 10 | Learning infrastructure (if BRAIN expansion) |
+| **Pattern Extraction Complete** | 11 | Workflow mining, adaptive prioritization operational |
+| **GATE 4** | 11 | Pattern extraction validation |
+| **Phase 3 Start** | 12 | Agent coordination + PostgreSQL (if Gate 4 passes) |
+| **Agent Registry Release** | 14 | Agent coordination operational |
 | **PostgreSQL Backend Release** | 18 | Tier L scale capability complete |
+| **Phase 3.5 Start** | 19 | BRAIN Certification audit begins |
+| **BRAIN Certification** | 20 | CLEO v2.0: BRAIN certified and released |
 
 ### 9.3 Critical Path
 
 **Sequential Dependencies** (Cannot parallelize):
 
 ```
-File Consolidation → MCP Server Implementation → Gate 1
+Implementation Gaps → MCP Server Implementation → Gate 1
     ↓
-Nexus Validation (60 days) + MCP Validation (90 days) → Gate 2
+Nexus Validation (60 days) + MCP Validation (90 days) → Strategic Decision → Gate 2
     ↓
 TypeScript Hotspot Migration (sessions → migrate → orchestrator) → Gate 3
     ↓
-Agent Coordination → PostgreSQL Backend
+Pattern Extraction → Gate 4
+    ↓
+Agent Coordination → PostgreSQL Backend → Gate 5
+    ↓
+BRAIN Certification
 ```
 
 **Parallel Opportunities**:
 
-- File Consolidation || MCP Server Core (Months 1-2)
-- Semantic Search || TypeScript Hotspot Migration (Months 4-9)
-- Research Indexing || Agent Coordination (Months 10-12)
+- Protocol CLI || Nexus CLI (Phase 0, Months 1-2)
+- Semantic Search || TypeScript Hotspot Migration (Phase 2, Months 4-9)
+- Research Indexing || Pattern Extraction (Months 9-11)
 
 ---
 
@@ -881,21 +1111,30 @@ Agent Coordination → PostgreSQL Backend
 - **T2971**: Research: BRAIN Vision Requirements (scale tiers, capability gaps)
 - **T2972**: Consensus: Strategic Direction (voting matrix, confidence scores)
 
-### 10.2 Existing Specifications
+### 10.2 Domain Research (Phase 0 Validation)
+
+- **T2992**: Research: Command Architecture Analysis (sound design, 5 scripts to relocate)
+- **T2993**: Research: Protocol Coverage Gap Analysis (preliminary, superseded by T2997)
+- **T2994**: Research: Migration System Analysis (17 production-required, no consolidation)
+- **T2995**: Research: Graph-RAG/Nexus Unified Architecture (3 systems, distinct purposes)
+- **T2996**: Research: BRAIN Vision Alignment (4.2/5 alignment, missing learning layer)
+- **T2997**: Research: Protocol Architecture Validation (9 protocols correct, fix gaps not consolidate)
+
+### 10.3 Existing Specifications
 
 - **docs/specs/MCP-SERVER-SPECIFICATION.md**: Two-tool CQRS gateway (39KB)
 - **docs/specs/CLEO-NEXUS-SPEC.md**: Cross-project intelligence (43KB)
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCSD-IVTR pipeline
 - **docs/specs/PROTOCOL-STACK-SPEC.md**: Base + conditional protocols
 
-### 10.3 Architecture Documentation
+### 10.4 Architecture Documentation
 
 - **CLAUDE.md**: Core repository guidelines
 - **.cleo/templates/CLEO-INJECTION.md**: Subagent architecture (v1.0.0)
 - **docs/concepts/vision.mdx**: CLEO vision statement
 - **docs/guides/protocol-enforcement.md**: Protocol validation guide
 
-### 10.4 Current State Artifacts
+### 10.5 Current State Artifacts
 
 - **CHANGELOG.md**: v0.80.0 (Nexus release, 2026-01-26)
 - **VERSION**: 0.80.0
@@ -903,7 +1142,7 @@ Agent Coordination → PostgreSQL Backend
 - **scripts/**: 67 CLI commands, 63,927 LOC
 - **tests/**: 262 BATS test files, 100,421 LOC
 
-### 10.5 External References
+### 10.6 External References
 
 - **Cognee**: Three-tier storage, MCP architecture, pipeline abstraction
 - **FastMCP**: TypeScript MCP server SDK
@@ -941,10 +1180,12 @@ Agent Coordination → PostgreSQL Backend
 
 ### Appendix C: Key Metrics Dashboard
 
-**Phase 0 Targets**:
-- Files: 163 → 100 (38% reduction)
+**Phase 0 Targets** (REVISED):
+- Files: 163 → ~160 (5 dev scripts relocated)
+- Protocol CLI: 7 → 9 commands (add consensus, contribution)
+- Nexus CLI: 2 → 5 commands (add query, discover, search)
+- Protocol enforcement: 22% → 40%
 - MCP tokens: 32,500 → <3,500 (>90% reduction)
-- Largest file: 3,098 → <2,000 lines
 - TODO comments: 1,111 → <100
 
 **Phase 1 Targets**:
@@ -952,6 +1193,7 @@ Agent Coordination → PostgreSQL Backend
 - MCP queries: >500/developer/month
 - Token savings: >90% validated
 - Error rate: <5%
+- Strategic decision: BRAIN vs Simplification (explicit)
 
 **Phase 2 Targets**:
 - Semantic search: <3s query, >80% relevance
@@ -959,16 +1201,39 @@ Agent Coordination → PostgreSQL Backend
 - Research index: <500ms query
 - Test coverage: ≥90%
 
+**Phase 2.5 Targets** (NEW):
+- Pattern extraction: ≥10 patterns from 50 epics
+- Blocker reduction: >20%
+- Epic summaries: ≥50% adoption
+- Pattern relevance: >70% satisfaction
+
 **Phase 3 Targets**:
 - Agents: 5-20 concurrent support
 - Routing latency: <100ms
 - PostgreSQL: <1s queries, 10K+ tasks
 - Agent utilization: >70%
 
+**Phase 3.5 Targets** (NEW):
+- BRAIN dimensions: 5/5 certified
+- Additional capabilities: 4/4 demonstrated
+- Production stability: 60-day bake, zero critical bugs
+- User satisfaction: >50%
+
 ---
 
 **Specification Status**: STABLE
 **Last Updated**: 2026-02-03
-**Version**: 1.0.0
+**Version**: 1.1.0
+**Changes from v1.0.0**:
+1. Phase 0 revised: Implementation gaps, not consolidation (based on T2992-T2996)
+2. Success criteria updated: Protocol CLI +2, Nexus CLI +3, enforcement 22%→40%
+3. Added Phase 2.5: Learning Infrastructure (from T2996 gap analysis)
+4. Added Phase 3.5: BRAIN Certification (from T2996 recommendation)
+5. Added Strategic Direction Decision Gate at Phase 1 (from T2996)
+6. Clarified temporal intelligence vs time estimates (from T2996)
+7. 9 protocols confirmed as correct architecture (from T2997)
+8. Migration system organization validated (from T2994)
+9. Graph-RAG/Nexus distinct purposes confirmed (from T2995)
+
 **Approval**: Pending HITL review
 **Next Review**: End of Phase 0 (Month 2)

@@ -25,7 +25,7 @@ GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 cat > "$FEATURES_MD" << 'HEADER'
 # CLEO Features
 
-> **Auto-generated from FEATURES.json** - Do not edit directly. Run `./scripts/generate-features.sh` to regenerate.
+> **Auto-generated from FEATURES.json** - Do not edit directly. Run `./dev/generate-features.sh` to regenerate.
 
 HEADER
 
@@ -96,7 +96,7 @@ cat >> "$FEATURES_MD" << EOF
 
 ---
 
-*Generated from [FEATURES.json](FEATURES.json) by \`scripts/generate-features.sh\`*
+*Generated from [FEATURES.json](FEATURES.json) by \`dev/generate-features.sh\`*
 EOF
 
 echo "Generated $FEATURES_MD from $FEATURES_JSON"

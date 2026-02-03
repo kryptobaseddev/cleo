@@ -9,7 +9,7 @@
 #   3. Updates COMPLIANCE.jsonl with real validation scores
 #
 # Usage:
-#   ./scripts/backfill-validation.sh [--dry-run] [--limit N]
+#   ./dev/migrations/backfill-validation.sh [--dry-run] [--limit N]
 #
 # Options:
 #   --dry-run       Show what would change without modifying files

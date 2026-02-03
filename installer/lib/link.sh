@@ -332,23 +332,27 @@ _get_cmd_script() {
         # Task lifecycle (delete, cancel, reopen)
         delete) echo "delete.sh" ;; uncancel) echo "uncancel.sh" ;; reopen) echo "reopen.sh" ;;
         # Hierarchy management
-        reparent) echo "reparent.sh" ;; promote) echo "promote.sh" ;; populate-hierarchy) echo "populate-hierarchy.sh" ;;
+        reparent) echo "reparent.sh" ;; promote) echo "promote.sh" ;;
         reorder) echo "reorder.sh" ;;
         # Verification and maintenance
         verify) echo "verify.sh" ;; upgrade) echo "upgrade.sh" ;; context) echo "context.sh" ;;
         doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
         # Installation and setup
-        self-update) echo "self-update.sh" ;; setup-agents) echo "setup-agents.sh" ;;
-        setup-claude-aliases) echo "setup-claude-aliases.sh" ;; skills) echo "skills.sh" ;;
+        self-update) echo "self-update.sh" ;; skills) echo "skills.sh" ;;
         # Import/export tasks
         export-tasks) echo "export-tasks.sh" ;; import-tasks) echo "import-tasks.sh" ;;
         # Archive management
         archive-stats) echo "archive-stats.sh" ;; unarchive) echo "unarchive.sh" ;;
-        reorganize-backups) echo "reorganize-backups.sh" ;;
         # Orchestration and automation
         orchestrator) echo "orchestrator.sh" ;; safestop) echo "safestop.sh" ;; sequence) echo "sequence.sh" ;;
+        # Protocol validation
+        consensus) echo "consensus.sh" ;; contribution) echo "contribution.sh" ;;
+        specification) echo "specification.sh" ;; decomposition) echo "decomposition.sh" ;;
+        implementation) echo "implementation.sh" ;; validation) echo "validation.sh" ;; testing) echo "testing.sh" ;;
         # Metrics and compliance
         compliance) echo "compliance.sh" ;; otel) echo "otel.sh" ;;
+        # Intelligence system
+        nexus-query) echo "nexus-query.sh" ;; nexus-discover) echo "nexus-discover.sh" ;; nexus-search) echo "nexus-search.sh" ;;
         # Other tools
         roadmap) echo "roadmap.sh" ;; claude-migrate) echo "claude-migrate.sh" ;;
         release) echo "release.sh" ;; docs) echo "docs.sh" ;;
@@ -374,7 +378,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote populate-hierarchy reorder verify upgrade context doctor migrate self-update setup-agents setup-claude-aliases skills export-tasks import-tasks archive-stats unarchive reorganize-backups orchestrator safestop sequence compliance otel roadmap claude-migrate release docs nexus"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote reorder verify upgrade context doctor migrate self-update skills export-tasks import-tasks archive-stats unarchive orchestrator safestop sequence consensus contribution specification decomposition implementation validation testing compliance otel nexus-query nexus-discover nexus-search roadmap claude-migrate release docs nexus"
 }
 
 cmd="${1:-help}"

@@ -1162,7 +1162,7 @@ apply_fixes() {
         case "$check_id" in
             agent_config_version)
                 # Fix: Run setup-agents --update
-                local setup_agents_script="${CLEO_HOME}/scripts/setup-agents.sh"
+                local setup_agents_script="${CLEO_HOME}/dev/setup-agents.sh"
                 if [[ ! -f "$setup_agents_script" ]]; then
                     # Fallback to local script directory for development
                     setup_agents_script="${SCRIPT_DIR}/setup-agents.sh"
@@ -1246,7 +1246,7 @@ apply_fixes() {
 
             agent_config_exists)
                 # Fix: Run setup-agents
-                local setup_agents_script="${CLEO_HOME}/scripts/setup-agents.sh"
+                local setup_agents_script="${CLEO_HOME}/dev/setup-agents.sh"
                 if [[ ! -f "$setup_agents_script" ]]; then
                     # Fallback to local script directory for development
                     setup_agents_script="${SCRIPT_DIR}/setup-agents.sh"
@@ -1266,7 +1266,7 @@ apply_fixes() {
 
             agent_config_registry)
                 # Fix: Recreate registry by running setup-agents
-                local setup_agents_script="${CLEO_HOME}/scripts/setup-agents.sh"
+                local setup_agents_script="${CLEO_HOME}/dev/setup-agents.sh"
                 if [[ ! -f "$setup_agents_script" ]]; then
                     # Fallback to local script directory for development
                     setup_agents_script="${SCRIPT_DIR}/setup-agents.sh"
@@ -1286,7 +1286,7 @@ apply_fixes() {
 
             claude_aliases)
                 # Fix: Run setup-claude-aliases to install/update Claude CLI aliases
-                local setup_script="${CLEO_HOME}/scripts/setup-claude-aliases.sh"
+                local setup_script="${CLEO_HOME}/dev/setup-claude-aliases.sh"
                 if [[ ! -f "$setup_script" ]]; then
                     # Fallback to local script directory for development
                     setup_script="${SCRIPT_DIR}/setup-claude-aliases.sh"
