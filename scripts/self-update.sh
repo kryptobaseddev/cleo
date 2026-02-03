@@ -1354,8 +1354,8 @@ do_update() {
         echo ""
         echo "Updating global agent configurations..."
     fi
-    if [[ -x "$CLEO_HOME/scripts/setup-agents.sh" ]]; then
-        "$CLEO_HOME/scripts/setup-agents.sh" --force >/dev/null 2>&1 || true
+    if [[ -x "$CLEO_HOME/dev/setup-agents.sh" ]]; then
+        "$CLEO_HOME/dev/setup-agents.sh" --force >/dev/null 2>&1 || true
         if ! is_json_output; then
             echo "Agent configurations updated."
         fi
