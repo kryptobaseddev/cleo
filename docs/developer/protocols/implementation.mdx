@@ -310,7 +310,7 @@ result=$(validate_implementation_protocol "T1234" "$manifest_entry" "false")
 ### Enforcement Points
 
 1. **Pre-commit**: Blocks commits lacking provenance
-2. **Pre-push**: Warns on aggregate provenance score <70%
+2. **Pre-push**: Warns on aggregate provenance score `<70%`
 3. **Runtime**: `cleo complete` validates IMPL-003 for implementation tasks
 4. **Orchestrator**: Validates before spawning implementation agents
 

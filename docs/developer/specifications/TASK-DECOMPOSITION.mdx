@@ -1153,12 +1153,12 @@ Decomposition MUST trigger HITL when:
 
 | Phase | Target | Max |
 |-------|--------|-----|
-| Scope Analysis | <500ms | 2s |
-| Goal Decomposition | <5s | 30s |
-| Dependency Graph | <1s | 5s |
-| Task Specification | <500ms | 2s |
-| Challenge (per phase) | <10s | 60s |
-| **Total (with challenge)** | <20s | 120s |
+| Scope Analysis | `<500ms` | 2s |
+| Goal Decomposition | `<5s` | 30s |
+| Dependency Graph | `<1s` | 5s |
+| Task Specification | `<500ms` | 2s |
+| Challenge (per phase) | `<10s` | 60s |
+| **Total (with challenge)** | `<20s` | 120s |
 
 ### 14.2 Scaling Limits
 
@@ -1425,7 +1425,7 @@ FUNCTION detect_semantic_dependency(task_a, task_b) -> Dependency | null:
 | ≥0.9 | Auto-include dependency |
 | 0.7-0.89 | Include, flag for challenge review |
 | 0.5-0.69 | Require HITL confirmation |
-| <0.5 | Reject, log as "considered but excluded" |
+| `<0.5` | Reject, log as "considered but excluded" |
 
 ### 19.3 Transitive Dependency Resolution
 
@@ -1564,7 +1564,7 @@ IF overall_quality < 0.6:
 Challenge agent outputs are suspect if:
 - `verdict: "VALID"` with `findings.length == 0`
 - All findings are `severity: "info"`
-- Challenge completed in <2 seconds
+- Challenge completed in `<2` seconds
 - No specific task/edge references
 
 ```
