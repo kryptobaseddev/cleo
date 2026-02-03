@@ -2,7 +2,7 @@
   "$schema": "../schemas/migrations.schema.json",
   "_meta": {
     "schemaVersion": "1.0.0",
-    "lastChecked": "2026-01-24T00:17:21Z"
+    "lastChecked": "2026-02-01T05:43:36Z"
   },
   "appliedMigrations": [
     {
@@ -58,6 +58,28 @@
       "status": "success",
       "previousVersion": "2.8.0",
       "executionTimeMs": 419,
+      "backupPath": null
+    },
+    {
+      "version": "2.10.0",
+      "fileType": "todo",
+      "functionName": "update_version_field",
+      "checksum": "4addb03c6cdc8a60533b979e36530528902b8f5d1a750dcb42e86d185c43ede1",
+      "appliedAt": "2026-01-31T20:41:55Z",
+      "status": "success",
+      "previousVersion": "2.9.0",
+      "executionTimeMs": 663,
+      "backupPath": null
+    },
+    {
+      "version": "2.10.0",
+      "fileType": "config",
+      "functionName": "migrate_config_to_2_10_0",
+      "checksum": "3fe62f5cd584d8c1a6e2fc7c5858309999ce74aee4ad0cdefab9e8d740243ba3",
+      "appliedAt": "2026-02-01T05:43:36Z",
+      "status": "success",
+      "previousVersion": "2.9.0",
+      "executionTimeMs": 77,
       "backupPath": null
     }
   ]

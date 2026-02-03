@@ -1,0 +1,432 @@
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "small_task_single_entry",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "small_task_single_entry",
+  "method": "full_file",
+  "chars_read": 52130,
+  "estimated_tokens": 13032,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 367,
+  "estimated_tokens": 91,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 137,
+  "estimated_tokens": 34,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 367,
+  "estimated_tokens": 91,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 137,
+  "estimated_tokens": 34,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 258,
+  "estimated_tokens": 64,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 141,
+  "estimated_tokens": 35,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 111,
+  "estimated_tokens": 27,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:39Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 179,
+  "estimated_tokens": 44,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:40Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 418,
+  "estimated_tokens": 104,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:40Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 320,
+  "estimated_tokens": 80,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:22:40Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 498,
+  "estimated_tokens": 124,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:23:59Z",
+  "test_case": "small_task_single_entry",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:23:59Z",
+  "test_case": "small_task_single_entry",
+  "method": "full_file",
+  "chars_read": 52130,
+  "estimated_tokens": 13032,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:23:59Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:23:59Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:23:59Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 367,
+  "estimated_tokens": 91,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:23:59Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 137,
+  "estimated_tokens": 34,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 367,
+  "estimated_tokens": 91,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 137,
+  "estimated_tokens": 34,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 258,
+  "estimated_tokens": 64,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 141,
+  "estimated_tokens": 35,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 111,
+  "estimated_tokens": 27,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 179,
+  "estimated_tokens": 44,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 418,
+  "estimated_tokens": 104,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 320,
+  "estimated_tokens": 80,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:00Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 498,
+  "estimated_tokens": 124,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "small_task_single_entry",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "small_task_single_entry",
+  "method": "full_file",
+  "chars_read": 52130,
+  "estimated_tokens": 13032,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 367,
+  "estimated_tokens": 91,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "manifest",
+  "chars_read": 137,
+  "estimated_tokens": 34,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "medium_task_multiple_entries",
+  "method": "full_file",
+  "chars_read": 0,
+  "estimated_tokens": 0,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 347,
+  "estimated_tokens": 86,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 367,
+  "estimated_tokens": 91,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 137,
+  "estimated_tokens": 34,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 258,
+  "estimated_tokens": 64,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 141,
+  "estimated_tokens": 35,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 111,
+  "estimated_tokens": 27,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 179,
+  "estimated_tokens": 44,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 418,
+  "estimated_tokens": 104,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 320,
+  "estimated_tokens": 80,
+  "real_tokens": null
+}
+{
+  "timestamp": "2026-02-01T08:24:04Z",
+  "test_case": "large_task_many_entries",
+  "method": "manifest",
+  "chars_read": 498,
+  "estimated_tokens": 124,
+  "real_tokens": null
+}

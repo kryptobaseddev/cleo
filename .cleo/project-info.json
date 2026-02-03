@@ -4,48 +4,48 @@
   "projectHash": "85f1cc25bb9f",
   "name": "claude-todo",
   "registeredAt": "2026-01-22T16:49:07Z",
-  "lastUpdated": "2026-01-27T06:00:08Z",
-  "cleoVersion": "0.71.1",
+  "lastUpdated": "2026-02-01T05:43:36Z",
+  "cleoVersion": "0.77.4",
   "schemas": {
     "todo": {
-      "version": "2.9.0",
-      "lastMigrated": "2026-01-27T03:38:07Z"
+      "version": "2.10.0",
+      "lastMigrated": "2026-02-01T05:43:36Z"
     },
     "config": {
-      "version": "2.6.0",
-      "lastMigrated": "2026-01-27T03:38:07Z"
+      "version": "2.10.0",
+      "lastMigrated": "2026-02-01T05:43:36Z"
     },
     "archive": {
       "version": "2.4.0",
-      "lastMigrated": "2026-01-27T03:38:07Z"
+      "lastMigrated": "2026-02-01T05:43:36Z"
     },
     "log": {
       "version": "2.4.0",
-      "lastMigrated": "2026-01-27T03:38:07Z"
+      "lastMigrated": "2026-02-01T05:43:36Z"
     }
   },
   "injection": {
     "CLAUDE.md": {
       "status": "current",
-      "lastUpdated": "2026-01-27T03:38:07Z"
+      "lastUpdated": "2026-02-01T05:43:36Z"
     },
     "AGENTS.md": {
       "status": "current",
-      "lastUpdated": "2026-01-27T03:38:07Z"
+      "lastUpdated": "2026-02-01T05:43:36Z"
     },
     "GEMINI.md": {
       "status": "current",
-      "lastUpdated": "2026-01-27T03:38:07Z"
+      "lastUpdated": "2026-02-01T05:43:36Z"
     }
   },
   "health": {
-    "status": "error",
-    "lastCheck": "2026-01-27T06:00:08Z",
+    "status": "healthy",
+    "lastCheck": "2026-02-01T05:43:36Z",
     "issues": [
       {
         "severity": "error",
         "code": "VALIDATION_FAILED",
-        "message": "Validation: [ERROR] Found 2 orphaned tasks (parentId references missing parent)"
+        "message": "Validation: [ERROR] focus.currentTask (T2838) doesn't match active task ()"
       }
     ],
     "history": []
