@@ -2,8 +2,8 @@
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "1.3.0",
-    "lastUpdated": "2026-02-02",
-    "totalCommands": 68,
+    "lastUpdated": "2026-02-03",
+    "totalCommands": 72,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -14,7 +14,6 @@
       "delete",
       "focus",
       "phase",
-      "populate-hierarchy",
       "promote",
       "reopen",
       "reorder",
@@ -62,24 +61,33 @@
       "sync"
     ],
     "maintenance": [
-      "backfill-validation",
       "backup",
       "claude-migrate",
       "config",
       "doctor",
       "generate-changelog",
-      "generate-features",
       "init",
       "migrate",
-      "reorganize-backups",
       "restore",
       "self-update",
-      "setup-agents",
       "skills",
       "upgrade",
       "validate",
-      "setup-claude-aliases",
       "docs"
+    ],
+    "validation": [
+      "consensus",
+      "contribution",
+      "specification",
+      "decomposition",
+      "implementation",
+      "validation",
+      "testing"
+    ],
+    "intelligence": [
+      "nexus-query",
+      "nexus-discover",
+      "nexus-search"
     ]
   },
   "commands": [
@@ -177,24 +185,6 @@
       "agentRelevance": "medium"
     },
     {
-      "name": "backfill-validation",
-      "script": "backfill-validation.sh",
-      "category": "maintenance",
-      "doc": null,
-      "synopsis": "Backfill real validation scores for historical COMPLIANCE.jsonl entries",
-      "flags": [
-        "--dry-run",
-        "--limit"
-      ],
-      "exitCodes": [
-        0,
-        1
-      ],
-      "jsonOutput": false,
-      "agentRelevance": "low",
-      "note": "Dev tool for retrospectively validating agent outputs"
-    },
-    {
       "name": "backup",
       "script": "backup.sh",
       "category": "maintenance",
@@ -282,6 +272,49 @@
       "jsonDefault": true,
       "agentRelevance": "high",
       "note": "Use instead of jq for command discovery"
+    },
+    {
+      "name": "consensus",
+      "script": "consensus.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Validate consensus protocol compliance for multi-agent decision tasks",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--file",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        60,
+        61
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Protocol Validation System - validates voting matrices and confidence scores"
+    },
+    {
+      "name": "contribution",
+      "script": "contribution.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Validate contribution protocol compliance for shared codebase work",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--file",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        65
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Protocol Validation System - validates @task and @contribution tags"
     },
     {
       "name": "compliance",
@@ -406,6 +439,27 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "high"
+    },
+    {
+      "name": "decomposition",
+      "script": "decomposition.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Validate decomposition protocol compliance for epic breakdown tasks",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--file",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        63
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Protocol Validation System - validates sibling limits and clear descriptions"
     },
     {
       "name": "delete",
@@ -634,21 +688,6 @@
       "note": "Internal development tool for documentation generation"
     },
     {
-      "name": "generate-features",
-      "script": "generate-features.sh",
-      "category": "maintenance",
-      "doc": "generate-features.mdx",
-      "synopsis": "Generate FEATURES.md from FEATURES.json (dev tool)",
-      "flags": [],
-      "exitCodes": [
-        0,
-        1
-      ],
-      "jsonOutput": false,
-      "agentRelevance": "low",
-      "note": "Internal development tool for documentation generation"
-    },
-    {
       "name": "history",
       "script": "history.sh",
       "category": "read",
@@ -666,6 +705,27 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
+    },
+    {
+      "name": "implementation",
+      "script": "implementation.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Validate implementation protocol compliance for code implementation tasks",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--file",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        64
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Protocol Validation System - validates @task tags on new functions"
     },
     {
       "name": "import-tasks",
@@ -930,28 +990,6 @@
       "agentRelevance": "medium"
     },
     {
-      "name": "populate-hierarchy",
-      "script": "populate-hierarchy.sh",
-      "category": "write",
-      "doc": "populate-hierarchy.mdx",
-      "synopsis": "Auto-populate parentId from naming conventions and depends→epic patterns",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--dry-run",
-        "--json",
-        "--human"
-      ],
-      "exitCodes": [
-        0,
-        2,
-        3,
-        6
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "low"
-    },
-    {
       "name": "promote",
       "script": "promote.sh",
       "category": "write",
@@ -971,27 +1009,6 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
-    },
-    {
-      "name": "reorganize-backups",
-      "script": "reorganize-backups.sh",
-      "category": "maintenance",
-      "doc": "reorganize-backups.mdx",
-      "synopsis": "Migrate legacy backup structure to new taxonomy",
-      "flags": [
-        "--format",
-        "--quiet",
-        "--dry-run",
-        "--detect",
-        "--run"
-      ],
-      "exitCodes": [
-        0,
-        3,
-        100
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "low"
     },
     {
       "name": "reopen",
@@ -1298,30 +1315,6 @@
       "agentRelevance": "high"
     },
     {
-      "name": "setup-agents",
-      "script": "setup-agents.sh",
-      "category": "maintenance",
-      "doc": "setup-agents.mdx",
-      "synopsis": "Setup global agent configs (~/.claude/CLAUDE.md, AGENTS.md) with @ references",
-      "flags": [
-        "--dry-run",
-        "--force",
-        "--update",
-        "--format",
-        "--json",
-        "--human",
-        "--quiet"
-      ],
-      "exitCodes": [
-        0,
-        1,
-        2
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "low",
-      "note": "Run once after installation or when updating global agent configuration"
-    },
-    {
       "name": "skills",
       "script": "skills.sh",
       "category": "maintenance",
@@ -1611,33 +1604,6 @@
       "agentRelevance": "high"
     },
     {
-      "name": "setup-claude-aliases",
-      "script": "setup-claude-aliases.sh",
-      "category": "maintenance",
-      "doc": "setup-claude-aliases.mdx",
-      "synopsis": "Install optimized Claude Code CLI aliases with collision detection and legacy recognition",
-      "flags": [
-        "--dry-run",
-        "--force",
-        "--shell",
-        "--remove",
-        "--format",
-        "--json",
-        "--quiet"
-      ],
-      "exitCodes": [
-        0,
-        2,
-        5,
-        23,
-        100,
-        102
-      ],
-      "jsonOutput": true,
-      "agentRelevance": "medium",
-      "note": "Detects legacy Claude aliases and non-Claude collisions. Use --force to override."
-    },
-    {
       "name": "docs",
       "script": "docs.sh",
       "category": "maintenance",
@@ -1722,6 +1688,137 @@
       "jsonOutput": true,
       "jsonDefault": true,
       "agentRelevance": "critical"
+    },
+    {
+      "name": "nexus-query",
+      "script": "nexus-query.sh",
+      "category": "intelligence",
+      "doc": null,
+      "synopsis": "Query tasks across registered projects using project:task_id syntax",
+      "flags": [
+        "--format",
+        "--json",
+        "--human"
+      ],
+      "exitCodes": [
+        0,
+        70,
+        71,
+        72
+      ],
+      "jsonOutput": true,
+      "jsonDefault": true,
+      "agentRelevance": "high",
+      "note": "Part of Nexus Intelligence System - query tasks using project:T#### syntax"
+    },
+    {
+      "name": "nexus-discover",
+      "script": "nexus-discover.sh",
+      "category": "intelligence",
+      "doc": null,
+      "synopsis": "Discover related tasks across registered projects using AI-powered semantic search",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--query",
+        "--limit"
+      ],
+      "exitCodes": [
+        0,
+        70,
+        73
+      ],
+      "jsonOutput": true,
+      "jsonDefault": true,
+      "agentRelevance": "high",
+      "note": "Part of Nexus Intelligence System - AI-powered cross-project task discovery"
+    },
+    {
+      "name": "nexus-search",
+      "script": "nexus-search.sh",
+      "category": "intelligence",
+      "doc": null,
+      "synopsis": "Search tasks across registered projects using pattern matching",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--pattern",
+        "--limit"
+      ],
+      "exitCodes": [
+        0,
+        70,
+        72
+      ],
+      "jsonOutput": true,
+      "jsonDefault": true,
+      "agentRelevance": "high",
+      "note": "Part of Nexus Intelligence System - pattern-based cross-project search"
+    },
+    {
+      "name": "specification",
+      "script": "specification.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Validate specification protocol compliance for specification writing tasks",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--file",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        62
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Protocol Validation System - validates RFC 2119 keywords and version info"
+    },
+    {
+      "name": "testing",
+      "script": "testing.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Validate testing protocol compliance for test creation tasks",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--file",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        64
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Protocol Validation System - validates test file creation and coverage"
+    },
+    {
+      "name": "validation",
+      "script": "validation.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Validate validation protocol compliance for quality assurance tasks",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--file",
+        "--task"
+      ],
+      "exitCodes": [
+        0,
+        64
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Part of Protocol Validation System - validates quality gates and verification"
     }
   ],
   "agentWorkflows": {

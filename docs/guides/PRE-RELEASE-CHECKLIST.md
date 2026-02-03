@@ -136,7 +136,7 @@ Add release entry to `CHANGELOG.md` with:
 
 ### Step 7: Regenerate Derived Docs
 ```bash
-./scripts/generate-features.sh
+./dev/generate-features.sh
 ./scripts/generate-changelog.sh
 ```
 

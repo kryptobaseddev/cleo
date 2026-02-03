@@ -351,8 +351,8 @@ remote_install() {
         # Update global agent configuration files
         echo ""
         info "Updating global agent configurations..."
-        if [[ -x "$INSTALL_DIR/scripts/setup-agents.sh" ]]; then
-            "$INSTALL_DIR/scripts/setup-agents.sh" --force >/dev/null 2>&1 || true
+        if [[ -x "$INSTALL_DIR/dev/setup-agents.sh" ]]; then
+            "$INSTALL_DIR/dev/setup-agents.sh" --force >/dev/null 2>&1 || true
             success "Agent configurations updated"
         fi
 

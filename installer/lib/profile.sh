@@ -544,9 +544,9 @@ installer_profile_setup_aliases() {
     [[ "$cmd_autorun" == true ]] && cmd_flag="--cmd-autorun"
 
     # Source and run the setup
-    if [[ -f "$install_dir/scripts/setup-claude-aliases.sh" ]]; then
+    if [[ -f "$install_dir/dev/setup-claude-aliases.sh" ]]; then
         local result
-        if result=$("$install_dir/scripts/setup-claude-aliases.sh" $force_flag $cmd_flag --json 2>&1); then
+        if result=$("$install_dir/dev/setup-claude-aliases.sh" $force_flag $cmd_flag --json 2>&1); then
             local installed
             installed=$(echo "$result" | jq -r '.installed // 0' 2>/dev/null || echo "0")
             local skipped

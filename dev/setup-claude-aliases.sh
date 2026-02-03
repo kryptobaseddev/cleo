@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/setup-claude-aliases.sh - Install Claude Code CLI aliases
+# dev/setup-claude-aliases.sh - Install Claude Code CLI aliases
 # See claudedocs/specs/SETUP-CLAUDE-ALIASES-SPEC.md for design specification
 
 set -euo pipefail

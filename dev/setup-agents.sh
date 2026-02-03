@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/setup-agents.sh - Global agent configuration setup
+# dev/setup-agents.sh - Global agent configuration setup
 # Creates/updates ~/.claude/CLAUDE.md and ~/.claude/AGENTS.md with @ references
 
 set -euo pipefail
