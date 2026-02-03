@@ -247,6 +247,137 @@ For complete protocol enforcement documentation, see: `docs/guides/protocol-enfo
 
 ---
 
+## Nexus Errors (70-79)
+
+### Overview
+
+Exit codes 70-79 are reserved for CLEO Nexus cross-project intelligence system errors. These occur when working with multiple registered projects and global intelligence features.
+
+### Exit Codes Reference
+
+| Code | Name | Description | Fix |
+|------|------|-------------|-----|
+| 70 | E_NEXUS_NOT_INITIALIZED | Nexus directory missing | Run `cleo nexus init` |
+| 71 | E_NEXUS_PROJECT_NOT_FOUND | Project not registered | Run `cleo nexus register <path>` |
+| 72 | E_NEXUS_PERMISSION_DENIED | Insufficient permissions | Check project permissions with `cleo nexus list` |
+| 73 | E_NEXUS_INVALID_SYNTAX | Bad query syntax | Use format `project:task_id` |
+| 74 | E_NEXUS_SYNC_FAILED | Sync operation failed | Check project path exists |
+| 75 | E_NEXUS_REGISTRY_CORRUPT | Registry file invalid | Backup and reinitialize |
+| 76 | E_NEXUS_PROJECT_EXISTS | Already registered | Use `cleo nexus sync` to update |
+| 77 | E_NEXUS_QUERY_FAILED | Query operation failed | Check syntax and permissions |
+| 78 | E_NEXUS_GRAPH_ERROR | Graph operation error | Check project task files |
+| 79 | E_NEXUS_RESERVED | Reserved | Not currently used |
+
+### Common Issues
+
+#### Nexus Not Initialized (70)
+
+**Symptom:**
+```bash
+$ cleo nexus register /path/to/project
+ERROR: Nexus not initialized (E_NEXUS_NOT_INITIALIZED)
+```
+
+**Fix:**
+```bash
+cleo nexus init
+cleo nexus register /path/to/project --name my-project
+```
+
+#### Project Not Found (71)
+
+**Symptom:**
+```bash
+$ cleo show my-api:T123
+ERROR: Project 'my-api' not found in registry (E_NEXUS_PROJECT_NOT_FOUND)
+```
+
+**Fix:**
+```bash
+# List registered projects
+cleo nexus list
+
+# Register missing project
+cleo nexus register /path/to/my-api --name my-api
+
+# Or use correct project name/alias
+cleo show api:T123  # if 'api' is an alias
+```
+
+#### Permission Denied (72)
+
+**Symptom:**
+```bash
+$ cleo update auth-lib:T456 --status done
+ERROR: Permission denied (E_NEXUS_PERMISSION_DENIED)
+Project 'my-api' has 'read' permission but 'write' required
+```
+
+**Fix:**
+```bash
+# Grant write permission
+cleo nexus grant my-api auth-lib --permission write
+
+# Or check current permissions
+cleo nexus permissions --list
+```
+
+#### Invalid Syntax (73)
+
+**Symptom:**
+```bash
+$ cleo show my::api:T123
+ERROR: Invalid task reference syntax (E_NEXUS_INVALID_SYNTAX)
+```
+
+**Fix:**
+```bash
+# Correct format: project:task_id
+cleo show my-api:T123
+
+# Or current project (no prefix)
+cleo show T123
+
+# Or explicit current project
+cleo show .:T123
+```
+
+#### Registry Corrupt (75)
+
+**Symptom:**
+```bash
+$ cleo nexus list
+ERROR: Registry file corrupted (E_NEXUS_REGISTRY_CORRUPT)
+parse error: Invalid JSON
+```
+
+**Fix:**
+```bash
+# Backup corrupted registry
+mv ~/.cleo/projects-registry.json ~/.cleo/projects-registry.json.backup
+
+# Reinitialize
+cleo nexus init
+
+# Re-register projects
+cleo nexus register /path/to/project1 --name project1
+cleo nexus register /path/to/project2 --name project2
+```
+
+### Lifecycle Enforcement Errors (80-84)
+
+**Note:** Lifecycle enforcement exit codes moved from 75-79 to 80-84 in v0.80.0 to avoid conflict with Nexus codes.
+
+| Code | Name | Description | Fix |
+|------|------|-------------|-----|
+| 80 | E_LIFECYCLE_GATE_FAILED | Lifecycle prerequisites not met | Complete missing RCSD stages first |
+| 81 | E_AUDIT_MISSING | Audit object incomplete | Add required audit fields |
+| 82 | E_CIRCULAR_VALIDATION | Agent validating own work | Use different agent for validation |
+| 83 | E_LIFECYCLE_TRANSITION_INVALID | Invalid state transition | Follow RCSD→IVTR pipeline order |
+| 84 | E_PROVENANCE_REQUIRED | Provenance fields missing | Add createdBy/validatedBy fields |
+
+---
+
 ## Debug Environment Variables
 
 ### Orchestrator & Skill System Debug
