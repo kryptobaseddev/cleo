@@ -1,13 +1,13 @@
 {
   "version": "1.0.0",
-  "timestamp": "2026-01-28T01:05:06Z",
+  "timestamp": "2026-02-01T08:21:51Z",
   "staleAfterMs": 5000,
   "contextWindow": {
     "maxTokens": 200000,
-    "currentTokens": 102135,
-    "percentage": 51
+    "currentTokens": 127774,
+    "percentage": 63
   },
   "status": "ok",
-  "sessionId": "session_20260127_165745_6eb69a",
+  "sessionId": "session_20260131_234758_468315",
   "workspace": "/mnt/projects/claude-todo"
 }
