@@ -2,8 +2,8 @@
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "1.3.0",
-    "lastUpdated": "2026-02-01",
-    "totalCommands": 67,
+    "lastUpdated": "2026-02-02",
+    "totalCommands": 68,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -25,7 +25,8 @@
       "uncancel",
       "update",
       "verify",
-      "release"
+      "release",
+      "nexus"
     ],
     "read": [
       "analyze",
@@ -50,7 +51,8 @@
       "research",
       "show",
       "stats",
-      "otel"
+      "otel",
+      "nexus"
     ],
     "sync": [
       "export-tasks",
@@ -1677,6 +1679,49 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
+    },
+    {
+      "name": "nexus",
+      "script": "nexus.sh",
+      "category": "write",
+      "doc": "nexus.md",
+      "synopsis": "Global intelligence system for cross-project task discovery and dependency analysis",
+      "subcommands": [
+        "init",
+        "register",
+        "unregister",
+        "list",
+        "query",
+        "discover",
+        "deps",
+        "sync"
+      ],
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--permissions",
+        "--name",
+        "--method",
+        "--limit",
+        "--reverse"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78
+      ],
+      "jsonOutput": true,
+      "jsonDefault": true,
+      "agentRelevance": "critical"
     }
   ],
   "agentWorkflows": {

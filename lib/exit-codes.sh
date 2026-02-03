@@ -16,6 +16,11 @@
 #           EXIT_NOTES_REQUIRED, EXIT_VERIFICATION_INIT_FAILED, EXIT_GATE_UPDATE_FAILED,
 #           EXIT_INVALID_GATE, EXIT_INVALID_AGENT, EXIT_MAX_ROUNDS_EXCEEDED,
 #           EXIT_GATE_DEPENDENCY, EXIT_VERIFICATION_LOCKED, EXIT_ROUND_MISMATCH,
+#           EXIT_NEXUS_NOT_INITIALIZED, EXIT_NEXUS_PROJECT_NOT_FOUND,
+#           EXIT_NEXUS_PERMISSION_DENIED, EXIT_NEXUS_INVALID_SYNTAX,
+#           EXIT_NEXUS_SYNC_FAILED, EXIT_NEXUS_REGISTRY_CORRUPT,
+#           EXIT_NEXUS_PROJECT_EXISTS, EXIT_NEXUS_QUERY_FAILED,
+#           EXIT_NEXUS_GRAPH_ERROR, EXIT_NEXUS_RESERVED,
 #           EXIT_NO_DATA, EXIT_ALREADY_EXISTS, EXIT_NO_CHANGE,
 #           get_exit_code_name, is_error_code, is_recoverable_code,
 #           is_no_change_code, is_success_code
@@ -322,29 +327,74 @@ readonly EXIT_RESUME_FAILED=66
 readonly EXIT_CONCURRENT_SESSION=67
 
 # ============================================================================
-# LIFECYCLE ENFORCEMENT ERROR CODES (75-79)
+# NEXUS ERROR CODES (70-79)
+# Cross-project global intelligence errors (T2231 - Nexus implementation)
+# ============================================================================
+
+# Nexus not initialized
+# Examples: ~/.cleo/nexus directory missing, registry not created
+readonly EXIT_NEXUS_NOT_INITIALIZED=70
+
+# Project not found in global registry
+# Examples: project name not registered, invalid project reference
+readonly EXIT_NEXUS_PROJECT_NOT_FOUND=71
+
+# Insufficient permission for cross-project operation
+# Examples: write operation with read-only permission
+readonly EXIT_NEXUS_PERMISSION_DENIED=72
+
+# Invalid task reference syntax
+# Examples: malformed "project:task_id" format, multiple colons
+readonly EXIT_NEXUS_INVALID_SYNTAX=73
+
+# Failed to sync project metadata
+# Examples: global graph rebuild failed, cache update error
+readonly EXIT_NEXUS_SYNC_FAILED=74
+
+# Nexus registry file corrupted or invalid
+# Examples: JSON parse error, missing required fields
+readonly EXIT_NEXUS_REGISTRY_CORRUPT=75
+
+# Project already registered in Nexus
+# Examples: attempting to register duplicate project
+readonly EXIT_NEXUS_PROJECT_EXISTS=76
+
+# Cross-project query operation failed
+# Examples: global search failed, discovery error
+readonly EXIT_NEXUS_QUERY_FAILED=77
+
+# Graph operation error
+# Examples: dependency traversal error, relationship discovery failed
+readonly EXIT_NEXUS_GRAPH_ERROR=78
+
+# Reserved for future Nexus features
+readonly EXIT_NEXUS_RESERVED=79
+
+# ============================================================================
+# LIFECYCLE ENFORCEMENT ERROR CODES (80-84) - MOVED FROM 75-79
 # Provenance and lifecycle validation errors (T2569 - v2.10.0)
+# NOTE: Moved to 80-84 to avoid conflict with Nexus codes
 # ============================================================================
 
 # Lifecycle gate requirements not met
 # Examples: attempting to enter implementation without specification approval
-readonly EXIT_LIFECYCLE_GATE_FAILED=75
+readonly EXIT_LIFECYCLE_GATE_FAILED=80
 
 # Audit object missing or incomplete
 # Examples: MANIFEST entry missing required audit.created_by field
-readonly EXIT_AUDIT_MISSING=76
+readonly EXIT_AUDIT_MISSING=81
 
 # Circular validation detected (agent validating own work)
 # Examples: validated_by == created_by, or N-hop cycle in provenance chain
-readonly EXIT_CIRCULAR_VALIDATION=77
+readonly EXIT_CIRCULAR_VALIDATION=82
 
 # Invalid lifecycle state transition
 # Examples: attempting to move backward in RCSD→IVTR pipeline
-readonly EXIT_LIFECYCLE_TRANSITION_INVALID=78
+readonly EXIT_LIFECYCLE_TRANSITION_INVALID=83
 
 # Provenance fields required but missing
 # Examples: task missing createdBy field in enforcement mode
-readonly EXIT_PROVENANCE_REQUIRED=79
+readonly EXIT_PROVENANCE_REQUIRED=84
 
 # ============================================================================
 # SPECIAL CODES (100+)
@@ -470,12 +520,23 @@ get_exit_code_name() {
         65)  echo "HANDOFF_REQUIRED" ;;
         66)  echo "RESUME_FAILED" ;;
         67)  echo "CONCURRENT_SESSION" ;;
-        # Lifecycle Enforcement (75-79)
-        75)  echo "LIFECYCLE_GATE_FAILED" ;;
-        76)  echo "AUDIT_MISSING" ;;
-        77)  echo "CIRCULAR_VALIDATION" ;;
-        78)  echo "LIFECYCLE_TRANSITION_INVALID" ;;
-        79)  echo "PROVENANCE_REQUIRED" ;;
+        # Nexus (70-79)
+        70)  echo "NEXUS_NOT_INITIALIZED" ;;
+        71)  echo "NEXUS_PROJECT_NOT_FOUND" ;;
+        72)  echo "NEXUS_PERMISSION_DENIED" ;;
+        73)  echo "NEXUS_INVALID_SYNTAX" ;;
+        74)  echo "NEXUS_SYNC_FAILED" ;;
+        75)  echo "NEXUS_REGISTRY_CORRUPT" ;;
+        76)  echo "NEXUS_PROJECT_EXISTS" ;;
+        77)  echo "NEXUS_QUERY_FAILED" ;;
+        78)  echo "NEXUS_GRAPH_ERROR" ;;
+        79)  echo "NEXUS_RESERVED" ;;
+        # Lifecycle Enforcement (80-84)
+        80)  echo "LIFECYCLE_GATE_FAILED" ;;
+        81)  echo "AUDIT_MISSING" ;;
+        82)  echo "CIRCULAR_VALIDATION" ;;
+        83)  echo "LIFECYCLE_TRANSITION_INVALID" ;;
+        84)  echo "PROVENANCE_REQUIRED" ;;
         # Special (100+)
         100) echo "NO_DATA" ;;
         101) echo "ALREADY_EXISTS" ;;
@@ -525,12 +586,20 @@ is_recoverable_code() {
         # Autonomous orchestration - boundary/handoff require HITL, resume/concurrent may be retryable
         64|65) return 1 ;;  # Need HITL decision
         66|67) return 0 ;;  # May be retryable
+        # Nexus errors - most recoverable by registration/permission changes
+        70|71|73|74|76) return 0 ;;  # Recoverable by user action
+        # Not recoverable: invalid syntax (requires fixing query)
+        72) return 1 ;;
+        # Not recoverable: registry corrupt (requires manual intervention)
+        75) return 1 ;;
+        # Nexus query/graph errors may be retryable
+        77|78) return 0 ;;
         # Lifecycle enforcement errors - most recoverable by fixing audit/provenance
-        75|76|79) return 0 ;;
+        80|81|84) return 0 ;;
         # Not recoverable: circular validation (requires different agent)
-        77) return 1 ;;
+        82) return 1 ;;
         # Not recoverable: invalid lifecycle transition (requires proper sequence)
-        78) return 1 ;;
+        83) return 1 ;;
         # Special codes are not errors, so "recoverable" doesn't apply
         *)    return 1 ;;
     esac
@@ -647,7 +716,19 @@ export EXIT_HANDOFF_REQUIRED
 export EXIT_RESUME_FAILED
 export EXIT_CONCURRENT_SESSION
 
-# Export constants - Lifecycle Enforcement (75-79)
+# Export constants - Nexus (70-79)
+export EXIT_NEXUS_NOT_INITIALIZED
+export EXIT_NEXUS_PROJECT_NOT_FOUND
+export EXIT_NEXUS_PERMISSION_DENIED
+export EXIT_NEXUS_INVALID_SYNTAX
+export EXIT_NEXUS_SYNC_FAILED
+export EXIT_NEXUS_REGISTRY_CORRUPT
+export EXIT_NEXUS_PROJECT_EXISTS
+export EXIT_NEXUS_QUERY_FAILED
+export EXIT_NEXUS_GRAPH_ERROR
+export EXIT_NEXUS_RESERVED
+
+# Export constants - Lifecycle Enforcement (80-84)
 export EXIT_LIFECYCLE_GATE_FAILED
 export EXIT_AUDIT_MISSING
 export EXIT_CIRCULAR_VALIDATION
