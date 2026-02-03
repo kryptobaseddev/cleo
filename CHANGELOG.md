@@ -5,6 +5,35 @@ All notable changes to the CLEO system will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.80.1] - 2026-02-03
+
+## [0.80.1] - 2026-02-03
+
+### Features
+- Complete protocol enforcement system - 9/9 CLI coverage (T2975)
+- **nexus**: Add Nexus cross-project intelligence system (v0.80.0)
+
+### Bug Fixes
+- Protocol enforcement integration bugs - enable agent self-validation (T3021)
+- Update self-update.sh reference to dev/setup-agents.sh (T3019)
+- Complete Nexus CLI JSON and error handling (T3018)
+- Nexus CLI JSON output and error codes (T3017)
+- **docs**: Escape unescaped < characters in MDX files (T2968)
+- Update libraries and tests
+
+### Documentation
+- Convert 10 specs to Mintlify MDX format with navigation (T2968)
+- Add specifications and update guides
+- Add cognitive architecture and Nexus documentation
+- **changelog**: Add v0.80.0 Nexus release notes
+
+### Other Changes
+- trigger Mintlify rebuild
+- Complete CLEO Consolidation research phase (T2975)
+- Cleanup CLEO context state files
+- Add experimental scripts and docs
+- Sync CLEO metrics and state
+- Sync CLEO task state
 ## [0.80.0] - 2026-02-02
 
 ### Features
@@ -576,6 +605,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.80.1] - 2026-02-03
+
+### Features
+- Complete protocol enforcement system - 9/9 CLI coverage (T2975)
+- **nexus**: Add Nexus cross-project intelligence system (v0.80.0)
+
+### Bug Fixes
+- Protocol enforcement integration bugs - enable agent self-validation (T3021)
+- Update self-update.sh reference to dev/setup-agents.sh (T3019)
+- Complete Nexus CLI JSON and error handling (T3018)
+- Nexus CLI JSON output and error codes (T3017)
+- **docs**: Escape unescaped < characters in MDX files (T2968)
+- Update libraries and tests
+
+### Documentation
+- Convert 10 specs to Mintlify MDX format with navigation (T2968)
+- Add specifications and update guides
+- Add cognitive architecture and Nexus documentation
+- **changelog**: Add v0.80.0 Nexus release notes
+
+### Other Changes
+- trigger Mintlify rebuild
+- Complete CLEO Consolidation research phase (T2975)
+- Cleanup CLEO context state files
+- Add experimental scripts and docs
+- Sync CLEO metrics and state
+- Sync CLEO task state
 ## [0.80.0] - 2026-02-02
 
 ### Bug Fixes
