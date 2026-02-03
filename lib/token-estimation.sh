@@ -516,6 +516,125 @@ te_status() {
 }
 
 # ============================================================================
+# REAL TOKEN CAPTURE (from Claude Code transcripts)
+# ============================================================================
+
+# get_real_token_usage - Extract real API token data from Claude Code transcripts
+# Args: $1 = session_id (optional, to filter to specific session)
+#       $2 = since (optional, ISO timestamp to filter from)
+# Returns: JSON with real token counts
+# @task T2949
+# @epic T2724
+get_real_token_usage() {
+    local session_id="${1:-}"
+    local since="${2:-}"
+    local project_dir
+
+    # Find Claude Code project directory for current project
+    local project_name
+    project_name=$(basename "$PWD")
+    project_dir=$(find ~/.claude/projects -maxdepth 1 -type d -name "*${project_name}*" 2>/dev/null | head -1)
+
+    if [[ -z "$project_dir" ]]; then
+        echo '{"error":"No Claude Code project found","input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_creation_tokens":0,"total":0,"source":"none"}'
+        return 1
+    fi
+
+    # Aggregate tokens from transcript files
+    local total_input=0
+    local total_output=0
+    local total_cache_read=0
+    local total_cache_creation=0
+    local message_count=0
+
+    # Process each transcript file
+    for f in "$project_dir"/*.jsonl; do
+        [[ -f "$f" ]] || continue
+
+        # Use Python for robust JSON parsing (handles large files better than jq)
+        local file_stats
+        file_stats=$(python3 -c "
+import json
+import sys
+
+total_in = 0
+total_out = 0
+total_cache_read = 0
+total_cache_create = 0
+msg_count = 0
+
+session_filter = '$session_id'
+since_filter = '$since'
+
+try:
+    with open('$f', 'r') as fh:
+        for line in fh:
+            try:
+                entry = json.loads(line)
+
+                # Filter by session if provided
+                if session_filter and entry.get('sessionId') != session_filter:
+                    continue
+
+                # Filter by timestamp if provided
+                if since_filter and entry.get('timestamp', '') < since_filter:
+                    continue
+
+                # Extract usage from message field
+                usage = entry.get('message', {}).get('usage')
+                if usage:
+                    total_in += usage.get('input_tokens', 0)
+                    total_out += usage.get('output_tokens', 0)
+                    total_cache_read += usage.get('cache_read_input_tokens', 0)
+                    total_cache_create += usage.get('cache_creation_input_tokens', 0)
+                    msg_count += 1
+            except json.JSONDecodeError:
+                continue
+
+    print(json.dumps({
+        'input': total_in,
+        'output': total_out,
+        'cache_read': total_cache_read,
+        'cache_creation': total_cache_create,
+        'messages': msg_count
+    }))
+except Exception as e:
+    print(json.dumps({'input': 0, 'output': 0, 'cache_read': 0, 'cache_creation': 0, 'messages': 0}))
+" 2>/dev/null)
+
+        # Aggregate file stats
+        if [[ -n "$file_stats" ]]; then
+            total_input=$((total_input + $(echo "$file_stats" | jq -r '.input // 0')))
+            total_output=$((total_output + $(echo "$file_stats" | jq -r '.output // 0')))
+            total_cache_read=$((total_cache_read + $(echo "$file_stats" | jq -r '.cache_read // 0')))
+            total_cache_creation=$((total_cache_creation + $(echo "$file_stats" | jq -r '.cache_creation // 0')))
+            message_count=$((message_count + $(echo "$file_stats" | jq -r '.messages // 0')))
+        fi
+    done
+
+    local total=$((total_input + total_output + total_cache_read))
+
+    jq -nc \
+        --argjson input "$total_input" \
+        --argjson output "$total_output" \
+        --argjson cache_read "$total_cache_read" \
+        --argjson cache_creation "$total_cache_creation" \
+        --argjson total "$total" \
+        --argjson messages "$message_count" \
+        --arg project_dir "$project_dir" \
+        '{
+            input_tokens: $input,
+            output_tokens: $output,
+            cache_read_tokens: $cache_read,
+            cache_creation_tokens: $cache_creation,
+            total: $total,
+            messages: $messages,
+            source: "claude_api",
+            project_dir: $project_dir
+        }'
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -533,3 +652,4 @@ export -f end_token_session
 export -f get_token_summary
 export -f compare_manifest_vs_full
 export -f te_status
+export -f get_real_token_usage

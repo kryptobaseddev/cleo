@@ -58,11 +58,12 @@ readonly LIFECYCLE_STATES=(
 
 # Exit codes for lifecycle violations (from T2575 spec)
 # Note: These are defined in exit-codes.sh, we just reference them here
-: "${EXIT_LIFECYCLE_GATE_FAILED:=75}"
-: "${EXIT_AUDIT_MISSING:=76}"
-: "${EXIT_CIRCULAR_VALIDATION:=77}"
-: "${EXIT_LIFECYCLE_TRANSITION_INVALID:=78}"
-: "${EXIT_PROVENANCE_REQUIRED:=79}"
+# UPDATED: Moved from 75-79 to 80-84 to avoid conflict with Nexus codes (70-79)
+: "${EXIT_LIFECYCLE_GATE_FAILED:=80}"
+: "${EXIT_AUDIT_MISSING:=81}"
+: "${EXIT_CIRCULAR_VALIDATION:=82}"
+: "${EXIT_LIFECYCLE_TRANSITION_INVALID:=83}"
+: "${EXIT_PROVENANCE_REQUIRED:=84}"
 
 # ============================================================================
 # LIFECYCLE STATE FUNCTIONS

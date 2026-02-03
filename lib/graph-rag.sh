@@ -42,6 +42,22 @@ if [[ -f "$_GRAPH_RAG_LIB_DIR/exit-codes.sh" ]]; then
     source "$_GRAPH_RAG_LIB_DIR/exit-codes.sh"
 fi
 
+# Source Nexus libraries for cross-project discovery (optional)
+if [[ -f "$_GRAPH_RAG_LIB_DIR/nexus-registry.sh" ]]; then
+    # shellcheck source=lib/nexus-registry.sh
+    source "$_GRAPH_RAG_LIB_DIR/nexus-registry.sh" 2>/dev/null || true
+fi
+
+if [[ -f "$_GRAPH_RAG_LIB_DIR/nexus-query.sh" ]]; then
+    # shellcheck source=lib/nexus-query.sh
+    source "$_GRAPH_RAG_LIB_DIR/nexus-query.sh" 2>/dev/null || true
+fi
+
+if [[ -f "$_GRAPH_RAG_LIB_DIR/nexus-permissions.sh" ]]; then
+    # shellcheck source=lib/nexus-permissions.sh
+    source "$_GRAPH_RAG_LIB_DIR/nexus-permissions.sh" 2>/dev/null || true
+fi
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -782,6 +798,432 @@ _discover_by_hierarchy() {
 
     # Sort by score descending
     echo "$results" | jq 'sort_by(-.score)'
+}
+
+# ============================================================================
+# CROSS-PROJECT DISCOVERY FUNCTIONS (NEXUS - T2963)
+# ============================================================================
+
+#######################################
+# Load project graph into memory (internal helper)
+#
+# Loads all tasks from a project's todo.json and adds project metadata.
+# Checks read permissions via nexus_can_read() before loading.
+#
+# Arguments:
+#   $1 - Project name or path (required)
+#
+# Returns:
+#   JSON array of tasks with _project field added
+#
+# Exit Status:
+#   0 - Success
+#   1 - Invalid project, permission denied, or missing todo.json
+#
+# Example:
+#   graph=$(_load_project_graph "my-api")
+#   # Returns: [{"id":"T001","_project":"my-api",...},...]
+#######################################
+_load_project_graph() {
+    local project="${1:-}"
+
+    if [[ -z "$project" ]]; then
+        echo "[]"
+        return 1
+    fi
+
+    # Check if Nexus functions are available
+    if ! declare -f nexus_get_project >/dev/null 2>&1; then
+        echo "[]"
+        return 1
+    fi
+
+    # Resolve project name to path
+    local project_data
+    project_data=$(nexus_get_project "$project")
+
+    if [[ "$project_data" == "{}" ]]; then
+        echo "[]"
+        return 1
+    fi
+
+    local project_path project_name
+    project_path=$(echo "$project_data" | jq -r '.path')
+    project_name=$(echo "$project_data" | jq -r '.name')
+
+    # Check read permission
+    if declare -f nexus_can_read >/dev/null 2>&1; then
+        if ! nexus_can_read "$project_name"; then
+            echo "[]"
+            return 1
+        fi
+    fi
+
+    # Load todo.json
+    local todo_file="${project_path}/.cleo/todo.json"
+    if [[ ! -f "$todo_file" ]]; then
+        echo "[]"
+        return 1
+    fi
+
+    # Add _project field to each task
+    jq --arg project "$project_name" \
+        '.tasks | map(. + {_project: $project})' \
+        "$todo_file" 2>/dev/null || echo "[]"
+}
+
+#######################################
+# Merge graphs from all readable projects (internal helper)
+#
+# Loads and combines task graphs from all registered projects with read permission.
+# Returns unified array suitable for cross-project discovery.
+#
+# Arguments:
+#   None
+#
+# Returns:
+#   JSON array of tasks from all readable projects
+#
+# Exit Status:
+#   0 - Always succeeds (returns empty array if no projects)
+#
+# Example:
+#   merged=$(_merge_project_graphs)
+#   # Returns: [{"id":"T001","_project":"api",...},{"id":"T001","_project":"web",...}]
+#######################################
+_merge_project_graphs() {
+    local merged="[]"
+
+    # Check if Nexus functions are available
+    if ! declare -f nexus_list >/dev/null 2>&1; then
+        echo "[]"
+        return 0
+    fi
+
+    # Get list of registered projects
+    local projects_json
+    projects_json=$(nexus_list --json 2>/dev/null)
+
+    if [[ -z "$projects_json" || "$projects_json" == "[]" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    # Load each project's graph
+    local project_names
+    readarray -t project_names < <(echo "$projects_json" | jq -r '.[].name')
+
+    for project_name in "${project_names[@]}"; do
+        [[ -z "$project_name" ]] && continue
+
+        local graph
+        graph=$(_load_project_graph "$project_name")
+
+        if [[ -n "$graph" && "$graph" != "[]" ]]; then
+            merged=$(echo "$merged" "$graph" | jq -s 'add')
+        fi
+    done
+
+    echo "$merged"
+}
+
+#######################################
+# Core cross-project discovery logic (internal helper)
+#
+# Runs discovery algorithm across project boundaries using specified method.
+# Applies hierarchical boosts for same-project relationships and cross-project bonuses.
+#
+# Arguments:
+#   $1 - Source task JSON (required)
+#   $2 - Target graphs JSON array (required)
+#   $3 - Discovery method (required): labels, description, files, hierarchy, auto
+#
+# Returns:
+#   JSON array of matches with scores and project context
+#
+# Exit Status:
+#   0 - Success
+#   1 - Invalid arguments or method
+#
+# Example:
+#   source_task='{"id":"T001","_project":"api","labels":["auth"]}'
+#   results=$(_discover_cross_project "$source_task" "$target_graphs" "labels")
+#######################################
+_discover_cross_project() {
+    local source_task="$1"
+    local target_graphs="$2"
+    local method="$3"
+
+    if [[ -z "$source_task" || -z "$target_graphs" || -z "$method" ]]; then
+        echo "[]"
+        return 1
+    fi
+
+    local source_id source_project
+    source_id=$(echo "$source_task" | jq -r '.id')
+    source_project=$(echo "$source_task" | jq -r '._project // ""')
+
+    local results="[]"
+
+    # Process each target task
+    local task_count
+    task_count=$(echo "$target_graphs" | jq 'length')
+
+    for ((i = 0; i < task_count; i++)); do
+        local target_task
+        target_task=$(echo "$target_graphs" | jq ".[$i]")
+
+        local target_id target_project
+        target_id=$(echo "$target_task" | jq -r '.id')
+        target_project=$(echo "$target_task" | jq -r '._project // ""')
+
+        # Skip if same task in same project
+        if [[ "$source_id" == "$target_id" && "$source_project" == "$target_project" ]]; then
+            continue
+        fi
+
+        # Calculate similarity based on method
+        local score=0
+        local reason=""
+
+        case "$method" in
+            labels)
+                # Compare labels
+                local source_labels target_labels
+                source_labels=$(echo "$source_task" | jq -c '.labels // []')
+                target_labels=$(echo "$target_task" | jq -c '.labels // []')
+
+                local shared
+                shared=$(echo "$source_labels" "$target_labels" | \
+                    jq -s '.[0] as $s | .[1] as $t | $s | map(select(. as $l | $t | index($l))) | length')
+
+                if [[ "$shared" -gt 0 ]]; then
+                    local total
+                    total=$(echo "$source_labels" "$target_labels" | jq -s 'add | unique | length')
+                    score=$(awk -v s="$shared" -v t="$total" 'BEGIN { printf "%.2f", (t > 0 ? s/t : 0) }')
+                    reason="$shared shared label(s)"
+                fi
+                ;;
+            description)
+                # Compare descriptions using tokenization
+                local source_text target_text
+                source_text=$(echo "$source_task" | jq -r '"\(.title // "") \(.description // "")"')
+                target_text=$(echo "$target_task" | jq -r '"\(.title // "") \(.description // "")"')
+
+                local source_tokens target_tokens
+                source_tokens=$(_graph_rag_tokenize "$source_text")
+                source_tokens=$(_graph_rag_remove_stopwords "$source_tokens")
+                target_tokens=$(_graph_rag_tokenize "$target_text")
+                target_tokens=$(_graph_rag_remove_stopwords "$target_tokens")
+
+                if [[ -n "$source_tokens" && -n "$target_tokens" ]]; then
+                    score=$(_graph_rag_jaccard_similarity "$source_tokens" "$target_tokens")
+                    local shared_count
+                    shared_count=$(comm -12 <(echo "$source_tokens" | sort -u) <(echo "$target_tokens" | sort -u) | wc -l | tr -d ' ')
+                    reason="$shared_count shared keyword(s)"
+                fi
+                ;;
+            files)
+                # Compare files
+                local source_files target_files
+                source_files=$(echo "$source_task" | jq -c '.files // []')
+                target_files=$(echo "$target_task" | jq -c '.files // []')
+
+                local shared
+                shared=$(echo "$source_files" "$target_files" | \
+                    jq -s '.[0] as $s | .[1] as $t | $s | map(select(. as $f | $t | index($f))) | length')
+
+                if [[ "$shared" -gt 0 ]]; then
+                    local total
+                    total=$(echo "$source_files" "$target_files" | jq -s 'add | unique | length')
+                    score=$(awk -v s="$shared" -v t="$total" 'BEGIN { printf "%.2f", (t > 0 ? s/t : 0) }')
+                    reason="$shared shared file(s)"
+                fi
+                ;;
+        esac
+
+        # Skip if no match
+        if [[ $(awk -v s="$score" 'BEGIN { print (s > 0) ? 1 : 0 }') -eq 0 ]]; then
+            continue
+        fi
+
+        # Apply project boost
+        local boost=0
+        if [[ "$source_project" == "$target_project" ]]; then
+            # Same project - use existing hierarchy boost if available
+            boost=0.15
+        else
+            # Cross-project - smaller boost
+            boost=0.10
+        fi
+
+        local boosted_score
+        boosted_score=$(awk -v s="$score" -v b="$boost" 'BEGIN { printf "%.2f", (s + b > 1.0 ? 1.0 : s + b) }')
+
+        # Add to results with project context
+        local match
+        match=$(jq -n \
+            --arg taskId "$target_id" \
+            --arg project "$target_project" \
+            --arg query "${target_project}:${target_id}" \
+            --arg reason "$reason" \
+            --arg score "$boosted_score" \
+            --arg source "$method" \
+            '{
+                taskId: $taskId,
+                project: $project,
+                query: $query,
+                type: "relates-to",
+                reason: $reason,
+                score: ($score | tonumber),
+                source: $source
+            }')
+
+        results=$(echo "$results" | jq --argjson match "$match" '. + [$match]')
+    done
+
+    # Sort by score descending
+    echo "$results" | jq 'sort_by(-.score)'
+}
+
+#######################################
+# Format cross-project results with project context (internal helper)
+#
+# Adds query field (project:taskId) and enriches with project metadata.
+# Ensures consistent output format across all cross-project operations.
+#
+# Arguments:
+#   $1 - Results JSON array (required)
+#
+# Returns:
+#   Formatted JSON array
+#
+# Exit Status:
+#   0 - Always succeeds
+#
+# Example:
+#   formatted=$(_format_cross_project_results "$results")
+#######################################
+_format_cross_project_results() {
+    local results="$1"
+
+    if [[ -z "$results" || "$results" == "[]" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    # Ensure query field exists (project:taskId format)
+    echo "$results" | jq 'map(
+        if .query then . else
+            . + {query: "\(.project):\(.taskId)"}
+        end
+    )'
+}
+
+#######################################
+# Discover related tasks across all registered projects
+#
+# Main cross-project discovery entry point. Extends local discovery to all
+# projects in the Nexus registry with read permission. Implements the
+# "neural network" that spans project boundaries.
+#
+# Neural Network Semantics:
+#   - Neurons: Tasks across all projects
+#   - Synapses: relates entries + discovery links
+#   - Weights: Similarity scores + project boost
+#   - Activation: Score threshold for inclusion
+#   - Propagation: Context flows across project boundaries
+#
+# Arguments:
+#   $1 - Task query (required): T001, project:T001, .:T001
+#   $2 - Discovery method (optional): labels, description, files, hierarchy, auto (default: auto)
+#   $3 - Result limit (optional): max results to return (default: 10)
+#
+# Returns:
+#   JSON array of matches with project context and scores
+#
+# Exit Status:
+#   0 - Success
+#   1 - Invalid arguments or Nexus not available
+#
+# Example:
+#   results=$(discover_across_projects "my-app:T001" "auto" 10)
+#   # Returns: [{"taskId":"T042","project":"other-app","query":"other-app:T042","score":0.85,...}]
+#######################################
+discover_across_projects() {
+    local task_query="${1:-}"
+    local method="${2:-auto}"
+    local limit="${3:-10}"
+
+    if [[ -z "$task_query" ]]; then
+        echo '{"error": "Task query required"}' >&2
+        return 1
+    fi
+
+    # Check if Nexus functions are available
+    if ! declare -f nexus_parse_query >/dev/null 2>&1; then
+        echo '{"error": "Nexus libraries not loaded"}' >&2
+        return 1
+    fi
+
+    # Parse task query to get source task
+    local parsed
+    parsed=$(nexus_parse_query "$task_query" 2>/dev/null) || {
+        echo '{"error": "Invalid task query syntax"}' >&2
+        return 1
+    }
+
+    local project task_id
+    project=$(echo "$parsed" | jq -r '.project')
+    task_id=$(echo "$parsed" | jq -r '.taskId')
+
+    # Load source task
+    local source_task
+    if declare -f nexus_resolve_task >/dev/null 2>&1; then
+        source_task=$(nexus_resolve_task "$task_query" 2>/dev/null) || {
+            echo '{"error": "Source task not found"}' >&2
+            return 1
+        }
+    else
+        echo '{"error": "Cannot resolve task query"}' >&2
+        return 1
+    fi
+
+    # Merge graphs from all readable projects
+    local target_graphs
+    target_graphs=$(_merge_project_graphs)
+
+    if [[ -z "$target_graphs" || "$target_graphs" == "[]" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    # Run discovery across combined graph
+    local results
+    if [[ "$method" == "auto" ]]; then
+        # Combine multiple methods
+        local labels_result description_result files_result
+        labels_result=$(_discover_cross_project "$source_task" "$target_graphs" "labels")
+        description_result=$(_discover_cross_project "$source_task" "$target_graphs" "description")
+        files_result=$(_discover_cross_project "$source_task" "$target_graphs" "files")
+
+        # Merge and deduplicate
+        results=$(echo "$labels_result" "$description_result" "$files_result" | \
+            jq -s 'add | group_by(.taskId + .project) | map(max_by(.score)) | sort_by(-.score)')
+    else
+        results=$(_discover_cross_project "$source_task" "$target_graphs" "$method")
+    fi
+
+    # Format with project context
+    results=$(_format_cross_project_results "$results")
+
+    # Apply limit
+    if [[ "$limit" -gt 0 ]]; then
+        results=$(echo "$results" | jq ".[:$limit]")
+    fi
+
+    echo "$results"
+    return 0
 }
 
 # ============================================================================

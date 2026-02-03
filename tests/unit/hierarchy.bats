@@ -443,12 +443,13 @@ create_hierarchy_fixture() {
     create_empty_todo
     bash "$ADD_SCRIPT" "Parent" --type epic > /dev/null
 
+    # Add children without run (faster)
     for i in {1..7}; do
-        run bash "$ADD_SCRIPT" "Child $i" --parent T001
-        assert_success
+        bash "$ADD_SCRIPT" "Child $i" --parent T001 > /dev/null
     done
 
-    local child_count=$(count_children "T001")
+    # Verify count using jq (no need to source hierarchy.sh)
+    local child_count=$(jq --arg pid "T001" '[.tasks[] | select(.parentId == $pid)] | length' "$TODO_FILE")
     [[ "$child_count" -eq 7 ]]
 }
 
@@ -476,8 +477,9 @@ create_hierarchy_fixture() {
         bash "$ADD_SCRIPT" "P2 Child $i" --parent T002 > /dev/null
     done
 
-    local p1_children=$(count_children "T001")
-    local p2_children=$(count_children "T002")
+    # Verify counts using jq (no need to source hierarchy.sh)
+    local p1_children=$(jq --arg pid "T001" '[.tasks[] | select(.parentId == $pid)] | length' "$TODO_FILE")
+    local p2_children=$(jq --arg pid "T002" '[.tasks[] | select(.parentId == $pid)] | length' "$TODO_FILE")
     [[ "$p1_children" -eq 7 ]]
     [[ "$p2_children" -eq 7 ]]
 }

@@ -2520,7 +2520,7 @@ create_audit_object() {
 
 # validate_audit_object - Validate audit object against schema requirements
 # Args: $1 = JSON entry with audit object
-# Returns: 0 if valid, 6 (EXIT_VALIDATION_ERROR) if invalid, 77 (EXIT_CIRCULAR_VALIDATION) if circular
+# Returns: 0 if valid, 6 (EXIT_VALIDATION_ERROR) if invalid, 82 (EXIT_CIRCULAR_VALIDATION) if circular
 # Output: Error message to stderr on failure
 validate_audit_object() {
     local json="$1"
@@ -2586,17 +2586,17 @@ validate_audit_object() {
 
     if [[ -n "$validated_by" && "$validated_by" == "$created_by" ]]; then
         echo "ERROR: Circular validation detected: validated_by ($validated_by) == created_by ($created_by)" >&2
-        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+        return "${EXIT_CIRCULAR_VALIDATION:-82}"
     fi
 
     if [[ -n "$tested_by" && "$tested_by" == "$created_by" ]]; then
         echo "ERROR: Circular validation detected: tested_by ($tested_by) == created_by ($created_by)" >&2
-        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+        return "${EXIT_CIRCULAR_VALIDATION:-82}"
     fi
 
     if [[ -n "$tested_by" && -n "$validated_by" && "$tested_by" == "$validated_by" ]]; then
         echo "ERROR: Circular validation detected: tested_by ($tested_by) == validated_by ($validated_by)" >&2
-        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+        return "${EXIT_CIRCULAR_VALIDATION:-82}"
     fi
 
     return 0
@@ -2606,7 +2606,7 @@ validate_audit_object() {
 # Args:
 #   $1 = agent_id to check
 #   $2 = provenance_chain (JSON array)
-# Returns: 0 if no cycles, 77 (EXIT_CIRCULAR_VALIDATION) if cycle detected
+# Returns: 0 if no cycles, 82 (EXIT_CIRCULAR_VALIDATION) if cycle detected
 check_circular_validation() {
     local agent_id="$1"
     local provenance_chain="$2"
@@ -2619,7 +2619,7 @@ check_circular_validation() {
     while IFS= read -r chain_agent; do
         if [[ "$chain_agent" == "$agent_id" ]]; then
             echo "ERROR: Circular validation detected: $agent_id appears in provenance chain" >&2
-            return "${EXIT_CIRCULAR_VALIDATION:-77}"
+            return "${EXIT_CIRCULAR_VALIDATION:-82}"
         fi
     done <<< "$chain_agents"
 
@@ -2675,7 +2675,7 @@ update_audit_validation() {
 
     if [[ "$validated_by" == "$created_by" ]]; then
         echo "ERROR: Circular validation: validated_by ($validated_by) == created_by ($created_by)" >&2
-        return "${EXIT_CIRCULAR_VALIDATION:-77}"
+        return "${EXIT_CIRCULAR_VALIDATION:-82}"
     fi
 
     # Update entry (this would typically use the update_entry function)
