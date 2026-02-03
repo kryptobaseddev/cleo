@@ -30,6 +30,7 @@ fi
 FORMAT=""
 METHOD="auto"
 LIMIT="10"
+TASK_QUERY=""
 COMMAND_NAME="nexus-discover"
 
 #######################################
@@ -101,9 +102,10 @@ get_version() {
 
 #######################################
 # Parse command-line arguments
+# Sets global variables: FORMAT, METHOD, LIMIT, TASK_QUERY
 #######################################
 parse_args() {
-  local task_query=""
+  TASK_QUERY=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -133,8 +135,8 @@ parse_args() {
         exit "${EXIT_INVALID_INPUT:-2}"
         ;;
       *)
-        if [[ -z "$task_query" ]]; then
-          task_query="$1"
+        if [[ -z "$TASK_QUERY" ]]; then
+          TASK_QUERY="$1"
         else
           echo "Error: Multiple task queries not supported" >&2
           exit "${EXIT_INVALID_INPUT:-2}"
@@ -144,7 +146,7 @@ parse_args() {
     esac
   done
 
-  if [[ -z "$task_query" ]]; then
+  if [[ -z "$TASK_QUERY" ]]; then
     echo "Error: Task query required" >&2
     echo "Usage: cleo nexus-discover <task_query>" >&2
     echo "Try 'cleo nexus-discover --help' for more information." >&2
@@ -167,16 +169,14 @@ parse_args() {
     echo "Error: Limit must be a positive integer" >&2
     exit "${EXIT_INVALID_INPUT:-2}"
   fi
-
-  echo "$task_query"
 }
 
 #######################################
 # Main execution
 #######################################
 main() {
-  local task_query
-  task_query=$(parse_args "$@")
+  parse_args "$@"
+  local task_query="$TASK_QUERY"
 
   # Ensure Nexus is initialized
   if ! nexus_init 2>/dev/null; then
@@ -205,8 +205,8 @@ main() {
   # Execute discovery
   local results
   local exit_code=0
-  if ! results=$(discover_across_projects "$task_query" "$METHOD" "$LIMIT"); then
-    exit_code=$?
+  results=$(discover_across_projects "$task_query" "$METHOD" "$LIMIT") || exit_code=$?
+  if [[ $exit_code -ne 0 ]]; then
     if [[ "$FORMAT" == "json" ]]; then
       jq -nc --arg ver "$(get_version)" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
              --arg query "$task_query" \
@@ -261,7 +261,7 @@ main() {
     echo -e "${BOLD}Related tasks for:${NC} $task_query ${DIM}(method: $METHOD)${NC}"
     echo -e "${BOLD}Found $count results:${NC}"
     echo ""
-    echo "$results" | jq -r '.[] | "  \(.project):\(.id) - \(.title)\n    Similarity: \(.similarity) | Status: \(.status)"'
+    echo "$results" | jq -r '.[] | "  \(.project):\(.taskId) - Score: \(.score)\n    Type: \(.type) | Reason: \(.reason)"'
   fi
 }
 

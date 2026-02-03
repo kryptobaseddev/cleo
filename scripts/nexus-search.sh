@@ -32,6 +32,7 @@ fi
 FORMAT=""
 LIMIT="20"
 PROJECT_FILTER=""
+PATTERN=""
 COMMAND_NAME="nexus-search"
 
 #######################################
@@ -172,9 +173,10 @@ search_all_projects() {
 
 #######################################
 # Parse command-line arguments
+# Sets global variables: FORMAT, PATTERN, LIMIT, PROJECT_FILTER
 #######################################
 parse_args() {
-  local pattern=""
+  PATTERN=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -204,8 +206,8 @@ parse_args() {
         exit "${EXIT_INVALID_INPUT:-2}"
         ;;
       *)
-        if [[ -z "$pattern" ]]; then
-          pattern="$1"
+        if [[ -z "$PATTERN" ]]; then
+          PATTERN="$1"
         else
           echo "Error: Multiple patterns not supported" >&2
           exit "${EXIT_INVALID_INPUT:-2}"
@@ -215,7 +217,7 @@ parse_args() {
     esac
   done
 
-  if [[ -z "$pattern" ]]; then
+  if [[ -z "$PATTERN" ]]; then
     echo "Error: Search pattern required" >&2
     echo "Usage: cleo nexus-search <pattern>" >&2
     echo "Try 'cleo nexus-search --help' for more information." >&2
@@ -227,16 +229,14 @@ parse_args() {
     echo "Error: Limit must be a positive integer" >&2
     exit "${EXIT_INVALID_INPUT:-2}"
   fi
-
-  echo "$pattern"
 }
 
 #######################################
 # Main execution
 #######################################
 main() {
-  local pattern
-  pattern=$(parse_args "$@")
+  parse_args "$@"
+  local pattern="$PATTERN"
 
   # Ensure Nexus is initialized
   if ! nexus_init 2>/dev/null; then
@@ -267,7 +267,9 @@ main() {
     # Use nexus_query for wildcard task ID search
     local task_id="${BASH_REMATCH[1]}"
     local result
-    if result=$(nexus_query "*:$task_id" "--json" 2>/dev/null); then
+    local query_exit=0
+    result=$(nexus_query "*:$task_id" "--json" 2>/dev/null) || query_exit=$?
+    if [[ $query_exit -eq 0 ]]; then
       if [[ "$FORMAT" == "json" ]]; then
         jq -nc --arg ver "$(get_version)" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                --arg pattern "$pattern" --argjson result "$result" \
