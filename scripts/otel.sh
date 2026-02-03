@@ -6,6 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$SCRIPT_DIR/lib/logging.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/lib/token-estimation.sh" 2>/dev/null || true
 
 # Find project root (where .cleo/config.json exists)
 find_project_root() {
@@ -33,6 +34,7 @@ Commands:
   summary            Show combined token usage summary (sessions + spawns)
   sessions [opts]    Show session-level token data
   spawns [opts]      Show spawn-level token data
+  real [opts]        Show REAL token usage from Claude Code API (T2949)
   clear              Clear token tracking data (with backup)
 
 Options:
@@ -40,6 +42,7 @@ Options:
   --task <id>        Filter by task ID
   --epic <id>        Filter by epic ID
   --format json      Output as JSON (default: table)
+  --since <ISO>      Filter events since timestamp (for real command)
 
 Examples:
   cleo otel status                    # Check tracking status
@@ -48,6 +51,9 @@ Examples:
   cleo otel sessions --session session_20260131_234218_189265
   cleo otel spawns --task T2906       # Show spawns for specific task
   cleo otel spawns --format json      # JSON output
+  cleo otel real                      # Show real API token usage
+  cleo otel real --session <id>       # Real tokens for specific session
+  cleo otel real --since 2026-01-31T00:00:00Z  # Real tokens since timestamp
   cleo otel clear                     # Reset tracking data
 EOF
 }
@@ -244,11 +250,101 @@ otel_clear() {
     fi
 }
 
+otel_real() {
+    local session_filter=""
+    local since_filter=""
+    local format="table"
+
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --session) session_filter="$2"; shift 2 ;;
+            --since) since_filter="$2"; shift 2 ;;
+            --format) format="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Call the token estimation library function
+    local real_data
+    real_data=$(get_real_token_usage "$session_filter" "$since_filter")
+
+    if [[ "$format" == "json" ]]; then
+        echo "$real_data" | jq '. + {success: true}'
+    else
+        # Table format
+        echo "REAL TOKEN USAGE (from Claude Code API)"
+        echo "========================================"
+        echo ""
+
+        local error
+        error=$(echo "$real_data" | jq -r '.error // empty')
+        if [[ -n "$error" ]]; then
+            echo "Error: $error"
+            return 1
+        fi
+
+        local input output cache_read cache_creation total messages project_dir
+        input=$(echo "$real_data" | jq -r '.input_tokens')
+        output=$(echo "$real_data" | jq -r '.output_tokens')
+        cache_read=$(echo "$real_data" | jq -r '.cache_read_tokens')
+        cache_creation=$(echo "$real_data" | jq -r '.cache_creation_tokens')
+        total=$(echo "$real_data" | jq -r '.total')
+        messages=$(echo "$real_data" | jq -r '.messages')
+        project_dir=$(echo "$real_data" | jq -r '.project_dir')
+
+        printf "%-30s %15s\n" "Metric" "Tokens"
+        echo "$(printf '%0.s-' {1..47})"
+        printf "%-30s %15s\n" "Input tokens" "$input"
+        printf "%-30s %15s\n" "Output tokens" "$output"
+        printf "%-30s %15s\n" "Cache read tokens" "$cache_read"
+        printf "%-30s %15s\n" "Cache creation tokens" "$cache_creation"
+        echo "$(printf '%0.s-' {1..47})"
+        printf "%-30s %15s\n" "Total" "$total"
+        echo ""
+        printf "Messages processed: %s\n" "$messages"
+        printf "Project directory: %s\n" "$project_dir"
+
+        # Compare with estimated data if available
+        if [[ -f "$TOKEN_FILE" ]] && [[ -s "$TOKEN_FILE" ]]; then
+            echo ""
+            echo "COMPARISON: Real vs Estimated"
+            echo "=============================="
+            echo ""
+
+            local estimated_total
+            estimated_total=$(jq -s 'map(.estimated_tokens // 0) | add // 0' "$TOKEN_FILE" 2>/dev/null || echo 0)
+
+            printf "%-30s %15s\n" "Real total (API)" "$total"
+            printf "%-30s %15s\n" "Estimated total (CLEO)" "$estimated_total"
+
+            if [[ $total -gt 0 ]]; then
+                local accuracy
+                accuracy=$(( (estimated_total * 100) / total ))
+                printf "%-30s %14s%%\n" "Estimation accuracy" "$accuracy"
+
+                if [[ $accuracy -lt 50 ]]; then
+                    echo ""
+                    echo "⚠ Estimation is significantly lower than real usage"
+                    echo "This is expected - estimates don't include system prompts, tool calls, etc."
+                elif [[ $accuracy -gt 150 ]]; then
+                    echo ""
+                    echo "⚠ Estimation is significantly higher than real usage"
+                    echo "This may indicate inefficiencies in the estimation model"
+                fi
+            fi
+        fi
+
+        echo ""
+    fi
+}
+
 case "${1:-}" in
     status)  otel_status ;;
     summary) otel_summary ;;
     sessions) shift; otel_sessions "$@" ;;
     spawns)  shift; otel_spawns "$@" ;;
+    real)    shift; otel_real "$@" ;;
     clear)   otel_clear ;;
     -h|--help|"") show_usage ;;
     *)       echo '{"success":false,"error":"Unknown command: '"$1"'"}'; exit 1 ;;

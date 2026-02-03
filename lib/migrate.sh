@@ -1189,6 +1189,42 @@ migrate_config_to_2_6_0() {
     update_version_field "$file" "$target_version"
 }
 
+# @task T2844
+# Migration to v2.10.0: Consolidate release gates configuration
+# Moves validation.releaseGates and orchestrator.validation.customGates to release.gates
+migrate_config_to_2_10_0() {
+    local file="$1"
+    local target_version
+    target_version=$(get_target_version_from_funcname)
+
+    echo "  Consolidating release gates configuration..."
+
+    # Check if old fields exist
+    local has_validation_gates has_orchestrator_gates
+    has_validation_gates=$(jq 'has("validation") and .validation | has("releaseGates")' "$file" 2>/dev/null || echo "false")
+    has_orchestrator_gates=$(jq 'has("orchestrator") and .orchestrator | has("validation") and .orchestrator.validation | has("customGates")' "$file" 2>/dev/null || echo "false")
+
+    # Get gates from old locations (prefer validation.releaseGates over orchestrator.validation.customGates)
+    local gates="[]"
+    if [[ "$has_validation_gates" == "true" ]]; then
+        gates=$(jq -c '.validation.releaseGates // []' "$file" 2>/dev/null || echo "[]")
+        echo "    Found gates in validation.releaseGates"
+    elif [[ "$has_orchestrator_gates" == "true" ]]; then
+        gates=$(jq -c '.orchestrator.validation.customGates // []' "$file" 2>/dev/null || echo "[]")
+        echo "    Found gates in orchestrator.validation.customGates"
+    fi
+
+    # Add release section with gates
+    add_field_if_missing "$file" ".release" "{\"gates\": $gates}" || return 1
+    echo "    Created release.gates"
+
+    # Remove old fields (leave them for now with deprecation warnings in code)
+    # Users can manually remove after confirming migration worked
+
+    # Update version
+    update_version_field "$file" "$target_version"
+}
+
 
 # ============================================================================
 # ARCHIVE MIGRATIONS
