@@ -199,12 +199,14 @@ main() {
     else
       echo "Error: Nexus not initialized. Run: cleo nexus init" >&2
     fi
-    exit 1
+    exit "${EXIT_NEXUS_NOT_INITIALIZED:-70}"
   fi
 
   # Execute discovery
   local results
+  local exit_code=0
   if ! results=$(discover_across_projects "$task_query" "$METHOD" "$LIMIT"); then
+    exit_code=$?
     if [[ "$FORMAT" == "json" ]]; then
       jq -nc --arg ver "$(get_version)" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
              --arg query "$task_query" \
@@ -226,7 +228,7 @@ main() {
     else
       echo "Error: Discovery failed for task: $task_query" >&2
     fi
-    exit 1
+    exit "$exit_code"
   fi
 
   # Output results
