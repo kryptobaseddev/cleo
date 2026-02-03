@@ -1,0 +1,183 @@
+---
+title: "Protocol Misalignment Corrections"
+description: "Authoritative corrections for protocol-code misalignments identified in Wave 0 research"
+icon: "arrows-rotate"
+---
+
+# Protocol Misalignment Corrections Specification
+
+**Version**: 1.0.0
+**Status**: ACTIVE
+**Created**: 2026-01-28
+**Author**: Protocol Specification Agent (T2690)
+
+---
+
+## RFC 2119 Conformance
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+
+---
+
+## Part 1: Preamble
+
+### 1.1 Purpose
+
+This specification documents **protocol-code misalignments** identified in Wave 0 research (T2680-T2684) and provides authoritative corrections to align protocol specifications with actual implementation behavior.
+
+### 1.2 Authority
+
+This specification is **AUTHORITATIVE** for:
+
+- Protocol text corrections (ALIGN-*)
+- Threshold value decisions (THRESH-*)
+- Implementation documentation requirements (IMPL-DOC-*)
+- Orphaned code connection requirements (ORPH-*)
+
+---
+
+## Part 2: Critical Misalignments
+
+### 2.1 Consensus Threshold Mismatch
+
+**Issue**: Protocol specifies 80% threshold, code uses 50%
+
+| Source | Threshold | Location |
+|--------|-----------|----------|
+| Protocol | 80% | `protocols/consensus.md` line 45 |
+| Code | 50% | `lib/contribution-protocol.sh` line 234 |
+
+**Decision**: ALIGN-001
+
+The consensus threshold **MUST** be 50% (practical) with documentation noting 80% as aspirational.
+
+**Rationale**:
+- 80% threshold causes false negatives in practical use
+- 50% provides balance between rigor and usability
+- Document 80% as optional "strict mode" for critical decisions
+
+### 2.2 Orphaned Consensus Implementation
+
+**Issue**: 1,850 lines of consensus code with no CLI entry point
+
+| File | Lines | Functions |
+|------|-------|-----------|
+| `lib/contribution-protocol.sh` | 1,850 | 45 |
+
+**Decision**: ORPH-001
+
+Orphaned consensus code **MUST** be connected via `scripts/consensus.sh` CLI entry point.
+
+**Implementation**:
+```bash
+# scripts/consensus.sh
+source lib/contribution-protocol.sh
+
+case "$1" in
+    compute) compute_consensus "$@" ;;
+    vote)    record_vote "$@" ;;
+    status)  get_consensus_status "$@" ;;
+esac
+```
+
+### 2.3 Missing Provenance Enforcement
+
+**Issue**: IMPL-003 and CONT-002 define provenance requirements, 0% enforcement
+
+| Protocol | Requirement | Enforcement |
+|----------|-------------|-------------|
+| implementation.md | IMPL-003: `@task T####` tags | 0% |
+| contribution.md | CONT-002: provenance in contributed code | 0% |
+
+**Decision**: ALIGN-002
+
+Provenance requirements **MUST** be enforced via commit-msg hook (Phase 1: warning, Phase 2: blocking).
+
+---
+
+## Part 3: Threshold Decisions (THRESH-*)
+
+### 3.1 Consensus Threshold
+
+| ID | Decision | Value |
+|----|----------|-------|
+| THRESH-001 | Default consensus threshold | 50% |
+| THRESH-002 | Strict mode threshold (optional) | 80% |
+| THRESH-003 | Confidence score minimum | 0.6 |
+
+### 3.2 Validation Thresholds
+
+| ID | Decision | Value |
+|----|----------|-------|
+| THRESH-004 | Key findings count (research) | 3-7 |
+| THRESH-005 | Max siblings per parent | 7 |
+| THRESH-006 | Max hierarchy depth | 3 |
+
+---
+
+## Part 4: Orphaned Code Connections (ORPH-*)
+
+### 4.1 Inventory
+
+| Code | Lines | Missing | Priority |
+|------|-------|---------|----------|
+| `lib/contribution-protocol.sh` | 1,850 | CLI entry point | Critical |
+| `lib/consensus-*.sh` | 1,400 | Orchestrator integration | High |
+| Various provenance validators | N/A | Hook integration | High |
+
+### 4.2 Connection Requirements
+
+| ID | Requirement |
+|----|-------------|
+| ORPH-001 | Consensus CLI entry point via `scripts/consensus.sh` |
+| ORPH-002 | Contribution CLI entry point via `scripts/contribution.sh` |
+| ORPH-003 | Orchestrator integration for automatic validation |
+
+---
+
+## Part 5: Protocol Text Corrections
+
+### 5.1 Corrections Applied
+
+| Protocol | Section | Change |
+|----------|---------|--------|
+| consensus.md | §3.2 | "Threshold: 80%" → "Default threshold: 50%, strict: 80%" |
+| implementation.md | §4.1 | Add "Enforcement via commit-msg hook" |
+| contribution.md | §2.3 | Add "Validated at cleo complete" |
+
+### 5.2 Documentation Requirements
+
+| ID | Requirement |
+|----|-------------|
+| IMPL-DOC-001 | Protocol text MUST document actual enforcement mechanism |
+| IMPL-DOC-002 | Protocol text MUST specify exit codes for violations |
+| IMPL-DOC-003 | Protocol text MUST reference CLI entry points |
+
+---
+
+## Part 6: Implementation Roadmap
+
+### 6.1 Wave 3 Tasks
+
+| Task | Description | Expected Impact |
+|------|-------------|-----------------|
+| T2692 | Connect consensus CLI | 0% → 70% enforcement |
+| T2693 | Connect contribution CLI | 14% → 60% enforcement |
+| T2694 | Fix threshold mismatch | Eliminate false negatives |
+| T2695 | Add protocol-validation.sh | Shared validation logic |
+
+### 6.2 Success Metrics
+
+| Metric | Baseline | Target |
+|--------|----------|--------|
+| Average enforcement | 22% | 40% |
+| Orphaned code | 3,250 lines | 0 lines |
+| False negatives | Unknown | <5% |
+
+---
+
+## References
+
+- [PROTOCOL-ENFORCEMENT](/developer/specifications/PROTOCOL-ENFORCEMENT): Enforcement architecture
+- [COMMIT-TASK-ENFORCEMENT](/developer/specifications/COMMIT-TASK-ENFORCEMENT): Commit-msg hook
+- **T2680-T2684**: Wave 0 research audits

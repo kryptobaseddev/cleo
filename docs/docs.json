@@ -431,6 +431,36 @@
             ]
           },
           {
+            "group": "Strategic",
+            "pages": [
+              "developer/specifications/CLEO-STRATEGIC-ROADMAP",
+              "developer/specifications/CLEO-NEXUS"
+            ]
+          },
+          {
+            "group": "MCP Server",
+            "pages": [
+              "developer/specifications/MCP-SERVER",
+              "developer/specifications/MCP-GATEWAY"
+            ]
+          },
+          {
+            "group": "Metrics & Validation",
+            "pages": [
+              "developer/specifications/METRICS-VALIDATION",
+              "developer/specifications/METRICS-VALUE-PROOF",
+              "developer/specifications/TOKEN-TRACKING-ARCHITECTURE"
+            ]
+          },
+          {
+            "group": "Protocol Enforcement",
+            "pages": [
+              "developer/specifications/PROTOCOL-ENFORCEMENT",
+              "developer/specifications/COMMIT-TASK-ENFORCEMENT",
+              "developer/specifications/PROTOCOL-MISALIGNMENT-CORRECTIONS"
+            ]
+          },
+          {
             "group": "System Specifications",
             "pages": [
               "developer/specifications/BACKUP-SYSTEM",

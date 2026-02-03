@@ -1,0 +1,274 @@
+---
+title: "Strategic Roadmap"
+description: "CLEO's evolution from task manager to cognitive infrastructure (BRAIN) for AI systems - phased approach with validation gates"
+icon: "road"
+---
+
+# CLEO Strategic Roadmap Specification
+
+**Version**: 1.0.0
+**Status**: STABLE
+**Date**: 2026-02-03
+**Epic**: T2968 - CLEO Strategic Inflection Point Review
+**Specification Task**: T2973
+
+---
+
+## 1. Executive Summary
+
+This specification defines CLEO's evolution from a Bash-based task manager (Tier S: solo developer, single project) to a cognitive infrastructure system (Tier M: 2-3 projects, cross-project intelligence) and beyond. The roadmap adopts an **evidence-first, incremental approach**: validate assumptions before expansion, simplify before extending, and maintain agent-first design as core differentiator.
+
+### 1.1 Vision Statement
+
+**CLEO as BRAIN for AI Systems**
+
+CLEO evolves from task management protocol to cognitive infrastructure, implementing the BRAIN model:
+
+| Layer | Capability | Current State | Target State |
+|-------|-----------|---------------|--------------|
+| **B**ase (Memory) | Task/session storage | Tier S (single project) | Tier M (2-3 projects, MCP interface) |
+| **R**easoning | Graph-RAG semantic discovery | Local graph only | Global cross-project intelligence |
+| **A**gent | Orchestrator + subagents | Protocol enforcement, 7 protocols | Agent registry, capability routing |
+| **I**ntelligence | Validation + compliance | Anti-hallucination, lifecycle gates | Semantic search, pattern extraction |
+| **N**etwork | Isolated projects | Registry (v0.80.0, unvalidated) | Tier M/L cross-project coordination |
+
+**From**: Task manager with anti-hallucination validation
+**To**: Cognitive substrate for autonomous AI agent coordination
+
+### 1.2 Design Principles
+
+1. **Evidence > Speculation**: Validate usage before expanding features (Nexus, MCP)
+2. **Simplify First**: Reduce 163 files before adding complexity
+3. **Incremental Migration**: TypeScript via MCP server, expand only if proven
+4. **Agent-First**: Protocol enforcement, RCSD lifecycle, anti-hallucination remain core
+5. **Scale Tiers**: S (1 project) → M (2-3) → L (3-10) → XL (10-100+)
+
+---
+
+## 2. Current State (v0.80.0)
+
+### 2.1 Architecture Overview
+
+**Scale**: 163 files (96 lib + 67 scripts), 133,203 LOC, 1,425 functions
+**Tier**: S (solo developer, single project)
+**Complexity Hotspots**:
+- sessions.sh (3,098 lines)
+- migrate.sh (2,884 lines)
+- orchestrator-startup.sh (2,138 lines)
+
+**Strengths**:
+- Atomic operations (zero data loss)
+- 4-layer validation (schema → semantic → referential → protocol)
+- Graph-RAG semantic discovery
+- RCSD-IVTR lifecycle enforcement
+- Exit code system (72 codes)
+
+**Pain Points**:
+- File sprawl (96 library modules)
+- Migration accumulation (85+ functions)
+- Session complexity (60+ functions in single file)
+- Technical debt (1,111 TODO comments)
+- Nexus premature complexity (5 files, zero usage data)
+
+### 2.2 Unvalidated Assets
+
+| Asset | Status | Evidence Gap |
+|-------|--------|--------------|
+| **Nexus** | Shipped v0.80.0 (8 days ago) | Zero real-world multi-project usage |
+| **MCP Server** | Specification complete (39KB) | Not implemented, no integration tests |
+| **TypeScript Rewrite** | Referenced in planning | No specification, unclear scope |
+
+---
+
+## 3. Phase Definitions (RFC 2119)
+
+### 3.1 Phase 0: Foundation
+
+**Goal**: Simplify current complexity + deliver MCP Server for LLM integration
+
+#### 3.1.1 Simplification (Epic 1)
+
+**File Consolidation** (Target: 96 lib files → 50-60 files)
+
+The following consolidations **MUST** be completed:
+
+| Consolidation | Current Files | Target Structure | Reduction |
+|---------------|---------------|------------------|-----------|
+| Agent system | 14 files | `lib/agent/{orchestrator,skills,registry}.sh` | 14 → 3 |
+| Nexus | 5 files | `lib/nexus/nexus.sh` (single file) | 5 → 1 |
+| Sessions | 6 files | `lib/sessions/{core,enforcement}.sh` | 6 → 2 |
+| Protocols | 5 files | `lib/protocols/{validation,lifecycle}.sh` | 5 → 2 |
+
+**Migration Cleanup** (Target: migrate.sh from 2,884 lines → <1,000 lines)
+
+The following migration strategy **MUST** be implemented:
+
+1. **Migration Snapshots**: Collapse pre-v1.0 migrations into single snapshot function
+2. **External Migrations**: Move version-specific migrations to `migrations/v*.sh` files
+3. **Minimum Version Policy**: Drop migrations older than 6 months (configurable)
+4. **Lazy Loading**: Load migration functions on-demand, not at startup
+
+**Success Criteria**:
+- File count: 163 → 100 files (38% reduction)
+- Largest file: 3,098 lines → <2,000 lines
+- TODO comments: 1,111 → <100
+- Test pass rate: Maintain 100% (no regressions)
+
+#### 3.1.2 MCP Server Implementation (Epic 2)
+
+**Architecture** (TypeScript + FastMCP)
+
+The MCP server **MUST** implement the following two-tool CQRS gateway:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ MCP Tools (2)                                            │
+│   - cleo_query (45 read operations)                     │
+│   - cleo_mutate (53 write operations)                   │
+└────────────────┬────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────┐
+│ Domain Router (8 domains)                                │
+│   tasks | session | orchestrate | research | lifecycle  │
+│   validate | release | system                           │
+└────────────────┬────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────┐
+│ CLI Adapter (child_process spawns)                      │
+└────────────────┬────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────┐
+│ Bash CLI (65 commands)                                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Token Reduction Target**:
+- **Current**: 65 CLI commands in context (~32,500 tokens at 500 tokens/command)
+- **Target**: 2 MCP tools (~1,800 tokens)
+- **Reduction**: 94% token savings
+
+### 3.2 Phase 1: Validation
+
+**Goal**: Validate Nexus usage + MCP adoption before further investment
+
+#### 3.2.1 Nexus Validation Gate
+
+**Validation Criteria** (All MUST pass to proceed to Phase 2 Nexus expansion)
+
+| Metric | Target | Measurement Period |
+|--------|--------|-------------------|
+| **Active Users** | ≥3 developers | 30 consecutive days |
+| **Multi-Project Usage** | ≥2 projects per user | 30 days |
+| **Time Savings** | >30% context discovery reduction | Comparative benchmark |
+
+**If Validation Fails** (Any criterion unmet):
+- Consolidate Nexus (5 files → 1 file)
+- Keep basic cross-project references only
+- Defer advanced features
+
+### 3.3 Phase 2: Intelligence
+
+**Precondition**: Phase 1 validation MUST pass for both Nexus AND MCP Server
+
+**Goal**: Add semantic intelligence capabilities for Tier M scale
+
+- Semantic Search (SQLite-vec Integration)
+- TypeScript Hotspot Migration (sessions, migrate, orchestrator)
+- Research Indexing (SQLite Manifest Index)
+
+### 3.4 Phase 3: Scale
+
+**Precondition**: Phase 2 MUST validate TypeScript value AND demonstrate Tier M usage
+
+**Goal**: Support Tier L scale (3-10 projects, 5-20 concurrent agents)
+
+- Agent Coordination (Agent Registry + Capability Routing)
+- Cross-Project Intelligence (PostgreSQL Backend)
+
+---
+
+## 4. Integration Strategy (Cognee Patterns)
+
+### 4.1 Patterns to Adopt
+
+| Pattern | Cognee Implementation | CLEO Adaptation | Phase |
+|---------|----------------------|-----------------|-------|
+| **Three-Tier Storage** | Relational + Vector + Graph | JSON → SQLite → PostgreSQL | Phase 2-3 |
+| **Pipeline Abstraction** | Task wrapper for sync/async | Skill execution wrapper | Phase 0 |
+| **MCP Architecture** | FastMCP with direct/API modes | MCP server with stdio/HTTP | Phase 0 |
+
+### 4.2 Patterns to Avoid
+
+| Pattern | Cognee Use Case | CLEO Rationale for Avoidance |
+|---------|-----------------|------------------------------|
+| **Graph Database** | Neo4j for complex relationships | Premature optimization |
+| **LLM Dependency** | Embedding generation | Keep core deterministic |
+
+### 4.3 CLEO-Distinct Patterns (Preserve)
+
+1. **Protocol Enforcement** (RCSD-IVTR lifecycle)
+2. **Anti-Hallucination Validation** (4-layer system)
+3. **Atomic Operations** (Zero data loss)
+4. **Task Hierarchy Constraints** (Max depth 3, max 7 siblings)
+5. **Exit Code System** (72 standardized codes)
+
+---
+
+## 5. Decision Gates (Phase Progression)
+
+```
+Phase 0: Foundation
+    ↓
+GATE 1: Simplification + MCP Server Complete
+    ↓
+Phase 1: Validation (60-90 days)
+    ↓
+GATE 2: Nexus + MCP Adoption Validated
+    ↓
+Phase 2: Intelligence
+    ↓
+GATE 3: TypeScript Value Demonstrated
+    ↓
+Phase 3: Scale
+```
+
+---
+
+## 6. Timeline Summary
+
+| Milestone | Month | Description |
+|-----------|-------|-------------|
+| **Phase 0 Start** | 1 | Simplification + MCP server development begins |
+| **GATE 1** | 2 | File consolidation + MCP server core complete |
+| **Phase 1 Start** | 3 | Validation period begins (60-90 days) |
+| **GATE 2** | 4 | Nexus + MCP validation results available |
+| **Phase 2 Start** | 4 | Semantic search + TypeScript hotspots |
+| **GATE 3** | 9 | TypeScript value validation |
+| **Phase 3 Start** | 10 | Agent coordination + PostgreSQL |
+
+---
+
+## 7. References
+
+### 7.1 Strategic Foundation
+
+- **T2968**: EPIC: CLEO Strategic Inflection Point Review
+- **T2969**: Research: CLEO Current State Assessment
+- **T2970**: Research: Cognee Architecture Analysis
+- **T2971**: Research: BRAIN Vision Requirements
+- **T2972**: Consensus: Strategic Direction
+
+### 7.2 Existing Specifications
+
+- [MCP-SERVER](/developer/specifications/MCP-SERVER): Two-tool CQRS gateway
+- [CLEO-NEXUS](/developer/specifications/CLEO-NEXUS): Cross-project intelligence
+- [PROJECT-LIFECYCLE](/developer/specifications/PROJECT-LIFECYCLE): RCSD-IVTR pipeline
+
+---
+
+**Specification Status**: STABLE
+**Last Updated**: 2026-02-03
+**Version**: 1.0.0
