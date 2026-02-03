@@ -259,7 +259,7 @@ main() {
     else
       echo "Error: Nexus not initialized. Run: cleo nexus init" >&2
     fi
-    exit 1
+    exit "${EXIT_NEXUS_NOT_INITIALIZED:-70}"
   fi
 
   # Handle wildcard query syntax (*:T001)
@@ -302,8 +302,7 @@ main() {
   # Execute pattern search
   local results
   if [[ -n "$PROJECT_FILTER" ]]; then
-    results=$(search_project "$PROJECT_FILTER" "$pattern")
-    if [[ $? -ne 0 ]]; then
+    if ! results=$(search_project "$PROJECT_FILTER" "$pattern"); then
       if [[ "$FORMAT" == "json" ]]; then
         jq -nc --arg ver "$(get_version)" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                --arg project "$PROJECT_FILTER" \
@@ -324,7 +323,7 @@ main() {
       else
         echo "Error: Project not found: $PROJECT_FILTER" >&2
       fi
-      exit "$EXIT_NEXUS_PROJECT_NOT_FOUND"
+      exit "${EXIT_NEXUS_PROJECT_NOT_FOUND:-71}"
     fi
   else
     results=$(search_all_projects "$pattern" "$LIMIT")

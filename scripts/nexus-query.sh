@@ -27,6 +27,7 @@ fi
 
 # Options
 FORMAT=""
+QUERY=""
 COMMAND_NAME="nexus-query"
 
 #######################################
@@ -97,9 +98,10 @@ get_version() {
 
 #######################################
 # Parse command-line arguments
+# Sets global variables: FORMAT, QUERY
 #######################################
 parse_args() {
-  local query=""
+  QUERY=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -121,8 +123,8 @@ parse_args() {
         exit "${EXIT_INVALID_INPUT:-2}"
         ;;
       *)
-        if [[ -z "$query" ]]; then
-          query="$1"
+        if [[ -z "$QUERY" ]]; then
+          QUERY="$1"
         else
           echo "Error: Multiple queries not supported" >&2
           exit "${EXIT_INVALID_INPUT:-2}"
@@ -132,22 +134,20 @@ parse_args() {
     esac
   done
 
-  if [[ -z "$query" ]]; then
+  if [[ -z "$QUERY" ]]; then
     echo "Error: Query required" >&2
     echo "Usage: cleo nexus-query <query>" >&2
     echo "Try 'cleo nexus-query --help' for more information." >&2
     exit "${EXIT_INVALID_INPUT:-2}"
   fi
-
-  echo "$query"
 }
 
 #######################################
 # Main execution
 #######################################
 main() {
-  local query
-  query=$(parse_args "$@")
+  parse_args "$@"
+  local query="$QUERY"
 
   # Ensure Nexus is initialized
   if ! nexus_init 2>/dev/null; then
@@ -170,13 +170,14 @@ main() {
     else
       echo "Error: Nexus not initialized. Run: cleo nexus init" >&2
     fi
-    exit 1
+    exit "${EXIT_NEXUS_NOT_INITIALIZED:-70}"
   fi
 
   # Execute query
   local result
-  if ! result=$(nexus_query "$query" "--json"); then
-    local exit_code=$?
+  local exit_code=0
+  result=$(nexus_query "$query" "--json") || exit_code=$?
+  if [[ $exit_code -ne 0 ]]; then
     if [[ "$FORMAT" == "json" ]]; then
       jq -nc --arg ver "$(get_version)" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
              --arg query "$query" \
@@ -195,6 +196,8 @@ main() {
             "message": "Task not found or query invalid"
           }
         }'
+    else
+      echo "Error: Task not found or query invalid" >&2
     fi
     exit "$exit_code"
   fi
