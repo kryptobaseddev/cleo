@@ -599,26 +599,44 @@ log_validation() {
 }
 
 # Log error
+# Supports both new signature (code, message, ...) and legacy signature (message only)
 log_error() {
-    local error_code="$1"
-    local error_message="$2"
-    local recoverable="${3:-false}"
-    local task_id="${4:-null}"
-    local details
+    local error_code error_message recoverable task_id details
 
-    details=$(jq -nc \
-        --arg code "$error_code" \
-        --arg message "$error_message" \
-        --argjson recoverable "$recoverable" \
-        '{error: {code: $code, message: $message, recoverable: $recoverable}}')
-    log_operation "error_occurred" "system" "$task_id" "null" "null" "$details" "null"
+    # Backward compatibility: if only 1-2 args and $2 is not provided or looks like recoverable flag
+    if [[ $# -eq 1 ]] || [[ $# -eq 2 && "$2" =~ ^(true|false)$ ]]; then
+        # Legacy usage: log_error "message" [recoverable]
+        error_code="E_GENERAL"
+        error_message="$1"
+        recoverable="${2:-false}"
+        task_id="null"
+        # Also print to stderr for immediate feedback (only in text/human mode)
+        [[ "${FORMAT}" == "text" || "${FORMAT}" == "human" ]] && echo "$error_message" >&2
+    else
+        # New usage: log_error "code" "message" [recoverable] [task_id]
+        error_code="$1"
+        error_message="$2"
+        recoverable="${3:-false}"
+        task_id="${4:-null}"
+    fi
+
+    # Only log to JSON if LOG_FILE exists and is writable
+    if [[ -w "$LOG_FILE" ]] 2>/dev/null; then
+        details=$(jq -nc \
+            --arg code "$error_code" \
+            --arg message "$error_message" \
+            --argjson recoverable "$recoverable" \
+            '{error: {code: $code, message: $message, recoverable: $recoverable}}')
+        log_operation "error_occurred" "system" "$task_id" "null" "null" "$details" "null"
+    fi
 }
 
 # Print informational message to stdout (for user feedback, not audit log)
 # Args: $1 = message
 log_info() {
     local message="$1"
-    echo "$message"
+    # Respect FORMAT setting - only output in text/human mode, not json or unset
+    [[ "${FORMAT}" == "text" || "${FORMAT}" == "human" ]] && echo "$message"
 }
 
 # ============================================================================

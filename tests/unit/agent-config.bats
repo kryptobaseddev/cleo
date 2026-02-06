@@ -12,12 +12,16 @@ setup() {
 
     # Create necessary directories
     mkdir -p "$CLEO_HOME/lib"
+    mkdir -p "$CLEO_HOME/schemas"
     mkdir -p "$TEST_DIR/.claude"
     mkdir -p "$TEST_DIR/.gemini"
 
     # Copy required libraries
     cp "$BATS_TEST_DIRNAME/../../lib/injection-registry.sh" "$CLEO_LIB_DIR/"
     cp "$BATS_TEST_DIRNAME/../../lib/agent-config.sh" "$CLEO_LIB_DIR/"
+
+    # Copy required schemas
+    cp "$BATS_TEST_DIRNAME/../../schemas/agent-registry.json" "$CLEO_HOME/schemas/"
 
     # Override HOME for testing
     export HOME="$TEST_DIR"
@@ -37,7 +41,7 @@ teardown() {
 @test "get_agent_name_from_path detects claude from ~/.claude/CLAUDE.md" {
     run get_agent_name_from_path "$HOME/.claude/CLAUDE.md"
     assert_success
-    assert_output "claude"
+    assert_output "claude-code"
 }
 
 @test "get_agent_name_from_path detects gemini from ~/.gemini/GEMINI.md" {
@@ -295,7 +299,7 @@ EOF
 
     local agent_type
     agent_type=$(echo "$output" | jq -r '.agentType')
-    assert_equal "$agent_type" "claude"
+    assert_equal "$agent_type" "claude-code"
 }
 
 @test "get_agent_config_data returns empty object for missing agent" {

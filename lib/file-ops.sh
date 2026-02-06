@@ -619,38 +619,42 @@ _fo_validate_json_content() {
     local validation_errors=0
 
     # Basic structure validation (always performed, no external dependencies)
+    # Suppress messages in JSON mode or quiet mode to avoid contaminating stdout
+    local suppress_output=false
+    [[ "${FORMAT:-}" == "json" || "${QUIET:-false}" == "true" ]] && suppress_output=true
+
     case "$schema_type" in
         "todo")
             if ! echo "$content" | jq -e '.tasks | type == "array"' >/dev/null 2>&1; then
-                echo "Schema validation: Missing or invalid 'tasks' array" >&2
+                [[ "$suppress_output" == false ]] && echo "Schema validation: Missing or invalid 'tasks' array" >&2
                 ((validation_errors++))
             fi
             if ! echo "$content" | jq -e 'has("_meta")' >/dev/null 2>&1; then
-                echo "Schema validation: Missing '_meta' object" >&2
+                [[ "$suppress_output" == false ]] && echo "Schema validation: Missing '_meta' object" >&2
                 ((validation_errors++))
             fi
             ;;
         "archive")
             if ! echo "$content" | jq -e '.tasks | type == "array"' >/dev/null 2>&1; then
-                echo "Schema validation: Missing or invalid archived 'tasks' array" >&2
+                [[ "$suppress_output" == false ]] && echo "Schema validation: Missing or invalid archived 'tasks' array" >&2
                 ((validation_errors++))
             fi
             ;;
         "config")
             if ! echo "$content" | jq -e 'has("_meta")' >/dev/null 2>&1; then
-                echo "Schema validation: Missing '_meta' object in config" >&2
+                [[ "$suppress_output" == false ]] && echo "Schema validation: Missing '_meta' object in config" >&2
                 ((validation_errors++))
             fi
             ;;
         "sessions")
             if ! echo "$content" | jq -e '.sessions | type == "array"' >/dev/null 2>&1; then
-                echo "Schema validation: Missing or invalid 'sessions' array" >&2
+                [[ "$suppress_output" == false ]] && echo "Schema validation: Missing or invalid 'sessions' array" >&2
                 ((validation_errors++))
             fi
             ;;
         "log")
             if ! echo "$content" | jq -e '.entries | type == "array"' >/dev/null 2>&1; then
-                echo "Schema validation: Missing or invalid 'entries' array" >&2
+                [[ "$suppress_output" == false ]] && echo "Schema validation: Missing or invalid 'entries' array" >&2
                 ((validation_errors++))
             fi
             ;;
@@ -659,11 +663,11 @@ _fo_validate_json_content() {
     # Return based on strictness mode
     if [[ $validation_errors -gt 0 ]]; then
         if [[ "${CLEO_SCHEMA_VALIDATION_STRICT:-0}" == "1" ]]; then
-            echo "Error: Pre-write schema validation failed ($validation_errors errors)" >&2
-            echo "Hint: Set CLEO_SKIP_SCHEMA_VALIDATION=1 to bypass (emergency only)" >&2
+            [[ "$suppress_output" == false ]] && echo "Error: Pre-write schema validation failed ($validation_errors errors)" >&2
+            [[ "$suppress_output" == false ]] && echo "Hint: Set CLEO_SKIP_SCHEMA_VALIDATION=1 to bypass (emergency only)" >&2
             return 1
         else
-            echo "Warning: Pre-write schema validation found issues (non-strict mode)" >&2
+            [[ "$suppress_output" == false ]] && echo "Warning: Pre-write schema validation found issues (non-strict mode)" >&2
         fi
     fi
 

@@ -123,22 +123,15 @@ teardown_file() {
 @test "contribution_protocol_instantiate uses custom options" {
     [[ -f "${PROJECT_ROOT}/templates/CONTRIBUTION-PROTOCOL.template.md" ]] || skip "Template not found"
 
-    # NOTE: There's a known bash parameter expansion bug in the library where
-    # options_json="${5:-{}}" appends an extra '}' when a value is provided.
-    # This test verifies the library's current (buggy) behavior.
-    # TODO: Fix the library by escaping the default: options_json="${5:-\{\}}"
-
     local options='{"epicTitle": "Multi-Agent Research", "markerLabel": "custom-label", "phase": "testing"}'
     local result
     result=$(contribution_protocol_instantiate "T2204" "Session A" "[]" "[]" "$options")
 
-    # Due to the bug, custom options parsing fails, so defaults are used
-    # This test documents current behavior, not desired behavior
-    # Epic title token should still be replaced (with epic_id as default)
+    # Epic title token should be replaced
     [[ "$result" != *"{{EPIC_TITLE}}"* ]]
 
-    # Default marker label is used (bug: custom options not parsed correctly)
-    [[ "$result" == *"consensus-source"* ]]
+    # Custom marker label should be used
+    [[ "$result" == *"custom-label"* ]]
 }
 
 @test "contribution_protocol_instantiate requires epic_id" {

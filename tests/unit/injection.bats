@@ -284,8 +284,8 @@ EOF
     [ -z "$output" ]
 }
 
-@test "injection_get_header_path returns path for GEMINI.md" {
-    # Test in subshell to avoid BATS associative array issues
+@test "injection_get_header_path returns empty for GEMINI.md (unified template)" {
+    # Legacy headers removed - all agents use unified AGENT-INJECTION.md
     run bash -c "
         export CLEO_HOME='${PROJECT_ROOT}'
         source '${PROJECT_ROOT}/lib/injection-registry.sh'
@@ -293,8 +293,7 @@ EOF
         injection_get_header_path 'GEMINI.md'
     "
     assert_success
-    [ -n "$output" ]
-    [[ "$output" =~ GEMINI-HEADER\.md$ ]]
+    [ -z "$output" ]
 }
 
 # =============================================================================

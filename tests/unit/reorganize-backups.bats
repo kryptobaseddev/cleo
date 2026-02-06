@@ -13,8 +13,8 @@ setup() {
     load '../test_helper/fixtures'
     common_setup_per_test
 
-    # Set script path
-    export MIGRATE_BACKUPS_SCRIPT="${SCRIPTS_DIR}/reorganize-backups.sh"
+    # Set script path - this is a dev migration tool, not a user-facing command
+    export MIGRATE_BACKUPS_SCRIPT="${PROJECT_ROOT}/dev/migrations/reorganize-backups.sh"
 }
 
 teardown() {

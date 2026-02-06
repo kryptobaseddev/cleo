@@ -12,7 +12,7 @@ readonly _INJECTION_REGISTRY_LOADED=1
 # Add new targets here; all commands auto-discover them.
 
 # Supported injection targets (space-separated)
-readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md"
+readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md CODEX.md KIMI.md"
 
 # Marker format specification
 readonly INJECTION_MARKER_START="<!-- CLEO:START"
@@ -27,13 +27,15 @@ readonly INJECTION_TEMPLATE_DIR="templates/agents"
 
 # Legacy header system removed - all agents use unified AGENT-INJECTION.md
 # Header files were never implemented (injection_apply ignores content param)
-declare -A INJECTION_HEADERS=(
+declare -gA INJECTION_HEADERS=(
     # No agent-specific headers - all use @.cleo/templates/AGENT-INJECTION.md
 )
 
 # Validation key names for JSON output
-declare -A INJECTION_VALIDATION_KEYS=(
+declare -gA INJECTION_VALIDATION_KEYS=(
     ["CLAUDE.md"]="claude_md"
     ["AGENTS.md"]="agents_md"
     ["GEMINI.md"]="gemini_md"
+    ["CODEX.md"]="codex_md"
+    ["KIMI.md"]="kimi_md"
 )

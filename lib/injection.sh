@@ -150,11 +150,11 @@ injection_apply() {
             echo "${INJECTION_MARKER_START} -->" > "$temp_file"
             echo "$reference" >> "$temp_file"
             echo "$INJECTION_MARKER_END" >> "$temp_file"
-            # Strip all existing blocks and add remaining content
+            # Strip all existing blocks and content before them, keep only content after last END marker
             awk "
                 /${INJECTION_MARKER_START//\//\\/}/ { skip = 1; next }
-                /${INJECTION_MARKER_END//\//\\/}/ { skip = 0; next }
-                !skip { print }
+                /${INJECTION_MARKER_END//\//\\/}/ { skip = 0; seen_end = 1; next }
+                !skip && seen_end { print }
             " "$target" | sed '/./,$!d' >> "$temp_file"
             ;;
     esac

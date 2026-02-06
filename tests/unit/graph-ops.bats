@@ -25,6 +25,7 @@ setup_file() {
 # =============================================================================
 setup() {
     load '../test_helper/common_setup'
+    load '../test_helper/assertions'
     load '../test_helper/fixtures'
     common_setup_per_test
     
@@ -333,9 +334,9 @@ setup_empty_todo() {
     setup_linear_chain
     invalidate_graph_cache "$TODO_FILE"
     
-    run topological_sort_graph
+    run topological_sort
     assert_success
-    
+
     # Output should contain T001 before T004
     [[ "$output" == *"T001"* ]]
     [[ "$output" == *"T004"* ]]
@@ -344,8 +345,8 @@ setup_empty_todo() {
 @test "topological_sort fails on cycle" {
     setup_simple_cycle
     invalidate_graph_cache "$TODO_FILE"
-    
-    run topological_sort_graph
+
+    run topological_sort
     
     # Should fail or return error
     if [ "$status" -eq 0 ]; then
@@ -357,9 +358,9 @@ setup_empty_todo() {
     setup_parallel_tasks
     invalidate_graph_cache "$TODO_FILE"
     
-    run topological_sort_graph
+    run topological_sort
     assert_success
-    
+
     # T003 must be present
     [[ "$output" == *"T003"* ]]
 }
@@ -367,10 +368,10 @@ setup_empty_todo() {
 @test "topological_sort handles diamond dependency" {
     setup_diamond_dependency
     invalidate_graph_cache "$TODO_FILE"
-    
-    run topological_sort_graph
+
+    run topological_sort
     assert_success
-    
+
     # Should contain all tasks
     [[ "$output" == *"T001"* ]]
     [[ "$output" == *"T004"* ]]
@@ -379,8 +380,8 @@ setup_empty_todo() {
 @test "topological_sort handles empty task list" {
     setup_empty_todo
     invalidate_graph_cache "$TODO_FILE"
-    
-    run topological_sort_graph
+
+    run topological_sort
     assert_success
 }
 

@@ -371,7 +371,7 @@ _resolve_alias() {
         # Task lifecycle aliases
         cancel) echo "delete" ;; restore-cancelled) echo "uncancel" ;; restore-done) echo "reopen" ;;
         # Hierarchy aliases
-        swap) echo "reorder" ;;
+        swap) echo "reorder" ;; tree) echo "list" ;;
         *) echo "$1" ;;
     esac
 }
@@ -384,13 +384,47 @@ _get_all_commands() {
 cmd="${1:-help}"
 shift 2>/dev/null || true
 
-# Resolve aliases
+# Resolve aliases - track original command for special handling
+original_cmd="$cmd"
 cmd="$(_resolve_alias "$cmd")"
+
+# Handle tree alias: inject --tree flag for list command
+if [[ "$original_cmd" == "tree" && "$cmd" == "list" ]]; then
+    set -- "--tree" "$@"
+fi
 
 # Handle special commands
 case "$cmd" in
     version|--version|-v)
-        head -1 "$CLEO_HOME/VERSION" 2>/dev/null || echo "unknown"
+        version=$(head -1 "$CLEO_HOME/VERSION" 2>/dev/null || echo "unknown")
+
+        # Check for JSON flag
+        if [[ "${1:-}" == "--json" ]]; then
+            # Source migrate.sh to get schema version
+            if [[ -f "$LIB_DIR/migrate.sh" ]]; then
+                source "$LIB_DIR/migrate.sh"
+                schema_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+            else
+                schema_version="unknown"
+            fi
+
+            cat <<EOF
+{
+  "\$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+  "_meta": {
+    "format": "json",
+    "version": "$version",
+    "command": "version",
+    "timestamp": "$(date -Iseconds 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S%z")"
+  },
+  "success": true,
+  "version": "$version",
+  "schemaVersion": "$schema_version"
+}
+EOF
+        else
+            echo "$version"
+        fi
         exit 0
         ;;
     --validate|--debug)

@@ -149,8 +149,8 @@ WAIT_TIMEOUT=30
 SHOW_LOCKS_ONLY=false
 
 # File paths
-CLEO_DIR=".cleo"
-TODO_FILE="${CLEO_DIR}/todo.json"
+CLEO_DIR="${CLEO_DIR:-.cleo}"
+TODO_FILE="${TODO_FILE:-${CLEO_DIR}/todo.json}"
 
 # Get session context if active
 # Returns JSON object with session info or null if no session
@@ -2203,7 +2203,7 @@ main() {
           echo "$epic_analysis"
         fi
         ;;
-      human|full)
+      text|human|full)
         output_epic_human "$TODO_FILE" "$PARENT_ID"
         ;;
     esac
@@ -2242,7 +2242,7 @@ main() {
     full)
       output_full "$TODO_FILE"
       ;;
-    human)
+    text|human)
       output_human "$TODO_FILE"
       ;;
   esac
