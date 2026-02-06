@@ -238,9 +238,6 @@ write_config_file() {
     local jq_filter
     jq_filter=$(config_path_to_jq "$config_path")
 
-    local temp_file
-    temp_file=$(mktemp)
-
     # Format value based on type
     local jq_value
     case "$value_type" in
@@ -255,12 +252,29 @@ write_config_file() {
             ;;
     esac
 
-    if jq "${jq_filter} = ${jq_value}" "$config_file" > "$temp_file" 2>/dev/null; then
-        mv "$temp_file" "$config_file"
-        return 0
-    else
-        rm -f "$temp_file"
+    local new_content
+    if ! new_content=$(jq "${jq_filter} = ${jq_value}" "$config_file" 2>/dev/null); then
         return 1
+    fi
+
+    # Use atomic_write if available (from file-ops.sh), otherwise fall back to
+    # save_json. Both provide: lock, backup, write-to-temp, validate, rename.
+    # Note: file-ops.sh sources config.sh, so atomic_write may not be available
+    # during early initialization. In that case, use a safe temp+rename pattern.
+    if declare -f save_json >/dev/null 2>&1; then
+        save_json "$config_file" "$new_content"
+    elif declare -f atomic_write >/dev/null 2>&1; then
+        atomic_write "$config_file" "$new_content"
+    else
+        # Fallback: safe temp+rename (no lock/backup but still atomic rename)
+        local temp_file
+        temp_file=$(mktemp "${config_file}.XXXXXX")
+        if printf '%s\n' "$new_content" > "$temp_file" 2>/dev/null; then
+            mv "$temp_file" "$config_file"
+        else
+            rm -f "$temp_file"
+            return 1
+        fi
     fi
 }
 

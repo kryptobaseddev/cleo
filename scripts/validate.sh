@@ -483,11 +483,13 @@ reassign_duplicate_ids() {
         reassignment_log=$(echo "$reassignment_log" | jq --arg old "$dup_id" --arg new "$new_id" --arg file "todo.json" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title}]')
 
         # Update the task ID directly
-        if ! jq --argjson idx "$idx" --arg new_id "$new_id" '.tasks[$idx].id = $new_id' "$todo_file" > "${todo_file}.tmp"; then
-          rm -f "${todo_file}.tmp"
+        local _val_content
+        if ! _val_content=$(jq --argjson idx "$idx" --arg new_id "$new_id" '.tasks[$idx].id = $new_id' "$todo_file"); then
           return 1
         fi
-        mv "${todo_file}.tmp" "$todo_file"
+        if ! save_json "$todo_file" "$_val_content"; then
+          return 1
+        fi
       done
     done
   fi
@@ -522,11 +524,13 @@ reassign_duplicate_ids() {
 
         reassignment_log=$(echo "$reassignment_log" | jq --arg old "$dup_id" --arg new "$new_id" --arg file "archive" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title}]')
 
-        if ! jq --argjson idx "$idx" --arg new_id "$new_id" '.archivedTasks[$idx].id = $new_id' "$archive_file" > "${archive_file}.tmp"; then
-          rm -f "${archive_file}.tmp"
+        local _val_arch_content
+        if ! _val_arch_content=$(jq --argjson idx "$idx" --arg new_id "$new_id" '.archivedTasks[$idx].id = $new_id' "$archive_file"); then
           return 1
         fi
-        mv "${archive_file}.tmp" "$archive_file"
+        if ! save_json "$archive_file" "$_val_arch_content"; then
+          return 1
+        fi
       done
     done
   fi
@@ -558,23 +562,27 @@ reassign_duplicate_ids() {
       reassignment_log=$(echo "$reassignment_log" | jq --arg old "$cross_id" --arg new "$new_id" --arg file "archive (cross-file)" --arg title "$task_title" '. + [{oldId: $old, newId: $new, file: $file, title: $title}]')
 
       # Update archive task ID
-      if ! jq --arg old_id "$cross_id" --arg new_id "$new_id" '.archivedTasks |= map(if .id == $old_id then .id = $new_id else . end)' "$archive_file" > "${archive_file}.tmp"; then
-        rm -f "${archive_file}.tmp"
+      local _val_cross_content
+      if ! _val_cross_content=$(jq --arg old_id "$cross_id" --arg new_id "$new_id" '.archivedTasks |= map(if .id == $old_id then .id = $new_id else . end)' "$archive_file"); then
         return 1
       fi
-      mv "${archive_file}.tmp" "$archive_file"
+      if ! save_json "$archive_file" "$_val_cross_content"; then
+        return 1
+      fi
 
       # Update any references in archive that point to the old ID
-      if ! jq --arg old_id "$cross_id" --arg new_id "$new_id" '
+      local _val_ref_content
+      if ! _val_ref_content=$(jq --arg old_id "$cross_id" --arg new_id "$new_id" '
         .archivedTasks |= map(
           if .parentId == $old_id then .parentId = $new_id else . end |
           if .depends then .depends |= map(if . == $old_id then $new_id else . end) else . end
         )
-      ' "$archive_file" > "${archive_file}.tmp"; then
-        rm -f "${archive_file}.tmp"
+      ' "$archive_file"); then
         return 1
       fi
-      mv "${archive_file}.tmp" "$archive_file"
+      if ! save_json "$archive_file" "$_val_ref_content"; then
+        return 1
+      fi
     done
   fi
 

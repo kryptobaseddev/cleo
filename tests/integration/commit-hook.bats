@@ -28,7 +28,10 @@ setup() {
 
     # Copy commit-msg hook
     mkdir -p .git/hooks
-    cp /mnt/projects/claude-todo/.cleo/templates/git-hooks/commit-msg .git/hooks/commit-msg
+    # Dynamic path resolution for portability
+    local project_root
+    project_root="$(cd "$(dirname "${BATS_TEST_FILENAME}")/../.." && pwd)"
+    cp "${project_root}/.cleo/templates/git-hooks/commit-msg" .git/hooks/commit-msg
     chmod +x .git/hooks/commit-msg
 
     # Create minimal CLEO database with test tasks

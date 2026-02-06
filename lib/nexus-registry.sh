@@ -167,8 +167,9 @@ EOF
         # Set timestamps
         local now
         now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq --arg now "$now" '._meta.createdAt = $now | ._meta.updatedAt = $now' "$temp_file" > "${temp_file}.tmp"
-        mv "${temp_file}.tmp" "$temp_file"
+        local _nr_content
+        _nr_content=$(jq --arg now "$now" '._meta.createdAt = $now | ._meta.updatedAt = $now' "$temp_file")
+        echo "$_nr_content" > "$temp_file"
 
         # Save using atomic write
         if ! save_json "$registry_path" < "$temp_file"; then

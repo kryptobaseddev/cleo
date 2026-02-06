@@ -1059,8 +1059,11 @@ if command -v jq &> /dev/null && [[ -f "$TODO_DIR/todo.json" ]]; then
   FINAL_CHECKSUM=$(echo "$ACTUAL_TASKS" | sha256sum | cut -c1-16)
 
   # Update checksum in the file
-  jq --arg cs "$FINAL_CHECKSUM" '._meta.checksum = $cs' "$TODO_DIR/todo.json" > "$TODO_DIR/todo.json.tmp"
-  mv "$TODO_DIR/todo.json.tmp" "$TODO_DIR/todo.json"
+  local _init_content
+  _init_content=$(jq --arg cs "$FINAL_CHECKSUM" '._meta.checksum = $cs' "$TODO_DIR/todo.json")
+  local _init_tmp
+  _init_tmp=$(mktemp "${TODO_DIR}/todo.json.XXXXXX")
+  echo "$_init_content" > "$_init_tmp" && mv "$_init_tmp" "$TODO_DIR/todo.json" || rm -f "$_init_tmp"
   log_info "Updated checksum to: $FINAL_CHECKSUM"
 else
   log_warn "jq not installed - skipping checksum recalculation"

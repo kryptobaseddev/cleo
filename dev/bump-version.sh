@@ -403,8 +403,11 @@ if [[ -f "$PLUGIN_JSON" ]]; then
     else
         # Use jq to update version field in JSON
         if command -v jq >/dev/null 2>&1; then
-            jq --arg v "$NEW_VERSION" '.version = $v' "$PLUGIN_JSON" > "$PLUGIN_JSON.tmp" && \
-                mv "$PLUGIN_JSON.tmp" "$PLUGIN_JSON"
+            local _bv_content
+            _bv_content=$(jq --arg v "$NEW_VERSION" '.version = $v' "$PLUGIN_JSON")
+            local _bv_tmp
+            _bv_tmp=$(mktemp "${PLUGIN_JSON}.XXXXXX")
+            echo "$_bv_content" > "$_bv_tmp" && mv "$_bv_tmp" "$PLUGIN_JSON" || rm -f "$_bv_tmp"
             [[ "$QUIET" != true ]] && log_info "plugin/plugin.json"
         else
             [[ "$QUIET" != true ]] && log_warn "plugin/plugin.json: jq not found, skipping"

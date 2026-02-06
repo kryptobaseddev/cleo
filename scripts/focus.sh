@@ -373,24 +373,27 @@ set_session_focus() {
     ._meta.lastModified = $ts
     ')
 
-  # Save both files
-  if ! echo "$updated_sessions" | jq '.' > "$sessions_file.tmp"; then
+  # Save both files using safe mktemp pattern (locks already held)
+  local _focus_sess_tmp _focus_todo_tmp
+  _focus_sess_tmp=$(mktemp "${sessions_file}.XXXXXX")
+  if ! echo "$updated_sessions" | jq '.' > "$_focus_sess_tmp"; then
+    rm -f "$_focus_sess_tmp"
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"
     trap - EXIT ERR
-    rm -f "$sessions_file.tmp"
     return 1
   fi
-  mv "$sessions_file.tmp" "$sessions_file"
+  mv "$_focus_sess_tmp" "$sessions_file" || { rm -f "$_focus_sess_tmp"; unlock_file "$todo_fd"; unlock_file "$sessions_fd"; trap - EXIT ERR; return 1; }
 
-  if ! echo "$updated_todo" | jq '.' > "$todo_file.tmp"; then
+  _focus_todo_tmp=$(mktemp "${todo_file}.XXXXXX")
+  if ! echo "$updated_todo" | jq '.' > "$_focus_todo_tmp"; then
+    rm -f "$_focus_todo_tmp"
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"
     trap - EXIT ERR
-    rm -f "$todo_file.tmp"
     return 1
   fi
-  mv "$todo_file.tmp" "$todo_file"
+  mv "$_focus_todo_tmp" "$todo_file" || { rm -f "$_focus_todo_tmp"; unlock_file "$todo_fd"; unlock_file "$sessions_fd"; trap - EXIT ERR; return 1; }
 
   unlock_file "$todo_fd"
   unlock_file "$sessions_fd"

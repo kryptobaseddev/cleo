@@ -537,8 +537,9 @@ _rebuild_manifest() {
                 }')
 
             # Add to manifest
-            jq --argjson entry "$entry" '.backups += [$entry]' "$temp_manifest" > "${temp_manifest}.tmp" && \
-                mv "${temp_manifest}.tmp" "$temp_manifest"
+            local _bk_content
+            _bk_content=$(jq --argjson entry "$entry" '.backups += [$entry]' "$temp_manifest")
+            echo "$_bk_content" > "$temp_manifest"
 
             count=$((count + 1))
         done < <(find "$type_dir" -maxdepth 1 -name "${type}_*" -type d 2>/dev/null)

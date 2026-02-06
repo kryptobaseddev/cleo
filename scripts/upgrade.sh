@@ -750,12 +750,20 @@ if [[ -n "${UPDATES_NEEDED[todo]:-}" ]] && [[ "${UPDATES_NEEDED[todo]}" == *"leg
 
     # Remove top-level phases if exists
     if jq -e 'has("phases")' "$UPG_TODO_FILE" >/dev/null 2>&1; then
-        jq 'del(.phases)' "$UPG_TODO_FILE" > "$UPG_TODO_FILE.tmp" && mv "$UPG_TODO_FILE.tmp" "$UPG_TODO_FILE"
+        local _upg_content
+        _upg_content=$(jq 'del(.phases)' "$UPG_TODO_FILE")
+        local _upg_tmp
+        _upg_tmp=$(mktemp "${UPG_TODO_FILE}.XXXXXX")
+        echo "$_upg_content" > "$_upg_tmp" && mv "$_upg_tmp" "$UPG_TODO_FILE" || rm -f "$_upg_tmp"
     fi
 
     # Remove top-level checksum if exists
     if jq -e 'has("checksum")' "$UPG_TODO_FILE" >/dev/null 2>&1; then
-        jq 'del(.checksum)' "$UPG_TODO_FILE" > "$UPG_TODO_FILE.tmp" && mv "$UPG_TODO_FILE.tmp" "$UPG_TODO_FILE"
+        local _upg_content2
+        _upg_content2=$(jq 'del(.checksum)' "$UPG_TODO_FILE")
+        local _upg_tmp2
+        _upg_tmp2=$(mktemp "${UPG_TODO_FILE}.XXXXXX")
+        echo "$_upg_content2" > "$_upg_tmp2" && mv "$_upg_tmp2" "$UPG_TODO_FILE" || rm -f "$_upg_tmp2"
     fi
 
     LEGACY_TODO_FIXED=true

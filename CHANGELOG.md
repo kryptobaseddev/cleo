@@ -1,11 +1,53 @@
 # Changelog
 
 All notable changes to the CLEO system will be documented in this file.
+## [0.80.4] - 2026-02-06
+
+### Bug Fixes
+- Fix config.json data loss bug caused by test isolation failure (T3117)
+  - Root cause: claudedocs-validation.bats writing to real PROJECT_ROOT config then rm -f
+  - Fix: Tests now use TEST_TEMP_DIR for all config file operations
+- Fix 18 unsafe jq write patterns across 12 production files (T3110)
+  - Replace `jq '...' file > tmp && mv tmp file` with safe alternatives
+  - Use save_json() where available, safe mktemp pattern elsewhere
+  - Files: config.sh, session.sh, upgrade.sh, validate.sh, init.sh, focus.sh, sessions.sh, bump-version.sh, nexus-registry.sh, project-registry.sh, backup.sh, populate-hierarchy.sh
+- Refactor write_config_file() to use save_json() for atomic safety (T3109)
+- Fix unsafe jq pattern in orchestrator-spawn.sh error alternatives (T3109)
+- Replace unsafe jq examples in CLEO-INJECTION.md with cleo config set (T3109)
+- Fix hardcoded /mnt/projects path in protocol-validation.bats (T3114)
+- Fix hardcoded /mnt/projects path in commit-hook.bats (T3115)
+
+### Tests
+- Fix test isolation in claudedocs-validation.bats (2 tests using real config) (T3117)
+- Fix hardcoded SCRIPT_DIR in protocol-validation.bats (dynamic path resolution) (T3114)
+- Fix hardcoded project path in commit-hook.bats (dynamic path resolution) (T3115)
+
+### Infrastructure
+- Fix sandbox test-runner.sh: remove placeholder git clone, disable multiSession, fix bare cleo done (T3112)
+- Fix hardcoded PROJECT_ROOT in dev/sandbox/test-docs-examples.sh (T3112)
+- FUSE atomic write investigation: confirmed atomic_write() is correct on all filesystems (T3113)
+
 ## [0.80.3] - 2026-02-06
 
-### Other Changes
-- Create MCP server entry point and registration (T2926)
-- Prepare MCP server npm package (T2927)
+### Bug Fixes
+- Resolve 270+ unit test failures across 16 test files (T1342)
+  - Fix Bash 5.3 associative array compatibility in graph-ops
+  - Suppress schema validation stderr leak in JSON/quiet mode
+  - Backward-compatible log_error single-arg support
+  - Fix hardcoded paths in analyze.sh, archive.sh log suppression
+  - Fix reorganize-backups PROJECT_ROOT path calculation
+
+### Tests
+- Update 21 test fixtures with schemaVersion 2.10.0 field
+- Update injection targets from 3 to 5 (CODEX.md, KIMI.md added)
+- Add mock cleo command and wrapper for skill_prepare_spawn tests
+- Fix integration test path error in init-detect.bats
+- Create agents/cleo-subagent/AGENT.md for subagent tests
+- Results: 3895 tests, 0 failures, 18 skipped
+
+### Infrastructure
+- Add tree alias to CLI wrapper (installer/lib/link.sh)
+- Add lib/test-utility.sh for shared test infrastructure
 
 ## [0.80.2] - 2026-02-04
 

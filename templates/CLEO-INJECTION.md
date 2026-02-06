@@ -284,14 +284,14 @@ Each arrow represents a **lifecycle gate**. Spawning a task for a later stage re
 **For emergencies only** - temporarily disable enforcement:
 
 ```bash
-# Option 1: Set mode to off
-jq '.lifecycleEnforcement.mode = "off"' .cleo/config.json > tmp && mv tmp .cleo/config.json
+# Option 1: Set mode to off (safe config write)
+cleo config set lifecycleEnforcement.mode off
 
 # Option 2: Environment variable (session only)
 export LIFECYCLE_ENFORCEMENT_MODE=off
 
 # REMEMBER: Restore strict mode after emergency
-jq '.lifecycleEnforcement.mode = "strict"' .cleo/config.json > tmp && mv tmp .cleo/config.json
+cleo config set lifecycleEnforcement.mode strict
 ```
 
 ### Troubleshooting Gate Failures
