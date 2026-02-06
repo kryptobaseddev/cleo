@@ -445,15 +445,16 @@ cmd_reset() {
             exit $EXIT_INVALID_INPUT
         fi
 
-        local temp_file
-        temp_file=$(mktemp)
-        if jq ".${section} = ${default_section}" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"; then
-            [[ "$QUIET" != true ]] && echo "Reset '$section' section to defaults"
-        else
-            output_error "E_WRITE_FAILED" "Failed to reset config section" $EXIT_FILE_ERROR true
-            rm -f "$temp_file" 2>/dev/null || true
+        local reset_content
+        if ! reset_content=$(jq ".${section} = ${default_section}" "$config_file"); then
+            output_error "E_WRITE_FAILED" "Failed to compute config reset" $EXIT_FILE_ERROR true
             exit $EXIT_FILE_ERROR
         fi
+        if ! save_json "$config_file" "$reset_content"; then
+            output_error "E_WRITE_FAILED" "Failed to reset config section" $EXIT_FILE_ERROR true
+            exit $EXIT_FILE_ERROR
+        fi
+        [[ "$QUIET" != true ]] && echo "Reset '$section' section to defaults"
     fi
 
     # Validate config after reset
@@ -799,9 +800,9 @@ edit_value() {
             a|A)
                 read -rp "Enter new item: " new_item
                 if [[ -n "$new_item" ]]; then
-                    local temp_file
-                    temp_file=$(mktemp)
-                    jq ".${path} += [\"${new_item}\"]" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+                    local add_content
+                    add_content=$(jq ".${path} += [\"${new_item}\"]" "$config_file") && \
+                        save_json "$config_file" "$add_content"
                     echo "Added: $new_item"
                     sleep 1
                 fi
@@ -810,9 +811,9 @@ edit_value() {
             r|R)
                 read -rp "Enter item to remove: " remove_item
                 if [[ -n "$remove_item" ]]; then
-                    local temp_file
-                    temp_file=$(mktemp)
-                    jq ".${path} -= [\"${remove_item}\"]" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+                    local rm_content
+                    rm_content=$(jq ".${path} -= [\"${remove_item}\"]" "$config_file") && \
+                        save_json "$config_file" "$rm_content"
                     echo "Removed: $remove_item"
                     sleep 1
                 fi
@@ -821,9 +822,9 @@ edit_value() {
             c|C)
                 read -rp "Clear all items? [y/N]: " confirm
                 if [[ "$confirm" == "y" ]] || [[ "$confirm" == "Y" ]]; then
-                    local temp_file
-                    temp_file=$(mktemp)
-                    jq ".${path} = []" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+                    local clear_content
+                    clear_content=$(jq ".${path} = []" "$config_file") && \
+                        save_json "$config_file" "$clear_content"
                     echo "Cleared all items"
                     sleep 1
                 fi
@@ -874,9 +875,9 @@ edit_value() {
             jq_value="\"$new_value\""
         fi
 
-        local temp_file
-        temp_file=$(mktemp)
-        jq ".${path} = ${jq_value}" "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+        local set_content
+        set_content=$(jq ".${path} = ${jq_value}" "$config_file") && \
+            save_json "$config_file" "$set_content"
         echo "Updated ${path} = $new_value"
         sleep 1
     fi

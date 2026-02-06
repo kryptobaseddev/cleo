@@ -517,7 +517,7 @@ orchestrator_spawn_for_task() {
                                         },
                                         {
                                             "action": "Set enforcement to advisory",
-                                            "command": "jq '\''.lifecycleEnforcement.mode = \"advisory\"'\'' .cleo/config.json > tmp && mv tmp .cleo/config.json"
+                                            "command": "cleo config set lifecycleEnforcement.mode advisory"
                                         }
                                     ],
                                     "context": {

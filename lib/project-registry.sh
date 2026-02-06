@@ -434,8 +434,9 @@ create_empty_registry() {
 EOF
 
     # Set initial lastUpdated timestamp
-    jq '.lastUpdated = (now | todate)' "$temp_file" > "${temp_file}.tmp"
-    mv "${temp_file}.tmp" "$temp_file"
+    local _pr_content
+    _pr_content=$(jq '.lastUpdated = (now | todate)' "$temp_file")
+    echo "$_pr_content" > "$temp_file"
 
     # Save using atomic write
     if ! save_json "$registry" < "$temp_file"; then

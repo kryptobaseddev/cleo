@@ -2038,7 +2038,9 @@ cmd_cleanup() {
     else
       # Actually remove sessions
       for sid in "${to_remove[@]}"; do
-        jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+        local _cleanup_content
+        _cleanup_content=$(jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file") && \
+            save_json "$sessions_file" "$_cleanup_content"
       done
 
       # Use --slurpfile with process substitution to avoid ARG_MAX limits
@@ -2069,7 +2071,9 @@ cmd_cleanup() {
       else
         # Actually remove sessions
         for sid in "${to_remove[@]}"; do
-          jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+          local _cleanup_content
+          _cleanup_content=$(jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file") && \
+              save_json "$sessions_file" "$_cleanup_content"
         done
         echo "Removed $removed_count stale session(s)"
         for sid in "${to_remove[@]}"; do
@@ -2193,7 +2197,9 @@ cmd_gc() {
       while IFS= read -r sid; do
         if [[ -n "$sid" ]]; then
           if [[ "$dry_run" != "true" ]]; then
-            jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+            local _gc_content
+            _gc_content=$(jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file") && \
+                save_json "$sessions_file" "$_gc_content"
           fi
           ((archived_removed++))
           removed_items+=("archived:$sid")
@@ -2210,7 +2216,9 @@ cmd_gc() {
       while IFS= read -r sid; do
         if [[ -n "$sid" ]] && [[ $excess -gt 0 ]]; then
           if [[ "$dry_run" != "true" ]]; then
-            jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file" > "${sessions_file}.tmp" && mv "${sessions_file}.tmp" "$sessions_file"
+            local _gc_excess_content
+            _gc_excess_content=$(jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file") && \
+                save_json "$sessions_file" "$_gc_excess_content"
           fi
           ((archived_removed++))
           ((excess--))

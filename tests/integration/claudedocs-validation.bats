@@ -307,9 +307,10 @@ run_hook_with_stderr() {
 }
 
 @test "legacy files without frontmatter fail in strict mode" {
-    # Enable strict mode - hook reads from ${CLAUDE_PROJECT_DIR}/.cleo/config.json
-    local hook_config="${PROJECT_ROOT}/.cleo/config.json"
-    mkdir -p "${PROJECT_ROOT}/.cleo"
+    # Enable strict mode - write config to temp dir, not the real project
+    local hook_config="${TEST_TEMP_DIR}/.cleo/config.json"
+    mkdir -p "${TEST_TEMP_DIR}/.cleo"
+    export CLAUDE_PROJECT_DIR="${TEST_TEMP_DIR}"
 
     cat > "$hook_config" << 'EOF'
 {
@@ -339,9 +340,6 @@ EOF
     local error_code
     error_code=$(echo "$output" | jq -r '.error.code')
     [[ "$error_code" == "E_VALIDATION_FRONTMATTER" ]]
-
-    # Clean up
-    rm -f "$hook_config"
 }
 
 # =============================================================================
@@ -354,9 +352,10 @@ EOF
     # implementation (T2528) that should be fixed separately.
     skip "Bug in hook: jq query treats 'enabled: false' as 'enabled: true'"
 
-    # Disable validation - hook reads from ${CLAUDE_PROJECT_DIR}/.cleo/config.json
-    local hook_config="${PROJECT_ROOT}/.cleo/config.json"
-    mkdir -p "${PROJECT_ROOT}/.cleo"
+    # Disable validation - write config to temp dir, not the real project
+    local hook_config="${TEST_TEMP_DIR}/.cleo/config.json"
+    mkdir -p "${TEST_TEMP_DIR}/.cleo"
+    export CLAUDE_PROJECT_DIR="${TEST_TEMP_DIR}"
 
     cat > "$hook_config" << 'EOF'
 {
@@ -381,9 +380,6 @@ EOF
     local continue_flag
     continue_flag=$(echo "$output" | jq -r '.continue')
     [[ "$continue_flag" == "true" ]]
-
-    # Clean up
-    rm -f "$hook_config"
 }
 
 @test "validation defaults to enabled when config missing" {

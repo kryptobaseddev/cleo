@@ -617,26 +617,30 @@ start_session() {
         ._meta.activeSessionCount = (._meta.activeSessionCount // 0) + 1
         ')
 
-    # Save both files
-    if ! echo "$updated_sessions" | jq '.' > "$sessions_file.tmp"; then
+    # Save both files using safe mktemp pattern (locks already held)
+    local _sess_tmp
+    _sess_tmp=$(mktemp "${sessions_file}.XXXXXX")
+    if ! echo "$updated_sessions" | jq '.' > "$_sess_tmp"; then
+        rm -f "$_sess_tmp"
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
-        rm -f "$sessions_file.tmp"
         echo "Error: Failed to write sessions.json" >&2
         return 1
     fi
-    mv "$sessions_file.tmp" "$sessions_file"
+    mv "$_sess_tmp" "$sessions_file" || { rm -f "$_sess_tmp"; unlock_file "$todo_fd"; unlock_file "$sessions_fd"; trap - EXIT ERR; return 1; }
 
-    if ! echo "$updated_todo" | jq '.' > "$todo_file.tmp"; then
+    local _todo_tmp
+    _todo_tmp=$(mktemp "${todo_file}.XXXXXX")
+    if ! echo "$updated_todo" | jq '.' > "$_todo_tmp"; then
+        rm -f "$_todo_tmp"
         unlock_file "$todo_fd"
         unlock_file "$sessions_fd"
         trap - EXIT ERR
-        rm -f "$todo_file.tmp"
         echo "Error: Failed to write todo.json" >&2
         return 1
     fi
-    mv "$todo_file.tmp" "$todo_file"
+    mv "$_todo_tmp" "$todo_file" || { rm -f "$_todo_tmp"; unlock_file "$todo_fd"; unlock_file "$sessions_fd"; trap - EXIT ERR; return 1; }
 
     # Cleanup
     unlock_file "$todo_fd"
@@ -2253,18 +2257,22 @@ set_session_focus() {
         ._meta.lastModified = $ts
         ')
 
-    # Save both files atomically
-    if ! echo "$updated_sessions" | jq '.' > "$sessions_file.tmp"; then
-        rm -f "$sessions_file.tmp"
+    # Save both files using safe mktemp pattern
+    local _sf_sess_tmp
+    _sf_sess_tmp=$(mktemp "${sessions_file}.XXXXXX")
+    if ! echo "$updated_sessions" | jq '.' > "$_sf_sess_tmp"; then
+        rm -f "$_sf_sess_tmp"
         return 1
     fi
-    mv "$sessions_file.tmp" "$sessions_file"
+    mv "$_sf_sess_tmp" "$sessions_file" || { rm -f "$_sf_sess_tmp"; return 1; }
 
-    if ! echo "$updated_todo" | jq '.' > "$todo_file.tmp"; then
-        rm -f "$todo_file.tmp"
+    local _sf_todo_tmp
+    _sf_todo_tmp=$(mktemp "${todo_file}.XXXXXX")
+    if ! echo "$updated_todo" | jq '.' > "$_sf_todo_tmp"; then
+        rm -f "$_sf_todo_tmp"
         return 1
     fi
-    mv "$todo_file.tmp" "$todo_file"
+    mv "$_sf_todo_tmp" "$todo_file" || { rm -f "$_sf_todo_tmp"; return 1; }
 
     echo "$old_focus"
     return 0
@@ -2345,18 +2353,22 @@ clear_session_focus() {
         ._meta.lastModified = $ts
         ')
 
-    # Save both files atomically
-    if ! echo "$updated_sessions" | jq '.' > "$sessions_file.tmp"; then
-        rm -f "$sessions_file.tmp"
+    # Save both files using safe mktemp pattern
+    local _cf_sess_tmp
+    _cf_sess_tmp=$(mktemp "${sessions_file}.XXXXXX")
+    if ! echo "$updated_sessions" | jq '.' > "$_cf_sess_tmp"; then
+        rm -f "$_cf_sess_tmp"
         return 1
     fi
-    mv "$sessions_file.tmp" "$sessions_file"
+    mv "$_cf_sess_tmp" "$sessions_file" || { rm -f "$_cf_sess_tmp"; return 1; }
 
-    if ! echo "$updated_todo" | jq '.' > "$todo_file.tmp"; then
-        rm -f "$todo_file.tmp"
+    local _cf_todo_tmp
+    _cf_todo_tmp=$(mktemp "${todo_file}.XXXXXX")
+    if ! echo "$updated_todo" | jq '.' > "$_cf_todo_tmp"; then
+        rm -f "$_cf_todo_tmp"
         return 1
     fi
-    mv "$todo_file.tmp" "$todo_file"
+    mv "$_cf_todo_tmp" "$todo_file" || { rm -f "$_cf_todo_tmp"; return 1; }
 
     echo "$old_focus"
     return 0

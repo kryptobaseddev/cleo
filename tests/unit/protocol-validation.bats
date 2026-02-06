@@ -8,8 +8,8 @@ load '../libs/bats-assert/load'
 
 # Setup test environment
 setup() {
-    # Source the validation library
-    export SCRIPT_DIR="/mnt/projects/claude-todo/lib"
+    # Source the validation library (dynamic path resolution)
+    export SCRIPT_DIR="$(cd "$(dirname "${BATS_TEST_FILENAME}")/../.." && pwd)/lib"
     source "${SCRIPT_DIR}/protocol-validation.sh"
 
     # Create temp directory for test fixtures

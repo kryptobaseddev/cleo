@@ -131,14 +131,18 @@ if [[ "$DRY_RUN" != true ]] && [[ $total_changes -gt 0 ]]; then
         tid=$(echo "$change" | jq -r '.taskId')
         new_pid=$(echo "$change" | jq -r '.newParentId')
 
-        jq --arg id "$tid" --arg pid "$new_pid" \
+        local _mig_content
+        _mig_content=$(jq --arg id "$tid" --arg pid "$new_pid" \
             '(.tasks[] | select(.id == $id)).parentId = $pid' \
-            "$temp_file" > "${temp_file}.new" && mv "${temp_file}.new" "$temp_file"
+            "$temp_file")
+        echo "$_mig_content" > "$temp_file"
     done
 
     # Update checksum
     new_checksum=$(jq -cS '.tasks' "$temp_file" | sha256sum | cut -c1-16)
-    jq --arg cs "$new_checksum" '.checksum = $cs' "$temp_file" > "${temp_file}.new" && mv "${temp_file}.new" "$temp_file"
+    local _mig_cs_content
+    _mig_cs_content=$(jq --arg cs "$new_checksum" '.checksum = $cs' "$temp_file")
+    echo "$_mig_cs_content" > "$temp_file"
 
     mv "$temp_file" "$TODO_FILE"
 fi
