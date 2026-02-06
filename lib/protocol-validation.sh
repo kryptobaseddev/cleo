@@ -656,7 +656,7 @@ validate_release_protocol() {
     fi
 
     # RLSE-006: Version consistency (check VERSION file matches)
-    local version_file
+    local version_file=""
     # Try common VERSION file locations
     for vfile in "VERSION" "../VERSION" "../../VERSION"; do
         if [[ -f "$vfile" ]]; then

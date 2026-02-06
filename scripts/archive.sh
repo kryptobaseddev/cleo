@@ -232,9 +232,9 @@ EOF
   exit "$EXIT_SUCCESS"
 }
 
-log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+log_info()  { [[ "${FORMAT}" == "text" || "${FORMAT}" == "human" ]] && echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn()  { [[ "${FORMAT}" == "text" || "${FORMAT}" == "human" ]] && echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { [[ "${FORMAT}" == "text" || "${FORMAT}" == "human" ]] && echo -e "${RED}[ERROR]${NC} $1" >&2; }
 
 # Check dependencies
 check_deps() {

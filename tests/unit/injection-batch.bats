@@ -100,15 +100,15 @@ get_json_field() {
     # Should return valid JSON array
     [[ $(echo "$output" | jq 'type') == '"array"' ]]
 
-    # Should have entries for all targets (3)
+    # Should have entries for all targets (5)
     local length
     length=$(echo "$output" | jq 'length')
-    [[ "$length" -eq 3 ]]
+    [[ "$length" -eq 5 ]]
 
     # All should have status "missing"
     local missing_count
     missing_count=$(echo "$output" | jq '[.[] | select(.status == "missing")] | length')
-    [[ "$missing_count" -eq 3 ]]
+    [[ "$missing_count" -eq 5 ]]
 }
 
 @test "injection_check_all returns array of statuses for existing files" {
@@ -123,10 +123,10 @@ get_json_field() {
     # Should return valid JSON array
     [[ $(echo "$output" | jq 'type') == '"array"' ]]
 
-    # Should have 3 entries (all existing files)
+    # Should have 5 entries (all targets, regardless of file existence)
     local length
     length=$(echo "$output" | jq 'length')
-    [[ "$length" -eq 3 ]]
+    [[ "$length" -eq 5 ]]
 
     # Verify each entry has required fields
     local has_fields
@@ -231,6 +231,8 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "$TEMPLATE_VERSION"
     create_injected_file "AGENTS.md" "$TEMPLATE_VERSION"
     create_injected_file "GEMINI.md" "$TEMPLATE_VERSION"
+    create_injected_file "CODEX.md" "$TEMPLATE_VERSION"
+    create_injected_file "KIMI.md" "$TEMPLATE_VERSION"
 
     run injection_update_all "."
     assert_success
@@ -238,7 +240,7 @@ get_json_field() {
     # Should skip all files
     local skipped
     skipped=$(echo "$output" | jq -r '.skipped')
-    [[ "$skipped" -eq 3 ]]
+    [[ "$skipped" -eq 5 ]]
 
     local updated
     updated=$(echo "$output" | jq -r '.updated')
@@ -250,16 +252,17 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "$TEMPLATE_VERSION"  # current - skip
     create_injected_file "AGENTS.md" "0.40.0"              # outdated - update
     create_injected_file "GEMINI.md" "$TEMPLATE_VERSION"  # current - skip
+    # CODEX.md and KIMI.md missing - will be created (2 more updates)
 
     run injection_update_all "."
     assert_success
 
-    # Should update 1 (AGENTS.md), skip 2 (CLAUDE.md, GEMINI.md)
+    # Should update 3 (AGENTS.md, CODEX.md, KIMI.md), skip 2 (CLAUDE.md, GEMINI.md)
     local updated skipped
     updated=$(echo "$output" | jq -r '.updated')
     skipped=$(echo "$output" | jq -r '.skipped')
 
-    [[ "$updated" -eq 1 ]]
+    [[ "$updated" -eq 3 ]]
     [[ "$skipped" -eq 2 ]]
 }
 
@@ -317,6 +320,8 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "0.40.0"
     create_injected_file "AGENTS.md" "0.40.0"
     create_injected_file "GEMINI.md" "0.40.0"
+    create_injected_file "CODEX.md" "0.40.0"
+    create_injected_file "KIMI.md" "0.40.0"
 
     run injection_update_all "."
     assert_success
@@ -324,7 +329,7 @@ get_json_field() {
     # All should be updated
     local updated
     updated=$(echo "$output" | jq -r '.updated')
-    [[ "$updated" -eq 3 ]]
+    [[ "$updated" -eq 5 ]]
 
     local skipped
     skipped=$(echo "$output" | jq -r '.skipped')
@@ -336,6 +341,8 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "$TEMPLATE_VERSION"
     create_injected_file "AGENTS.md" "$TEMPLATE_VERSION"
     create_injected_file "GEMINI.md" "$TEMPLATE_VERSION"
+    create_injected_file "CODEX.md" "$TEMPLATE_VERSION"
+    create_injected_file "KIMI.md" "$TEMPLATE_VERSION"
 
     run injection_update_all "."
     assert_success
@@ -346,7 +353,7 @@ get_json_field() {
     skipped=$(echo "$output" | jq -r '.skipped')
 
     [[ "$updated" -eq 0 ]]
-    [[ "$skipped" -eq 3 ]]
+    [[ "$skipped" -eq 5 ]]
 }
 
 @test "injection_update_all returns zero failed on success" {
@@ -391,7 +398,7 @@ get_json_field() {
 
     local missing
     missing=$(echo "$output" | jq -r '.missing')
-    [[ "$missing" -eq 3 ]]  # 3 targets (CLAUDE.md, AGENTS.md, GEMINI.md)
+    [[ "$missing" -eq 5 ]]  # 5 targets (CLAUDE.md, AGENTS.md, GEMINI.md, CODEX.md, KIMI.md)
 }
 
 @test "injection_get_summary counts current files correctly" {
@@ -434,6 +441,7 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "$TEMPLATE_VERSION"  # current
     create_injected_file "AGENTS.md" "0.40.0"              # outdated
     create_plain_file "GEMINI.md"                          # none
+    # CODEX.md and KIMI.md missing - not counted in total
 
     run injection_get_summary
     assert_success
@@ -447,7 +455,7 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "$TEMPLATE_VERSION"  # current
     create_injected_file "AGENTS.md" "0.40.0"              # outdated
     create_plain_file "GEMINI.md"                          # none
-    # (other targets missing)
+    # CODEX.md and KIMI.md missing (2 targets)
 
     run injection_get_summary
     assert_success
@@ -463,7 +471,7 @@ get_json_field() {
     [[ "$current" -eq 1 ]]
     [[ "$outdated" -eq 1 ]]
     [[ "$none" -eq 1 ]]
-    [[ "$missing" -eq 0 ]]
+    [[ "$missing" -eq 2 ]]
     [[ "$total" -eq 3 ]]
 }
 
@@ -471,6 +479,8 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "$TEMPLATE_VERSION"
     create_injected_file "AGENTS.md" "$TEMPLATE_VERSION"
     create_injected_file "GEMINI.md" "$TEMPLATE_VERSION"
+    create_injected_file "CODEX.md" "$TEMPLATE_VERSION"
+    create_injected_file "KIMI.md" "$TEMPLATE_VERSION"
 
     run injection_get_summary
     assert_success
@@ -481,7 +491,7 @@ get_json_field() {
     none=$(echo "$output" | jq -r '.none')
     missing=$(echo "$output" | jq -r '.missing')
 
-    [[ "$current" -eq 3 ]]
+    [[ "$current" -eq 5 ]]
     [[ "$outdated" -eq 0 ]]
     [[ "$none" -eq 0 ]]
     [[ "$missing" -eq 0 ]]
@@ -491,6 +501,8 @@ get_json_field() {
     create_injected_file "CLAUDE.md" "0.40.0"
     create_injected_file "AGENTS.md" "0.30.0"
     create_injected_file "GEMINI.md" "0.25.0"
+    create_injected_file "CODEX.md" "0.40.0"
+    create_injected_file "KIMI.md" "0.40.0"
 
     run injection_get_summary
     assert_success
@@ -500,7 +512,7 @@ get_json_field() {
     outdated=$(echo "$output" | jq -r '.outdated')
 
     [[ "$current" -eq 0 ]]
-    [[ "$outdated" -eq 3 ]]
+    [[ "$outdated" -eq 5 ]]
 }
 
 @test "injection_get_summary handles empty state" {
@@ -518,7 +530,7 @@ get_json_field() {
     [[ "$current" -eq 0 ]]
     [[ "$outdated" -eq 0 ]]
     [[ "$none" -eq 0 ]]
-    [[ "$missing" -eq 3 ]]
+    [[ "$missing" -eq 5 ]]
     [[ "$total" -eq 0 ]]
 }
 
@@ -530,19 +542,19 @@ get_json_field() {
     # Setup: mixed state
     create_injected_file "CLAUDE.md" "0.40.0"
     create_plain_file "AGENTS.md"
-    # GEMINI.md missing
+    # GEMINI.md, CODEX.md, KIMI.md missing
 
     # Step 1: Check all files
     run injection_check_all
     assert_success
     local check_result="$output"
 
-    # Verify check returns all 3 targets (including missing)
+    # Verify check returns all 5 targets (including missing)
     local file_count
     file_count=$(echo "$check_result" | jq 'length')
-    [[ "$file_count" -eq 3 ]]
+    [[ "$file_count" -eq 5 ]]
 
-    # Verify statuses: CLAUDE.md=outdated, AGENTS.md=none, GEMINI.md=missing
+    # Verify statuses: CLAUDE.md=outdated, AGENTS.md=none, others=missing
     local claude_status agents_status gemini_status
     claude_status=$(echo "$check_result" | jq -r '.[] | select(.target == "CLAUDE.md") | .status')
     agents_status=$(echo "$check_result" | jq -r '.[] | select(.target == "AGENTS.md") | .status')
@@ -555,10 +567,10 @@ get_json_field() {
     run injection_update_all "."
     assert_success
 
-    # Should have updated all 3 files (created GEMINI.md, updated others)
+    # Should have updated all 5 files (created GEMINI.md/CODEX.md/KIMI.md, updated others)
     local updated
     updated=$(echo "$output" | jq -r '.updated')
-    [[ "$updated" -eq 3 ]]
+    [[ "$updated" -eq 5 ]]
 
     # Step 3: Get summary
     run injection_get_summary
@@ -567,7 +579,7 @@ get_json_field() {
     # All files should now be current
     local current
     current=$(echo "$output" | jq -r '.current')
-    [[ "$current" -eq 3 ]]
+    [[ "$current" -eq 5 ]]
 }
 
 @test "batch operations maintain consistency across calls" {

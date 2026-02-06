@@ -67,6 +67,20 @@ EOF
       {"token": "TASK_FOCUS_CMD", "default": "cleo focus set"},
       {"token": "TASK_COMPLETE_CMD", "default": "cleo complete"}
     ]
+  },
+  "taskContext": {
+    "tokens": [
+      {"token": "TASK_TITLE", "default": ""},
+      {"token": "TASK_NAME", "default": ""},
+      {"token": "TASK_DESCRIPTION", "default": ""},
+      {"token": "TASK_INSTRUCTIONS", "default": ""},
+      {"token": "TOPICS_JSON", "default": "[]"},
+      {"token": "DEPENDS_LIST", "default": ""},
+      {"token": "ACCEPTANCE_CRITERIA", "default": "Task completed successfully per description"},
+      {"token": "DELIVERABLES_LIST", "default": "Implementation per task description"},
+      {"token": "MANIFEST_SUMMARIES", "default": ""},
+      {"token": "NEXT_TASK_IDS", "default": ""}
+    ]
   }
 }
 EOF
@@ -176,11 +190,53 @@ EOF
     cp "$lib_dir/exit-codes.sh" "$CLEO_REPO_ROOT/lib/"
     cp "$lib_dir/skill-validate.sh" "$CLEO_REPO_ROOT/lib/"
     cp "$lib_dir/token-inject.sh" "$CLEO_REPO_ROOT/lib/"
+    cp "$lib_dir/token-estimation.sh" "$CLEO_REPO_ROOT/lib/"
     cp "$lib_dir/skill-dispatch.sh" "$CLEO_REPO_ROOT/lib/"
+
+    # Create mock cleo command for ti_set_full_context (skill_prepare_spawn needs it)
+    mkdir -p "$CLEO_REPO_ROOT/bin"
+    cat > "$CLEO_REPO_ROOT/bin/cleo" << 'MOCK'
+#!/usr/bin/env bash
+# Mock cleo that handles 'show <id> --format json' for ti_set_full_context
+# and other subcommands used by token-inject functions
+if [[ "${1:-}" == "show" ]]; then
+    local_id="${2:-T0000}"
+    echo "{\"success\":true,\"task\":{\"id\":\"${local_id}\",\"type\":\"task\",\"labels\":[],\"title\":\"Mock task ${local_id}\",\"description\":\"Mock description\",\"parentId\":\"\",\"depends\":[]}}"
+    exit 0
+fi
+# For any other subcommand, return empty/success
+echo ""
+exit 0
+MOCK
+    chmod +x "$CLEO_REPO_ROOT/bin/cleo"
+    export PATH="$CLEO_REPO_ROOT/bin:$PATH"
 
     # Source the library from test location (sets correct paths)
     cd "$CLEO_REPO_ROOT"
     source "$CLEO_REPO_ROOT/lib/skill-dispatch.sh"
+
+    # Create a wrapper script for skill_prepare_spawn that re-sources the library
+    # in the subshell (needed because bash associative arrays like _TI_CLEO_DEFAULTS
+    # cannot be exported to subshells created by bats 'run')
+    cat > "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" << 'WRAPPER'
+#!/usr/bin/env bash
+cd "$CLEO_REPO_ROOT"
+source "$CLEO_REPO_ROOT/lib/skill-dispatch.sh" 2>/dev/null
+# Disable set -e inherited from sourced library so we can capture failures
+set +e
+# Capture stdout and stderr separately
+_out=$( skill_prepare_spawn "$@" 2>"$CLEO_REPO_ROOT/.spawn_stderr" )
+_rc=$?
+set -e
+if [[ $_rc -ne 0 ]]; then
+    # On failure, output stderr content so bats can assert on error messages
+    cat "$CLEO_REPO_ROOT/.spawn_stderr"
+    exit $_rc
+fi
+# On success, output only the clean JSON
+echo "$_out"
+WRAPPER
+    chmod +x "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper"
 }
 
 teardown() {
@@ -898,14 +954,15 @@ teardown() {
 # ============================================================================
 
 @test "skill_prepare_spawn returns valid JSON" {
-    run skill_prepare_spawn "ct-test-skill" "T1234"
+    # Use wrapper to re-source library in subshell (associative arrays don't export)
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T1234"
     assert_success
     echo "$output" | jq -e '.' > /dev/null
     assert_success
 }
 
 @test "skill_prepare_spawn contains skill field" {
-    run skill_prepare_spawn "ct-test-skill" "T5678"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T5678"
     assert_success
     local skill
     skill=$(echo "$output" | jq -r '.skill')
@@ -913,7 +970,7 @@ teardown() {
 }
 
 @test "skill_prepare_spawn contains taskId field" {
-    run skill_prepare_spawn "ct-test-skill" "T9999"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T9999"
     assert_success
     local taskId
     taskId=$(echo "$output" | jq -r '.taskId')
@@ -921,7 +978,7 @@ teardown() {
 }
 
 @test "skill_prepare_spawn contains path field" {
-    run skill_prepare_spawn "ct-test-skill" "T1234"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T1234"
     assert_success
     local path
     path=$(echo "$output" | jq -r '.path')
@@ -929,7 +986,7 @@ teardown() {
 }
 
 @test "skill_prepare_spawn contains tokenBudget field" {
-    run skill_prepare_spawn "ct-test-skill" "T1234"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T1234"
     assert_success
     local budget
     budget=$(echo "$output" | jq -r '.tokenBudget')
@@ -938,7 +995,7 @@ teardown() {
 }
 
 @test "skill_prepare_spawn contains model field" {
-    run skill_prepare_spawn "ct-test-skill" "T1234"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T1234"
     assert_success
     local model
     model=$(echo "$output" | jq -r '.model')
@@ -947,7 +1004,7 @@ teardown() {
 }
 
 @test "skill_prepare_spawn contains tier field" {
-    run skill_prepare_spawn "ct-test-skill" "T1234"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T1234"
     assert_success
     local tier
     tier=$(echo "$output" | jq -r '.tier')
@@ -956,7 +1013,7 @@ teardown() {
 }
 
 @test "skill_prepare_spawn contains references array" {
-    run skill_prepare_spawn "ct-test-skill" "T1234"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T1234"
     assert_success
     # Should be array (even if empty)
     local is_array
@@ -965,7 +1022,7 @@ teardown() {
 }
 
 @test "skill_prepare_spawn contains skillFile field" {
-    run skill_prepare_spawn "ct-test-skill" "T1234"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T1234"
     assert_success
     local skillFile
     skillFile=$(echo "$output" | jq -r '.skillFile')
@@ -973,13 +1030,13 @@ teardown() {
 }
 
 @test "skill_prepare_spawn fails for nonexistent skill" {
-    run skill_prepare_spawn "ct-nonexistent" "T1234"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-nonexistent" "T1234"
     assert_failure
     assert_output --partial "Could not get metadata"
 }
 
 @test "skill_prepare_spawn handles special characters in task ID" {
-    run skill_prepare_spawn "ct-test-skill" "T-1234-special"
+    run "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" "ct-test-skill" "T-1234-special"
     assert_success
     local taskId
     taskId=$(echo "$output" | jq -r '.taskId')

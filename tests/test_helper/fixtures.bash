@@ -73,7 +73,7 @@ _create_base_structure() {
 # Base meta block used in all todo.json fixtures
 _todo_meta() {
     cat << 'EOF'
-  "_meta": {"version": "2.3.0", "checksum": "test123"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "test123"},
 EOF
 }
 
@@ -142,7 +142,7 @@ create_empty_todo_no_phases() {
   "tasks": [],
   "focus": {"currentPhase": null},
   "labels": {},
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "lastUpdated": "2025-12-01T12:00:00Z"
 }
 EOF
@@ -170,7 +170,7 @@ create_independent_tasks() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "First task", "description": "Task one", "status": "pending", "priority": "medium", "phase": "setup", "type": "task", "parentId": null, "size": null, "createdAt": "2025-12-01T10:00:00Z"},
     {"id": "T002", "title": "Second task", "description": "Task two", "status": "pending", "priority": "high", "phase": "setup", "type": "task", "parentId": null, "size": null, "createdAt": "2025-12-01T11:00:00Z"},
@@ -201,7 +201,7 @@ create_tasks_with_completed() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Completed task", "description": "Done", "status": "done", "priority": "high", "phase": "setup", "createdAt": "2025-12-01T10:00:00Z", "completedAt": "2025-12-10T12:00:00Z"},
     {"id": "T002", "title": "Pending task", "description": "Not done", "status": "pending", "priority": "medium", "phase": "setup", "createdAt": "2025-12-01T11:00:00Z"}
@@ -235,7 +235,7 @@ create_linear_chain() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Foundation task", "description": "Base", "status": "pending", "priority": "high", "phase": "setup", "createdAt": "2025-12-01T10:00:00Z"},
     {"id": "T002", "title": "Depends on T001", "description": "Middle", "status": "pending", "priority": "medium", "phase": "setup", "createdAt": "2025-12-01T11:00:00Z", "depends": ["T001"]},
@@ -266,7 +266,7 @@ create_complex_deps() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Core module", "description": "Core", "status": "pending", "priority": "critical", "phase": "core", "createdAt": "2025-12-01T10:00:00Z"},
     {"id": "T002", "title": "Auth module", "description": "Auth", "status": "pending", "priority": "high", "phase": "core", "createdAt": "2025-12-01T11:00:00Z"},
@@ -303,7 +303,7 @@ create_blocked_tasks() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Foundation task", "description": "Base", "status": "pending", "priority": "high", "phase": "setup", "createdAt": "2025-12-01T10:00:00Z"},
     {"id": "T002", "title": "Blocked by T001", "description": "Waiting", "status": "blocked", "priority": "medium", "phase": "setup", "createdAt": "2025-12-01T11:00:00Z", "depends": ["T001"], "blockedBy": "Waiting for T001"},
@@ -334,7 +334,7 @@ create_multi_blocker_tasks() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "First dependency", "description": "Dep 1", "status": "pending", "priority": "high", "phase": "setup", "createdAt": "2025-12-01T10:00:00Z"},
     {"id": "T002", "title": "Second dependency", "description": "Dep 2", "status": "pending", "priority": "high", "phase": "setup", "createdAt": "2025-12-01T11:00:00Z"},
@@ -365,7 +365,7 @@ create_completed_blocker() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Completed blocker", "description": "Done", "status": "done", "priority": "high", "phase": "setup", "createdAt": "2025-12-01T10:00:00Z", "completedAt": "2025-12-10T12:00:00Z"},
     {"id": "T002", "title": "Was blocked by T001", "description": "Now unblocked", "status": "pending", "priority": "medium", "phase": "setup", "createdAt": "2025-12-01T11:00:00Z", "depends": ["T001"]}
@@ -399,7 +399,7 @@ create_circular_deps() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "A depends on B", "description": "Circular A", "status": "pending", "priority": "medium", "phase": "setup", "createdAt": "2025-12-01T10:00:00Z", "depends": ["T002"]},
     {"id": "T002", "title": "B depends on A", "description": "Circular B", "status": "pending", "priority": "medium", "phase": "setup", "createdAt": "2025-12-01T11:00:00Z", "depends": ["T001"]}
@@ -489,7 +489,7 @@ create_empty_archive() {
     local dest="${1:-${ARCHIVE_FILE:-${TEST_TEMP_DIR}/.cleo/todo-archive.json}}"
     cat > "$dest" << 'EOF'
 {
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "archivedTasks": [],
   "lastArchived": null
 }
@@ -523,7 +523,7 @@ create_complete_family_hierarchy() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Parent task", "description": "Parent epic", "status": "done", "priority": "high", "phase": "setup", "type": "epic", "parentId": null, "createdAt": "2025-11-01T10:00:00Z", "completedAt": "2025-11-10T10:00:00Z"},
     {"id": "T002", "title": "Child task 1", "description": "First child", "status": "done", "priority": "medium", "phase": "setup", "type": "task", "parentId": "T001", "createdAt": "2025-11-02T10:00:00Z", "completedAt": "2025-11-08T10:00:00Z"},
@@ -556,7 +556,7 @@ create_incomplete_family_hierarchy() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Parent task", "description": "Parent epic", "status": "done", "priority": "high", "phase": "setup", "type": "epic", "parentId": null, "createdAt": "2025-11-01T10:00:00Z", "completedAt": "2025-11-10T10:00:00Z"},
     {"id": "T002", "title": "Child task 1", "description": "First child done", "status": "done", "priority": "medium", "phase": "setup", "type": "task", "parentId": "T001", "createdAt": "2025-11-02T10:00:00Z", "completedAt": "2025-11-08T10:00:00Z"},
@@ -587,7 +587,7 @@ create_completed_parent_active_children() {
       "maintenance": {"order": 5, "name": "Maintenance", "description": "Bug fixes and support", "status": "pending", "startedAt": null, "completedAt": null}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Parent task", "description": "Parent is done but has active children", "status": "done", "priority": "high", "phase": "setup", "type": "epic", "parentId": null, "createdAt": "2025-11-01T10:00:00Z", "completedAt": "2025-11-10T10:00:00Z"},
     {"id": "T002", "title": "Active child", "description": "Child is active", "status": "active", "priority": "medium", "phase": "setup", "type": "task", "parentId": "T001", "createdAt": "2025-11-02T10:00:00Z"}
@@ -611,7 +611,7 @@ create_archive_empty() {
 {
   "version": "2.3.0",
   "project": "test-project",
-  "_meta": {"version": "2.3.0", "totalArchived": 0, "lastArchived": null},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "totalArchived": 0, "lastArchived": null},
   "archivedTasks": [],
   "phaseSummary": {},
   "statistics": {"byPhase": {}, "byPriority": {}, "byLabel": {}}
@@ -626,7 +626,7 @@ create_archive_with_sample_tasks() {
 {
   "version": "2.3.0",
   "project": "test-project",
-  "_meta": {"version": "2.3.0", "totalArchived": 3, "lastArchived": "2025-12-15T10:00:00Z"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "totalArchived": 3, "lastArchived": "2025-12-15T10:00:00Z"},
   "archivedTasks": [
     {
       "id": "T100",
@@ -699,7 +699,7 @@ create_tasks_with_diverse_labels() {
 {
   "version": "2.3.0",
   "project": {"name": "test-project", "currentPhase": "core"},
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Security bug fix", "description": "Critical security", "status": "done", "priority": "critical", "labels": ["security", "bug", "urgent"], "createdAt": "2025-11-01T10:00:00Z", "completedAt": "2025-11-05T10:00:00Z"},
     {"id": "T002", "title": "Feature development", "description": "New feature", "status": "done", "priority": "high", "labels": ["feature", "api"], "createdAt": "2025-11-02T10:00:00Z", "completedAt": "2025-11-08T10:00:00Z"},
@@ -730,7 +730,7 @@ create_tasks_multi_phase() {
       "polish": {"order": 4, "name": "Polish", "status": "pending"}
     }
   },
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Setup complete", "description": "Setup done", "status": "done", "priority": "high", "phase": "setup", "createdAt": "2025-11-01T10:00:00Z", "completedAt": "2025-11-05T10:00:00Z"},
     {"id": "T002", "title": "Setup also complete", "description": "Another setup", "status": "done", "priority": "medium", "phase": "setup", "createdAt": "2025-11-02T10:00:00Z", "completedAt": "2025-11-06T10:00:00Z"},
@@ -751,7 +751,7 @@ create_deep_hierarchy() {
 {
   "version": "2.3.0",
   "project": {"name": "test-project", "currentPhase": "core"},
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Epic (root)", "description": "Root epic", "status": "done", "priority": "high", "type": "epic", "parentId": null, "createdAt": "2025-11-01T10:00:00Z", "completedAt": "2025-11-20T10:00:00Z"},
     {"id": "T002", "title": "Task (L1 child)", "description": "Level 1 child", "status": "done", "priority": "medium", "type": "task", "parentId": "T001", "createdAt": "2025-11-02T10:00:00Z", "completedAt": "2025-11-15T10:00:00Z"},
@@ -772,7 +772,7 @@ create_tasks_with_dependents() {
 {
   "version": "2.3.0",
   "project": {"name": "test-project", "currentPhase": "setup"},
-  "_meta": {"version": "2.3.0", "checksum": "placeholder"},
+  "_meta": {"version": "2.3.0", "schemaVersion": "2.10.0", "checksum": "placeholder"},
   "tasks": [
     {"id": "T001", "title": "Foundation task", "description": "Base task", "status": "done", "priority": "high", "createdAt": "2025-11-01T10:00:00Z", "completedAt": "2025-11-05T10:00:00Z"},
     {"id": "T002", "title": "Dependent task", "description": "Depends on T001", "status": "pending", "priority": "medium", "depends": ["T001"], "createdAt": "2025-11-02T10:00:00Z"},

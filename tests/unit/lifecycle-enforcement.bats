@@ -131,12 +131,12 @@ teardown() {
     assert_failure
 }
 
-@test "query_rcsd_prerequisite_status returns exit code 75 on failure" {
+@test "query_rcsd_prerequisite_status returns exit code 80 on failure" {
     mkdir -p "$TEST_DIR/.cleo/rcsd/T1234"
     echo '{"status":{}}' > "$TEST_DIR/.cleo/rcsd/T1234/_manifest.json"
 
     run query_rcsd_prerequisite_status "T1234" "implementation"
-    assert_equal "$status" 75
+    assert_equal "$status" 80
 }
 
 @test "query_rcsd_prerequisite_status fails when only research completed" {
@@ -361,7 +361,7 @@ EOF
 
     run query_rcsd_prerequisite_status "T1234" "unknown_stage"
     assert_failure
-    assert_equal "$status" 75
+    assert_equal "$status" 80
 }
 
 @test "get_rcsd_stage_status handles deeply nested task IDs" {

@@ -87,9 +87,9 @@ teardown_file() {
     [[ "$INJECTION_TARGETS" =~ [[:space:]] ]]
 }
 
-@test "INJECTION_TARGETS contains exactly 3 targets" {
+@test "INJECTION_TARGETS contains exactly 5 targets" {
     local count=$(echo "$INJECTION_TARGETS" | wc -w)
-    [ "$count" -eq 3 ]
+    [ "$count" -eq 5 ]
 }
 
 # =============================================================================
@@ -170,43 +170,50 @@ teardown_file() {
 # =============================================================================
 
 @test "INJECTION_HEADERS is defined in source" {
-    run grep "declare -A INJECTION_HEADERS" "${LIB_DIR}/injection-registry.sh"
+    run grep "declare -gA INJECTION_HEADERS" "${LIB_DIR}/injection-registry.sh"
     assert_success
 }
 
 @test "INJECTION_HEADERS is associative array in source" {
-    run grep "declare -A INJECTION_HEADERS" "${LIB_DIR}/injection-registry.sh"
+    run grep "declare -gA INJECTION_HEADERS" "${LIB_DIR}/injection-registry.sh"
     assert_success
 }
 
-@test "INJECTION_HEADERS contains GEMINI.md entry" {
-    run grep '\["GEMINI.md"\]="GEMINI-HEADER.md"' "${LIB_DIR}/injection-registry.sh"
+@test "INJECTION_HEADERS is empty (unified template)" {
+    # All agents now use unified AGENT-INJECTION.md - no per-agent headers
+    run grep '\["GEMINI.md"\]=' "${LIB_DIR}/injection-registry.sh"
+    # Should NOT find header entries in INJECTION_HEADERS (only in VALIDATION_KEYS)
+    local header_section
+    header_section=$(sed -n '/declare -gA INJECTION_HEADERS/,/^)/p' "${LIB_DIR}/injection-registry.sh")
+    [[ ! "$header_section" == *'["GEMINI.md"]='* ]]
+}
+
+@test "INJECTION_HEADERS uses unified AGENT-INJECTION.md" {
+    # Verify comment documents the unified approach
+    run grep "unified AGENT-INJECTION.md" "${LIB_DIR}/injection-registry.sh"
     assert_success
 }
 
-@test "INJECTION_HEADERS GEMINI.md maps to correct header" {
-    local value=$(grep -A5 'declare -A INJECTION_HEADERS' "${LIB_DIR}/injection-registry.sh" | grep '\["GEMINI.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
-    [ "$value" = "GEMINI-HEADER.md" ]
+@test "INJECTION_HEADERS empty for CODEX.md" {
+    local header_section
+    header_section=$(sed -n '/declare -gA INJECTION_HEADERS/,/^)/p' "${LIB_DIR}/injection-registry.sh")
+    [[ ! "$header_section" == *'["CODEX.md"]='* ]]
 }
 
-@test "INJECTION_HEADERS contains CODEX.md entry" {
-    run grep '\["CODEX.md"\]="CODEX-HEADER.md"' "${LIB_DIR}/injection-registry.sh"
+@test "INJECTION_HEADERS empty for KIMI.md" {
+    local header_section
+    header_section=$(sed -n '/declare -gA INJECTION_HEADERS/,/^)/p' "${LIB_DIR}/injection-registry.sh")
+    [[ ! "$header_section" == *'["KIMI.md"]='* ]]
+}
+
+@test "INJECTION_HEADERS legacy system removed comment exists" {
+    run grep "Legacy header system removed" "${LIB_DIR}/injection-registry.sh"
     assert_success
 }
 
-@test "INJECTION_HEADERS CODEX.md maps to correct header" {
-    local value=$(grep -A5 'declare -A INJECTION_HEADERS' "${LIB_DIR}/injection-registry.sh" | grep '\["CODEX.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
-    [ "$value" = "CODEX-HEADER.md" ]
-}
-
-@test "INJECTION_HEADERS contains KIMI.md entry" {
-    run grep '\["KIMI.md"\]="KIMI-HEADER.md"' "${LIB_DIR}/injection-registry.sh"
+@test "INJECTION_HEADERS declaration is global associative" {
+    run grep "declare -gA INJECTION_HEADERS" "${LIB_DIR}/injection-registry.sh"
     assert_success
-}
-
-@test "INJECTION_HEADERS KIMI.md maps to correct header" {
-    local value=$(grep -A5 'declare -A INJECTION_HEADERS' "${LIB_DIR}/injection-registry.sh" | grep '\["KIMI.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
-    [ "$value" = "KIMI-HEADER.md" ]
 }
 
 @test "INJECTION_HEADERS does not contain CLAUDE.md" {
@@ -226,12 +233,12 @@ teardown_file() {
 # =============================================================================
 
 @test "INJECTION_VALIDATION_KEYS is defined in source" {
-    run grep "declare -A INJECTION_VALIDATION_KEYS" "${LIB_DIR}/injection-registry.sh"
+    run grep "declare -gA INJECTION_VALIDATION_KEYS" "${LIB_DIR}/injection-registry.sh"
     assert_success
 }
 
 @test "INJECTION_VALIDATION_KEYS is associative array in source" {
-    run grep "declare -A INJECTION_VALIDATION_KEYS" "${LIB_DIR}/injection-registry.sh"
+    run grep "declare -gA INJECTION_VALIDATION_KEYS" "${LIB_DIR}/injection-registry.sh"
     assert_success
 }
 
@@ -241,7 +248,7 @@ teardown_file() {
 }
 
 @test "INJECTION_VALIDATION_KEYS CLAUDE.md maps to claude_md" {
-    local value=$(grep -A5 'declare -A INJECTION_VALIDATION_KEYS' "${LIB_DIR}/injection-registry.sh" | grep '\["CLAUDE.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
+    local value=$(grep -A10 'declare -gA INJECTION_VALIDATION_KEYS' "${LIB_DIR}/injection-registry.sh" | grep '\["CLAUDE.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
     [ "$value" = "claude_md" ]
 }
 
@@ -251,7 +258,7 @@ teardown_file() {
 }
 
 @test "INJECTION_VALIDATION_KEYS AGENTS.md maps to agents_md" {
-    local value=$(grep -A5 'declare -A INJECTION_VALIDATION_KEYS' "${LIB_DIR}/injection-registry.sh" | grep '\["AGENTS.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
+    local value=$(grep -A10 'declare -gA INJECTION_VALIDATION_KEYS' "${LIB_DIR}/injection-registry.sh" | grep '\["AGENTS.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
     [ "$value" = "agents_md" ]
 }
 
@@ -261,7 +268,7 @@ teardown_file() {
 }
 
 @test "INJECTION_VALIDATION_KEYS GEMINI.md maps to gemini_md" {
-    local value=$(grep -A5 'declare -A INJECTION_VALIDATION_KEYS' "${LIB_DIR}/injection-registry.sh" | grep '\["GEMINI.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
+    local value=$(grep -A10 'declare -gA INJECTION_VALIDATION_KEYS' "${LIB_DIR}/injection-registry.sh" | grep '\["GEMINI.md"\]=' | sed 's/.*="\(.*\)".*/\1/')
     [ "$value" = "gemini_md" ]
 }
 
@@ -355,7 +362,7 @@ teardown_file() {
 @test "validation keys count matches targets count" {
     local targets_count=$(echo "$INJECTION_TARGETS" | wc -w)
     local keys_count=$(grep -c '^\s*\[".*\.md"\]=' "${LIB_DIR}/injection-registry.sh" | tail -1)
-    [ "$targets_count" -eq 3 ]
+    [ "$targets_count" -eq 5 ]
 }
 
 # =============================================================================

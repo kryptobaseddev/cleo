@@ -2,8 +2,6 @@
 # tests/integration/init-detect.bats - Integration tests for init --detect
 # @task T2784
 
-load '../test_helper'
-
 setup() {
     # Create temp directory for test projects
     TEST_DIR="$(mktemp -d)"

@@ -472,13 +472,13 @@ EOF
 # ============================================================================
 
 @test "validate_release_protocol succeeds with valid semver and changelog" {
-    run validate_release_protocol "0.74.5" "## v0.74.5\n- Feature X" "false"
+    run validate_release_protocol "0.74.5" "## v0.74.5\n- Feature X" '{"agent_type":"release"}' "false"
     assert_success
     assert_output --partial '"valid": true'
 }
 
 @test "validate_release_protocol detects invalid semver (RLSE-001)" {
-    run validate_release_protocol "1.0" "Changelog entry" "true"
+    run validate_release_protocol "1.0" "Changelog entry" '{"agent_type":"release"}' "true"
     assert_failure
     assert_equal "$status" 66
     assert_output --partial 'RLSE-001'
@@ -486,20 +486,20 @@ EOF
 }
 
 @test "validate_release_protocol detects missing changelog (RLSE-002)" {
-    run validate_release_protocol "0.74.5" "" "true"
+    run validate_release_protocol "0.74.5" "" '{"agent_type":"release"}' "true"
     assert_failure
     assert_output --partial 'RLSE-002'
     assert_output --partial 'Changelog entry required'
 }
 
 @test "validate_release_protocol rejects invalid version format" {
-    run validate_release_protocol "v1.0.0" "Changelog" "true"
+    run validate_release_protocol "v1.0.0" "Changelog" '{"agent_type":"release"}' "true"
     assert_failure
     assert_output --partial 'RLSE-001'
 }
 
 @test "validate_release_protocol accepts proper semver format" {
-    run validate_release_protocol "1.2.3" "Changelog" "false"
+    run validate_release_protocol "1.2.3" "Changelog" '{"agent_type":"release"}' "false"
     assert_success
 }
 

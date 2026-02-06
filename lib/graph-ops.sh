@@ -64,7 +64,8 @@ _safe_get_reverse_deps() {
 
 # Get all task IDs that have dependencies
 _get_all_graph_tasks() {
-    ensure_graph_cache >/dev/null 2>&1 || true
+    local todo_file="${TODO_FILE:-.cleo/todo.json}"
+    ensure_graph_cache "$todo_file" >/dev/null 2>&1 || true
     local -A all_tasks
     local task
     for task in "${!_FORWARD_DEPS_CACHE[@]}"; do
@@ -87,40 +88,43 @@ declare -gA _CP_MEMO_PATH
 # DFS helper for critical path
 # IMPORTANT: All loop variables must be declared local to prevent
 # recursion from corrupting outer scope variables
+# Uses REVERSE deps (who depends on me) to traverse down the dependency tree
 _cp_dfs() {
     local node="${1:-}"
     [[ -z "$node" ]] && return 0
-    
+
     if [[ -v "_CP_MEMO_LENGTH[$node]" ]]; then
         return 0
     fi
-    
-    local forward_deps
-    forward_deps=$(_safe_get_forward_deps "$node")
-    
-    if [[ -z "$forward_deps" ]]; then
+
+    # Use reverse deps to find tasks that depend on this one
+    local reverse_deps
+    reverse_deps=$(_safe_get_reverse_deps "$node")
+
+    if [[ -z "$reverse_deps" ]]; then
+        # Leaf node (no one depends on this task)
         _CP_MEMO_LENGTH["$node"]=1
         _CP_MEMO_PATH["$node"]="$node"
         return 0
     fi
-    
+
     local max_length=0
     local max_path="$node"
-    
+
     # CRITICAL: Use local array and local loop variable
     local -a deps_array
     local dep
     local dep_length
-    IFS=',' read -ra deps_array <<< "$forward_deps"
-    
+    IFS=',' read -ra deps_array <<< "$reverse_deps"
+
     for dep in "${deps_array[@]}"; do
         _cp_dfs "$dep"
-        
+
         dep_length=1
         if [[ -v "_CP_MEMO_LENGTH[$dep]" ]]; then
             dep_length="${_CP_MEMO_LENGTH[$dep]}"
         fi
-        
+
         if (( dep_length > max_length )); then
             max_length=$dep_length
             if [[ -v "_CP_MEMO_PATH[$dep]" ]]; then
@@ -130,7 +134,7 @@ _cp_dfs() {
             fi
         fi
     done
-    
+
     _CP_MEMO_LENGTH["$node"]=$((max_length + 1))
     _CP_MEMO_PATH["$node"]="$max_path"
 }
@@ -195,11 +199,11 @@ calculate_impact_radius() {
         current_depth="${depths[0]}"
         queue=("${queue[@]:1}")
         depths=("${depths[@]:1}")
-        
+
         if (( current_depth >= max_depth )); then
             continue
         fi
-        
+
         rev_deps=$(_safe_get_reverse_deps "$current")
         if [[ -n "$rev_deps" ]]; then
             IFS=',' read -ra rev_array <<< "$rev_deps"
@@ -213,8 +217,9 @@ calculate_impact_radius() {
             done
         fi
     done
-    
-    if [[ ${#result[@]} -eq 0 ]]; then
+
+    # Check if result array has any elements
+    if [[ ! -v result[@] ]] || [[ ${#result[@]} -eq 0 ]]; then
         echo "[]"
     else
         _array_to_json "${result[@]}"
@@ -228,40 +233,50 @@ calculate_impact_radius() {
 # Calculate dependency waves for parallel execution
 calculate_dependency_waves() {
     local root_task="${1:-}"
-    
-    if [[ -z "$root_task" ]]; then
-        echo '{"error": "Root task ID required"}'
-        return 1
-    fi
-    
+
     ensure_graph_cache >/dev/null 2>&1 || true
-    
+
     local -A all_tasks
     local -a task_queue
     local current rev_deps dep forward_deps
     local -a rev_array fwd_array
     local has_deps_in_subgraph can_calculate max_dep_wave dep_wave wave
     local task
-    
-    task_queue=("$root_task")
-    all_tasks["$root_task"]=1
-    
-    # BFS to find all affected tasks
-    while [[ ${#task_queue[@]} -gt 0 ]]; do
-        current="${task_queue[0]}"
-        task_queue=("${task_queue[@]:1}")
-        
-        rev_deps=$(_safe_get_reverse_deps "$current")
-        if [[ -n "$rev_deps" ]]; then
-            IFS=',' read -ra rev_array <<< "$rev_deps"
-            for dep in "${rev_array[@]}"; do
-                if [[ ! -v "all_tasks[$dep]" ]]; then
-                    all_tasks["$dep"]=1
-                    task_queue+=("$dep")
-                fi
-            done
+
+    # If no root task specified, use all tasks in the graph
+    if [[ -z "$root_task" ]]; then
+        local all_graph_tasks
+        all_graph_tasks=$(_get_all_graph_tasks)
+
+        if [[ -z "$all_graph_tasks" ]]; then
+            echo "[]"
+            return 0
         fi
-    done
+
+        for task in $all_graph_tasks; do
+            all_tasks["$task"]=1
+        done
+    else
+        # BFS to find all affected tasks from root
+        task_queue=("$root_task")
+        all_tasks["$root_task"]=1
+
+        while [[ ${#task_queue[@]} -gt 0 ]]; do
+            current="${task_queue[0]}"
+            task_queue=("${task_queue[@]:1}")
+
+            rev_deps=$(_safe_get_reverse_deps "$current")
+            if [[ -n "$rev_deps" ]]; then
+                IFS=',' read -ra rev_array <<< "$rev_deps"
+                for dep in "${rev_array[@]}"; do
+                    if [[ ! -v "all_tasks[$dep]" ]]; then
+                        all_tasks["$dep"]=1
+                        task_queue+=("$dep")
+                    fi
+                done
+            fi
+        done
+    fi
     
     local -A task_wave
     local max_wave=0
@@ -500,11 +515,12 @@ detect_dependency_cycles() {
 
 # Sort tasks respecting dependencies (Kahn's algorithm)
 topological_sort() {
-    ensure_graph_cache >/dev/null 2>&1 || true
-    
+    local todo_file="${TODO_FILE:-.cleo/todo.json}"
+    ensure_graph_cache "$todo_file" >/dev/null 2>&1 || true
+
     local -A tasks_to_sort
     local task
-    
+
     if [[ $# -gt 0 ]]; then
         for task in "$@"; do
             tasks_to_sort["$task"]=1
@@ -512,12 +528,16 @@ topological_sort() {
     else
         local all_tasks
         all_tasks=$(_get_all_graph_tasks)
-        for task in $all_tasks; do
-            tasks_to_sort["$task"]=1
-        done
+        if [[ -n "$all_tasks" ]]; then
+            for task in $all_tasks; do
+                tasks_to_sort["$task"]=1
+            done
+        fi
     fi
-    
-    if [[ ${#tasks_to_sort[@]} -eq 0 ]]; then
+
+    # Check if we have any tasks to sort (handles both empty arguments and empty graph)
+    # Use ${arr[@]+x} pattern for set -u compatibility with empty associative arrays
+    if [[ -z "${tasks_to_sort[*]+x}" ]] || [[ ${#tasks_to_sort[@]} -eq 0 ]]; then
         echo "[]"
         return 0
     fi
@@ -525,7 +545,7 @@ topological_sort() {
     local -A in_degree
     local forward_deps dep dependent rev_deps current
     local -a fwd_array rev_array queue result
-    
+
     for task in "${!tasks_to_sort[@]}"; do
         in_degree["$task"]=0
     done
@@ -710,6 +730,15 @@ would_unblock() {
 }
 
 # ============================================================================
+# ALIASES FOR BACKWARDS COMPATIBILITY
+# ============================================================================
+
+# Alias for backwards compatibility with tests
+topological_sort_graph() {
+    topological_sort "$@"
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -718,6 +747,7 @@ export -f calculate_impact_radius
 export -f calculate_dependency_waves
 export -f detect_dependency_cycles
 export -f topological_sort
+export -f topological_sort_graph
 export -f get_blocking_tasks
 export -f get_dependency_depth
 export -f would_unblock
