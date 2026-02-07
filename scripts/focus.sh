@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: focus
+# category: write
+# synopsis: Single-task workflow discipline. Set/show/clear active task.
+# relevance: critical
+# flags: --format,--quiet
+# exits: 0,2,4
+# json-output: true
+# subcommands: set,show,clear,note,next
+###END
 # CLEO Focus Management Script
 # Manage task focus for single-task workflow
 set -euo pipefail
@@ -126,7 +136,19 @@ DRY_RUN=false
 
 log_info()    { [[ "$QUIET" != true ]] && echo -e "${GREEN}[INFO]${NC} $1" || true; }
 log_warn()    { [[ "$QUIET" != true ]] && echo -e "${YELLOW}[WARN]${NC} $1" || true; }
-log_error()   { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+log_error() {
+  local message="$1"
+  local error_code="${2:-E_UNKNOWN}"
+  local exit_code="${3:-1}"
+  local suggestion="${4:-}"
+
+  if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
+    output_error "$error_code" "$message" "$exit_code" true "$suggestion" || true
+  else
+    echo -e "${RED}[ERROR]${NC} $message" >&2
+    [[ -n "$suggestion" ]] && echo "Suggestion: $suggestion" >&2
+  fi
+}
 log_step()    { [[ "$QUIET" != true ]] && echo -e "${BLUE}[FOCUS]${NC} $1" || true; }
 
 COMMAND_NAME="focus"
@@ -264,14 +286,14 @@ set_session_focus() {
   # Lock both files
   local sessions_fd todo_fd
   if ! lock_file "$sessions_file" sessions_fd 30; then
-    log_error "Failed to acquire lock on sessions.json"
-    return 1
+    log_error "Failed to acquire lock on sessions.json" "E_LOCK_TIMEOUT" "${EXIT_LOCK_TIMEOUT:-7}" "Retry after a moment"
+    return "${EXIT_LOCK_TIMEOUT:-7}"
   fi
 
   if ! lock_file "$todo_file" todo_fd 30; then
     unlock_file "$sessions_fd"
-    log_error "Failed to acquire lock on todo.json"
-    return 1
+    log_error "Failed to acquire lock on todo.json" "E_LOCK_TIMEOUT" "${EXIT_LOCK_TIMEOUT:-7}" "Retry after a moment"
+    return "${EXIT_LOCK_TIMEOUT:-7}"
   fi
 
   trap "unlock_file $todo_fd; unlock_file $sessions_fd" EXIT ERR
@@ -288,8 +310,8 @@ set_session_focus() {
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"
     trap - EXIT ERR
-    log_error "Session not found: $session_id"
-    return 1
+    log_error "Session not found: $session_id" "E_SESSION_NOT_FOUND" "${EXIT_SESSION_NOT_FOUND:-31}" "Use 'cleo session list' to see available sessions"
+    return "${EXIT_SESSION_NOT_FOUND:-31}"
   fi
 
   # Verify task is in session scope
@@ -300,22 +322,22 @@ set_session_focus() {
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"
     trap - EXIT ERR
-    log_error "Task $task_id is not in session scope"
-    return 1
+    log_error "Task $task_id is not in session scope" "E_TASK_NOT_IN_SCOPE" "${EXIT_TASK_NOT_IN_SCOPE:-34}" "Focus a task within your session scope, or start a new session for this task's epic"
+    return "${EXIT_TASK_NOT_IN_SCOPE:-34}"
   fi
 
   # Verify no other session has this task focused
   local claimed_by
   claimed_by=$(echo "$sessions_content" | jq -r --arg taskId "$task_id" --arg sessId "$session_id" '
-    .sessions[] | select(.id != $sessId and .focus.currentTask == $taskId) | .id
+    .sessions[] | select(.id != $sessId and .focus.currentTask == $taskId and .status == "active") | .id
   ')
 
   if [[ -n "$claimed_by" ]]; then
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"
     trap - EXIT ERR
-    log_error "Task $task_id already focused by session $claimed_by"
-    return 1
+    log_error "Task $task_id already focused by session $claimed_by" "E_TASK_CLAIMED" "${EXIT_TASK_CLAIMED:-35}" "Choose a different task or wait for the other agent to release focus"
+    return "${EXIT_TASK_CLAIMED:-35}"
   fi
 
   local timestamp old_focus
@@ -399,7 +421,9 @@ set_session_focus() {
   unlock_file "$sessions_fd"
   trap - EXIT ERR
 
-  echo "$old_focus"
+  # Use global variable to return old_focus so it doesn't go through
+  # command substitution (which would capture error JSON output too)
+  _FOCUS_OLD_VALUE="$old_focus"
   return 0
 }
 
@@ -440,9 +464,8 @@ cmd_set() {
     fi
 
     if [[ -z "$session_id" ]]; then
-      log_error "Multi-session mode requires --session ID or CLEO_SESSION"
-      log_error "Use 'cleo session list' to see active sessions"
-      exit "${EXIT_INVALID_INPUT:-64}"
+      log_error "Multi-session mode requires --session ID or CLEO_SESSION" "E_SESSION_REQUIRED" "${EXIT_SESSION_REQUIRED:-36}" "Use 'cleo session list' to see active sessions"
+      exit "${EXIT_SESSION_REQUIRED:-36}"
     fi
 
     # Validate session binding (T1794 - warn about conflicts but don't block)
@@ -455,10 +478,16 @@ cmd_set() {
       exit "$EXIT_SUCCESS"
     fi
 
-    local old_focus
-    if ! old_focus=$(set_session_focus "$session_id" "$task_id"); then
-      exit "${EXIT_FILE_ERROR:-4}"
+    # Run set_session_focus directly (not in subshell) so log_error output
+    # goes to the real stdout, not captured by command substitution.
+    # The function sets _FOCUS_OLD_VALUE as a side-channel return.
+    _FOCUS_OLD_VALUE=""
+    local focus_rc=0
+    set_session_focus "$session_id" "$task_id" || focus_rc=$?
+    if [[ "$focus_rc" -ne 0 ]]; then
+      exit "$focus_rc"
     fi
+    local old_focus="$_FOCUS_OLD_VALUE"
 
     local task_title
     task_title=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .title // "Unknown"' "$TODO_FILE")

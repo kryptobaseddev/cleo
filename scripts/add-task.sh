@@ -221,7 +221,9 @@ log_error() {
   # Use output_error from error-json.sh for format-aware error output
   # Default to E_UNKNOWN error code when called without specific code
   local error_code="${2:-$E_UNKNOWN}"
-  output_error "$error_code" "$1"
+  local exit_code="${3:-1}"
+  local suggestion="${4:-}"
+  output_error "$error_code" "$1" "$exit_code" true "$suggestion" || true
 }
 
 log_warn() {
@@ -420,7 +422,7 @@ validate_priority() {
       return 0
       ;;
     *)
-      log_error "Invalid priority: $priority (must be critical|high|medium|low)"
+      log_error "Invalid priority: $priority (must be critical|high|medium|low)" "E_VALIDATION_ERROR" "${EXIT_VALIDATION_ERROR:-6}"
       return 1
       ;;
   esac

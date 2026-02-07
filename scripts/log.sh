@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: log
+# category: read
+# synopsis: View audit log entries (operations, timestamps, changes)
+# relevance: medium
+# flags: --format,--quiet,--limit,--operation,--task
+# exits: 0,100
+# json-output: true
+###END
 # CLEO Log Script
 # Add entries to todo-log.json
 set -euo pipefail

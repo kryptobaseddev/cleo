@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: uncancel
+# category: write
+# synopsis: Restore cancelled tasks back to pending status with cascade support
+# aliases: restore-cancelled
+# relevance: medium
+# flags: --cascade,--notes,--dry-run,--format,--json,--human,--quiet
+# exits: 0,2,4,6,102
+# json-output: true
+###END
 # CLEO Uncancel Script (Restore from Cancelled)
 # Restore cancelled tasks back to pending status
 #

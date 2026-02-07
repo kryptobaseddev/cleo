@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: unarchive
+# category: write
+# synopsis: Restore archived tasks back to todo.json with status options
+# relevance: medium
+# flags: --format,--quiet,--dry-run,--status,--preserve-status,--json,--human
+# exits: 0,1,2,3,4,6
+# json-output: true
+###END
 # CLEO Unarchive Script
 # Restore archived tasks back to todo.json
 set -euo pipefail
