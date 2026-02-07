@@ -320,6 +320,12 @@ orchestrator_spawn_for_task() {
 
     _osp_debug "Tokens: TASK_ID=$task_id, DATE=$date_today, TOPIC_SLUG=$topic_slug, EPIC_ID=${epic_id:-none}"
 
+    # Export core tokens for compliance check and template injection
+    export TI_TASK_ID="$task_id"
+    export TI_DATE="$date_today"
+    export TI_TOPIC_SLUG="$topic_slug"
+    export TI_EPIC_ID="${epic_id:-}"
+
     # Step 5.5: Set taskContext tokens from task data
     # This populates TI_TASK_TITLE, TI_TASK_DESCRIPTION, TI_TOPICS_JSON, TI_DEPENDS_LIST
     # These tokens are used by skill templates like task-executor

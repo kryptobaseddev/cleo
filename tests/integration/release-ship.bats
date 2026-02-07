@@ -58,6 +58,14 @@ EOF
 exit 0
 EOF
     chmod +x "$TEST_DIR/tests/run-all-tests.sh"
+
+    # Initialize git repo (release ship does git commit)
+    git -C "$TEST_DIR" init -q
+    git -C "$TEST_DIR" config user.email "test@test.com"
+    git -C "$TEST_DIR" config user.name "Test"
+    # Create initial commit so git operations work
+    git -C "$TEST_DIR" add -A
+    git -C "$TEST_DIR" commit -q -m "initial" --allow-empty
 }
 
 teardown() {
@@ -89,7 +97,7 @@ create_test_release_data() {
       "type": "task",
       "status": "done",
       "completedAt": "2026-01-16T12:00:00Z",
-      "labels": ["changelog", "fix"],
+      "labels": ["v0.65.0", "changelog", "fix"],
       "priority": "critical",
       "description": "Fixed buffer overflow"
     },
@@ -332,12 +340,16 @@ EOF
     run bash "$RELEASE_SCRIPT" ship v0.65.0 --json
     assert_success
 
+    # Extract JSON from output (may include log lines before JSON object)
+    local json_output
+    json_output=$(echo "$output" | sed -n '/^{/,/^}/p' | tail -n +1)
+
     # Verify valid JSON
     local success action version status
-    success=$(jq -r '.success' <<< "$output")
-    action=$(jq -r '.action' <<< "$output")
-    version=$(jq -r '.release.version' <<< "$output")
-    status=$(jq -r '.release.status' <<< "$output")
+    success=$(jq -r '.success' <<< "$json_output")
+    action=$(jq -r '.action' <<< "$json_output")
+    version=$(jq -r '.release.version' <<< "$json_output")
+    status=$(jq -r '.release.status' <<< "$json_output")
 
     [[ "$success" == "true" ]]
     [[ "$action" == "shipped" ]]

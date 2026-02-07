@@ -691,7 +691,7 @@ main() {
     case "$subcommand" in
         summary)
             result=$(get_project_compliance_summary "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 format_summary_human "$result"
             else
                 echo "$result"
@@ -699,7 +699,7 @@ main() {
             ;;
         violations)
             result=$(list_violations "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 format_violations_human "$result"
             else
                 echo "$result"
@@ -707,7 +707,7 @@ main() {
             ;;
         trend)
             result=$(get_compliance_trend "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 format_trend_human "$result"
             else
                 echo "$result"
@@ -720,7 +720,7 @@ main() {
                 exit "$EXIT_USAGE_ERROR"
             fi
             result=$(audit_epic "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 format_audit_human "$result"
             else
                 echo "$result"
@@ -728,7 +728,7 @@ main() {
             ;;
         sync)
             result=$(sync_metrics_to_global "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 local synced skipped project
                 synced=$(echo "$result" | jq -r '.result.synced // 0')
                 skipped=$(echo "$result" | jq -r '.result.skipped // 0')
@@ -741,7 +741,7 @@ main() {
             ;;
         skills|reliability)
             result=$(get_skill_reliability "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 format_compliance_report "$result" --format human
             else
                 echo "$result"
@@ -757,7 +757,7 @@ main() {
             ;;
         global)
             result=$(get_global_compliance_summary "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 format_compliance_report "$result" --format human
             else
                 echo "$result"
@@ -766,7 +766,7 @@ main() {
         value)
             # T2833: Value proof dashboard - show CLEO's measurable impact
             result=$(get_value_metrics "${args[@]}")
-            if [[ "$format" == "human" ]]; then
+            if [[ "$format" == "human" || "$format" == "text" ]]; then
                 format_value_human "$result"
             else
                 echo "$result"

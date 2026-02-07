@@ -94,11 +94,12 @@ topological_sort_tasks() {
         ) as $id_to_idx |
 
         # Initialize graph nodes with in-degrees
+        # Only count edges to tasks within the set (external deps are ignored)
         [.[] | {
             id: .id,
             inDegree: (
                 (if .parentId and ($id_to_idx[.parentId] != null) then 1 else 0 end) +
-                ((.depends // []) | length)
+                ([(.depends // [])[] | select($id_to_idx[.] != null)] | length)
             ),
             children: [],
             dependents: []

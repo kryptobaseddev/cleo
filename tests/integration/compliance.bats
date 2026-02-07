@@ -408,8 +408,8 @@ EOF
 @test "compliance: piped output is JSON by default" {
     create_mock_compliance_data
 
-    # Pipe to cat to simulate non-TTY
-    run bash -c "bash '$COMPLIANCE_SCRIPT' summary | cat"
+    # Pipe to cat to simulate non-TTY (unset CLEO_FORMAT to test default)
+    run bash -c "unset CLEO_FORMAT; bash '$COMPLIANCE_SCRIPT' summary | cat"
     assert_success
 
     # Should be valid JSON

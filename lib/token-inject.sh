@@ -1016,11 +1016,11 @@ ti_set_task_context() {
             acceptance_criteria="$parsed_ac"
         else
             # Use default
-            acceptance_criteria="${_TI_CLEO_DEFAULTS[ACCEPTANCE_CRITERIA]:-Task completed successfully per description}"
+            acceptance_criteria="Task completed successfully per description"
         fi
     else
         # Use default
-        acceptance_criteria="${_TI_CLEO_DEFAULTS[ACCEPTANCE_CRITERIA]:-Task completed successfully per description}"
+        acceptance_criteria="Task completed successfully per description"
     fi
 
     export TI_ACCEPTANCE_CRITERIA="$acceptance_criteria"
@@ -1052,11 +1052,11 @@ ti_set_task_context() {
                 deliverables_list="$parsed_deliverables"
             else
                 # Use default
-                deliverables_list="${_TI_CLEO_DEFAULTS[DELIVERABLES_LIST]:-Implementation per task description}"
+                deliverables_list="Implementation per task description"
             fi
         else
             # Use default
-            deliverables_list="${_TI_CLEO_DEFAULTS[DELIVERABLES_LIST]:-Implementation per task description}"
+            deliverables_list="Implementation per task description"
         fi
     fi
 
