@@ -348,7 +348,7 @@ _get_cmd_script() {
         # Protocol validation
         consensus) echo "consensus.sh" ;; contribution) echo "contribution.sh" ;;
         specification) echo "specification.sh" ;; decomposition) echo "decomposition.sh" ;;
-        implementation) echo "implementation.sh" ;; validation) echo "validation.sh" ;; testing) echo "testing.sh" ;;
+        implementation) echo "implementation.sh" ;; lifecycle) echo "lifecycle.sh" ;; validation) echo "validation.sh" ;; testing) echo "testing.sh" ;;
         # Metrics and compliance
         compliance) echo "compliance.sh" ;; otel) echo "otel.sh" ;;
         # Intelligence system
@@ -378,7 +378,7 @@ _resolve_alias() {
 
 # List of all commands for validation
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote reorder verify upgrade context doctor migrate self-update skills export-tasks import-tasks archive-stats unarchive orchestrator safestop sequence consensus contribution specification decomposition implementation validation testing compliance otel nexus-query nexus-discover nexus-search roadmap claude-migrate release docs nexus"
+    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote reorder verify upgrade context doctor migrate self-update skills export-tasks import-tasks archive-stats unarchive orchestrator safestop sequence consensus contribution specification decomposition implementation lifecycle validation testing compliance otel nexus-query nexus-discover nexus-search roadmap claude-migrate release docs nexus"
 }
 
 cmd="${1:-help}"

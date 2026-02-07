@@ -1,6 +1,20 @@
 # Changelog
 
 All notable changes to the CLEO system will be documented in this file.
+## [Unreleased]
+
+### Documentation
+- Create `protocols/agent-protocol.md` - canonical agent-optimized reference (~260 lines, 56 exit codes with recovery procedures) (T3136)
+- Update AGENT-INJECTION.md with error recovery procedures, output key patterns, and protocol reference (T3136)
+- Retitle `LLM-AGENT-FIRST.mdx` from "LLM Agent First" to "CLI Design Standard" (developer guide, not agent reference) (T3136)
+- Delete duplicate `docs/archive/specs-md/LLM-AGENT-FIRST-SPEC.md` (13,850 tokens of pure duplication) (T3136)
+
+### Fixed
+- Fix `$schema` URL inconsistency: `metrics.schema.json` and `sessions.schema.json` now use `cleo-dev.com` (matching all other schemas) (T3136)
+- Fix legacy "Claude-TODO" branding in `output.schema.json` and `error.schema.json` titles (now "CLEO") (T3136)
+- Sync `error.schema.json` enum with implementation: add 5 missing error codes (T3136)
+- Add `lifecycle` command to COMMANDS-INDEX.json (was missing, causing drift detection failure) (T3136)
+
 ## [0.80.4] - 2026-02-06
 
 ### Bug Fixes
