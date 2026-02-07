@@ -2,6 +2,8 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [0.82.0] - 2026-02-06
+
 ## [0.82.0] - 2026-02-07
 
 ### Features
