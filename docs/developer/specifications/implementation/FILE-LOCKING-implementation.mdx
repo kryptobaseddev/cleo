@@ -38,8 +38,8 @@ icon: "code"
 | Task ID | Title | Status | Priority | Severity |
 |---------|-------|--------|----------|----------|
 | T452 | Add file locking to archive.sh | **done** | high | **HIGH** |
-| T453 | Fix unprotected log_operation() in add-task.sh | **done** | medium | MEDIUM |
-| T454 | Fix unprotected focus-clearing in complete-task.sh | **done** | medium | MEDIUM |
+| T453 | Fix unprotected log_operation() in add.sh | **done** | medium | MEDIUM |
+| T454 | Fix unprotected focus-clearing in complete.sh | **done** | medium | MEDIUM |
 | T350 | Implement file locking for concurrent phase operations | **done** | medium | MEDIUM |
 | T530 | Add file locking to migrate.sh and lib/migrate.sh | **done** | medium | MEDIUM |
 | T531 | Add file locking to log.sh and lib/logging.sh | **done** | low | LOW |
@@ -76,9 +76,9 @@ icon: "code"
 
 | Script | Sources file-ops.sh | Uses lock_file() | Uses save_json() | Status |
 |--------|---------------------|------------------|------------------|--------|
-| add-task.sh | YES | YES (main write + log_operation) | YES | **COMPLETE** |
-| update-task.sh | YES | NO (via save_json) | YES | COMPLETE |
-| complete-task.sh | YES | NO (via save_json) | YES (all writes) | **COMPLETE** |
+| add.sh | YES | YES (main write + log_operation) | YES | **COMPLETE** |
+| update.sh | YES | NO (via save_json) | YES | COMPLETE |
+| complete.sh | YES | NO (via save_json) | YES (all writes) | **COMPLETE** |
 
 **All P0 scripts now fully protected with file locking.**
 
@@ -125,8 +125,8 @@ icon: "code"
 | Script | File | Issue | Severity | Status |
 |--------|------|-------|----------|--------|
 | archive.sh | todo.json, archive.json | ~~No locking~~ | ~~HIGH~~ | **FIXED (T452)** |
-| add-task.sh | todo-log.json | ~~log_operation() unprotected~~ | ~~MEDIUM~~ | **FIXED (T453)** |
-| complete-task.sh | todo.json | ~~Focus clear unprotected~~ | ~~MEDIUM~~ | **FIXED (T454)** |
+| add.sh | todo-log.json | ~~log_operation() unprotected~~ | ~~MEDIUM~~ | **FIXED (T453)** |
+| complete.sh | todo.json | ~~Focus clear unprotected~~ | ~~MEDIUM~~ | **FIXED (T454)** |
 | phase.sh/lib/phase-tracking.sh | todo.json | ~~5 functions use raw temp+mv~~ | ~~MEDIUM~~ | **FIXED (T350)** |
 | migrate.sh/lib/migrate.sh | todo.json | ~~8 functions use raw temp+mv~~ | ~~MEDIUM~~ | **FIXED (T530)** |
 | log.sh/lib/logging.sh | todo-log.json | ~~atomic temp+mv but no flock~~ | ~~LOW~~ | **FIXED (T531)** |
@@ -168,12 +168,12 @@ icon: "code"
 
 ### Phase 3: Script Integration - COMPLETE
 
-- [x] update-task.sh - uses save_json()
+- [x] update.sh - uses save_json()
 - [x] focus.sh - uses save_json()
 - [x] session.sh - uses save_json()
-- [x] add-task.sh main write - uses lock_file()
-- [x] add-task.sh log_operation() (T453) - uses lock_file() + atomic write
-- [x] complete-task.sh focus clearing (T454) - uses save_json()
+- [x] add.sh main write - uses lock_file()
+- [x] add.sh log_operation() (T453) - uses lock_file() + atomic write
+- [x] complete.sh focus clearing (T454) - uses save_json()
 - [x] archive.sh (T452) - sources file-ops.sh, uses save_json()
 - [x] phase.sh/lib/phase-tracking.sh (T350) - 4 functions converted to save_json()
 - [x] migrate.sh/lib/migrate.sh (T530) - 8 functions converted to save_json()
@@ -249,7 +249,7 @@ save_json "$ARCHIVE_FILE" "$updated_archive"
 ### Fixing log_operation() (T453)
 
 ```bash
-# In add-task.sh, wrap log_operation writes:
+# In add.sh, wrap log_operation writes:
 lock_fd=""
 lock_file "$LOG_FILE" lock_fd 30
 # ... existing log_operation code ...
@@ -259,7 +259,7 @@ unlock_file "$lock_fd"
 ### Fixing focus clearing (T454)
 
 ```bash
-# In complete-task.sh, replace inline jq with:
+# In complete.sh, replace inline jq with:
 updated_todo=$(jq '.focus.currentTask = null' "$TODO_FILE")
 save_json "$TODO_FILE" "$updated_todo"
 ```
@@ -326,8 +326,8 @@ save_json "$log_path" "$updated_log"
 | File | Functions/Operations Fixed | Pattern |
 |------|---------------------------|---------|
 | scripts/archive.sh | Archive init, commit (3 writes) | save_json() with fallback |
-| scripts/add-task.sh | log_operation() | lock_file() + atomic write |
-| scripts/complete-task.sh | Focus clearing | save_json() |
+| scripts/add.sh | log_operation() | lock_file() + atomic write |
+| scripts/complete.sh | Focus clearing | save_json() |
 | lib/phase-tracking.sh | set_current_phase, start_phase, complete_phase, add_phase_history_entry | save_json() |
 | lib/migrate.sh | 8 migration functions | save_json() |
 | lib/logging.sh | log_operation, rotate_log, migrate_log_entries | save_json() |

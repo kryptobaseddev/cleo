@@ -130,35 +130,35 @@ compare_golden() {
 
 @test "golden: list --format text" {
     cd "$TEST_DIR"
-    run "$PROJECT_ROOT/scripts/list-tasks.sh" --format text
+    run "$PROJECT_ROOT/scripts/list.sh" --format text
     [ "$status" -eq 0 ]
     compare_golden "list-text.golden" "$output"
 }
 
 @test "golden: list --format json" {
     cd "$TEST_DIR"
-    run "$PROJECT_ROOT/scripts/list-tasks.sh" --format json
+    run "$PROJECT_ROOT/scripts/list.sh" --format json
     [ "$status" -eq 0 ]
     compare_golden "list-json.golden" "$output"
 }
 
 @test "golden: list --format jsonl" {
     cd "$TEST_DIR"
-    run "$PROJECT_ROOT/scripts/list-tasks.sh" --format jsonl
+    run "$PROJECT_ROOT/scripts/list.sh" --format jsonl
     [ "$status" -eq 0 ]
     compare_golden "list-jsonl.golden" "$output"
 }
 
 @test "golden: list --status pending" {
     cd "$TEST_DIR"
-    run "$PROJECT_ROOT/scripts/list-tasks.sh" --status pending --format text
+    run "$PROJECT_ROOT/scripts/list.sh" --status pending --format text
     [ "$status" -eq 0 ]
     compare_golden "list-pending.golden" "$output"
 }
 
 @test "golden: list --compact" {
     cd "$TEST_DIR"
-    run "$PROJECT_ROOT/scripts/list-tasks.sh" --compact
+    run "$PROJECT_ROOT/scripts/list.sh" --compact
     [ "$status" -eq 0 ]
     compare_golden "list-compact.golden" "$output"
 }
@@ -234,7 +234,7 @@ compare_golden() {
 
 @test "golden: deps tree" {
     cd "$TEST_DIR"
-    run "$PROJECT_ROOT/scripts/deps-command.sh" tree
+    run "$PROJECT_ROOT/scripts/deps.sh" tree
     [ "$status" -eq 0 ]
     compare_golden "deps-tree.golden" "$output"
 }
@@ -245,7 +245,7 @@ compare_golden() {
 
 @test "golden: blockers" {
     cd "$TEST_DIR"
-    run "$PROJECT_ROOT/scripts/blockers-command.sh"
+    run "$PROJECT_ROOT/scripts/blockers.sh"
     [ "$status" -eq 0 ]
     compare_golden "blockers-text.golden" "$output"
 }

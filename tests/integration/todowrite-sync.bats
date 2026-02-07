@@ -28,9 +28,9 @@ setup() {
     common_setup_per_test
 
     # Additional sync-specific setup
-    export SYNC_SCRIPT="${SCRIPTS_DIR}/sync-todowrite.sh"
-    export INJECT_SCRIPT="${SCRIPTS_DIR}/inject-todowrite.sh"
-    export EXTRACT_SCRIPT="${SCRIPTS_DIR}/extract-todowrite.sh"
+    export SYNC_SCRIPT="${SCRIPTS_DIR}/sync.sh"
+    export INJECT_SCRIPT="${SCRIPTS_DIR}/inject.sh"
+    export EXTRACT_SCRIPT="${SCRIPTS_DIR}/extract.sh"
     export SYNC_STATE_FILE="${TEST_TEMP_DIR}/.cleo/sync/todowrite-session.json"
 
     # Create sync directory

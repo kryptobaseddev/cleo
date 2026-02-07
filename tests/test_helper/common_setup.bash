@@ -124,13 +124,13 @@ EOF
 
 # Export script paths for easy access
 _setup_scripts() {
-    export BLOCKERS_SCRIPT="${SCRIPTS_DIR}/blockers-command.sh"
-    export DEPS_SCRIPT="${SCRIPTS_DIR}/deps-command.sh"
-    export ADD_SCRIPT="${SCRIPTS_DIR}/add-task.sh"
-    export UPDATE_SCRIPT="${SCRIPTS_DIR}/update-task.sh"
-    export COMPLETE_SCRIPT="${SCRIPTS_DIR}/complete-task.sh"
+    export BLOCKERS_SCRIPT="${SCRIPTS_DIR}/blockers.sh"
+    export DEPS_SCRIPT="${SCRIPTS_DIR}/deps.sh"
+    export ADD_SCRIPT="${SCRIPTS_DIR}/add.sh"
+    export UPDATE_SCRIPT="${SCRIPTS_DIR}/update.sh"
+    export COMPLETE_SCRIPT="${SCRIPTS_DIR}/complete.sh"
     export VALIDATE_SCRIPT="${SCRIPTS_DIR}/validate.sh"
-    export LIST_SCRIPT="${SCRIPTS_DIR}/list-tasks.sh"
+    export LIST_SCRIPT="${SCRIPTS_DIR}/list.sh"
     export INIT_SCRIPT="${SCRIPTS_DIR}/init.sh"
     export ARCHIVE_SCRIPT="${SCRIPTS_DIR}/archive.sh"
     export SESSION_SCRIPT="${SCRIPTS_DIR}/session.sh"

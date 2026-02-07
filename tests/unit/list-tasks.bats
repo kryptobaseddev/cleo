@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# list-tasks.bats - Unit tests for list-tasks.sh
+# list-tasks.bats - Unit tests for list.sh
 # =============================================================================
 # Tests list-tasks command functionality including filtering, formatting,
 # sorting, and display options.

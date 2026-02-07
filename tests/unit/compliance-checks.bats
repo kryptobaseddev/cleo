@@ -37,7 +37,7 @@ teardown_file() {
 }
 
 @test "input-validation.sh: returns valid JSON output" {
-    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     # Validate JSON structure
@@ -47,8 +47,8 @@ teardown_file() {
     echo "$output" | jq -e '.score' >/dev/null
 }
 
-@test "input-validation.sh: add-task.sh passes validation" {
-    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+@test "input-validation.sh: add.sh passes validation" {
+    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     local score
@@ -57,8 +57,8 @@ teardown_file() {
     [[ $(echo "$score >= 85" | bc -l) -eq 1 ]]
 }
 
-@test "input-validation.sh: update-task.sh passes validation" {
-    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/update-task.sh" "$SCHEMA_FILE"
+@test "input-validation.sh: update.sh passes validation" {
+    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/update.sh" "$SCHEMA_FILE"
     assert_success
 
     local score
@@ -67,7 +67,7 @@ teardown_file() {
 }
 
 @test "input-validation.sh: reports validation_lib_sourced check" {
-    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/input-validation.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     # Should check if validation.sh is sourced
@@ -83,7 +83,7 @@ teardown_file() {
 }
 
 @test "idempotency.sh: returns valid JSON output" {
-    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/update-task.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/update.sh" "$SCHEMA_FILE"
     assert_success
 
     # Validate JSON structure
@@ -92,21 +92,21 @@ teardown_file() {
     echo "$output" | jq -e '.passed' >/dev/null
 }
 
-@test "idempotency.sh: update-task.sh has idempotency support" {
-    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/update-task.sh" "$SCHEMA_FILE"
+@test "idempotency.sh: update.sh has idempotency support" {
+    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/update.sh" "$SCHEMA_FILE"
     assert_success
 
     # Should detect EXIT_NO_CHANGE usage
     echo "$output" | jq -e '.checks[] | select(.check == "exit_no_change_defined" or .check == "exit_no_change_usage")' >/dev/null
 }
 
-@test "idempotency.sh: complete-task.sh has idempotency support" {
-    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/complete-task.sh" "$SCHEMA_FILE"
+@test "idempotency.sh: complete.sh has idempotency support" {
+    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/complete.sh" "$SCHEMA_FILE"
     assert_success
 }
 
-@test "idempotency.sh: add-task.sh has duplicate detection" {
-    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+@test "idempotency.sh: add.sh has duplicate detection" {
+    run "$COMPLIANCE_DIR/idempotency.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     # May have duplicate detection check
@@ -125,7 +125,7 @@ teardown_file() {
 }
 
 @test "dry-run-semantics.sh: returns valid JSON output" {
-    run "$COMPLIANCE_DIR/dry-run-semantics.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/dry-run-semantics.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     # Validate JSON structure
@@ -134,8 +134,8 @@ teardown_file() {
     echo "$output" | jq -e '.passed' >/dev/null
 }
 
-@test "dry-run-semantics.sh: add-task.sh has dry-run support" {
-    run "$COMPLIANCE_DIR/dry-run-semantics.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+@test "dry-run-semantics.sh: add.sh has dry-run support" {
+    run "$COMPLIANCE_DIR/dry-run-semantics.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     # Should detect --dry-run flag
@@ -148,7 +148,7 @@ teardown_file() {
 }
 
 @test "dry-run-semantics.sh: checks for dryRun JSON field" {
-    run "$COMPLIANCE_DIR/dry-run-semantics.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/dry-run-semantics.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     # Should check for dryRun field in JSON output
@@ -164,7 +164,7 @@ teardown_file() {
 }
 
 @test "exit-codes.sh: returns valid JSON output" {
-    run "$COMPLIANCE_DIR/exit-codes.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/exit-codes.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     echo "$output" | jq -e '.script' >/dev/null
@@ -190,15 +190,15 @@ teardown_file() {
 }
 
 @test "flags.sh: returns valid JSON output" {
-    run "$COMPLIANCE_DIR/flags.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/flags.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     echo "$output" | jq -e '.script' >/dev/null
     echo "$output" | jq -e '.category' >/dev/null
 }
 
-@test "flags.sh: add-task.sh has required flags" {
-    run "$COMPLIANCE_DIR/flags.sh" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+@test "flags.sh: add.sh has required flags" {
+    run "$COMPLIANCE_DIR/flags.sh" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
     assert_success
 
     # Should check for --format, --quiet, --dry-run flags
@@ -213,7 +213,7 @@ teardown_file() {
     local modules=("input-validation.sh" "idempotency.sh" "dry-run-semantics.sh" "exit-codes.sh" "flags.sh")
 
     for module in "${modules[@]}"; do
-        run "$COMPLIANCE_DIR/$module" "$SCRIPTS_DIR/add-task.sh" "$SCHEMA_FILE"
+        run "$COMPLIANCE_DIR/$module" "$SCRIPTS_DIR/add.sh" "$SCHEMA_FILE"
 
         # All should return valid JSON with standard fields
         echo "$output" | jq -e '.script' >/dev/null

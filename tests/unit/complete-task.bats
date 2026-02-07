@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# complete-task.bats - Unit tests for complete-task.sh
+# complete-task.bats - Unit tests for complete.sh
 # =============================================================================
 # Tests completion functionality including notes feature (v0.7.2+):
 # - T095: --notes flag

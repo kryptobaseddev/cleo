@@ -543,7 +543,7 @@ _verify_task_integrity() {
     [ "$status" -eq 0 ] || [ "$status" -eq 2 ]
 
     # cleo list should work (use --json to ensure JSON output in TTY environment)
-    run bash "$SCRIPTS_DIR/list-tasks.sh" --json
+    run bash "$SCRIPTS_DIR/list.sh" --json
     [ "$status" -eq 0 ]
 
     # Should return tasks as JSON
@@ -572,7 +572,7 @@ _verify_task_integrity() {
     [ "$status" -eq 0 ] || [ "$status" -eq 2 ]
 
     # Should be able to add new task
-    run bash "$SCRIPTS_DIR/add-task.sh" "New task post-upgrade" \
+    run bash "$SCRIPTS_DIR/add.sh" "New task post-upgrade" \
         --description "Added after v0.48.0 migration" \
         --priority medium
 
@@ -593,7 +593,7 @@ _verify_task_integrity() {
     [ "$status" -eq 0 ] || [ "$status" -eq 2 ]
 
     # Should be able to complete task (--skip-notes for testing)
-    run bash "$SCRIPTS_DIR/complete-task.sh" T003 --skip-notes
+    run bash "$SCRIPTS_DIR/complete.sh" T003 --skip-notes
     [ "$status" -eq 0 ]
 
     # Task should be marked done

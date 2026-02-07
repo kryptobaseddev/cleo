@@ -66,7 +66,7 @@ quick_version_check() {
 **Purpose:** Pre-write validation with inline migration option
 
 **Behavior:**
-- Called by add-task.sh, update-task.sh, complete-task.sh, archive.sh
+- Called by add.sh, update.sh, complete.sh, archive.sh
 - Checks: version + checksum + basic integrity
 - If migration needed: prompt user (interactive) or fail with instructions (non-interactive)
 
@@ -269,7 +269,7 @@ Choice [M/s/a]:
 
 ### Phase 2: Write Protection (v0.25.0)
 - [ ] Create `lib/write-guard.sh` with `can_write_safely()`
-- [ ] Integrate into add-task.sh, update-task.sh, complete-task.sh, archive.sh
+- [ ] Integrate into add.sh, update.sh, complete.sh, archive.sh
 - [ ] Implement inline migration prompt
 - [ ] Add non-interactive mode support
 

@@ -33,7 +33,7 @@ teardown() {
 # Track the last assigned task ID for get_last_task_id
 _LAST_TASK_ID=""
 
-# Add a task directly to todo.json without using add-task.sh
+# Add a task directly to todo.json without using add.sh
 # This bypasses session enforcement for testing purposes
 # Args: $1=title, $2=extra_json (optional JSON object to merge)
 add_task() {

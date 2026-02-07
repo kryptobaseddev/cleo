@@ -389,7 +389,7 @@ teardown_file() {
     task_id=$(jq -r '.tasks[0].id' "$TODO_FILE")
     run bash "$UPDATE_SCRIPT" "$task_id" --status invalid_status --format json
     assert_failure
-    # TODO: update-task.sh should use output_error() for this case
+    # TODO: update.sh should use output_error() for this case
     # Currently outputs text error instead of JSON
     [[ "$output" =~ "Invalid status" ]] || [[ "$output" =~ "E_" ]]
 }

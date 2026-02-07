@@ -30,7 +30,7 @@ teardown() {
 # Helper Functions for Direct Task Insertion
 # =============================================================================
 
-# Add a task directly to todo.json without using add-task.sh
+# Add a task directly to todo.json without using add.sh
 # This bypasses session enforcement for testing purposes
 # Args: $1=id, $2=title, $3=phase, $4=priority, $5=depends (optional, comma-separated)
 add_task_direct() {

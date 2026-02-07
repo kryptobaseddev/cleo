@@ -1,0 +1,49 @@
+# CLEO Sandbox Testing Environment
+# Based on Fedora to match host system
+FROM fedora:latest
+
+# Install base dependencies
+RUN dnf update -y && \
+    dnf install -y \
+        bash \
+        bash-completion \
+        git \
+        jq \
+        openssh-server \
+        sudo \
+        vim \
+        which \
+        hostname \
+        procps-ng \
+        findutils \
+        bats \
+    && dnf clean all
+
+# Configure SSH
+RUN ssh-keygen -A && \
+    mkdir -p /run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+# Create test user
+RUN useradd -m -s /bin/bash testuser && \
+    echo "testuser:testpass" | chpasswd && \
+    echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Setup home directory structure
+USER testuser
+WORKDIR /home/testuser
+RUN mkdir -p /home/testuser/{projects,.ssh}
+
+# Copy SSH key for passwordless access (will be mounted)
+RUN mkdir -p /home/testuser/.ssh && \
+    chmod 700 /home/testuser/.ssh
+
+# Back to root for startup
+USER root
+
+# Expose SSH port
+EXPOSE 2222
+
+# Start SSH daemon
+CMD ["/usr/sbin/sshd", "-D", "-e", "-p", "2222"]

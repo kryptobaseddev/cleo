@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# deps.bats - Unit tests for deps-command.sh
+# deps.bats - Unit tests for deps.sh
 # =============================================================================
 # Tests dependency visualization functionality using DRY helpers and fixtures.
 # =============================================================================

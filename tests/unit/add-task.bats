@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# add-task.bats - Unit tests for add-task.sh
+# add-task.bats - Unit tests for add.sh
 # =============================================================================
 # Tests add-task command functionality including validation, options,
 # edge cases, and error handling.

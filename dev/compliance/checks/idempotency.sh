@@ -20,8 +20,8 @@ source "$SCRIPT_DIR/../lib/test-helpers.sh"
 
 # Define idempotent command categories
 # MUST = Required by spec, SHOULD = Recommended
-declare -a MUST_IDEMPOTENT=("update-task.sh" "complete-task.sh" "archive.sh" "restore.sh" "phase.sh")
-declare -a SHOULD_IDEMPOTENT=("add-task.sh")
+declare -a MUST_IDEMPOTENT=("update.sh" "complete.sh" "archive.sh" "restore.sh" "phase.sh")
+declare -a SHOULD_IDEMPOTENT=("add.sh")
 
 # Check idempotency compliance for a script file
 # Usage: check_idempotency <script_path> <schema_json> [verbose]
@@ -131,7 +131,7 @@ check_idempotency() {
     fi
 
     # Check 3: Update command - detect no-change scenarios
-    if [[ "$script_name" == "update-task.sh" ]]; then
+    if [[ "$script_name" == "update.sh" ]]; then
         local has_no_change_detection=false
 
         # Patterns indicating no-change detection:
@@ -174,7 +174,7 @@ check_idempotency() {
     fi
 
     # Check 4: Complete command - handles already-done status
-    if [[ "$script_name" == "complete-task.sh" ]]; then
+    if [[ "$script_name" == "complete.sh" ]]; then
         local has_already_done_check=false
 
         # Patterns indicating already-done handling
@@ -269,7 +269,7 @@ check_idempotency() {
     fi
 
     # Check 7: Add command - duplicate detection (SHOULD)
-    if [[ "$script_name" == "add-task.sh" ]]; then
+    if [[ "$script_name" == "add.sh" ]]; then
         local has_duplicate_detection=false
 
         # Patterns indicating duplicate detection

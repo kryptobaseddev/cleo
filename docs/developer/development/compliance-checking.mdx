@@ -251,7 +251,7 @@ schema.json
 │   ├── sync: ["extract", "inject", "sync"]
 │   └── maintenance: ["backup", "config", "init", "migrate", "restore", "validate"]
 ├── commandScripts/
-│   └── { "list": "list-tasks.sh", "add": "add-task.sh", ... }
+│   └── { "list": "list.sh", "add": "add.sh", ... }
 ├── scoring/
 │   └── { foundation_libs: 15, format_flag: 10, resolve_format: 15, ... }
 └── thresholds/
@@ -497,7 +497,7 @@ Options:
 
 2. Verify JSON output manually:
    ```bash
-   ./scripts/list-tasks.sh --format json | jq .
+   ./scripts/list.sh --format json | jq .
    ```
 
 3. Check for `$schema` field in JSON output

@@ -37,7 +37,7 @@ check_and_alert_context() {
 ### Usage Pattern
 
 ```bash
-# In scripts/complete-task.sh after successful completion
+# In scripts/complete.sh after successful completion
 source "$LIB_DIR/context-alert.sh"
 # ... task completion logic ...
 check_and_alert_context  # Silently returns if no alert needed
@@ -247,16 +247,16 @@ is_stale() {
 
 From T1321 research findings, these commands MUST call `check_and_alert_context`:
 
-1. **scripts/complete-task.sh** - After successful task completion (line ~650)
-2. **scripts/add-task.sh** - After adding task with `--parent` flag (line ~1000)
+1. **scripts/complete.sh** - After successful task completion (line ~650)
+2. **scripts/add.sh** - After adding task with `--parent` flag (line ~1000)
 3. **scripts/session.sh** - After `session end` command (line ~760)
 
 ### Medium-Priority Commands (Future)
 
 Optional cumulative triggers (tracked in session stats):
 
-- `scripts/add-task.sh` - After 3+ tasks added in session
-- `scripts/update-task.sh` - After 5+ updates in session
+- `scripts/add.sh` - After 3+ tasks added in session
+- `scripts/update.sh` - After 5+ updates in session
 - `scripts/focus.sh` - After 3+ focus changes in session
 
 **Deferred to future implementation**: Requires session stats counting integration.
@@ -294,8 +294,8 @@ File: `tests/integration/context-alert-cli.bats`
 
 ### Modified Files
 
-- `scripts/complete-task.sh` - Add `check_and_alert_context` call
-- `scripts/add-task.sh` - Add `check_and_alert_context` call (parent check)
+- `scripts/complete.sh` - Add `check_and_alert_context` call
+- `scripts/add.sh` - Add `check_and_alert_context` call (parent check)
 - `scripts/session.sh` - Add `check_and_alert_context` call (end command)
 
 ## Implementation Checklist
@@ -309,7 +309,7 @@ File: `tests/integration/context-alert-cli.bats`
 - [ ] Add error handling for missing/invalid state files
 - [ ] Write unit tests for all logic paths
 - [ ] Write integration tests for CLI workflows
-- [ ] Integrate into `complete-task.sh`, `add-task.sh`, `session.sh`
+- [ ] Integrate into `complete.sh`, `add.sh`, `session.sh`
 - [ ] Update documentation in `docs/commands/context.md`
 
 ## Future Enhancements (Out of Scope)

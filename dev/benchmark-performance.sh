@@ -382,7 +382,7 @@ LOGEOF
     local list_times=()
     for ((run=1; run<=NUM_RUNS; run++)); do
         local elapsed
-        elapsed=$(measure_time "TODO_FILE=$TEMP_DIR/todo.json $SCRIPT_DIR/list-tasks.sh -q -f json")
+        elapsed=$(measure_time "TODO_FILE=$TEMP_DIR/todo.json $SCRIPT_DIR/list.sh -q -f json")
         list_times+=("$elapsed")
         [[ "$FORMAT" == "text" ]] && echo "  Run $run: ${elapsed}ms"
     done

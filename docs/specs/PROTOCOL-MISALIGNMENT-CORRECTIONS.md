@@ -287,7 +287,7 @@ cleo contribution track \
 
 The `cleo complete` command automatically invokes contribution tracking:
 
-**File**: `scripts/complete-task.sh`
+**File**: `scripts/complete.sh`
 
 **Integration Point** (after line 150):
 ```bash

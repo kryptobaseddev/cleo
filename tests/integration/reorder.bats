@@ -158,7 +158,7 @@ get_position() {
 # =============================================================================
 
 @test "add auto-assigns next position" {
-    skip "requires installed add-task.sh with position"
+    skip "requires installed add.sh with position"
     run cleo add "New Task" --format json
     assert_success
 
@@ -168,7 +168,7 @@ get_position() {
 }
 
 @test "add --position inserts at specified position and shuffles" {
-    skip "requires installed add-task.sh with position"
+    skip "requires installed add.sh with position"
     run cleo add "New Task" --position 2 --format json
 
     # New task at position 2
@@ -206,7 +206,7 @@ get_position() {
 # =============================================================================
 
 @test "list --sort position orders by position" {
-    skip "requires installed list-tasks.sh with position sort"
+    skip "requires installed list.sh with position sort"
     # Shuffle positions
     jq '.tasks[0].position = 3 | .tasks[2].position = 1' "$TODO_FILE" > "$TODO_FILE.tmp" && mv "$TODO_FILE.tmp" "$TODO_FILE"
 
@@ -223,7 +223,7 @@ get_position() {
 # =============================================================================
 
 @test "tree view shows children sorted by position" {
-    skip "requires installed list-tasks.sh with position tree"
+    skip "requires installed list.sh with position tree"
     # Add child tasks with positions
     jq '.tasks += [
         {"id":"T100","title":"Epic","status":"pending","priority":"medium","createdAt":"2026-01-01T03:00:00Z","type":"epic","position":6},

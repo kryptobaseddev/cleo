@@ -226,12 +226,12 @@ teardown_file() {
 | `$CONFIG_FILE` | Path to test config.json |
 | `$ARCHIVE_FILE` | Path to test archive.json |
 | `$LOG_FILE` | Path to test log.json |
-| `$ADD_SCRIPT` | Path to add-task.sh |
-| `$UPDATE_SCRIPT` | Path to update-task.sh |
-| `$COMPLETE_SCRIPT` | Path to complete-task.sh |
+| `$ADD_SCRIPT` | Path to add.sh |
+| `$UPDATE_SCRIPT` | Path to update.sh |
+| `$COMPLETE_SCRIPT` | Path to complete.sh |
 | `$VALIDATE_SCRIPT` | Path to validate.sh |
-| `$BLOCKERS_SCRIPT` | Path to blockers-command.sh |
-| `$DEPS_SCRIPT` | Path to deps-command.sh |
+| `$BLOCKERS_SCRIPT` | Path to blockers.sh |
+| `$DEPS_SCRIPT` | Path to deps.sh |
 | ... | (and more script paths) |
 
 #### From `assertions.bash`
