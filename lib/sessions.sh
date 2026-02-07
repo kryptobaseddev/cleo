@@ -817,7 +817,7 @@ resume_session() {
 
     local session_status focus_task
     session_status=$(echo "$session_info" | jq -r '.status')
-    focus_task=$(echo "$session_info" | jq -r '.focus.currentTask // ""')
+    focus_task=$(echo "$session_info" | jq -r '.focus.currentTask // .focus.previousTask // ""')
 
     # Allow resuming both "suspended" and "ended" sessions
     if [[ "$session_status" != "suspended" && "$session_status" != "ended" ]]; then
@@ -880,6 +880,7 @@ resume_session() {
                 .suspendedAt = null |
                 .endedAt = null |
                 .lastActivity = $ts |
+                .focus.currentTask = (.focus.currentTask // .focus.previousTask) |
                 .stats.resumeCount += 1
             else . end
         ] |

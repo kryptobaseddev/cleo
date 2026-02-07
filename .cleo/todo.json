@@ -431,30 +431,32 @@
       },
       {
         "version": "v0.80.5",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-07T03:25:40Z",
         "createdAt": "2026-02-07T03:24:05Z",
         "tasks": [
           "T2926",
           "T2927"
         ],
-        "notes": "test"
+        "notes": "test",
+        "gitTag": "v0.80.5",
+        "changelog": "## [0.80.5] - 2026-02-06\n\n### Other Changes\n- Create MCP server entry point and registration (T2926)\n- Prepare MCP server npm package (T2927)"
       }
     ]
   },
-  "lastUpdated": "2026-02-07T03:24:12Z",
+  "lastUpdated": "2026-02-07T03:29:55Z",
   "_meta": {
-    "checksum": "221de79d12092bd4",
+    "checksum": "5f97cb196e696a32",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-05T20:58:14Z",
+    "lastModified": "2026-02-07T03:27:35Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 9,
-    "generation": 2050
+    "activeSessionCount": 14,
+    "generation": 2075
   },
   "focus": {
     "currentTask": null,
@@ -12956,12 +12958,12 @@
     {
       "id": "T3056",
       "title": "Fix agent config test failures (13 tests)",
-      "status": "active",
+      "status": "pending",
       "priority": "medium",
       "type": "task",
       "parentId": "T1342",
       "createdAt": "2026-02-03T23:39:30Z",
-      "updatedAt": "2026-02-05T20:58:14Z",
+      "updatedAt": "2026-02-07T03:27:13Z",
       "size": "small",
       "position": 8,
       "positionVersion": 0,
@@ -12981,7 +12983,7 @@
       "type": "task",
       "parentId": "T1342",
       "createdAt": "2026-02-03T23:39:32Z",
-      "updatedAt": "2026-02-03T23:39:32Z",
+      "updatedAt": "2026-02-07T03:26:57Z",
       "size": "medium",
       "position": 9,
       "positionVersion": 0,
@@ -13152,12 +13154,12 @@
     {
       "id": "T3064",
       "title": "Orchestrator: Reduce context consumption to <10K tokens",
-      "status": "pending",
+      "status": "active",
       "priority": "high",
       "type": "task",
       "parentId": "T2975",
       "createdAt": "2026-02-04T06:26:04Z",
-      "updatedAt": "2026-02-04T06:26:04Z",
+      "updatedAt": "2026-02-07T03:27:35Z",
       "size": "medium",
       "position": 38,
       "positionVersion": 0,
@@ -14384,6 +14386,517 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "After all tests pass and commit is made: bump version, generate changelog, create tag, push. Use ./dev/release-version.sh patch --push"
+    },
+    {
+      "id": "T3109",
+      "title": "EPIC: Phase 0 Foundation to BRAIN Compliance",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-07T03:27:52Z",
+      "updatedAt": "2026-02-07T03:27:52Z",
+      "size": "medium",
+      "position": 213,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Master epic for CLEO roadmap from v0.80.3 through Phase 0 Foundation, MCP Server delivery, and BRAIN cognitive infrastructure per Strategic Roadmap and BRAIN specifications."
+    },
+    {
+      "id": "T3110",
+      "title": "Fix unsafe config.json write paths",
+      "status": "done",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:14Z",
+      "updatedAt": "2026-02-07T03:29:11Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed 3 unsafe write paths in config.sh, orchestrator-spawn.sh, CLEO-INJECTION.md. DONE.",
+      "completedAt": "2026-02-07T03:29:11Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:11Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:12Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3111",
+      "title": "Audit all jq redirect patterns for atomic safety",
+      "status": "done",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:15Z",
+      "updatedAt": "2026-02-07T03:29:14Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed 18 unsafe jq patterns across 12 files. DONE.",
+      "completedAt": "2026-02-07T03:29:14Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:14Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:14Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3112",
+      "title": "Audit codebase for hardcoded paths",
+      "status": "done",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:29Z",
+      "updatedAt": "2026-02-07T03:29:17Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Production code clean, 2 test paths fixed. DONE.",
+      "completedAt": "2026-02-07T03:29:17Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:17Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:17Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3113",
+      "title": "Fix test-runner.sh sandbox script",
+      "status": "done",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:30Z",
+      "updatedAt": "2026-02-07T03:29:19Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed 3 bugs: placeholder URL, multiSession, bare cleo done. DONE.",
+      "completedAt": "2026-02-07T03:29:19Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:19Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:20Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3114",
+      "title": "FUSE filesystem research",
+      "status": "done",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:31Z",
+      "updatedAt": "2026-02-07T03:29:22Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Confirmed red herring - atomic_write is correct. DONE.",
+      "completedAt": "2026-02-07T03:29:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:22Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:23Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3115",
+      "title": "Fix hardcoded paths in test files",
+      "status": "done",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:32Z",
+      "updatedAt": "2026-02-07T03:29:25Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed protocol-validation.bats and commit-hook.bats. DONE.",
+      "completedAt": "2026-02-07T03:29:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:25Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:26Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3116",
+      "title": "Root cause config.json deletion bug",
+      "status": "done",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:33Z",
+      "updatedAt": "2026-02-07T03:29:28Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed claudedocs-validation.bats rm -f on real config. DONE.",
+      "completedAt": "2026-02-07T03:29:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:28Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:29Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3117",
+      "title": "Fix CLI output routing - JSON to stdout",
+      "status": "done",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:34Z",
+      "updatedAt": "2026-02-07T03:29:31Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed log_error in 13 scripts to be format-aware. DONE.",
+      "completedAt": "2026-02-07T03:29:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:31Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:31Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3118",
+      "title": "Fix stale focus locks from ended sessions",
+      "status": "done",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:35Z",
+      "updatedAt": "2026-02-07T03:29:33Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fixed end_session and archive_session to clear focus. DONE.",
+      "completedAt": "2026-02-07T03:29:33Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T03:29:33Z] Completed in previous session sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T03:29:34Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3119",
+      "title": "Commit all fixes and release v0.80.4",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:54Z",
+      "updatedAt": "2026-02-07T03:28:54Z",
+      "size": "medium",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Stage and commit session-fixer changes, output routing fixes, handoff doc. Cut v0.80.4."
+    },
+    {
+      "id": "T3120",
+      "title": "Triage and fix 248 integration test failures",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:55Z",
+      "updatedAt": "2026-02-07T03:29:44Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "30 files with failures. Top: setup-claude-aliases 38/38, orchestrator-spawn 22, upgrade-v0.48 25.",
+      "depends": [
+        "T3119"
+      ]
+    },
+    {
+      "id": "T3121",
+      "title": "Stabilize MCP Server tests to 0 failures",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:56Z",
+      "updatedAt": "2026-02-07T03:29:46Z",
+      "size": "medium",
+      "position": 12,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "46/300 failing across 24 suites. Must validate all 8 domain routers and CQRS gateways.",
+      "depends": [
+        "T3119"
+      ]
+    },
+    {
+      "id": "T3122",
+      "title": "Add protocol CLI wrappers - consensus.sh contribution.sh",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:57Z",
+      "updatedAt": "2026-02-07T03:29:48Z",
+      "size": "medium",
+      "position": 13,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Per Roadmap Section 3.1.2: connect orphaned code in lib/protocol-validation.sh to CLI.",
+      "depends": [
+        "T3119"
+      ]
+    },
+    {
+      "id": "T3123",
+      "title": "Add Nexus CLI commands - query discover search",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:58Z",
+      "updatedAt": "2026-02-07T03:29:50Z",
+      "size": "medium",
+      "position": 14,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Per Roadmap Section 3.1.2: nexus query, discover, search. Currently only register and list.",
+      "depends": [
+        "T3119"
+      ]
+    },
+    {
+      "id": "T3124",
+      "title": "Design manifest system architecture for MCP",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:28:59Z",
+      "updatedAt": "2026-02-07T03:28:59Z",
+      "size": "medium",
+      "position": 15,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Based on T3118 audits. Command naming, subcommand surface, MCP tool mapping, migration path."
+    },
+    {
+      "id": "T3125",
+      "title": "MCP Server full CQRS with protocol enforcement",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:29:00Z",
+      "updatedAt": "2026-02-07T03:29:51Z",
+      "size": "medium",
+      "position": 16,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Evolve from wrapper to real gateway. Protocol enforcement, background jobs, caching.",
+      "depends": [
+        "T3121",
+        "T3124"
+      ]
+    },
+    {
+      "id": "T3126",
+      "title": "BRAIN Phase 1 - Session context persistence",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:29:01Z",
+      "updatedAt": "2026-02-07T03:29:53Z",
+      "size": "medium",
+      "position": 17,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Per BRAIN Spec Section 2.1: session-context.json, memory store/recall CLI.",
+      "depends": [
+        "T3125"
+      ]
+    },
+    {
+      "id": "T3127",
+      "title": "Phase 0 GATE 1 validation checklist",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:29:02Z",
+      "updatedAt": "2026-02-07T03:29:55Z",
+      "size": "medium",
+      "position": 18,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Verify all Phase 0 GATE 1 criteria from Strategic Roadmap Section 8.1.",
+      "depends": [
+        "T3120",
+        "T3121",
+        "T3122",
+        "T3123"
+      ]
+    },
+    {
+      "id": "T3128",
+      "title": "Fix session start ghost creation on failure",
+      "status": "pending",
+      "priority": "critical",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:29:03Z",
+      "updatedAt": "2026-02-07T03:29:03Z",
+      "size": "medium",
+      "position": 19,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Session start creates active record before validation. Must be atomic."
+    },
+    {
+      "id": "T3129",
+      "title": "Fix exit code propagation in CLI scripts",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T3109",
+      "createdAt": "2026-02-07T03:29:04Z",
+      "updatedAt": "2026-02-07T03:29:04Z",
+      "size": "medium",
+      "position": 20,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Some commands return 0 but JSON has success:false with non-zero exitCode."
     }
   ],
   "labels": {}
