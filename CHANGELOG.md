@@ -10,10 +10,23 @@ All notable changes to the CLEO system will be documented in this file.
 - Delete duplicate `docs/archive/specs-md/LLM-AGENT-FIRST-SPEC.md` (13,850 tokens of pure duplication) (T3136)
 
 ### Fixed
+- Fix output routing: 9 scripts now emit JSON errors to stdout (not stderr) when FORMAT=json (T3135)
+  - Affected: focus.sh, update-task.sh, delete.sh, complete-task.sh, add-task.sh, reopen.sh, uncancel.sh, unarchive.sh, log.sh
+  - Root cause: `log_error` wrote plain text to stderr, ignoring FORMAT variable
+- Fix exit code mismatches between process exit and JSON `exitCode` field (T3135)
+  - focus.sh: semantic error codes (E_TASK_NOT_IN_SCOPE/34, E_TASK_CLAIMED/35, E_SESSION_NOT_FOUND/31)
+  - add-task.sh: validate_priority now returns EXIT_VALIDATION_ERROR=6
+  - update-task.sh: validate_status now returns EXIT_VALIDATION_ERROR=6
+- Fix command substitution swallowing JSON error output in focus.sh set_session_focus (T3135)
+- Fix `set -e` premature termination when `output_error` returned non-zero in log_error (T3135)
 - Fix `$schema` URL inconsistency: `metrics.schema.json` and `sessions.schema.json` now use `cleo-dev.com` (matching all other schemas) (T3136)
 - Fix legacy "Claude-TODO" branding in `output.schema.json` and `error.schema.json` titles (now "CLEO") (T3136)
 - Sync `error.schema.json` enum with implementation: add 5 missing error codes (T3136)
 - Add `lifecycle` command to COMMANDS-INDEX.json (was missing, causing drift detection failure) (T3136)
+
+### Refactored
+- Refactor installer command discovery from manual case statement to convention-based `<command>.sh` lookup (T3135)
+- Add `###CLEO` metadata headers to all scripts for automated command discovery and documentation
 
 ## [0.80.4] - 2026-02-06
 

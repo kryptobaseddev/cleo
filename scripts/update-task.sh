@@ -290,7 +290,19 @@ EOF
   exit "$EXIT_SUCCESS"
 }
 
-log_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+log_error() {
+  local message="$1"
+  local error_code="${2:-E_UNKNOWN}"
+  local exit_code="${3:-1}"
+  local suggestion="${4:-}"
+
+  if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
+    output_error "$error_code" "$message" "$exit_code" true "$suggestion" || true
+  else
+    echo -e "${RED}[ERROR]${NC} $message" >&2
+    [[ -n "$suggestion" ]] && echo "Suggestion: $suggestion" >&2
+  fi
+}
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 
@@ -309,11 +321,11 @@ validate_status() {
       return 0
       ;;
     done)
-      log_error "Use 'cleo complete' to mark tasks as done"
+      log_error "Use 'cleo complete' to mark tasks as done" "E_VALIDATION_ERROR" "${EXIT_VALIDATION_ERROR:-6}" "Run 'cleo complete <task-id>' instead"
       return 1
       ;;
     *)
-      log_error "Invalid status: $status (must be pending|active|blocked)"
+      log_error "Invalid status: $status (must be pending|active|blocked)" "E_VALIDATION_ERROR" "${EXIT_VALIDATION_ERROR:-6}"
       return 1
       ;;
   esac
