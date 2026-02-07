@@ -1,7 +1,27 @@
 # Changelog
 
 All notable changes to the CLEO system will be documented in this file.
-## [0.81.0] - 2026-02-06
+
+## [0.82.0] - 2026-02-07
+
+### Features
+- Add `atomic_jsonl_append()` unified abstraction with flock locking in lib/file-ops.sh (T3148)
+- Add `cleo research add` CLI subcommand for agent manifest entry creation (T3149)
+- Add `cleo research update` CLI subcommand for manifest entry modification (T3150)
+- Create `skills/_shared/manifest-operations.md` single-source protocol reference (T3154)
+
+### Bug Fixes
+- Fix TOKEN_USAGE.jsonl silent failure - remove `|| true` suppression, use atomic append (T3151)
+- Apply flock pattern to 5 JSONL files (COMPLIANCE, SESSIONS, TOKEN_USAGE, BENCHMARK, AB_TESTS) via atomic_jsonl_append (T3152)
+
+### Documentation
+- Update 9 protocol files to @include manifest-operations.md instead of inline JSONL instructions (T3155)
+- Update subagent-protocol-base.md to reference `cleo research add` as canonical method (T3155)
+
+## [0.81.1] - 2026-02-06
+
+### Bug Fixes
+- Recalculate checksum in release/changelog writes to todo.json (T3130)
 
 ## [0.81.0] - 2026-02-06
 
@@ -13,15 +33,6 @@ All notable changes to the CLEO system will be documented in this file.
 
 ### Other Changes
 - Log release pipeline bugs + sync CLEO state (T3109)
-## [Unreleased]
-
-## [0.81.0] - 2026-02-06
-
-### Features
-- Dynamic Command Registry - header-based validation, tests, cleanup (T3109)
-
-### Bug Fixes
-- Session focus lifecycle + task reconciliation (T3109)
 ## [0.80.5] - 2026-02-07
 
 ### Bug Fixes
