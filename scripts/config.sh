@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: config
+# category: maintenance
+# synopsis: View and modify configuration (project and global)
+# relevance: medium
+# flags: --format,--quiet,--global
+# exits: 0,2,8
+# json-output: true
+# subcommands: show,set,get,list,reset
+###END
 # Configuration management for cleo
 # Usage: cleo config <subcommand> [args] [options]
 #

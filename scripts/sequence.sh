@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: sequence
+# category: maintenance
+# synopsis: Inspect and manage task ID sequence (show/check/repair)
+# relevance: high
+# flags: --format,--json,--human,--quiet,--verbose
+# exits: 0,4,6,20,22
+# json-output: true
+# subcommands: show,check,repair
+# note: Part of ID Integrity System - verify sequence before adding tasks
+###END
 # CLEO Sequence Command
 # Inspect and manage task ID sequence system
 #

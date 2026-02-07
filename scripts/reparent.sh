@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: reparent
+# category: write
+# synopsis: Move task to different parent in hierarchy
+# relevance: medium
+# flags: --format,--quiet,--to
+# exits: 0,1,2,3,4,10,11,12,13,14
+# json-output: true
+###END
 # reparent.sh - Move a task to a different parent
 #
 # Usage:

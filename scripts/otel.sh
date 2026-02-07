@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+###CLEO
+# command: otel
+# category: read
+# synopsis: Token metrics tracking - view status, summary, and manage tracking data
+# relevance: medium
+# exits: 0,1
+# json-output: true
+###END
 # Token Metrics Tracking for CLEO
 # Usage: cleo otel <on|off|status|summary>
 

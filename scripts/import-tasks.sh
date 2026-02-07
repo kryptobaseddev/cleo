@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: import-tasks
+# category: sync
+# synopsis: Import tasks from export package with ID remapping and conflict resolution
+# relevance: medium
+# flags: --format,--dry-run,--parent,--on-duplicate,--on-missing-dep,--on-phase-mismatch,--add-label
+# exits: 0,2,3,4,6
+# json-output: true
+###END
 # =============================================================================
 # import-tasks.sh - Import tasks from portable export package format
 # =============================================================================

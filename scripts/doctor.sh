@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: doctor
+# category: maintenance
+# synopsis: System health diagnostics (global checks, project registry, agent configs)
+# relevance: high
+# flags: --global,--fix,--prune,--format,--verbose
+# exits: 0,50,51,52,100
+# json-output: true
+###END
 # ============================================================================
 # scripts/doctor.sh - CLEO health check diagnostics
 # ============================================================================

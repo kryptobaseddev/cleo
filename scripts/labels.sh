@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: labels
+# category: read
+# synopsis: List all labels with counts or show tasks with specific label
+# relevance: medium
+# flags: --format,--quiet
+# exits: 0,4,100
+# json-output: true
+# subcommands: show
+###END
 
 #####################################################################
 # labels.sh - Label Management Command for Claude Todo System

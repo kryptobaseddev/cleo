@@ -312,56 +312,20 @@ if [[ -f "$SCRIPT_DIR/cleo" ]]; then
 fi
 
 # Fallback: direct script execution
-# Command to script mapping (Bash 3.2 compatible - no associative arrays)
+# Convention-based command discovery - scripts named <command>.sh
+# No manual case statement needed. Adding a new command = adding a script.
 _get_cmd_script() {
-    case "$1" in
-        # Core commands
-        init) echo "init.sh" ;; validate) echo "validate.sh" ;; archive) echo "archive.sh" ;;
-        add) echo "add-task.sh" ;; complete) echo "complete-task.sh" ;; list) echo "list-tasks.sh" ;;
-        update) echo "update-task.sh" ;; focus) echo "focus.sh" ;; session) echo "session.sh" ;;
-        show) echo "show.sh" ;; find) echo "find.sh" ;; dash) echo "dash.sh" ;; next) echo "next.sh" ;;
-        # Config and backup
-        config) echo "config.sh" ;; backup) echo "backup.sh" ;; restore) echo "restore.sh" ;;
-        export) echo "export.sh" ;; stats) echo "stats.sh" ;; log) echo "log.sh" ;;
-        # Labels, deps, phases
-        labels) echo "labels.sh" ;; deps) echo "deps-command.sh" ;; blockers) echo "blockers-command.sh" ;; relates) echo "relates-command.sh" ;;
-        phases) echo "phases.sh" ;; phase) echo "phase.sh" ;; exists) echo "exists.sh" ;;
-        # Analysis and sync
-        history) echo "history.sh" ;; analyze) echo "analyze.sh" ;; sync) echo "sync-todowrite.sh" ;;
-        commands) echo "commands.sh" ;; research) echo "research.sh" ;;
-        # Task lifecycle (delete, cancel, reopen)
-        delete) echo "delete.sh" ;; uncancel) echo "uncancel.sh" ;; reopen) echo "reopen.sh" ;;
-        # Hierarchy management
-        reparent) echo "reparent.sh" ;; promote) echo "promote.sh" ;;
-        reorder) echo "reorder.sh" ;;
-        # Verification and maintenance
-        verify) echo "verify.sh" ;; upgrade) echo "upgrade.sh" ;; context) echo "context.sh" ;;
-        doctor) echo "doctor.sh" ;; migrate) echo "migrate.sh" ;;
-        # Installation and setup
-        self-update) echo "self-update.sh" ;; skills) echo "skills.sh" ;;
-        # Import/export tasks
-        export-tasks) echo "export-tasks.sh" ;; import-tasks) echo "import-tasks.sh" ;;
-        # Archive management
-        archive-stats) echo "archive-stats.sh" ;; unarchive) echo "unarchive.sh" ;;
-        # Orchestration and automation
-        orchestrator) echo "orchestrator.sh" ;; safestop) echo "safestop.sh" ;; sequence) echo "sequence.sh" ;;
-        # Protocol validation
-        consensus) echo "consensus.sh" ;; contribution) echo "contribution.sh" ;;
-        specification) echo "specification.sh" ;; decomposition) echo "decomposition.sh" ;;
-        implementation) echo "implementation.sh" ;; lifecycle) echo "lifecycle.sh" ;; validation) echo "validation.sh" ;; testing) echo "testing.sh" ;;
-        # Metrics and compliance
-        compliance) echo "compliance.sh" ;; otel) echo "otel.sh" ;;
-        # Intelligence system
-        nexus-query) echo "nexus-query.sh" ;; nexus-discover) echo "nexus-discover.sh" ;; nexus-search) echo "nexus-search.sh" ;;
-        # Other tools
-        roadmap) echo "roadmap.sh" ;; claude-migrate) echo "claude-migrate.sh" ;;
-        release) echo "release.sh" ;; docs) echo "docs.sh" ;;
-        nexus) echo "nexus.sh" ;;
-        *) echo "" ;;
-    esac
+    local cmd="$1"
+    local script="${cmd}.sh"
+    if [[ -f "$SCRIPT_DIR/$script" ]]; then
+        echo "$script"
+    else
+        echo ""
+    fi
 }
 
 # Alias resolution (Bash 3.2 compatible)
+# Generated from ###CLEO headers + standard convenience aliases
 _resolve_alias() {
     case "$1" in
         # Standard aliases
@@ -376,9 +340,16 @@ _resolve_alias() {
     esac
 }
 
-# List of all commands for validation
+# Dynamic command discovery from scripts directory
 _get_all_commands() {
-    echo "init validate archive add complete list update focus session show find dash next config backup restore export stats log labels deps blockers relates phases phase exists history analyze sync commands research delete uncancel reopen reparent promote reorder verify upgrade context doctor migrate self-update skills export-tasks import-tasks archive-stats unarchive orchestrator safestop sequence consensus contribution specification decomposition implementation lifecycle validation testing compliance otel nexus-query nexus-discover nexus-search roadmap claude-migrate release docs nexus"
+    local cmds=""
+    for script in "$SCRIPT_DIR"/*.sh; do
+        [[ -f "$script" ]] || continue
+        local name
+        name=$(basename "$script" .sh)
+        cmds="$cmds $name"
+    done
+    echo "${cmds# }"
 }
 
 cmd="${1:-help}"

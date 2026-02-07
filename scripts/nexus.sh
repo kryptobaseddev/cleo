@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: nexus
+# category: write
+# synopsis: Global intelligence system for cross-project task discovery and dependency analysis
+# relevance: critical
+# flags: --format,--json,--human,--permissions,--name,--method,--limit,--reverse
+# exits: 0,2,70,71,72,73,74,75,76,77,78
+# json-output: true
+# json-default: true
+# subcommands: init,register,unregister,list,query,discover,deps,sync
+###END
 # CLEO Nexus Command
 # Global intelligence system for cross-project task coordination
 # Provides discovery, querying, and dependency analysis across registered projects

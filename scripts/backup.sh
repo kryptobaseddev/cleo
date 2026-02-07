@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: backup
+# category: maintenance
+# synopsis: Create backup of todo files or list available backups
+# relevance: low
+# flags: --format,--quiet,--list,--destination
+# exits: 0,3
+# json-output: true
+###END
 # CLEO Backup Script
 # Create backups of all todo system files
 set -euo pipefail

@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: safestop
+# category: write
+# synopsis: Graceful shutdown for agents approaching context limits with handoff support
+# relevance: critical
+# flags: --reason,--commit,--handoff,--no-session-end,--dry-run,--format,--json,--human,--quiet
+# exits: 0,2,3
+# json-output: true
+# note: Part of Context Safeguard System - use when approaching context limits
+###END
 # CLEO Safestop Command
 # Graceful shutdown for agents approaching context limits
 set -euo pipefail

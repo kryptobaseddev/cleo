@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: roadmap
+# category: read
+# synopsis: Generate roadmap from pending epics and CHANGELOG history
+# relevance: medium
+# flags: --format,--json,--human,--include-history,--upcoming-only
+# exits: 0,3
+# json-output: true
+###END
 
 #####################################################################
 # roadmap.sh - Roadmap Generation Command for CLEO

@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: nexus-search
+# category: intelligence
+# synopsis: Search tasks across registered projects using pattern matching
+# relevance: high
+# flags: --format,--json,--human,--pattern,--limit
+# exits: 0,70,72
+# json-output: true
+# json-default: true
+# note: Part of Nexus Intelligence System - pattern-based cross-project search
+###END
 # CLEO Nexus Search Command
 # Search tasks across registered projects using pattern matching
 set -euo pipefail

@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: phase
+# category: write
+# synopsis: Project-level phase lifecycle management (set, show, transitions)
+# relevance: medium
+# flags: --format,--quiet
+# exits: 0,2,4
+# json-output: true
+# subcommands: set,show,history
+###END
 # Project-level phase management for cleo
 # Usage: cleo phase <subcommand> [args]
 # Subcommands: show, set, start, complete, advance, list

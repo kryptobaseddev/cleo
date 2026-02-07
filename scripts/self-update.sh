@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: self-update
+# category: maintenance
+# synopsis: Update CLEO to latest version from GitHub releases with checksum verification
+# relevance: high
+# flags: --check,--status,--version,--force,--format,--json,--human,--quiet
+# exits: 0,1,2,3,4,5,100
+# json-output: true
+# note: Exit 1 with --check means update available. Exit 100 = dev mode (use git pull)
+###END
 # ============================================================================
 # scripts/self-update.sh - CLEO self-update command
 # ============================================================================

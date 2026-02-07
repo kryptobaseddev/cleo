@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: orchestrator
+# category: read
+# synopsis: Multi-agent coordination for parallel task execution with dependency analysis
+# relevance: critical
+# flags: --epic,--tokens,--template,--subagent,--manifest,--orchestrator,--install,--verify
+# exits: 0,2,3,4,52
+# json-output: true
+# subcommands: start,status,next,ready,context,spawn,analyze,parallel,check,validate,skill
+# note: Part of Orchestrator Protocol - enables LLM agents to coordinate parallel work via subagents
+###END
 # orchestrator.sh - Orchestrator Protocol CLI Entry Point
 #
 # USAGE:

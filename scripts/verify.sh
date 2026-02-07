@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: verify
+# category: write
+# synopsis: Manage verification gates for tasks (implemented, testsPassed, qaPassed, securityPassed, documented)
+# relevance: high
+# flags: --gate,--value,--agent,--all,--reset
+# exits: 0,4,40,41,42,43,44,45
+# json-output: true
+###END
 # CLEO Verify Command (T1157)
 # Manual verification gate management for tasks
 # Allows setting/viewing verification gates and status

@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: init
+# category: maintenance
+# synopsis: Initialize project (.cleo/ directory) with automatic agent docs injection
+# relevance: low
+# flags: --format,--quiet,--force,--confirm-wipe
+# exits: 0,3,101
+# json-output: true
+###END
 # CLEO Init Script
 # Initialize the todo system in a project directory
 set -euo pipefail

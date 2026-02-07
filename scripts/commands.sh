@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: commands
+# category: read
+# synopsis: List and query available commands with filtering. JSON by default.
+# relevance: high
+# flags: --format,--quiet,--json,--human,--category,--relevance,--workflows,--lookup
+# exits: 0,2,3,4
+# json-output: true
+# json-default: true
+# note: Use instead of jq for command discovery
+###END
 # commands.sh - List and query available commands from COMMANDS-INDEX.json
 # LLM-AGENT-FIRST: JSON output by default (non-TTY), --human for text
 set -euo pipefail
@@ -46,6 +57,8 @@ FILTER_RELEVANCE=""
 SHOW_WORKFLOWS=false
 SHOW_LOOKUP=false
 COMMAND_NAME_FILTER=""
+DO_REBUILD=false
+REBUILD_DRY_RUN=false
 
 # ============================================================================
 # HELP
@@ -78,6 +91,8 @@ Examples:
   cleo commands -r critical        # Agent-critical commands
   cleo commands add                # Details for 'add' command
   cleo commands --workflows        # Show agent workflow sequences
+  cleo commands --rebuild          # Regenerate INDEX from script headers
+  cleo commands --rebuild --dry-run # Preview rebuild without writing
 
 Exit Codes:
   0   Success
@@ -124,6 +139,14 @@ while [[ $# -gt 0 ]]; do
             SHOW_LOOKUP=true
             shift
             ;;
+        --rebuild)
+            DO_REBUILD=true
+            shift
+            ;;
+        --dry-run)
+            REBUILD_DRY_RUN=true
+            shift
+            ;;
         -*)
             output_error "E_INPUT_INVALID" "Unknown option: $1" $EXIT_INVALID_INPUT true \
                 "Run 'cleo commands --help' for usage"
@@ -140,6 +163,29 @@ done
 # Apply common flags to globals
 apply_flags_to_globals
 FORMAT=$(resolve_format "$FORMAT")
+
+# ============================================================================
+# REBUILD MODE
+# ============================================================================
+
+if [[ "$DO_REBUILD" == true ]]; then
+    # Source the command registry library
+    if [[ -f "$LIB_DIR/command-registry.sh" ]]; then
+        source "$LIB_DIR/command-registry.sh"
+    else
+        output_error "E_FILE_NOT_FOUND" "lib/command-registry.sh not found" $EXIT_FILE_ERROR false \
+            "Library required for rebuild. Check installation."
+        exit $EXIT_FILE_ERROR
+    fi
+
+    if [[ "$REBUILD_DRY_RUN" == true ]]; then
+        rebuild_commands_index "$SCRIPT_DIR" "$COMMANDS_INDEX" "--dry-run"
+    else
+        rebuild_commands_index "$SCRIPT_DIR" "$COMMANDS_INDEX"
+        echo '{"success":true,"message":"COMMANDS-INDEX.json rebuilt from script headers"}'
+    fi
+    exit 0
+fi
 
 # ============================================================================
 # VALIDATION

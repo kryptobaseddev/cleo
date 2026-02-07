@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: nexus-discover
+# category: intelligence
+# synopsis: Discover related tasks across registered projects using AI-powered semantic search
+# relevance: high
+# flags: --format,--json,--human,--query,--limit
+# exits: 0,70,73
+# json-output: true
+# json-default: true
+# note: Part of Nexus Intelligence System - AI-powered cross-project task discovery
+###END
 # CLEO Nexus Discover Command
 # Discover related tasks across registered projects using AI-powered semantic search
 set -euo pipefail

@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: next
+# category: read
+# synopsis: Intelligent next task suggestion based on priority and dependencies
+# relevance: critical
+# flags: --format,--quiet,--explain
+# exits: 0,100
+# json-output: true
+###END
 
 #####################################################################
 # next.sh - Next Task Suggestion Command for Claude Todo System

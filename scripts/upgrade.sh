@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: upgrade
+# category: maintenance
+# synopsis: Unified project maintenance (schema migration, structural repair, doc updates)
+# relevance: high
+# flags: --status,--dry-run,--force,--verbose,--human,--json
+# exits: 0,1,2
+# json-output: true
+# note: Exit 0 = up to date, Exit 2 = updates applied successfully
+###END
 # ============================================================================
 # scripts/upgrade.sh - Unified project upgrade command
 # ============================================================================

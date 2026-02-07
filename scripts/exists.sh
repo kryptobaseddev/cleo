@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: exists
+# category: read
+# synopsis: Validate task ID exists (scripting/CI). Exit 0=exists, 1=not found.
+# relevance: critical
+# flags: --format,--quiet,--include-archive,--verbose
+# exits: 0,1,2,3
+# json-output: true
+###END
 # CLEO Exists Command
 # Check if a task ID exists without listing all tasks
 # Provides clean exit codes for scripting and CI/CD integration

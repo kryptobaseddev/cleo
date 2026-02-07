@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: research
+# category: read
+# synopsis: Multi-source web research aggregation with MCP servers (Tavily, Context7, Reddit)
+# aliases: dig
+# relevance: high
+# flags: --format,--depth,--output,--topic,--subreddit,--include-reddit,--link-task,--plan-only,--json,--url,--reddit,--library
+# exits: 0,2,3,4,5,6,101
+# json-output: true
+# subcommands: init,list,show,inject,link,pending,archive,archive-list,status,stats,validate
+###END
 #
 # Web research aggregation command for cleo
 #

@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: history
+# category: read
+# synopsis: Completion timeline and productivity analytics
+# relevance: medium
+# flags: --format,--quiet,--days,--since
+# exits: 0,100
+# json-output: true
+###END
 
 #####################################################################
 # history.sh - Completion History & Timeline Command

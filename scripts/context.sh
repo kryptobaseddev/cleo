@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: context
+# category: read
+# synopsis: Monitor context window usage for agent safeguard system
+# relevance: high
+# flags: --format,--json,--human,--session
+# exits: 0,50,51,52,53,54
+# json-output: true
+# subcommands: status,check,list,watch
+# note: Part of Context Safeguard System - check context limits before operations
+###END
 # CLEO Context Command
 # Monitor context window usage for agent safeguard system
 set -euo pipefail

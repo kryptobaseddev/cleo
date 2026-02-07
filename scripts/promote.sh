@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: promote
+# category: write
+# synopsis: Remove parent from task, making it root-level
+# relevance: medium
+# flags: --format,--quiet,--no-type-update
+# exits: 0,1,2,3,4
+# json-output: true
+###END
 # promote.sh - Remove parent from a task (make it root-level)
 #
 # Usage:

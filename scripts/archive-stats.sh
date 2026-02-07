@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: archive-stats
+# category: read
+# synopsis: Generate analytics and insights from archived tasks (counts, cycle times, trends)
+# relevance: medium
+# flags: --format,--quiet,--json,--human,--by-phase,--by-label
+# exits: 0,3,100
+# json-output: true
+###END
 # CLEO Archive Statistics/Analytics
 # Generate reports and insights from archived tasks
 #

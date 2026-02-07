@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: contribution
+# category: validation
+# synopsis: Validate contribution protocol compliance for shared codebase work
+# relevance: high
+# flags: --format,--json,--human,--file,--task
+# exits: 0,65
+# json-output: true
+# note: Part of Protocol Validation System - validates @task and @contribution tags
+###END
 # CLEO Contribution Protocol Validation Command
 # Validate contribution protocol compliance for shared codebase work
 #

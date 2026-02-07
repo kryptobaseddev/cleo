@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: compliance
+# category: read
+# synopsis: Monitor and report compliance metrics for orchestrator and agent outputs
+# relevance: high
+# flags: --format,--quiet,--json,--human,--days,--epic
+# exits: 0,2,3,4
+# json-output: true
+# subcommands: summary,violations,trend,audit,sync
+# note: Part of Orchestrator Protocol - tracks compliance with output standards
+###END
 # CLEO Compliance Command
 # Monitor and report compliance metrics for orchestrator and agent outputs
 #

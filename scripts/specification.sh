@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: specification
+# category: validation
+# synopsis: Validate specification protocol compliance for specification writing tasks
+# relevance: high
+# flags: --format,--json,--human,--file,--task
+# exits: 0,62
+# json-output: true
+# note: Part of Protocol Validation System - validates RFC 2119 keywords and version info
+###END
 # CLEO Specification Protocol Validation Command
 # Validate specification protocol compliance for specification tasks
 #

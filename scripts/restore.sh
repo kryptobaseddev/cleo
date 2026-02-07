@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: restore
+# category: maintenance
+# synopsis: Restore todo files from backup
+# relevance: low
+# flags: --format,--quiet,--dry-run
+# exits: 0,3,4
+# json-output: true
+###END
 # CLEO Restore Script
 # Restore todo system files from backup
 set -euo pipefail

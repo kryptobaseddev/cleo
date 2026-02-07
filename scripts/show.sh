@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: show
+# category: read
+# synopsis: Full task details view with history and related tasks
+# relevance: high
+# flags: --format,--quiet,--history,--related,--include-archive
+# exits: 0,2,4
+# json-output: true
+###END
 # CLEO Show Command
 # Display detailed view of a single task with all fields
 # Includes dependencies, notes, and related information
