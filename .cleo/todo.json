@@ -442,12 +442,21 @@
         "notes": "test",
         "gitTag": "v0.80.5",
         "changelog": "## [0.80.5] - 2026-02-06\n\n### Other Changes\n- Create MCP server entry point and registration (T2926)\n- Prepare MCP server npm package (T2927)"
+      },
+      {
+        "version": "v0.81.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-07T04:56:55Z",
+        "tasks": [],
+        "notes": "Dynamic Command Registry: self-describing scripts, zero-drift architecture, header-based validation"
       }
     ]
   },
-  "lastUpdated": "2026-02-07T04:56:29Z",
+  "lastUpdated": "2026-02-07T04:56:55Z",
   "_meta": {
-    "checksum": "bb0fa377ff190abb",
+    "checksum": "b0e3732e70a2c67a",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -456,7 +465,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 13,
-    "generation": 2075
+    "generation": 2076
   },
   "focus": {
     "currentTask": null,

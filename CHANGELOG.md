@@ -1,8 +1,27 @@
 # Changelog
 
 All notable changes to the CLEO system will be documented in this file.
+## [0.81.0] - 2026-02-06
+
+## [0.81.0] - 2026-02-06
+
+### Features
+- Dynamic Command Registry - header-based validation, tests, cleanup (T3109)
+
+### Bug Fixes
+- Session focus lifecycle + task reconciliation (T3109)
+
+### Other Changes
+- Log release pipeline bugs + sync CLEO state (T3109)
 ## [Unreleased]
 
+## [0.81.0] - 2026-02-06
+
+### Features
+- Dynamic Command Registry - header-based validation, tests, cleanup (T3109)
+
+### Bug Fixes
+- Session focus lifecycle + task reconciliation (T3109)
 ## [0.80.5] - 2026-02-07
 
 ### Bug Fixes
