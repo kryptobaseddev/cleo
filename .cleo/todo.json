@@ -486,30 +486,53 @@
       },
       {
         "version": "v0.82.1",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-07T17:00:15Z",
+        "createdAt": "2026-02-07T16:59:59Z",
+        "tasks": [],
+        "notes": "Checksum recalculation in release/changelog writes + release system fixes from v0.81.x",
+        "gitTag": "v0.82.1"
+      },
+      {
+        "version": "v0.83.0",
         "status": "planned",
         "targetDate": null,
         "releasedAt": null,
-        "createdAt": "2026-02-07T16:59:59Z",
-        "tasks": [],
-        "notes": "Checksum recalculation in release/changelog writes + release system fixes from v0.81.x"
+        "createdAt": "2026-02-07T17:27:08Z",
+        "tasks": [
+          "T3174",
+          "T3175",
+          "T3176",
+          "T3177",
+          "T3178",
+          "T3179",
+          "T3180",
+          "T3181",
+          "T3182",
+          "T3184",
+          "T3185",
+          "T3186"
+        ],
+        "notes": "Git checkpoint system, release flow fixes, session enforcement fixes"
       }
     ]
   },
-  "lastUpdated": "2026-02-07T16:59:59Z",
+  "lastUpdated": "2026-02-07T17:27:08Z",
   "_meta": {
-    "checksum": "37bfa71497ce490d",
+    "checksum": "e5d321bd0a0a8b17",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-07T16:57:13Z",
+    "lastModified": "2026-02-07T17:26:56Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 13,
-    "generation": 2152
+    "activeSessionCount": 14,
+    "generation": 2189
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T3183",
     "blockedUntil": null,
     "sessionNote": "Research complete. Writing findings to output file.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -16369,6 +16392,503 @@
         "T3167",
         "T3170"
       ]
+    },
+    {
+      "id": "T3173",
+      "title": "EPIC: Git Checkpoint System + Release Flow Fixes (v0.83.0)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-07T17:20:32Z",
+      "updatedAt": "2026-02-07T17:20:32Z",
+      "size": "medium",
+      "position": 216,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add opt-in git checkpoint system for .cleo/ state files, fix release flow empty tag annotations, fix changelog/release note gaps, update protocol and command docs",
+      "labels": [
+        "feat",
+        "fix",
+        "release",
+        "v0.83.0"
+      ]
+    },
+    {
+      "id": "T3174",
+      "title": "feat: Git checkpoint library (lib/git-checkpoint.sh)",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:12Z",
+      "updatedAt": "2026-02-07T17:22:28Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "New library for automatic git checkpointing of .cleo/ state files with debounce, config, dry-run",
+      "labels": [
+        "feat",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:22:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:22:16Z] Created lib/git-checkpoint.sh with git_checkpoint, should_checkpoint, git_checkpoint_status, git_checkpoint_dry_run functions",
+        "[COMPLETED 2026-02-07T17:22:28Z] Created lib/git-checkpoint.sh"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:22:29Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3175",
+      "title": "feat: Checkpoint CLI command (scripts/checkpoint.sh)",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:12Z",
+      "updatedAt": "2026-02-07T17:22:45Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Manual checkpoint trigger: cleo checkpoint, --status, --dry-run",
+      "labels": [
+        "feat",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:22:45Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:22:45Z] Created scripts/checkpoint.sh"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:22:46Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3176",
+      "title": "feat: Integrate checkpoint into save_json and session end",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:13Z",
+      "updatedAt": "2026-02-07T17:22:51Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Hook git_checkpoint into lib/file-ops.sh save_json() and scripts/session.sh session end",
+      "labels": [
+        "feat",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:22:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:22:51Z] Hooked git_checkpoint into file-ops.sh and session.sh"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:22:52Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3177",
+      "title": "feat: Add gitCheckpoint to config schema",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:14Z",
+      "updatedAt": "2026-02-07T17:22:58Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add gitCheckpoint section to schemas/config.schema.json and .gitignore entry",
+      "labels": [
+        "feat",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:22:58Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:22:58Z] Added gitCheckpoint to config schema and gitignore"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:22:59Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3178",
+      "title": "fix: Release flow empty tag annotations with --no-changelog",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:15Z",
+      "updatedAt": "2026-02-07T17:23:04Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Tag annotations now fall back to generate_changelog_from_commits when CHANGELOG.md section unavailable",
+      "labels": [
+        "fix",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:23:04Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:23:04Z] Added commit-based fallback in release tag annotation"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:23:05Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3179",
+      "title": "fix: Filter checkpoint commits from changelog generation",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:17Z",
+      "updatedAt": "2026-02-07T17:23:11Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add jq filter to lib/changelog.sh excluding chore(cleo) auto/session-end/manual checkpoint commits",
+      "labels": [
+        "fix",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:23:11Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:23:11Z] Added jq filter excluding checkpoint commits from changelog"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:23:12Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3180",
+      "title": "fix: Clean up CHANGELOG.md - duplicates, missing entries",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:18Z",
+      "updatedAt": "2026-02-07T17:23:18Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Remove duplicate 0.82.0 header, add missing 0.82.1/0.81.2 entries, fix 0.80.1 duplicate, misplaced footer",
+      "labels": [
+        "fix",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:23:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:23:18Z] Fixed CHANGELOG.md duplicates and missing entries"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:23:19Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3181",
+      "title": "fix: Update GitHub release notes for v0.81.0-v0.82.1",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:19Z",
+      "updatedAt": "2026-02-07T17:23:24Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Use gh release edit to add proper content to all recent releases with empty notes",
+      "labels": [
+        "fix",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:23:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:23:24Z] Updated GitHub release notes via gh release edit"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:23:25Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3182",
+      "title": "docs: Update release protocol and command docs",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:20Z",
+      "updatedAt": "2026-02-07T17:26:15Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update protocols/release.md and docs/commands/release.mdx for --no-changelog flag name, commit-based fallback, checkpoint command",
+      "labels": [
+        "docs",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:26:15Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:26:15Z] Updated release.mdx and protocols/release.md: fixed --skip-changelog to --no-changelog, added tag annotation fallback docs"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:26:16Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3183",
+      "title": "chore: Release v0.83.0",
+      "status": "active",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:21Z",
+      "updatedAt": "2026-02-07T17:26:56Z",
+      "size": "medium",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Bump version, generate changelog, create tag, push",
+      "labels": [
+        "release",
+        "v0.83.0"
+      ]
+    },
+    {
+      "id": "T3184",
+      "title": "fix: Session enforcement config value 'off' silently falls back to strict",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:28Z",
+      "updatedAt": "2026-02-07T17:26:47Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "session-enforcement.sh only accepts strict|warn|none but rejects 'off' (common user input) silently by falling back to strict default. Should accept 'off' as alias for 'none' or error clearly.",
+      "labels": [
+        "fix",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:26:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:26:47Z] Duplicate of T3185"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:26:48Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3185",
+      "title": "fix: Session enforcement config value off silently falls back to strict",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:36Z",
+      "updatedAt": "2026-02-07T17:26:02Z",
+      "size": "medium",
+      "position": 12,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "session-enforcement.sh only accepts strict/warn/none but rejects off silently by falling to strict default. Should accept off as alias for none or error clearly.",
+      "labels": [
+        "fix",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:26:02Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:26:02Z] Added off/disabled/false as aliases for none in session-enforcement.sh, added warning on invalid values"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:26:03Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T3186",
+      "title": "fix: Auto-focus fails with E_SCOPE_EMPTY on new epic with no children",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3173",
+      "createdAt": "2026-02-07T17:21:37Z",
+      "updatedAt": "2026-02-07T17:26:08Z",
+      "size": "medium",
+      "position": 13,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "cleo session start --scope epic:X --auto-focus fails when epic has no children yet. Should start session anyway and allow adding tasks.",
+      "labels": [
+        "fix",
+        "v0.83.0"
+      ],
+      "completedAt": "2026-02-07T17:26:08Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T17:26:08Z] Allow session start with empty scope and no focus when auto-focus finds nothing. Fixed in session.sh and lib/sessions.sh"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T17:26:09Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
