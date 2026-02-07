@@ -462,24 +462,33 @@
         "tasks": [],
         "notes": "Release system fixes: changelog coordination, validation, installer data protection",
         "gitTag": "v0.81.1"
+      },
+      {
+        "version": "v0.82.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-07T06:24:07Z",
+        "tasks": [],
+        "notes": null
       }
     ]
   },
-  "lastUpdated": "2026-02-07T06:19:25Z",
+  "lastUpdated": "2026-02-07T06:24:07Z",
   "_meta": {
     "checksum": "5b9a968467925101",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-07T06:04:06Z",
+    "lastModified": "2026-02-07T06:24:44Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 14,
-    "generation": 2144
+    "generation": 2145
   },
   "focus": {
-    "currentTask": "T3152",
+    "currentTask": null,
     "blockedUntil": null,
     "sessionNote": "Research complete. Writing findings to output file.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
