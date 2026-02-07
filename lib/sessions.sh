@@ -994,6 +994,8 @@ end_session() {
                 .status = "ended" |
                 .endedAt = $ts |
                 .lastActivity = $ts |
+                .focus.previousTask = .focus.currentTask |
+                .focus.currentTask = null |
                 (if $note != "" then .focus.sessionNote = $note else . end)
             else . end
         ] |
@@ -1347,6 +1349,8 @@ archive_session() {
                 .status = "archived" |
                 .archivedAt = $ts |
                 .lastActivity = $ts |
+                .focus.previousTask = (.focus.previousTask // .focus.currentTask) |
+                .focus.currentTask = null |
                 (if $reason != "" then .archiveReason = $reason else . end)
             else . end
         ] |
