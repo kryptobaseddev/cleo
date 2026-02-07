@@ -685,8 +685,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Developer mode bypass and runtime protection working correctly
   - Agent documentation sanitization verified - no low-level `migrate` command references
 
-## [Unreleased]
-
 ## [0.80.3] - 2026-02-06
 
 ### Bug Fixes
