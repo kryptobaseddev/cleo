@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: validation
+# category: validation
+# synopsis: Validate validation protocol compliance for quality assurance tasks
+# relevance: high
+# flags: --format,--json,--human,--file,--task
+# exits: 0,64
+# json-output: true
+# note: Part of Protocol Validation System - validates quality gates and verification
+###END
 # CLEO Validation Protocol Validation Command
 # Validate validation protocol compliance for quality assurance tasks
 #

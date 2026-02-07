@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: reorder
+# category: write
+# synopsis: Change task position within sibling group (move to position, before/after, top/bottom)
+# relevance: medium
+# flags: --position,--before,--after,--top,--bottom,--format,--quiet
+# exits: 0,2,4
+# json-output: true
+###END
 # reorder.sh - Change the position of a task within its sibling group
 #
 # Usage:

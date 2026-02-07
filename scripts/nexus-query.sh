@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: nexus-query
+# category: intelligence
+# synopsis: Query tasks across registered projects using project:task_id syntax
+# relevance: high
+# flags: --format,--json,--human
+# exits: 0,70,71,72
+# json-output: true
+# json-default: true
+# note: Part of Nexus Intelligence System - query tasks using project:T#### syntax
+###END
 # CLEO Nexus Query Command
 # Query tasks across registered projects using project:task_id syntax
 set -euo pipefail

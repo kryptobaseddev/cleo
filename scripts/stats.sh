@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: stats
+# category: read
+# synopsis: Project statistics (counts, completion rates, velocity)
+# relevance: medium
+# flags: --format,--quiet,--period
+# exits: 0
+# json-output: true
+###END
 
 #####################################################################
 # stats.sh - Statistics and Reporting for Claude Todo System

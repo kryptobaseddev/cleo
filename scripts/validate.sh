@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: validate
+# category: maintenance
+# synopsis: Check file integrity, schema compliance, checksum verification
+# relevance: medium
+# flags: --format,--quiet,--fix
+# exits: 0,6
+# json-output: true
+###END
 # CLEO Validate Script
 # Validate todo.json against schema and business rules
 set -euo pipefail

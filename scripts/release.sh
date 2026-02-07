@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: release
+# category: write
+# synopsis: Manage releases (create, plan, ship, list, show, changelog)
+# relevance: high
+# flags: --target-date,--tasks,--notes,--status,--format
+# exits: 0,4,6,101
+# json-output: true
+###END
 
 #####################################################################
 # release.sh - Release Management Command for CLEO

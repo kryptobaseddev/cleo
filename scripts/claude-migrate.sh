@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: claude-migrate
+# category: maintenance
+# synopsis: Detect and migrate legacy claude-todo installations to CLEO format
+# relevance: low
+# flags: --format,--verbose,--check,--global,--project,--all
+# exits: 0,1,2,3,4
+# json-output: true
+# note: Run with --check first to detect legacy installations
+###END
 # CLEO Migration Command - claude-migrate
 # Detects and migrates legacy claude-todo installations to CLEO format
 #

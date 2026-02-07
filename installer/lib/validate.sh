@@ -36,7 +36,7 @@ readonly VALIDATE_REQUIRED_FILES=(
     "lib/validation.sh"
     "lib/file-ops.sh"
     "lib/config.sh"
-    "scripts/add-task.sh"
+    "scripts/add.sh"
     "schemas/todo.schema.json"
 )
 

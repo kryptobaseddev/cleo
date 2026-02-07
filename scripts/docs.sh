@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+###CLEO
+# command: docs
+# category: maintenance
+# synopsis: Documentation management: drift detection and gap validation for knowledge transfer
+# relevance: medium
+# flags: --quick,--full,--strict,--json,--human,--epic,--task,--all-review
+# exits: 0,1,2
+# json-output: true
+# subcommands: sync,gap-check
+# note: Part of documentation lifecycle - ensures knowledge transfer from research outputs to canonical docs
+###END
 # CLEO Documentation Management
 # Detect and fix documentation drift
 set -euo pipefail

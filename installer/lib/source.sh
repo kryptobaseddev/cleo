@@ -82,7 +82,7 @@ readonly SOURCE_REQUIRED_FILES=(
     "VERSION"
     "lib/validation.sh"
     "lib/file-ops.sh"
-    "scripts/add-task.sh"
+    "scripts/add.sh"
     "schemas/todo.schema.json"
 )
 
@@ -1285,7 +1285,7 @@ installer_source_verify_staging() {
     local required=(
         "lib/validation.sh"
         "lib/file-ops.sh"
-        "scripts/add-task.sh"
+        "scripts/add.sh"
         "schemas/todo.schema.json"
     )
 

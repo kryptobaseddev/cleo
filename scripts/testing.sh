@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: testing
+# category: validation
+# synopsis: Validate testing protocol compliance for test creation tasks
+# relevance: high
+# flags: --format,--json,--human,--file,--task
+# exits: 0,64
+# json-output: true
+# note: Part of Protocol Validation System - validates test file creation and coverage
+###END
 # CLEO Testing Protocol Validation Command
 # Validate testing protocol compliance for test creation tasks
 #

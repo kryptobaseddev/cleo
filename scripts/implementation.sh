@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: implementation
+# category: validation
+# synopsis: Validate implementation protocol compliance for code implementation tasks
+# relevance: high
+# flags: --format,--json,--human,--file,--task
+# exits: 0,64
+# json-output: true
+# note: Part of Protocol Validation System - validates @task tags on new functions
+###END
 # CLEO Implementation Protocol Validation Command
 # Validate implementation protocol compliance for code execution tasks
 #

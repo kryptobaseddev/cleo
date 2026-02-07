@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: generate-changelog
+# category: maintenance
+# synopsis: Generate Mintlify changelog from CHANGELOG.md (dev tool)
+# relevance: low
+# exits: 0,1
+# json-output: false
+# note: Internal development tool for documentation generation
+###END
 # Generate changelog for configured documentation platforms
 # Usage: ./scripts/generate-changelog.sh [LIMIT] [--platform TARGET_PLATFORM]
 

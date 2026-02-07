@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: phases
+# category: read
+# synopsis: List phases with progress bars and statistics
+# relevance: medium
+# flags: --format,--quiet
+# exits: 0,4,100
+# json-output: true
+# subcommands: show,stats
+###END
 
 #####################################################################
 # phases.sh - Phase Management Command for Claude Todo System

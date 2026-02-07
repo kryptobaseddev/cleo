@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: archive
+# category: write
+# synopsis: Archive completed tasks based on policy (age, count preservation)
+# relevance: medium
+# flags: --format,--quiet,--dry-run,--force,--all
+# exits: 0,3,100
+# json-output: true
+###END
 # CLEO Archive Script
 # Archive completed tasks based on config rules
 set -euo pipefail

@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: export
+# category: read
+# synopsis: Export tasks to CSV, TSV, JSON, markdown, or TodoWrite format
+# relevance: medium
+# flags: --format,--quiet,--output
+# exits: 0,2,3
+# json-output: true
+###END
 # =============================================================================
 # export.sh - Export tasks to various formats
 # =============================================================================

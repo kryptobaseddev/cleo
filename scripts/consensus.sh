@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: consensus
+# category: validation
+# synopsis: Validate consensus protocol compliance for multi-agent decision tasks
+# relevance: high
+# flags: --format,--json,--human,--file,--task
+# exits: 0,60,61
+# json-output: true
+# note: Part of Protocol Validation System - validates voting matrices and confidence scores
+###END
 # CLEO Consensus Protocol Validation Command
 # Validate consensus protocol compliance for multi-agent decision tasks
 #

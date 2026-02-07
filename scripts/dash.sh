@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: dash
+# category: read
+# synopsis: Project dashboard with status summary, phase progress, recent activity
+# relevance: high
+# flags: --format,--quiet,--compact
+# exits: 0
+# json-output: true
+###END
 
 #####################################################################
 # dash.sh - Dashboard/Overview Command for Claude Todo System

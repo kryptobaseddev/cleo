@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: skills
+# category: maintenance
+# synopsis: Skill management: list, discover, validate, info, install
+# relevance: medium
+# flags: --format,--json,--human,--quiet,--category,--tier,--global
+# exits: 0,1,2,4
+# json-output: true
+# note: Manage CLEO skills: discovery, validation, installation
+###END
 #
 # skills.sh - Skill Management Command
 #

@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+###CLEO
+# command: export-tasks
+# category: sync
+# synopsis: Export tasks to portable JSON package for cross-project transfer
+# relevance: medium
+# flags: --format,--output,--subtree,--filter,--include-deps,--dry-run,--interactive
+# exits: 0,2,3,4
+# json-output: true
+###END
 # =============================================================================
 # export-tasks.sh - Export task selection to portable package format
 # =============================================================================

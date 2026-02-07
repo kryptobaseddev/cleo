@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: analyze
+# category: read
+# synopsis: Task triage with leverage scoring and bottleneck detection. JSON default.
+# relevance: critical
+# flags: --format,--human,--auto-focus,--json
+# exits: 0,2,100
+# json-output: true
+# json-default: true
+###END
 
 #####################################################################
 # analyze.sh - Task Analysis and Prioritization Command

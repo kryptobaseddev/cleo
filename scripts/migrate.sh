@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: migrate
+# category: maintenance
+# synopsis: Schema version migrations (status check, run migrations)
+# relevance: low
+# flags: --format,--quiet,--dry-run
+# exits: 0,3,6
+# json-output: true
+# subcommands: status,run
+###END
 # Schema migration command for cleo
 # Handles version upgrades for todo files
 

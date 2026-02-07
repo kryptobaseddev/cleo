@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: decomposition
+# category: validation
+# synopsis: Validate decomposition protocol compliance for epic breakdown tasks
+# relevance: high
+# flags: --format,--json,--human,--file,--task
+# exits: 0,63
+# json-output: true
+# note: Part of Protocol Validation System - validates sibling limits and clear descriptions
+###END
 # CLEO Decomposition Protocol Validation Command
 # Validate decomposition protocol compliance for epic breakdown tasks
 #

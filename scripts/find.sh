@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: find
+# category: read
+# synopsis: Fuzzy search tasks by title/description. ID prefix matching via --id.
+# aliases: search
+# relevance: critical
+# flags: --format,--quiet,--id,--exact,--status,--field,--include-archive
+# exits: 0,2,100
+# json-output: true
+###END
 # CLEO Find Command
 # Fuzzy task search for LLM agents with minimal context output
 #

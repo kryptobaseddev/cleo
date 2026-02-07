@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: session
+# category: write
+# synopsis: Work session lifecycle (start, end, status, gc for garbage collection)
+# relevance: high
+# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale
+# exits: 0,4,101
+# json-output: true
+# subcommands: start,end,status,suspend,resume,close,list,show,switch,gc
+###END
 # CLEO Session Management Script
 # Manage work sessions with automatic logging
 set -euo pipefail
