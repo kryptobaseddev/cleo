@@ -77327,11 +77327,24 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_68b29da82cf2",
+      "timestamp": "2026-02-07T06:24:44Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T3152"
+      },
+      "after": null,
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 3926,
-    "lastEntry": "2026-02-07T06:19:26Z",
+    "totalEntries": 3927,
+    "lastEntry": "2026-02-07T06:24:44Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
