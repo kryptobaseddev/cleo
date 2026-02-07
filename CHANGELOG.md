@@ -2,7 +2,36 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
-## [0.82.0] - 2026-02-06
+## [0.83.0] - 2026-02-07
+
+### Features
+- feat: Git checkpoint library (lib/git-checkpoint.sh) (T3174)
+- feat: Checkpoint CLI command (scripts/checkpoint.sh) (T3175)
+- feat: Integrate checkpoint into save_json and session end (T3176)
+- feat: Add gitCheckpoint to config schema (T3177)
+
+### Bug Fixes
+- fix: Release flow empty tag annotations with --no-changelog (T3178)
+- fix: Filter checkpoint commits from changelog generation (T3179)
+- fix: Clean up CHANGELOG.md - duplicates, missing entries (T3180)
+- fix: Update GitHub release notes for v0.81.0-v0.82.1 (T3181)
+- fix: Session enforcement config value 'off' silently falls back to strict (T3184)
+- fix: Session enforcement config value off silently falls back to strict (T3185)
+- fix: Auto-focus fails with E_SCOPE_EMPTY on new epic with no children (T3186)
+
+### Documentation
+- docs: Update release protocol and command docs (T3182)
+
+## [0.82.1] - 2026-02-07
+
+### Bug Fixes
+- Fix persistent checksum mismatches in release/changelog todo.json writes (T3130)
+- Release system fixes from v0.81.x backported to main
+
+## [0.81.2] - 2026-02-07
+
+### Documentation
+- Phase 0 MCP sprint handoff + manifest architecture design (T3109)
 
 ## [0.82.0] - 2026-02-07
 
@@ -15,6 +44,7 @@ All notable changes to the CLEO system will be documented in this file.
 ### Bug Fixes
 - Fix TOKEN_USAGE.jsonl silent failure - remove `|| true` suppression, use atomic append (T3151)
 - Apply flock pattern to 5 JSONL files (COMPLIANCE, SESSIONS, TOKEN_USAGE, BENCHMARK, AB_TESTS) via atomic_jsonl_append (T3152)
+- Fix checksum recalculation in release/changelog writes to todo.json (T3130)
 
 ### Documentation
 - Update 9 protocol files to @include manifest-operations.md instead of inline JSONL instructions (T3155)
@@ -23,6 +53,7 @@ All notable changes to the CLEO system will be documented in this file.
 ## [0.81.1] - 2026-02-06
 
 ### Bug Fixes
+- Release system overhaul - changelog coordination, validation, installer data protection (T3130-T3135)
 - Recalculate checksum in release/changelog writes to todo.json (T3130)
 
 ## [0.81.0] - 2026-02-06
@@ -35,6 +66,7 @@ All notable changes to the CLEO system will be documented in this file.
 
 ### Other Changes
 - Log release pipeline bugs + sync CLEO state (T3109)
+
 ## [0.80.5] - 2026-02-07
 
 ### Bug Fixes
@@ -118,13 +150,8 @@ All notable changes to the CLEO system will be documented in this file.
 ### Bug Fixes
 - Add dev/ to production installer whitelist (T3000)
 
-### Documentation  
+### Documentation
 - Document 106 BATS test failures with task tracking (T1342)
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [0.80.1] - 2026-02-03
 
 ## [0.80.1] - 2026-02-03
 
