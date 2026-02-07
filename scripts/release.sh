@@ -356,7 +356,7 @@ ensure_changelog_header() {
 
     # Find the line number of "## [Unreleased]"
     local unreleased_line
-    unreleased_line=$(grep -n "^## \[Unreleased\]" "$changelog" | cut -d: -f1)
+    unreleased_line=$(grep -n "^## \[Unreleased\]" "$changelog" | head -1 | cut -d: -f1)
 
     if [[ -z "$unreleased_line" ]]; then
         log_warn "No ## [Unreleased] section found - version header not inserted"
@@ -456,31 +456,42 @@ validate_release() {
             return "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
 
-        # Check 3: All task IDs exist in todo.json AND have status="done"
+        # Check 3: Warn about task IDs in changelog that are missing or not done
         # @task T2807
         # @epic T2802
-        # @why Prevent non-done tasks from appearing in changelog (data integrity)
-        # @what Add status validation check to changelog task filtering
+        # @why Tasks may be archived or be epics referenced by commits - warn, don't block
+        # @what Changed from blocking to warning-only for missing/non-done tasks
         local task_ids
         task_ids=$(grep -oP '\(T\d+\)' <<< "$section_content" | tr -d '()' || echo "")
         if [[ -n "$task_ids" ]]; then
+            local missing_tasks=()
+            local non_done_tasks=()
             while IFS= read -r task_id; do
                 [[ -z "$task_id" ]] && continue
 
                 # Check task exists
                 if ! jq -e ".tasks[] | select(.id == \"$task_id\")" "$TODO_FILE" >/dev/null 2>&1; then
-                    log_error "Invalid task ID in changelog" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Task $task_id in CHANGELOG.md not found in todo.json"
-                    return "$EXIT_VALIDATION_FAILED"
+                    missing_tasks+=("$task_id")
+                    continue
                 fi
 
-                # Check task status is "done"
+                # Check task status
                 local task_status
                 task_status=$(jq -r ".tasks[] | select(.id == \"$task_id\") | .status" "$TODO_FILE")
                 if [[ "$task_status" != "done" ]]; then
-                    log_error "Task $task_id in changelog is not done" "E_VALIDATION_FAILED" "$EXIT_VALIDATION_FAILED" "Task $task_id has status '$task_status' but must be 'done' to appear in changelog"
-                    return "$EXIT_VALIDATION_FAILED"
+                    non_done_tasks+=("$task_id")
                 fi
             done <<< "$task_ids"
+
+            # Warn about missing tasks (may be archived) - don't block
+            if [[ ${#missing_tasks[@]} -gt 0 ]]; then
+                log_warn "Tasks referenced in changelog but not in todo.json (may be archived): ${missing_tasks[*]}"
+            fi
+
+            # Warn about non-done tasks (may be epics) - don't block
+            if [[ ${#non_done_tasks[@]} -gt 0 ]]; then
+                log_warn "Tasks in changelog with non-done status: ${non_done_tasks[*]}"
+            fi
         fi
 
         [[ "$VERBOSE" == true ]] && log_info "Changelog validation passed"
@@ -795,62 +806,6 @@ cmd_ship() {
         ensure_changelog_header "$normalized"
     fi
 
-    # Step 1.75: Auto-generate changelog from commits (T2842)
-    # Check if config enables auto-generation (default: true)
-    local auto_generate_changelog="true"
-    if command -v jq >/dev/null 2>&1 && [[ -f ".cleo/config.json" ]]; then
-        auto_generate_changelog=$(jq -r '.release.changelog.autoGenerate // true' ".cleo/config.json" 2>/dev/null || echo "true")
-    fi
-
-    if [[ "${SKIP_CHANGELOG:-false}" != "true" && "$auto_generate_changelog" == "true" ]]; then
-        log_info "Auto-generating changelog from git commits..."
-
-        # Generate changelog content from commits since last tag
-        local git_changelog_content
-        if git_changelog_content=$(generate_changelog_from_commits "last-tag" "HEAD" 2>/dev/null); then
-            if [[ -n "$git_changelog_content" && "$git_changelog_content" != "null" ]]; then
-                # Insert into CHANGELOG.md under the version header
-                local changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
-                local version_no_v="${normalized#v}"
-
-                if [[ -f "$changelog_file" ]]; then
-                    # Find the version header line
-                    local version_line
-                    version_line=$(grep -n "^## \[${version_no_v}\]" "$changelog_file" | head -1 | cut -d: -f1)
-
-                    if [[ -n "$version_line" ]]; then
-                        # Create temp file with git-generated content inserted
-                        local temp_file
-                        temp_file=$(mktemp)
-
-                        # Copy everything up to and including version header
-                        head -n "$version_line" "$changelog_file" > "$temp_file"
-
-                        # Add blank line
-                        echo "" >> "$temp_file"
-
-                        # Add git-generated content
-                        echo "$git_changelog_content" >> "$temp_file"
-
-                        # Add rest of file (skip old empty section if exists)
-                        tail -n +$((version_line + 1)) "$changelog_file" | \
-                            awk 'BEGIN {skip=1} /^### |^## \[/ {skip=0} !skip {print}' >> "$temp_file"
-
-                        # Replace original
-                        mv "$temp_file" "$changelog_file"
-                        log_info "Auto-generated changelog inserted for $version_no_v"
-                    else
-                        log_warn "Version header not found - skipping auto-generation"
-                    fi
-                fi
-            else
-                log_info "No commits found for auto-generation"
-            fi
-        else
-            log_warn "Git changelog auto-generation failed (non-fatal)"
-        fi
-    fi
-
     # Step 2: ALWAYS generate changelog (mandatory per CHANGELOG-GENERATION-SPEC.md)
     local changelog_content=""
     local changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
@@ -873,12 +828,11 @@ cmd_ship() {
         local changelog_section_content
         changelog_section_content=$(extract_changelog_section "$version_no_v" "$changelog_file" 2>/dev/null || echo "")
 
-        # Check if we have content from either git commits OR task-based generation
+        # Check if we have content from task-based generation
         if [[ -z "$changelog_section_content" || "$changelog_section_content" =~ ^[[:space:]]*$ ]] && \
-           [[ -z "$changelog_content" || "$changelog_content" =~ ^[[:space:]]*$ ]] && \
-           [[ -z "${git_changelog_content:-}" || "${git_changelog_content:-}" =~ ^[[:space:]]*$ ]]; then
+           [[ -z "$changelog_content" || "$changelog_content" =~ ^[[:space:]]*$ ]]; then
             log_error "Changelog content is empty" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" \
-                "No changelog content generated from commits or tasks. Add tasks with labels (feat, fix, docs) or commits with conventional format."
+                "No changelog content generated from tasks. Add tasks with labels (feat, fix, docs) to the release."
             exit "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
 
@@ -955,9 +909,22 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"; then
 
         local tag_message="Release $normalized"
         [[ -n "$release_name" ]] && tag_message="$tag_message: $release_name"
-        [[ -n "$release_desc" ]] && tag_message="$tag_message
+
+        # Include changelog content in tag annotation for GitHub release notes
+        local changelog_section=""
+        if [[ -f "CHANGELOG.md" ]]; then
+            changelog_section=$(extract_changelog_section "$normalized" "CHANGELOG.md" 2>/dev/null || echo "")
+        fi
+
+        if [[ -n "$changelog_section" ]]; then
+            tag_message="$tag_message
+
+$changelog_section"
+        elif [[ -n "$release_desc" ]]; then
+            tag_message="$tag_message
 
 $release_desc"
+        fi
 
         # Create tag with force flag if requested
         local tag_opts="-a"
