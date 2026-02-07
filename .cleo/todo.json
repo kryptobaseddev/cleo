@@ -474,9 +474,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-07T06:24:07Z",
+  "lastUpdated": "2026-02-07T06:25:16Z",
   "_meta": {
-    "checksum": "5b9a968467925101",
+    "checksum": "5108f4671000ddbc",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -485,7 +485,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 14,
-    "generation": 2145
+    "generation": 2149
   },
   "focus": {
     "currentTask": null,
@@ -14939,12 +14939,12 @@
     {
       "id": "T3125",
       "title": "MCP Server full CQRS with protocol enforcement",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3109",
       "createdAt": "2026-02-07T03:29:00Z",
-      "updatedAt": "2026-02-07T05:47:36Z",
+      "updatedAt": "2026-02-07T06:25:15Z",
       "size": "medium",
       "position": 16,
       "positionVersion": 0,
@@ -14953,7 +14953,26 @@
       "depends": [
         "T3121",
         "T3124"
-      ]
+      ],
+      "completedAt": "2026-02-07T06:25:15Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T06:25:15Z] All 8 subtasks complete: protocol enforcement, 4-layer validation, response envelope, verification gates, error recovery, security hardening, MCP config+cache, E2E workflow tests. 883/883 MCP tests pass."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T06:25:16Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3126",
@@ -15553,12 +15572,12 @@
     {
       "id": "T3146",
       "title": "E2E workflow tests for MCP spec Section 11 examples",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3125",
       "createdAt": "2026-02-07T05:43:31Z",
-      "updatedAt": "2026-02-07T05:43:40Z",
+      "updatedAt": "2026-02-07T06:25:10Z",
       "size": "medium",
       "position": 11,
       "positionVersion": 0,
@@ -15570,7 +15589,26 @@
         "T3140",
         "T3141",
         "T3142"
-      ]
+      ],
+      "completedAt": "2026-02-07T06:25:10Z",
+      "notes": [
+        "[COMPLETED 2026-02-07T06:25:10Z] 28 E2E tests covering all 4 spec workflows plus retry, partial success, error format. 883/883 total pass."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T06:25:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3147",
