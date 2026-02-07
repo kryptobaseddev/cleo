@@ -105,6 +105,91 @@ readonly SOURCE_COPY_FILES=(
     "README.md"
 )
 
+# Data files that MUST never be overwritten by installation
+readonly SOURCE_DATA_FILES=(
+    "todo.json"
+    "todo-archive.json"
+    "todo-log.json"
+    "sessions.json"
+    "config.json"
+    "project-info.json"
+    ".sequence"
+    ".current-session"
+    ".context-alert-state.json"
+)
+
+# Preserve data files before destructive operations
+# Args: install_dir
+# Outputs: backup directory path (if files were preserved)
+# Returns: 0 on success
+installer_source_preserve_data_files() {
+    local install_dir="$1"
+    local backup_dir="${install_dir}/.data-preserve-$$"
+
+    if [[ ! -d "$install_dir" ]]; then
+        return 0  # Nothing to preserve
+    fi
+
+    local preserved=0
+    mkdir -p "$backup_dir"
+
+    for file in "${SOURCE_DATA_FILES[@]}"; do
+        if [[ -f "$install_dir/$file" ]]; then
+            cp -p "$install_dir/$file" "$backup_dir/$file" && ((preserved++))
+            installer_log_debug "Preserved: $file"
+        fi
+    done
+
+    # Also preserve backups directory if it exists
+    if [[ -d "$install_dir/.backups" ]]; then
+        cp -rp "$install_dir/.backups" "$backup_dir/.backups" || true
+        installer_log_debug "Preserved: .backups/"
+    fi
+
+    if [[ $preserved -gt 0 ]]; then
+        installer_log_info "Preserved $preserved data file(s)"
+        echo "$backup_dir"  # Return backup dir path
+    fi
+
+    return 0
+}
+
+# Restore preserved data files after installation
+# Args: install_dir backup_dir
+# Returns: 0 on success
+installer_source_restore_data_files() {
+    local install_dir="$1"
+    local backup_dir="$2"
+
+    if [[ ! -d "$backup_dir" ]]; then
+        return 0  # Nothing to restore
+    fi
+
+    local restored=0
+
+    for file in "${SOURCE_DATA_FILES[@]}"; do
+        if [[ -f "$backup_dir/$file" ]]; then
+            cp -p "$backup_dir/$file" "$install_dir/$file" && ((restored++))
+            installer_log_debug "Restored: $file"
+        fi
+    done
+
+    # Restore backups directory
+    if [[ -d "$backup_dir/.backups" ]]; then
+        cp -rp "$backup_dir/.backups" "$install_dir/.backups" || true
+        installer_log_debug "Restored: .backups/"
+    fi
+
+    # Clean up backup
+    rm -rf "$backup_dir"
+
+    if [[ $restored -gt 0 ]]; then
+        installer_log_info "Restored $restored data file(s)"
+    fi
+
+    return 0
+}
+
 # ============================================
 # MODE DETECTION
 # ============================================
@@ -1348,3 +1433,7 @@ export -f installer_source_select_version_interactive
 export -f installer_source_upgrade
 export -f installer_source_version_info
 export -f installer_source_check_upgrade_available
+
+# Data file preservation (T3135)
+export -f installer_source_preserve_data_files
+export -f installer_source_restore_data_files
