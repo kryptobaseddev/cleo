@@ -298,7 +298,7 @@ jq '.tasks | length' .cleo/todo.json
 ```
 
 **Prevention:**
-- Always use add-task.sh to create tasks
+- Always use add.sh to create tasks
 - Don't copy-paste tasks manually
 - Run validation after manual edits
 
@@ -367,7 +367,7 @@ bash: cleo: command not found
 # Check if installed
 ls -la ~/.cleo/scripts/
 
-# Should see: cleo, add-task.sh, complete-task.sh, etc.
+# Should see: cleo, add.sh, complete.sh, etc.
 ```
 
 **Step 2: Check symlinks**
@@ -562,7 +562,7 @@ cp ~/.cleo/templates/todo.template.json .cleo/todo.json
 
 # Manually extract and re-add tasks from backup
 cat .cleo/todo.json.backup
-# Use add-task.sh to recreate each task
+# Use add.sh to recreate each task
 ```
 
 ---

@@ -170,11 +170,11 @@ get_config() { echo "mock"; }
 EOF
 
     # Create mock script
-    cat > "${repo_dir}/scripts/add-task.sh" << 'EOF'
+    cat > "${repo_dir}/scripts/add.sh" << 'EOF'
 #!/usr/bin/env bash
 echo "mock add-task"
 EOF
-    chmod +x "${repo_dir}/scripts/add-task.sh"
+    chmod +x "${repo_dir}/scripts/add.sh"
 
     # Create mock schema
     cat > "${repo_dir}/schemas/todo.schema.json" << 'EOF'

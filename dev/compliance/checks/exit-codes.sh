@@ -201,7 +201,7 @@ check_exit_codes() {
     total_exits=$(pattern_count "$script" "exit " || echo "0")
 
     # Determine if this is an idempotent command that should use EXIT_NO_CHANGE
-    local idempotent_commands=("update-task.sh" "complete-task.sh" "archive.sh" "restore.sh" "phase.sh")
+    local idempotent_commands=("update.sh" "complete.sh" "archive.sh" "restore.sh" "phase.sh")
     local is_idempotent=false
     for idem_cmd in "${idempotent_commands[@]}"; do
         if [[ "$script_name" == "$idem_cmd" ]]; then

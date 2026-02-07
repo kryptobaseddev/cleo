@@ -120,9 +120,9 @@ cleo/                        # Git repository (system files only)
 │   ├── init.sh                    # Initialize project with todo system
 │   ├── validate.sh                # Validate all JSON files
 │   ├── archive.sh                 # Archive completed tasks
-│   ├── add-task.sh                # Add new task with validation
-│   ├── complete-task.sh           # Mark task complete and log
-│   ├── list-tasks.sh              # Display current tasks
+│   ├── add.sh                # Add new task with validation
+│   ├── complete.sh           # Mark task complete and log
+│   ├── list.sh              # Display current tasks
 │   ├── stats.sh                   # Statistics and reporting
 │   ├── backup.sh                  # Backup all todo files
 │   ├── restore.sh                 # Restore from backup
@@ -157,7 +157,7 @@ cleo/                        # Git repository (system files only)
 └── tests/                          # Test suite
     ├── test-validation.sh         # Schema validation tests
     ├── test-archive.sh            # Archive operation tests
-    ├── test-add-task.sh           # Task creation tests
+    ├── test-add.sh           # Task creation tests
     └── fixtures/                  # Test data
         ├── valid-todo.json
         └── invalid-todo.json
@@ -777,15 +777,15 @@ cleo init
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `init.sh` | Initialize project | `cleo init` |
-| `add-task.sh` | Create new task | `add-task.sh "Task description"` |
-| `update-task.sh` | Update existing task | `update-task.sh <task-id> [OPTIONS]` |
-| `complete-task.sh` | Mark task done | `complete-task.sh <task-id>` |
+| `add.sh` | Create new task | `add.sh "Task description"` |
+| `update.sh` | Update existing task | `update.sh <task-id> [OPTIONS]` |
+| `complete.sh` | Mark task done | `complete.sh <task-id>` |
 | `archive.sh` | Archive completed | `archive.sh [--dry-run] [--force] [--all]` |
 
 ### Query Operations
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `list-tasks.sh` | Display tasks | `list-tasks.sh [--status STATUS]` |
+| `list.sh` | Display tasks | `list.sh [--status STATUS]` |
 | `show.sh` | Single task detail view | `show.sh <task-id> [--history] [--related]` |
 | `stats.sh` | Generate stats | `stats.sh [--period DAYS]` |
 | `history.sh` | Completion history analytics | `history.sh [--days N] [--since DATE]` |
@@ -797,8 +797,8 @@ cleo init
 | `next.sh` | Intelligent next task suggestion | `next.sh [--explain] [--count N]` |
 | `labels.sh` | Label management and statistics | `labels.sh [show LABEL] [stats]` |
 | `analyze.sh` | Task leverage and bottleneck analysis | `analyze.sh [--full] [--auto-focus]` |
-| `blockers-command.sh` | Blocked task analysis | `blockers-command.sh [analyze]` |
-| `deps-command.sh` | Dependency visualization | `deps-command.sh [TASK_ID] [tree]` |
+| `blockers.sh` | Blocked task analysis | `blockers.sh [analyze]` |
+| `deps.sh` | Dependency visualization | `deps.sh [TASK_ID] [tree]` |
 
 ### Focus and Session Management
 | Script | Purpose | Usage |
@@ -815,9 +815,9 @@ cleo init
 ### TodoWrite Integration
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `sync-todowrite.sh` | Bidirectional sync orchestration | `sync-todowrite.sh --inject`, `sync-todowrite.sh --extract [FILE]` |
-| `inject-todowrite.sh` | Export tasks to TodoWrite format | `inject-todowrite.sh [--max-tasks N] [--focused-only]` |
-| `extract-todowrite.sh` | Import TodoWrite state back | `extract-todowrite.sh <file> [--dry-run]` |
+| `sync.sh` | Bidirectional sync orchestration | `sync.sh --inject`, `sync.sh --extract [FILE]` |
+| `inject.sh` | Export tasks to TodoWrite format | `inject.sh [--max-tasks N] [--focused-only]` |
+| `extract.sh` | Import TodoWrite state back | `extract.sh <file> [--dry-run]` |
 | `export.sh` | Export to various formats | `export.sh --format todowrite` |
 
 ### Maintenance Operations

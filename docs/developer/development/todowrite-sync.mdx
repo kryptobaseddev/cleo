@@ -38,9 +38,9 @@ Think of it like a **check-out/check-in system** at a library:
 
 | File | Purpose |
 |------|---------|
-| `scripts/sync-todowrite.sh` | Main orchestrator & subcommand router |
-| `scripts/inject-todowrite.sh` | Session start: cleo → TodoWrite |
-| `scripts/extract-todowrite.sh` | Session end: TodoWrite → cleo |
+| `scripts/sync.sh` | Main orchestrator & subcommand router |
+| `scripts/inject.sh` | Session start: cleo → TodoWrite |
+| `scripts/extract.sh` | Session end: TodoWrite → cleo |
 | `lib/todowrite-integration.sh` | Grammar transformation & status mapping |
 | [TODOWRITE-SYNC](../specifications/TODOWRITE-SYNC) | Authoritative specification |
 
@@ -165,13 +165,13 @@ The two systems have different status values (`lib/todowrite-integration.sh:177-
 |-----------|---------------|-------|
 | `pending` | `pending` | Same |
 | `in_progress` | `active` | Renamed |
-| `completed` | `done` | Via complete-task.sh |
+| `completed` | `done` | Via complete.sh |
 
 ---
 
 ## Task Selection: Not Everything Gets Injected
 
-We don't dump all tasks into TodoWrite. There's a **tiered priority system** (`inject-todowrite.sh:273-294`):
+We don't dump all tasks into TodoWrite. There's a **tiered priority system** (`inject.sh:273-294`):
 
 1. **Tier 1**: The focused task (always included)
 2. **Tier 2**: Tasks that depend on the focused task
@@ -186,7 +186,7 @@ We don't dump all tasks into TodoWrite. There's a **tiered priority system** (`i
 
 ## New Task Phase Inheritance
 
-When Claude creates a new task during a session (without a `[T###]` prefix), we need to decide what phase it belongs to (`extract-todowrite.sh:296-338`).
+When Claude creates a new task during a session (without a `[T###]` prefix), we need to decide what phase it belongs to (`extract.sh:296-338`).
 
 **Priority order**:
 1. `--default-phase` flag (if specified)
@@ -285,7 +285,7 @@ cleo sync --clear               # Remove stale state without merging
 │                     │                                                    │
 │                     ▼                                                    │
 │  ┌─────────────────────────────────────────┐                            │
-│  │ inject-todowrite.sh                     │                            │
+│  │ inject.sh                     │                            │
 │  │ 1. Read focus.currentTask               │                            │
 │  │ 2. Tiered selection (max 8)             │                            │
 │  │ 3. Format: [T###] [!] [phase] title     │                            │
@@ -331,7 +331,7 @@ cleo sync --clear               # Remove stale state without merging
 │                     └──────────┬─────────────┘                          │
 │                                ▼                                        │
 │  ┌─────────────────────────────────────────┐                            │
-│  │ extract-todowrite.sh                    │                            │
+│  │ extract.sh                    │                            │
 │  │ 1. Parse [T###] from content            │                            │
 │  │ 2. Compare injected vs found IDs        │                            │
 │  │ 3. Detect: completed, progressed,       │                            │

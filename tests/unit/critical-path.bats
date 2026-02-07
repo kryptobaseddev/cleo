@@ -4,7 +4,7 @@
 # =============================================================================
 # Tests critical path functionality via blockers analyze command.
 # Critical path is implemented in lib/analysis.sh and accessed through
-# blockers-command.sh analyze subcommand.
+# blockers.sh analyze subcommand.
 # =============================================================================
 
 setup_file() {

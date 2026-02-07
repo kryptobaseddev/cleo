@@ -322,7 +322,7 @@ EOF
 @test "graceful handling of missing todo.json" {
     rm -f "$TODO_FILE"
 
-    run bash "$SCRIPTS_DIR/list-tasks.sh"
+    run bash "$SCRIPTS_DIR/list.sh"
     assert_failure
     assert_output --partial "not found"
 

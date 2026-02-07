@@ -111,7 +111,7 @@ teardown_file() {
     assert_output "core"
 
     # Step 9: List tasks filtered by phase
-    run bash "$SCRIPTS_DIR/list-tasks.sh" --phase core --format json
+    run bash "$SCRIPTS_DIR/list.sh" --phase core --format json
     assert_success
 
     # Should have 2 core tasks

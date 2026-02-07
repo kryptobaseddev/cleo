@@ -31,7 +31,7 @@ setup() {
 
     # Phase-specific scripts
     export FOCUS_SCRIPT="${SCRIPTS_DIR}/focus.sh"
-    export ADD_SCRIPT="${SCRIPTS_DIR}/add-task.sh"
+    export ADD_SCRIPT="${SCRIPTS_DIR}/add.sh"
     export DASH_SCRIPT="${SCRIPTS_DIR}/dash.sh"
     export PHASES_SCRIPT="${SCRIPTS_DIR}/phases.sh"
     export NEXT_SCRIPT="${SCRIPTS_DIR}/next.sh"

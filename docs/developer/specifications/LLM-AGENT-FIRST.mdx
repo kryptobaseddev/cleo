@@ -73,26 +73,26 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 
 | # | Command | Script | Category | Requirements |
 |---|---------|--------|----------|--------------|
-| 1 | `add` | `add-task.sh` | Write | JSON output, `--format`, `--quiet` |
+| 1 | `add` | `add.sh` | Write | JSON output, `--format`, `--quiet` |
 | 2 | `analyze` | `analyze.sh` | Read | JSON default, `--human` opt-in |
 | 3 | `archive` | `archive.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
 | 4 | `backup` | `backup.sh` | Maintenance | JSON output, `--format`, `--quiet` |
-| 5 | `blockers` | `blockers-command.sh` | Read | JSON output, `--format`, `--quiet` |
-| 6 | `complete` | `complete-task.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 5 | `blockers` | `blockers.sh` | Read | JSON output, `--format`, `--quiet` |
+| 6 | `complete` | `complete.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
 | 7 | `commands` | `commands.sh` | Read | JSON default, `--human` opt-in, filters |
 | 8 | `config` | `config.sh` | Maintenance | JSON output, `--format`, `--quiet` |
 | 9 | `dash` | `dash.sh` | Read | JSON output, `--format`, `--quiet` |
-| 10 | `deps` | `deps-command.sh` | Read | JSON output, `--format`, `--quiet` |
+| 10 | `deps` | `deps.sh` | Read | JSON output, `--format`, `--quiet` |
 | 11 | `exists` | `exists.sh` | Read | JSON output, `--format`, `--quiet` |
 | 12 | `export` | `export.sh` | Read | Multi-format, `--quiet` |
-| 13 | `extract` | `extract-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 13 | `extract` | `extract.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
 | 14 | `find` | `find.sh` | Read | JSON output, `--format`, `--quiet`, fuzzy search |
 | 15 | `focus` | `focus.sh` | Write | JSON output, `--format`, `--quiet` |
 | 16 | `history` | `history.sh` | Read | JSON output, `--format`, `--quiet` |
 | 17 | `init` | `init.sh` | Setup | JSON output, `--format`, `--quiet` |
-| 18 | `inject` | `inject-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 18 | `inject` | `inject.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
 | 19 | `labels` | `labels.sh` | Read | JSON output, `--format`, `--quiet` |
-| 20 | `list` | `list-tasks.sh` | Read | JSON output, `--format`, `--quiet` |
+| 20 | `list` | `list.sh` | Read | JSON output, `--format`, `--quiet` |
 | 21 | `log` | `log.sh` | Read | JSON output, `--format`, `--quiet` |
 | 22 | `migrate` | `migrate.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
 | 23 | `migrate-backups` | `migrate-backups.sh` | Maintenance | JSON output, `--format`, `--quiet`, `--dry-run` |
@@ -104,8 +104,8 @@ Design CLI tools with **LLM-agent-first** principles: JSON output by default, hu
 | 29 | `session` | `session.sh` | Write | JSON output, `--format`, `--quiet` |
 | 30 | `show` | `show.sh` | Read | JSON output, `--format`, `--quiet` |
 | 31 | `stats` | `stats.sh` | Read | JSON output, `--format`, `--quiet` |
-| 32 | `sync` | `sync-todowrite.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
-| 33 | `update` | `update-task.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 32 | `sync` | `sync.sh` | Sync | JSON output, `--format`, `--quiet`, `--dry-run` |
+| 33 | `update` | `update.sh` | Write | JSON output, `--format`, `--quiet`, `--dry-run` |
 | 34 | `validate` | `validate.sh` | Maintenance | JSON output, `--format`, `--quiet` |
 
 ### Command Categories
@@ -1324,7 +1324,7 @@ These commands exemplify best practices:
 |------|--------------|
 | `scripts/analyze.sh` | **Gold standard** - JSON default, `--human` flag |
 | `scripts/exists.sh` | Perfect exit codes pattern |
-| `scripts/list-tasks.sh` | Comprehensive JSON envelope |
+| `scripts/list.sh` | Comprehensive JSON envelope |
 | `scripts/validate.sh` | `--fix` and JSON patterns |
 
 ---

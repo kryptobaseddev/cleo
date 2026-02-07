@@ -74,7 +74,7 @@ The LLM-Agent-First implementation initiative transforms cleo from a human-first
 
 #### Notes:
 - **Envelope compliance**: 100% - all 33 commands have complete `$schema`, `_meta`, and `success` fields
-- **Optional enhancement**: `add-task.sh` missing `--dry-run` flag (not an envelope requirement)
+- **Optional enhancement**: `add.sh` missing `--dry-run` flag (not an envelope requirement)
 - All JSON outputs now include proper envelope structure with `version` and `format` in `_meta`
 
 ### All Implementation Gaps Resolved
@@ -128,7 +128,7 @@ The LLM-Agent-First implementation initiative transforms cleo from a human-first
 **P0 Critical (3 commands)**:
 | Script | Fix |
 |--------|-----|
-| `inject-todowrite.sh` | Added JSON envelope with `$schema`, `_meta`, `success` |
+| `inject.sh` | Added JSON envelope with `$schema`, `_meta`, `success` |
 | `init.sh` | Added `$schema` to JSON output |
 | `exists.sh` | Added `_meta` envelope to success JSON |
 
@@ -136,15 +136,15 @@ The LLM-Agent-First implementation initiative transforms cleo from a human-first
 | Script | Fix |
 |--------|-----|
 | `analyze.sh` | Added `success` field to JSON output |
-| `blockers-command.sh` | Added `success` field to both list and analyze outputs |
-| `list-tasks.sh` | Added `success` field after `_meta` block |
+| `blockers.sh` | Added `success` field to both list and analyze outputs |
+| `list.sh` | Added `success` field after `_meta` block |
 | `log.sh` | Added `--quiet` flag and `format` to `_meta` |
 
 **P2 Medium (8 commands)**:
 | Script | Fix |
 |--------|-----|
-| `complete-task.sh` | Added `--quiet` flag with log function updates |
-| `deps-command.sh` | Added `--quiet` flag in argument parser |
+| `complete.sh` | Added `--quiet` flag with log function updates |
+| `deps.sh` | Added `--quiet` flag in argument parser |
 | `focus.sh` | Added `--quiet` flag with log function updates |
 | `phase.sh` | Added `--quiet` flag in main() argument parsing |
 | `session.sh` | Added `--quiet` flag parsing |
@@ -154,13 +154,13 @@ The LLM-Agent-First implementation initiative transforms cleo from a human-first
 #### Verification Tests (All Passed)
 
 ```bash
-# inject-todowrite.sh JSON envelope
+# inject.sh JSON envelope
 ✅ cleo inject --format json | jq '."$schema"' → has $schema
 
 # exists.sh _meta envelope
 ✅ cleo exists T001 --format json | jq '._meta' → has _meta
 
-# list-tasks.sh success field
+# list.sh success field
 ✅ cleo list --format json | jq '.success' → true
 
 # blockers.sh success field
@@ -287,9 +287,9 @@ All five primary write commands now return structured JSON on success:
 
 | Command | File | JSON Output | Exit Codes | Status |
 |---------|------|-------------|------------|--------|
-| `add` | `scripts/add-task.sh` | Task object | Uses exit-codes.sh | COMPLETE |
-| `update` | `scripts/update-task.sh` | Changes + task | Uses exit-codes.sh | COMPLETE |
-| `complete` | `scripts/complete-task.sh` | Completion details | Uses exit-codes.sh | COMPLETE |
+| `add` | `scripts/add.sh` | Task object | Uses exit-codes.sh | COMPLETE |
+| `update` | `scripts/update.sh` | Changes + task | Uses exit-codes.sh | COMPLETE |
+| `complete` | `scripts/complete.sh` | Completion details | Uses exit-codes.sh | COMPLETE |
 | `archive` | `scripts/archive.sh` | Archived stats | Uses exit-codes.sh | COMPLETE |
 | `phase` | `scripts/phase.sh` | Phase operations | Uses exit-codes.sh | PARTIAL |
 
@@ -301,14 +301,14 @@ All five primary write commands now return structured JSON on success:
 |--------|--------|
 | `show.sh`, `next.sh`, `dash.sh`, `stats.sh` | Added |
 | `phases.sh`, `labels.sh`, `init.sh`, `migrate.sh` | Added |
-| `restore.sh`, `backup.sh`, `update-task.sh`, `archive.sh` | Added |
-| `inject-todowrite.sh`, `extract-todowrite.sh`, `sync-todowrite.sh` | Added |
+| `restore.sh`, `backup.sh`, `update.sh`, `archive.sh` | Added |
+| `inject.sh`, `extract.sh`, `sync.sh` | Added |
 
 #### Added `--format` to Commands (8 new)
 
 | Script | Formats Supported |
 |--------|-------------------|
-| `deps-command.sh`, `log.sh`, `session.sh`, `focus.sh` | text, json |
+| `deps.sh`, `log.sh`, `session.sh`, `focus.sh` | text, json |
 | `backup.sh`, `restore.sh`, `migrate.sh`, `init.sh` | text, json |
 
 ---
@@ -514,10 +514,10 @@ FORMAT=$(resolve_format "${FORMAT:-}")
 **Overall Compliance**: **99.2%** (up from ~83% actual)
 
 **Remaining Gaps** (3 commands, --dry-run only):
-- `add-task.sh`: Missing `--dry-run` flag
-- `inject-todowrite.sh`: Missing `--dry-run` flag
-- `complete-task.sh`: Partial `--dry-run` implementation
-- `update-task.sh`: Partial `--dry-run` implementation
+- `add.sh`: Missing `--dry-run` flag
+- `inject.sh`: Missing `--dry-run` flag
+- `complete.sh`: Partial `--dry-run` implementation
+- `update.sh`: Partial `--dry-run` implementation
 
 ---
 
@@ -715,13 +715,13 @@ All commands now have: `exit-codes.sh`, `error-json.sh`, `output-format.sh`, `CO
 
 #### Write Commands (MOSTLY COMPLETE)
 
-- [x] Add JSON output to `add-task.sh` (9/10)
-- [x] Add JSON output to `update-task.sh` (9/10)
-- [x] Add JSON output to `complete-task.sh` (8/10)
+- [x] Add JSON output to `add.sh` (9/10)
+- [x] Add JSON output to `update.sh` (9/10)
+- [x] Add JSON output to `complete.sh` (8/10)
 - [x] Add JSON output to `archive.sh` (10/10 - fully compliant)
 - [x] Add JSON output to `phase.sh` (6/9)
-- [ ] Add `--dry-run` to `add-task.sh`
-- [ ] Complete `--dry-run` in `complete-task.sh`
+- [ ] Add `--dry-run` to `add.sh`
+- [ ] Complete `--dry-run` in `complete.sh`
 
 #### Standardization (PARTIAL)
 
@@ -926,14 +926,14 @@ This session implemented the v3.0 spec compliance requirements including input v
 
 #### Duplicate Detection (Part 5.6 - add command)
 
-- Implemented 60-second window duplicate detection in `add-task.sh`
+- Implemented 60-second window duplicate detection in `add.sh`
 - Matches title + phase within window
 - Returns existing task with `duplicate: true` flag
 - Exit code 0 (success, not error)
 
 #### Dry-Run Semantics (Part 5.4)
 
-`add-task.sh` now supports `--dry-run` with proper output format:
+`add.sh` now supports `--dry-run` with proper output format:
 ```json
 {
   "$schema": "https://cleo.dev/schemas/v1/output.schema.json",
@@ -954,9 +954,9 @@ This session implemented the v3.0 spec compliance requirements including input v
 #### Input Validation (Part 5.3)
 
 All write commands now source `validation.sh` for Part 5.3 compliance:
-- `add-task.sh` - 100% score
-- `update-task.sh` - 100% score
-- `complete-task.sh` - 100% score (fixed this session)
+- `add.sh` - 100% score
+- `update.sh` - 100% score
+- `complete.sh` - 100% score (fixed this session)
 - `focus.sh` - 100% score
 - `session.sh` - 100% score (fixed this session)
 - `archive.sh` - 85.7% score (acceptable for maintenance command)
@@ -980,9 +980,9 @@ All write commands now source `validation.sh` for Part 5.3 compliance:
 - `lib/exit-codes.sh` - Added EXIT_NO_CHANGE (102) constant
 
 **Scripts:**
-- `scripts/add-task.sh` - Duplicate detection, --dry-run format
-- `scripts/update-task.sh` - Idempotency with EXIT_NO_CHANGE
-- `scripts/complete-task.sh` - Idempotency, validation.sh sourced
+- `scripts/add.sh` - Duplicate detection, --dry-run format
+- `scripts/update.sh` - Idempotency with EXIT_NO_CHANGE
+- `scripts/complete.sh` - Idempotency, validation.sh sourced
 - `scripts/archive.sh` - Idempotency, validation.sh sourced
 - `scripts/session.sh` - validation.sh sourced
 
@@ -999,12 +999,12 @@ All implementations verified with compliance checkers:
 
 ```bash
 # Dry-run format compliance
-✅ ./dev/compliance/checks/dry-run-semantics.sh scripts/add-task.sh → score: 100%
+✅ ./dev/compliance/checks/dry-run-semantics.sh scripts/add.sh → score: 100%
 
 # Input validation compliance
-✅ ./dev/compliance/checks/input-validation.sh scripts/add-task.sh → score: 100%
-✅ ./dev/compliance/checks/input-validation.sh scripts/update-task.sh → score: 100%
-✅ ./dev/compliance/checks/input-validation.sh scripts/complete-task.sh → score: 100%
+✅ ./dev/compliance/checks/input-validation.sh scripts/add.sh → score: 100%
+✅ ./dev/compliance/checks/input-validation.sh scripts/update.sh → score: 100%
+✅ ./dev/compliance/checks/input-validation.sh scripts/complete.sh → score: 100%
 
 # Idempotency behavior (functional tests)
 ✅ cleo complete T042 (already done) → EXIT_NO_CHANGE (102)

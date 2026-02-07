@@ -2,7 +2,7 @@
 # =============================================================================
 # circular-deps.bats - Integration tests for circular dependency prevention
 # =============================================================================
-# Tests circular dependency detection in add-task.sh and update-task.sh.
+# Tests circular dependency detection in add.sh and update.sh.
 # These are integration tests as they test interaction between scripts.
 # =============================================================================
 

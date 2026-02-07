@@ -1,0 +1,6 @@
+# SSH keys (generated locally)
+ssh/
+
+# Temporary files
+*.tmp
+*.log

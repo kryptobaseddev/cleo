@@ -788,12 +788,12 @@ cleo config set retention.autoEndActiveAfterDays 3
 - Add `session close` command (4th state)
 - Enhance error messages with context
 
-**Task Scripts** (`scripts/add-task.sh`, `scripts/update-task.sh`, `scripts/complete-task.sh`):
+**Task Scripts** (`scripts/add.sh`, `scripts/update.sh`, `scripts/complete.sh`):
 - Add session check at start
 - Error if no active session (E_SESSION_REQUIRED)
 - Log operations with session context
 
-**Complete Script** (`scripts/complete-task.sh`):
+**Complete Script** (`scripts/complete.sh`):
 - Check if all tasks in scope complete
 - Prompt agent instead of auto-completing Epic
 - Trigger session close flow

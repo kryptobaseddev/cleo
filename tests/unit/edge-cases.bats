@@ -384,7 +384,7 @@ Line 3"
 @test "commands handle missing todo.json gracefully" {
     rm -f "$TODO_FILE"
 
-    run bash "$SCRIPTS_DIR/list-tasks.sh"
+    run bash "$SCRIPTS_DIR/list.sh"
     # Should fail gracefully with helpful message
     assert_failure
     assert_output --partial "not found"

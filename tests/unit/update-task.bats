@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# update-task.bats - Unit tests for update-task.sh
+# update-task.bats - Unit tests for update.sh
 # =============================================================================
 # Tests update-task command functionality including field updates,
 # array operations, validation, and error handling.

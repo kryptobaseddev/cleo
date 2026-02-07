@@ -628,7 +628,7 @@ cleo export -f json | jq -r '.tasks[] | [.id, .status, .title] | @csv'
 
 ```bash
 # Verbose mode
-CLEO_LOG_LEVEL=debug ./scripts/add-task.sh "Test"
+CLEO_LOG_LEVEL=debug ./scripts/add.sh "Test"
 
 # Trace execution
 bash -x ./scripts/archive.sh

@@ -30,9 +30,9 @@ icon: "code"
 
 | Component | Status | Version | Notes |
 |-----------|--------|---------|-------|
-| `sync-todowrite.sh` orchestrator | COMPLETE | v0.14.0 | Subcommand routing working |
-| `inject-todowrite.sh` script | COMPLETE | v0.14.0 | 346 lines, tiered selection |
-| `extract-todowrite.sh` script | COMPLETE | v0.14.0 | 403 lines, change detection |
+| `sync.sh` orchestrator | COMPLETE | v0.14.0 | Subcommand routing working |
+| `inject.sh` script | COMPLETE | v0.14.0 | 346 lines, tiered selection |
+| `extract.sh` script | COMPLETE | v0.14.0 | 403 lines, change detection |
 | `lib/todowrite-integration.sh` | COMPLETE | v0.14.0 | Status mapping, activeForm |
 | Session state file | COMPLETE | v0.14.0 | `.cleo/sync/todowrite-session.json` |
 | JSON envelope output | COMPLETE | v0.19.0 | LLM-Agent-First compliant |
@@ -84,8 +84,8 @@ icon: "code"
 
 | Script | Status | Notes |
 |--------|--------|-------|
-| `update-task.sh --quiet` | PENDING | Not implemented |
-| `complete-task.sh --quiet` | PENDING | Not implemented |
+| `update.sh --quiet` | PENDING | Not implemented |
+| `complete.sh --quiet` | PENDING | Not implemented |
 | `focus.sh --quiet` | PENDING | Not implemented |
 | `session.sh --quiet` | PENDING | Not implemented |
 
@@ -116,9 +116,9 @@ icon: "code"
 
 - [x] T227: Research TodoWrite ↔ cleo Bidirectional Sync (completed 2025-12-15)
 - [x] T228-T233: Research subtasks (schema, injection, extraction, lossy, conflict, hooks)
-- [x] T234: Implement inject-todowrite.sh (completed 2025-12-15)
-- [x] T235: Implement extract-todowrite.sh (completed 2025-12-15)
-- [x] T236: Implement sync-todowrite.sh orchestrator (completed 2025-12-15)
+- [x] T234: Implement inject.sh (completed 2025-12-15)
+- [x] T235: Implement extract.sh (completed 2025-12-15)
+- [x] T236: Implement sync.sh orchestrator (completed 2025-12-15)
 - [x] T237: Enable all sync integration tests (completed 2025-12-15)
 
 ### Phase 2: Phase Enhancement - COMPLETE
@@ -138,7 +138,7 @@ icon: "code"
 
 ### Phase 4: v2 Enhancements - PENDING
 
-- [ ] Add --quiet flags to update-task.sh, complete-task.sh, focus.sh, session.sh
+- [ ] Add --quiet flags to update.sh, complete.sh, focus.sh, session.sh
 - [ ] Implement lib/dependency-sort.sh (topological sort)
 - [ ] Implement blocker chain display [BLOCKED:T→T]
 - [ ] Add --current-phase and --phase-of-focus flags
@@ -192,9 +192,9 @@ icon: "code"
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `scripts/sync-todowrite.sh` | 190 | Subcommand orchestrator |
-| `scripts/inject-todowrite.sh` | 346 | Task → TodoWrite transformation |
-| `scripts/extract-todowrite.sh` | 403 | TodoWrite → cleo merge |
+| `scripts/sync.sh` | 190 | Subcommand orchestrator |
+| `scripts/inject.sh` | 346 | Task → TodoWrite transformation |
+| `scripts/extract.sh` | 403 | TodoWrite → cleo merge |
 | `lib/todowrite-integration.sh` | ~250 | Shared functions, verb mapping |
 
 ### Pending Files (v2)
@@ -202,8 +202,8 @@ icon: "code"
 | File | Purpose |
 |------|---------|
 | `lib/dependency-sort.sh` | Topological sort (NEW) |
-| `scripts/update-task.sh` | Add --quiet flag |
-| `scripts/complete-task.sh` | Add --quiet flag |
+| `scripts/update.sh` | Add --quiet flag |
+| `scripts/complete.sh` | Add --quiet flag |
 | `scripts/focus.sh` | Add --quiet flag |
 | `scripts/session.sh` | Add --quiet flag |
 

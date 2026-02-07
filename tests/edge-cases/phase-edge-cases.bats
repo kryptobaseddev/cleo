@@ -31,8 +31,8 @@ setup() {
     common_setup_per_test
 
     export PHASE_SCRIPT="${SCRIPTS_DIR}/phase.sh"
-    export ADD_SCRIPT="${SCRIPTS_DIR}/add-task.sh"
-    export UPDATE_SCRIPT="${SCRIPTS_DIR}/update-task.sh"
+    export ADD_SCRIPT="${SCRIPTS_DIR}/add.sh"
+    export UPDATE_SCRIPT="${SCRIPTS_DIR}/update.sh"
     export VALIDATE_SCRIPT="${SCRIPTS_DIR}/validate.sh"
 }
 
@@ -485,7 +485,7 @@ EOF
        "$TODO_FILE" > "${TODO_FILE}.tmp" && mv "${TODO_FILE}.tmp" "$TODO_FILE"
 
     # Complete the task in setup phase first
-    bash "${SCRIPTS_DIR}/complete-task.sh" T001 --skip-notes
+    bash "${SCRIPTS_DIR}/complete.sh" T001 --skip-notes
 
     # Complete setup phase (order 1)
     bash "$PHASE_SCRIPT" complete setup

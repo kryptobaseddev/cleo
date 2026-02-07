@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# blockers.bats - Unit tests for blockers-command.sh
+# blockers.bats - Unit tests for blockers.sh
 # =============================================================================
 # Tests blockers command functionality using DRY helpers and fixtures.
 # =============================================================================

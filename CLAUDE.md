@@ -213,9 +213,9 @@ Format: `<type>: <summary>`
 ## Key Files & Entry Points
 
 ### Core Scripts
-- `scripts/add-task.sh` - Task creation
-- `scripts/update-task.sh` - Task updates
-- `scripts/complete-task.sh` - Task completion
+- `scripts/add.sh` - Task creation
+- `scripts/update.sh` - Task updates
+- `scripts/complete.sh` - Task completion
 - `scripts/phase.sh` - Phase management
 - `scripts/phases.sh` - Phase listing
 
