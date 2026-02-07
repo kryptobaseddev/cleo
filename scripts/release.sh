@@ -590,6 +590,11 @@ cmd_create() {
         .lastUpdated = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
     ' "$TODO_FILE")
 
+    # Recalculate checksum after modifying todo.json
+    local checksum
+    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
+    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
+
     # Atomic write
     echo "$updated_json" > "$TODO_FILE.tmp"
     mv "$TODO_FILE.tmp" "$TODO_FILE"
@@ -675,6 +680,11 @@ cmd_plan() {
         ] |
         .lastUpdated = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
     ' "$TODO_FILE")
+
+    # Recalculate checksum after modifying todo.json
+    local checksum
+    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
+    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
 
     # Atomic write
     echo "$updated_json" > "$TODO_FILE.tmp"
@@ -1002,6 +1012,11 @@ $release_desc"
         ] |
         .lastUpdated = $timestamp
     ' "$TODO_FILE")
+
+    # Recalculate checksum after modifying todo.json
+    local checksum
+    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
+    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
 
     # Atomic write
     echo "$updated_json" > "$TODO_FILE.tmp"
