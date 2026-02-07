@@ -1,6 +1,7 @@
 # Decomposition Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -190,8 +191,21 @@ graph TD
 
 ### Manifest Entry
 
-```json
-{"id":"T####-decomposition","file":"YYYY-MM-DD_decomposition.md","title":"Decomposition: Epic Title","date":"YYYY-MM-DD","status":"complete","agent_type":"analysis","topics":["decomposition","planning","epic"],"key_findings":["12 tasks identified","3 wave parallel plan","2 HITL questions"],"actionable":true,"needs_followup":["T####"],"linked_tasks":["T####"]}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Decomposition: Epic Title" \
+  --file "YYYY-MM-DD_decomposition.md" \
+  --topics "decomposition,planning,epic" \
+  --findings "12 tasks identified,3 wave parallel plan,2 HITL questions" \
+  --status complete \
+  --task T#### \
+  --actionable \
+  --needs-followup T#### \
+  --agent-type analysis
 ```
 
 ---
@@ -234,9 +248,18 @@ cleo update T004 --depends T003
 
 **Task**: Decompose CLEO Universal Subagent Architecture
 
-**Manifest Entry**:
-```json
-{"id":"T2392-decomposition","file":"2026-01-26_subagent-decomposition.md","title":"Decomposition: Universal Subagent Architecture","date":"2026-01-26","status":"complete","agent_type":"analysis","topics":["subagent","architecture","decomposition"],"key_findings":["14 tasks identified","4 parallel waves","Base protocol + 7 conditional protocols"],"actionable":true,"needs_followup":["T2393","T2394"],"linked_tasks":["T2392"]}
+**Manifest Entry Command**:
+```bash
+cleo research add \
+  --title "Decomposition: Universal Subagent Architecture" \
+  --file "2026-01-26_subagent-decomposition.md" \
+  --topics "subagent,architecture,decomposition" \
+  --findings "14 tasks identified,4 parallel waves,Base protocol + 7 conditional protocols" \
+  --status complete \
+  --task T2392 \
+  --actionable \
+  --needs-followup T2393,T2394 \
+  --agent-type analysis
 ```
 
 ---

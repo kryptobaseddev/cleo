@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 ###CLEO
 # command: research
-# category: read
+# category: write
 # synopsis: Multi-source web research aggregation with MCP servers (Tavily, Context7, Reddit)
 # aliases: dig
 # relevance: high
 # flags: --format,--depth,--output,--topic,--subreddit,--include-reddit,--link-task,--plan-only,--json,--url,--reddit,--library
 # exits: 0,2,3,4,5,6,101
 # json-output: true
-# subcommands: init,list,show,inject,link,pending,archive,archive-list,status,stats,validate
+# subcommands: init,add,update,list,show,inject,link,pending,archive,archive-list,status,stats,validate
 ###END
 #
 # Web research aggregation command for cleo
@@ -121,6 +121,27 @@ ARCHIVE_LIST_SINCE=""
 # Stats subcommand options
 # (no options needed)
 
+# Add subcommand options
+ADD_TITLE=""
+ADD_FILE=""
+ADD_TOPICS=""
+ADD_FINDINGS=""
+ADD_STATUS="complete"
+ADD_TASK=""
+ADD_EPIC=""
+ADD_ACTIONABLE="true"
+ADD_NEEDS_FOLLOWUP=""
+
+# Update subcommand options
+# @task T3150
+# @epic T3147
+UPDATE_ID=""
+UPDATE_STATUS=""
+UPDATE_TITLE=""
+UPDATE_FINDINGS=""
+UPDATE_NEEDS_FOLLOWUP=""
+UPDATE_ACTIONABLE=""
+
 # Research storage
 RESEARCH_DIR=".cleo/research"
 
@@ -141,6 +162,7 @@ USAGE
 
 SUBCOMMANDS
   init             Initialize research outputs directory with protocol files
+  add              Add a new research entry to the manifest
   list             List research entries from manifest with filtering
   show <id>        Show details of a research entry from the manifest
   inject           Output the subagent injection template for prompts
@@ -155,6 +177,18 @@ SUBCOMMANDS
   stats            Show comprehensive manifest statistics
   compact          Remove duplicate/obsolete entries from manifest
   validate         Validate manifest file integrity and entry format
+
+ADD OPTIONS
+  --title TITLE    Entry title (required)
+  --file PATH      Output file path (required)
+  --topics T1,T2   Comma-separated topic tags (required)
+  --findings F1,F2 Comma-separated key findings (required, 1-7 items)
+  --status STATUS  Entry status: complete|partial|blocked (default: complete)
+  --task T####     Link to task ID
+  --epic T####     Link to epic ID
+  --actionable     Mark as actionable (default: true)
+  --not-actionable Mark as not actionable
+  --needs-followup T1,T2  Comma-separated followup task IDs
 
 ARCHIVE OPTIONS
   --threshold N    Archive threshold in bytes (default: 200000 = ~50K tokens)
@@ -306,6 +340,97 @@ while [[ $# -gt 0 ]]; do
     init)
       MODE="init"
       shift
+      ;;
+    add)
+      MODE="add"
+      shift
+      # Parse add-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --title)
+            ADD_TITLE="$2"
+            shift 2
+            ;;
+          --file)
+            ADD_FILE="$2"
+            shift 2
+            ;;
+          --topics)
+            ADD_TOPICS="$2"
+            shift 2
+            ;;
+          --findings)
+            ADD_FINDINGS="$2"
+            shift 2
+            ;;
+          --status)
+            ADD_STATUS="$2"
+            shift 2
+            ;;
+          --task)
+            ADD_TASK="$2"
+            shift 2
+            ;;
+          --epic)
+            ADD_EPIC="$2"
+            shift 2
+            ;;
+          --actionable)
+            ADD_ACTIONABLE="true"
+            shift
+            ;;
+          --not-actionable)
+            ADD_ACTIONABLE="false"
+            shift
+            ;;
+          --needs-followup)
+            ADD_NEEDS_FOLLOWUP="$2"
+            shift 2
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
+      ;;
+    update)
+      MODE="update"
+      shift
+      # Get entry ID (required positional argument)
+      # @task T3150
+      # @epic T3147
+      if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+        UPDATE_ID="$1"
+        shift
+      fi
+      # Parse update-specific options
+      while [[ $# -gt 0 ]]; do
+        case $1 in
+          --status)
+            UPDATE_STATUS="$2"
+            shift 2
+            ;;
+          --title)
+            UPDATE_TITLE="$2"
+            shift 2
+            ;;
+          --findings)
+            UPDATE_FINDINGS="$2"
+            shift 2
+            ;;
+          --needs-followup)
+            UPDATE_NEEDS_FOLLOWUP="$2"
+            shift 2
+            ;;
+          --actionable)
+            UPDATE_ACTIONABLE="$2"
+            shift 2
+            ;;
+          *)
+            break
+            ;;
+        esac
+      done
       ;;
     show)
       MODE="show"
@@ -933,6 +1058,626 @@ run_init() {
     fi
   fi
 
+  exit 0
+}
+
+# ============================================================================
+# Add Subcommand
+# @task T3149
+# @epic T3147
+# ============================================================================
+
+run_add() {
+  # Validate required fields
+  if [[ -z "$ADD_TITLE" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_MISSING_REQUIRED",
+          "message": "Missing required field: --title",
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  if [[ -z "$ADD_FILE" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_MISSING_REQUIRED",
+          "message": "Missing required field: --file",
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  if [[ -z "$ADD_TOPICS" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_MISSING_REQUIRED",
+          "message": "Missing required field: --topics",
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  if [[ -z "$ADD_FINDINGS" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_MISSING_REQUIRED",
+          "message": "Missing required field: --findings",
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  # Validate status enum
+  if [[ "$ADD_STATUS" != "complete" && "$ADD_STATUS" != "partial" && "$ADD_STATUS" != "blocked" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg status "$ADD_STATUS" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_INVALID_STATUS",
+          "message": ("Invalid status: " + $status + ". Must be: complete, partial, or blocked"),
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  # Generate ID from title slug + date
+  local slug date_str entry_id
+  # Use same slug generation logic as subagent-inject.sh
+  slug=$(echo "$ADD_TITLE" | tr '[:upper:]' '[:lower:]' | \
+         sed -E 's/[^a-z0-9]+/-/g' | sed -E 's/^-+|-+$//g')
+  [[ -z "$slug" ]] && slug="research"
+
+  date_str=$(date +%Y-%m-%d)
+  entry_id="${slug}"
+
+  # Parse comma-separated topics into JSON array
+  local topics_json
+  IFS=',' read -ra topics_array <<< "$ADD_TOPICS"
+  topics_json=$(printf '%s\n' "${topics_array[@]}" | jq -R . | jq -s .)
+
+  # Parse comma-separated findings into JSON array
+  local findings_json
+  IFS=',' read -ra findings_array <<< "$ADD_FINDINGS"
+  findings_json=$(printf '%s\n' "${findings_array[@]}" | jq -R . | jq -s .)
+
+  # Validate findings count (1-7)
+  local findings_count
+  findings_count=$(echo "$findings_json" | jq 'length')
+  if [[ $findings_count -lt 1 || $findings_count -gt 7 ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --argjson count "$findings_count" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_INVALID_FINDINGS_COUNT",
+          "message": ("Invalid findings count: " + ($count|tostring) + ". Must be 1-7 items"),
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  # Parse needs_followup if provided
+  local needs_followup_json="[]"
+  if [[ -n "$ADD_NEEDS_FOLLOWUP" ]]; then
+    IFS=',' read -ra followup_array <<< "$ADD_NEEDS_FOLLOWUP"
+    needs_followup_json=$(printf '%s\n' "${followup_array[@]}" | jq -R . | jq -s .)
+  fi
+
+  # Build linked_tasks array
+  local linked_tasks_json="[]"
+  if [[ -n "$ADD_EPIC" && -n "$ADD_TASK" ]]; then
+    linked_tasks_json=$(jq -nc --arg epic "$ADD_EPIC" --arg task "$ADD_TASK" '[$epic, $task]')
+  elif [[ -n "$ADD_EPIC" ]]; then
+    linked_tasks_json=$(jq -nc --arg epic "$ADD_EPIC" '[$epic]')
+  elif [[ -n "$ADD_TASK" ]]; then
+    linked_tasks_json=$(jq -nc --arg task "$ADD_TASK" '[$task]')
+  fi
+
+  # Build entry JSON
+  local entry
+  entry=$(jq -nc \
+    --arg id "$entry_id" \
+    --arg file "$ADD_FILE" \
+    --arg title "$ADD_TITLE" \
+    --arg date "$date_str" \
+    --arg status "$ADD_STATUS" \
+    --argjson topics "$topics_json" \
+    --argjson findings "$findings_json" \
+    --argjson actionable "$ADD_ACTIONABLE" \
+    --argjson needs_followup "$needs_followup_json" \
+    --argjson linked_tasks "$linked_tasks_json" \
+    '{
+      id: $id,
+      file: $file,
+      title: $title,
+      date: $date,
+      status: $status,
+      agent_type: "research",
+      topics: $topics,
+      key_findings: $findings,
+      actionable: $actionable,
+      needs_followup: $needs_followup,
+      linked_tasks: $linked_tasks
+    }')
+
+  # Append to manifest using research-manifest.sh function
+  local result
+  result=$(append_manifest "$entry")
+
+  # Check success
+  local success
+  success=$(echo "$result" | jq -r '.success')
+
+  if [[ "$success" == "true" ]]; then
+    # Wrap with research command metadata
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg id "$entry_id" \
+      --arg file "$ADD_FILE" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": true,
+        "entry": {
+          "id": $id,
+          "file": $file
+        }
+      }'
+    exit 0
+  else
+    # Pass through error from append_manifest
+    local error_code error_msg
+    error_code=$(echo "$result" | jq -r '.error.code')
+    error_msg=$(echo "$result" | jq -r '.error.message')
+
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      --arg error_code "$error_code" \
+      --arg error_msg "$error_msg" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "add",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": $error_code,
+          "message": $error_msg
+        }
+      }'
+    exit "${EXIT_VALIDATION_ERROR:-6}"
+  fi
+}
+
+# ============================================================================
+# Update Subcommand
+# @task T3150
+# @epic T3147
+# ============================================================================
+
+run_update() {
+  # Validate required entry ID
+  if [[ -z "$UPDATE_ID" ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "update",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_MISSING_REQUIRED",
+          "message": "Missing required argument: <entry-id>",
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  # Build jq update filter from provided flags
+  local jq_parts=()
+
+  # Status update
+  if [[ -n "$UPDATE_STATUS" ]]; then
+    # Validate status enum
+    if [[ "$UPDATE_STATUS" != "complete" && "$UPDATE_STATUS" != "partial" && "$UPDATE_STATUS" != "blocked" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg status "$UPDATE_STATUS" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "update",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_INVALID_STATUS",
+            "message": ("Invalid status: " + $status + ". Must be: complete, partial, or blocked"),
+            "exitCode": 2
+          }
+        }'
+      exit "${EXIT_INVALID_INPUT:-2}"
+    fi
+    jq_parts+=(".status = \"$UPDATE_STATUS\"")
+  fi
+
+  # Title update
+  if [[ -n "$UPDATE_TITLE" ]]; then
+    # Escape quotes in title for jq
+    local escaped_title
+    escaped_title=$(echo "$UPDATE_TITLE" | jq -R .)
+    jq_parts+=(".title = $escaped_title")
+  fi
+
+  # Findings update
+  if [[ -n "$UPDATE_FINDINGS" ]]; then
+    # Parse comma-separated findings into JSON array
+    local findings_json
+    IFS=',' read -ra findings_array <<< "$UPDATE_FINDINGS"
+    findings_json=$(printf '%s\n' "${findings_array[@]}" | jq -R . | jq -s .)
+
+    # Validate findings count (1-7)
+    local findings_count
+    findings_count=$(echo "$findings_json" | jq 'length')
+    if [[ $findings_count -lt 1 || $findings_count -gt 7 ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --argjson count "$findings_count" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "update",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_INVALID_FINDINGS_COUNT",
+            "message": ("Invalid findings count: " + ($count|tostring) + ". Must be 1-7 items"),
+            "exitCode": 2
+          }
+        }'
+      exit "${EXIT_INVALID_INPUT:-2}"
+    fi
+
+    # Use jq --argjson to safely inject JSON array
+    jq_parts+=(".key_findings = \$findings_json")
+  fi
+
+  # Needs followup update
+  if [[ -n "$UPDATE_NEEDS_FOLLOWUP" ]]; then
+    # Parse comma-separated task IDs into JSON array
+    local followup_json
+    IFS=',' read -ra followup_array <<< "$UPDATE_NEEDS_FOLLOWUP"
+    followup_json=$(printf '%s\n' "${followup_array[@]}" | jq -R . | jq -s .)
+    jq_parts+=(".needs_followup = \$followup_json")
+  fi
+
+  # Actionable update
+  if [[ -n "$UPDATE_ACTIONABLE" ]]; then
+    # Validate boolean
+    if [[ "$UPDATE_ACTIONABLE" != "true" && "$UPDATE_ACTIONABLE" != "false" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg value "$UPDATE_ACTIONABLE" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "update",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_INVALID_BOOLEAN",
+            "message": ("Invalid actionable value: " + $value + ". Must be: true or false"),
+            "exitCode": 2
+          }
+        }'
+      exit "${EXIT_INVALID_INPUT:-2}"
+    fi
+    jq_parts+=(".actionable = $UPDATE_ACTIONABLE")
+  fi
+
+  # Check if any fields specified
+  if [[ ${#jq_parts[@]} -eq 0 ]]; then
+    jq -nc \
+      --arg cmd_version "$COMMAND_VERSION" \
+      --arg timestamp "$(timestamp_iso)" \
+      '{
+        "_meta": {
+          "format": "json",
+          "command": "research",
+          "subcommand": "update",
+          "command_version": $cmd_version,
+          "timestamp": $timestamp
+        },
+        "success": false,
+        "error": {
+          "code": "E_NO_FIELDS",
+          "message": "No fields specified to update. Use --status, --title, --findings, --needs-followup, or --actionable",
+          "exitCode": 2
+        }
+      }'
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  # Build jq filter
+  local jq_filter
+  jq_filter=$(IFS=' | '; echo "${jq_parts[*]}")
+
+  # Prepare jq arguments for dynamic values
+  local jq_args=()
+  if [[ -n "$UPDATE_FINDINGS" ]]; then
+    IFS=',' read -ra findings_array <<< "$UPDATE_FINDINGS"
+    local findings_json
+    findings_json=$(printf '%s\n' "${findings_array[@]}" | jq -R . | jq -s .)
+    jq_args+=(--argjson findings_json "$findings_json")
+  fi
+  if [[ -n "$UPDATE_NEEDS_FOLLOWUP" ]]; then
+    IFS=',' read -ra followup_array <<< "$UPDATE_NEEDS_FOLLOWUP"
+    local followup_json
+    followup_json=$(printf '%s\n' "${followup_array[@]}" | jq -R . | jq -s .)
+    jq_args+=(--argjson followup_json "$followup_json")
+  fi
+
+  # Call update_entry from research-manifest.sh
+  local result
+  if [[ ${#jq_args[@]} -gt 0 ]]; then
+    # Need to rebuild the entry with jq args
+    # This is complex - use temp approach
+    local manifest_path lock_path
+    manifest_path=$(_rm_get_manifest_path)
+    lock_path=$(_rm_get_lock_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "update",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_NOT_FOUND",
+            "message": "Manifest file not found. Run: cleo research init",
+            "exitCode": 4
+          }
+        }'
+      exit "${EXIT_NOT_FOUND:-4}"
+    fi
+
+    touch "$lock_path" 2>/dev/null || true
+
+    local lock_result
+    lock_result=$(
+      flock -x 200 2>/dev/null
+
+      if ! grep -q "\"id\":\"${UPDATE_ID}\"" "$manifest_path" 2>/dev/null; then
+        echo "NOT_FOUND"
+        exit 4
+      fi
+
+      local temp_file
+      temp_file=$(mktemp)
+
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        local line_id
+        line_id=$(echo "$line" | jq -r '.id' 2>/dev/null)
+        if [[ "$line_id" == "$UPDATE_ID" ]]; then
+          # Apply update with jq args
+          echo "$line" | jq -c "${jq_args[@]}" "$jq_filter" >> "$temp_file"
+        else
+          echo "$line" >> "$temp_file"
+        fi
+      done < "$manifest_path"
+
+      mv "$temp_file" "$manifest_path"
+      echo "SUCCESS"
+      exit 0
+    ) 200>"$lock_path"
+    local lock_exit=$?
+
+    if [[ "$lock_result" == "NOT_FOUND" ]] || [[ $lock_exit -eq 4 ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg id "$UPDATE_ID" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "update",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_NOT_FOUND",
+            "message": ("Research entry \"" + $id + "\" not found"),
+            "exitCode": 4
+          }
+        }'
+      exit "${EXIT_NOT_FOUND:-4}"
+    fi
+
+    if [[ $lock_exit -ne 0 ]]; then
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "update",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": "E_UPDATE_FAILED",
+            "message": "Failed to update manifest entry",
+            "exitCode": 8
+          }
+        }'
+      exit "${EXIT_VALIDATION_ERROR:-6}"
+    fi
+  else
+    # Simple case - no jq args needed, use update_entry
+    result=$(update_entry "$UPDATE_ID" "$jq_filter")
+    local success
+    success=$(echo "$result" | jq -r '.success')
+
+    if [[ "$success" != "true" ]]; then
+      # Wrap error with research command metadata
+      local error_code error_msg exit_code
+      error_code=$(echo "$result" | jq -r '.error.code')
+      error_msg=$(echo "$result" | jq -r '.error.message')
+      exit_code=$(echo "$result" | jq -r '.error.exitCode // 6')
+
+      jq -nc \
+        --arg cmd_version "$COMMAND_VERSION" \
+        --arg timestamp "$(timestamp_iso)" \
+        --arg error_code "$error_code" \
+        --arg error_msg "$error_msg" \
+        --argjson exit_code "$exit_code" \
+        '{
+          "_meta": {
+            "format": "json",
+            "command": "research",
+            "subcommand": "update",
+            "command_version": $cmd_version,
+            "timestamp": $timestamp
+          },
+          "success": false,
+          "error": {
+            "code": $error_code,
+            "message": $error_msg,
+            "exitCode": $exit_code
+          }
+        }'
+      exit "$exit_code"
+    fi
+  fi
+
+  # Success output
+  jq -nc \
+    --arg cmd_version "$COMMAND_VERSION" \
+    --arg timestamp "$(timestamp_iso)" \
+    --arg id "$UPDATE_ID" \
+    '{
+      "_meta": {
+        "format": "json",
+        "command": "research",
+        "subcommand": "update",
+        "command_version": $cmd_version,
+        "timestamp": $timestamp
+      },
+      "success": true,
+      "entry": {
+        "id": $id,
+        "updated": true
+      }
+    }'
   exit 0
 }
 
@@ -3223,6 +3968,12 @@ main() {
 case "$MODE" in
   init)
     run_init
+    ;;
+  add)
+    run_add
+    ;;
+  update)
+    run_update
     ;;
   list)
     run_list

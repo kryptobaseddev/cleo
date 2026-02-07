@@ -38,6 +38,10 @@ _TE_LIB_DIR="${BASH_SOURCE[0]%/*}"
 # shellcheck source=lib/exit-codes.sh
 source "${_TE_LIB_DIR}/exit-codes.sh"
 
+# Source file-ops for atomic_jsonl_append (T3148)
+# shellcheck source=lib/file-ops.sh
+source "${_TE_LIB_DIR}/file-ops.sh"
+
 # Metrics file path
 _TE_TOKEN_FILE="${TOKEN_METRICS_PATH:-.cleo/metrics/TOKEN_USAGE.jsonl}"
 
@@ -121,6 +125,8 @@ estimate_tokens_from_file() {
 #       $4 = optional: task_id
 #       $5 = optional: additional context JSON
 # Env: CLEO_TRACK_TOKENS - Set to 0 to disable tracking (default: 1)
+# @task T3151
+# @epic T3147
 log_token_event() {
     # Early return if tracking disabled - zero overhead
     _te_tracking_enabled || return 0
@@ -156,7 +162,12 @@ log_token_event() {
             context: $ctx
         }')
 
-    echo "$entry" >> "$_TE_TOKEN_FILE" 2>/dev/null || true
+    # Use atomic JSONL append (T3148) - failures are now visible
+    # Note: We don't fail the parent operation if token tracking fails,
+    # but we do log the error instead of silently suppressing it
+    if ! atomic_jsonl_append "$_TE_TOKEN_FILE" "$entry"; then
+        _te_debug "WARNING: Failed to log token event to $_TE_TOKEN_FILE"
+    fi
 
     # Update session totals if tracking
     if [[ -n "$_TE_SESSION_ID" ]]; then

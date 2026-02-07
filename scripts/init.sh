@@ -1059,6 +1059,19 @@ if [[ "${DETECT_MODE:-false}" == true ]] && [[ -n "${DETECTED_PROJECT_TYPE:-}" ]
     "${DETECTED_PROJECT_TYPE}" \
     "${DETECTED_FRAMEWORK:-custom}" \
     "${DETECTED_MONOREPO:-false}"
+
+  # Apply detection results to config.json
+  if command -v jq &>/dev/null && [[ -f "$TODO_DIR/config.json" ]]; then
+    log_info "Applying detection results to config.json..."
+    _detect_cfg=$(jq \
+      --arg fw "${DETECTED_FRAMEWORK:-custom}" \
+      --arg pt "${DETECTED_PROJECT_TYPE:-}" \
+      '.validation.testing.framework = $fw | .validation.testing.projectType = $pt' \
+      "$TODO_DIR/config.json")
+    _detect_tmp=$(mktemp "${TODO_DIR}/config.json.XXXXXX")
+    echo "$_detect_cfg" > "$_detect_tmp" && mv "$_detect_tmp" "$TODO_DIR/config.json" || rm -f "$_detect_tmp"
+    log_info "Applied testing framework: ${DETECTED_FRAMEWORK:-custom}"
+  fi
 fi
 
 # Recalculate checksum from actual tasks array to ensure validity
@@ -1068,9 +1081,7 @@ if command -v jq &> /dev/null && [[ -f "$TODO_DIR/todo.json" ]]; then
   FINAL_CHECKSUM=$(echo "$ACTUAL_TASKS" | sha256sum | cut -c1-16)
 
   # Update checksum in the file
-  local _init_content
   _init_content=$(jq --arg cs "$FINAL_CHECKSUM" '._meta.checksum = $cs' "$TODO_DIR/todo.json")
-  local _init_tmp
   _init_tmp=$(mktemp "${TODO_DIR}/todo.json.XXXXXX")
   echo "$_init_content" > "$_init_tmp" && mv "$_init_tmp" "$TODO_DIR/todo.json" || rm -f "$_init_tmp"
   log_info "Updated checksum to: $FINAL_CHECKSUM"

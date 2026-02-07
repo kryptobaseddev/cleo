@@ -1,5 +1,9 @@
 # Subagent Protocol Base Reference
 
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
+**Updated**: 2026-02-07
+
 This reference defines the RFC 2119 protocol for subagent output and handoff.
 All subagents operating under an orchestrator MUST follow this protocol.
 
@@ -64,33 +68,28 @@ Write to `{{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md`:
 
 ## Manifest Entry Format
 
-Append ONE line (no pretty-printing) to `{{MANIFEST_PATH}}`:
+@skills/_shared/manifest-operations.md
 
-```json
-{"id":"{{TOPIC_SLUG}}-{{DATE}}","file":"{{DATE}}_{{TOPIC_SLUG}}.md","title":"{{TITLE}}","date":"{{DATE}}","status":"complete","topics":["topic1","topic2"],"key_findings":["Finding 1","Finding 2","Finding 3"],"actionable":true,"needs_followup":["{{NEXT_TASK_IDS}}"],"linked_tasks":["{{EPIC_ID}}","{{TASK_ID}}"]}
+Use `cleo research add` to create manifest entries instead of manual JSONL appends.
+
+**Quick Reference**:
+```bash
+cleo research add \
+  --title "{{TITLE}}" \
+  --file "{{DATE}}_{{TOPIC_SLUG}}.md" \
+  --topics "topic1,topic2,topic3" \
+  --findings "Finding 1,Finding 2,Finding 3" \
+  --status complete \
+  --task {{TASK_ID}} \
+  --agent-type research
 ```
 
-### Field Definitions
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique identifier: `{topic-slug}-{date}` |
-| `file` | string | Output filename |
-| `title` | string | Human-readable title |
-| `date` | string | ISO date (YYYY-MM-DD) |
-| `status` | enum | `complete`, `partial`, `blocked` |
-| `topics` | array | Categorization tags |
-| `key_findings` | array | 3-7 one-sentence findings |
-| `actionable` | boolean | Whether findings require action |
-| `needs_followup` | array | Task IDs requiring attention |
-| `linked_tasks` | array | Associated task IDs |
-
-### Key Findings Guidelines
-
-- **3-7 items maximum**
-- **One sentence each**
-- **Action-oriented language**
-- **No implementation details** (those go in the output file)
+See the reference above for:
+- Complete CLI command syntax
+- Field definitions and constraints
+- Agent type values (RCSD-IVTR + workflow types)
+- Manifest entry schema
+- Anti-patterns to avoid
 
 ---
 
@@ -105,10 +104,9 @@ Reference: @skills/_shared/task-system-integration.md
 2. Set focus:    {{TASK_FOCUS_CMD}} {{TASK_ID}}
 3. Do work:      [skill-specific execution]
 4. Write output: {{OUTPUT_DIR}}/{{DATE}}_{{TOPIC_SLUG}}.md
-5. Append manifest: {{MANIFEST_PATH}}
+5. Create manifest entry: cleo research add [flags]
 6. Complete:     {{TASK_COMPLETE_CMD}} {{TASK_ID}}
-7. Link (optional): {{TASK_LINK_CMD}} {{TASK_ID}} {{RESEARCH_ID}}
-8. Return:       "Research complete. See MANIFEST.jsonl for summary."
+7. Return:       "Research complete. See MANIFEST.jsonl for summary."
 ```
 
 ---
@@ -153,7 +151,7 @@ Before returning, verify:
 
 - [ ] Task focus set via `{{TASK_FOCUS_CMD}}`
 - [ ] Output file written to `{{OUTPUT_DIR}}/`
-- [ ] Manifest entry appended (single line, valid JSON)
+- [ ] Manifest entry created via `cleo research add`
 - [ ] Task completed via `{{TASK_COMPLETE_CMD}}`
 - [ ] Response is ONLY the summary message
 
@@ -218,6 +216,6 @@ If work cannot proceed:
 | Pattern | Problem | Solution |
 |---------|---------|----------|
 | Returning full content | Bloats orchestrator context | Return only summary message |
-| Pretty-printed JSON | Multiple lines in manifest | Single line JSON |
-| Missing manifest entry | Orchestrator can't find findings | Always append to manifest |
+| Manual JSONL append | No validation, race conditions | Use `cleo research add` |
+| Missing manifest entry | Orchestrator can't find findings | Always create manifest entry |
 | Incomplete checklist | Protocol violation | Verify all items before return |

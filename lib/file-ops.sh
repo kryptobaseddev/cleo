@@ -896,6 +896,102 @@ with_multi_lock() {
     return $result
 }
 
+# ============================================================================
+# JSONL OPERATIONS (Unified Append Abstraction)
+# ============================================================================
+
+#######################################
+# Atomic append to JSONL file with validation and locking
+# Arguments:
+#   $1 - File path (JSONL file to append to)
+#   $2 - JSON line (single-line or multi-line JSON, will be compacted)
+# Outputs:
+#   None (silent on success, errors to stderr)
+# Returns:
+#   0 on success
+#   FO_INVALID_ARGS on invalid input
+#   FO_JSON_PARSE_FAILED on JSON validation failure
+#   FO_WRITE_FAILED on write failure
+# Notes:
+#   - Uses flock (fd 200) for atomic locking (gold standard from MANIFEST.jsonl)
+#   - Auto-creates file and directory if missing
+#   - Compacts JSON to single line before append
+#   - Does NOT validate duplicates (caller responsibility)
+#   - Does NOT validate schema (caller responsibility)
+# Provenance:
+#   @task T3148 - Unified JSONL append abstraction
+#   @epic T3147 - Manifest Bash Foundation and Protocol Updates
+#######################################
+atomic_jsonl_append() {
+    local file_path="$1"
+    local json_line="$2"
+
+    if [[ -z "$file_path" ]]; then
+        echo "Error: File path required for JSONL append" >&2
+        return $FO_INVALID_ARGS
+    fi
+
+    if [[ -z "$json_line" ]]; then
+        echo "Error: JSON line required for JSONL append" >&2
+        return $FO_INVALID_ARGS
+    fi
+
+    # Validate JSON syntax and compact to single line
+    local compact_json
+    if ! compact_json=$(echo "$json_line" | jq -c . 2>/dev/null); then
+        echo "Error: Invalid JSON syntax for JSONL append" >&2
+        return $FO_JSON_PARSE_FAILED
+    fi
+
+    # Ensure parent directory exists
+    local dir_path
+    dir_path="$(dirname "$file_path")"
+    if ! ensure_directory "$dir_path"; then
+        echo "Error: Cannot create directory for JSONL file: $dir_path" >&2
+        return $FO_WRITE_FAILED
+    fi
+
+    # Ensure lock file exists (outside lock)
+    local lock_path="${file_path}.lock"
+    touch "$lock_path" 2>/dev/null || {
+        echo "Error: Cannot create lock file: $lock_path" >&2
+        return $FO_LOCK_FAILED
+    }
+
+    # Atomic append operation within exclusive flock
+    # Uses subshell with fd 200 (gold standard pattern from append_manifest)
+    # Exit code propagates from subshell
+    local append_result lock_exit
+    append_result=$(
+        # Acquire exclusive lock on fd 200
+        flock -x 200 2>/dev/null
+
+        # Append (inside lock for atomicity)
+        if echo "$compact_json" >> "$file_path" 2>/dev/null; then
+            echo "SUCCESS"
+            exit 0
+        else
+            echo "WRITE_FAILED"
+            exit "$FO_WRITE_FAILED"
+        fi
+    ) 200>"$lock_path"
+    lock_exit=$?
+
+    # Check result
+    if [[ "$append_result" == "LOCK_FAILED" ]] || [[ $lock_exit -eq $FO_LOCK_FAILED ]]; then
+        echo "Error: Failed to acquire lock for JSONL append: $file_path" >&2
+        return $FO_LOCK_FAILED
+    fi
+
+    if [[ "$append_result" == "WRITE_FAILED" ]] || [[ $lock_exit -eq $FO_WRITE_FAILED ]]; then
+        echo "Error: Failed to write to JSONL file: $file_path" >&2
+        return $FO_WRITE_FAILED
+    fi
+
+    # Success
+    return $FO_SUCCESS
+}
+
 # Export functions
 export -f ensure_directory
 export -f lock_file
@@ -911,3 +1007,4 @@ export -f load_json
 export -f save_json
 export -f list_backups
 export -f _fo_sanitize_file_path
+export -f atomic_jsonl_append

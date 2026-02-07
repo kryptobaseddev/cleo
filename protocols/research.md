@@ -1,6 +1,7 @@
 # Research Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -106,8 +107,19 @@ This protocol activates when the task involves:
 
 ### Manifest Entry
 
-```json
-{"id":"T####-research-slug","file":"YYYY-MM-DD_topic.md","title":"Research Title","date":"YYYY-MM-DD","status":"complete","agent_type":"research","topics":["topic1","topic2"],"key_findings":["Finding 1","Finding 2","Finding 3"],"actionable":true,"needs_followup":[],"linked_tasks":["T####"]}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Research Title" \
+  --file "YYYY-MM-DD_topic.md" \
+  --topics "topic1,topic2,topic3" \
+  --findings "Finding 1,Finding 2,Finding 3" \
+  --status complete \
+  --task T#### \
+  --agent-type research
 ```
 
 ---
@@ -142,9 +154,19 @@ This protocol activates when the task involves:
 
 **Task**: Research authentication patterns for CLEO plugin system
 
-**Manifest Entry**:
-```json
-{"id":"T2398-auth-patterns","file":"2026-01-26_auth-patterns.md","title":"Authentication Patterns Research","date":"2026-01-26","status":"complete","agent_type":"research","topics":["authentication","plugins","security"],"key_findings":["OAuth2 is standard for plugin auth","Token refresh needed for long sessions","Rate limiting prevents abuse"],"actionable":true,"needs_followup":["T2400"],"linked_tasks":["T2398","T2392"]}
+**Manifest Entry Command**:
+```bash
+cleo research add \
+  --title "Authentication Patterns Research" \
+  --file "2026-01-26_auth-patterns.md" \
+  --topics "authentication,plugins,security" \
+  --findings "OAuth2 is standard for plugin auth,Token refresh needed for long sessions,Rate limiting prevents abuse" \
+  --status complete \
+  --task T2398 \
+  --epic T2392 \
+  --actionable \
+  --needs-followup T2400 \
+  --agent-type research
 ```
 
 **Return Message**:

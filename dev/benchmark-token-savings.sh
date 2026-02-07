@@ -5,6 +5,10 @@
 
 set -euo pipefail
 
+# Source file-ops for atomic JSONL append
+# shellcheck source=lib/file-ops.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/file-ops.sh"
+
 # Constants
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -79,6 +83,8 @@ read_full_file() {
 }
 
 # Run a single benchmark test
+# @task T3152 - Applied atomic_jsonl_append for flock protection
+# @epic T3147 - Manifest Bash Foundation and Protocol Updates
 run_benchmark_test() {
     local test_case=$1
     local method=$2
@@ -137,7 +143,7 @@ run_benchmark_test() {
             real_tokens: (if $real == "null" then null else ($real | tonumber) end)
         }')
 
-    echo "$result" >> "$OUTPUT_FILE"
+    atomic_jsonl_append "$OUTPUT_FILE" "$result" 2>/dev/null || true
 
     # Return metrics for display
     echo "$chars_read|$estimated_tokens|$real_tokens"

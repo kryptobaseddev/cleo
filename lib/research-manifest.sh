@@ -2,7 +2,7 @@
 # research-manifest.sh - MANIFEST.jsonl CRUD Operations for Agent Outputs
 #
 # LAYER: 2 (Core Services)
-# DEPENDENCIES: exit-codes.sh, config.sh
+# DEPENDENCIES: exit-codes.sh, config.sh, file-ops.sh
 # PROVIDES: read_manifest, append_manifest, find_entry, filter_entries, archive_entry,
 #           manifest_check_size, manifest_archive_old, manifest_rotate (T1678)
 #
@@ -28,6 +28,8 @@ _RM_LIB_DIR="${BASH_SOURCE[0]%/*}"
 source "${_RM_LIB_DIR}/exit-codes.sh"
 # shellcheck source=lib/config.sh
 source "${_RM_LIB_DIR}/config.sh"
+# shellcheck source=lib/file-ops.sh
+source "${_RM_LIB_DIR}/file-ops.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -788,6 +790,13 @@ read_manifest() {
 # Output: JSON result wrapped in CLEO envelope
 # Returns: 0 on success, 6 if validation fails, 101 if duplicate
 # Thread Safety: Uses flock for atomic duplicate check + append
+#
+# NOTE (@task T3148, @epic T3147):
+#   This function maintains its own flock implementation because it includes
+#   manifest-specific duplicate checking inside the lock block (TOCTOU prevention).
+#   The generic atomic_jsonl_append() in file-ops.sh does NOT check duplicates
+#   (caller responsibility), so this function keeps its specialized implementation.
+#   Future refactor: Extract duplicate-checking logic to allow using atomic_jsonl_append().
 append_manifest() {
     local entry="$1"
     local manifest_path lock_path

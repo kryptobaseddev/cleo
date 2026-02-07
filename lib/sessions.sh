@@ -1070,11 +1070,14 @@ end_session() {
         focus_changes=$(echo "$session_info" | jq -r '.stats.focusChanges // 0')
 
         # Append to SESSIONS.jsonl
+        # @task T3152 - Applied atomic_jsonl_append for flock protection
+        # @epic T3147 - Manifest Bash Foundation and Protocol Updates
         local sessions_metrics
         sessions_metrics="$(get_cleo_dir)/metrics/SESSIONS.jsonl"
         mkdir -p "$(dirname "$sessions_metrics")"
 
-        jq -n \
+        local session_entry
+        session_entry=$(jq -n \
             --arg sid "$session_id" \
             --arg start_timestamp "$start_ts" \
             --arg end_timestamp "$end_ts" \
@@ -1097,7 +1100,9 @@ end_session() {
                     tasks_completed: $tasks_completed,
                     focus_changes: $focus_changes
                 }
-            }' >> "$sessions_metrics" 2>/dev/null || true
+            }')
+
+        atomic_jsonl_append "$sessions_metrics" "$session_entry" 2>/dev/null || true
     fi
 
     # Capture and log session end metrics (T1996/T2000)
