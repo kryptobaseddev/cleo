@@ -21,8 +21,7 @@
     "Protocol Types": "^## Protocol Types|^### Protocol"
   },
   "visionDocs": [
-    "docs/CLEO-UNIFIED-VISION.md",
-    "docs/ORCHESTRATOR-VISION.md"
+    "docs/concepts/vision.mdx"
   ],
   "agentInjectionDoc": "CLEO-INJECTION.md"
 }

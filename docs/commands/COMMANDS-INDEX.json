@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.3.0",
     "lastUpdated": "2026-02-03",
-    "totalCommands": 72,
+    "totalCommands": 73,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0"
   },
   "categories": {
@@ -81,6 +81,7 @@
       "specification",
       "decomposition",
       "implementation",
+      "lifecycle",
       "validation",
       "testing"
     ],
@@ -812,6 +813,45 @@
       ],
       "jsonOutput": true,
       "agentRelevance": "medium"
+    },
+    {
+      "name": "lifecycle",
+      "script": "lifecycle.sh",
+      "category": "validation",
+      "doc": null,
+      "synopsis": "Manage RCSD-IVTR lifecycle pipeline stages and gates",
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--pipeline",
+        "--reason",
+        "--notes",
+        "--strict",
+        "--overwrite",
+        "--history"
+      ],
+      "subcommands": [
+        "stages",
+        "status",
+        "validate",
+        "report",
+        "export",
+        "record",
+        "enforce",
+        "skip",
+        "unskip",
+        "import"
+      ],
+      "exitCodes": [
+        0,
+        4,
+        80,
+        83
+      ],
+      "jsonOutput": true,
+      "agentRelevance": "high",
+      "note": "Manages RCSD-IVTR lifecycle gate enforcement for epic progression"
     },
     {
       "name": "list",
