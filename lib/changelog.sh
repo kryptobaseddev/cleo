@@ -122,8 +122,7 @@ populate_release_tasks() {
          # Filter 5: Must have relevant label
          select(
             (.labels // []) | (
-                index($v1) or index($v2) or
-                index("changelog") or index("release")
+                index($v1) or index($v2)
             )
          ) |
          # Filter 6: Exclude tasks already claimed by other versions explicit labels

@@ -361,6 +361,10 @@ do_state_install() {
     local mode
     mode=$(installer_source_detect_mode)
 
+    # CRITICAL: Preserve existing data files before any destructive operation
+    local data_backup_dir=""
+    data_backup_dir=$(installer_source_preserve_data_files "$INSTALL_DIR")
+
     # Dev mode with symlinks: install directly to INSTALL_DIR (no staging)
     if [[ "$mode" == "dev" && "$OPT_NO_SYMLINKS" != "true" ]]; then
         installer_log_info "Installing in dev mode with symlinks..."
@@ -370,6 +374,9 @@ do_state_install() {
 
         # Fetch with symlinks directly to install dir
         installer_source_fetch_local "$INSTALL_DIR" "true" || return $EXIT_STAGING_FAILED
+
+        # Restore preserved data files
+        [[ -n "$data_backup_dir" ]] && installer_source_restore_data_files "$INSTALL_DIR" "$data_backup_dir"
 
         installer_log_info "Dev mode installation complete (symlinks)"
         return 0
@@ -397,6 +404,9 @@ do_state_install() {
     else
         mv "$temp_dir" "$INSTALL_DIR" || return $EXIT_INSTALL_FAILED
     fi
+
+    # Restore preserved data files after swap
+    [[ -n "$data_backup_dir" ]] && installer_source_restore_data_files "$INSTALL_DIR" "$data_backup_dir"
 
     return 0
 }
