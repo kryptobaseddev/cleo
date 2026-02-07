@@ -149,6 +149,11 @@ populate_release_tasks() {
         ]
     ' "$todo_file")
 
+    # Recalculate checksum after modifying todo.json
+    local checksum
+    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
+    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
+
     # Write back to file
     echo "$updated_json" > "$todo_file.tmp"
     mv "$todo_file.tmp" "$todo_file"
