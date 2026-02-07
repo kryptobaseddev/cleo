@@ -428,10 +428,22 @@
           "T2927"
         ],
         "notes": "Fix 270+ unit test failures across 16 test files"
+      },
+      {
+        "version": "v0.80.5",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-07T03:24:05Z",
+        "tasks": [
+          "T2926",
+          "T2927"
+        ],
+        "notes": "test"
       }
     ]
   },
-  "lastUpdated": "2026-02-06T15:40:45Z",
+  "lastUpdated": "2026-02-07T03:24:12Z",
   "_meta": {
     "checksum": "221de79d12092bd4",
     "configVersion": "2.1.0",
