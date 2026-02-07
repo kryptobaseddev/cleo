@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: delete
+# category: write
+# synopsis: Cancel/soft-delete a task with configurable child handling strategies
+# aliases: cancel
+# relevance: high
+# flags: --reason,--children,--limit,--dry-run,--force,--skip-reason,--format,--human,--json,--quiet
+# exits: 0,2,4,6,16,17,102
+# json-output: true
+###END
 # CLEO Delete Task Script (Cancel/Delete)
 # Cancel and archive tasks with configurable child handling strategies
 #
@@ -240,7 +250,19 @@ EOF
 
 log_info()  { [[ "$QUIET" != true ]] && echo -e "${GREEN}[INFO]${NC} $1" || true; }
 log_warn()  { [[ "$QUIET" != true ]] && echo -e "${YELLOW}[WARN]${NC} $1" || true; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+log_error() {
+  local message="$1"
+  local error_code="${2:-E_UNKNOWN}"
+  local exit_code="${3:-1}"
+  local suggestion="${4:-}"
+
+  if [[ "${FORMAT:-}" == "json" ]] && declare -f output_error &>/dev/null; then
+    output_error "$error_code" "$message" "$exit_code" true "$suggestion" || true
+  else
+    echo -e "${RED}[ERROR]${NC} $message" >&2
+    [[ -n "$suggestion" ]] && echo "Suggestion: $suggestion" >&2
+  fi
+}
 
 check_deps() {
     if ! command -v jq &> /dev/null; then

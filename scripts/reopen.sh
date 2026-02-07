@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###CLEO
+# command: reopen
+# category: write
+# synopsis: Restore completed tasks back to pending status with audit trail
+# aliases: restore-done
+# relevance: medium
+# flags: --reason,--status,--dry-run,--format,--human,--json,--quiet
+# exits: 0,2,4,6,102
+# json-output: true
+###END
 # CLEO Reopen Script (Restore from Done)
 # Restore completed tasks back to pending status
 #
