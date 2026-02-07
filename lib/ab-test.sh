@@ -38,6 +38,8 @@ source "${_AB_LIB_DIR}/exit-codes.sh"
 source "${_AB_LIB_DIR}/token-estimation.sh"
 # shellcheck source=lib/otel-integration.sh
 source "${_AB_LIB_DIR}/otel-integration.sh"
+# shellcheck source=lib/file-ops.sh
+source "${_AB_LIB_DIR}/file-ops.sh"
 
 # Metrics directory and file
 _AB_METRICS_DIR="${AB_TEST_METRICS_DIR:-.cleo/metrics/ab-tests}"
@@ -231,6 +233,8 @@ end_ab_test() {
 #       $3 = variant
 #       $4 = optional: context JSON or string
 # Returns: 0 on success
+# @task T3152 - Applied atomic_jsonl_append for flock protection
+# @epic T3147 - Manifest Bash Foundation and Protocol Updates
 log_ab_event() {
     local event_type="$1"
     local test_name="$2"
@@ -275,7 +279,7 @@ log_ab_event() {
             }')
     fi
 
-    echo "$entry" >> "$_AB_METRICS_FILE"
+    atomic_jsonl_append "$_AB_METRICS_FILE" "$entry" 2>/dev/null || true
     _ab_debug "Logged event: $event_type for $test_name ($variant)"
 }
 

@@ -1,6 +1,7 @@
 # Testing Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Stage**: IVTR - T (Testing)
 **Max Active**: 3 protocols (including base)
@@ -234,24 +235,20 @@ bats --tap tests/unit/*.bats > test-results.tap
 
 ### Manifest Entry
 
-```json
-{
-  "id": "T####-testing",
-  "file": "T####-test-report.md",
-  "title": "Testing: [Feature Name]",
-  "date": "YYYY-MM-DD",
-  "status": "complete",
-  "agent_type": "testing",
-  "topics": ["testing", "bats", "quality"],
-  "key_findings": [
-    "TESTS: N written",
-    "RESULT: X/Y passed",
-    "COVERAGE: Z requirements"
-  ],
-  "actionable": false,
-  "needs_followup": [],
-  "linked_tasks": ["T####", "T####"]
-}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Testing: [Feature Name]" \
+  --file "T####-test-report.md" \
+  --topics "testing,bats,quality" \
+  --findings "TESTS: N written,RESULT: X/Y passed,COVERAGE: Z requirements" \
+  --status complete \
+  --task T#### \
+  --not-actionable \
+  --agent-type testing
 ```
 
 ---

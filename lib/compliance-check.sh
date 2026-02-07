@@ -29,6 +29,8 @@ source "${_CC_LIB_DIR}/metrics-enums.sh"
 source "${_CC_LIB_DIR}/research-manifest.sh"
 # shellcheck source=lib/metrics-common.sh
 source "${_CC_LIB_DIR}/metrics-common.sh"
+# shellcheck source=lib/file-ops.sh
+source "${_CC_LIB_DIR}/file-ops.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -314,9 +316,11 @@ score_subagent_compliance() {
 # Args: $1 = JSON metrics object (from score_subagent_compliance)
 # Returns: JSON result wrapped in CLEO envelope via stdout
 # Exit codes: 0 on success, 3 on file error, 6 on validation error
+# @task T3152 - Applied atomic_jsonl_append for flock protection
+# @epic T3147 - Manifest Bash Foundation and Protocol Updates
 log_compliance_metrics() {
     local metrics_json="$1"
-    local compliance_path lock_path
+    local compliance_path
 
     # Ensure metrics directory exists
     if ! _cc_ensure_metrics_dir; then
@@ -332,7 +336,6 @@ log_compliance_metrics() {
     fi
 
     compliance_path=$(_cc_get_compliance_path)
-    lock_path="${compliance_path}.lock"
 
     # Validate JSON input
     if ! echo "$metrics_json" | jq empty 2>/dev/null; then
@@ -347,35 +350,16 @@ log_compliance_metrics() {
         return "$EXIT_VALIDATION_ERROR"
     fi
 
-    # Ensure lock file exists
-    touch "$lock_path" 2>/dev/null || true
-
-    # Compact JSON to single line and append with lock
-    local compact_json
-    compact_json=$(echo "$metrics_json" | jq -c '.')
-
-    local lock_result
-    lock_result=$(
-        flock -x 200
-
-        # Append to compliance file
-        echo "$compact_json" >> "$compliance_path"
-        echo "SUCCESS"
-        exit 0
-    ) 200>"$lock_path"
-    local lock_exit=$?
-
-    if [[ $lock_exit -ne 0 ]]; then
-        jq -n \
-            --arg error "Failed to acquire lock for compliance metrics" \
-            '{
-                "_meta": {"command": "compliance-check", "operation": "log_metrics"},
-                "success": false,
-                "error": {
-                    "code": "E_LOCK_FAILED",
-                    "message": $error
-                }
-            }'
+    # Use atomic JSONL append (handles compaction, locking, validation)
+    if ! atomic_jsonl_append "$compliance_path" "$metrics_json"; then
+        jq -n '{
+            "_meta": {"command": "compliance-check", "operation": "log_metrics"},
+            "success": false,
+            "error": {
+                "code": "E_LOCK_FAILED",
+                "message": "Failed to append to compliance metrics"
+            }
+        }'
         return 8
     fi
 

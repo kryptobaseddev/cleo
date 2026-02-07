@@ -1,6 +1,7 @@
 # Validation Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Stage**: IVTR - V (Validation)
 **Max Active**: 3 protocols (including base)
@@ -131,24 +132,20 @@ bats tests/integration/*.bats
 
 ### Manifest Entry
 
-```json
-{
-  "id": "T####-validation",
-  "file": "T####-validation-report.md",
-  "title": "Validation: [Feature Name]",
-  "date": "YYYY-MM-DD",
-  "status": "complete",
-  "agent_type": "validation",
-  "topics": ["validation", "qa"],
-  "key_findings": [
-    "RESULT: X/Y checks passed",
-    "ISSUES: N found",
-    "STATUS: PASS|FAIL"
-  ],
-  "actionable": true,
-  "needs_followup": [],
-  "linked_tasks": ["T####", "T####"]
-}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Validation: [Feature Name]" \
+  --file "T####-validation-report.md" \
+  --topics "validation,qa" \
+  --findings "RESULT: X/Y checks passed,ISSUES: N found,STATUS: PASS|FAIL" \
+  --status complete \
+  --task T#### \
+  --actionable \
+  --agent-type validation
 ```
 
 ---

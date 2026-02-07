@@ -1,6 +1,7 @@
 # Consensus Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -158,8 +159,20 @@ This protocol activates when the task involves:
 
 ### Manifest Entry
 
-```json
-{"id":"T####-consensus-slug","file":"YYYY-MM-DD_consensus.md","title":"Consensus: Decision Title","date":"YYYY-MM-DD","status":"complete","agent_type":"analysis","topics":["consensus","decision"],"key_findings":["Verdict reached","Option A selected","80% confidence"],"actionable":true,"needs_followup":[],"linked_tasks":["T####"]}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Consensus: Decision Title" \
+  --file "YYYY-MM-DD_consensus.md" \
+  --topics "consensus,decision" \
+  --findings "Verdict reached,Option A selected,80% confidence" \
+  --status complete \
+  --task T#### \
+  --actionable \
+  --agent-type analysis
 ```
 
 ---
@@ -195,9 +208,19 @@ This protocol activates when the task involves:
 
 **Task**: Decide on codebase map architecture
 
-**Manifest Entry**:
-```json
-{"id":"T2216-arch-consensus","file":"2026-01-26_arch-consensus.md","title":"Consensus: Codebase Map Architecture","date":"2026-01-26","status":"complete","agent_type":"analysis","topics":["architecture","consensus","codebase-map"],"key_findings":["Single file selected over split","4/5 agents agree","Atomic operations priority"],"actionable":true,"needs_followup":["T2217"],"linked_tasks":["T2204","T2216"]}
+**Manifest Entry Command**:
+```bash
+cleo research add \
+  --title "Consensus: Codebase Map Architecture" \
+  --file "2026-01-26_arch-consensus.md" \
+  --topics "architecture,consensus,codebase-map" \
+  --findings "Single file selected over split,4/5 agents agree,Atomic operations priority" \
+  --status complete \
+  --task T2216 \
+  --epic T2204 \
+  --actionable \
+  --needs-followup T2217 \
+  --agent-type analysis
 ```
 
 ---

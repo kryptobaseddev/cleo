@@ -202,9 +202,9 @@ EOF
     [[ $status -eq 0 ]]
 
     # Output should be valid JSON with expected fields
-    echo "$output" | jq -e '.projectType'
-    echo "$output" | jq -e '.framework'
-    echo "$output" | jq -e '.confidence'
+    echo "$output" | jq -e '.detection.projectType'
+    echo "$output" | jq -e '.detection.framework'
+    echo "$output" | jq -e '.detection.confidence'
 }
 
 # ============================================================================

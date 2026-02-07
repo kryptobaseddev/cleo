@@ -1,6 +1,7 @@
 # Release Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -228,8 +229,20 @@ git describe --tags
 
 ### Manifest Entry
 
-```json
-{"id":"T####-release-vXYZ","file":"YYYY-MM-DD_release-vXYZ.md","title":"Release: vX.Y.Z","date":"YYYY-MM-DD","status":"complete","agent_type":"documentation","topics":["release","version","changelog"],"key_findings":["Version X.Y.Z released","3 features added","2 bugs fixed"],"actionable":false,"needs_followup":[],"linked_tasks":["T####"]}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Release: vX.Y.Z" \
+  --file "YYYY-MM-DD_release-vXYZ.md" \
+  --topics "release,version,changelog" \
+  --findings "Version X.Y.Z released,3 features added,2 bugs fixed" \
+  --status complete \
+  --task T#### \
+  --not-actionable \
+  --agent-type documentation
 ```
 
 ---
@@ -271,9 +284,18 @@ git describe --tags
 
 **Task**: Release CLEO v0.70.0
 
-**Manifest Entry**:
-```json
-{"id":"T2350-release-v0700","file":"2026-01-26_release-v0700.md","title":"Release: v0.70.0","date":"2026-01-26","status":"complete","agent_type":"documentation","topics":["release","v0.70.0","changelog"],"key_findings":["Multi-agent support added","12 new commands","Full test coverage"],"actionable":false,"needs_followup":[],"linked_tasks":["T2350","T2308"]}
+**Manifest Entry Command**:
+```bash
+cleo research add \
+  --title "Release: v0.70.0" \
+  --file "2026-01-26_release-v0700.md" \
+  --topics "release,v0.70.0,changelog" \
+  --findings "Multi-agent support added,12 new commands,Full test coverage" \
+  --status complete \
+  --task T2350 \
+  --epic T2308 \
+  --not-actionable \
+  --agent-type documentation
 ```
 
 **Return Message**:

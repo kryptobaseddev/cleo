@@ -30,6 +30,8 @@ source "${_MA_LIB_DIR}/exit-codes.sh"
 source "${_MA_LIB_DIR}/metrics-enums.sh"
 # shellcheck source=lib/metrics-common.sh
 source "${_MA_LIB_DIR}/metrics-common.sh"
+# shellcheck source=lib/file-ops.sh
+source "${_MA_LIB_DIR}/file-ops.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -212,9 +214,11 @@ sync_metrics_to_global() {
                 continue
             fi
 
-            # Add project field and append to global
+            # Add project field (don't append yet - will use atomic_jsonl_append outside subshell)
             local enriched_entry
             enriched_entry=$(echo "$entry" | jq -c --arg proj "$project_name" '. + {project: $proj}')
+            # Note: Cannot use atomic_jsonl_append inside flock subshell (would deadlock)
+            # Must append directly here
             echo "$enriched_entry" >> "$global_path"
             synced=$((synced + 1))
 
@@ -884,9 +888,11 @@ capture_session_end_metrics() {
 # log_session_metrics - Append session metrics to SESSIONS.jsonl
 # Args: $1 = JSON session metrics object
 # Returns: JSON result via stdout
+# @task T3152 - Applied atomic_jsonl_append for flock protection
+# @epic T3147 - Manifest Bash Foundation and Protocol Updates
 log_session_metrics() {
     local metrics_json="$1"
-    local sessions_path lock_path
+    local sessions_path
 
     # Ensure metrics directory exists
     if ! _ma_ensure_project_metrics_dir; then
@@ -899,7 +905,6 @@ log_session_metrics() {
     fi
 
     sessions_path=$(_ma_get_sessions_metrics_path)
-    lock_path="${sessions_path}.lock"
 
     # Validate JSON input
     if ! echo "$metrics_json" | jq empty 2>/dev/null; then
@@ -911,20 +916,15 @@ log_session_metrics() {
         return 6
     fi
 
-    # Ensure lock file exists
-    touch "$lock_path" 2>/dev/null || true
-
-    # Compact and append with lock
-    local compact_json
-    compact_json=$(echo "$metrics_json" | jq -c '.')
-
-    local lock_result
-    lock_result=$(
-        flock -x 200
-        echo "$compact_json" >> "$sessions_path"
-        echo "SUCCESS"
-        exit 0
-    ) 200>"$lock_path"
+    # Use atomic JSONL append (handles compaction, locking, validation)
+    if ! atomic_jsonl_append "$sessions_path" "$metrics_json"; then
+        jq -n '{
+            "_meta": {"command": "metrics-aggregation", "operation": "log_session"},
+            "success": false,
+            "error": {"code": "E_LOCK_FAILED", "message": "Failed to append session metrics"}
+        }'
+        return 8
+    fi
 
     local session_id
     session_id=$(echo "$metrics_json" | jq -r '.session_id // "unknown"')

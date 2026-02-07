@@ -1,6 +1,7 @@
 # Implementation Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -195,8 +196,20 @@ Running tests/unit/file.bats
 
 ### Manifest Entry
 
-```json
-{"id":"T####-impl-slug","file":"YYYY-MM-DD_implementation.md","title":"Implementation: Feature Name","date":"YYYY-MM-DD","status":"complete","agent_type":"implementation","topics":["implementation","feature"],"key_findings":["3 functions added","Tests passing","No breaking changes"],"actionable":false,"needs_followup":[],"linked_tasks":["T####"]}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Implementation: Feature Name" \
+  --file "YYYY-MM-DD_implementation.md" \
+  --topics "implementation,feature" \
+  --findings "3 functions added,Tests passing,No breaking changes" \
+  --status complete \
+  --task T#### \
+  --not-actionable \
+  --agent-type implementation
 ```
 
 ---
@@ -237,9 +250,18 @@ Running tests/unit/file.bats
 
 **Task**: Implement session binding for multi-agent support
 
-**Manifest Entry**:
-```json
-{"id":"T2400-session-binding","file":"2026-01-26_session-binding-impl.md","title":"Implementation: Session Binding","date":"2026-01-26","status":"complete","agent_type":"implementation","topics":["session","binding","multi-agent"],"key_findings":["TTY binding implemented","Env var fallback added","4 new tests passing"],"actionable":false,"needs_followup":[],"linked_tasks":["T2400","T2392"]}
+**Manifest Entry Command**:
+```bash
+cleo research add \
+  --title "Implementation: Session Binding" \
+  --file "2026-01-26_session-binding-impl.md" \
+  --topics "session,binding,multi-agent" \
+  --findings "TTY binding implemented,Env var fallback added,4 new tests passing" \
+  --status complete \
+  --task T2400 \
+  --epic T2392 \
+  --not-actionable \
+  --agent-type implementation
 ```
 
 **Return Message**:

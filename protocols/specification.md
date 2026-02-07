@@ -1,6 +1,7 @@
 # Specification Protocol
 
-**Version**: 1.0.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.0.1
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -205,8 +206,20 @@ DRAFT -> ACTIVE -> DEPRECATED
 
 ### Manifest Entry
 
-```json
-{"id":"T####-spec-slug","file":"YYYY-MM-DD_specification.md","title":"Specification: Title","date":"YYYY-MM-DD","status":"complete","agent_type":"specification","topics":["specification","design"],"key_findings":["12 MUST requirements","5 SHOULD requirements","Schema defined"],"actionable":true,"needs_followup":[],"linked_tasks":["T####"]}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Specification: Title" \
+  --file "YYYY-MM-DD_specification.md" \
+  --topics "specification,design" \
+  --findings "12 MUST requirements,5 SHOULD requirements,Schema defined" \
+  --status complete \
+  --task T#### \
+  --actionable \
+  --agent-type specification
 ```
 
 ---
@@ -242,9 +255,19 @@ DRAFT -> ACTIVE -> DEPRECATED
 
 **Task**: Define protocol stack architecture
 
-**Manifest Entry**:
-```json
-{"id":"T2401-protocol-stack-spec","file":"2026-01-26_protocol-stack-spec.md","title":"Specification: Protocol Stack Architecture","date":"2026-01-26","status":"complete","agent_type":"specification","topics":["protocol","architecture","subagent"],"key_findings":["Base protocol always loaded","Max 3 active protocols","Conditional loading defined"],"actionable":true,"needs_followup":["T2404"],"linked_tasks":["T2392","T2401"]}
+**Manifest Entry Command**:
+```bash
+cleo research add \
+  --title "Specification: Protocol Stack Architecture" \
+  --file "2026-01-26_protocol-stack-spec.md" \
+  --topics "protocol,architecture,subagent" \
+  --findings "Base protocol always loaded,Max 3 active protocols,Conditional loading defined" \
+  --status complete \
+  --task T2401 \
+  --epic T2392 \
+  --actionable \
+  --needs-followup T2404 \
+  --agent-type specification
 ```
 
 ---

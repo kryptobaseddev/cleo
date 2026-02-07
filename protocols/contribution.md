@@ -1,6 +1,7 @@
 # Contribution Protocol
 
-**Version**: 1.1.0
+**Provenance**: @task T3155, @epic T3147
+**Version**: 1.1.1
 **Type**: Cross-Cutting Protocol
 **Applies To**: All RCSD-IVTR stages
 **Max Active**: 3 protocols (including base)
@@ -185,8 +186,20 @@ Session: session_YYYYMMDD_HHMMSS_######
 
 ### Manifest Entry
 
-```json
-{"id":"T####-contrib-slug","file":"YYYY-MM-DD_contribution.md","title":"Contribution: Feature Name","date":"YYYY-MM-DD","status":"complete","agent_type":"implementation","topics":["contribution","feature"],"key_findings":["3 files modified","Tests passing","No conflicts"],"actionable":false,"needs_followup":[],"linked_tasks":["T####"]}
+@skills/_shared/manifest-operations.md
+
+Use `cleo research add` to create the manifest entry:
+
+```bash
+cleo research add \
+  --title "Contribution: Feature Name" \
+  --file "YYYY-MM-DD_contribution.md" \
+  --topics "contribution,feature" \
+  --findings "3 files modified,Tests passing,No conflicts" \
+  --status complete \
+  --task T#### \
+  --not-actionable \
+  --agent-type implementation
 ```
 
 ---
