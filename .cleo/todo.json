@@ -476,22 +476,32 @@
       },
       {
         "version": "v0.81.2",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-07T16:53:29Z",
+        "createdAt": "2026-02-07T16:53:14Z",
+        "tasks": [],
+        "notes": "Fix persistent checksum mismatches in release/changelog todo.json writes",
+        "gitTag": "v0.81.2"
+      },
+      {
+        "version": "v0.82.1",
         "status": "planned",
         "targetDate": null,
         "releasedAt": null,
-        "createdAt": "2026-02-07T16:53:14Z",
+        "createdAt": "2026-02-07T16:59:59Z",
         "tasks": [],
-        "notes": "Fix persistent checksum mismatches in release/changelog todo.json writes"
+        "notes": "Checksum recalculation in release/changelog writes + release system fixes from v0.81.x"
       }
     ]
   },
-  "lastUpdated": "2026-02-07T16:53:14Z",
+  "lastUpdated": "2026-02-07T16:59:59Z",
   "_meta": {
-    "checksum": "a1334c93bc50d615",
+    "checksum": "37bfa71497ce490d",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-07T07:47:01Z",
+    "lastModified": "2026-02-07T16:57:13Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
@@ -7882,7 +7892,7 @@
       "type": "task",
       "parentId": "T2483",
       "createdAt": "2026-01-27T06:18:58Z",
-      "updatedAt": "2026-01-28T00:43:17Z",
+      "updatedAt": "2026-02-07T16:57:13Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -15953,6 +15963,412 @@
         "lastUpdated": "2026-02-07T06:10:16Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T3156",
+      "title": "EPIC: CLEO Claude Code Tasks Integration & LLM-Agnostic Portability",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-07T16:53:40Z",
+      "updatedAt": "2026-02-07T16:53:40Z",
+      "size": "large",
+      "position": 215,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Integrate CLEO with Claude Code persistent Tasks system and establish LLM-agnostic portability. CLEO becomes the validated, persistent, portable layer instructing any LLM (Claude, Gemini, Codex, Kimi) via MCP or injection. Claude Code native Tasks serves as synced display/UI layer. Architecture: project-level .cleo/ as source of truth, global ~/.cleo/ for cross-project, MCP server for universal access, injection templates for each LLM. 6 execution waves: W0-Foundation, W1-Injection, W2-Sync Protocol, W3-MCP+Skills, W4-Portability+Roles, W5-Advanced Sync+Packaging.",
+      "labels": [
+        "claude-code",
+        "epic",
+        "integration",
+        "mcp",
+        "portability"
+      ]
+    },
+    {
+      "id": "T3157",
+      "title": "Consolidate triple subagent definitions",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:54:07Z",
+      "updatedAt": "2026-02-07T16:54:07Z",
+      "size": "small",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Problem: 3 overlapping cleo-subagent definitions (agents/cleo-subagent/AGENT.md, .claude/agents/cleo-subagent.md, inline in CLEO-INJECTION.md). Fix: agents/cleo-subagent/AGENT.md = CLEO canonical definition; .claude/agents/cleo-subagent.md = Claude Code native format referencing CLEO canonical; injection template references but does not redefine. Acceptance: single source of truth for subagent definition, no content duplication across files.",
+      "labels": [
+        "agents",
+        "foundation",
+        "refactor",
+        "wave-0"
+      ]
+    },
+    {
+      "id": "T3158",
+      "title": "Fix remaining MCP server build issues",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:54:09Z",
+      "updatedAt": "2026-02-07T16:54:09Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Problem: T3076 marked done but System.ts corrupted by sed, CleoResponse/DomainResponse type mismatch remains. Fix: Restore System.ts, resolve type alignment between CleoResponse and DomainResponse, get npm run build to zero errors. Files: mcp-server/src/domains/system.ts, mcp-server/src/gateways/*.ts, mcp-server/src/types/. Acceptance: npm run build succeeds with zero errors, all domain handlers return correct types.",
+      "labels": [
+        "bugfix",
+        "foundation",
+        "mcp-server",
+        "wave-0"
+      ]
+    },
+    {
+      "id": "T3159",
+      "title": "Document CLEO-Tasks alignment conventions",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:54:11Z",
+      "updatedAt": "2026-02-07T16:54:11Z",
+      "size": "small",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create authoritative spec documenting: status mapping (CLEO pending/active/blocked/done to Tasks pending/in_progress/completed), ID correlation (T#### stored in metadata.cleoId), hierarchy flattening strategy (CLEO parent-child to Tasks blocks/blockedBy), sync direction (CLEO as source of truth, push to Tasks), conflict resolution rules. Replaces old TODOWRITE-SYNC.mdx with Tasks-aware spec. Output: docs/specs/CLEO-TASKS-ALIGNMENT-SPEC.md. Acceptance: spec covers all mapping rules, approved for use by injection layer.",
+      "labels": [
+        "documentation",
+        "foundation",
+        "spec",
+        "wave-0"
+      ]
+    },
+    {
+      "id": "T3160",
+      "title": "Update AGENT-INJECTION.md for Claude Code Tasks era",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:54:31Z",
+      "updatedAt": "2026-02-07T16:54:31Z",
+      "size": "small",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update injection template to instruct Claude (and other LLMs) to use CLEO (ct CLI or MCP) as PRIMARY task system. Replace old TodoWrite references with Tasks-aware language. Keep language LLM-agnostic so same content works in GEMINI.md, CODEX.md, KIMI.md. Add section explaining Claude Code Tasks as synced display layer, not competing system. Files: .cleo/templates/AGENT-INJECTION.md. Acceptance: no TodoWrite references remain, injection works for Claude and non-Claude LLMs.",
+      "labels": [
+        "injection",
+        "portability",
+        "wave-1"
+      ],
+      "depends": [
+        "T3159"
+      ]
+    },
+    {
+      "id": "T3161",
+      "title": "Update todowrite-integration.sh for Tasks format",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:54:34Z",
+      "updatedAt": "2026-02-07T16:54:34Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Adapt lib/todowrite-integration.sh to produce Claude Code Tasks JSON schema. New task_to_claude_tasks() function converting CLEO tasks to Tasks format. STATUS_TO_TASKS and STATUS_FROM_TASKS mapping arrays (pending->pending, active->in_progress, blocked->pending+blockedBy, done->completed). Populate metadata.cleoId with T#### IDs. Map CLEO depends[] to Tasks blockedBy[]. Keep backward compat with old TodoWrite functions for transition period. Files: lib/todowrite-integration.sh, tests/unit/export.bats. Acceptance: round-trip conversion CLEO->Tasks->CLEO preserves all data.",
+      "labels": [
+        "injection",
+        "library",
+        "sync",
+        "wave-1"
+      ],
+      "depends": [
+        "T3159"
+      ]
+    },
+    {
+      "id": "T3162",
+      "title": "Implement CLEO-to-Tasks sync protocol",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:54:53Z",
+      "updatedAt": "2026-02-07T16:54:53Z",
+      "size": "large",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Push CLEO state to ~/.claude/tasks/{listId}/ as individual JSON files matching Claude Code Tasks schema. ID correlation table at .cleo/sync/task-mapping.json. Commands: cleo sync --push (full rebuild) and cleo sync --push --incremental (changes only based on updatedAt timestamps). Hierarchy flattening: parent tasks generate blocks/blockedBy relationships in Tasks format. Status mapping per CLEO-TASKS-ALIGNMENT-SPEC. Files: new scripts/tasks-sync.sh or extend existing scripts/sync.sh. Acceptance: cleo sync --push creates valid Tasks files, incremental mode only syncs changed tasks, mapping table maintains stable ID correlation.",
+      "labels": [
+        "core",
+        "protocol",
+        "sync",
+        "wave-2"
+      ],
+      "depends": [
+        "T3159",
+        "T3161"
+      ]
+    },
+    {
+      "id": "T3163",
+      "title": "Add SubagentStart hook for lifecycle gates",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:54:56Z",
+      "updatedAt": "2026-02-07T16:54:56Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Enforce RCSD lifecycle prerequisites before subagent work begins using Claude Code hooks. Create .claude/hooks/subagent-lifecycle-gate.sh that checks RCSD stage completion before allowing subagent spawns. Register hook in .claude/settings.json as PreToolUse hook on Task tool. Gate checks: verify research/consensus/specification stages completed for implementation tasks. Error output follows Claude Code hook protocol (JSON with allow/deny). Files: .claude/hooks/subagent-lifecycle-gate.sh (new), .claude/settings.json (update). Acceptance: subagent spawn blocked when lifecycle prerequisites not met, hook registered and functional in Claude Code.",
+      "labels": [
+        "enforcement",
+        "hooks",
+        "lifecycle",
+        "wave-2"
+      ],
+      "depends": [
+        "T3157"
+      ]
+    },
+    {
+      "id": "T3164",
+      "title": "Add sync domain to MCP server",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:55:13Z",
+      "updatedAt": "2026-02-07T16:55:13Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "New sync domain in MCP server with operations: sync.status (check sync state), sync.mapping (view ID correlation table), sync.push (trigger CLEO->Tasks sync), sync.pull (trigger Tasks->CLEO sync), sync.clear (reset sync state). Register domain in both CQRS gateways (query and mutation). Domain calls underlying bash sync scripts. Files: mcp-server/src/domains/sync.ts (new), mcp-server/src/domains/index.ts (update registrations). Acceptance: all 5 sync operations functional via MCP, proper error handling for missing sync state.",
+      "labels": [
+        "domain",
+        "mcp-server",
+        "sync",
+        "wave-3"
+      ],
+      "depends": [
+        "T3158",
+        "T3161",
+        "T3162"
+      ]
+    },
+    {
+      "id": "T3165",
+      "title": "Create Claude Code slash commands for CLEO skills",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:55:15Z",
+      "updatedAt": "2026-02-07T16:55:15Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create .claude/commands/ directory with 6 priority slash commands that bridge Claude Code to CLEO skills: /orchestrate (triggers ct-orchestrator skill), /epic (triggers ct-epic-architect), /research (triggers ct-research-agent), /implement (triggers ct-task-executor), /test (triggers ct-test-writer-bats), /validate (triggers ct-validator). Each command file is markdown with frontmatter describing the command and body containing the skill dispatch instructions. Files: .claude/commands/orchestrate.md, epic.md, research.md, implement.md, test.md, validate.md (all new). Acceptance: all 6 commands appear in Claude Code slash command list and trigger correct CLEO skills.",
+      "labels": [
+        "claude-code",
+        "commands",
+        "skills",
+        "wave-3"
+      ],
+      "depends": [
+        "T3157",
+        "T3160"
+      ]
+    },
+    {
+      "id": "T3166",
+      "title": "Create role-specific subagents",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:55:39Z",
+      "updatedAt": "2026-02-07T16:55:39Z",
+      "size": "small",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create 3 role-specific Claude Code subagent definitions that supplement (not replace) the universal cleo-subagent: cleo-researcher.md (read-only tools: Read, Glob, Grep, WebSearch, WebFetch - for research tasks), cleo-implementer.md (full tools: Read, Write, Edit, Bash, Glob, Grep - for implementation), cleo-planner.md (read-only + planning: Read, Glob, Grep, EnterPlanMode - for architecture/decomposition). Each references CLEO canonical agent definition and adds role constraints. Files: .claude/agents/cleo-researcher.md, cleo-implementer.md, cleo-planner.md (all new). Acceptance: all 3 agents appear in Claude Code agent list, each has correct tool restrictions.",
+      "labels": [
+        "agents",
+        "claude-code",
+        "roles",
+        "wave-4"
+      ],
+      "depends": [
+        "T3157",
+        "T3165"
+      ]
+    },
+    {
+      "id": "T3167",
+      "title": "Test LLM portability",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:55:42Z",
+      "updatedAt": "2026-02-07T16:55:42Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Verify CLEO injection and MCP work across multiple LLM targets. Test matrix: Gemini (via GEMINI.md injection + MCP), Codex (via AGENTS.md injection + MCP), Kimi (via AGENTS.md injection + MCP). Verify: no Claude-specific tool names in non-Claude injections, MCP server responds correctly to non-Claude MCP clients, ct CLI works when invoked by any LLM agent, injection template produces valid instructions for each target. Output: docs/integration/LLM-PORTABILITY.md documenting test results and compatibility matrix. Acceptance: at least 2 non-Claude LLMs can use CLEO via injection or MCP.",
+      "labels": [
+        "documentation",
+        "portability",
+        "testing",
+        "wave-4"
+      ],
+      "depends": [
+        "T3160"
+      ]
+    },
+    {
+      "id": "T3168",
+      "title": "Create cleo-base-protocol as native skill",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:55:44Z",
+      "updatedAt": "2026-02-07T16:55:44Z",
+      "size": "small",
+      "position": 12,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create .claude/commands/cleo-protocol.md that loads CLEO base protocol into Claude context on demand. Bridges CLEO protocol injection and direct Claude Code usage. Content: base protocol lifecycle (spawn, inject, execute, output, return), output requirements (file + manifest), RFC 2119 constraints, error handling patterns. This lets Claude Code users invoke /cleo-protocol to get full CLEO protocol context without relying on injection. Files: .claude/commands/cleo-protocol.md (new). Acceptance: /cleo-protocol command loads full base protocol, content matches agents/cleo-subagent/AGENT.md canonical definition.",
+      "labels": [
+        "claude-code",
+        "commands",
+        "protocol",
+        "wave-4"
+      ],
+      "depends": [
+        "T3157",
+        "T3165"
+      ]
+    },
+    {
+      "id": "T3169",
+      "title": "Implement bidirectional status sync via hooks",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:56:03Z",
+      "updatedAt": "2026-02-07T16:56:03Z",
+      "size": "large",
+      "position": 13,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "PostToolUse hook on TaskUpdate detects Claude Code Task status changes and propagates back to CLEO. Cross-reference .cleo/sync/task-mapping.json to find CLEO task ID from Claude Code Task ID. Propagate status change back to CLEO (Tasks completed -> cleo complete, Tasks in_progress -> cleo update --status active). Loop prevention: set CLEO_SYNC_ACTIVE=1 env var during sync operations, hook checks and skips if set. Conflict resolution: CLEO wins on conflict (per alignment spec). Files: .claude/hooks/task-status-backflow.sh (new), .claude/settings.json (update). Acceptance: status changes in Claude Code Tasks automatically reflected in CLEO, no infinite loops, conflict resolution works correctly.",
+      "labels": [
+        "bidirectional",
+        "hooks",
+        "sync",
+        "wave-5"
+      ],
+      "depends": [
+        "T3162",
+        "T3163"
+      ]
+    },
+    {
+      "id": "T3170",
+      "title": "Stabilize MCP server for production",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:56:05Z",
+      "updatedAt": "2026-02-07T16:56:05Z",
+      "size": "large",
+      "position": 14,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Get all 98+ MCP operations fully functional and tested. Prepare npm package for publishing. Test with Claude Code (native MCP client), Cursor (MCP client), and at least one non-Claude client (e.g., Zed, Continue.dev). Fix remaining domain handler issues. Add README with setup instructions, configuration options, and troubleshooting. Ensure proper error handling across all domains. Files: mcp-server/ (various), mcp-server/README.md (new). Acceptance: npm run build succeeds, all domain handlers return valid responses, tested with 3+ MCP clients, README complete.",
+      "labels": [
+        "mcp-server",
+        "production",
+        "testing",
+        "wave-5"
+      ],
+      "depends": [
+        "T3158",
+        "T3164"
+      ]
+    },
+    {
+      "id": "T3171",
+      "title": "Design ~/.cleo/memory/ layer specification",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:56:15Z",
+      "updatedAt": "2026-02-07T16:56:15Z",
+      "size": "medium",
+      "position": 15,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Design the BRAIN memory architecture for CLEO: decisions (architectural choices with rationale), patterns (recurring code/workflow patterns), learnings (lessons learned from failures/successes). Define storage format, indexing strategy, and retention policies. Define MCP resource URIs for memory access (e.g., cleo://memory/decisions/auth-strategy). Integration with existing CLEO state (sessions, tasks, metrics). Output: docs/specs/CLEO-MEMORY-LAYER-SPEC.md. Acceptance: spec defines memory schema, MCP resource URIs, storage format, and integration points with existing CLEO systems.",
+      "labels": [
+        "architecture",
+        "memory",
+        "specification",
+        "wave-6"
+      ],
+      "depends": [
+        "T3159",
+        "T3170"
+      ]
+    },
+    {
+      "id": "T3172",
+      "title": "Package CLEO as distributable plugin",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T3156",
+      "createdAt": "2026-02-07T16:56:32Z",
+      "updatedAt": "2026-02-07T16:56:32Z",
+      "size": "large",
+      "position": 16,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Package CLEO for distribution: npm package for MCP server (mcp-server/ as standalone publishable package), installer script for CLI (curl-pipe or brew-style installation), cleo init bootstraps both .cleo/ project directory and LLM integration files (.claude/agents/, .claude/commands/, GEMINI.md, etc.). Works on macOS and Linux. Installer detects platform, installs dependencies (bash 4+, jq), creates symlinks. npm package includes TypeScript MCP server with all domains. Files: install.sh (update), package.json (new at root or mcp-server/), mcp-server/package.json (update for publishing). Acceptance: fresh install on macOS and Linux works, cleo init creates complete project setup, MCP server installable via npm.",
+      "labels": [
+        "distribution",
+        "installer",
+        "packaging",
+        "wave-6"
+      ],
+      "depends": [
+        "T3167",
+        "T3170"
+      ]
     }
   ],
   "labels": {}
