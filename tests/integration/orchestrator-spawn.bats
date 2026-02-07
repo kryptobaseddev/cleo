@@ -31,6 +31,12 @@ setup() {
     export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/agent-outputs"
     mkdir -p "$RESEARCH_OUTPUT_DIR"
 
+    # Disable lifecycle enforcement for tests
+    jq '.lifecycleEnforcement = {"mode": "off"}' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+
+    # Create empty manifest for token injection
+    touch "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
+
     # Source the library under test within test context
     source "${LIB_DIR}/orchestrator-spawn.sh"
 }

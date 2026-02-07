@@ -27,6 +27,13 @@ setup() {
 
     # Create empty todo for task operations
     create_empty_todo
+
+    # RCSD protocols that must have standard sections
+    # agent-protocol.md is a meta-protocol, not an RCSD protocol
+    RCSD_PROTOCOLS=(
+        "research.md" "consensus.md" "specification.md"
+        "decomposition.md" "implementation.md" "contribution.md" "release.md"
+    )
 }
 
 teardown() {
@@ -87,50 +94,50 @@ protocol_has_max_active() {
 }
 
 @test "protocol files: each protocol has Trigger Conditions section" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         protocol_has_section "$protocol_file" "Trigger Conditions"
     done
 }
 
 @test "protocol files: each protocol has Requirements section" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         # Check for "Requirements (RFC 2119)" section
         grep -qi "## Requirements" "$protocol_file"
     done
 }
 
 @test "protocol files: each protocol has Output Format section" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         protocol_has_section "$protocol_file" "Output Format"
     done
 }
 
 @test "protocol files: each protocol has Integration Points section" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         protocol_has_section "$protocol_file" "Integration Points"
     done
 }
 
 @test "protocol files: each protocol has Anti-Patterns section" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         protocol_has_section "$protocol_file" "Anti-Patterns"
     done
 }
 
 @test "protocol files: each protocol declares Max Active: 3 protocols" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         protocol_has_max_active "$protocol_file"
     done
 }
 
 @test "protocol files: each protocol has version number" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "Version.*1\.0\.0" "$protocol_file"
     done
 }
 
 @test "protocol files: each protocol has Manifest Entry format" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "Manifest Entry" "$protocol_file"
     done
 }
@@ -230,7 +237,7 @@ protocol_has_max_active() {
 }
 
 @test "trigger detection: each protocol has explicit override flag documented" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "Explicit Override.*--protocol" "$protocol_file"
     done
 }
@@ -294,7 +301,7 @@ protocol_has_max_active() {
 
 @test "protocol combination: max 3 protocols enforced in all protocol files" {
     local count=0
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         if protocol_has_max_active "$protocol_file"; then
             count=$((count + 1))
         fi
@@ -305,7 +312,7 @@ protocol_has_max_active() {
 }
 
 @test "protocol combination: Protocol Interactions table exists in each protocol" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "Protocol Interactions" "$protocol_file"
     done
 }
@@ -424,7 +431,7 @@ protocol_has_max_active() {
 # =============================================================================
 
 @test "base protocol: all protocols inherit task lifecycle" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         # Check for mention of task lifecycle
         grep -qi "task lifecycle" "$protocol_file" || \
         grep -qi "focus.*execute.*complete" "$protocol_file"
@@ -432,20 +439,20 @@ protocol_has_max_active() {
 }
 
 @test "base protocol: all protocols inherit manifest append requirement" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "manifest append" "$protocol_file" || \
         grep -qi "append.*manifest" "$protocol_file"
     done
 }
 
 @test "base protocol: all protocols inherit error handling patterns" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "error handling" "$protocol_file"
     done
 }
 
 @test "base protocol: manifest format consistent across protocols" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         # All protocols should have manifest entry with required fields
         grep -q '"id"' "$protocol_file"
         grep -q '"file"' "$protocol_file"
@@ -457,7 +464,7 @@ protocol_has_max_active() {
 }
 
 @test "base protocol: all protocols specify agent_type in manifest" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "agent_type" "$protocol_file"
     done
 }
@@ -506,25 +513,25 @@ protocol_has_max_active() {
 # =============================================================================
 
 @test "rfc2119: all protocols have MUST requirements" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -q "MUST" "$protocol_file"
     done
 }
 
 @test "rfc2119: all protocols have SHOULD requirements" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -q "SHOULD" "$protocol_file"
     done
 }
 
 @test "rfc2119: all protocols have MAY requirements" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -q "MAY" "$protocol_file"
     done
 }
 
 @test "rfc2119: requirements are formatted in tables" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         # Check for requirement table format (pipe-delimited)
         grep -E '^\| [A-Z]{4}-[0-9]{3}' "$protocol_file" >/dev/null || \
         grep -E '^\| REQ-[0-9]{3}' "$protocol_file" >/dev/null || \
@@ -537,19 +544,19 @@ protocol_has_max_active() {
 # =============================================================================
 
 @test "examples: all protocols have Example section" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -qi "## Example" "$protocol_file"
     done
 }
 
 @test "examples: all examples include Task ID reference" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         grep -q "T[0-9]" "$protocol_file"
     done
 }
 
 @test "examples: all examples include manifest entry JSON" {
-    for protocol_file in "${PROTOCOLS_DIR}"/*.md; do
+    for _proto in "${RCSD_PROTOCOLS[@]}"; do protocol_file="${PROTOCOLS_DIR}/${_proto}"
         # Look for manifest entry in JSON format
         grep -A 10 "Manifest Entry" "$protocol_file" | grep -q '"id"'
     done

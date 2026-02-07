@@ -8,7 +8,7 @@
 # exits: 0,2,70,71,72,73,74,75,76,77,78
 # json-output: true
 # json-default: true
-# subcommands: init,register,unregister,list,query,discover,deps,sync
+# subcommands: init,register,unregister,list,query,discover,search,deps,sync
 ###END
 # CLEO Nexus Command
 # Global intelligence system for cross-project task coordination
@@ -69,6 +69,7 @@ COMMANDS:
     list                  List all registered projects
     query <project:task>  Query cross-project task
     discover <task>       Find related tasks across projects
+    search <pattern>      Search tasks by pattern across projects
     deps <task>           Show cross-project dependencies
     sync [project]        Sync project metadata (task count, labels)
 
@@ -80,6 +81,10 @@ SUBCOMMAND OPTIONS:
     discover:
         --method METHOD         Discovery method: labels|description|files|auto
         --limit N               Max results (default: 10)
+
+    search:
+        --project NAME          Limit search to specific project
+        --limit N               Max results (default: 20)
 
     deps:
         --reverse               Show reverse dependencies (what depends on this)
@@ -109,6 +114,10 @@ EXAMPLES:
 
     # Discover related tasks
     cleo nexus discover my-api:T001 --method labels --limit 5
+
+    # Search tasks by pattern
+    cleo nexus search "*auth*" --limit 10
+    cleo nexus search "api" --project my-backend
 
     # Show cross-project dependencies
     cleo nexus deps my-api:T015
@@ -524,6 +533,52 @@ nexus_cmd_discover() {
 }
 
 #######################################
+# Search tasks by pattern
+#######################################
+nexus_cmd_search() {
+  local pattern="${1:-}"
+  local project_filter=""
+  local limit="20"
+
+  shift || true
+
+  # Parse search-specific options
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        project_filter="$2"
+        shift 2
+        ;;
+      --limit)
+        limit="$2"
+        shift 2
+        ;;
+      *)
+        echo "Error: Unknown option: $1" >&2
+        exit "${EXIT_INVALID_INPUT:-2}"
+        ;;
+    esac
+  done
+
+  if [[ -z "$pattern" ]]; then
+    echo "Error: Search pattern required" >&2
+    echo "Usage: cleo nexus search <pattern> [--project NAME] [--limit N]" >&2
+    exit "${EXIT_INVALID_INPUT:-2}"
+  fi
+
+  # Delegate to standalone nexus-search script
+  local search_args=("$pattern" "--limit" "$limit")
+  if [[ -n "$project_filter" ]]; then
+    search_args+=("--project" "$project_filter")
+  fi
+  if [[ "$FORMAT" == "json" ]]; then
+    search_args+=("--json")
+  fi
+
+  exec "$SCRIPT_DIR/nexus-search.sh" "${search_args[@]}"
+}
+
+#######################################
 # Show cross-project dependencies
 #######################################
 nexus_cmd_deps() {
@@ -731,6 +786,9 @@ main() {
       ;;
     discover)
       nexus_cmd_discover "$@"
+      ;;
+    search)
+      nexus_cmd_search "$@"
       ;;
     deps)
       nexus_cmd_deps "$@"

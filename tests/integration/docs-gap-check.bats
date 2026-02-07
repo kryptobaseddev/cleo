@@ -87,7 +87,7 @@ run_gap_check() {
 
     run run_gap_check --all-review --json
     assert_success
-    assert_output --partial '"canArchive":true'
+    echo "$output" | jq -e '.canArchive == true' >/dev/null
 }
 
 @test "gap-check exits 1 when gaps are found" {
@@ -99,7 +99,7 @@ run_gap_check() {
 
     run run_gap_check --all-review --json
     [ "$status" -eq 1 ]
-    assert_output --partial '"canArchive":false'
+    echo "$output" | jq -e '.canArchive == false' >/dev/null
     assert_output --partial 'uncovered-topic'
 }
 
@@ -125,7 +125,7 @@ run_gap_check() {
 
     # No canonical coverage to ensure gaps
     run run_gap_check --epic T100 --json
-    assert_output --partial '"linked_tasks":["T100","T101"]'
+    echo "$output" | jq -e '.reviewDocs[0].linked_tasks == ["T100","T101"]' >/dev/null
     refute_output --partial 'T200'
 }
 
@@ -266,7 +266,7 @@ run_gap_check() {
 
     run run_gap_check --all-review --json
     assert_success
-    assert_output --partial '"status":"no_review_docs"'
+    echo "$output" | jq -e '.status == "no_review_docs"' >/dev/null
 }
 
 @test "gap-check handles empty manifest file" {
@@ -275,7 +275,7 @@ run_gap_check() {
 
     run run_gap_check --all-review --json
     assert_success
-    assert_output --partial '"reviewDocs":[]'
+    echo "$output" | jq -e '.reviewDocs == []' >/dev/null
 }
 
 @test "gap-check handles docs directory not existing" {

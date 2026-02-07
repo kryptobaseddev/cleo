@@ -709,6 +709,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --fix-duplicates) FIX_DUPLICATES=true; shift ;;
     --fix-missing-sizes) FIX_MISSING_SIZES=true; shift ;;
+    --non-interactive) NON_INTERACTIVE=true; shift ;;
     # Legacy flag support (handled by flags.sh but kept for explicit override)
     --json) FORMAT="json"; shift ;;
     --human) FORMAT="text"; shift ;;

@@ -100,8 +100,8 @@ detect_python_framework() {
 
 # Detect framework from test file patterns
 detect_from_test_files() {
-    # Check for BATS files
-    if compgen -G "tests/*.bats" >/dev/null 2>&1 || compgen -G "**/*.bats" >/dev/null 2>&1; then
+    # Check for BATS files (need globstar for recursive matching)
+    if compgen -G "tests/*.bats" >/dev/null 2>&1 || compgen -G "tests/*/*.bats" >/dev/null 2>&1 || { shopt -s globstar 2>/dev/null && compgen -G "**/*.bats" >/dev/null 2>&1; }; then
         echo "bats"
         return 0
     fi

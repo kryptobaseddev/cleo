@@ -101,9 +101,9 @@ teardown() {
     # Export T002 from source
     run "$PROJECT_ROOT/scripts/export-tasks.sh" T002 --output "$export_file"
 
-    # Import into target
+    # Import into target (must set TODO_FILE to target so import writes there)
     cd "$TARGET_DIR" || exit 1
-    run "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file"
+    run env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file"
     assert_success
 
     # Verify task imported with new ID
@@ -126,7 +126,7 @@ teardown() {
 
     # Import into target
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
 
     # Verify all tasks imported
     local import_count=$(jq '.tasks | length' "$TARGET_TODO")
@@ -151,12 +151,12 @@ teardown() {
     "$PROJECT_ROOT/scripts/export-tasks.sh" T001 --output "$export_file" || exit 1
 
     # Verify metadata in export
-    local source_project=$(jq -r '._meta.sourceProject' "$export_file")
+    local source_project=$(jq -r '._meta.source.project' "$export_file")
     [[ "$source_project" == "source-project" ]]
 
     # Import
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
 
     # Verify task attributes preserved
     local status=$(jq -r '.tasks[0].status' "$TARGET_TODO")
@@ -174,7 +174,7 @@ teardown() {
 
     # Import
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
 
     # Get new IDs
     local epic_id=$(jq -r '.tasks[] | select(.title == "Auth Epic") | .id' "$TARGET_TODO")
@@ -209,7 +209,7 @@ teardown() {
 
     # Import
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
 
     # Verify both tasks exist
     local task_count=$(jq '.tasks | length' "$TARGET_TODO")
@@ -229,7 +229,7 @@ teardown() {
 
     # Import
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
 
     # Verify labels preserved
     local labels=$(jq -r '.tasks[0].labels | join(",")' "$TARGET_TODO")
@@ -244,7 +244,7 @@ teardown() {
 
     # Import
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" || exit 1
 
     # Verify phase exists in target
     local phase=$(jq -r '.tasks[0].phase' "$TARGET_TODO")
@@ -263,8 +263,8 @@ teardown() {
 
     # Import both
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export1" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export2" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export1" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export2" || exit 1
 
     # Verify both imported
     local task_count=$(jq '.tasks | length' "$TARGET_TODO")
@@ -289,7 +289,7 @@ teardown() {
 
     # Dry-run import
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" --dry-run || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export_file" --dry-run || exit 1
 
     # Verify no change
     local final_count=$(jq '.tasks | length' "$TARGET_TODO")
@@ -305,7 +305,7 @@ teardown() {
 
     # Import to target
     cd "$TARGET_DIR" || exit 1
-    "$PROJECT_ROOT/scripts/import-tasks.sh" "$export1" || exit 1
+    env TODO_FILE="$TARGET_TODO" "$PROJECT_ROOT/scripts/import-tasks.sh" "$export1" || exit 1
 
     # Get imported task ID
     local imported_id=$(jq -r '.tasks[0].id' "$TARGET_TODO")

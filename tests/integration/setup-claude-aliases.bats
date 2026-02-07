@@ -31,7 +31,7 @@ setup() {
     mkdir -p "$TEST_HOME"
 
     # Set up script paths
-    export SCRIPT_DIR="${BATS_TEST_DIRNAME}/../../scripts"
+    export SCRIPT_DIR="${BATS_TEST_DIRNAME}/../../dev"
     export SETUP_SCRIPT="$SCRIPT_DIR/setup-claude-aliases.sh"
 
     # Mock claude CLI as installed (create a fake claude command)

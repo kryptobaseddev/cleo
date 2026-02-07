@@ -1617,10 +1617,10 @@ cmd_archive() {
 
     for sid in "${to_archive[@]}"; do
       if archive_session "$sid" "$reason" 2>/dev/null; then
-        ((archived++))
+        archived=$((archived + 1))
         archived_ids+=("$sid")
       else
-        ((skipped++))
+        skipped=$((skipped + 1))
         skipped_ids+=("$sid")
       fi
     done
@@ -2211,7 +2211,7 @@ cmd_gc() {
             _gc_content=$(jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file") && \
                 save_json "$sessions_file" "$_gc_content"
           fi
-          ((archived_removed++))
+          archived_removed=$((archived_removed + 1))
           removed_items+=("archived:$sid")
         fi
       done < <(jq -r --arg cutoff "$cutoff_date" '.sessions[] | select(.status == "archived" and .archivedAt < $cutoff) | .id' "$sessions_file" 2>/dev/null)
@@ -2230,8 +2230,8 @@ cmd_gc() {
             _gc_excess_content=$(jq --arg id "$sid" 'del(.sessions[] | select(.id == $id))' "$sessions_file") && \
                 save_json "$sessions_file" "$_gc_excess_content"
           fi
-          ((archived_removed++))
-          ((excess--))
+          archived_removed=$((archived_removed + 1))
+          excess=$((excess - 1))
           removed_items+=("archived-excess:$sid")
         fi
       done < <(jq -r '[.sessions[] | select(.status == "archived")] | sort_by(.archivedAt) | .[].id' "$sessions_file" 2>/dev/null | head -n "$excess")
@@ -2257,7 +2257,7 @@ cmd_gc() {
         if [[ "$dry_run" != "true" ]]; then
           rm -f "$binding_file"
         fi
-        ((stale_bindings_removed++))
+        stale_bindings_removed=$((stale_bindings_removed + 1))
         removed_items+=("tty-binding:$(basename "$binding_file")")
       fi
 
@@ -2275,7 +2275,7 @@ cmd_gc() {
           if [[ "$dry_run" != "true" ]]; then
             rm -f "$binding_file"
           fi
-          ((stale_bindings_removed++))
+          stale_bindings_removed=$((stale_bindings_removed + 1))
           removed_items+=("orphan-binding:$(basename "$binding_file")")
         fi
       fi
@@ -2525,7 +2525,7 @@ cmd_doctor() {
       local ctx_session_id
       ctx_session_id=$(basename "$ctx_file" | sed 's/^context-state-//; s/\.json$//')
       if ! echo "$all_session_ids" | grep -qF "$ctx_session_id"; then
-        ((orphaned_context_count++))
+        orphaned_context_count=$((orphaned_context_count + 1))
       fi
     done
   fi
@@ -2545,7 +2545,7 @@ cmd_doctor() {
     for bf in "$binding_dir"/tty-*; do
       [[ -f "$bf" ]] || continue
       if ! check_binding_staleness "$bf" "$max_age_hours" 2>/dev/null; then
-        ((stale_binding_count++))
+        stale_binding_count=$((stale_binding_count + 1))
       fi
     done
   fi
@@ -2578,7 +2578,7 @@ cmd_doctor() {
 
       while IFS='|' read -r session_id last_activity; do
         [[ -z "$session_id" ]] && continue
-        ((stale_active_count++)) || true
+        stale_active_count=$((stale_active_count + 1))
 
         # Calculate days since last activity
         local last_epoch days_ago

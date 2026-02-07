@@ -356,7 +356,7 @@ ensure_changelog_header() {
 
     # Find the line number of "## [Unreleased]"
     local unreleased_line
-    unreleased_line=$(grep -n "^## \[Unreleased\]" "$changelog" | head -1 | cut -d: -f1)
+    unreleased_line=$(grep -n "^## \[Unreleased\]" "$changelog" | head -1 | cut -d: -f1 || true)
 
     if [[ -z "$unreleased_line" ]]; then
         log_warn "No ## [Unreleased] section found - version header not inserted"

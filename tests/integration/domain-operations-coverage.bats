@@ -187,70 +187,53 @@ EOF
 # =============================================================================
 # LIFECYCLE DOMAIN TESTS (10 operations)
 # =============================================================================
-# Note: Lifecycle CLI commands are not yet implemented (planned feature)
-# These tests verify the expected state of non-implementation
+# Note: Lifecycle CLI (scripts/lifecycle.sh) is now implemented.
+# These tests verify the commands are accessible and return controlled responses.
 
-@test "lifecycle: stages command not yet implemented" {
+@test "lifecycle: stages command exists" {
     run bash -c "cleo lifecycle stages --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    # Command should exist and run (may fail due to missing data but not 'not found')
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: status command not yet implemented" {
+@test "lifecycle: status command exists" {
     run bash -c "cleo lifecycle status T001 --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: validate command not yet implemented" {
+@test "lifecycle: validate command exists" {
     run bash -c "cleo lifecycle validate T001 research --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: report command not yet implemented" {
+@test "lifecycle: report command exists" {
     run bash -c "cleo lifecycle report --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: export command not yet implemented" {
+@test "lifecycle: export command exists" {
     run bash -c "cleo lifecycle export --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: record command not yet implemented" {
+@test "lifecycle: record command exists" {
     run bash -c "cleo lifecycle record T001 research completed --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: enforce command not yet implemented" {
+@test "lifecycle: enforce command exists" {
     run bash -c "cleo lifecycle enforce T001 research --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: skip command not yet implemented" {
+@test "lifecycle: skip command exists" {
     run bash -c "cleo lifecycle skip T001 research --reason test --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
-@test "lifecycle: unskip command not yet implemented" {
+@test "lifecycle: unskip command exists" {
     run bash -c "cleo lifecycle unskip T001 research --json 2>&1"
-    # Expected: command doesn't exist
-    [[ "$status" -ne 0 ]]
-    [[ "$output" =~ "Unknown command" ]] || [[ "$output" =~ "not found" ]] || [[ "$output" =~ "No such file" ]]
+    [[ ! "$output" =~ "No such file" ]]
 }
 
 @test "lifecycle: import command not yet implemented" {

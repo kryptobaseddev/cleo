@@ -39,6 +39,9 @@ setup() {
 
     # Enable context alerts
     _enable_context_alerts
+
+    # These tests check JSON output structure
+    export CLEO_FORMAT="json"
 }
 
 teardown() {
@@ -117,7 +120,7 @@ _add_test_task() {
     assert_success
 
     # Should contain JSON output in stdout
-    assert_output --partial '"success": true'
+    echo "$output" | grep -oE '\{.*\}' | tail -1 | jq -e '.success == true' >/dev/null
 
     # Alert state should be created
     assert_file_exist "$ALERT_STATE_FILE"
@@ -141,7 +144,7 @@ _add_test_task() {
     assert_success
 
     # Should contain JSON output
-    assert_output --partial '"success": true'
+    echo "$output" | grep -oE '\{.*\}' | tail -1 | jq -e '.success == true' >/dev/null
 
     # Alert state should remain at warning
     run jq -r '.thresholdLevel' "$ALERT_STATE_FILE"
@@ -164,7 +167,7 @@ _add_test_task() {
 
     # Output should contain both alert (from stderr) and JSON (from stdout)
     # Alert indicators should appear before JSON
-    assert_output --partial '"success": true'
+    echo "$output" | grep -oE '\{.*\}' | tail -1 | jq -e '.success == true' >/dev/null
 }
 
 # =============================================================================
@@ -185,7 +188,7 @@ _add_test_task() {
     assert_success
 
     # Should contain JSON output
-    assert_output --partial '"success": true'
+    echo "$output" | grep -oE '\{.*\}' | tail -1 | jq -e '.success == true' >/dev/null
 
     # Alert state should be updated to caution
     run jq -r '.thresholdLevel' "$ALERT_STATE_FILE"
@@ -207,7 +210,7 @@ _add_test_task() {
     assert_success
 
     # Should contain JSON output
-    assert_output --partial '"success": true'
+    echo "$output" | grep -oE '\{.*\}' | tail -1 | jq -e '.success == true' >/dev/null
 
     # Alert state should be updated to emergency
     run jq -r '.thresholdLevel' "$ALERT_STATE_FILE"
@@ -247,7 +250,7 @@ _add_test_task() {
     assert_success
 
     # No alert state should be created
-    refute_file_exist "$ALERT_STATE_FILE"
+    assert_file_not_exist "$ALERT_STATE_FILE"
 }
 
 # =============================================================================
@@ -266,7 +269,7 @@ _add_test_task() {
     assert_success
 
     # No alert state should be created
-    refute_file_exist "$ALERT_STATE_FILE"
+    assert_file_not_exist "$ALERT_STATE_FILE"
 }
 
 # =============================================================================
@@ -283,7 +286,7 @@ _add_test_task() {
     # Add task should NOT trigger (not in list)
     run bash "$ADD_SCRIPT" "Test task" --description "Test description"
     assert_success
-    refute_file_exist "$ALERT_STATE_FILE"
+    assert_file_not_exist "$ALERT_STATE_FILE"
 
     # Complete SHOULD trigger (in list)
     local task_id=$(jq -r '.tasks[0].id' "$TODO_FILE")
@@ -354,7 +357,7 @@ _add_test_task() {
     assert_success
 
     # No alert state should be created
-    refute_file_exist "$ALERT_STATE_FILE"
+    assert_file_not_exist "$ALERT_STATE_FILE"
 }
 
 # =============================================================================

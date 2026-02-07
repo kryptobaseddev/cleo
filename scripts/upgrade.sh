@@ -231,7 +231,7 @@ check_schema_status() {
 
         if [[ "$has_legacy" == "true" ]]; then
             UPDATES_NEEDED["$file_type"]="legacy → $expected (structural repair needed)"
-            ((TOTAL_UPDATES++))
+            TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
             return 1
         fi
     fi
@@ -239,13 +239,13 @@ check_schema_status() {
     # If schemaVersion missing but no legacy structure, still needs update
     if [[ "$schema_missing" == "true" ]]; then
         UPDATES_NEEDED["$file_type"]="missing → $expected"
-        ((TOTAL_UPDATES++))
+        TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
         return 1
     fi
 
     if [[ "$current" != "$expected" ]]; then
         UPDATES_NEEDED["$file_type"]="$current → $expected"
-        ((TOTAL_UPDATES++))
+        TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
         return 1
     fi
 
@@ -273,15 +273,15 @@ check_agent_docs_status() {
         case "$status" in
             missing)
                 UPDATES_NEEDED["$target"]="missing → $installed_version"
-                ((TOTAL_UPDATES++))
+                TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
                 ;;
             outdated|legacy)
                 UPDATES_NEEDED["$target"]="$current_version → $installed_version"
-                ((TOTAL_UPDATES++))
+                TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
                 ;;
             none)
                 UPDATES_NEEDED["$target"]="none → $installed_version"
-                ((TOTAL_UPDATES++))
+                TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
                 ;;
             current)
                 # Already up to date - no action needed
@@ -302,7 +302,7 @@ check_checksum_status() {
 
     if [[ "$stored_checksum" != "$computed_checksum" ]]; then
         UPDATES_NEEDED["checksum"]="mismatch (will recalculate)"
-        ((TOTAL_UPDATES++))
+        TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
         return 1
     fi
 
@@ -322,7 +322,7 @@ check_skills_version_status() {
     if [[ "$update_count" -gt 0 ]]; then
         UPDATES_NEEDED["skills"]="$update_count skill(s) need updating"
         SKILL_UPDATES_JSON="$updates_json"
-        ((TOTAL_UPDATES++))
+        TOTAL_UPDATES=$((TOTAL_UPDATES + 1))
         return 1
     fi
 
@@ -760,18 +760,14 @@ if [[ -n "${UPDATES_NEEDED[todo]:-}" ]] && [[ "${UPDATES_NEEDED[todo]}" == *"leg
 
     # Remove top-level phases if exists
     if jq -e 'has("phases")' "$UPG_TODO_FILE" >/dev/null 2>&1; then
-        local _upg_content
         _upg_content=$(jq 'del(.phases)' "$UPG_TODO_FILE")
-        local _upg_tmp
         _upg_tmp=$(mktemp "${UPG_TODO_FILE}.XXXXXX")
         echo "$_upg_content" > "$_upg_tmp" && mv "$_upg_tmp" "$UPG_TODO_FILE" || rm -f "$_upg_tmp"
     fi
 
     # Remove top-level checksum if exists
     if jq -e 'has("checksum")' "$UPG_TODO_FILE" >/dev/null 2>&1; then
-        local _upg_content2
         _upg_content2=$(jq 'del(.checksum)' "$UPG_TODO_FILE")
-        local _upg_tmp2
         _upg_tmp2=$(mktemp "${UPG_TODO_FILE}.XXXXXX")
         echo "$_upg_content2" > "$_upg_tmp2" && mv "$_upg_tmp2" "$UPG_TODO_FILE" || rm -f "$_upg_tmp2"
     fi
@@ -894,9 +890,9 @@ if [[ "$agent_docs_updated" == true ]]; then
     fi
 
     # Track totals across global and project files
-    local total_updated=0
-    local total_skipped=0
-    local total_failed=0
+    total_updated=0
+    total_skipped=0
+    total_failed=0
 
     # 4a. Update PROJECT agent docs (CLAUDE.md, AGENTS.md, GEMINI.md in project root)
     if type injection_update_all &>/dev/null; then
@@ -924,16 +920,14 @@ if [[ "$agent_docs_updated" == true ]]; then
 
     # 4b. Update GLOBAL agent docs (~/.claude/CLAUDE.md, etc.)
     if [[ "$agent_docs_updated" == true ]] && type ar_list_installed &>/dev/null; then
-        local global_updated=0
-        local global_skipped=0
-        local global_failed=0
+        global_updated=0
+        global_skipped=0
+        global_failed=0
 
         # Get list of installed agents
-        local installed_agents
         installed_agents=$(ar_list_installed)
 
         for agent_id in $installed_agents; do
-            local global_file
             global_file=$(ar_get_global_instruction_path "$agent_id" 2>/dev/null)
 
             if [[ -z "$global_file" ]]; then
@@ -941,11 +935,10 @@ if [[ "$agent_docs_updated" == true ]]; then
             fi
 
             # Check if update needed
-            local needs_update=false
+            needs_update=false
             if [[ ! -f "$global_file" ]]; then
                 needs_update=true
             else
-                local status_json status
                 status_json=$(injection_check "$global_file" 2>/dev/null || echo '{"status":"unknown"}')
                 status=$(echo "$status_json" | grep -oP '"status":"\K[^"]+' || echo "unknown")
 
@@ -956,7 +949,6 @@ if [[ "$agent_docs_updated" == true ]]; then
 
             if [[ "$needs_update" == true ]]; then
                 # Update global file
-                local update_result
                 if update_result=$(injection_update "$global_file" 2>&1); then
                     (( ++global_updated ))
                     if ! is_json_output && [[ "$VERBOSE" == "true" ]]; then
