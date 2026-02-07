@@ -207,9 +207,9 @@ check_commands_sync() {
     fi
 }
 
-# Check wrapper template sync with COMMANDS-INDEX
+# Check wrapper template uses dynamic dispatch (not static case statements)
 check_wrapper_template_sync() {
-    log_header "WRAPPER" "Checking installer/lib/link.sh vs COMMANDS-INDEX.json"
+    log_header "WRAPPER" "Checking installer/lib/link.sh uses dynamic dispatch"
 
     local wrapper_template="$PROJECT_ROOT/installer/lib/link.sh"
 
@@ -218,49 +218,122 @@ check_wrapper_template_sync() {
         return
     fi
 
-    # Extract commands from wrapper template's _get_all_commands function
-    local wrapper_cmds
-    wrapper_cmds=$(grep "_get_all_commands()" -A1 "$wrapper_template" 2>/dev/null | tail -1 | tr -d '"' | tr ' ' '\n' | grep -v '^echo$' | grep -v '^$' | sort -u)
-
-    # Get commands from COMMANDS-INDEX (excluding aliases and documented subcommands/dev tools)
-    # Filter out entries with notes containing: "Usually called via", "Internal development", "dev tool"
-    local index_cmds
-    index_cmds=$(jq -r '.commands[] | select(.aliasFor == null) | select(.note == null or (.note | test("Usually called via|Internal development|dev tool"; "i") | not)) | .name' "$COMMANDS_INDEX" 2>/dev/null | sort -u)
-
-    # Find commands in index but not in wrapper template
-    local missing_from_wrapper
-    missing_from_wrapper=$(comm -13 <(echo "$wrapper_cmds") <(echo "$index_cmds"))
-
-    if [[ -n "$missing_from_wrapper" ]]; then
-        log_error "Commands in COMMANDS-INDEX but NOT in wrapper template:"
-        while IFS= read -r cmd; do
-            [[ -z "$cmd" ]] && continue
-            echo "    - $cmd"
-            log_recommend "Add '$cmd) echo \"${cmd}.sh\" ;;' to installer/lib/link.sh"
-        done <<< "$missing_from_wrapper"
+    # Verify wrapper uses convention-based _get_cmd_script (dynamic, not static case)
+    if grep -q 'local script="${cmd}.sh"' "$wrapper_template" 2>/dev/null; then
+        log_ok "Wrapper uses convention-based _get_cmd_script (dynamic dispatch)"
     else
-        log_ok "Wrapper template has all commands from COMMANDS-INDEX"
+        log_error "Wrapper may use static case statement instead of dynamic dispatch"
+        log_recommend "Update installer/lib/link.sh to use convention-based _get_cmd_script"
     fi
 
-    # Find commands in wrapper but not in index (excluding known internal commands)
-    local extra_in_wrapper
-    extra_in_wrapper=$(comm -23 <(echo "$wrapper_cmds") <(echo "$index_cmds") | grep -vE '^(echo|init|validate|list|add|complete|update)$')
+    # Verify wrapper uses dynamic _get_all_commands (directory scan, not flat string)
+    if grep -q 'for script in "\$SCRIPT_DIR"/\*.sh' "$wrapper_template" 2>/dev/null; then
+        log_ok "Wrapper uses dynamic _get_all_commands (directory scan)"
+    else
+        log_error "Wrapper may use static _get_all_commands instead of dynamic scan"
+        log_recommend "Update installer/lib/link.sh to scan scripts directory dynamically"
+    fi
+}
 
-    if [[ -n "$extra_in_wrapper" ]]; then
-        local count=0
-        while IFS= read -r cmd; do
-            [[ -z "$cmd" ]] && continue
-            ((count++))
-        done <<< "$extra_in_wrapper"
+# Check all scripts have valid ###CLEO header blocks
+check_header_sync() {
+    log_header "HEADERS" "Checking ###CLEO headers on all scripts"
 
-        if [[ $count -gt 0 ]]; then
-            log_warn "Commands in wrapper template but NOT in COMMANDS-INDEX:"
-            while IFS= read -r cmd; do
-                [[ -z "$cmd" ]] && continue
-                echo "    - $cmd"
-                log_recommend "Add entry for '$cmd' to docs/commands/COMMANDS-INDEX.json"
-            done <<< "$extra_in_wrapper"
+    local missing_headers=()
+    local invalid_headers=()
+    local total=0
+
+    for script in "$SCRIPTS_DIR"/*.sh; do
+        [[ -f "$script" ]] || continue
+        ((total++))
+
+        local basename_script
+        basename_script=$(basename "$script")
+
+        if ! grep -q "^###CLEO" "$script" 2>/dev/null; then
+            missing_headers+=("$basename_script")
+            continue
         fi
+
+        # Verify required fields exist in header
+        local has_command has_category has_synopsis has_relevance
+        has_command=$(sed -n '/^###CLEO/,/^###END/p' "$script" | grep -c '^# command:' || true)
+        has_category=$(sed -n '/^###CLEO/,/^###END/p' "$script" | grep -c '^# category:' || true)
+        has_synopsis=$(sed -n '/^###CLEO/,/^###END/p' "$script" | grep -c '^# synopsis:' || true)
+        has_relevance=$(sed -n '/^###CLEO/,/^###END/p' "$script" | grep -c '^# relevance:' || true)
+
+        if [[ "$has_command" -eq 0 || "$has_category" -eq 0 || "$has_synopsis" -eq 0 || "$has_relevance" -eq 0 ]]; then
+            invalid_headers+=("$basename_script")
+        fi
+    done
+
+    if [[ ${#missing_headers[@]} -gt 0 ]]; then
+        log_error "Scripts WITHOUT ###CLEO header (${#missing_headers[@]}):"
+        for script in "${missing_headers[@]}"; do
+            echo "    - $script"
+            log_recommend "Add ###CLEO header to scripts/$script"
+        done
+    else
+        log_ok "All $total scripts have ###CLEO headers"
+    fi
+
+    if [[ ${#invalid_headers[@]} -gt 0 ]]; then
+        log_warn "Scripts with INCOMPLETE ###CLEO headers (${#invalid_headers[@]}):"
+        for script in "${invalid_headers[@]}"; do
+            echo "    - $script (missing command/category/synopsis/relevance)"
+        done
+    fi
+}
+
+# Check INDEX matches what would be generated from headers
+check_generated_index() {
+    log_header "GENERATED" "Checking INDEX matches script headers (zero-drift)"
+
+    local registry_lib="$PROJECT_ROOT/lib/command-registry.sh"
+
+    if [[ ! -f "$registry_lib" ]]; then
+        log_warn "lib/command-registry.sh not found, skipping generated index check"
+        return
+    fi
+
+    # Source the registry and rebuild to temp file
+    source "$registry_lib"
+    local tmp_index="/tmp/drift-check-index-$$.json"
+
+    if rebuild_commands_index "$SCRIPTS_DIR" "$tmp_index" 2>/dev/null; then
+        # Compare command names and metadata
+        local current_cmds generated_cmds
+        current_cmds=$(jq -r '[.commands[] | .name] | sort | join(",")' "$COMMANDS_INDEX" 2>/dev/null)
+        generated_cmds=$(jq -r '[.commands[] | .name] | sort | join(",")' "$tmp_index" 2>/dev/null)
+
+        if [[ "$current_cmds" == "$generated_cmds" ]]; then
+            log_ok "INDEX command list matches generated from headers"
+        else
+            log_error "INDEX command list DIFFERS from generated"
+            local only_current only_generated
+            only_current=$(comm -23 <(echo "$current_cmds" | tr ',' '\n' | sort) <(echo "$generated_cmds" | tr ',' '\n' | sort))
+            only_generated=$(comm -13 <(echo "$current_cmds" | tr ',' '\n' | sort) <(echo "$generated_cmds" | tr ',' '\n' | sort))
+            [[ -n "$only_current" ]] && echo "    In INDEX but not generated: $only_current"
+            [[ -n "$only_generated" ]] && echo "    Generated but not in INDEX: $only_generated"
+            log_recommend "Run 'cleo commands --rebuild' to regenerate INDEX from headers"
+        fi
+
+        # Check metadata drift (synopsis, category, flags changed in headers but not rebuilt)
+        local metadata_diff
+        metadata_diff=$(diff <(jq -S '.commands | map({name, category, synopsis, agentRelevance}) | sort_by(.name)' "$COMMANDS_INDEX" 2>/dev/null) \
+                              <(jq -S '.commands | map({name, category, synopsis, agentRelevance}) | sort_by(.name)' "$tmp_index" 2>/dev/null) 2>/dev/null || true)
+
+        if [[ -n "$metadata_diff" ]]; then
+            log_warn "INDEX metadata differs from generated (synopsis/category/relevance changed in headers)"
+            log_recommend "Run 'cleo commands --rebuild' to sync metadata"
+        else
+            log_ok "INDEX metadata matches headers"
+        fi
+
+        rm -f "$tmp_index"
+    else
+        log_warn "Failed to rebuild INDEX from headers for comparison"
+        rm -f "$tmp_index"
     fi
 }
 
@@ -465,6 +538,12 @@ main() {
 
     # Always check wrapper template sync
     check_wrapper_template_sync
+
+    # Always check script headers
+    check_header_sync
+
+    # Always check INDEX matches generated from headers
+    check_generated_index
 
     if [[ "$MODE" == "full" ]]; then
         check_command_docs
