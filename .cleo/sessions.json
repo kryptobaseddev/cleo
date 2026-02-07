@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-07T03:27:35Z",
-    "totalSessionsCreated": 392
+    "lastModified": "2026-02-07T04:56:49Z",
+    "totalSessionsCreated": 393
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -23096,7 +23096,7 @@
     },
     {
       "id": "session_20260206_192735_3b71e9",
-      "status": "active",
+      "status": "ended",
       "name": "Reconciliation",
       "agentId": null,
       "scope": {
@@ -23137,10 +23137,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T3064",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T3064",
+        "sessionNote": "Reconciliation complete. 20 tasks recreated under T3109. Session fixes committed. todo.json committed.",
         "nextAction": null,
         "focusHistory": [
           {
@@ -23151,7 +23151,7 @@
         ]
       },
       "startedAt": "2026-02-07T03:27:35Z",
-      "lastActivity": "2026-02-07T03:27:35Z",
+      "lastActivity": "2026-02-07T03:31:31Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -23164,7 +23164,71 @@
         "start_timestamp": "2026-02-07T03:27:35Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-07T03:31:31Z"
+    },
+    {
+      "id": "session_20260206_205559_032e5d",
+      "status": "ended",
+      "name": "Bug logging",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3109",
+        "computedTaskIds": [
+          "T3109",
+          "T3110",
+          "T3111",
+          "T3112",
+          "T3113",
+          "T3114",
+          "T3115",
+          "T3116",
+          "T3117",
+          "T3118",
+          "T3119",
+          "T3120",
+          "T3121",
+          "T3122",
+          "T3123",
+          "T3124",
+          "T3125",
+          "T3126",
+          "T3127",
+          "T3128",
+          "T3129"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3109",
+        "sessionNote": "Logged 6 bug tasks: 5 release pipeline issues, 1 install.sh safeguard",
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3109",
+            "timestamp": "2026-02-07T04:55:59Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-07T04:55:59Z",
+      "lastActivity": "2026-02-07T04:56:49Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260206_205559_032e5d",
+        "start_timestamp": "2026-02-07T04:55:59Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-07T04:56:49Z"
     }
   ],
   "sessionHistory": [
