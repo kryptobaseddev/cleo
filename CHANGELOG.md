@@ -1,8 +1,26 @@
 # Changelog
 
 All notable changes to the CLEO system will be documented in this file.
+## [0.80.5] - 2026-02-06
+
+### Other Changes
+- Create MCP server entry point and registration (T2926)
+- Prepare MCP server npm package (T2927)
+
 ## [Unreleased]
 
+## [0.80.5] - 2026-02-06
+
+### Bug Fixes
+- Remove duplicate Unreleased header, clear focus on session end (T3135)
+- Output routing - JSON errors to stdout, exit code alignment (T3135)
+
+### Documentation
+- Create agent-protocol.md, fix schema discrepancies, resolve doc drift (T3136)
+
+### Other Changes
+- Sync CLEO state for v0.80.5 release
+- Bump version to 0.80.5
 ### Documentation
 - Create `protocols/agent-protocol.md` - canonical agent-optimized reference (~260 lines, 56 exit codes with recovery procedures) (T3136)
 - Update AGENT-INJECTION.md with error recovery procedures, output key patterns, and protocol reference (T3136)
