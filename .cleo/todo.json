@@ -445,27 +445,37 @@
       },
       {
         "version": "v0.81.0",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-07T05:00:58Z",
+        "createdAt": "2026-02-07T04:56:55Z",
+        "tasks": [],
+        "notes": "Dynamic Command Registry: self-describing scripts, zero-drift architecture, header-based validation",
+        "gitTag": "v0.81.0"
+      },
+      {
+        "version": "v0.81.1",
         "status": "planned",
         "targetDate": null,
         "releasedAt": null,
-        "createdAt": "2026-02-07T04:56:55Z",
+        "createdAt": "2026-02-07T05:08:21Z",
         "tasks": [],
-        "notes": "Dynamic Command Registry: self-describing scripts, zero-drift architecture, header-based validation"
+        "notes": "Release system fixes: changelog coordination, validation, installer data protection"
       }
     ]
   },
-  "lastUpdated": "2026-02-07T04:56:55Z",
+  "lastUpdated": "2026-02-07T05:08:21Z",
   "_meta": {
-    "checksum": "b0e3732e70a2c67a",
+    "checksum": "610788671608aae0",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-07T04:56:49Z",
+    "lastModified": "2026-02-07T05:07:25Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 13,
-    "generation": 2076
+    "activeSessionCount": 14,
+    "generation": 2088
   },
   "focus": {
     "currentTask": null,
@@ -14399,12 +14409,12 @@
     {
       "id": "T3109",
       "title": "EPIC: Phase 0 Foundation to BRAIN Compliance",
-      "status": "pending",
+      "status": "active",
       "priority": "critical",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-07T03:27:52Z",
-      "updatedAt": "2026-02-07T04:56:49Z",
+      "updatedAt": "2026-02-07T05:07:25Z",
       "size": "medium",
       "position": 213,
       "positionVersion": 0,
@@ -14910,92 +14920,188 @@
     {
       "id": "T3130",
       "title": "Fix duplicate Unreleased header in changelog generation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3109",
       "createdAt": "2026-02-07T04:56:24Z",
-      "updatedAt": "2026-02-07T04:56:24Z",
+      "updatedAt": "2026-02-07T05:07:31Z",
       "size": "medium",
       "position": 21,
       "positionVersion": 0,
       "phase": "core",
-      "description": "ensure_changelog_header fails with arithmetic error when CHANGELOG.md has duplicate Unreleased headers. grep -n returns two line numbers and arithmetic expansion breaks. Need dedup or take-first logic."
+      "description": "ensure_changelog_header fails with arithmetic error when CHANGELOG.md has duplicate Unreleased headers. grep -n returns two line numbers and arithmetic expansion breaks. Need dedup or take-first logic.",
+      "completedAt": "2026-02-07T05:07:31Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T05:07:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3131",
       "title": "Fix changelog auto-generation coordination",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3109",
       "createdAt": "2026-02-07T04:56:25Z",
-      "updatedAt": "2026-02-07T04:56:25Z",
+      "updatedAt": "2026-02-07T05:07:33Z",
       "size": "medium",
       "position": 22,
       "positionVersion": 0,
       "phase": "core",
-      "description": "ensure_changelog_header, generate_changelog_from_commits, and append_to_changelog all insert content independently resulting in duplicate version headers and mixed content. Need single coordinated write or state tracking."
+      "description": "ensure_changelog_header, generate_changelog_from_commits, and append_to_changelog all insert content independently resulting in duplicate version headers and mixed content. Need single coordinated write or state tracking.",
+      "completedAt": "2026-02-07T05:07:33Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T05:07:34Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3132",
       "title": "Fix populate_release_tasks over-matching",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3109",
       "createdAt": "2026-02-07T04:56:26Z",
-      "updatedAt": "2026-02-07T04:56:26Z",
+      "updatedAt": "2026-02-07T05:07:36Z",
       "size": "medium",
       "position": 23,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Hybrid date+label strategy picks up unrelated done tasks in the date window. T2926/T2927 MCP tasks were included in v0.80.5 release despite being unrelated. Need tighter scope filtering."
+      "description": "Hybrid date+label strategy picks up unrelated done tasks in the date window. T2926/T2927 MCP tasks were included in v0.80.5 release despite being unrelated. Need tighter scope filtering.",
+      "completedAt": "2026-02-07T05:07:36Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T05:07:36Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3133",
       "title": "Fix release validation blocking on missing task IDs",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3109",
       "createdAt": "2026-02-07T04:56:27Z",
-      "updatedAt": "2026-02-07T04:56:27Z",
+      "updatedAt": "2026-02-07T05:07:38Z",
       "size": "medium",
       "position": 24,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task validation blocks cleo release ship when task IDs referenced in commits are missing from todo.json. Had to use --skip-validation. Need graceful handling for missing tasks."
+      "description": "Task validation blocks cleo release ship when task IDs referenced in commits are missing from todo.json. Had to use --skip-validation. Need graceful handling for missing tasks.",
+      "completedAt": "2026-02-07T05:07:38Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T05:07:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3134",
       "title": "Fix GitHub Actions release notes timing",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "subtask",
       "parentId": "T3109",
       "createdAt": "2026-02-07T04:56:28Z",
-      "updatedAt": "2026-02-07T04:56:28Z",
+      "updatedAt": "2026-02-07T05:07:41Z",
       "size": "medium",
       "position": 25,
       "positionVersion": 0,
       "phase": "core",
-      "description": "GitHub Actions auto-creates releases from tags but picks up changelog content before manual cleanup. Release notes need to be finalized BEFORE tag push, or GH Action should wait."
+      "description": "GitHub Actions auto-creates releases from tags but picks up changelog content before manual cleanup. Release notes need to be finalized BEFORE tag push, or GH Action should wait.",
+      "completedAt": "2026-02-07T05:07:41Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T05:07:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3135",
       "title": "Harden install.sh to never overwrite existing CLEO data files",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "subtask",
       "parentId": "T3109",
       "createdAt": "2026-02-07T04:56:29Z",
-      "updatedAt": "2026-02-07T04:56:29Z",
+      "updatedAt": "2026-02-07T05:07:43Z",
       "size": "medium",
       "position": 26,
       "positionVersion": 0,
       "phase": "core",
-      "description": "install.sh --dev overwrote todo.json, sessions.json, and todo-log.json with template defaults destroying all task state. MUST check for existing files and skip or error. Critical data protection."
+      "description": "install.sh --dev overwrote todo.json, sessions.json, and todo-log.json with template defaults destroying all task state. MUST check for existing files and skip or error. Critical data protection.",
+      "completedAt": "2026-02-07T05:07:43Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-07T05:07:44Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
