@@ -1,33 +1,11 @@
 # Changelog
 
 All notable changes to the CLEO system will be documented in this file.
-## [0.80.5] - 2026-02-06
-
-### Other Changes
-- Create MCP server entry point and registration (T2926)
-- Prepare MCP server npm package (T2927)
-
 ## [Unreleased]
 
-## [0.80.5] - 2026-02-06
+## [0.80.5] - 2026-02-07
 
 ### Bug Fixes
-- Remove duplicate Unreleased header, clear focus on session end (T3135)
-- Output routing - JSON errors to stdout, exit code alignment (T3135)
-
-### Documentation
-- Create agent-protocol.md, fix schema discrepancies, resolve doc drift (T3136)
-
-### Other Changes
-- Sync CLEO state for v0.80.5 release
-- Bump version to 0.80.5
-### Documentation
-- Create `protocols/agent-protocol.md` - canonical agent-optimized reference (~260 lines, 56 exit codes with recovery procedures) (T3136)
-- Update AGENT-INJECTION.md with error recovery procedures, output key patterns, and protocol reference (T3136)
-- Retitle `LLM-AGENT-FIRST.mdx` from "LLM Agent First" to "CLI Design Standard" (developer guide, not agent reference) (T3136)
-- Delete duplicate `docs/archive/specs-md/LLM-AGENT-FIRST-SPEC.md` (13,850 tokens of pure duplication) (T3136)
-
-### Fixed
 - Fix output routing: 9 scripts now emit JSON errors to stdout (not stderr) when FORMAT=json (T3135)
   - Affected: focus.sh, update-task.sh, delete.sh, complete-task.sh, add-task.sh, reopen.sh, uncancel.sh, unarchive.sh, log.sh
   - Root cause: `log_error` wrote plain text to stderr, ignoring FORMAT variable
@@ -37,14 +15,23 @@ All notable changes to the CLEO system will be documented in this file.
   - update-task.sh: validate_status now returns EXIT_VALIDATION_ERROR=6
 - Fix command substitution swallowing JSON error output in focus.sh set_session_focus (T3135)
 - Fix `set -e` premature termination when `output_error` returned non-zero in log_error (T3135)
-- Fix `$schema` URL inconsistency: `metrics.schema.json` and `sessions.schema.json` now use `cleo-dev.com` (matching all other schemas) (T3136)
-- Fix legacy "Claude-TODO" branding in `output.schema.json` and `error.schema.json` titles (now "CLEO") (T3136)
+- Fix duplicate `## [Unreleased]` header in CHANGELOG.md causing release ship failure
+- Fix session focus not cleared on session end (lib/sessions.sh)
+- Fix `$schema` URL inconsistency: `metrics.schema.json` and `sessions.schema.json` now use `cleo-dev.com` (T3136)
+- Fix legacy "Claude-TODO" branding in `output.schema.json` and `error.schema.json` titles (T3136)
 - Sync `error.schema.json` enum with implementation: add 5 missing error codes (T3136)
 - Add `lifecycle` command to COMMANDS-INDEX.json (was missing, causing drift detection failure) (T3136)
 
+### Documentation
+- Create `protocols/agent-protocol.md` - canonical agent-optimized reference (~260 lines, 56 exit codes with recovery procedures) (T3136)
+- Update AGENT-INJECTION.md with error recovery procedures, output key patterns, and protocol reference (T3136)
+- Retitle `LLM-AGENT-FIRST.mdx` from "LLM Agent First" to "CLI Design Standard" (T3136)
+- Delete duplicate `docs/archive/specs-md/LLM-AGENT-FIRST-SPEC.md` (13,850 tokens of pure duplication) (T3136)
+
 ### Refactored
-- Refactor installer command discovery from manual case statement to convention-based `<command>.sh` lookup (T3135)
+- Refactor installer command discovery from manual case statement to convention-based `<command>.sh` lookup
 - Add `###CLEO` metadata headers to all scripts for automated command discovery and documentation
+- Remove old script names: blockers-command.sh, deps-command.sh, extract-todowrite.sh, inject-todowrite.sh, list-tasks.sh, relates-command.sh, sync-todowrite.sh
 
 ## [0.80.4] - 2026-02-06
 
