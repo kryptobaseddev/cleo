@@ -39,5 +39,10 @@
         }
       ]
     }
+  },
+  "test": {
+    "integration": {
+      "value": true
+    }
   }
 }
