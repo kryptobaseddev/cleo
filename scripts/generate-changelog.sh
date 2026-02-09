@@ -48,11 +48,32 @@ get_changelog_output_path() {
     fi
 }
 
-# Get all enabled platforms
+# Get all enabled platforms (returns empty if no config -- no implicit default)
 get_enabled_platforms() {
-    jq -r '.release.changelog.outputs[]? | select(.enabled == true) | .platform' "$PROJECT_CONFIG_FILE" 2>/dev/null || echo "mintlify"
+    local platforms
+    platforms=$(jq -r '.release.changelog.outputs[]? | select(.enabled == true) | .platform' "$PROJECT_CONFIG_FILE" 2>/dev/null || true)
+    if [[ -z "$platforms" ]]; then
+        echo "No changelog output platforms configured. Configure in .cleo/config.json under release.changelog.outputs" >&2
+        return 0
+    fi
+    echo "$platforms"
 }
 
+# Resolve GitHub repository URL from git remote
+# Returns: "owner/repo" slug (e.g., "kryptobaseddev/cleo")
+# Falls back to empty string if not a git repo or no remote configured
+get_github_repo_slug() {
+    local remote_url
+    remote_url=$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)
+    if [[ -z "$remote_url" ]]; then
+        echo ""
+        return
+    fi
+    # Handle SSH (git@github.com:owner/repo.git) and HTTPS (https://github.com/owner/repo.git)
+    echo "$remote_url" | sed -E 's|.*github\.com[:/]||; s|\.git$||'
+}
+
+GITHUB_REPO_SLUG="$(get_github_repo_slug)"
 CHANGELOG_SRC="$PROJECT_ROOT/$(get_changelog_source)"
 
 # Generate changelog for a specific platform
@@ -86,8 +107,8 @@ generate_for_platform() {
 generate_mintlify() {
     local dst="$1"
 
-    # Write MDX header
-    cat > "$dst" << 'HEADER'
+    # Write MDX header (uses dynamic GitHub repo slug)
+    cat > "$dst" << HEADER
 ---
 title: "Changelog"
 description: "CLEO release history and product updates"
@@ -99,34 +120,44 @@ rss: true
 
 Stay up to date with the latest CLEO improvements, features, and fixes.
 
+HEADER
+
+    # Add GitHub links only if repo slug is available
+    if [[ -n "$GITHUB_REPO_SLUG" ]]; then
+        cat >> "$dst" << LINKS
 <Info>
-Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https://github.com/kryptobaseddev/cleo/releases).
+Subscribe to updates via RSS at \`/rss.xml\` or follow the [GitHub releases](https://github.com/${GITHUB_REPO_SLUG}/releases).
 </Info>
 
 <Tip>
-This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
+This changelog is auto-generated from [CHANGELOG.md](https://github.com/${GITHUB_REPO_SLUG}/blob/main/CHANGELOG.md). Run \`./scripts/generate-changelog.sh\` to update.
 </Tip>
 
-HEADER
+LINKS
+    fi
 
     # Use awk to parse and convert CHANGELOG.md to Mintlify format
-    awk -v limit="$LIMIT" '
+    # IMPORTANT: All version regex patterns use v? (optional v prefix) because:
+    # - lib/changelog.sh writes headers WITHOUT v prefix: ## [0.83.0]
+    # - Manual edits or external tools may use WITH v prefix: ## [v0.83.0]
+    # - Both formats must be matched to prevent silent skipping of entries
+    awk -v limit="$LIMIT" -v repo_slug="$GITHUB_REPO_SLUG" '
 BEGIN {
     count = 0
     in_version = 0
     content = ""
 }
 
-# Match version header: ## [0.60.1] - 2026-01-21
-/^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}/ {
+# Match version header: ## [0.60.1] - 2026-01-21 or ## [v0.60.1] - 2026-01-21
+/^## \[v?[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}/ {
     # Output previous version if exists
     if (version != "" && count < limit) {
         output_version()
         count++
     }
 
-    # Parse new version
-    match($0, /\[([0-9]+\.[0-9]+\.[0-9]+)\]/, arr)
+    # Parse new version (handles optional v prefix)
+    match($0, /\[v?([0-9]+\.[0-9]+\.[0-9]+)\]/, arr)
     version = arr[1]
 
     match($0, /- ([0-9]{4})-([0-9]{2})-([0-9]{2})/, darr)
@@ -200,7 +231,7 @@ function output_version() {
     printf "<Update label=\"%s\" description=\"v%s\" tags={[%s]}>\n", date_label, version, tags
     printf "## %s\n\n", title
     printf "%s\n", content
-    printf "[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v%s)\n", version
+    if (repo_slug != "") printf "[View full release notes](https://github.com/%s/releases/tag/v%s)\n", repo_slug, version
     printf "</Update>\n\n"
 }
 
@@ -215,14 +246,22 @@ END {
     # Escape < followed by numbers (e.g., <200ms) to prevent MDX/JSX parse errors
     sed -i 's/<\([0-9]\)/\&lt;\1/g' "$dst"
 
-    # Add footer
-    cat >> "$dst" << 'FOOTER'
+    # Add footer with dynamic GitHub links
+    if [[ -n "$GITHUB_REPO_SLUG" ]]; then
+        cat >> "$dst" << FOOTER
 ## Earlier Releases
 
 For the complete release history, see:
-- [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md) - Full detailed changelog
-- [GitHub Releases](https://github.com/kryptobaseddev/cleo/releases) - Release artifacts and notes
+- [CHANGELOG.md](https://github.com/${GITHUB_REPO_SLUG}/blob/main/CHANGELOG.md) - Full detailed changelog
+- [GitHub Releases](https://github.com/${GITHUB_REPO_SLUG}/releases) - Release artifacts and notes
 FOOTER
+    else
+        cat >> "$dst" << 'FOOTER'
+## Earlier Releases
+
+For the complete release history, see the CHANGELOG.md file in this repository.
+FOOTER
+    fi
 
     echo "✓ Generated Mintlify changelog: $dst"
 }
@@ -246,11 +285,12 @@ All notable changes to CLEO will be documented in this file.
 HEADER
 
     # Use simpler format for Docusaurus (just copy/transform from source)
+    # Same v? pattern as Mintlify -- see comment above for rationale
     awk -v limit="$LIMIT" '
 BEGIN { count = 0 }
 
-# Pass through version headers
-/^## \[[0-9]+\.[0-9]+\.[0-9]+\]/ {
+# Pass through version headers (handles optional v prefix)
+/^## \[v?[0-9]+\.[0-9]+\.[0-9]+\]/ {
     if (count >= limit) exit
     count++
 }
@@ -277,6 +317,7 @@ if [[ -n "$TARGET_PLATFORM" ]]; then
 else
     # Generate for all enabled platforms
     while IFS= read -r platform; do
+        [[ -z "$platform" ]] && continue
         output_path=$(get_changelog_output_path "$platform")
         if [[ -n "$output_path" ]]; then
             generate_for_platform "$platform" "$output_path" || true

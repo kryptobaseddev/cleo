@@ -598,6 +598,10 @@ generate_changelog_from_commits() {
 
     # Group by type and generate markdown using jq
     echo "$commits_json" | jq -r '
+        # Filter out automated git checkpoint commits (lib/git-checkpoint.sh)
+        # These have descriptions like "auto checkpoint", "session-end checkpoint", "manual checkpoint"
+        map(select(.scope == "cleo" and (.description | test("^(auto|session-end|manual) checkpoint")) | not)) |
+
         # Group by type
         group_by(.type) |
         map({

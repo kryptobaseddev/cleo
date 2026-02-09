@@ -1,7 +1,7 @@
 # Release Protocol
 
 **Provenance**: @task T3155, @epic T3147
-**Version**: 1.0.1
+**Version**: 1.1.0
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -120,7 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | Lint | No lint errors | SHOULD | Project-dependent |
 | Schema | All schemas valid | MUST | Always enforced |
 | Version | Version bumped correctly | MUST | If `--bump-version` used |
-| Changelog | Entry for new version | MUST | Unless `--skip-changelog` |
+| Changelog | Entry for new version | MUST | Unless `--no-changelog` |
 | Docs | Documentation current | SHOULD | Manual verification |
 | Install | Installation works | SHOULD | Manual verification |
 
@@ -263,20 +263,63 @@ cleo research add \
 | implementation | Implementation changes tracked |
 | specification | Spec changes documented |
 
-### Release Workflow
+### Release Workflow (`cleo release ship`)
 
 ```
-1. Verify all tasks complete for release
-2. Run validation gates
-3. Bump version (./dev/bump-version.sh)
-4. Verify version consistency
-5. Update changelog
-6. Create release commit
-7. Tag release
-8. Push to remote
-9. Create GitHub release (optional)
-10. Document in manifest
+1. Auto-populate release tasks (date window + label matching from todo.json)
+2. Bump version (if --bump-version)
+3. Ensure [Unreleased] section exists in CHANGELOG.md (creates if missing)
+4. Generate changelog from task metadata (categorized by labels)
+5. Append to CHANGELOG.md (idempotent, Keep a Changelog format)
+6. Generate platform-specific outputs (if configured in release.changelog.outputs)
+   - Mintlify: CHANGELOG.md → docs/changelog/overview.mdx
+   - Docusaurus: CHANGELOG.md → docs/changelog.md
+   - Plain/GitHub: copy
+   - Skipped if no platforms configured (default for fresh installs)
+7. Run validation gates (tests opt-in, schema, version, changelog, custom)
+8. Create release commit (stages VERSION, README, CHANGELOG.md, platform docs, todo.json)
+9. Create annotated tag (if --create-tag)
+10. Push to remote (if --push)
+11. Update release status in todo.json
 ```
+
+### Platform Changelog Configuration (v0.84.0+)
+
+Platform-specific changelog generation is controlled by `.cleo/config.json`:
+
+```json
+{
+  "release": {
+    "changelog": {
+      "outputs": [
+        { "platform": "mintlify", "enabled": true, "path": "docs/changelog/overview.mdx" }
+      ]
+    }
+  }
+}
+```
+
+Supported platforms: `mintlify`, `docusaurus`, `github`, `gitbook`, `plain`, `custom`.
+Default for fresh installs: no platforms configured (only CHANGELOG.md generated).
+GitHub URLs in generated output are resolved dynamically from `git remote origin`.
+
+### Tag Annotation Fallback (v0.83.0+)
+
+When `--create-tag` is used, the tag annotation is populated from a fallback chain:
+
+1. **CHANGELOG.md section** - extracted via `extract_changelog_section()`
+2. **Git commit notes** - generated via `generate_changelog_from_commits()` from previous tag
+3. **Release description** - from `release.notes` field in todo.json
+
+This ensures tags always have meaningful content for GitHub Actions, even when `--no-changelog` skips CHANGELOG.md generation.
+
+### CI/CD Integration
+
+| Event | Workflow | Action |
+|-------|----------|--------|
+| Tag push `v*.*.*` | `release.yml` | Build tarball, generate release notes, create GitHub Release |
+| CHANGELOG.md changed on main | `docs-update.yml` | Safety net: regenerate platform docs if missed by ship flow |
+| docs/** changed on main | `mintlify-deploy.yml` | Validate Mintlify docs (deployment via Mintlify dashboard) |
 
 ---
 
@@ -318,4 +361,4 @@ Release complete. See MANIFEST.jsonl for summary.
 
 ---
 
-*Protocol Version 1.0.0 - Release Protocol*
+*Protocol Version 1.1.0 - Release Protocol (v0.84.0: platform changelog integration, dynamic URLs)*

@@ -127,12 +127,17 @@ get_enforcement_mode() {
     local mode
     mode=$(jq -r '.session.enforcement // "strict"' "$config_file" 2>/dev/null)
 
-    # Validate mode
+    # Validate mode (accept common aliases)
     case "$mode" in
         strict|warn|none)
             echo "$mode"
             ;;
+        off|disabled|false)
+            # Accept common aliases for 'none'
+            echo "none"
+            ;;
         *)
+            echo "WARNING: Invalid session.enforcement value '$mode', using '$DEFAULT_ENFORCEMENT_MODE'" >&2
             echo "$DEFAULT_ENFORCEMENT_MODE"
             ;;
     esac

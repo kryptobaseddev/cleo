@@ -1654,13 +1654,7 @@
                   }
                 }
               },
-              "default": [
-                {
-                  "platform": "mintlify",
-                  "enabled": true,
-                  "path": "docs/changelog/overview.mdx"
-                }
-              ]
+              "default": []
             }
           }
         }
@@ -2075,6 +2069,40 @@
           "maximum": 1.0,
           "description": "Minimum score threshold for including in results."
         }
+      }
+    },
+    "gitCheckpoint": {
+      "type": "object",
+      "description": "Automatic git checkpointing of .cleo/ state files at semantic boundaries. Opt-in feature that commits state files (todo.json, sessions.json, etc.) to git history with debounce to prevent commit noise.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable automatic git checkpointing of state files. Opt-in (default: false)."
+        },
+        "debounceMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 5,
+          "description": "Minimum minutes between auto-checkpoints. Set to 0 for every trigger. Does not apply to manual or session-end checkpoints."
+        },
+        "messagePrefix": {
+          "type": "string",
+          "default": "chore(cleo):",
+          "description": "Prefix for checkpoint commit messages."
+        },
+        "noVerify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Skip pre-commit hooks on checkpoint commits (--no-verify). Recommended to avoid interference from project hooks."
+        }
+      },
+      "default": {
+        "enabled": false,
+        "debounceMinutes": 5,
+        "messagePrefix": "chore(cleo):",
+        "noVerify": true
       }
     },
     "lifecycleEnforcement": {

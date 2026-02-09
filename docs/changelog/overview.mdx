@@ -17,339 +17,88 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
-<Update label="January 2026" description="v0.77.2" tags={["Fix", "Feature"]}>
-## release
+<Update label="February 2026" description="v0.83.0" tags={["Fix", "Feature", "Sessions"]}>
+## v0.83.0 Release
 
 
-**Fixed**
-
-- **release**: Implement dynamic `releaseGates` from config (T2823)
-  - Add `get_release_gates()` function to `lib/config.sh`
-  - Integrate gate execution loop in `validate_release()`
-  - Support required vs optional gates with configurable timeout
-  - Backward compatible: empty array preserves current behavior
-  - Add 8 unit tests for release gates
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.77.2)
-</Update>
-
-<Update label="January 2026" description="v0.77.1" tags={["Core"]}>
-## v0.77.1 Release
-
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.77.1)
-</Update>
-
-<Update label="January 2026" description="v0.77.0" tags={["Fix", "Feature", "Context"]}>
-## v0.77.0 Release
-
-
-**Added**
-- **Project-Agnostic Configuration System** (Epic T2741)
-  - Support for 16 testing frameworks: bats, jest, vitest, playwright, cypress, mocha, ava, uvu, tap, node:test, deno, bun, pytest, go, cargo, custom
-  - New `validation.testing` config section for test execution settings
-  - New `testing` config section for comprehensive framework configuration
-  - New `directories` config section for path configuration
-  - New `tools` config section for external tool dependencies
-  - Configuration inheritance via `extends` field with deep merge
-  - `cleo init --detect` command for automatic project detection
-  - `cleo init --dry-run` for detection preview
-  - `project-context.json` generation with LLM hints for agents
-  - Config getter functions: `get_test_command()`, `get_test_framework()`, `get_directory()`, `get_tool_command()`
-  - `load_extended_config()` with circular dependency detection
-  - `validate_release()` and `run_custom_gates()` in release script
-  - 72 unit tests for config getters
-  - Integration tests for init --detect across 6 project types
-  - Documentation at `docs/guides/project-config.mdx`
+**Features**
+- feat: Git checkpoint library (lib/git-checkpoint.sh) (T3174)
+- feat: Checkpoint CLI command (scripts/checkpoint.sh) (T3175)
+- feat: Integrate checkpoint into save_json and session end (T3176)
+- feat: Add gitCheckpoint to config schema (T3177)
 
 **Bug Fixes**
-- Bug: Test gate behavior inconsistent with spec (T2805)
-- Bug: Error handling inconsistent in release.sh (T2806)
-- Bug: Missing task status validation in changelog (T2807)
-- Bug: Race condition in multi-release task association (T2808)
-
-**Changed**
-- Protocol validation TEST-001 now uses configured framework instead of hardcoded BATS
-- validate.sh uses config-based directory paths
-- AGENT-INJECTION.md includes @project-context.json reference and framework examples
+- fix: Release flow empty tag annotations with --no-changelog (T3178)
+- fix: Filter checkpoint commits from changelog generation (T3179)
+- fix: Clean up CHANGELOG.md - duplicates, missing entries (T3180)
+- fix: Update GitHub release notes for v0.81.0-v0.82.1 (T3181)
+- fix: Session enforcement config value 'off' silently falls back to strict (T3184)
+- fix: Session enforcement config value off silently falls back to strict (T3185)
+- fix: Auto-focus fails with E_SCOPE_EMPTY on new epic with no children (T3186)
 
 **Documentation**
-- Release: Protocol metrics documentation (T2732)
-- Research: Document Complete Changelog/Release Automation Flow (T2801)
-
-**Other Changes**
-- Update release.sh validate_release() to use config getters (T2774)
-- Update release.sh to execute releaseGates array (T2775)
-- Consensus: Prioritize and categorize changelog pipeline fixes (T2810)
-
-**Technical**
-- Zero breaking changes - all defaults preserve existing BATS behavior
-- 3-tier detection system: manifest files → dependencies → test files
-- Monorepo detection for workspaces, pnpm, lerna, Cargo
+- docs: Update release protocol and command docs (T3182)
 
 
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.77.0)
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.83.0)
 </Update>
 
-<Update label="January 2026" description="v0.76.3" tags={["Feature", "Installer"]}>
-## v0.76.3 Release
-
-
-**Added**
-- feat(agents): Hybrid symlink/copy agent installation (T2787)
-  - Default: symlink from ~/.cleo/agents/ for auto-updates
-  - --copy-agents flag for project isolation
-  - lib/agents-install.sh with install_agent(), install_agents() functions
-  - 31 BATS tests for comprehensive coverage
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.76.3)
-</Update>
-
-<Update label="January 2026" description="v0.76.2" tags={["Fix", "Feature"]}>
-## v0.76.2 Release
+<Update label="February 2026" description="v0.82.1" tags={["Fix"]}>
+## v0.82.1 Release
 
 
 **Bug Fixes**
-- Fix: Make test validation opt-in to prevent release ship timeout (T2739)
-  - `validate_release()` was unconditionally running `./tests/run-all-tests.sh`
-  - Tests are now opt-in with `--run-tests` flag
-  - Added `--skip-validation` flag for emergency releases
+- Fix persistent checksum mismatches in release/changelog todo.json writes (T3130)
+- Release system fixes from v0.81.x backported to main
 
 
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.76.2)
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.82.1)
 </Update>
 
-<Update label="January 2026" description="v0.76.1" tags={["Fix", "Feature", "Installer"]}>
-## v0.76.1 Release
+<Update label="February 2026" description="v0.81.2" tags={["Documentation"]}>
+## v0.81.2 Release
+
+
+**Documentation**
+- Phase 0 MCP sprint handoff + manifest architecture design (T3109)
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.81.2)
+</Update>
+
+<Update label="February 2026" description="v0.82.0" tags={["Fix", "Feature", "Skills"]}>
+## v0.82.0 Release
+
+
+**Features**
+- Add `atomic_jsonl_append()` unified abstraction with flock locking in lib/file-ops.sh (T3148)
+- Add `cleo research add` CLI subcommand for agent manifest entry creation (T3149)
+- Add `cleo research update` CLI subcommand for manifest entry modification (T3150)
+- Create `skills/_shared/manifest-operations.md` single-source protocol reference (T3154)
+
+**Bug Fixes**
+- Fix TOKEN_USAGE.jsonl silent failure - remove `|| true` suppression, use atomic append (T3151)
+- Apply flock pattern to 5 JSONL files (COMPLIANCE, SESSIONS, TOKEN_USAGE, BENCHMARK, AB_TESTS) via atomic_jsonl_append (T3152)
+- Fix checksum recalculation in release/changelog writes to todo.json (T3130)
+
+**Documentation**
+- Update 9 protocol files to @include manifest-operations.md instead of inline JSONL instructions (T3155)
+- Update subagent-protocol-base.md to reference `cleo research add` as canonical method (T3155)
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.82.0)
+</Update>
+
+<Update label="February 2026" description="v0.81.1" tags={["Fix", "Installer"]}>
+## v0.81.1 Release
 
 
 **Bug Fixes**
-- Fix: Missing docs command mapping in link.sh causes --validate to fail (T2735)
-  - The `cleo --validate` command failed on fresh installations because the `docs` command
-    was listed in `_get_all_commands()` but had no corresponding mapping in `_get_cmd_script()`
-  - Added `docs) echo "docs.sh" ;;` to `installer/lib/link.sh:354`
+- Release system overhaul - changelog coordination, validation, installer data protection (T3130-T3135)
+- Recalculate checksum in release/changelog writes to todo.json (T3130)
 
 
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.76.1)
-</Update>
-
-<Update label="January 2026" description="v0.76.0" tags={["Fix", "Research", "Documentation"]}>
-## v0.76.0 Release
-
-
-**Bug Fixes**
-- Fix: release create missing createdAt (T2677)
-
-**Documentation**
-- Release: Update release workflow documentation (T2628)
-- Release: Update Documentation for Protocol Enforcement (T2705)
-
-**Tests**
-- Test: Unit tests for task association logic (T2622)
-- Test: Integration tests for release.sh ship command (T2623)
-- Test: GitHub workflow simulation with act (T2624)
-- Test: Backfill script testing with real data (T2625)
-
-**Other Changes**
-- Research: Analyze current release workflow end-to-end (T2603)
-- Research: GitHub Actions release.yml deep dive (T2604)
-- Research: Task → Release association strategy (T2605)
-- Research: Backfill feasibility analysis (T2606)
-- Consensus: Changelog generation trigger strategy (T2607)
-- Consensus: GitHub Release body source strategy (T2608)
-- Consensus: Task association strategy selection (T2609)
-- Spec: Write CHANGELOG-GENERATION-SPEC.md (T2610)
-- Spec: Update RELEASE-MANAGEMENT-SPEC.md with changelog (T2611)
-- Spec: Write GITHUB-RELEASE-INTEGRATION-SPEC.md (T2612)
-- Implement: Task association in release.sh (T2613)
-- Implement: Changelog content field in release object (T2614)
-- Implement: GitHub Release body extraction function (T2615)
-- Implement: Update release.yml workflow (T2616)
-- Implement: Validation gate for changelog (T2617)
-- Implement: Backfill script for historical releases (T2618)
-- Validate: Full pipeline smoke test (T2619)
-- Validate: Changelog categorization accuracy (T2620)
-- Validate: GitHub Release body content quality (T2621)
-- Release: Deploy changelog system to production (T2626)
-- Release: Backfill historical releases with task data (T2627)
-- Research: Audit Execution Protocols (implementation.md, contribution.md, release.md) RFC 2119 Compliance (T2684)
-- Release: Deploy Protocol Enforcement to Production (T2704)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.76.0)
-</Update>
-
-<Update label="January 2026" description="v0.75.0" tags={["Feature", "Skills", "Orchestrator"]}>
-## Project-agnostic validation
-
-
-**Added**
-- **Autonomous Orchestration Specification** (T2633):
-  - New RFC 2119 compliant `AUTONOMOUS-ORCHESTRATION-SPEC.md` defining autonomous operation mode
-  - **AUTO-* constraints** (AUTO-001 to AUTO-011): Autonomous operation rules
-    - AUTO-001: Orchestrator spawns ALL subagents (2-tier architecture enforcement)
-    - AUTO-002: Read manifest key_findings only, not full output files
-    - AUTO-003: Decomposition separate from orchestration
-    - AUTO-004: Verify manifest before next spawn
-    - AUTO-005: Dependency wave computation and spawn order
-    - AUTO-006: Handle partial/blocked status with followup tasks
-  - **HNDOFF-* constraints** (HNDOFF-001 to HNDOFF-006): Session handoff protocol
-    - Generate handoff at 80% context threshold
-    - Include resume command in handoff document
-    - Persist handoff to MANIFEST.jsonl
-  - **CONT-* constraints** (CONT-001 to CONT-007): Session continuity/resume
-    - Read last handoff before resuming
-    - Verify task states match handoff expectations
-    - Check for concurrent modifications
-  - **Project-agnostic validation**: customGates in config for any project type
-  - New exit codes: EXIT_AUTONOMOUS_BOUNDARY (64), EXIT_HANDOFF_REQUIRED (65), EXIT_RESUME_FAILED (66), EXIT_CONCURRENT_SESSION (67)
-  - Config schema: `orchestrator.validation.customGates` for project-specific validation
-  - Config schema: `orchestrator.handoff` for handoff protocol settings
-  - New reference: `skills/ct-orchestrator/references/autonomous-operation.md`
-  - Updated `ct-orchestrator` skill with Autonomous Mode section
-
-**Documentation**
-- Registered spec in `SPEC-INDEX.json` (21 total specs)
-- Added corrected injection template for autonomous orchestration
-- Decision trees for autonomous operation and handoff generation
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.75.0)
-</Update>
-
-<Update label="January 2026" description="v0.74.5" tags={["Fix", "CLI"]}>
-## `--human` Flag Not Working on Multiple Commands
-
-
-**Fixed**
-- **`--human` Flag Not Working on Multiple Commands**:
-  - Root cause: `flags.sh` standardized `--human` → `FLAG_FORMAT="human"`, but most scripts' case statements only matched `json` and `text`
-  - `--human` was falling through to JSON output instead of human-readable text
-  - Fix: `resolve_format()` in `lib/output-format.sh` now normalizes `"human"` → `"text"` for backward compatibility
-  - Affected commands: commands, next, history, dash, labels, stats, blockers, deps, and 50+ others
-  - All commands using `resolve_format()` now correctly handle `--human`
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.5)
-</Update>
-
-<Update label="January 2026" description="v0.74.4" tags={["Fix", "CLI"]}>
-## v0.74.4 Release
-
-
-**Fixed**
-- **Bash 4+ Detection in CLI Wrapper** (GitHub #12, related to #10):
-  - CLI wrapper now detects system Bash version on startup
-  - Automatically finds and uses Homebrew Bash 4+ on macOS:
-    - `/opt/homebrew/bin/bash` (Apple Silicon)
-    - `/usr/local/bin/bash` (Intel)
-    - `/home/linuxbrew/.linuxbrew/bin/bash` (Linux Homebrew)
-  - Uses `_CLEO_REEXEC` guard to prevent infinite re-exec loops
-  - Shows helpful error message if no Bash 4+ is available
-  - Fixes macOS compatibility where system Bash 3.2 doesn't support associative arrays
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.4)
-</Update>
-
-<Update label="January 2026" description="v0.74.3" tags={["Fix", "Installer"]}>
-## Auto-Update Agent Configs on Install/Upgrade
-
-
-**Fixed**
-- **Auto-Update Agent Configs on Install/Upgrade**:
-  - `install.sh` now automatically calls `setup-agents` after installation
-  - `self-update.sh` now automatically calls `setup-agents` after updates
-  - Mode switches (--to-release, --to-dev) also trigger agent config updates
-  - Ensures global agent files (CLAUDE.md, GEMINI.md, etc.) always have correct injection
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.3)
-</Update>
-
-<Update label="January 2026" description="v0.74.2" tags={["Feature", "Sessions", "Context"]}>
-## v0.74.2 Release
-
-
-**Added**
-- **Progressive Disclosure Error Output** (T2521, T2586-T2589):
-  - Error responses now use smart progressive disclosure (63% reduction: 14K → 5K chars)
-  - Smart summaries preserve decision-relevant fields for agent decision-making:
-    - Sessions: id, name, scope, focus (enough to choose the right session)
-    - Epics: id, title (truncated), status, pending count (enough to pick work)
-  - Unknown arrays get count-only treatment for maximum reduction
-  - `CLEO_VERBOSE=1` environment variable enables full verbose context for debugging
-  - New `minimize_error_context()` with domain-aware summarization
-  - New `is_verbose_mode()` function for detecting debug mode
-
-**Documentation**
-- Updated `docs/api/output-formats.mdx` with "Progressive Disclosure Error Output" section
-- Updated `docs/snippets/error-handling.mdx` with CLEO_VERBOSE note
-- Added 18 unit tests in `tests/unit/error-output-minimal.bats`
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.2)
-</Update>
-
-<Update label="January 2026" description="v0.74.1" tags={["Fix", "Feature", "Installer"]}>
-## Global Injection Path Consolidation
-
-
-**Fixed**
-- **Global Injection Path Consolidation**:
-  - Consolidated CLEO-INJECTION.md to templates/ directory (single source of truth)
-  - Updated all references to use `@~/.cleo/templates/CLEO-INJECTION.md`
-  - Added RFC 2119 Time Estimates section to CLEO-INJECTION.md
-  - Removed inline Time Estimates from installer injection
-  - Fixed setup-agents.sh, init.sh, doctor-checks.sh, detect-drift.sh
-  - Removed duplicate docs/CLEO-INJECTION.md
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.1)
-</Update>
-
-<Update label="January 2026" description="v0.74.0" tags={["Fix", "Feature", "CLI"]}>
-## v0.74.0 Release
-
-
-**Added**
-- **Unified Release System Dogfooding** (T2536-T2568):
-  - Complete release workflow using CLEO to manage CLEO releases
-  - New `cleo release` commands: create, plan, ship, list, show
-  - Release tracking with task associations
-  - Automated version bumping, changelog generation, git tagging
-  - Pre-ship validation (tome compliance, syntax checks)
-  - Edge case handling: --force-tag flag, E_TAG_EXISTS (58) exit code
-  - Tome validation at 78% compliance
-
-**Fixed**
-- **Release System Edge Cases** (T2566, T2567):
-  - Added --force-tag flag for overwriting existing git tags
-  - Added E_TAG_EXISTS (58) exit code for clear error handling
-  - Pre-check validation before attempting tag creation
-  - Improved error messages for tag conflicts
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.74.0)
-</Update>
-
-<Update label="January 2026" description="v0.73.6" tags={["Fix", "Skills", "Research"]}>
-## v0.73.6 Release
-
-
-**Fixed**
-- **Skills YAML Frontmatter Compliance** (T2517-T2520):
-  - Fixed 9 official CLEO skills that were missing required YAML frontmatter
-  - All skills now have proper `---` delimited frontmatter with `name` and `description` fields
-  - Skills affected: ct-documentor, ct-epic-architect, ct-library-implementer-bash, ct-research-agent, ct-spec-writer, ct-task-executor, ct-test-writer-bats, ct-validator, ct-dev-workflow
-  - Resolves Codex CLI "missing YAML frontmatter" errors when loading skills
-  - Validated ct-skill-creator produces compliant skills
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.73.6)
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.81.1)
 </Update>
 
 ## Earlier Releases

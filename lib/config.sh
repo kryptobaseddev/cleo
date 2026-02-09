@@ -1286,10 +1286,12 @@ get_release_gates() {
 
 # @task T2848
 # Get enabled changelog platforms from config
-# Returns: Space-separated list of platform names (default: mintlify)
+# Returns: Space-separated list of platform names (empty if no config)
 # Usage: while IFS= read -r platform; do ...; done < <(get_changelog_platforms)
 get_changelog_platforms() {
-    jq -r '.release.changelog.outputs[]? | select(.enabled == true) | .platform' "$PROJECT_CONFIG_FILE" 2>/dev/null || echo "mintlify"
+    local platforms
+    platforms=$(jq -r '.release.changelog.outputs[]? | select(.enabled == true) | .platform' "$PROJECT_CONFIG_FILE" 2>/dev/null || true)
+    echo "$platforms"
 }
 
 # @task T2848
@@ -1298,7 +1300,7 @@ get_changelog_platforms() {
 # Returns: Output file path (relative to project root)
 # Usage: path=$(get_changelog_output_path "mintlify")
 get_changelog_output_path() {
-    local platform="${1:-mintlify}"
+    local platform="${1:?Platform name required}"
     local config_path
     config_path=$(jq -r ".release.changelog.outputs[]? | select(.platform == \"$platform\" and .enabled == true) | .path // empty" "$PROJECT_CONFIG_FILE" 2>/dev/null)
 

@@ -703,15 +703,14 @@ cmd_start_multi_session() {
     focus_task=$(auto_select_focus_task "$todo_content" "$computed_ids")
 
     if [[ -z "$focus_task" ]]; then
-      log_error "No pending tasks in scope for auto-focus" "E_SCOPE_EMPTY" "$EXIT_NOT_FOUND"
-      exit "$EXIT_NOT_FOUND"
+      log_warn "No pending tasks in scope for auto-focus - session will start without focus"
+    else
+      log_info "Auto-selected focus: $focus_task"
     fi
-
-    log_info "Auto-selected focus: $focus_task"
   fi
 
-  # Validate focus is provided
-  if [[ -z "$focus_task" ]]; then
+  # Validate focus is provided (skip when auto-focus found nothing)
+  if [[ -z "$focus_task" ]] && [[ "$auto_focus" != "true" ]]; then
     log_error "Session requires --focus <task-id> or --auto-focus" "E_FOCUS_REQUIRED" 38
     exit 38
   fi
@@ -1057,6 +1056,11 @@ cmd_end() {
     if [[ -n "$backup_path" ]]; then
       log_info "Auto-backup created: $(basename "$backup_path")"
     fi
+  fi
+
+  # Git checkpoint: forced commit at session boundary (T3147)
+  if declare -f git_checkpoint >/dev/null 2>&1; then
+    git_checkpoint "session-end" "session ended" 2>/dev/null || true
   fi
 
   # Display phase context in session end summary (passive capture)

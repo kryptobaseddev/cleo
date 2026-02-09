@@ -358,22 +358,44 @@ ensure_changelog_header() {
     local unreleased_line
     unreleased_line=$(grep -n "^## \[Unreleased\]" "$changelog" | head -1 | cut -d: -f1 || true)
 
-    if [[ -z "$unreleased_line" ]]; then
-        log_warn "No ## [Unreleased] section found - version header not inserted"
-        return 0
-    fi
-
-    # Insert header after Unreleased + blank line
-    # Use sed to insert at line after Unreleased
-    local insert_line=$((unreleased_line + 2))
-
     # Create backup
     cp "$changelog" "${changelog}.bak"
 
-    # Insert header using sed
-    sed -i "${insert_line}i\\
+    if [[ -z "$unreleased_line" ]]; then
+        # No [Unreleased] section - insert both [Unreleased] and version header
+        # Find the first version header to insert before it
+        local first_version_line
+        first_version_line=$(grep -n "^## \[" "$changelog" | head -1 | cut -d: -f1 || true)
+
+        if [[ -n "$first_version_line" ]]; then
+            # Insert [Unreleased] + version header before the first existing version
+            sed -i "${first_version_line}i\\
+## [Unreleased]\\
+\\
 ${header}\\
 " "$changelog"
+        else
+            # No version headers at all - append after the file header (line 3 = after title + blank line)
+            local header_end=3
+            if [[ $(wc -l < "$changelog") -lt 3 ]]; then
+                header_end=$(wc -l < "$changelog")
+            fi
+            sed -i "${header_end}a\\
+\\
+## [Unreleased]\\
+\\
+${header}\\
+" "$changelog"
+        fi
+        log_info "[Unreleased] section created and version header inserted"
+    else
+        # Insert header after Unreleased + blank line
+        local insert_line=$((unreleased_line + 2))
+
+        sed -i "${insert_line}i\\
+${header}\\
+" "$changelog"
+    fi
 
     log_info "Version header inserted successfully"
     return 0
@@ -821,8 +843,10 @@ cmd_ship() {
     local changelog_file="${CHANGELOG_OUTPUT:-CHANGELOG.md}"
 
     if [[ "${SKIP_CHANGELOG:-false}" == "true" ]]; then
-        log_warn "SKIPPING changelog generation (--skip-changelog)"
-        log_warn "You MUST manually update CHANGELOG.md before release"
+        log_warn "SKIPPING changelog generation (--no-changelog)"
+        if [[ "${CREATE_TAG:-false}" == "true" ]]; then
+            log_warn "Tag annotation will use git commit history as fallback for release notes"
+        fi
     else
         log_info "Generating changelog for $normalized..."
 
@@ -852,6 +876,30 @@ cmd_ship() {
             exit "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
         log_info "Changelog generated and written to $changelog_file"
+
+        # Step 2.5: Generate platform-specific changelog outputs (e.g., Mintlify MDX, Docusaurus)
+        # Only runs if user has configured changelog output platforms
+        local platforms
+        platforms=$(get_changelog_platforms 2>/dev/null || true)
+        if [[ -n "$platforms" ]]; then
+            local generate_script="$SCRIPT_DIR/generate-changelog.sh"
+            if [[ -x "$generate_script" ]]; then
+                log_info "Generating platform-specific changelog outputs..."
+                if "$generate_script" 20 2>/dev/null; then
+                    log_info "Platform changelog outputs generated"
+                    # Stage any generated doc files for the release commit
+                    while IFS= read -r platform; do
+                        local doc_path
+                        doc_path=$(get_changelog_output_path "$platform" 2>/dev/null || true)
+                        if [[ -n "$doc_path" && -f "$doc_path" ]]; then
+                            git add "$doc_path" 2>/dev/null || true
+                        fi
+                    done <<< "$platforms"
+                else
+                    log_warn "Platform changelog generation failed (non-blocking)"
+                fi
+            fi
+        fi
     fi
 
     # Step 3: Run validation gates
@@ -921,6 +969,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"; then
         [[ -n "$release_name" ]] && tag_message="$tag_message: $release_name"
 
         # Include changelog content in tag annotation for GitHub release notes
+        # Fallback chain: CHANGELOG.md section → git commit notes → release description
         local changelog_section=""
         if [[ -f "CHANGELOG.md" ]]; then
             changelog_section=$(extract_changelog_section "$normalized" "CHANGELOG.md" 2>/dev/null || echo "")
@@ -930,10 +979,30 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"; then
             tag_message="$tag_message
 
 $changelog_section"
-        elif [[ -n "$release_desc" ]]; then
-            tag_message="$tag_message
+        else
+            # No CHANGELOG section available (e.g., --no-changelog was used)
+            # Generate release notes from git commits as fallback
+            local commit_notes=""
+            if declare -f generate_changelog_from_commits >/dev/null 2>&1; then
+                local prev_tag
+                prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+                if [[ -n "$prev_tag" ]]; then
+                    commit_notes=$(generate_changelog_from_commits "$prev_tag" "HEAD" 2>/dev/null || echo "")
+                fi
+            fi
+
+            if [[ -n "$commit_notes" ]]; then
+                tag_message="$tag_message
+
+$commit_notes"
+            elif [[ -n "$release_desc" ]]; then
+                tag_message="$tag_message
 
 $release_desc"
+            else
+                log_warn "Tag annotation has no release notes content"
+                log_warn "Consider running without --no-changelog or providing --notes"
+            fi
         fi
 
         # Create tag with force flag if requested
