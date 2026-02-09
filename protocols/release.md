@@ -1,7 +1,7 @@
 # Release Protocol
 
 **Provenance**: @task T3155, @epic T3147
-**Version**: 2.0.0
+**Version**: 2.1.0
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -57,6 +57,22 @@ This protocol activates when the task involves:
 
 ---
 
+## State Machine
+
+```
+create → planned → active → released (immutable)
+```
+
+| Transition | Trigger | Condition |
+|------------|---------|-----------|
+| (none) → planned | `cleo release create <version>` | User action |
+| planned → active | `cleo release ship <version>` (automatic) | Ship begins execution |
+| active → released | `cleo release ship <version>` (automatic) | All steps complete |
+
+The `active` state is automatic and transitional -- it is set internally during `ship` execution. Agents interact with `create` (→ planned) and `ship` (→ released). The `plan` command works on releases in `planned` or `active` status. Once `released`, the entry is **immutable** -- no task additions, no metadata changes.
+
+---
+
 ## Release Schema
 
 Releases are stored as an array in `todo.json` under `project.releases`:
@@ -67,7 +83,7 @@ Releases are stored as an array in `todo.json` under `project.releases`:
     "required": ["version", "status", "createdAt"],
     "properties": {
       "version": { "type": "string", "pattern": "^v\\d+\\.\\d+\\.\\d+(-[a-z0-9.-]+)?$" },
-      "status": { "enum": ["planned", "released"] },
+      "status": { "enum": ["planned", "active", "released"] },
       "name": { "type": ["string", "null"], "maxLength": 100 },
       "description": { "type": ["string", "null"], "maxLength": 500 },
       "tasks": { "type": "array", "items": { "pattern": "^T\\d{3,}$" } },
@@ -82,18 +98,189 @@ Releases are stored as an array in `todo.json` under `project.releases`:
 }
 ```
 
-## State Machine
+---
+
+## CLI Commands (8 subcommands)
+
+### `create`
+
+Create a new planned release.
+
+```bash
+cleo release create <version> [--target-date DATE] [--tasks T001,T002] [--notes "text"]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--target-date` | DATE (YYYY-MM-DD) | null | Target release date |
+| `--tasks` | string (comma-separated) | [] | Tasks to include |
+| `--notes` | string | null | Release notes |
+
+**Exit codes**: 0 (success), 51 (`E_RELEASE_EXISTS`), 53 (`E_INVALID_VERSION`)
+
+**Behavior**: Creates a new release entry with status `planned`. Validates version is valid semver and doesn't already exist. Tasks are stored as an array; target date and notes are optional metadata.
+
+---
+
+### `plan`
+
+Add or remove tasks from a release.
+
+```bash
+cleo release plan <version> [--tasks T001,T002] [--remove T003] [--notes "text"]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--tasks` | string (comma-separated) | — | Tasks to add (appends, deduplicates) |
+| `--remove` | string | — | Task to remove |
+| `--notes` | string | — | Update release notes |
+
+**Exit codes**: 0 (success), 50 (`E_RELEASE_NOT_FOUND`), 52 (`E_RELEASE_LOCKED`)
+
+**Behavior**: Modifies an existing release in `planned` or `active` status. The `--tasks` flag appends to existing tasks and deduplicates automatically. Calling `plan --tasks T001` then `plan --tasks T002` results in both tasks being included. Released entries are immutable and reject modification.
+
+---
+
+### `ship`
+
+Mark a release as released. This is the primary release workflow command.
+
+```bash
+cleo release ship <version> [FLAGS]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--bump-version` | boolean | false | Bump VERSION file via `dev/bump-version.sh` |
+| `--create-tag` | boolean | false | Create annotated git tag |
+| `--force-tag` | boolean | false | Overwrite existing git tag (requires `--create-tag`) |
+| `--push` | boolean | false | Push commits and tag to remote |
+| `--no-changelog` | boolean | false | Skip changelog generation |
+| `--no-commit` | boolean | false | Skip git commit (update files only) |
+| `--run-tests` | boolean | false | Run test suite during validation (opt-in, slow) |
+| `--skip-validation` | boolean | false | Skip all validation gates (emergency releases) |
+| `--dry-run` | boolean | false | Preview what would happen without making changes |
+| `--notes` | string | "" | Release notes |
+| `--output` | string | CHANGELOG.md | Changelog output file |
+
+**Exit codes**: 0 (success), 50 (`E_RELEASE_NOT_FOUND`), 52 (`E_RELEASE_LOCKED`), 54 (`E_VALIDATION_FAILED`), 55 (`E_VERSION_BUMP_FAILED`), 56 (`E_TAG_CREATION_FAILED`), 57 (`E_CHANGELOG_GENERATION_FAILED`), 58 (`E_TAG_EXISTS`)
+
+**Ship Workflow** (10 steps):
 
 ```
-create → planned → released (immutable)
+ 1. Auto-populate release tasks (date window + label matching from todo.json)
+ 2. Bump version (if --bump-version)
+ 3. Ensure [Unreleased] section exists in CHANGELOG.md (creates if missing)
+ 4. Generate changelog from task metadata via lib/changelog.sh (unless --no-changelog)
+ 5. Validate changelog content is not empty (unless --no-changelog)
+ 6. Append to CHANGELOG.md + generate platform-specific outputs (if configured)
+ 7. Run validation gates (tests opt-in, schema, version, changelog)
+ 8. Create release commit staging VERSION, README, CHANGELOG.md, platform docs, todo.json (unless --no-commit)
+ 9. Create annotated tag with changelog/commit/description fallback (if --create-tag)
+10. Push to remote (if --push)
+11. Update release status to "released" in todo.json with releasedAt timestamp
 ```
 
-| Transition | Trigger | Condition |
-|------------|---------|-----------|
-| (none) → planned | `cleo release create <version>` | User action |
-| planned → released | `cleo release ship <version>` | All validation gates pass |
+Steps 2-6 are conditional on flags. Step 7 is skippable with `--skip-validation`. The `--dry-run` flag previews all steps without executing.
 
-Once `released`, the entry is **immutable** -- no task additions, no metadata changes.
+**`changelog` vs `ship`**: The `changelog` subcommand generates and previews changelog content without modifying release state. The `ship` subcommand performs the full release workflow including changelog generation, git operations, and status transition.
+
+---
+
+### `changelog`
+
+Generate changelog from release tasks without shipping.
+
+```bash
+cleo release changelog <version> [--output FILE]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--output` | string | — | Write changelog to file |
+
+**Exit codes**: 0 (success), 50 (`E_RELEASE_NOT_FOUND`), 53 (`E_INVALID_VERSION`)
+
+**Behavior**: Generates changelog content from task metadata (title, description, labels) for the specified release. Outputs to stdout by default. Use `--output` to write to a file. Does not modify release status. Useful for previewing changelog before shipping.
+
+---
+
+### `list`
+
+List all releases.
+
+```bash
+cleo release list [--status STATUS] [--format FORMAT]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--status` | string | — | Filter by status (planned, active, released) |
+| `--format` | text\|json | auto | Output format |
+
+**Exit codes**: 0 (success)
+
+**Behavior**: Lists all releases with version, status, target date, task count, and released timestamp. Supports JSON and text output. Color-coded by status: yellow=planned, cyan=active, green=released.
+
+---
+
+### `show`
+
+Show details of a specific release.
+
+```bash
+cleo release show <version> [--format FORMAT]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--format` | text\|json | auto | Output format |
+
+**Exit codes**: 0 (success), 50 (`E_RELEASE_NOT_FOUND`), 53 (`E_INVALID_VERSION`)
+
+**Behavior**: Displays full details for a release including version, status, dates, tasks, notes, git tag, and changelog content.
+
+---
+
+### `init-ci`
+
+Initialize CI/CD workflow configuration for automated releases.
+
+```bash
+cleo release init-ci [--platform PLATFORM] [--force] [--dry-run]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--platform` | string | from config | CI platform: `github-actions`, `gitlab-ci`, `circleci` |
+| `--force` | boolean | false | Overwrite existing CI config file |
+| `--dry-run` | boolean | false | Preview without writing files |
+
+**Exit codes**: 0 (success), 72 (`E_CI_INIT_FAILED`)
+
+**Behavior**: Generates CI/CD workflow configuration files from templates in `lib/release-ci.sh`. Platform is auto-detected from config or specified via `--platform`. Use `--force` to overwrite existing configuration files.
+
+---
+
+### `validate`
+
+Validate release protocol compliance for a task.
+
+```bash
+cleo release validate <task-id> [--strict] [--format FORMAT]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--strict` | boolean | false | Enable strict validation mode |
+| `--format` | text\|json | auto | Output format |
+
+**Exit codes**: 0 (valid), 4 (`E_NOT_FOUND` -- manifest or task not found), 66 (protocol violation in strict mode)
+
+**Behavior**: Validates a task's manifest entry against the release protocol. Checks for required fields, correct `agent_type`, semver compliance, and changelog presence. The `--strict` flag enforces stricter checks (e.g., all SHOULD requirements become violations). Outputs validation score (0-100) and violation details.
+
+---
 
 ## Task Discovery (6-Filter Pipeline)
 
@@ -110,6 +297,67 @@ During `cleo release ship`, tasks are auto-discovered via `populate_release_task
 
 Tasks are also included if explicitly assigned via `cleo release plan --tasks T001,T002`.
 
+---
+
+## Validation Gates
+
+| Gate | Check | Required | Notes |
+|------|-------|----------|-------|
+| Tests | All tests pass | SHOULD | Opt-in with `--run-tests` flag to avoid timeout |
+| Schema | All schemas valid | MUST | Always enforced via `cleo validate` |
+| Version | Version bumped correctly | MUST | If `--bump-version` used |
+| Changelog | Entry for new version | MUST | Unless `--no-changelog` |
+| Docs | Documentation current | SHOULD | Manual verification |
+| Install | Installation works | SHOULD | Manual verification |
+
+Use `--skip-validation` to bypass all gates for emergency releases. Use `--run-tests` to opt into running the full test suite (slow, disabled by default to avoid ship timeout).
+
+---
+
+## Tag Annotation Fallback (v0.83.0+)
+
+When `--create-tag` is used, the tag annotation is populated from a fallback chain:
+
+1. **CHANGELOG.md section** -- extracted via `extract_changelog_section()`
+2. **Git commit notes** -- generated via `generate_changelog_from_commits()` from previous tag
+3. **Release description** -- from `release.notes` field in todo.json
+
+This ensures tags always have meaningful content for GitHub Actions, even when `--no-changelog` skips CHANGELOG.md generation.
+
+---
+
+## Platform Changelog Configuration (v0.84.0+)
+
+Platform-specific changelog generation is controlled by `.cleo/config.json`:
+
+```json
+{
+  "release": {
+    "changelog": {
+      "outputs": [
+        { "platform": "mintlify", "enabled": true, "path": "docs/changelog/overview.mdx" }
+      ]
+    }
+  }
+}
+```
+
+Supported platforms: `mintlify`, `docusaurus`, `github`, `gitbook`, `plain`, `custom`.
+Default for fresh installs: no platforms configured (only CHANGELOG.md generated).
+GitHub URLs in generated output are resolved dynamically from `git remote origin`.
+
+---
+
+## CI/CD Integration
+
+| Event | Workflow | Action |
+|-------|----------|--------|
+| Tag push `v*.*.*` | `release.yml` | Build tarball, generate release notes, create GitHub Release |
+| CHANGELOG.md changed on main | `docs-update.yml` | Safety net: regenerate platform docs if missed by ship flow |
+| docs/** changed on main | `mintlify-deploy.yml` | Validate Mintlify docs (deployment via Mintlify dashboard) |
+
+---
+
 ## Error Codes (50-59)
 
 | Code | Constant | Meaning | Recovery |
@@ -118,25 +366,12 @@ Tasks are also included if explicitly assigned via `cleo release plan --tasks T0
 | 51 | `E_RELEASE_EXISTS` | Version already exists | Use different version |
 | 52 | `E_RELEASE_LOCKED` | Released = immutable | Create hotfix version |
 | 53 | `E_INVALID_VERSION` | Bad semver format | Use `v{major}.{minor}.{patch}` |
-| 54 | `E_VALIDATION_FAILED` | Schema validation failed | `cleo validate --fix` |
+| 54 | `E_VALIDATION_FAILED` | Validation gate failed | Fix validation errors |
 | 55 | `E_VERSION_BUMP_FAILED` | bump-version.sh failed | Check VERSION file |
-| 56 | `E_TAG_CREATION_FAILED` | Git tag failed | Check git status, existing tags |
+| 56 | `E_TAG_CREATION_FAILED` | Git tag/commit failed | Check git status, existing tags |
 | 57 | `E_CHANGELOG_GENERATION_FAILED` | Changelog failed | Check lib/changelog.sh |
-| 58 | `E_INVALID_TRANSITION` | Bad state transition | Check release status |
+| 58 | `E_TAG_EXISTS` | Git tag already exists | Use `--force-tag` to overwrite |
 | 59 | `E_TASKS_INCOMPLETE` | Incomplete tasks | Complete or remove from release |
-
-## CLI Commands (8 subcommands)
-
-```bash
-cleo release create <version> [--name --target-date --tasks]
-cleo release plan <version> [--tasks --remove --notes]
-cleo release ship <version> [--bump-version --create-tag --push --no-changelog --dry-run]
-cleo release list [--status --format]
-cleo release show <version> [--format]
-cleo release changelog <version>
-cleo release validate <task-id>
-cleo release init-ci [--platform --force]
-```
 
 ---
 
@@ -194,18 +429,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking Changes
 - {Breaking change with migration path}
 ```
-
-### Validation Gates
-
-| Gate | Check | Required | Notes |
-|------|-------|----------|-------|
-| Tests | All tests pass | SHOULD | Opt-in with `--run-tests` flag to avoid timeout |
-| Lint | No lint errors | SHOULD | Project-dependent |
-| Schema | All schemas valid | MUST | Always enforced |
-| Version | Version bumped correctly | MUST | If `--bump-version` used |
-| Changelog | Entry for new version | MUST | Unless `--no-changelog` |
-| Docs | Documentation current | SHOULD | Manual verification |
-| Install | Installation works | SHOULD | Manual verification |
 
 ### Release Checklist
 
@@ -346,64 +569,6 @@ cleo research add \
 | implementation | Implementation changes tracked |
 | specification | Spec changes documented |
 
-### Release Workflow (`cleo release ship`)
-
-```
-1. Auto-populate release tasks (date window + label matching from todo.json)
-2. Bump version (if --bump-version)
-3. Ensure [Unreleased] section exists in CHANGELOG.md (creates if missing)
-4. Generate changelog from task metadata (categorized by labels)
-5. Append to CHANGELOG.md (idempotent, Keep a Changelog format)
-6. Generate platform-specific outputs (if configured in release.changelog.outputs)
-   - Mintlify: CHANGELOG.md → docs/changelog/overview.mdx
-   - Docusaurus: CHANGELOG.md → docs/changelog.md
-   - Plain/GitHub: copy
-   - Skipped if no platforms configured (default for fresh installs)
-7. Run validation gates (tests opt-in, schema, version, changelog, custom)
-8. Create release commit (stages VERSION, README, CHANGELOG.md, platform docs, todo.json)
-9. Create annotated tag (if --create-tag)
-10. Push to remote (if --push)
-11. Update release status in todo.json
-```
-
-### Platform Changelog Configuration (v0.84.0+)
-
-Platform-specific changelog generation is controlled by `.cleo/config.json`:
-
-```json
-{
-  "release": {
-    "changelog": {
-      "outputs": [
-        { "platform": "mintlify", "enabled": true, "path": "docs/changelog/overview.mdx" }
-      ]
-    }
-  }
-}
-```
-
-Supported platforms: `mintlify`, `docusaurus`, `github`, `gitbook`, `plain`, `custom`.
-Default for fresh installs: no platforms configured (only CHANGELOG.md generated).
-GitHub URLs in generated output are resolved dynamically from `git remote origin`.
-
-### Tag Annotation Fallback (v0.83.0+)
-
-When `--create-tag` is used, the tag annotation is populated from a fallback chain:
-
-1. **CHANGELOG.md section** - extracted via `extract_changelog_section()`
-2. **Git commit notes** - generated via `generate_changelog_from_commits()` from previous tag
-3. **Release description** - from `release.notes` field in todo.json
-
-This ensures tags always have meaningful content for GitHub Actions, even when `--no-changelog` skips CHANGELOG.md generation.
-
-### CI/CD Integration
-
-| Event | Workflow | Action |
-|-------|----------|--------|
-| Tag push `v*.*.*` | `release.yml` | Build tarball, generate release notes, create GitHub Release |
-| CHANGELOG.md changed on main | `docs-update.yml` | Safety net: regenerate platform docs if missed by ship flow |
-| docs/** changed on main | `mintlify-deploy.yml` | Validate Mintlify docs (deployment via Mintlify dashboard) |
-
 ---
 
 ## Example
@@ -444,4 +609,4 @@ Release complete. See MANIFEST.jsonl for summary.
 
 ---
 
-*Protocol Version 2.0.0 - Canonical release reference (consolidated from RELEASE-MANAGEMENT.mdx)*
+*Protocol Version 2.1.0 - Canonical release reference (consolidated from RELEASE-MANAGEMENT.mdx)*

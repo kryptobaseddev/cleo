@@ -1,306 +1,44 @@
 ---
 title: "Release Protocol"
-description: "Version management and changelog protocol"
+description: "Deprecated - see protocols/release.md"
 icon: "rocket"
 ---
 
-{/* AUTO-GENERATED from protocols/release.md - DO NOT EDIT DIRECTLY */}
-{/* Source of truth: /protocols/release.md */}
-{/* Last generated: 2026-01-30 01:06:16 UTC */}
-
 # Release Protocol
 
-**Version**: 1.0.0
-**Type**: Conditional Protocol
-**Max Active**: 3 protocols (including base)
-
----
-
-## Trigger Conditions
-
-This protocol activates when the task involves:
-
-| Trigger | Keywords | Context |
-|---------|----------|---------|
-| Version | "release", "version", "v1.x.x" | Version management |
-| Publish | "publish", "deploy", "ship" | Distribution |
-| Changelog | "changelog", "release notes" | Documentation |
-| Tag | "tag", "milestone", "GA" | Version marking |
-
-**Explicit Override**: `--protocol release` flag on task creation.
-
----
-
-## Requirements (RFC 2119)
-
-### MUST
-
-| Requirement | Description |
-|-------------|-------------|
-| RLSE-001 | MUST follow semantic versioning (semver) |
-| RLSE-002 | MUST update changelog with all changes |
-| RLSE-003 | MUST pass all validation gates before release |
-| RLSE-004 | MUST tag release in version control |
-| RLSE-005 | MUST document breaking changes with migration path |
-| RLSE-006 | MUST verify version consistency across files |
-| RLSE-007 | MUST set `agent_type: "documentation"` in manifest |
-
-### SHOULD
-
-| Requirement | Description |
-|-------------|-------------|
-| RLSE-010 | SHOULD include upgrade instructions |
-| RLSE-011 | SHOULD verify documentation is current |
-| RLSE-012 | SHOULD test installation process |
-| RLSE-013 | SHOULD create backup before release |
-
-### MAY
-
-| Requirement | Description |
-|-------------|-------------|
-| RLSE-020 | MAY include performance benchmarks |
-| RLSE-021 | MAY announce on communication channels |
-| RLSE-022 | MAY batch minor fixes into single release |
-
----
-
-## Output Format
-
-### Semantic Versioning
-
-| Version Part | When to Increment | Example |
-|--------------|-------------------|---------|
-| Major (X.0.0) | Breaking changes | 1.0.0 → 2.0.0 |
-| Minor (X.Y.0) | New features, backward compatible | 1.0.0 → 1.1.0 |
-| Patch (X.Y.Z) | Bug fixes, backward compatible | 1.0.0 → 1.0.1 |
-
-### Changelog Format
-
-```markdown
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-### Added
-- New features
-
-### Changed
-- Changes in existing functionality
-
-### Deprecated
-- Soon-to-be removed features
-
-### Removed
-- Removed features
-
-### Fixed
-- Bug fixes
-
-### Security
-- Security fixes
-
-## [X.Y.Z] - YYYY-MM-DD
-
-### Added
-- {Feature description} (T####)
-
-### Fixed
-- {Bug fix description} (T####)
-
-### Changed
-- {Change description} (T####)
-
-### Breaking Changes
-- {Breaking change with migration path}
-```
-
-### Validation Gates
-
-| Gate | Check | Required |
-|------|-------|----------|
-| Tests | All tests pass | MUST |
-| Lint | No lint errors | MUST |
-| Schema | All schemas valid | MUST |
-| Version | Version bumped correctly | MUST |
-| Changelog | Entry for new version | MUST |
-| Docs | Documentation current | SHOULD |
-| Install | Installation works | SHOULD |
-
-### Release Checklist
-
-```markdown
-## Release Checklist: vX.Y.Z
-
-### Pre-Release
-
-- [ ] All features complete and merged
-- [ ] Tests passing (./tests/run-all-tests.sh)
-- [ ] Version bumped (./dev/bump-version.sh X.Y.Z)
-- [ ] Version consistency verified (./dev/validate-version.sh)
-- [ ] Changelog updated
-- [ ] Documentation current
-- [ ] Breaking changes documented
-
-### Release
-
-- [ ] Create release commit
-- [ ] Tag release (git tag vX.Y.Z)
-- [ ] Push to remote (git push && git push --tags)
-- [ ] Create GitHub release (if applicable)
-
-### Post-Release
-
-- [ ] Verify installation works
-- [ ] Update any dependent projects
-- [ ] Announce release (if applicable)
-- [ ] Archive completed tasks (cleo archive)
-```
-
-### File Output
-
-```markdown
-# Release: vX.Y.Z
-
-**Task**: T####
-**Date**: YYYY-MM-DD
-**Status**: complete|partial|blocked
-**Agent Type**: documentation
-
----
-
-## Release Summary
-
-{2-3 sentence summary of this release}
-
-## Version Information
-
-| Field | Value |
-|-------|-------|
-| Version | X.Y.Z |
-| Previous | X.Y.W |
-| Type | Major/Minor/Patch |
-| Tag | vX.Y.Z |
-
-## Changes in This Release
-
-### Features
-
-| Feature | Task | Description |
-|---------|------|-------------|
-| {Name} | T#### | {Description} |
-
-### Bug Fixes
-
-| Fix | Task | Description |
-|-----|------|-------------|
-| {Name} | T#### | {Description} |
-
-### Breaking Changes
-
-| Change | Migration |
-|--------|-----------|
-| {Change} | {How to migrate} |
-
-## Validation Results
-
-| Gate | Status | Notes |
-|------|--------|-------|
-| Tests | PASS | 142 tests, 0 failures |
-| Lint | PASS | No warnings |
-| Version | PASS | Consistent across files |
-| Changelog | PASS | Entry present |
-
-## Release Commands
-
-```bash
-# Tag and push
-git tag -a vX.Y.Z -m "Release vX.Y.Z"
-git push origin main --tags
-
-# Verify
-git describe --tags
-```
-
-## Post-Release Tasks
-
-- [ ] Verify GitHub release created
-- [ ] Update documentation site
-- [ ] Notify stakeholders
-```
-
-### Manifest Entry
-
-```json
-{"id":"T####-release-vXYZ","file":"YYYY-MM-DD_release-vXYZ.md","title":"Release: vX.Y.Z","date":"YYYY-MM-DD","status":"complete","agent_type":"documentation","topics":["release","version","changelog"],"key_findings":["Version X.Y.Z released","3 features added","2 bugs fixed"],"actionable":false,"needs_followup":[],"linked_tasks":["T####"]}
-```
-
----
-
-## Integration Points
-
-### Base Protocol
-
-- Inherits task lifecycle (focus, execute, complete)
-- Inherits manifest append requirement
-- Inherits error handling patterns
-
-### Protocol Interactions
-
-| Combined With | Behavior |
-|---------------|----------|
-| contribution | Contributions feed changelog |
-| implementation | Implementation changes tracked |
-| specification | Spec changes documented |
-
-### Release Workflow
-
-```
-1. Verify all tasks complete for release
-2. Run validation gates
-3. Bump version (./dev/bump-version.sh)
-4. Verify version consistency
-5. Update changelog
-6. Create release commit
-7. Tag release
-8. Push to remote
-9. Create GitHub release (optional)
-10. Document in manifest
-```
-
----
-
-## Example
-
-**Task**: Release CLEO v0.70.0
-
-**Manifest Entry**:
-```json
-{"id":"T2350-release-v0700","file":"2026-01-26_release-v0700.md","title":"Release: v0.70.0","date":"2026-01-26","status":"complete","agent_type":"documentation","topics":["release","v0.70.0","changelog"],"key_findings":["Multi-agent support added","12 new commands","Full test coverage"],"actionable":false,"needs_followup":[],"linked_tasks":["T2350","T2308"]}
-```
-
-**Return Message**:
-```
-Release complete. See MANIFEST.jsonl for summary.
-```
-
----
-
-## Anti-Patterns
-
-| Pattern | Why Avoid |
-|---------|-----------|
-| Releasing without tests | Quality risk |
-| Skipping version bump | Version confusion |
-| Missing changelog entry | Lost history |
-| Undocumented breaking changes | User frustration |
-| No release tag | Cannot reference version |
-| Incomplete checklist | Missed steps |
-
----
-
-*Protocol Version 1.0.0 - Release Protocol*
+<Warning>
+**DEPRECATED** (v0.84.0): This page has been consolidated into `protocols/release.md`,
+which is the single canonical reference for both LLM agents and human developers.
+</Warning>
+
+## Canonical Reference
+
+**Agents**: Use `protocols/release.md` directly. It contains the complete release schema,
+state machine, error codes, all 8 CLI subcommands, ship workflow, validation gates,
+and platform changelog configuration.
+
+**Humans**: See [Release Command Documentation](/commands/release) for usage examples
+and troubleshooting, or read `protocols/release.md` for the full technical reference.
+
+## What Moved Where
+
+| Content | New Location |
+|---------|-------------|
+| Release JSON schema | `protocols/release.md` → Release Schema |
+| State machine (3 states: planned/active/released) | `protocols/release.md` → State Machine |
+| Error codes 50-59 | `protocols/release.md` → Error Codes |
+| Task discovery pipeline (6 filters) | `protocols/release.md` → Task Discovery |
+| CLI commands (8 subcommands) | `protocols/release.md` → CLI Commands |
+| Ship workflow (10 steps) | `protocols/release.md` → Ship Workflow |
+| All ship flags (--run-tests, --skip-validation, etc.) | `protocols/release.md` → CLI Commands → ship |
+| Platform changelog config | `protocols/release.md` → Platform Changelog Configuration |
+| Tag annotation fallback chain | `protocols/release.md` → Tag Annotation Fallback |
+| Validation gates | `protocols/release.md` → Validation Gates |
+| CI/CD integration | `protocols/release.md` → CI/CD Integration |
+| init-ci and validate subcommands | `protocols/release.md` → CLI Commands |
+
+## Removed Content
+
+- `cleo release verify` -- use `cleo release ship --dry-run`
+- `cleo release start` -- state transition is automatic during `ship`
+- `cleo release note` -- use `cleo release plan --notes` or `cleo release create --notes`

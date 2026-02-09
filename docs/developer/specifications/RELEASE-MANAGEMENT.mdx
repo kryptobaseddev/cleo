@@ -29,7 +29,7 @@ for historical reference.
 | Content | New Location |
 |---------|-------------|
 | Release JSON schema | `protocols/release.md` → Release Schema |
-| State machine (2 states) | `protocols/release.md` → State Machine |
+| State machine (3 states: planned/active/released) | `protocols/release.md` → State Machine |
 | Error codes 50-59 | `protocols/release.md` → Error Codes |
 | Task discovery pipeline | `protocols/release.md` → Task Discovery |
 | CLI commands (8 real) | `protocols/release.md` → CLI Commands |
@@ -42,5 +42,5 @@ for historical reference.
 - `cleo release verify` - use `cleo release ship --dry-run`
 - `cleo release start` - state transition is automatic during `ship`
 - `cleo release note` - use `cleo release plan --notes` or `cleo release create --notes`
-- `active` state - simplified to 2 states: `planned → released`
+- `active` state documentation - now correctly documented as transitional state in 3-state model
 - `lib/changelog.sh` deprecation notice - incorrect, lib/changelog.sh is the primary generator

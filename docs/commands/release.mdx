@@ -35,12 +35,16 @@ The `release` command manages the complete release lifecycle from planning to sh
 |------------|-------------|
 | `create <version>` | Create a new planned release |
 | `plan <version>` | Add/remove tasks from a release |
-| `ship <version>` | Mark release as released (set releasedAt) |
+| `ship <version>` | Execute full release workflow (changelog, tag, push) |
 | `list` | List all releases |
 | `show <version>` | Show release details |
-| `changelog <version>` | Generate changelog from release tasks |
+| `changelog <version>` | Generate changelog from release tasks (preview only) |
+| `init-ci` | Initialize CI/CD workflow configuration |
+| `validate <task-id>` | Validate release protocol compliance for a task |
 
 ## Options
+
+### General
 
 | Option | Description |
 |--------|-------------|
@@ -48,23 +52,68 @@ The `release` command manages the complete release lifecycle from planning to sh
 | `--tasks T001,T002` | Tasks to include (comma-separated) |
 | `--remove T003` | Remove task from release (for plan) |
 | `--notes "text"` | Release notes or summary |
-| `--bump-version` | Bump VERSION file via dev/bump-version.sh (for ship) |
-| `--create-tag` | Create git tag for release (for ship) |
-| `--force-tag` | Overwrite existing git tag (requires --create-tag) |
-| `--push` | Push git tag to remote (requires --create-tag) |
-| `--write-changelog` | **DEPRECATED** - Changelog is auto-generated (since v0.74.0) |
-| `--no-changelog` | Skip automatic changelog generation (for ship) |
 | `--output FILE` | Output file for changelog (default: CHANGELOG.md) |
 | `--format, -f FORMAT` | Output format: text \| json (default: auto) |
 | `--json` | Shortcut for --format json |
 | `--human` | Shortcut for --format text |
 | `-h, --help` | Show help message |
 
+### Ship Flags
+
+| Option | Description |
+|--------|-------------|
+| `--bump-version` | Bump VERSION file via dev/bump-version.sh |
+| `--create-tag` | Create annotated git tag for release |
+| `--force-tag` | Overwrite existing git tag (requires --create-tag) |
+| `--push` | Push commits and tag to remote |
+| `--no-changelog` | Skip automatic changelog generation |
+| `--no-commit` | Skip git commit (just update files) |
+| `--run-tests` | Run test suite during validation (opt-in, slow) |
+| `--skip-validation` | Skip all validation gates (emergency releases) |
+| `--dry-run` | Show what would happen without making changes |
+
+### Init-CI Flags
+
+| Option | Description |
+|--------|-------------|
+| `--platform PLATFORM` | CI platform: github-actions, gitlab-ci, circleci |
+| `--force` | Overwrite existing CI config file |
+
+### Validate Flags
+
+| Option | Description |
+|--------|-------------|
+| `--strict` | Enable strict validation mode |
+
 ## Release Status Flow
 
 ```
 planned → active → released
 ```
+
+- **planned**: Created via `cleo release create`. Tasks can be added/removed.
+- **active**: Transitional state during `cleo release ship` execution.
+- **released**: Final immutable state. No modifications allowed.
+
+## Ship Workflow
+
+The `ship` command executes the full release workflow:
+
+1. **Discover tasks** associated with the release (via labels or explicit assignment)
+2. **Bump version** in VERSION file (if `--bump-version`)
+3. **Ensure** `[Unreleased]` section exists in CHANGELOG.md
+4. **Generate changelog** from task metadata (unless `--no-changelog`)
+5. **Validate** changelog content is not empty
+6. **Append** to CHANGELOG.md + generate platform-specific outputs (if configured)
+7. **Run validation gates** (tests opt-in, schema, version, changelog)
+8. **Create release commit** staging VERSION, README, CHANGELOG.md, platform docs, todo.json (unless `--no-commit`)
+9. **Create annotated tag** with changelog/commit/description fallback (if `--create-tag`)
+10. **Push** commits and tag to remote (if `--push`)
+11. **Update** release status to `released` in todo.json
+
+<Note>
+**Test Opt-In**: Tests are NOT run by default to avoid release ship timeout. Use `--run-tests` to explicitly enable the test suite during validation. For emergency releases, use `--skip-validation` to bypass all gates.
+</Note>
 
 ## Changelog Integration
 
@@ -139,15 +188,16 @@ cleo release ship v0.65.0 --no-changelog
 **Tag Annotation Fallback** (v0.83.0+): When `--no-changelog` is used with `--create-tag`, the tag annotation still gets meaningful release notes. The system falls back to generating notes from git commits since the previous tag using `generate_changelog_from_commits()`. This ensures GitHub Actions always has content for release notes.
 </Note>
 
-### Validation Gates
+## Validation Gates
 
 The `ship` command validates:
 
-1. ✓ Release exists and is not already shipped
-2. ✓ At least one task is associated with the release
-3. ✓ Generated changelog is not empty (unless `--no-changelog`)
-4. ✓ CHANGELOG.md is writable
-5. ✓ VERSION file matches (if `--bump-version`)
+1. Tests pass (if `--run-tests` enabled)
+2. Schema validation passes (via `cleo validate`)
+3. VERSION file matches bumped version (if `--bump-version`)
+4. CHANGELOG.md has entry for version (unless `--no-changelog`)
+
+Use `--skip-validation` to bypass all gates for emergency releases.
 
 ## Examples
 
@@ -172,19 +222,33 @@ Use `--remove` to remove specific tasks.
 cleo release ship v0.65.0 --bump-version --create-tag --push
 ```
 
+```bash Ship with Tests
+# For major/minor releases, opt into running tests
+cleo release ship v0.65.0 --bump-version --create-tag --push --run-tests
+```
+
+```bash Ship Dry Run
+# Preview what would happen without making changes
+cleo release ship v0.65.0 --bump-version --create-tag --push --dry-run
+```
+
 ```bash Ship without Changelog
 # Skip changelog for minor releases
 cleo release ship v0.65.0 --no-changelog
 ```
 
-```bash Ship with Manual Changelog
-# Generate changelog separately first (deprecated workflow)
-cleo release changelog v0.65.0
-cleo release ship v0.65.0 --no-changelog
+```bash Ship without Commit
+# Update files but skip the git commit
+cleo release ship v0.65.0 --no-commit
 ```
 
 ```bash Ship with Notes
 cleo release ship v0.65.0 --notes "Schema 2.8.0 release"
+```
+
+```bash Emergency Release
+# Skip all validation for emergency hotfix
+cleo release ship v0.65.1 --skip-validation --create-tag --push
 ```
 
 ```bash List Releases
@@ -200,16 +264,46 @@ cleo release show v0.65.0
 cleo release changelog v0.65.0
 ```
 
+```bash Initialize CI/CD
+# Use platform from config
+cleo release init-ci
+
+# Specify platform explicitly
+cleo release init-ci --platform github-actions
+
+# Overwrite existing config
+cleo release init-ci --platform gitlab-ci --force
+
+# Preview without writing
+cleo release init-ci --dry-run
+```
+
+```bash Validate Release Protocol
+# Standard validation
+cleo release validate T2350
+
+# Strict mode (SHOULD requirements become violations)
+cleo release validate T2350 --strict
+```
+
 </CodeGroup>
 
 ## Exit Codes
 
-| Code | Meaning | Recoverable |
-|------|---------|:-----------:|
-| `0` | Success | No |
-| `2` | Invalid arguments | No |
-| `4` | Resource not found | No |
-| `6` | Validation failed | No |
+| Code | Constant | Meaning | Recovery |
+|------|----------|---------|----------|
+| 0 | — | Success | — |
+| 50 | `E_RELEASE_NOT_FOUND` | Release version not found | `cleo release list` |
+| 51 | `E_RELEASE_EXISTS` | Version already exists | Use different version |
+| 52 | `E_RELEASE_LOCKED` | Released = immutable | Create hotfix version |
+| 53 | `E_INVALID_VERSION` | Bad semver format | Use `v{major}.{minor}.{patch}` |
+| 54 | `E_VALIDATION_FAILED` | Validation gate failed | Fix validation errors |
+| 55 | `E_VERSION_BUMP_FAILED` | bump-version.sh failed | Check VERSION file |
+| 56 | `E_TAG_CREATION_FAILED` | Git tag/commit failed | Check git status |
+| 57 | `E_CHANGELOG_GENERATION_FAILED` | Changelog failed | Check lib/changelog.sh |
+| 58 | `E_TAG_EXISTS` | Git tag already exists | Use `--force-tag` to overwrite |
+| 59 | `E_TASKS_INCOMPLETE` | Incomplete tasks | Complete or remove from release |
+| 72 | `E_CI_INIT_FAILED` | CI config generation failed | Check platform support |
 
 ## Troubleshooting
 
@@ -231,9 +325,27 @@ cleo release changelog v0.65.0
 
 **Fix**: Verify with `cleo release show <version>`. Use `cleo release create` for new version.
 
+### "Tag already exists"
+
+**Cause**: Git tag for this version was already created (exit code 58).
+
+**Fix**: Use `--force-tag` with `--create-tag` to overwrite: `cleo release ship v0.65.0 --create-tag --force-tag`
+
+### "Validation failed"
+
+**Cause**: One or more validation gates did not pass (exit code 54).
+
+**Fix**: Run `cleo validate` to see schema errors. Use `--skip-validation` for emergency releases only.
+
+### "CI/CD configuration failed"
+
+**Cause**: Platform not supported or template not available (exit code 72).
+
+**Fix**: Check supported platforms: `github-actions`, `gitlab-ci`, `circleci`. Use `--force` to overwrite existing config.
+
 ## See Also
 
-- [Release Protocol](/developer/protocols/release) - Canonical reference (`protocols/release.md`) with schema, error codes, state machine
+- [Release Protocol](../../protocols/release.md) - Canonical reference with schema, state machine, error codes, and full workflow
 - [generate-changelog](/commands/generate-changelog) - Generate platform changelogs from CHANGELOG.md
 - [roadmap](/commands/roadmap) - View project roadmap
 - [stats](/commands/stats) - Project statistics
