@@ -21,7 +21,7 @@
     "sessionTimeoutWarningHours": 72
   },
   "session": {
-    "enforcement": "strict",
+    "enforcement": "none",
     "maxConcurrent": 15
   },
   "version": "2.10.0",
@@ -44,5 +44,8 @@
     "integration": {
       "value": true
     }
+  },
+  "sessionEnforcement": {
+    "mode": "advisory"
   }
 }
