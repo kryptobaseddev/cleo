@@ -402,7 +402,9 @@ ${header}\\
 }
 
 # Validation gates (Part 5 from spec)
-# @task T2739
+# Note: Checkpoint suppression is handled by the caller (cmd_ship sets GIT_CHECKPOINT_SUPPRESS=true)
+# This ensures cleo validate's auto-fix writes don't trigger mid-flow checkpoint commits
+# @task T2739 T4250
 validate_release() {
     local version="$1"
 
@@ -613,13 +615,19 @@ cmd_create() {
     ' "$TODO_FILE")
 
     # Recalculate checksum after modifying todo.json
-    local checksum
-    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
-    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
+    updated_json=$(recalculate_checksum "$updated_json")
 
-    # Atomic write
-    echo "$updated_json" > "$TODO_FILE.tmp"
-    mv "$TODO_FILE.tmp" "$TODO_FILE"
+    # @task T4249 - Route through save_json for generation counter, audit trail, checkpoint
+    if declare -f save_json >/dev/null 2>&1; then
+        echo "$updated_json" | save_json "$TODO_FILE" || {
+            echo "Error: Failed to save $TODO_FILE" >&2
+            return 1
+        }
+    else
+        # Fallback for contexts where file-ops.sh isn't loaded
+        echo "$updated_json" > "$TODO_FILE.tmp"
+        mv "$TODO_FILE.tmp" "$TODO_FILE"
+    fi
 
     # Output result
     if [[ "$FORMAT" == "json" ]]; then
@@ -704,13 +712,19 @@ cmd_plan() {
     ' "$TODO_FILE")
 
     # Recalculate checksum after modifying todo.json
-    local checksum
-    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
-    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
+    updated_json=$(recalculate_checksum "$updated_json")
 
-    # Atomic write
-    echo "$updated_json" > "$TODO_FILE.tmp"
-    mv "$TODO_FILE.tmp" "$TODO_FILE"
+    # @task T4249 - Route through save_json for generation counter, audit trail, checkpoint
+    if declare -f save_json >/dev/null 2>&1; then
+        echo "$updated_json" | save_json "$TODO_FILE" || {
+            echo "Error: Failed to save $TODO_FILE" >&2
+            return 1
+        }
+    else
+        # Fallback for contexts where file-ops.sh isn't loaded
+        echo "$updated_json" > "$TODO_FILE.tmp"
+        mv "$TODO_FILE.tmp" "$TODO_FILE"
+    fi
 
     # Get updated release for output
     local updated_release
@@ -750,6 +764,11 @@ cmd_plan() {
 cmd_ship() {
     local version="$1"
     shift
+
+    # Suppress checkpoints during multi-step release flow
+    # @task T4248
+    export GIT_CHECKPOINT_SUPPRESS=true
+    trap 'unset GIT_CHECKPOINT_SUPPRESS' EXIT
 
     validate_version "$version"
     local normalized
@@ -908,7 +927,59 @@ cmd_ship() {
         exit "$EXIT_VALIDATION_FAILED"
     fi
 
-    # Step 3.5: Create git commit if requested (before tagging)
+    # Step 3.5: Update release status to shipped BEFORE commit
+    # @task T4248 - Moved before git commit so release commit captures final state
+    local timestamp
+    timestamp=$(get_timestamp)
+
+    local git_tag_created=false
+    local updated_json
+    updated_json=$(jq \
+        --arg version "$normalized" \
+        --arg timestamp "$timestamp" \
+        --arg notes "$RELEASE_NOTES" \
+        --arg git_tag "$normalized" \
+        --arg changelog "$changelog_content" \
+        '
+        .project.releases = [
+            .project.releases[] |
+            if .version == $version then
+                .status = "released" |
+                .releasedAt = $timestamp |
+                (if $notes != "" then .notes = $notes else . end) |
+                (if true then .gitTag = $git_tag else . end) |
+                (if $changelog != "" then .changelog = $changelog else . end)
+            else .
+            end
+        ] |
+        .lastUpdated = $timestamp
+    ' "$TODO_FILE")
+
+    # Recalculate checksum after modifying todo.json
+    updated_json=$(recalculate_checksum "$updated_json")
+
+    # @task T4248 - Route through save_json for generation counter, audit trail
+    if declare -f save_json >/dev/null 2>&1; then
+        echo "$updated_json" | save_json "$TODO_FILE" || {
+            echo "Error: Failed to save $TODO_FILE" >&2
+            return 1
+        }
+    else
+        # Fallback for contexts where file-ops.sh isn't loaded
+        echo "$updated_json" > "$TODO_FILE.tmp"
+        mv "$TODO_FILE.tmp" "$TODO_FILE"
+    fi
+
+    # Refresh current_release from updated data for tag annotation
+    # @task T4248
+    current_release=$(echo "$updated_json" | jq --arg v "$normalized" '
+        .project.releases | map(select(.version == $v)) | .[0]
+    ')
+
+    log_info "Release status set to 'released'"
+
+    # Step 4: Create git commit if requested (before tagging)
+    # @task T4248 - Renumbered: was Step 3.5, now Step 4
     local git_commit_created=false
     if [[ "$SKIP_COMMIT" != "true" ]]; then
         log_info "Creating release commit..."
@@ -945,8 +1016,8 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"; then
         log_info "Skipping git commit (--no-commit)"
     fi
 
-    # Step 4: Create git tag if requested
-    local git_tag_created=false
+    # Step 5: Create git tag if requested
+    # @task T4248 - Renumbered: was Step 4, now Step 5
     if [[ "$CREATE_TAG" == "true" ]]; then
         # Check if tag already exists
         if git rev-parse "$normalized" >/dev/null 2>&1; then
@@ -1020,7 +1091,8 @@ $release_desc"
 
     fi
 
-    # Step 5: Push to remote if requested
+    # Step 6: Push to remote if requested
+    # @task T4248 - Renumbered: was Step 5, now Step 6
     if [[ "$PUSH_TAG" == "true" ]]; then
         log_info "Pushing to remote..."
 
@@ -1055,47 +1127,12 @@ $release_desc"
         fi
     fi
 
-    # Step 6: Update release status to shipped
-    local timestamp
-    timestamp=$(get_timestamp)
-
-    local updated_json
-    updated_json=$(jq \
-        --arg version "$normalized" \
-        --arg timestamp "$timestamp" \
-        --arg notes "$RELEASE_NOTES" \
-        --arg git_tag "$normalized" \
-        --arg changelog "$changelog_content" \
-        --argjson tag_created "$git_tag_created" \
-        '
-        .project.releases = [
-            .project.releases[] |
-            if .version == $version then
-                .status = "released" |
-                .releasedAt = $timestamp |
-                (if $notes != "" then .notes = $notes else . end) |
-                (if $tag_created then .gitTag = $git_tag else . end) |
-                (if $changelog != "" then .changelog = $changelog else . end)
-            else .
-            end
-        ] |
-        .lastUpdated = $timestamp
-    ' "$TODO_FILE")
-
-    # Recalculate checksum after modifying todo.json
-    local checksum
-    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
-    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
-
-    # Atomic write
-    echo "$updated_json" > "$TODO_FILE.tmp"
-    mv "$TODO_FILE.tmp" "$TODO_FILE"
-
-    # Get updated release for output
+    # Get updated release for output (from data written in Step 3.5)
+    # @task T4248 - Old Step 6 removed; status update moved to Step 3.5
     local updated_release
-    updated_release=$(echo "$updated_json" | jq --arg v "$normalized" '
+    updated_release=$(jq --arg v "$normalized" '
         .project.releases | map(select(.version == $v)) | .[0]
-    ')
+    ' "$TODO_FILE")
 
     # Output result
     if [[ "$FORMAT" == "json" ]]; then
@@ -1133,6 +1170,10 @@ $release_desc"
             echo "  Git tag: $normalized created"
         fi
     fi
+
+    # Re-enable checkpoints after release flow completes
+    # @task T4248
+    unset GIT_CHECKPOINT_SUPPRESS
 }
 
 #####################################################################

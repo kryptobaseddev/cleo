@@ -1059,7 +1059,9 @@ cmd_end() {
   fi
 
   # Git checkpoint: forced commit at session boundary (T3147)
-  if declare -f git_checkpoint >/dev/null 2>&1; then
+  # Skip if checkpoint suppression is active (e.g., during release ship)
+  # @task T4250
+  if [[ "${GIT_CHECKPOINT_SUPPRESS:-}" != "true" ]] && declare -f git_checkpoint >/dev/null 2>&1; then
     git_checkpoint "session-end" "session ended" 2>/dev/null || true
   fi
 
