@@ -397,6 +397,56 @@ readonly EXIT_LIFECYCLE_TRANSITION_INVALID=83
 readonly EXIT_PROVENANCE_REQUIRED=84
 
 # ============================================================================
+# ARTIFACT PUBLISH ERROR CODES (85-89)
+# Per protocols/artifact-publish.md
+# ============================================================================
+
+# Artifact type not registered or handler not found
+# Examples: unknown type in config, missing handler prefix
+readonly EXIT_ARTIFACT_TYPE_UNKNOWN=85
+
+# Pre-build validation failed for artifact
+# Examples: invalid package manifest, missing build tool
+readonly EXIT_ARTIFACT_VALIDATION_FAILED=86
+
+# Artifact build command returned non-zero
+# Examples: compilation failure, missing dependencies
+readonly EXIT_ARTIFACT_BUILD_FAILED=87
+
+# Artifact publish to registry failed (rollback attempted)
+# Examples: auth failure, network error, version conflict
+readonly EXIT_ARTIFACT_PUBLISH_FAILED=88
+
+# Rollback of previously published artifacts failed
+# Examples: registry API error during unpublish, manual intervention required
+readonly EXIT_ARTIFACT_ROLLBACK_FAILED=89
+
+# ============================================================================
+# PROVENANCE ERROR CODES (90-94)
+# Per protocols/provenance.md
+# ============================================================================
+
+# Invalid provenance or signing configuration
+# Examples: bad signing method, missing security config section
+readonly EXIT_PROVENANCE_CONFIG_INVALID=90
+
+# Signing key not found or not accessible
+# Examples: GPG_KEY_ID not set, key expired, keyring not available
+readonly EXIT_SIGNING_KEY_MISSING=91
+
+# Signature verification failed or signature not produced
+# Examples: cosign verify-blob fails, gpg --verify fails, .sig missing
+readonly EXIT_SIGNATURE_INVALID=92
+
+# Computed digest does not match recorded digest
+# Examples: artifact tampered, rebuild produced different output
+readonly EXIT_DIGEST_MISMATCH=93
+
+# Attestation subject does not match artifact or format invalid
+# Examples: wrong digest in attestation subject, invalid in-toto statement
+readonly EXIT_ATTESTATION_INVALID=94
+
+# ============================================================================
 # SPECIAL CODES (100+)
 # These indicate notable states but are NOT errors
 # ============================================================================
@@ -537,6 +587,18 @@ get_exit_code_name() {
         82)  echo "CIRCULAR_VALIDATION" ;;
         83)  echo "LIFECYCLE_TRANSITION_INVALID" ;;
         84)  echo "PROVENANCE_REQUIRED" ;;
+        # Artifact Publish (85-89)
+        85)  echo "ARTIFACT_TYPE_UNKNOWN" ;;
+        86)  echo "ARTIFACT_VALIDATION_FAILED" ;;
+        87)  echo "ARTIFACT_BUILD_FAILED" ;;
+        88)  echo "ARTIFACT_PUBLISH_FAILED" ;;
+        89)  echo "ARTIFACT_ROLLBACK_FAILED" ;;
+        # Provenance (90-94)
+        90)  echo "PROVENANCE_CONFIG_INVALID" ;;
+        91)  echo "SIGNING_KEY_MISSING" ;;
+        92)  echo "SIGNATURE_INVALID" ;;
+        93)  echo "DIGEST_MISMATCH" ;;
+        94)  echo "ATTESTATION_INVALID" ;;
         # Special (100+)
         100) echo "NO_DATA" ;;
         101) echo "ALREADY_EXISTS" ;;
@@ -600,6 +662,13 @@ is_recoverable_code() {
         82) return 1 ;;
         # Not recoverable: invalid lifecycle transition (requires proper sequence)
         83) return 1 ;;
+        # Artifact publish errors - most recoverable by fixing config/build/auth
+        85) return 1 ;;  # Not recoverable: unknown type (requires config fix)
+        86|87|88) return 0 ;;  # Recoverable: validation/build/publish can be retried
+        89) return 1 ;;  # Not recoverable: rollback failed (manual intervention)
+        # Provenance errors - most recoverable by fixing config/keys
+        90|91|92|94) return 0 ;;  # Recoverable: config/key/signing/attestation fixable
+        93) return 1 ;;  # Not recoverable: digest mismatch (possible tampering)
         # Special codes are not errors, so "recoverable" doesn't apply
         *)    return 1 ;;
     esac
@@ -734,6 +803,20 @@ export EXIT_AUDIT_MISSING
 export EXIT_CIRCULAR_VALIDATION
 export EXIT_LIFECYCLE_TRANSITION_INVALID
 export EXIT_PROVENANCE_REQUIRED
+
+# Export constants - Artifact Publish (85-89)
+export EXIT_ARTIFACT_TYPE_UNKNOWN
+export EXIT_ARTIFACT_VALIDATION_FAILED
+export EXIT_ARTIFACT_BUILD_FAILED
+export EXIT_ARTIFACT_PUBLISH_FAILED
+export EXIT_ARTIFACT_ROLLBACK_FAILED
+
+# Export constants - Provenance (90-94)
+export EXIT_PROVENANCE_CONFIG_INVALID
+export EXIT_SIGNING_KEY_MISSING
+export EXIT_SIGNATURE_INVALID
+export EXIT_DIGEST_MISMATCH
+export EXIT_ATTESTATION_INVALID
 
 # Export constants - Special (100+)
 export EXIT_NO_DATA

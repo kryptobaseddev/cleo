@@ -201,7 +201,7 @@ Loaded for ALL subagents from `agents/cleo-subagent/AGENT.md`:
 - RFC 2119 constraints
 - Error handling patterns
 
-### Conditional Protocols (7 Types)
+### Conditional Protocols (9 Types)
 
 | Protocol | File | Keywords | Use Case |
 |----------|------|----------|----------|
@@ -212,6 +212,8 @@ Loaded for ALL subagents from `agents/cleo-subagent/AGENT.md`:
 | Implementation | `protocols/implementation.md` | implement, build, create | Code execution |
 | Contribution | `protocols/contribution.md` | PR, merge, shared | Work attribution |
 | Release | `protocols/release.md` | release, version, publish | Version management |
+| Artifact Publish | `protocols/artifact-publish.md` | publish, artifact, package, registry | Artifact distribution |
+| Provenance | `protocols/provenance.md` | provenance, attestation, SLSA, SBOM | Supply chain integrity |
 
 ### Project Lifecycle (RCSD → Execution → Release)
 
