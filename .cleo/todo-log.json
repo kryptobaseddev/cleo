@@ -95720,11 +95720,760 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_ff66848b3c54",
+      "timestamp": "2026-02-09T22:23:52Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4004",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-09T22:23:50Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_9ccbd4ffa464",
+      "timestamp": "2026-02-09T22:23:54Z",
+      "sessionId": "session_20260209_142318_5ba91e",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770675838-71f846",
+      "timestamp": "2026-02-09T22:23:58Z",
+      "action": "task_created",
+      "taskId": "T4005",
+      "actor": "system",
+      "details": {
+        "title": "Format Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Format Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675898-bfd5a1",
+      "timestamp": "2026-02-09T22:24:58Z",
+      "action": "task_created",
+      "taskId": "T4006",
+      "actor": "system",
+      "details": {
+        "title": "Session Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Session Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_00807d412f5a",
+      "timestamp": "2026-02-09T22:24:59Z",
+      "sessionId": "session_20260209_142459_288c08",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4006",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4006"
+      }
+    },
+    {
+      "id": "log-1770675901-e30469",
+      "timestamp": "2026-02-09T22:25:01Z",
+      "action": "task_created",
+      "taskId": "T4007",
+      "actor": "system",
+      "details": {
+        "title": "Focus Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Focus Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_043909086d06",
+      "timestamp": "2026-02-09T22:25:02Z",
+      "sessionId": "session_20260209_142459_288c08",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770675905-914d42",
+      "timestamp": "2026-02-09T22:25:05Z",
+      "action": "task_created",
+      "taskId": "T4008",
+      "actor": "system",
+      "details": {
+        "title": "History Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "History Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_6500f0c15e6c",
+      "timestamp": "2026-02-09T22:25:06Z",
+      "sessionId": "session_20260209_142506_90ba2e",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4008",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4008"
+      }
+    },
+    {
+      "id": "log_dafdb540c02d",
+      "timestamp": "2026-02-09T22:25:07Z",
+      "sessionId": "session_20260209_142506_90ba2e",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770675910-427ae0",
+      "timestamp": "2026-02-09T22:25:10Z",
+      "action": "task_created",
+      "taskId": "T4009",
+      "actor": "system",
+      "details": {
+        "title": "Suspend Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Suspend Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_7265dcfb4d0d",
+      "timestamp": "2026-02-09T22:25:11Z",
+      "sessionId": "session_20260209_142511_8e038a",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4009",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4009"
+      }
+    },
+    {
+      "id": "log_e873cba41157",
+      "timestamp": "2026-02-09T22:25:13Z",
+      "sessionId": "session_20260209_142511_8e038a",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770675916-77fba5",
+      "timestamp": "2026-02-09T22:25:16Z",
+      "action": "task_created",
+      "taskId": "T4010",
+      "actor": "system",
+      "details": {
+        "title": "Focus Clear Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Focus Clear Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_f4c4f2c683cb",
+      "timestamp": "2026-02-09T22:25:17Z",
+      "sessionId": "session_20260209_142517_e1967e",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4010",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4010"
+      }
+    },
+    {
+      "id": "log-1770675918-10a5d4",
+      "timestamp": "2026-02-09T22:25:18Z",
+      "action": "task_created",
+      "taskId": "T4011",
+      "actor": "system",
+      "details": {
+        "title": "Focus Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Focus Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_39d3c2245688",
+      "timestamp": "2026-02-09T22:25:19Z",
+      "sessionId": "session_20260209_142517_e1967e",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log_ba8ba2ce9059",
+      "timestamp": "2026-02-09T22:25:37Z",
+      "sessionId": "session_20260209_142537_0f0e01",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4006",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4006"
+      }
+    },
+    {
+      "id": "log_3eae8ef670fa",
+      "timestamp": "2026-02-09T22:25:39Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4006"
+      },
+      "after": {
+        "currentTask": "T4007"
+      },
+      "details": null
+    },
+    {
+      "id": "log_e6b6564077d5",
+      "timestamp": "2026-02-09T22:25:41Z",
+      "sessionId": "session_20260209_142537_0f0e01",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770675989-dc654e",
+      "timestamp": "2026-02-09T22:26:29Z",
+      "action": "task_created",
+      "taskId": "T4012",
+      "actor": "system",
+      "details": {
+        "title": "Session Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Session Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_2a1b8a9e2f64",
+      "timestamp": "2026-02-09T22:26:30Z",
+      "sessionId": "session_20260209_142630_7594bb",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4012",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4012"
+      }
+    },
+    {
+      "id": "log-1770675992-91ad41",
+      "timestamp": "2026-02-09T22:26:32Z",
+      "action": "task_created",
+      "taskId": "T4013",
+      "actor": "system",
+      "details": {
+        "title": "Focus Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Focus Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_ed8655cd67f1",
+      "timestamp": "2026-02-09T22:26:32Z",
+      "sessionId": "session_20260209_142630_7594bb",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770675995-788b64",
+      "timestamp": "2026-02-09T22:26:35Z",
+      "action": "task_created",
+      "taskId": "T4014",
+      "actor": "system",
+      "details": {
+        "title": "History Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "History Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_89c872103a90",
+      "timestamp": "2026-02-09T22:26:36Z",
+      "sessionId": "session_20260209_142636_562ad8",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4014",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4014"
+      }
+    },
+    {
+      "id": "log_cba2d4e4538c",
+      "timestamp": "2026-02-09T22:26:38Z",
+      "sessionId": "session_20260209_142636_562ad8",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770676001-002f28",
+      "timestamp": "2026-02-09T22:26:41Z",
+      "action": "task_created",
+      "taskId": "T4015",
+      "actor": "system",
+      "details": {
+        "title": "Suspend Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Suspend Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_1b374f4be080",
+      "timestamp": "2026-02-09T22:26:42Z",
+      "sessionId": "session_20260209_142642_348a39",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4015",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4015"
+      }
+    },
+    {
+      "id": "log_8d0eaf2194b2",
+      "timestamp": "2026-02-09T22:26:43Z",
+      "sessionId": "session_20260209_142642_348a39",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770676006-56576c",
+      "timestamp": "2026-02-09T22:26:46Z",
+      "action": "task_created",
+      "taskId": "T4016",
+      "actor": "system",
+      "details": {
+        "title": "Focus Clear Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Focus Clear Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_ad65550ea4f6",
+      "timestamp": "2026-02-09T22:26:47Z",
+      "sessionId": "session_20260209_142647_b6b940",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4016",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4016"
+      }
+    },
+    {
+      "id": "log-1770676009-14b9a0",
+      "timestamp": "2026-02-09T22:26:49Z",
+      "action": "task_created",
+      "taskId": "T4017",
+      "actor": "system",
+      "details": {
+        "title": "Focus Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Focus Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_68bc89ec3272",
+      "timestamp": "2026-02-09T22:26:50Z",
+      "sessionId": null,
+      "action": "focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4007"
+      },
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log_b9e3e65a1095",
+      "timestamp": "2026-02-09T22:26:51Z",
+      "sessionId": "session_20260209_142647_b6b940",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770676016-3aebb1",
+      "timestamp": "2026-02-09T22:26:56Z",
+      "action": "task_created",
+      "taskId": "T4018",
+      "actor": "system",
+      "details": {
+        "title": "Integration Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Integration Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770676017-3e712e",
+      "timestamp": "2026-02-09T22:26:57Z",
+      "action": "task_created",
+      "taskId": "T4019",
+      "actor": "system",
+      "details": {
+        "title": "Integration Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Integration Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_975b8bd7da69",
+      "timestamp": "2026-02-09T22:26:58Z",
+      "sessionId": "session_20260209_142658_3de7f7",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4018",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4018"
+      }
+    },
+    {
+      "id": "log_ba38a4c61d8d",
+      "timestamp": "2026-02-09T22:28:32Z",
+      "sessionId": "session_20260209_142658_3de7f7",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": null
+    },
+    {
+      "id": "log-1770676116-b37efb",
+      "timestamp": "2026-02-09T22:28:36Z",
+      "action": "task_created",
+      "taskId": "T4020",
+      "actor": "system",
+      "details": {
+        "title": "Mutate Integration Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Mutate Integration Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_08365f44cdb4",
+      "timestamp": "2026-02-09T22:28:37Z",
+      "sessionId": "session_20260209_142837_307fb8",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4020",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4020"
+      }
+    },
+    {
+      "id": "log-1770676119-fde394",
+      "timestamp": "2026-02-09T22:28:39Z",
+      "action": "task_created",
+      "taskId": "T4021",
+      "actor": "system",
+      "details": {
+        "title": "Mutate Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Mutate Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770676120-cf85c9",
+      "timestamp": "2026-02-09T22:28:40Z",
+      "action": "task_created",
+      "taskId": "T4022",
+      "actor": "system",
+      "details": {
+        "title": "New Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "New Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_b76a1b36607a",
+      "timestamp": "2026-02-09T22:28:41Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4021",
+      "before": {
+        "title": "Mutate Test Task",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Task for testing mutate operations",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Updated Task Title",
+        "status": "pending",
+        "priority": "high",
+        "description": "Task for testing mutate operations",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1770676123-7e9933",
+      "timestamp": "2026-02-09T22:28:43Z",
+      "action": "task_created",
+      "taskId": "T4023",
+      "actor": "system",
+      "details": {
+        "title": "Mutate Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Mutate Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_33049148515b",
+      "timestamp": "2026-02-09T22:28:45Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4023",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-09T22:28:43Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770676131-d95252",
+      "timestamp": "2026-02-09T22:28:51Z",
+      "action": "task_created",
+      "taskId": "T4024",
+      "actor": "system",
+      "details": {
+        "title": "Focus Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Focus Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 4974,
-    "lastEntry": "2026-02-09T22:23:33Z",
+    "totalEntries": 5035,
+    "lastEntry": "2026-02-09T22:28:45Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
