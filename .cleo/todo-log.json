@@ -91501,6 +91501,240 @@
         "type": "epic",
         "rootTaskId": "T3809"
       }
+    },
+    {
+      "id": "log-1770675191-fd3cfa",
+      "timestamp": "2026-02-09T22:13:11Z",
+      "action": "task_created",
+      "taskId": "T3811",
+      "actor": "system",
+      "details": {
+        "title": "Same text for both",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Same text for both",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675192-ecf33d",
+      "timestamp": "2026-02-09T22:13:12Z",
+      "action": "task_created",
+      "taskId": "T3812",
+      "actor": "system",
+      "details": {
+        "title": "Level 1 Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Level 1 Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675193-5b2733",
+      "timestamp": "2026-02-09T22:13:13Z",
+      "action": "task_created",
+      "taskId": "T3813",
+      "actor": "system",
+      "details": {
+        "title": "Level 2 Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Level 2 Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675194-50dfc3",
+      "timestamp": "2026-02-09T22:13:14Z",
+      "action": "task_created",
+      "taskId": "T3814",
+      "actor": "system",
+      "details": {
+        "title": "Parent with Many Children",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Parent with Many Children",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675195-63c773",
+      "timestamp": "2026-02-09T22:13:15Z",
+      "action": "task_created",
+      "taskId": "T3815",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 1",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 1",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675196-cac71a",
+      "timestamp": "2026-02-09T22:13:16Z",
+      "action": "task_created",
+      "taskId": "T3816",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 2",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 2",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675197-faec7f",
+      "timestamp": "2026-02-09T22:13:17Z",
+      "action": "task_created",
+      "taskId": "T3817",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 3",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 3",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675198-7f5aa7",
+      "timestamp": "2026-02-09T22:13:18Z",
+      "action": "task_created",
+      "taskId": "T3818",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 4",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 4",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675199-14d5f8",
+      "timestamp": "2026-02-09T22:13:19Z",
+      "action": "task_created",
+      "taskId": "T3819",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 5",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 5",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675200-8c30f6",
+      "timestamp": "2026-02-09T22:13:20Z",
+      "action": "task_created",
+      "taskId": "T3820",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 6",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 6",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675201-a889cd",
+      "timestamp": "2026-02-09T22:13:21Z",
+      "action": "task_created",
+      "taskId": "T3821",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 7",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 7",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675202-b2029f",
+      "timestamp": "2026-02-09T22:13:22Z",
+      "action": "task_created",
+      "taskId": "T3822",
+      "actor": "system",
+      "details": {
+        "title": "Child Task 8",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task 8",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675203-69215b",
+      "timestamp": "2026-02-09T22:13:23Z",
+      "action": "task_created",
+      "taskId": "T3823",
+      "actor": "system",
+      "details": {
+        "title": "Task A",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Task A",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
