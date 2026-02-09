@@ -933,6 +933,178 @@ validate_testing_protocol() {
 }
 
 # ============================================================================
+# ARTIFACT PUBLISH PROTOCOL VALIDATOR
+# Per protocols/artifact-publish.md
+# ============================================================================
+
+validate_artifact_publish_protocol() {
+    local task_id="$1"
+    local manifest_entry="$2"
+    local strict="${3:-false}"
+
+    local violations=()
+    local score=100
+
+    # ARTP-001: MUST validate artifact configuration before build
+    # Check that key_findings mention validation
+    if ! check_manifest_field_present "$manifest_entry" "key_findings"; then
+        violations+=('{"requirement":"ARTP-001","severity":"error","message":"Missing key_findings (must document validation results)","fix":"Add key_findings array with validation and publish results"}')
+        score=$((score - 20))
+    fi
+
+    # ARTP-003: MUST follow handler interface contract
+    # Check that topics include artifact-related keywords
+    local topics
+    topics=$(echo "$manifest_entry" | jq -r '.topics // [] | join(",")' 2>/dev/null)
+    if [[ -z "$topics" ]] || ! echo "$topics" | grep -qiE "artifact|publish|package|registry|docker|npm|pypi|cargo|gem"; then
+        violations+=('{"requirement":"ARTP-003","severity":"warning","message":"Topics should include artifact-related keywords","fix":"Add artifact type to topics array (e.g., npm-package, docker-image)"}')
+        score=$((score - 10))
+    fi
+
+    # ARTP-004: MUST generate SHA-256 checksums
+    local findings
+    findings=$(echo "$manifest_entry" | jq -r '.key_findings // [] | join(",")' 2>/dev/null)
+    if [[ -n "$findings" ]] && ! echo "$findings" | grep -qiE "checksum|sha.?256|digest|verified"; then
+        violations+=('{"requirement":"ARTP-004","severity":"warning","message":"key_findings should mention checksum verification","fix":"Include checksum verification status in key_findings"}')
+        score=$((score - 10))
+    fi
+
+    # ARTP-005: MUST record provenance metadata
+    if [[ -n "$findings" ]] && ! echo "$findings" | grep -qiE "provenance|recorded"; then
+        violations+=('{"requirement":"ARTP-005","severity":"warning","message":"key_findings should mention provenance recording","fix":"Include provenance recording status in key_findings"}')
+        score=$((score - 10))
+    fi
+
+    # ARTP-007: MUST set agent_type = "artifact-publish"
+    if ! check_agent_type "$manifest_entry" "artifact-publish"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // ""')
+        violations+=('{"requirement":"ARTP-007","severity":"error","message":"agent_type must be artifact-publish, got '"$agent_type"'","fix":"Set agent_type to artifact-publish"}')
+        score=$((score - 15))
+    fi
+
+    # ARTP-008: MUST NOT store credentials in output
+    local file_path
+    file_path=$(echo "$manifest_entry" | jq -r '.file // ""')
+    if [[ -n "$file_path" && -f "$file_path" ]]; then
+        if grep -qiE "token|password|secret|api.?key|credential" "$file_path" 2>/dev/null; then
+            violations+=('{"requirement":"ARTP-008","severity":"error","message":"Output file may contain credential references","fix":"Remove all credential values from output file"}')
+            score=$((score - 30))
+        fi
+    fi
+
+    # Build result JSON
+    local violations_json="[]"
+    if [[ ${#violations[@]} -gt 0 ]]; then
+        violations_json=$(printf '%s\n' "${violations[@]}" | jq -s '.')
+    fi
+
+    local valid="true"
+    [[ $score -lt 70 ]] && valid="false"
+
+    local result
+    result=$(jq -n \
+        --argjson valid "$valid" \
+        --argjson violations "$violations_json" \
+        --argjson score "$score" \
+        '{valid: $valid, violations: $violations, score: $score}')
+
+    echo "$result"
+
+    if [[ "$strict" == "true" && "$valid" == "false" ]]; then
+        return ${EXIT_ARTIFACT_PUBLISH_FAILED:-88}
+    fi
+
+    return 0
+}
+
+# ============================================================================
+# PROVENANCE PROTOCOL VALIDATOR
+# Per protocols/provenance.md
+# ============================================================================
+
+validate_provenance_protocol() {
+    local task_id="$1"
+    local manifest_entry="$2"
+    local strict="${3:-false}"
+
+    local violations=()
+    local score=100
+
+    # PROV-001: MUST record provenance chain
+    if ! check_manifest_field_present "$manifest_entry" "key_findings"; then
+        violations+=('{"requirement":"PROV-001","severity":"error","message":"Missing key_findings (must document provenance chain)","fix":"Add key_findings array with provenance chain status"}')
+        score=$((score - 20))
+    fi
+
+    # PROV-002: MUST compute SHA-256 digest
+    local findings
+    findings=$(echo "$manifest_entry" | jq -r '.key_findings // [] | join(",")' 2>/dev/null)
+    if [[ -n "$findings" ]] && ! echo "$findings" | grep -qiE "sha.?256|digest|checksum|hash"; then
+        violations+=('{"requirement":"PROV-002","severity":"warning","message":"key_findings should mention SHA-256 digest computation","fix":"Include digest verification status in key_findings"}')
+        score=$((score - 10))
+    fi
+
+    # PROV-003: MUST generate attestation in in-toto format
+    local topics
+    topics=$(echo "$manifest_entry" | jq -r '.topics // [] | join(",")' 2>/dev/null)
+    if [[ -z "$topics" ]] || ! echo "$topics" | grep -qiE "provenance|attestation|slsa|supply.?chain"; then
+        violations+=('{"requirement":"PROV-003","severity":"warning","message":"Topics should include provenance-related keywords","fix":"Add provenance, attestation, or slsa to topics array"}')
+        score=$((score - 10))
+    fi
+
+    # PROV-004: MUST record SLSA Build Level
+    if [[ -n "$findings" ]] && ! echo "$findings" | grep -qiE "slsa|level|L[1-4]"; then
+        violations+=('{"requirement":"PROV-004","severity":"warning","message":"key_findings should mention SLSA compliance level","fix":"Include SLSA level achieved in key_findings"}')
+        score=$((score - 10))
+    fi
+
+    # PROV-005: MUST store in releases.json
+    if [[ -n "$findings" ]] && ! echo "$findings" | grep -qiE "recorded|stored|releases"; then
+        violations+=('{"requirement":"PROV-005","severity":"warning","message":"key_findings should mention provenance recording","fix":"Include recording status in key_findings"}')
+        score=$((score - 5))
+    fi
+
+    # PROV-006: MUST verify chain integrity
+    if [[ -n "$findings" ]] && ! echo "$findings" | grep -qiE "verified|chain|integrity"; then
+        violations+=('{"requirement":"PROV-006","severity":"warning","message":"key_findings should mention chain verification","fix":"Include chain verification status in key_findings"}')
+        score=$((score - 10))
+    fi
+
+    # PROV-007: MUST set agent_type = "provenance"
+    if ! check_agent_type "$manifest_entry" "provenance"; then
+        local agent_type
+        agent_type=$(echo "$manifest_entry" | jq -r '.agent_type // ""')
+        violations+=('{"requirement":"PROV-007","severity":"error","message":"agent_type must be provenance, got '"$agent_type"'","fix":"Set agent_type to provenance"}')
+        score=$((score - 15))
+    fi
+
+    # Build result JSON
+    local violations_json="[]"
+    if [[ ${#violations[@]} -gt 0 ]]; then
+        violations_json=$(printf '%s\n' "${violations[@]}" | jq -s '.')
+    fi
+
+    local valid="true"
+    [[ $score -lt 70 ]] && valid="false"
+
+    local result
+    result=$(jq -n \
+        --argjson valid "$valid" \
+        --argjson violations "$violations_json" \
+        --argjson score "$score" \
+        '{valid: $valid, violations: $violations, score: $score}')
+
+    echo "$result"
+
+    if [[ "$strict" == "true" && "$valid" == "false" ]]; then
+        return ${EXIT_PROVENANCE_CONFIG_INVALID:-90}
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # GENERIC PROTOCOL VALIDATOR
 # Routes to appropriate protocol validator based on task labels/type
 # ============================================================================
@@ -985,6 +1157,12 @@ validate_protocol() {
             ;;
         testing)
             validate_testing_protocol "$task_id" "$manifest_entry" "$strict"
+            ;;
+        artifact-publish)
+            validate_artifact_publish_protocol "$task_id" "$manifest_entry" "$strict"
+            ;;
+        provenance)
+            validate_provenance_protocol "$task_id" "$manifest_entry" "$strict"
             ;;
         *)
             # Unknown protocol type
