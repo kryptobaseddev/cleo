@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-09T22:33:55Z",
-    "totalSessionsCreated": 593
+    "lastModified": "2026-02-09T22:58:22Z",
+    "totalSessionsCreated": 599
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -32089,7 +32089,7 @@
     },
     {
       "id": "session_20260209_140819_aeadec",
-      "status": "active",
+      "status": "ended",
       "name": "Integration Test Bootstrap test_session_1770674898457_gfnoso9",
       "agentId": null,
       "scope": {
@@ -32121,10 +32121,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T1363",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T1363",
+        "sessionNote": "Cleaning stale test session",
         "nextAction": null,
         "focusHistory": [
           {
@@ -32135,7 +32135,7 @@
         ]
       },
       "startedAt": "2026-02-09T22:08:19Z",
-      "lastActivity": "2026-02-09T22:08:19Z",
+      "lastActivity": "2026-02-09T22:57:24Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -32148,11 +32148,12 @@
         "start_timestamp": "2026-02-09T22:08:19Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-09T22:57:24Z"
     },
     {
       "id": "session_20260209_140821_b5fdb2",
-      "status": "active",
+      "status": "ended",
       "name": "E2E Session Test",
       "agentId": null,
       "scope": {
@@ -32163,10 +32164,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T3802",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T3802",
+        "sessionNote": "Cleaning stale test session",
         "nextAction": null,
         "focusHistory": [
           {
@@ -32177,7 +32178,7 @@
         ]
       },
       "startedAt": "2026-02-09T22:08:21Z",
-      "lastActivity": "2026-02-09T22:08:21Z",
+      "lastActivity": "2026-02-09T22:57:25Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -32190,7 +32191,8 @@
         "start_timestamp": "2026-02-09T22:08:21Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-09T22:57:25Z"
     },
     {
       "id": "session_20260209_140823_a9c274",
@@ -32908,7 +32910,7 @@
     },
     {
       "id": "session_20260209_141923_54a47b",
-      "status": "active",
+      "status": "ended",
       "name": "Integration Test test_session_1770675560348_ehleqlx",
       "agentId": null,
       "scope": {
@@ -32920,10 +32922,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T3972",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T3972",
+        "sessionNote": "Cleaning stale test session",
         "nextAction": null,
         "focusHistory": [
           {
@@ -32934,7 +32936,7 @@
         ]
       },
       "startedAt": "2026-02-09T22:19:23Z",
-      "lastActivity": "2026-02-09T22:19:23Z",
+      "lastActivity": "2026-02-09T22:57:26Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -32947,7 +32949,8 @@
         "start_timestamp": "2026-02-09T22:19:23Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-09T22:57:26Z"
     },
     {
       "id": "session_20260209_142046_fddcb2",
@@ -33038,7 +33041,7 @@
     },
     {
       "id": "session_20260209_142126_705405",
-      "status": "active",
+      "status": "ended",
       "name": "Integration Test test_session_1770675683485_076ygqc",
       "agentId": null,
       "scope": {
@@ -33050,10 +33053,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T3980",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T3980",
+        "sessionNote": "Cleaning stale test session",
         "nextAction": null,
         "focusHistory": [
           {
@@ -33064,7 +33067,7 @@
         ]
       },
       "startedAt": "2026-02-09T22:21:26Z",
-      "lastActivity": "2026-02-09T22:21:26Z",
+      "lastActivity": "2026-02-09T22:57:27Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -33077,7 +33080,8 @@
         "start_timestamp": "2026-02-09T22:21:26Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-09T22:57:27Z"
     },
     {
       "id": "session_20260209_142129_054131",
@@ -33777,7 +33781,7 @@
     },
     {
       "id": "session_20260209_142911_c2504c",
-      "status": "active",
+      "status": "ended",
       "name": "Focus Clear Test",
       "agentId": null,
       "scope": {
@@ -33788,10 +33792,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T4041",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T4041",
+        "sessionNote": "Cleaning stale test session",
         "nextAction": null,
         "focusHistory": [
           {
@@ -33802,7 +33806,7 @@
         ]
       },
       "startedAt": "2026-02-09T22:29:11Z",
-      "lastActivity": "2026-02-09T22:29:11Z",
+      "lastActivity": "2026-02-09T22:57:27Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -33815,7 +33819,8 @@
         "start_timestamp": "2026-02-09T22:29:11Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-09T22:57:27Z"
     },
     {
       "id": "session_20260209_142912_753f8a",
@@ -34265,7 +34270,7 @@
     },
     {
       "id": "session_20260209_143355_091425",
-      "status": "active",
+      "status": "ended",
       "name": null,
       "agentId": null,
       "scope": {
@@ -34280,9 +34285,9 @@
         ]
       },
       "focus": {
-        "currentTask": "T4151",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
+        "previousTask": "T4151",
         "sessionNote": null,
         "nextAction": null,
         "focusHistory": [
@@ -34294,7 +34299,7 @@
         ]
       },
       "startedAt": "2026-02-09T22:33:55Z",
-      "lastActivity": "2026-02-09T22:33:55Z",
+      "lastActivity": "2026-02-09T22:33:56Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -34307,7 +34312,282 @@
         "start_timestamp": "2026-02-09T22:33:55Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-09T22:33:56Z"
+    },
+    {
+      "id": "session_20260209_143406_b2f509",
+      "status": "ended",
+      "name": "Integration Test test_session_1770676444212_lww816b",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4148",
+        "computedTaskIds": [
+          "T4148",
+          "T4151",
+          "T4152",
+          "T4155",
+          "T4162"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4151",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4151",
+            "timestamp": "2026-02-09T22:34:06Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:34:06Z",
+      "lastActivity": "2026-02-09T22:34:09Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_143406_b2f509",
+        "start_timestamp": "2026-02-09T22:34:06Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:34:09Z"
+    },
+    {
+      "id": "session_20260209_143416_cadf07",
+      "status": "ended",
+      "name": "New Test Session",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4148",
+        "computedTaskIds": [
+          "T4148",
+          "T4151",
+          "T4152",
+          "T4155",
+          "T4162",
+          "T4167",
+          "T4170"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4155",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4151",
+            "timestamp": "2026-02-09T22:34:16Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4155",
+            "timestamp": "2026-02-09T22:34:17Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:34:16Z",
+      "lastActivity": "2026-02-09T22:34:23Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 2,
+        "suspendCount": 0,
+        "resumeCount": 1
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_143416_cadf07",
+        "start_timestamp": "2026-02-09T22:34:16Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:34:23Z"
+    },
+    {
+      "id": "session_20260209_143425_d548a2",
+      "status": "ended",
+      "name": null,
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4148",
+        "computedTaskIds": [
+          "T4148",
+          "T4151",
+          "T4152",
+          "T4155",
+          "T4162",
+          "T4167",
+          "T4170",
+          "T4182"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4151",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4151",
+            "timestamp": "2026-02-09T22:34:25Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:34:25Z",
+      "lastActivity": "2026-02-09T22:34:25Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_143425_d548a2",
+        "start_timestamp": "2026-02-09T22:34:25Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:34:25Z"
+    },
+    {
+      "id": "session_20260209_143503_862868",
+      "status": "ended",
+      "name": "Focus Clear Test",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4172",
+        "computedTaskIds": [
+          "T4172"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4172",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4172",
+            "timestamp": "2026-02-09T22:35:03Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:35:03Z",
+      "lastActivity": "2026-02-09T22:35:04Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_143503_862868",
+        "start_timestamp": "2026-02-09T22:35:03Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:35:04Z"
+    },
+    {
+      "id": "session_20260209_143550_03b109",
+      "status": "ended",
+      "name": "History Test Session",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4199",
+        "computedTaskIds": [
+          "T4199"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4199",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4199",
+            "timestamp": "2026-02-09T22:35:50Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:35:50Z",
+      "lastActivity": "2026-02-09T22:35:51Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_143550_03b109",
+        "start_timestamp": "2026-02-09T22:35:50Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:35:51Z"
+    },
+    {
+      "id": "session_20260209_145735_1c8225",
+      "status": "ended",
+      "name": "Checkpoint-Release Fix",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3080",
+        "computedTaskIds": [
+          "T3080"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": "Switching scope for new epic",
+        "nextAction": null,
+        "focusHistory": []
+      },
+      "startedAt": "2026-02-09T22:57:35Z",
+      "lastActivity": "2026-02-09T22:58:22Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 0,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_145735_1c8225",
+        "start_timestamp": "2026-02-09T22:57:35Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:58:22Z"
     }
   ],
   "sessionHistory": [
