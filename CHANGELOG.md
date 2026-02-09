@@ -2,6 +2,29 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [0.85.0] - 2026-02-09
+
+### Bug Fixes
+- Add checkpoint suppression mechanism for atomic multi-step flows (T4247)
+- Reorder release ship: set status=released BEFORE git commit (T4248)
+- Route release raw writes through save_json or shared helper (T4249)
+- Prevent checkpoint side-effects during validation gates (T4250)
+- Deduplicate checksum recalculation into shared helper (T4251)
+- Integration test: verify checkpoint suppression during release flow (T4252)
+
+## [0.85.0] - 2026-02-09
+
+### Bug Fixes
+- fix: Eliminate checkpoint/release race condition — release commit now captures final state (T4248)
+- fix: Route release raw writes through save_json for generation counter and audit trail (T4249)
+- fix: Add checkpoint suppression mechanism to prevent mid-flow auto-commits (T4247)
+- fix: Prevent checkpoint side-effects during validation gates in release ship (T4250)
+- fix: Deduplicate checksum recalculation into shared recalculate_checksum() function (T4251)
+- fix: Session-end checkpoint respects GIT_CHECKPOINT_SUPPRESS env var (T4250)
+
+### Tests
+- test: Integration tests for checkpoint suppression, checksum helper, and release flow (T4252)
+
 ## [0.84.0] - 2026-02-09
 
 ### Features
