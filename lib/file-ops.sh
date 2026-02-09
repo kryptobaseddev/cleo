@@ -52,6 +52,13 @@ if [[ -f "$_LIB_DIR/graph-cache.sh" ]]; then
     source "$_LIB_DIR/graph-cache.sh"
 fi
 
+# Source git-checkpoint library for automatic state file checkpointing (v0.83.0+)
+# Optional - provides git commits of .cleo/ state files at semantic boundaries
+if [[ -f "$_LIB_DIR/git-checkpoint.sh" ]]; then
+    # shellcheck source=lib/git-checkpoint.sh
+    source "$_LIB_DIR/git-checkpoint.sh"
+fi
+
 # Configuration
 # BACKUP_DIR: Unified backup directory per BACKUP-SYSTEM-SPEC.md Part 3.1
 # Tier 1 (Operational) backups go to backups/operational/ with numbered rotation
@@ -741,6 +748,11 @@ save_json() {
         if declare -f invalidate_graph_cache >/dev/null 2>&1; then
             invalidate_graph_cache 2>/dev/null || true
         fi
+    fi
+
+    # Git checkpoint: auto-commit .cleo/ state files if debounce elapsed
+    if declare -f git_checkpoint >/dev/null 2>&1; then
+        git_checkpoint "auto" "" 2>/dev/null || true
     fi
 
     return $FO_SUCCESS

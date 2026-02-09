@@ -188,21 +188,30 @@ prepare_changelog_header() {
         return 0
     fi
 
-    # Check if Unreleased section exists
-    if ! grep -q "^## \[Unreleased\]" "$changelog"; then
-        _release_log_warn "No [Unreleased] section found in changelog, skipping header creation"
-        return 0
-    fi
-
     _release_log_step "Creating version header for $version_no_v in $changelog..."
 
     # Create new version header
     local version_header="## [$version_no_v] - $date"
 
+    # Check if Unreleased section exists; create one if missing
+    if ! grep -q "^## \[Unreleased\]" "$changelog"; then
+        _release_log_warn "No [Unreleased] section found - creating one"
+        # Find the first version header to insert before
+        local first_version_line
+        first_version_line=$(grep -n "^## \[" "$changelog" | head -1 | cut -d: -f1 || true)
+
+        if [[ -n "$first_version_line" ]]; then
+            sed -i "${first_version_line}i\\
+## [Unreleased]\\
+" "$changelog"
+        else
+            # No version headers - append after file header
+            echo -e "\n## [Unreleased]\n" >> "$changelog"
+        fi
+    fi
+
     # T2864: Fixed awk logic to correctly insert version header
     # The new version header must come AFTER [Unreleased] but BEFORE any existing versions
-    # Previous bug: if [Unreleased] was followed by a version header, the new header
-    # was inserted AFTER the old one, breaking chronological order
     awk -v header="$version_header" '
         /^## \[Unreleased\]/ {
             print               # Print [Unreleased]

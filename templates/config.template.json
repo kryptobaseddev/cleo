@@ -60,6 +60,16 @@
     "allowScopeOverlap": false
   },
 
+  "release": {
+    "gates": [],
+    "changelog": {
+      "enabled": true,
+      "autoGenerate": false,
+      "source": "CHANGELOG.md",
+      "outputs": []
+    }
+  },
+
   "display": {
     "showArchiveCount": true,
     "showLogSummary": true,

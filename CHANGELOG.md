@@ -2,6 +2,36 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [Unreleased]
+
+### Features
+- feat: Integrate generate-changelog.sh into cleo release ship (Step 2.5)
+- feat: Dynamic GitHub URL resolution in generate-changelog.sh from git remote
+- feat: Platform changelog outputs configurable via release.changelog.outputs
+- feat: ensure_changelog_header() now auto-creates [Unreleased] section if missing
+
+### Bug Fixes
+- fix: v-prefix regex in generate-changelog.sh AWK patterns (lines 148, 156, 288)
+- fix: Default platform fallback changed from mintlify to empty (no implicit default)
+- fix: get_changelog_output_path() now requires explicit platform parameter
+
+### Documentation
+- docs: Unified release documentation with canonical protocol reference for agents
+- docs: Updated protocols/release.md with platform changelog workflow (v1.1.0)
+- docs: Added platform changelog configuration section to release.mdx
+- docs: Agent redirect in release.mdx points to protocols/release.md
+
+### CI/CD
+- ci: ShellCheck now blocking in CI (removed || true)
+- ci: docs-update.yml updated as safety net with platform-aware generation
+
+### Maintenance
+- chore: Added release.changelog config section to config template
+- chore: Schema default for changelog.outputs changed from [mintlify] to []
+- chore: Added [Unreleased] section to CHANGELOG.md
+- chore: Removed changelog-verification-report.md dev artifact
+- chore: Added *-verification-report.md pattern to .gitignore
+
 ## [0.83.0] - 2026-02-07
 
 ### Features

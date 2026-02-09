@@ -5,12 +5,15 @@ icon: "tag"
 ---
 
 {/* AUTO-GENERATED - Command documentation */}
+{/* LLM agents: See protocols/release.md for the optimized canonical reference */}
 
 # cleo release
 
 Manage release lifecycle for roadmap and changelog integration.
 
-<Info>**Agent Relevance**: Medium - Used for release management</Info>
+<Info>
+**For AI Agents**: The canonical LLM-optimized reference is `protocols/release.md`. Use that instead of this page for token efficiency.
+</Info>
 
 ## Synopsis
 
@@ -23,7 +26,7 @@ cleo release <subcommand> [OPTIONS]
 The `release` command manages the complete release lifecycle from planning to shipping, including task assignment, version bumping, git tagging, and changelog generation.
 
 <Note>
-**Changelog Integration**: As of v0.74.0, `cleo release ship` **automatically generates and appends** changelog entries to `CHANGELOG.md`. The changelog is generated from release tasks and validated before the release is marked as shipped.
+**Changelog Integration**: `cleo release ship` automatically generates and appends changelog entries to `CHANGELOG.md`. As of v0.84.0, it also generates platform-specific documentation (Mintlify, Docusaurus, etc.) if configured.
 </Note>
 
 ## Subcommands
@@ -50,7 +53,7 @@ The `release` command manages the complete release lifecycle from planning to sh
 | `--force-tag` | Overwrite existing git tag (requires --create-tag) |
 | `--push` | Push git tag to remote (requires --create-tag) |
 | `--write-changelog` | **DEPRECATED** - Changelog is auto-generated (since v0.74.0) |
-| `--skip-changelog` | Skip automatic changelog generation (for ship) |
+| `--no-changelog` | Skip automatic changelog generation (for ship) |
 | `--output FILE` | Output file for changelog (default: CHANGELOG.md) |
 | `--format, -f FORMAT` | Output format: text \| json (default: auto) |
 | `--json` | Shortcut for --format json |
@@ -93,12 +96,36 @@ Tasks are included if they:
 - Are explicitly assigned via `cleo release plan --tasks T001,T002`
 - Pass the 6-filter discovery pipeline during ship
 
+### Platform Changelog Outputs (v0.84.0+)
+
+When configured, `cleo release ship` also generates documentation-platform-specific changelogs:
+
+```json .cleo/config.json
+{
+  "release": {
+    "changelog": {
+      "outputs": [
+        { "platform": "mintlify", "enabled": true, "path": "docs/changelog/overview.mdx" }
+      ]
+    }
+  }
+}
+```
+
+Supported platforms: `mintlify`, `docusaurus`, `github`, `gitbook`, `plain`, `custom`.
+
+<Note>
+**Fresh installs**: No platforms are configured by default. Only `CHANGELOG.md` is generated.
+Add an entry to `release.changelog.outputs` to enable platform-specific output.
+GitHub URLs in generated output are resolved automatically from your `git remote origin`.
+</Note>
+
 ### Skipping Changelog Generation
 
-Use `--skip-changelog` to bypass automatic changelog generation:
+Use `--no-changelog` to bypass automatic changelog generation:
 
 ```bash
-cleo release ship v0.65.0 --skip-changelog
+cleo release ship v0.65.0 --no-changelog
 ```
 
 <Warning>
@@ -108,13 +135,17 @@ cleo release ship v0.65.0 --skip-changelog
 - Testing release workflow
 </Warning>
 
+<Note>
+**Tag Annotation Fallback** (v0.83.0+): When `--no-changelog` is used with `--create-tag`, the tag annotation still gets meaningful release notes. The system falls back to generating notes from git commits since the previous tag using `generate_changelog_from_commits()`. This ensures GitHub Actions always has content for release notes.
+</Note>
+
 ### Validation Gates
 
 The `ship` command validates:
 
 1. ✓ Release exists and is not already shipped
 2. ✓ At least one task is associated with the release
-3. ✓ Generated changelog is not empty (unless `--skip-changelog`)
+3. ✓ Generated changelog is not empty (unless `--no-changelog`)
 4. ✓ CHANGELOG.md is writable
 5. ✓ VERSION file matches (if `--bump-version`)
 
@@ -143,13 +174,13 @@ cleo release ship v0.65.0 --bump-version --create-tag --push
 
 ```bash Ship without Changelog
 # Skip changelog for minor releases
-cleo release ship v0.65.0 --skip-changelog
+cleo release ship v0.65.0 --no-changelog
 ```
 
 ```bash Ship with Manual Changelog
 # Generate changelog separately first (deprecated workflow)
 cleo release changelog v0.65.0
-cleo release ship v0.65.0 --skip-changelog
+cleo release ship v0.65.0 --no-changelog
 ```
 
 ```bash Ship with Notes
@@ -192,7 +223,7 @@ cleo release changelog v0.65.0
 
 **Cause**: Tasks don't have sufficient metadata (title/description).
 
-**Fix**: Update task descriptions or use `--skip-changelog` to bypass validation.
+**Fix**: Update task descriptions or use `--no-changelog` to bypass validation.
 
 ### "Release already shipped"
 
@@ -202,7 +233,8 @@ cleo release changelog v0.65.0
 
 ## See Also
 
+- [Release Protocol](/developer/protocols/release) - Canonical LLM-optimized reference (`protocols/release.md`)
 - [Release Management Specification](/developer/specifications/RELEASE-MANAGEMENT-SPEC) - Full release workflow spec
-- [generate-changelog](/commands/generate-changelog) - Generate Mintlify changelog
+- [generate-changelog](/commands/generate-changelog) - Generate platform changelogs from CHANGELOG.md
 - [roadmap](/commands/roadmap) - View project roadmap
 - [stats](/commands/stats) - Project statistics

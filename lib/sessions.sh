@@ -434,11 +434,8 @@ start_session() {
     sessions_file=$(get_sessions_file)
     todo_file=$(get_todo_file)
 
-    # Validate focus task is provided
-    if [[ -z "$focus_task" ]]; then
-        echo "Error: Session requires --focus <task-id> or --auto-focus" >&2
-        return ${EXIT_FOCUS_REQUIRED:-38}
-    fi
+    # Focus task is optional when auto-focus found no pending tasks in scope
+    # This allows starting sessions on new epics with no children yet
 
     # Initialize sessions file if needed
     if ! init_sessions_file "$sessions_file"; then
@@ -507,20 +504,26 @@ start_session() {
     computed_ids=$(compute_scope_tasks "$todo_content" "$scope_def")
 
     if [[ "$(echo "$computed_ids" | jq 'length')" -eq 0 ]]; then
-        unlock_file "$todo_fd"
-        unlock_file "$sessions_fd"
-        trap - EXIT ERR
-        echo "Error: Scope is empty - no tasks match criteria" >&2
-        return ${EXIT_SCOPE_INVALID:-33}
+        if [[ -n "$focus_task" ]]; then
+            unlock_file "$todo_fd"
+            unlock_file "$sessions_fd"
+            trap - EXIT ERR
+            echo "Error: Scope is empty - no tasks match criteria" >&2
+            return ${EXIT_SCOPE_INVALID:-33}
+        fi
+        # Allow empty scope when no focus (new epic with no children)
+        echo "Warning: Scope is empty - session started without focus. Add tasks to the epic." >&2
     fi
 
-    # Validate focus task is in scope
-    if ! echo "$computed_ids" | jq -e --arg id "$focus_task" 'index($id)' >/dev/null 2>&1; then
-        unlock_file "$todo_fd"
-        unlock_file "$sessions_fd"
-        trap - EXIT ERR
-        echo "Error: Focus task $focus_task is not in scope" >&2
-        return ${EXIT_TASK_NOT_IN_SCOPE:-34}
+    # Validate focus task is in scope (skip when no focus task)
+    if [[ -n "$focus_task" ]]; then
+        if ! echo "$computed_ids" | jq -e --arg id "$focus_task" 'index($id)' >/dev/null 2>&1; then
+            unlock_file "$todo_fd"
+            unlock_file "$sessions_fd"
+            trap - EXIT ERR
+            echo "Error: Focus task $focus_task is not in scope" >&2
+            return ${EXIT_TASK_NOT_IN_SCOPE:-34}
+        fi
     fi
 
     # Check for conflicts
@@ -566,23 +569,23 @@ start_session() {
             agentId: (if $agent == "" then null else $agent end),
             scope: ($scope + {computedTaskIds: $computedIds}),
             focus: {
-                currentTask: $focus,
+                currentTask: (if $focus == "" then null else $focus end),
                 currentPhase: null,
                 previousTask: null,
                 sessionNote: null,
                 nextAction: null,
-                focusHistory: [{
+                focusHistory: (if $focus == "" then [] else [{
                     taskId: $focus,
                     timestamp: $ts,
                     action: "focused"
-                }]
+                }] end)
             },
             startedAt: $ts,
             lastActivity: $ts,
             suspendedAt: null,
             stats: {
                 tasksCompleted: 0,
-                focusChanges: 1,
+                focusChanges: (if $focus == "" then 0 else 1 end),
                 suspendCount: 0,
                 resumeCount: 0
             },
