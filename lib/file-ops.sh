@@ -1004,7 +1004,31 @@ atomic_jsonl_append() {
     return $FO_SUCCESS
 }
 
+# ============================================================================
+# CHECKSUM OPERATIONS
+# ============================================================================
+
+#######################################
+# Recalculate checksum for todo.json content
+# Computes sha256sum of .tasks array and updates ._meta.checksum
+# @task T4251
+# Arguments:
+#   $1 - JSON string containing .tasks array
+# Outputs:
+#   Updated JSON string with recalculated ._meta.checksum to stdout
+# Returns:
+#   0 on success, non-zero on error
+#######################################
+recalculate_checksum() {
+    local json="$1"
+
+    local checksum
+    checksum=$(echo "$json" | jq -c '.tasks' | sha256sum | cut -c1-16)
+    echo "$json" | jq --arg cs "$checksum" '._meta.checksum = $cs'
+}
+
 # Export functions
+export -f recalculate_checksum
 export -f ensure_directory
 export -f lock_file
 export -f unlock_file

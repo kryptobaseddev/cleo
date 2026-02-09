@@ -9,6 +9,11 @@
 # boundaries (save_json, session end) with debounce to prevent commit noise.
 # All git errors are suppressed - checkpointing is never fatal.
 #
+# Suppression: Set GIT_CHECKPOINT_SUPPRESS=true to disable checkpointing
+# for the current process. Used by multi-step atomic flows (e.g., release ship)
+# to prevent partial state commits during a coordinated sequence.
+# The env var is per-process and does not persist across sessions.
+#
 # @task T3147
 
 #=== SOURCE GUARD ================================================
@@ -131,6 +136,12 @@ _get_last_checkpoint_time() {
 should_checkpoint() {
     local force="${1:-false}"
 
+    # Suppression check (even force doesn't override explicit suppression)
+    # @task T4247
+    if [[ "${GIT_CHECKPOINT_SUPPRESS:-}" == "true" ]]; then
+        return 1
+    fi
+
     # Load config
     _load_checkpoint_config
 
@@ -213,6 +224,12 @@ should_checkpoint() {
 git_checkpoint() {
     local trigger="${1:-auto}"
     local context="${2:-}"
+
+    # Checkpoint suppression: skip during multi-step atomic flows (e.g., release ship)
+    # @task T4247
+    if [[ "${GIT_CHECKPOINT_SUPPRESS:-}" == "true" ]]; then
+        return 0
+    fi
 
     local force="false"
     [[ "$trigger" == "manual" ]] && force="true"
@@ -320,6 +337,13 @@ git_checkpoint_status() {
         done
     fi
 
+    # Check suppression state
+    # @task T4247
+    local suppressed="false"
+    if [[ "${GIT_CHECKPOINT_SUPPRESS:-}" == "true" ]]; then
+        suppressed="true"
+    fi
+
     if [[ "$format" == "json" ]]; then
         jq -n \
             --argjson enabled "$([[ "$_GC_ENABLED" == "true" ]] && echo "true" || echo "false")" \
@@ -330,6 +354,7 @@ git_checkpoint_status() {
             --arg lastCheckpoint "$last_checkpoint_iso" \
             --argjson lastCheckpointEpoch "$last_checkpoint" \
             --argjson pendingChanges "$pending_changes" \
+            --argjson suppressed "$([[ "$suppressed" == "true" ]] && echo "true" || echo "false")" \
             '{
                 success: true,
                 config: {
@@ -342,13 +367,15 @@ git_checkpoint_status() {
                     isGitRepo: $isGitRepo,
                     lastCheckpoint: $lastCheckpoint,
                     lastCheckpointEpoch: $lastCheckpointEpoch,
-                    pendingChanges: $pendingChanges
+                    pendingChanges: $pendingChanges,
+                    suppressed: $suppressed
                 }
             }'
     else
         echo "Git Checkpoint Status"
         echo "====================="
         echo "Enabled:          $_GC_ENABLED"
+        echo "Suppressed:       $suppressed"
         echo "Debounce:         ${_GC_DEBOUNCE_MINUTES} minutes"
         echo "Message prefix:   $_GC_MESSAGE_PREFIX"
         echo "No-verify:        $_GC_NO_VERIFY"
