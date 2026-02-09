@@ -20,12 +20,20 @@ declare -r _GIT_CHECKPOINT_LOADED=1
 # ============================================================================
 
 # State files eligible for checkpointing (relative to .cleo/)
+# Core data files (task state, session history, audit log)
+# Metrics files (compliance, token usage, session analytics)
+# Sequence counter (ID generation state)
 _GIT_CHECKPOINT_STATE_FILES=(
     "todo.json"
     "todo-log.json"
     "sessions.json"
     "todo-archive.json"
     "config.json"
+    ".sequence"
+    "metrics/COMPLIANCE.jsonl"
+    "metrics/SESSIONS.jsonl"
+    "metrics/TOKEN_USAGE.jsonl"
+    "metrics/BENCHMARK.jsonl"
 )
 
 # Debounce state file location (relative to .cleo/)
@@ -45,12 +53,12 @@ _GIT_CHECKPOINT_STATE_FILE=".git-checkpoint-state"
 #######################################
 _load_checkpoint_config() {
     if declare -f get_config_value >/dev/null 2>&1; then
-        _GC_ENABLED=$(get_config_value "gitCheckpoint.enabled" "false")
+        _GC_ENABLED=$(get_config_value "gitCheckpoint.enabled" "true")
         _GC_DEBOUNCE_MINUTES=$(get_config_value "gitCheckpoint.debounceMinutes" "5")
         _GC_MESSAGE_PREFIX=$(get_config_value "gitCheckpoint.messagePrefix" "chore(cleo):")
         _GC_NO_VERIFY=$(get_config_value "gitCheckpoint.noVerify" "true")
     else
-        _GC_ENABLED="false"
+        _GC_ENABLED="true"
         _GC_DEBOUNCE_MINUTES="5"
         _GC_MESSAGE_PREFIX="chore(cleo):"
         _GC_NO_VERIFY="true"
@@ -229,7 +237,7 @@ git_checkpoint() {
                ! git diff --cached --quiet -- "$full_path" 2>/dev/null || \
                git ls-files --others --exclude-standard -- "$full_path" 2>/dev/null | grep -q .; then
                 git add "$full_path" 2>/dev/null || continue
-                ((staged_count++))
+                ((staged_count++)) || true
             fi
         fi
     done
@@ -306,7 +314,7 @@ git_checkpoint_status() {
                 if ! git diff --quiet -- "$full_path" 2>/dev/null || \
                    ! git diff --cached --quiet -- "$full_path" 2>/dev/null || \
                    git ls-files --others --exclude-standard -- "$full_path" 2>/dev/null | grep -q .; then
-                    ((pending_changes++))
+                    ((pending_changes++)) || true
                 fi
             fi
         done

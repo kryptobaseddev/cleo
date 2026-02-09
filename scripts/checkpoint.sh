@@ -78,10 +78,10 @@ Options:
   --quiet            Suppress non-essential output
 
 Configuration:
-  cleo config set gitCheckpoint.enabled true         # Enable (opt-in)
-  cleo config set gitCheckpoint.debounceMinutes 2    # Adjust debounce
+  cleo config set gitCheckpoint.enabled false        # Disable (enabled by default)
+  cleo config set gitCheckpoint.debounceMinutes 2    # Adjust debounce (default: 5)
   cleo config set gitCheckpoint.messagePrefix "chore(cleo):"  # Commit prefix
-  cleo config set gitCheckpoint.noVerify true         # Skip pre-commit hooks
+  cleo config set gitCheckpoint.noVerify true         # Skip pre-commit hooks (default)
 
 Examples:
   cleo checkpoint                    # Force immediate checkpoint
