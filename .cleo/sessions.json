@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-09T22:01:55Z",
-    "totalSessionsCreated": 505
+    "lastModified": "2026-02-09T22:07:20Z",
+    "totalSessionsCreated": 539
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -29774,7 +29774,7 @@
     },
     {
       "id": "session_20260209_140152_b4ab47",
-      "status": "active",
+      "status": "ended",
       "name": "Integration Test Bootstrap test_session_1770674509375_5wx4ari",
       "agentId": null,
       "scope": {
@@ -29806,9 +29806,9 @@
         ]
       },
       "focus": {
-        "currentTask": "T1363",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
+        "previousTask": "T1363",
         "sessionNote": null,
         "nextAction": null,
         "focusHistory": [
@@ -29820,7 +29820,7 @@
         ]
       },
       "startedAt": "2026-02-09T22:01:52Z",
-      "lastActivity": "2026-02-09T22:01:52Z",
+      "lastActivity": "2026-02-09T22:02:31Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -29833,11 +29833,12 @@
         "start_timestamp": "2026-02-09T22:01:52Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-09T22:02:31Z"
     },
     {
       "id": "session_20260209_140155_baeec0",
-      "status": "active",
+      "status": "ended",
       "name": "Integration Test session_20260209_140152_b4ab47",
       "agentId": null,
       "scope": {
@@ -29848,9 +29849,9 @@
         ]
       },
       "focus": {
-        "currentTask": "T3640",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
+        "previousTask": "T3640",
         "sessionNote": null,
         "nextAction": null,
         "focusHistory": [
@@ -29862,7 +29863,71 @@
         ]
       },
       "startedAt": "2026-02-09T22:01:55Z",
-      "lastActivity": "2026-02-09T22:01:55Z",
+      "lastActivity": "2026-02-09T22:02:29Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 1,
+        "resumeCount": 1
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140155_baeec0",
+        "start_timestamp": "2026-02-09T22:01:55Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:02:29Z"
+    },
+    {
+      "id": "session_20260209_140252_97018e",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674571554_fleuj3z",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:02:52Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:02:52Z",
+      "lastActivity": "2026-02-09T22:02:56Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -29871,8 +29936,1959 @@
         "resumeCount": 0
       },
       "startMetrics": {
-        "session_id": "session_20260209_140155_baeec0",
-        "start_timestamp": "2026-02-09T22:01:55Z",
+        "session_id": "session_20260209_140252_97018e",
+        "start_timestamp": "2026-02-09T22:02:52Z",
+        "start_tokens": 162310,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:02:56Z"
+    },
+    {
+      "id": "session_20260209_140255_7cfadc",
+      "status": "ended",
+      "name": "Integration Test session_20260209_140252_97018e",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3661",
+        "computedTaskIds": [
+          "T3661",
+          "T3662"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3661",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3661",
+            "timestamp": "2026-02-09T22:02:55Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:02:55Z",
+      "lastActivity": "2026-02-09T22:03:02Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140255_7cfadc",
+        "start_timestamp": "2026-02-09T22:02:55Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:03:02Z"
+    },
+    {
+      "id": "session_20260209_140318_26004e",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674598009_di62kwu",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:03:18Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:03:18Z",
+      "lastActivity": "2026-02-09T22:03:32Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140318_26004e",
+        "start_timestamp": "2026-02-09T22:03:18Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:03:32Z"
+    },
+    {
+      "id": "session_20260209_140335_842c6e",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674614513_0ojipfn",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:03:35Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:03:35Z",
+      "lastActivity": "2026-02-09T22:03:46Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140335_842c6e",
+        "start_timestamp": "2026-02-09T22:03:35Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:03:46Z"
+    },
+    {
+      "id": "session_20260209_140338_2e2dca",
+      "status": "ended",
+      "name": "E2E Session Test",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3673",
+        "computedTaskIds": [
+          "T3673"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3673",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3673",
+            "timestamp": "2026-02-09T22:03:38Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:03:38Z",
+      "lastActivity": "2026-02-09T22:03:49Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140338_2e2dca",
+        "start_timestamp": "2026-02-09T22:03:38Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:03:49Z"
+    },
+    {
+      "id": "session_20260209_140352_0939a1",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674628844_c7m6l2r",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:03:52Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:03:52Z",
+      "lastActivity": "2026-02-09T22:04:01Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140352_0939a1",
+        "start_timestamp": "2026-02-09T22:03:52Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:04:01Z"
+    },
+    {
+      "id": "session_20260209_140404_867b20",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674643972_h530d5c",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:04:04Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:04:04Z",
+      "lastActivity": "2026-02-09T22:04:25Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140404_867b20",
+        "start_timestamp": "2026-02-09T22:04:04Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:04:25Z"
+    },
+    {
+      "id": "session_20260209_140428_50a862",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674667445_du3b9uo",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:04:28Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:04:28Z",
+      "lastActivity": "2026-02-09T22:04:33Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140428_50a862",
+        "start_timestamp": "2026-02-09T22:04:28Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:04:33Z"
+    },
+    {
+      "id": "session_20260209_140435_45370d",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674674835_ahfc54o",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:04:35Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:04:35Z",
+      "lastActivity": "2026-02-09T22:04:47Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140435_45370d",
+        "start_timestamp": "2026-02-09T22:04:35Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:04:47Z"
+    },
+    {
+      "id": "session_20260209_140438_ee7b5b",
+      "status": "ended",
+      "name": "Integration Test session_20260209_140435_45370d",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3704",
+        "computedTaskIds": [
+          "T3704"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3704",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3704",
+            "timestamp": "2026-02-09T22:04:38Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:04:38Z",
+      "lastActivity": "2026-02-09T22:05:07Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 1,
+        "resumeCount": 1
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140438_ee7b5b",
+        "start_timestamp": "2026-02-09T22:04:38Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:07Z"
+    },
+    {
+      "id": "session_20260209_140507_ee680f",
+      "status": "ended",
+      "name": null,
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3704",
+        "computedTaskIds": [
+          "T3704",
+          "T3706",
+          "T3709",
+          "T3712",
+          "T3718",
+          "T3719",
+          "T3720",
+          "T3721",
+          "T3723",
+          "T3724",
+          "T3725",
+          "T3726"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3706",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3706",
+            "timestamp": "2026-02-09T22:05:08Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:08Z",
+      "lastActivity": "2026-02-09T22:05:09Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140507_ee680f",
+        "start_timestamp": "2026-02-09T22:05:08Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:09Z"
+    },
+    {
+      "id": "session_20260209_140511_407461",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674710904_4ygf3r4",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:05:11Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:11Z",
+      "lastActivity": "2026-02-09T22:05:16Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140511_407461",
+        "start_timestamp": "2026-02-09T22:05:11Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:16Z"
+    },
+    {
+      "id": "session_20260209_140518_a1e719",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674717310_utrbi20",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:05:18Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:18Z",
+      "lastActivity": "2026-02-09T22:05:21Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140518_a1e719",
+        "start_timestamp": "2026-02-09T22:05:18Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:21Z"
+    },
+    {
+      "id": "session_20260209_140522_dfd2e1",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674721696_icwxm5u",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:05:22Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:22Z",
+      "lastActivity": "2026-02-09T22:05:25Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140522_dfd2e1",
+        "start_timestamp": "2026-02-09T22:05:22Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:25Z"
+    },
+    {
+      "id": "session_20260209_140524_aa191d",
+      "status": "ended",
+      "name": "Integration Test session_20260209_140522_dfd2e1",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3704",
+        "computedTaskIds": [
+          "T3704",
+          "T3706",
+          "T3709",
+          "T3712",
+          "T3718",
+          "T3719",
+          "T3720",
+          "T3721",
+          "T3723",
+          "T3724",
+          "T3725",
+          "T3726"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3706",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3706",
+            "timestamp": "2026-02-09T22:05:24Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:24Z",
+      "lastActivity": "2026-02-09T22:05:26Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140524_aa191d",
+        "start_timestamp": "2026-02-09T22:05:24Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:26Z"
+    },
+    {
+      "id": "session_20260209_140528_4b59db",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674726576_gadj4xf",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:05:28Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:28Z",
+      "lastActivity": "2026-02-09T22:05:30Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140528_4b59db",
+        "start_timestamp": "2026-02-09T22:05:28Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:30Z"
+    },
+    {
+      "id": "session_20260209_140528_bef7da",
+      "status": "ended",
+      "name": "New Test Session",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3704",
+        "computedTaskIds": [
+          "T3704",
+          "T3706",
+          "T3709",
+          "T3712",
+          "T3718",
+          "T3719",
+          "T3720",
+          "T3721",
+          "T3723",
+          "T3724",
+          "T3725",
+          "T3726",
+          "T3742"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3706",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3706",
+            "timestamp": "2026-02-09T22:05:28Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:28Z",
+      "lastActivity": "2026-02-09T22:05:36Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 1,
+        "resumeCount": 1
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140528_bef7da",
+        "start_timestamp": "2026-02-09T22:05:28Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:36Z"
+    },
+    {
+      "id": "session_20260209_140543_9e8cf1",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674743170_jmast1f",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:05:43Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:43Z",
+      "lastActivity": "2026-02-09T22:05:48Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140543_9e8cf1",
+        "start_timestamp": "2026-02-09T22:05:43Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:48Z"
+    },
+    {
+      "id": "session_20260209_140549_3554fc",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674748830_yeaa8w8",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:05:49Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:49Z",
+      "lastActivity": "2026-02-09T22:05:53Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140549_3554fc",
+        "start_timestamp": "2026-02-09T22:05:49Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:05:53Z"
+    },
+    {
+      "id": "session_20260209_140555_5918f1",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674754534_h6dko0t",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:05:55Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:05:55Z",
+      "lastActivity": "2026-02-09T22:06:01Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140555_5918f1",
+        "start_timestamp": "2026-02-09T22:05:55Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:01Z"
+    },
+    {
+      "id": "session_20260209_140603_d213b8",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674762592_6tm4xjq",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:03Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:03Z",
+      "lastActivity": "2026-02-09T22:06:05Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140603_d213b8",
+        "start_timestamp": "2026-02-09T22:06:03Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:05Z"
+    },
+    {
+      "id": "session_20260209_140607_cab211",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674766507_kjpnavs",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:07Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:07Z",
+      "lastActivity": "2026-02-09T22:06:12Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140607_cab211",
+        "start_timestamp": "2026-02-09T22:06:07Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:12Z"
+    },
+    {
+      "id": "session_20260209_140608_eff1f4",
+      "status": "ended",
+      "name": "E2E Session Test",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3736",
+        "computedTaskIds": [
+          "T3736"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T3736",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3736",
+            "timestamp": "2026-02-09T22:06:08Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:08Z",
+      "lastActivity": "2026-02-09T22:06:13Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140608_eff1f4",
+        "start_timestamp": "2026-02-09T22:06:08Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:13Z"
+    },
+    {
+      "id": "session_20260209_140614_f92325",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674772727_phlyxey",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:14Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:14Z",
+      "lastActivity": "2026-02-09T22:06:17Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140614_f92325",
+        "start_timestamp": "2026-02-09T22:06:14Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:17Z"
+    },
+    {
+      "id": "session_20260209_140624_7aa5a5",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674783897_ywsbjbr",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:24Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:24Z",
+      "lastActivity": "2026-02-09T22:06:28Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140624_7aa5a5",
+        "start_timestamp": "2026-02-09T22:06:24Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:28Z"
+    },
+    {
+      "id": "session_20260209_140629_0a0817",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674788806_iyr7mp3",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:29Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:29Z",
+      "lastActivity": "2026-02-09T22:06:35Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140629_0a0817",
+        "start_timestamp": "2026-02-09T22:06:29Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:35Z"
+    },
+    {
+      "id": "session_20260209_140636_d332e2",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674795855_xma6esq",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:36Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:36Z",
+      "lastActivity": "2026-02-09T22:06:39Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140636_d332e2",
+        "start_timestamp": "2026-02-09T22:06:36Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:39Z"
+    },
+    {
+      "id": "session_20260209_140640_218ceb",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674800225_fvya2l6",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:40Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:40Z",
+      "lastActivity": "2026-02-09T22:06:45Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140640_218ceb",
+        "start_timestamp": "2026-02-09T22:06:41Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:45Z"
+    },
+    {
+      "id": "session_20260209_140647_e783eb",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674806641_tsfvef1",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:47Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:47Z",
+      "lastActivity": "2026-02-09T22:06:51Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140647_e783eb",
+        "start_timestamp": "2026-02-09T22:06:47Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:51Z"
+    },
+    {
+      "id": "session_20260209_140652_efff96",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674811716_cehxyt9",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:06:52Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:06:52Z",
+      "lastActivity": "2026-02-09T22:06:54Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140652_efff96",
+        "start_timestamp": "2026-02-09T22:06:52Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:06:54Z"
+    },
+    {
+      "id": "session_20260209_140700_c837d7",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674819506_2xvhhu6",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:07:00Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:07:00Z",
+      "lastActivity": "2026-02-09T22:07:01Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140700_c837d7",
+        "start_timestamp": "2026-02-09T22:07:00Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:07:01Z"
+    },
+    {
+      "id": "session_20260209_140702_26477d",
+      "status": "ended",
+      "name": "Integration Test Bootstrap test_session_1770674822056_gtkyx9r",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1362",
+        "computedTaskIds": [
+          "T1362",
+          "T1363",
+          "T1364",
+          "T1365",
+          "T1367",
+          "T1369",
+          "T1366",
+          "T1368",
+          "T1370",
+          "T1371",
+          "T1372",
+          "T1374",
+          "T1373",
+          "T1375",
+          "T1376",
+          "T1377",
+          "T1378",
+          "T1379",
+          "T1380",
+          "T1381",
+          "T1382",
+          "T1383"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T1363",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1363",
+            "timestamp": "2026-02-09T22:07:02Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:07:02Z",
+      "lastActivity": "2026-02-09T22:07:03Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140702_26477d",
+        "start_timestamp": "2026-02-09T22:07:02Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-09T22:07:03Z"
+    },
+    {
+      "id": "session_20260209_140705_2034d1",
+      "status": "active",
+      "name": "QuickStart",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3080",
+        "computedTaskIds": [
+          "T3080"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": []
+      },
+      "startedAt": "2026-02-09T22:07:05Z",
+      "lastActivity": "2026-02-09T22:07:05Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 0,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140705_2034d1",
+        "start_timestamp": "2026-02-09T22:07:05Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      }
+    },
+    {
+      "id": "session_20260209_140720_401e2f",
+      "status": "active",
+      "name": "Integration Test session_20260209_140705_2034d1",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3780",
+        "computedTaskIds": [
+          "T3780"
+        ]
+      },
+      "focus": {
+        "currentTask": "T3780",
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3780",
+            "timestamp": "2026-02-09T22:07:20Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-09T22:07:20Z",
+      "lastActivity": "2026-02-09T22:07:20Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260209_140720_401e2f",
+        "start_timestamp": "2026-02-09T22:07:20Z",
         "start_tokens": 0,
         "max_tokens": 200000
       }
