@@ -91735,11 +91735,187 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log-1770675203-5b972a",
+      "timestamp": "2026-02-09T22:13:24Z",
+      "action": "task_created",
+      "taskId": "T3824",
+      "actor": "system",
+      "details": {
+        "title": "Task B",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Task B",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675205-d482be",
+      "timestamp": "2026-02-09T22:13:25Z",
+      "action": "task_created",
+      "taskId": "T3825",
+      "actor": "system",
+      "details": {
+        "title": "Gate Failure Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Gate Failure Test Epic",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_196c988a6be5",
+      "timestamp": "2026-02-09T22:13:26Z",
+      "sessionId": "session_20260209_141302_798b9d",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Integration test cleanup"
+      }
+    },
+    {
+      "id": "log-1770675209-094053",
+      "timestamp": "2026-02-09T22:13:29Z",
+      "action": "task_created",
+      "taskId": "T3826",
+      "actor": "system",
+      "details": {
+        "title": "E2E Test Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "E2E Test Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_f07bb716c0af",
+      "timestamp": "2026-02-09T22:13:31Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T3826",
+      "before": {
+        "title": "E2E Test Task",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Task created for end-to-end workflow testing",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Updated E2E Test Task",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Task created for end-to-end workflow testing",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_337b6bb5ef83",
+      "timestamp": "2026-02-09T22:13:34Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3826",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-09T22:13:32Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770675216-6b10c3",
+      "timestamp": "2026-02-09T22:13:36Z",
+      "action": "task_created",
+      "taskId": "T3827",
+      "actor": "system",
+      "details": {
+        "title": "Parent Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Parent Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675216-30a1a2",
+      "timestamp": "2026-02-09T22:13:36Z",
+      "action": "task_created",
+      "taskId": "T3828",
+      "actor": "system",
+      "details": {
+        "title": "Child Task",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Child Task",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770675217-574359",
+      "timestamp": "2026-02-09T22:13:37Z",
+      "action": "task_created",
+      "taskId": "T3829",
+      "actor": "system",
+      "details": {
+        "title": "Searchable Task 1770675217317",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Searchable Task 1770675217317",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 4755,
-    "lastEntry": "2026-02-09T22:13:02Z",
+    "totalEntries": 4775,
+    "lastEntry": "2026-02-09T22:13:34Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
