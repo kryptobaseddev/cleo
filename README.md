@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.83.1-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.84.0-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -67,13 +67,38 @@
 
 ## One Developer. One Agent. One Source of Truth.
 
-**CLEO** (Command Line Entity Orchestrator) is a task management system designed for AI coding agents and solo developers. It's the **contract between you and your AI coding agent**—not just a task tracker, but a structured protocol designed for the unique challenges of AI-assisted development:
+**CLEO** (Command Line Entity Orchestrator) is a vendor-neutral Brain and Memory system for AI software development. It's the **contract between you and your AI coding agent**—not just a task tracker, but a structured protocol for portable memory, provenance, and deterministic agent execution.
 
 - **Agents hallucinate**. CLEO validates every operation before execution.
 - **Agents lose context**. CLEO persists state across sessions with immutable audit trails.
 - **Agents need structure**. CLEO outputs JSON by default, with human-readable formatting opt-in.
 
-Built specifically for [Claude Code](https://claude.ai/claude-code), but the principles apply to any LLM-agent workflow.
+Optimized for [Claude Code](https://claude.ai/claude-code), and intentionally portable across model providers, agent runtimes, and coding tools.
+
+### Canonical Product Identity
+
+CLEO provides:
+
+- **Portable Memory**: Project -> Epic -> Task hierarchy, research manifests, and agent outputs
+- **Provenance by Default**: Every artifact traceable to task, decision, agent, and operation
+- **Interoperable Interfaces**: CLI + MCP + provider/tool adapters without vendor lock-in
+- **Deterministic Safety**: Validation layers, lifecycle gates, atomic writes, immutable audit logs
+- **Cognitive Retrieval**: Page index + graph/vector/RAG for Tier M/L contextual reasoning
+
+### Current State vs Strategic Direction
+
+| State | What It Means |
+|------|----------------|
+| **Current (Shipped)** | Bash-native CLI is production baseline with atomic operations, anti-hallucination validation, lifecycle enforcement, and persistent project memory |
+| **Strategic (Gated)** | MCP maturation, Nexus validation, memory/reasoning expansion, and Tier M/L multi-agent intelligence are roadmap-driven and evidence-gated |
+
+### Source of Truth Hierarchy
+
+1. [`docs/concepts/vision.mdx`](docs/concepts/vision.mdx) - immutable product vision
+2. [`docs/specs/PORTABLE-BRAIN-SPEC.md`](docs/specs/PORTABLE-BRAIN-SPEC.md) - canonical normative contract
+3. [`README.md`](README.md) - operational public contract
+4. [`docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md`](docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md) - phased execution plan
+5. [`docs/specs/CLEO-BRAIN-SPECIFICATION.md`](docs/specs/CLEO-BRAIN-SPECIFICATION.md) - detailed capability model
 
 ---
 
