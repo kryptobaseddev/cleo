@@ -150,13 +150,19 @@ populate_release_tasks() {
     ' "$todo_file")
 
     # Recalculate checksum after modifying todo.json
-    local checksum
-    checksum=$(echo "$updated_json" | jq -c '.tasks' | sha256sum | cut -c1-16)
-    updated_json=$(echo "$updated_json" | jq --arg cs "$checksum" '._meta.checksum = $cs')
+    updated_json=$(recalculate_checksum "$updated_json")
 
-    # Write back to file
-    echo "$updated_json" > "$todo_file.tmp"
-    mv "$todo_file.tmp" "$todo_file"
+    # @task T4249 - Route through save_json for generation counter, audit trail, checkpoint
+    if declare -f save_json >/dev/null 2>&1; then
+        echo "$updated_json" | save_json "$todo_file" || {
+            echo "Error: Failed to save $todo_file" >&2
+            return 1
+        }
+    else
+        # Fallback for contexts where file-ops.sh isn't loaded
+        echo "$updated_json" > "$todo_file.tmp"
+        mv "$todo_file.tmp" "$todo_file"
+    fi
 
     return 0
 }
