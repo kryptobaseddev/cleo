@@ -530,21 +530,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-09T22:58:04Z",
+  "lastUpdated": "2026-02-09T23:04:12Z",
   "_meta": {
-    "checksum": "af7027580d5c3447",
+    "checksum": "1e0ecbff03bf380d",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-09T22:57:35Z",
+    "lastModified": "2026-02-09T23:02:24Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 24,
-    "generation": 2323
+    "activeSessionCount": 27,
+    "generation": 2326
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T4249",
     "blockedUntil": null,
     "sessionNote": "Research complete. Writing findings to output file.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -28143,6 +28143,144 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "Root cause: git checkpoint auto-commits interfere with release ship flow causing state corruption. 5 fixes: (1) Add checkpoint suppression mechanism for multi-step atomic flows, (2) Reorder release ship to set status before git commit, (3) Route raw writes through save_json, (4) Prevent checkpoint side-effects during validation gates, (5) Deduplicate checksum recalculation into shared helper."
+    },
+    {
+      "id": "T4247",
+      "title": "Add checkpoint suppression mechanism for atomic multi-step flows",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3080",
+      "createdAt": "2026-02-09T23:00:04Z",
+      "updatedAt": "2026-02-09T23:03:17Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add GIT_CHECKPOINT_SUPPRESS env var check to git_checkpoint(). When set, checkpoint silently skips. Release ship sets this at start, unsets at end. Prevents mid-flow auto-commits that create partial state commits.",
+      "completedAt": "2026-02-09T23:03:17Z",
+      "notes": [
+        "[COMPLETED 2026-02-09T23:03:17Z] Added GIT_CHECKPOINT_SUPPRESS env var to git_checkpoint() and should_checkpoint(). Header docs updated. Status output includes suppression state in both JSON and text formats."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-09T23:03:17Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4248",
+      "title": "Reorder release ship: set status=released BEFORE git commit",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3080",
+      "createdAt": "2026-02-09T23:00:05Z",
+      "updatedAt": "2026-02-09T23:00:05Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Move Step 6 (status update to released) before Step 3.5 (git commit). The release commit must capture final state including status=released and releasedAt, not leave it for a later checkpoint."
+    },
+    {
+      "id": "T4249",
+      "title": "Route release raw writes through save_json or shared helper",
+      "status": "active",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3080",
+      "createdAt": "2026-02-09T23:00:05Z",
+      "updatedAt": "2026-02-09T23:02:24Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Three raw writes bypass save_json: cmd_create() release.sh:621, populate_release_tasks() changelog.sh:158, cmd_ship() step 6 release.sh:1091. Route through save_json for generation counter, audit trail, and checkpoint awareness. Or create save_release_json() helper."
+    },
+    {
+      "id": "T4250",
+      "title": "Prevent checkpoint side-effects during validation gates",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3080",
+      "createdAt": "2026-02-09T23:00:06Z",
+      "updatedAt": "2026-02-09T23:00:06Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "When validate_release() runs cleo validate inside release ship, auto-fix writes trigger save_json which triggers git_checkpoint. The checkpoint commits .cleo/todo.json mid-ship, interfering with the release commit. Set GIT_CHECKPOINT_SUPPRESS before calling validate."
+    },
+    {
+      "id": "T4251",
+      "title": "Deduplicate checksum recalculation into shared helper",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3080",
+      "createdAt": "2026-02-09T23:00:07Z",
+      "updatedAt": "2026-02-09T23:04:12Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Three separate code sites copy-paste: checksum=$(echo json | jq -c .tasks | sha256sum | cut -c1-16). Extract to recalculate_checksum() function in file-ops.sh or create save_release_state() helper.",
+      "completedAt": "2026-02-09T23:04:12Z",
+      "notes": [
+        "[COMPLETED 2026-02-09T23:04:12Z] Extracted recalculate_checksum() to lib/file-ops.sh, replaced 4 duplicate sites in scripts/release.sh and lib/changelog.sh"
+      ]
+    },
+    {
+      "id": "T4252",
+      "title": "Integration test: verify checkpoint suppression during release flow",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3080",
+      "createdAt": "2026-02-09T23:00:35Z",
+      "updatedAt": "2026-02-09T23:00:35Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write BATS integration test that simulates full release flow with checkpoint enabled. Verify: no mid-flow checkpoint commits, release commit captures final state, status=released in release commit, checkpoint resumes after flow completes.",
+      "depends": [
+        "T4247",
+        "T4248",
+        "T4249",
+        "T4250",
+        "T4251"
+      ]
+    },
+    {
+      "id": "T4254",
+      "title": "Release v0.85.0 with checkpoint/release fixes",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T3080",
+      "createdAt": "2026-02-09T23:00:47Z",
+      "updatedAt": "2026-02-09T23:00:47Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Full release using cleo release protocol: create, plan, ship with bump-version, create-tag, push.",
+      "depends": [
+        "T4252"
+      ]
     }
   ],
   "labels": {}
