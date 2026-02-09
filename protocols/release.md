@@ -1,7 +1,7 @@
 # Release Protocol
 
 **Provenance**: @task T3155, @epic T3147
-**Version**: 1.1.0
+**Version**: 2.0.0
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -54,6 +54,89 @@ This protocol activates when the task involves:
 | RLSE-020 | MAY include performance benchmarks |
 | RLSE-021 | MAY announce on communication channels |
 | RLSE-022 | MAY batch minor fixes into single release |
+
+---
+
+## Release Schema
+
+Releases are stored as an array in `todo.json` under `project.releases`:
+
+```json
+{
+  "releaseDefinition": {
+    "required": ["version", "status", "createdAt"],
+    "properties": {
+      "version": { "type": "string", "pattern": "^v\\d+\\.\\d+\\.\\d+(-[a-z0-9.-]+)?$" },
+      "status": { "enum": ["planned", "released"] },
+      "name": { "type": ["string", "null"], "maxLength": 100 },
+      "description": { "type": ["string", "null"], "maxLength": 500 },
+      "tasks": { "type": "array", "items": { "pattern": "^T\\d{3,}$" } },
+      "createdAt": { "format": "date-time" },
+      "targetDate": { "format": "date" },
+      "releasedAt": { "format": "date-time" },
+      "gitTag": { "type": ["string", "null"] },
+      "changelog": { "type": ["string", "null"] },
+      "notes": { "type": "array", "items": { "maxLength": 500 } }
+    }
+  }
+}
+```
+
+## State Machine
+
+```
+create → planned → released (immutable)
+```
+
+| Transition | Trigger | Condition |
+|------------|---------|-----------|
+| (none) → planned | `cleo release create <version>` | User action |
+| planned → released | `cleo release ship <version>` | All validation gates pass |
+
+Once `released`, the entry is **immutable** -- no task additions, no metadata changes.
+
+## Task Discovery (6-Filter Pipeline)
+
+During `cleo release ship`, tasks are auto-discovered via `populate_release_tasks()`:
+
+| Filter | Purpose |
+|--------|---------|
+| 1. `completedAt` | Must have completion timestamp |
+| 2. Date window | Completed between previous and current release |
+| 3. `status == "done"` | Must be done (not pending/active/blocked) |
+| 4. `type != "epic"` | Excludes organizational epics |
+| 5. Label match | Has version label, `changelog`, or `release` label |
+| 6. Version exclusivity | Tasks with explicit version labels aren't claimed by other releases |
+
+Tasks are also included if explicitly assigned via `cleo release plan --tasks T001,T002`.
+
+## Error Codes (50-59)
+
+| Code | Constant | Meaning | Recovery |
+|------|----------|---------|----------|
+| 50 | `E_RELEASE_NOT_FOUND` | Release version not found | `cleo release list` |
+| 51 | `E_RELEASE_EXISTS` | Version already exists | Use different version |
+| 52 | `E_RELEASE_LOCKED` | Released = immutable | Create hotfix version |
+| 53 | `E_INVALID_VERSION` | Bad semver format | Use `v{major}.{minor}.{patch}` |
+| 54 | `E_VALIDATION_FAILED` | Schema validation failed | `cleo validate --fix` |
+| 55 | `E_VERSION_BUMP_FAILED` | bump-version.sh failed | Check VERSION file |
+| 56 | `E_TAG_CREATION_FAILED` | Git tag failed | Check git status, existing tags |
+| 57 | `E_CHANGELOG_GENERATION_FAILED` | Changelog failed | Check lib/changelog.sh |
+| 58 | `E_INVALID_TRANSITION` | Bad state transition | Check release status |
+| 59 | `E_TASKS_INCOMPLETE` | Incomplete tasks | Complete or remove from release |
+
+## CLI Commands (8 subcommands)
+
+```bash
+cleo release create <version> [--name --target-date --tasks]
+cleo release plan <version> [--tasks --remove --notes]
+cleo release ship <version> [--bump-version --create-tag --push --no-changelog --dry-run]
+cleo release list [--status --format]
+cleo release show <version> [--format]
+cleo release changelog <version>
+cleo release validate <task-id>
+cleo release init-ci [--platform --force]
+```
 
 ---
 
@@ -361,4 +444,4 @@ Release complete. See MANIFEST.jsonl for summary.
 
 ---
 
-*Protocol Version 1.1.0 - Release Protocol (v0.84.0: platform changelog integration, dynamic URLs)*
+*Protocol Version 2.0.0 - Canonical release reference (consolidated from RELEASE-MANAGEMENT.mdx)*
