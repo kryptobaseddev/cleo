@@ -2,7 +2,24 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
-## [Unreleased]
+## [0.84.0] - 2026-02-09
+
+### Features
+- feat: Add artifact-publish conditional protocol (9 MUST/4 SHOULD/3 MAY, error codes 85-89) (T3080)
+- feat: Add provenance conditional protocol with SLSA L1-L4 compliance (error codes 90-94) (T3080)
+- feat: Git checkpoint enabled by default as safety feature for .cleo/ state recovery (T3173)
+- feat: Git checkpoint now tracks metrics and sequence files (T3173)
+
+### Bug Fixes
+- fix: Checkpoint ((count++)) arithmetic crash under set -e (T3173)
+- fix: Add checkpoint command to COMMANDS-INDEX.json (T3080)
+- fix: Duplicate task ID T3183 in todo.json and archive (data integrity)
+
+### Documentation
+- docs: Sync strategic roadmap MDX with canonical v1.1.0 spec (T2973)
+- docs: Complete release protocol v2.1.0 consolidation with full CLI docs (T3155)
+- docs: Deprecate docs/developer/protocols/release.mdx in favor of canonical protocols/release.md (T3155)
+- docs: Update CLEO-INJECTION.md to 9 conditional protocols (T3080)
 
 ## [0.83.1] - 2026-02-09
 
