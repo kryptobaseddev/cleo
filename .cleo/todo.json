@@ -530,21 +530,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-09T23:04:12Z",
+  "lastUpdated": "2026-02-09T23:11:18Z",
   "_meta": {
-    "checksum": "1e0ecbff03bf380d",
+    "checksum": "58aff5ce8d12500d",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-09T23:02:24Z",
+    "lastModified": "2026-02-09T23:10:03Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 27,
-    "generation": 2326
+    "activeSessionCount": 26,
+    "generation": 2334
   },
   "focus": {
-    "currentTask": "T4249",
+    "currentTask": "T4252",
     "blockedUntil": null,
     "sessionNote": "Research complete. Writing findings to output file.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -28186,7 +28186,7 @@
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:05Z",
-      "updatedAt": "2026-02-09T23:00:05Z",
+      "updatedAt": "2026-02-09T23:10:03Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -28196,32 +28196,70 @@
     {
       "id": "T4249",
       "title": "Route release raw writes through save_json or shared helper",
-      "status": "active",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:05Z",
-      "updatedAt": "2026-02-09T23:02:24Z",
+      "updatedAt": "2026-02-09T23:05:27Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Three raw writes bypass save_json: cmd_create() release.sh:621, populate_release_tasks() changelog.sh:158, cmd_ship() step 6 release.sh:1091. Route through save_json for generation counter, audit trail, and checkpoint awareness. Or create save_release_json() helper."
+      "description": "Three raw writes bypass save_json: cmd_create() release.sh:621, populate_release_tasks() changelog.sh:158, cmd_ship() step 6 release.sh:1091. Route through save_json for generation counter, audit trail, and checkpoint awareness. Or create save_release_json() helper.",
+      "completedAt": "2026-02-09T23:05:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-09T23:05:27Z] Routed 4 raw write sites through save_json with fallback. Files: scripts/release.sh (3 sites), lib/changelog.sh (1 site)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-09T23:05:27Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4250",
       "title": "Prevent checkpoint side-effects during validation gates",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:06Z",
-      "updatedAt": "2026-02-09T23:00:06Z",
+      "updatedAt": "2026-02-09T23:07:35Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
       "phase": "core",
-      "description": "When validate_release() runs cleo validate inside release ship, auto-fix writes trigger save_json which triggers git_checkpoint. The checkpoint commits .cleo/todo.json mid-ship, interfering with the release commit. Set GIT_CHECKPOINT_SUPPRESS before calling validate."
+      "description": "When validate_release() runs cleo validate inside release ship, auto-fix writes trigger save_json which triggers git_checkpoint. The checkpoint commits .cleo/todo.json mid-ship, interfering with the release commit. Set GIT_CHECKPOINT_SUPPRESS before calling validate.",
+      "completedAt": "2026-02-09T23:07:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-09T23:07:35Z] Documented suppression dependency in validate_release() and added suppression guard to session-end checkpoint in session.sh"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-09T23:07:35Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4251",
@@ -28240,17 +28278,32 @@
       "completedAt": "2026-02-09T23:04:12Z",
       "notes": [
         "[COMPLETED 2026-02-09T23:04:12Z] Extracted recalculate_checksum() to lib/file-ops.sh, replaced 4 duplicate sites in scripts/release.sh and lib/changelog.sh"
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-09T23:04:13Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4252",
       "title": "Integration test: verify checkpoint suppression during release flow",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:35Z",
-      "updatedAt": "2026-02-09T23:00:35Z",
+      "updatedAt": "2026-02-09T23:11:18Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -28262,6 +28315,10 @@
         "T4249",
         "T4250",
         "T4251"
+      ],
+      "completedAt": "2026-02-09T23:11:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-09T23:11:18Z] Created 7 BATS integration tests in tests/integration/checkpoint-release.bats. All pass. Covers suppression (T4247), checksum (T4251), session-end (T4250)."
       ]
     },
     {
