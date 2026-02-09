@@ -4,6 +4,8 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.83.1] - 2026-02-09
+
 ### Features
 - feat: Integrate generate-changelog.sh into cleo release ship (Step 2.5)
 - feat: Dynamic GitHub URL resolution in generate-changelog.sh from git remote
