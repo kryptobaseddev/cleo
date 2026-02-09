@@ -527,24 +527,42 @@
         "tasks": [],
         "notes": "Git checkpoint enabled by default, artifact-publish and provenance protocols, release docs v2.1.0 consolidation, strategic roadmap sync",
         "gitTag": "v0.84.0"
+      },
+      {
+        "version": "v0.85.0",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-09T23:14:52Z",
+        "createdAt": "2026-02-09T23:13:55Z",
+        "tasks": [
+          "T4247",
+          "T4248",
+          "T4249",
+          "T4250",
+          "T4251",
+          "T4252"
+        ],
+        "notes": null,
+        "gitTag": "v0.85.0",
+        "changelog": "## [0.85.0] - 2026-02-09\n\n### Bug Fixes\n- Add checkpoint suppression mechanism for atomic multi-step flows (T4247)\n- Reorder release ship: set status=released BEFORE git commit (T4248)\n- Route release raw writes through save_json or shared helper (T4249)\n- Prevent checkpoint side-effects during validation gates (T4250)\n- Deduplicate checksum recalculation into shared helper (T4251)\n- Integration test: verify checkpoint suppression during release flow (T4252)"
       }
     ]
   },
-  "lastUpdated": "2026-02-09T23:11:18Z",
+  "lastUpdated": "2026-02-09T23:14:52Z",
   "_meta": {
-    "checksum": "58aff5ce8d12500d",
+    "checksum": "6c1832de3642c941",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-09T23:10:03Z",
+    "lastModified": "2026-02-09T23:11:31Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 26,
-    "generation": 2334
+    "activeSessionCount": 25,
+    "generation": 2347
   },
   "focus": {
-    "currentTask": "T4252",
+    "currentTask": null,
     "blockedUntil": null,
     "sessionNote": "Research complete. Writing findings to output file.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -28152,7 +28170,7 @@
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:04Z",
-      "updatedAt": "2026-02-09T23:03:17Z",
+      "updatedAt": "2026-02-09T23:13:21Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -28176,22 +28194,49 @@
         "lastAgent": "coder",
         "lastUpdated": "2026-02-09T23:03:17Z",
         "failureLog": []
-      }
+      },
+      "labels": [
+        "fix",
+        "v0.85.0"
+      ]
     },
     {
       "id": "T4248",
       "title": "Reorder release ship: set status=released BEFORE git commit",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:05Z",
-      "updatedAt": "2026-02-09T23:10:03Z",
+      "updatedAt": "2026-02-09T23:13:27Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Move Step 6 (status update to released) before Step 3.5 (git commit). The release commit must capture final state including status=released and releasedAt, not leave it for a later checkpoint."
+      "description": "Move Step 6 (status update to released) before Step 3.5 (git commit). The release commit must capture final state including status=released and releasedAt, not leave it for a later checkpoint.",
+      "completedAt": "2026-02-09T23:13:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-09T23:13:03Z] Reordered release ship flow"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-09T23:13:03Z",
+        "failureLog": []
+      },
+      "labels": [
+        "fix",
+        "v0.85.0"
+      ]
     },
     {
       "id": "T4249",
@@ -28201,7 +28246,7 @@
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:05Z",
-      "updatedAt": "2026-02-09T23:05:27Z",
+      "updatedAt": "2026-02-09T23:13:28Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -28225,7 +28270,11 @@
         "lastAgent": "coder",
         "lastUpdated": "2026-02-09T23:05:27Z",
         "failureLog": []
-      }
+      },
+      "labels": [
+        "fix",
+        "v0.85.0"
+      ]
     },
     {
       "id": "T4250",
@@ -28235,7 +28284,7 @@
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:06Z",
-      "updatedAt": "2026-02-09T23:07:35Z",
+      "updatedAt": "2026-02-09T23:13:29Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -28259,7 +28308,11 @@
         "lastAgent": "coder",
         "lastUpdated": "2026-02-09T23:07:35Z",
         "failureLog": []
-      }
+      },
+      "labels": [
+        "fix",
+        "v0.85.0"
+      ]
     },
     {
       "id": "T4251",
@@ -28269,7 +28322,7 @@
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:07Z",
-      "updatedAt": "2026-02-09T23:04:12Z",
+      "updatedAt": "2026-02-09T23:13:30Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -28293,7 +28346,11 @@
         "lastAgent": "coder",
         "lastUpdated": "2026-02-09T23:04:13Z",
         "failureLog": []
-      }
+      },
+      "labels": [
+        "fix",
+        "v0.85.0"
+      ]
     },
     {
       "id": "T4252",
@@ -28303,7 +28360,7 @@
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-09T23:00:35Z",
-      "updatedAt": "2026-02-09T23:11:18Z",
+      "updatedAt": "2026-02-09T23:13:31Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -28319,6 +28376,25 @@
       "completedAt": "2026-02-09T23:11:18Z",
       "notes": [
         "[COMPLETED 2026-02-09T23:11:18Z] Created 7 BATS integration tests in tests/integration/checkpoint-release.bats. All pass. Covers suppression (T4247), checksum (T4251), session-end (T4250)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-09T23:11:19Z",
+        "failureLog": []
+      },
+      "labels": [
+        "fix",
+        "v0.85.0"
       ]
     },
     {
