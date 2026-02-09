@@ -2,8 +2,8 @@
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "2.0.0",
-    "lastUpdated": "2026-02-07",
-    "totalCommands": 73,
+    "lastUpdated": "2026-02-09",
+    "totalCommands": 74,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0",
     "generatedFrom": "script-headers"
   },
@@ -15,6 +15,7 @@
     ],
     "maintenance": [
       "backup",
+      "checkpoint",
       "claude-migrate",
       "config",
       "docs",
@@ -222,6 +223,25 @@
       "exitCodes": [
         0,
         100
+      ]
+    },
+    {
+      "name": "checkpoint",
+      "script": "checkpoint.sh",
+      "category": "maintenance",
+      "synopsis": "Git checkpoint for CLEO state files (manual trigger or status)",
+      "agentRelevance": "low",
+      "jsonOutput": true,
+      "jsonDefault": false,
+      "flags": [
+        "--format",
+        "--quiet",
+        "--status",
+        "--dry-run"
+      ],
+      "exitCodes": [
+        0,
+        1
       ]
     },
     {
