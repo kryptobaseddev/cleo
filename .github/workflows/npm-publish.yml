@@ -1,0 +1,45 @@
+name: Publish MCP Server to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Sync MCP version with CLI
+        run: |
+          VERSION=$(cat VERSION)
+          cd mcp-server
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${VERSION}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "Publishing @cleo/mcp-server@${VERSION}"
+
+      - name: Install dependencies
+        run: cd mcp-server && npm ci
+
+      - name: Build
+        run: cd mcp-server && npm run build
+
+      - name: Run tests
+        run: cd mcp-server && npm test
+
+      - name: Publish to npm
+        run: cd mcp-server && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

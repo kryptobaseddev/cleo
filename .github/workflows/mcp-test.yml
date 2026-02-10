@@ -1,0 +1,40 @@
+name: MCP Server Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-server/**'
+  pull_request:
+    paths:
+      - 'mcp-server/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install CLEO CLI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Install MCP dependencies
+        run: cd mcp-server && npm ci
+
+      - name: Build
+        run: cd mcp-server && npm run build
+
+      - name: Unit tests
+        run: cd mcp-server && npm test
+
+      - name: TypeScript check
+        run: cd mcp-server && npx tsc --noEmit
