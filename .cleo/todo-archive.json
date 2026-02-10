@@ -3,8 +3,8 @@
   "version": "2.4.0",
   "project": "claude-todo",
   "_meta": {
-    "totalArchived": 2360,
-    "lastArchived": "2026-02-09T21:42:30Z",
+    "totalArchived": 2361,
+    "lastArchived": "2026-02-10T17:31:41Z",
     "oldestTask": "2025-12-06T06:35:41Z",
     "newestTask": "2026-02-07T17:27:55Z",
     "lastModified": "2025-12-29T18:07:08Z",
@@ -124812,11 +124812,45 @@
           "restoreBlockers": []
         }
       }
+    },
+    {
+      "id": "T4273",
+      "title": "Test dynamic scope recomputation",
+      "status": "cancelled",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4266",
+      "createdAt": "2026-02-10T17:31:17Z",
+      "updatedAt": "2026-02-10T17:31:39Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Testing that newly added tasks under an epic enter session scope dynamically (T4267)",
+      "cancelledAt": "2026-02-10T17:31:39Z",
+      "notes": [
+        "[CANCELLED 2026-02-10T17:31:39Z] Test task for T4267 scope fix - no longer needed"
+      ],
+      "completedAt": "2026-02-10T17:31:39Z",
+      "cancellationReason": "Test task for T4267 scope fix - no longer needed",
+      "_archive": {
+        "archivedAt": "2026-02-10T17:31:41Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 0,
+        "cancellationDetails": {
+          "cancelledAt": "2026-02-10T17:31:39Z",
+          "cancellationReason": "Test task for T4267 scope fix - no longer needed",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
     }
   ],
   "statistics": {
     "byPhase": {
-      "core": 1671,
+      "core": 1672,
       "maintenance": 56,
       "polish": 248,
       "setup": 61,
@@ -124825,7 +124859,7 @@
     "byPriority": {
       "critical": 274,
       "high": 971,
-      "medium": 991,
+      "medium": 992,
       "low": 113
     },
     "byLabel": {
@@ -125528,7 +125562,7 @@
       "wrapper": 2
     },
     "averageCycleTime": 1.27,
-    "cancelled": 157
+    "cancelled": 158
   },
   "phaseSummary": {
     "core": {

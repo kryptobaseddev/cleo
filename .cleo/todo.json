@@ -570,18 +570,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T17:29:26Z",
+  "lastUpdated": "2026-02-10T17:36:57Z",
   "_meta": {
-    "checksum": "f2896d269bf5d4d3",
+    "checksum": "b6d60fa45d0b5a66",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-10T15:50:19Z",
+    "lastModified": "2026-02-10T17:31:48Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 28,
-    "generation": 2369
+    "activeSessionCount": 27,
+    "generation": 2378
   },
   "focus": {
     "currentTask": null,
@@ -28747,7 +28747,7 @@
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-10T17:25:55Z",
-      "updatedAt": "2026-02-10T17:25:55Z",
+      "updatedAt": "2026-02-10T17:31:22Z",
       "size": "medium",
       "position": 842,
       "positionVersion": 0,
@@ -28757,17 +28757,36 @@
     {
       "id": "T4267",
       "title": "Fix static session scope - computedTaskIds must update dynamically",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4266",
       "createdAt": "2026-02-10T17:26:17Z",
-      "updatedAt": "2026-02-10T17:26:17Z",
+      "updatedAt": "2026-02-10T17:34:04Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Session computedTaskIds is fixed at session start. New child tasks added after session start are NOT in scope until session restart. This breaks workflow - agents adding tasks mid-session cannot focus on them. Must implement dynamic scope recomputation when tasks are added/removed within an epic scope. Impacts both CLI and MCP."
+      "description": "Session computedTaskIds is fixed at session start. New child tasks added after session start are NOT in scope until session restart. This breaks workflow - agents adding tasks mid-session cannot focus on them. Must implement dynamic scope recomputation when tasks are added/removed within an epic scope. Impacts both CLI and MCP.",
+      "completedAt": "2026-02-10T17:34:04Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T17:34:04Z] Implemented dynamic session scope recomputation. Added recompute_session_scope() to lib/sessions.sh with write-through cache. Updated 4 scope check locations (session-enforcement.sh, focus.sh, sessions.sh, complete.sh). All 89 tests pass. Manual smoke test confirmed: new child tasks now enter scope without session restart."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T17:34:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4268",
@@ -28787,17 +28806,21 @@
     {
       "id": "T4269",
       "title": "Expose dash command in MCP server - full CLI parity required",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4266",
       "createdAt": "2026-02-10T17:26:20Z",
-      "updatedAt": "2026-02-10T17:26:20Z",
+      "updatedAt": "2026-02-10T17:36:57Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "The dash command is CLI-only and returns E_INVALID_OPERATION via MCP. ALL CLI functionality MUST be available through the MCP server. Add dash as a query operation in the tasks or system domain. Audit for any other CLI commands not exposed via MCP and add them."
+      "description": "The dash command is CLI-only and returns E_INVALID_OPERATION via MCP. ALL CLI functionality MUST be available through the MCP server. Add dash as a query operation in the tasks or system domain. Audit for any other CLI commands not exposed via MCP and add them.",
+      "completedAt": "2026-02-10T17:36:57Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T17:36:57Z] Added 11 MCP operations (8 query + 3 mutate): dash, roadmap, labels, compliance, log, archive-stats, sequence, relates, safestop, uncancel, relates.add. Total MCP ops: 96→107. Full CLI parity audit: 74 commands mapped, 18 intentionally not exposed (internal/utility). All 942 tests pass."
+      ]
     },
     {
       "id": "T4270",
@@ -28816,7 +28839,22 @@
       "completedAt": "2026-02-10T17:29:26Z",
       "notes": [
         "[COMPLETED 2026-02-10T17:29:26Z] Fixed: added advisory as alias for warn in lib/session-enforcement.sh. Added enforcement and maxConcurrent to config schema. No more WARNING on every command."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T17:29:27Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4271",
@@ -28836,17 +28874,36 @@
     {
       "id": "T4272",
       "title": "Review MCP add validation vs CLI - document intentional differences",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4266",
       "createdAt": "2026-02-10T17:26:25Z",
-      "updatedAt": "2026-02-10T17:26:25Z",
+      "updatedAt": "2026-02-10T17:30:18Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
       "phase": "core",
-      "description": "MCP tasks.add requires both title AND description (anti-hallucination), while CLI cleo add only requires title. This is intentional but needs documentation. Review all MCP vs CLI validation differences, document them in the MCP docs, and confirm each difference is intentional rather than accidental."
+      "description": "MCP tasks.add requires both title AND description (anti-hallucination), while CLI cleo add only requires title. This is intentional but needs documentation. Review all MCP vs CLI validation differences, document them in the MCP docs, and confirm each difference is intentional rather than accidental.",
+      "completedAt": "2026-02-10T17:30:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T17:30:18Z] Created VALIDATION-DIFFERENCES.md documenting 5 intentional and 6 accidental MCP-CLI validation differences. Accidental diffs (title length, cancelled status, content limits, task ID pattern, zero-width chars, cancel reason) are caught by CLI downstream. Updated docs/README.md with link."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T17:30:19Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
