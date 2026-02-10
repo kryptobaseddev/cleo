@@ -5,7 +5,7 @@
  * audit logging, and rollback support.
  *
  * Domains: tasks, session, orchestrate, research, lifecycle, validate, release, system
- * Total operations: 48
+ * Total operations: 51
  *
  * @task T2929
  */
@@ -44,6 +44,7 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'promote',     // Promote subtask to task
     'reorder',     // Reorder siblings
     'reopen',      // Reopen completed task
+    'relates.add', // Add task relationship
   ],
   session: [
     'start',       // Start new session
@@ -96,13 +97,15 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'sync',        // Sync with TodoWrite
     'cleanup',     // Cleanup stale data
     'job.cancel',  // Cancel background job
+    'safestop',    // Graceful agent shutdown
+    'uncancel',    // Restore cancelled tasks
   ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_MUTATE_COUNT = 48;
+const EXPECTED_MUTATE_COUNT = 51;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(
@@ -322,6 +325,31 @@ function validateTasksParams(
               exitCode: 6,
               message: 'Missing required parameter: taskId',
               fix: 'Provide taskId parameter',
+            },
+          },
+        };
+      }
+      break;
+
+    case 'relates.add':
+      if (!params?.taskId || !params?.targetId || !params?.type || !params?.reason) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'cleo_mutate',
+              domain: 'tasks',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameters: taskId, targetId, type, and reason',
+              fix: 'Provide taskId, targetId, type, and reason parameters',
             },
           },
         };
@@ -865,6 +893,31 @@ function validateSystemParams(
               exitCode: 6,
               message: 'Missing required parameter: type',
               fix: 'Provide type parameter (e.g., "sessions", "backups")',
+            },
+          },
+        };
+      }
+      break;
+
+    case 'uncancel':
+      if (!params?.taskId) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'cleo_mutate',
+              domain: 'system',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameter: taskId',
+              fix: 'Provide taskId parameter for the cancelled task to restore',
             },
           },
         };

@@ -462,8 +462,8 @@ describe('TasksHandler', () => {
     it('should return all supported operations', () => {
       const ops = handler.getSupportedOperations();
 
-      expect(ops.query).toHaveLength(17);
-      expect(ops.mutate).toHaveLength(13);
+      expect(ops.query).toHaveLength(18);
+      expect(ops.mutate).toHaveLength(14);
       expect(ops.query).toContain('show');
       expect(ops.query).toContain('get');
       expect(ops.query).toContain('list');

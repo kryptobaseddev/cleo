@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.roadmap response",
+  "description": "Roadmap generated from pending epics and CHANGELOG history",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Roadmap data with upcoming releases and historical releases"
+        }
+      }
+    }
+  ]
+}

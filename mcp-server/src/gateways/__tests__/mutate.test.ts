@@ -19,9 +19,9 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 48 operations', () => {
+  it('should have exactly 51 operations', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(48);
+    expect(totalCount).toBe(51);
   });
 
   it('should have all 8 domains', () => {
@@ -39,14 +39,14 @@ describe('MUTATE_OPERATIONS', () => {
   });
 
   it('should have correct operation counts per domain', () => {
-    expect(MUTATE_OPERATIONS.tasks.length).toBe(10);
+    expect(MUTATE_OPERATIONS.tasks.length).toBe(11);
     expect(MUTATE_OPERATIONS.session.length).toBe(7);
     expect(MUTATE_OPERATIONS.orchestrate.length).toBe(5);
     expect(MUTATE_OPERATIONS.research.length).toBe(4);
     expect(MUTATE_OPERATIONS.lifecycle.length).toBe(5);
     expect(MUTATE_OPERATIONS.validate.length).toBe(2);
     expect(MUTATE_OPERATIONS.release.length).toBe(7);
-    expect(MUTATE_OPERATIONS.system.length).toBe(8);
+    expect(MUTATE_OPERATIONS.system.length).toBe(10);
   });
 });
 
@@ -480,18 +480,18 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(48);
+    expect(getMutateOperationCount()).toBe(51);
   });
 
   it('should return domain-specific counts', () => {
-    expect(getMutateOperationCount('tasks')).toBe(10);
+    expect(getMutateOperationCount('tasks')).toBe(11);
     expect(getMutateOperationCount('session')).toBe(7);
     expect(getMutateOperationCount('orchestrate')).toBe(5);
     expect(getMutateOperationCount('research')).toBe(4);
     expect(getMutateOperationCount('lifecycle')).toBe(5);
     expect(getMutateOperationCount('validate')).toBe(2);
     expect(getMutateOperationCount('release')).toBe(7);
-    expect(getMutateOperationCount('system')).toBe(8);
+    expect(getMutateOperationCount('system')).toBe(10);
   });
 
   it('should return 0 for unknown domain', () => {
@@ -534,7 +534,7 @@ describe('getMutateOperations', () => {
     expect(taskOps).toContain('create');
     expect(taskOps).toContain('update');
     expect(taskOps).toContain('complete');
-    expect(taskOps.length).toBe(10);
+    expect(taskOps.length).toBe(11);
   });
 
   it('should return empty array for unknown domain', () => {

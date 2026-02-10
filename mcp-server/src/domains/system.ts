@@ -1,14 +1,15 @@
 /**
  * System Domain Handler
  *
- * Implements all 21 system operations for CLEO MCP server:
- * - Query (12): context, metrics, health, config, diagnostics, version, help, doctor, config.get, stats, job.status, job.list
- * - Mutate (9): backup, restore, migrate, cleanup, audit, init, config.set, sync, job.cancel
+ * Implements all 30 system operations for CLEO MCP server:
+ * - Query (19): context, metrics, health, config, diagnostics, version, help, doctor, config.get, stats, job.status, job.list, dash, roadmap, labels, compliance, log, archive-stats, sequence
+ * - Mutate (11): backup, restore, migrate, cleanup, audit, init, config.set, sync, job.cancel, safestop, uncancel
  *
  * Each operation maps to corresponding CLEO CLI commands for system management,
  * health checks, configuration, and maintenance operations.
  *
  * @task T2935
+ * @task T4269
  */
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
@@ -236,6 +237,57 @@ interface SyncResult {
   conflicts: number;
 }
 
+interface SystemDashParams {
+  // No required parameters
+}
+
+interface SystemRoadmapParams {
+  format?: 'text' | 'json' | 'markdown';
+  includeHistory?: boolean;
+  upcomingOnly?: boolean;
+}
+
+interface SystemLabelsParams {
+  label?: string; // Show tasks for a specific label
+  subcommand?: 'show' | 'stats';
+}
+
+interface SystemComplianceParams {
+  subcommand?: 'summary' | 'violations' | 'trend' | 'audit' | 'sync';
+  days?: number;
+  epic?: string;
+}
+
+interface SystemLogParams {
+  limit?: number;
+  operation?: string;
+  task?: string;
+}
+
+interface SystemArchiveStatsParams {
+  byPhase?: boolean;
+  byLabel?: boolean;
+}
+
+interface SystemSequenceParams {
+  subcommand?: 'show' | 'check' | 'repair';
+}
+
+interface SystemSafestopParams {
+  reason?: string;
+  commit?: boolean;
+  handoff?: string;
+  noSessionEnd?: boolean;
+  dryRun?: boolean;
+}
+
+interface SystemUncancelParams {
+  taskId: string;
+  cascade?: boolean;
+  notes?: string;
+  dryRun?: boolean;
+}
+
 export class SystemHandler implements DomainHandler {
   private jobManager?: BackgroundJobManager;
 
@@ -297,6 +349,20 @@ export class SystemHandler implements DomainHandler {
           return this.queryJobStatus(params, startTime);
         case 'job.list':
           return this.queryJobList(params, startTime);
+        case 'dash':
+          return this.getDash(params as SystemDashParams, startTime);
+        case 'roadmap':
+          return this.getRoadmap(params as SystemRoadmapParams, startTime);
+        case 'labels':
+          return this.getLabels(params as SystemLabelsParams, startTime);
+        case 'compliance':
+          return this.getCompliance(params as SystemComplianceParams, startTime);
+        case 'log':
+          return this.getLog(params as SystemLogParams, startTime);
+        case 'archive-stats':
+          return this.getArchiveStats(params as SystemArchiveStatsParams, startTime);
+        case 'sequence':
+          return this.getSequence(params as SystemSequenceParams, startTime);
         default:
           return this.createErrorResponse(
             'query',
@@ -346,6 +412,10 @@ export class SystemHandler implements DomainHandler {
           return this.mutateSync(params as SystemSyncParams, startTime);
         case 'job.cancel':
           return this.mutateJobCancel(params, startTime);
+        case 'safestop':
+          return this.mutateSafestop(params as SystemSafestopParams, startTime);
+        case 'uncancel':
+          return this.mutateUncancel(params as unknown as SystemUncancelParams, startTime);
         default:
           return this.createErrorResponse(
             'mutate',
@@ -363,8 +433,8 @@ export class SystemHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['context', 'metrics', 'health', 'config', 'diagnostics', 'version', 'help', 'doctor', 'config.get', 'stats', 'job.status', 'job.list'],
-      mutate: ['backup', 'restore', 'migrate', 'cleanup', 'audit', 'init', 'config.set', 'sync', 'job.cancel'],
+      query: ['context', 'metrics', 'health', 'config', 'diagnostics', 'version', 'help', 'doctor', 'config.get', 'stats', 'job.status', 'job.list', 'dash', 'roadmap', 'labels', 'compliance', 'log', 'archive-stats', 'sequence'],
+      mutate: ['backup', 'restore', 'migrate', 'cleanup', 'audit', 'init', 'config.set', 'sync', 'job.cancel', 'safestop', 'uncancel'],
     };
   }
 
@@ -673,6 +743,139 @@ export class SystemHandler implements DomainHandler {
   }
 
   /**
+   * dash - Project overview dashboard
+   * CLI: cleo dash --json
+   * @task T4269
+   */
+  private async getDash(_params: SystemDashParams | undefined, startTime: number): Promise<DomainResponse> {
+    const result = await this.executor!.execute({
+      domain: 'system',
+      operation: 'dash',
+      customCommand: 'cleo dash --json'
+    });
+
+    return this.wrapExecutorResult(result, 'query', 'system', 'dash', startTime);
+  }
+
+  /**
+   * roadmap - Generate roadmap from pending epics and CHANGELOG history
+   * CLI: cleo roadmap [--json] [--include-history] [--upcoming-only]
+   * @task T4269
+   */
+  private async getRoadmap(params: SystemRoadmapParams | undefined, startTime: number): Promise<DomainResponse> {
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.includeHistory) flags['include-history'] = true;
+    if (params?.upcomingOnly) flags['upcoming-only'] = true;
+
+    const result = await this.executor!.execute({
+      domain: 'roadmap',
+      operation: '',
+      flags
+    });
+
+    return this.wrapExecutorResult(result, 'query', 'system', 'roadmap', startTime);
+  }
+
+  /**
+   * labels - List all labels with counts or show tasks with specific label
+   * CLI: cleo labels [show <label>] [--json]
+   * @task T4269
+   */
+  private async getLabels(params: SystemLabelsParams | undefined, startTime: number): Promise<DomainResponse> {
+    const flags: Record<string, unknown> = { json: true };
+    let operation = '';
+
+    if (params?.subcommand === 'show' && params?.label) {
+      operation = `show ${params.label}`;
+    } else if (params?.subcommand === 'stats') {
+      operation = 'stats';
+    } else if (params?.label) {
+      operation = `show ${params.label}`;
+    }
+
+    const result = await this.executor!.execute({
+      domain: 'labels',
+      operation,
+      flags
+    });
+
+    return this.wrapExecutorResult(result, 'query', 'system', 'labels', startTime);
+  }
+
+  /**
+   * compliance - Monitor and report compliance metrics
+   * CLI: cleo compliance [subcommand] [--json] [--days N] [--epic T###]
+   * @task T4269
+   */
+  private async getCompliance(params: SystemComplianceParams | undefined, startTime: number): Promise<DomainResponse> {
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.days) flags.days = params.days;
+    if (params?.epic) flags.epic = params.epic;
+
+    const result = await this.executor!.execute({
+      domain: 'compliance',
+      operation: params?.subcommand || 'summary',
+      flags
+    });
+
+    return this.wrapExecutorResult(result, 'query', 'system', 'compliance', startTime);
+  }
+
+  /**
+   * log - View audit log entries
+   * CLI: cleo log [--json] [--limit N] [--operation OP] [--task T###]
+   * @task T4269
+   */
+  private async getLog(params: SystemLogParams | undefined, startTime: number): Promise<DomainResponse> {
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.limit) flags.limit = params.limit;
+    if (params?.operation) flags.operation = params.operation;
+    if (params?.task) flags.task = params.task;
+
+    const result = await this.executor!.execute({
+      domain: 'log',
+      operation: '',
+      flags
+    });
+
+    return this.wrapExecutorResult(result, 'query', 'system', 'log', startTime);
+  }
+
+  /**
+   * archive-stats - Generate analytics from archived tasks
+   * CLI: cleo archive-stats [--json] [--by-phase] [--by-label]
+   * @task T4269
+   */
+  private async getArchiveStats(params: SystemArchiveStatsParams | undefined, startTime: number): Promise<DomainResponse> {
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.byPhase) flags['by-phase'] = true;
+    if (params?.byLabel) flags['by-label'] = true;
+
+    const result = await this.executor!.execute({
+      domain: 'archive-stats',
+      operation: '',
+      flags
+    });
+
+    return this.wrapExecutorResult(result, 'query', 'system', 'archive-stats', startTime);
+  }
+
+  /**
+   * sequence - Inspect and manage task ID sequence
+   * CLI: cleo sequence [show|check|repair] [--json]
+   * @task T4269
+   */
+  private async getSequence(params: SystemSequenceParams | undefined, startTime: number): Promise<DomainResponse> {
+    const result = await this.executor!.execute({
+      domain: 'sequence',
+      operation: params?.subcommand || 'show',
+      flags: { json: true }
+    });
+
+    return this.wrapExecutorResult(result, 'query', 'system', 'sequence', startTime);
+  }
+
+  /**
    * JOB QUERY OPERATIONS
    */
 
@@ -779,6 +982,59 @@ export class SystemHandler implements DomainHandler {
       success: true,
       data: { jobId, cancelled: true },
     };
+  }
+
+  /**
+   * safestop - Graceful shutdown for agents approaching context limits
+   * CLI: cleo safestop [--reason "..."] [--commit] [--handoff "..."] [--no-session-end] [--dry-run] [--json]
+   * @task T4269
+   */
+  private async mutateSafestop(params: SystemSafestopParams | undefined, startTime: number): Promise<DomainResponse> {
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.reason) flags.reason = params.reason;
+    if (params?.commit) flags.commit = true;
+    if (params?.handoff) flags.handoff = params.handoff;
+    if (params?.noSessionEnd) flags['no-session-end'] = true;
+    if (params?.dryRun) flags['dry-run'] = true;
+
+    const result = await this.executor!.execute({
+      domain: 'safestop',
+      operation: '',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'mutate', 'system', 'safestop', startTime);
+  }
+
+  /**
+   * uncancel - Restore cancelled tasks back to pending status
+   * CLI: cleo uncancel <taskId> [--cascade] [--notes "..."] [--dry-run] [--json]
+   * @task T4269
+   */
+  private async mutateUncancel(params: SystemUncancelParams, startTime: number): Promise<DomainResponse> {
+    if (!params?.taskId) {
+      return this.createErrorResponse(
+        'mutate',
+        'system',
+        'uncancel',
+        'E_INVALID_INPUT',
+        'taskId parameter is required',
+        startTime
+      );
+    }
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.cascade) flags.cascade = true;
+    if (params?.notes) flags.notes = params.notes;
+    if (params?.dryRun) flags['dry-run'] = true;
+
+    const result = await this.executor!.execute({
+      domain: 'uncancel',
+      operation: params.taskId,
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'mutate', 'system', 'uncancel', startTime);
   }
 
   /**

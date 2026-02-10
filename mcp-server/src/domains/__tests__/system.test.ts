@@ -39,6 +39,13 @@ describe('SystemHandler', () => {
         'stats',
         'job.status',
         'job.list',
+        'dash',
+        'roadmap',
+        'labels',
+        'compliance',
+        'log',
+        'archive-stats',
+        'sequence',
       ]);
 
       expect(operations.mutate).toEqual([
@@ -51,6 +58,8 @@ describe('SystemHandler', () => {
         'config.set',
         'sync',
         'job.cancel',
+        'safestop',
+        'uncancel',
       ]);
     });
   });

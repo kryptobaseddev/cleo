@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.labels response",
+  "description": "Label listing with counts and optional task details per label",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Label data with counts and optional task breakdown"
+        }
+      }
+    }
+  ]
+}
