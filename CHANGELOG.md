@@ -2,7 +2,10 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
-## [Unreleased]
+## [0.87.1] - 2026-02-10
+
+### Bug Fixes
+- fix: Make mcp-publisher install cross-platform in CI and docs — OS/arch detection for download URL, update server.json version, update MCP-REGISTRY-SUBMISSION.md with multi-platform install instructions (T4265)
 
 ## [0.87.0] - 2026-02-10
 
