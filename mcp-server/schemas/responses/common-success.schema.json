@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Common success response",
+  "description": "Base success response structure used by all operations",
+  "type": "object",
+  "properties": {
+    "_meta": {
+      "$ref": "../common/meta.schema.json"
+    },
+    "success": {
+      "type": "boolean",
+      "const": true
+    },
+    "data": {
+      "type": "object",
+      "description": "Operation-specific response data"
+    }
+  },
+  "required": ["_meta", "success", "data"],
+  "additionalProperties": false
+}

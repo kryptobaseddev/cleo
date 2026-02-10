@@ -95,13 +95,14 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'migrate',     // Run migrations
     'sync',        // Sync with TodoWrite
     'cleanup',     // Cleanup stale data
+    'job.cancel',  // Cancel background job
   ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_MUTATE_COUNT = 47;
+const EXPECTED_MUTATE_COUNT = 48;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(
@@ -814,6 +815,31 @@ function validateSystemParams(
               exitCode: 6,
               message: 'Missing required parameter: backupId',
               fix: 'Provide backupId parameter',
+            },
+          },
+        };
+      }
+      break;
+
+    case 'job.cancel':
+      if (!params?.jobId) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'cleo_mutate',
+              domain: 'system',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameter: jobId',
+              fix: 'Provide jobId parameter',
             },
           },
         };

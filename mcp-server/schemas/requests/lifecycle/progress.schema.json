@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "lifecycle.progress request",
+  "description": "Record stage completion",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Task ID"
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["research", "consensus", "specification", "decomposition", "implementation", "validation", "testing", "release"],
+      "description": "Stage name"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "skipped", "pending"],
+      "description": "Stage status"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Progress notes"
+    }
+  },
+  "required": ["taskId", "stage", "status"],
+  "additionalProperties": false
+}

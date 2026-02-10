@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "orchestrate.analyze request",
+  "description": "Dependency analysis",
+  "type": "object",
+  "properties": {
+    "epicId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Epic ID"
+    }
+  },
+  "required": ["epicId"],
+  "additionalProperties": false
+}

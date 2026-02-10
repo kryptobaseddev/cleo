@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session.focus.set request",
+  "description": "Set focused task",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Task ID to focus"
+    }
+  },
+  "required": ["taskId"],
+  "additionalProperties": false
+}

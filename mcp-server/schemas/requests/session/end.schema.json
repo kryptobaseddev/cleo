@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session.end request",
+  "description": "End current session",
+  "type": "object",
+  "properties": {
+    "notes": {
+      "type": "string",
+      "description": "Session notes"
+    }
+  },
+  "additionalProperties": false
+}

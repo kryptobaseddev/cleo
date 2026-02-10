@@ -1,0 +1,893 @@
+/**
+ * Validate Domain Handler
+ *
+ * Implements all 19 validation operations for CLEO MCP server:
+ * - Query (13): report, stats, task, compliance, all, schema, protocol, manifest,
+ *               output, compliance.summary, compliance.violations, test.status, test.coverage
+ * - Mutate (8): fix, schema, protocol, session, research, lifecycle, compliance.record, test.run
+ *
+ * Each operation maps to corresponding CLEO CLI validate commands with proper
+ * parameter validation and error handling.
+ *
+ * @task T2933
+ */
+
+import { DomainHandler, DomainResponse } from '../lib/router.js';
+import { CLIExecutor } from '../lib/executor.js';
+
+/**
+ * Operation parameter types
+ */
+
+// Query operations
+interface ValidateReportParams {
+  scope?: 'todo' | 'archive' | 'all';
+  format?: 'json' | 'summary';
+}
+
+interface ValidateStatsParams {
+  since?: string; // ISO date
+}
+
+interface ValidateTaskParams {
+  taskId: string;
+  checkMode?: 'full' | 'quick';
+}
+
+interface ValidateComplianceParams {
+  protocolType?: 'research' | 'consensus' | 'specification' | 'decomposition' | 'implementation' | 'contribution' | 'release' | 'validation' | 'testing';
+  severity?: 'error' | 'warning';
+}
+
+interface ValidateAllParams {
+  strict?: boolean;
+  includeArchive?: boolean;
+}
+
+// Mutate operations
+interface ValidateFixParams {
+  auto?: boolean;
+  dryRun?: boolean;
+  fixType?: 'duplicates' | 'orphans' | 'missing-sizes' | 'all';
+}
+
+interface ValidateSchemaParams {
+  fileType: 'todo' | 'config' | 'archive' | 'log';
+  filePath?: string;
+}
+
+interface ValidateProtocolParams {
+  taskId: string;
+  protocolType: 'research' | 'consensus' | 'specification' | 'decomposition' | 'implementation' | 'contribution' | 'release' | 'validation' | 'testing';
+  strict?: boolean;
+}
+
+interface ValidateSessionParams {
+  sessionId?: string;
+  checkFocus?: boolean;
+}
+
+interface ValidateResearchParams {
+  taskId: string;
+  checkLinks?: boolean;
+}
+
+interface ValidateLifecycleParams {
+  taskId: string;
+  targetStage?: string;
+}
+
+// New query operations
+interface ValidateManifestParams {
+  entry?: string;
+  taskId?: string;
+}
+
+interface ValidateOutputParams {
+  taskId: string;
+  filePath: string;
+}
+
+interface ValidateComplianceViolationsParams {
+  severity?: string;
+  protocol?: string;
+}
+
+interface ValidateTestStatusParams {
+  taskId?: string;
+}
+
+interface ValidateTestCoverageParams {
+  taskId?: string;
+}
+
+// New mutate operations
+interface ValidateComplianceRecordParams {
+  taskId: string;
+  result: unknown;
+}
+
+interface ValidateTestRunParams {
+  scope?: string;
+  pattern?: string;
+  parallel?: boolean;
+}
+
+/**
+ * Result types
+ */
+interface ValidationReport {
+  success: boolean;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+  summary: {
+    totalChecks: number;
+    passed: number;
+    failed: number;
+  };
+}
+
+interface ValidationStats {
+  totalValidations: number;
+  passed: number;
+  failed: number;
+  byType: Record<string, number>;
+}
+
+interface ValidationIssue {
+  check: string;
+  severity: 'error' | 'warning';
+  message: string;
+  taskId?: string;
+}
+
+interface ComplianceResult {
+  compliant: boolean;
+  score: number;
+  violations: Array<{
+    rule: string;
+    severity: 'error' | 'warning';
+    message: string;
+  }>;
+}
+
+interface FixResult {
+  fixed: number;
+  skipped: number;
+  errors: string[];
+  changes: Array<{
+    type: string;
+    description: string;
+  }>;
+}
+
+/**
+ * Validate domain handler implementation
+ */
+export class ValidateHandler implements DomainHandler {
+  constructor(private executor: CLIExecutor) {}
+
+  /**
+   * Query operations (read-only)
+   */
+  async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    try {
+      switch (operation) {
+        case 'report':
+          return await this.queryReport(params as unknown as ValidateReportParams);
+        case 'stats':
+          return await this.queryStats(params as unknown as ValidateStatsParams);
+        case 'task':
+          return await this.queryTask(params as unknown as ValidateTaskParams);
+        case 'compliance':
+          return await this.queryCompliance(params as unknown as ValidateComplianceParams);
+        case 'all':
+          return await this.queryAll(params as unknown as ValidateAllParams);
+        case 'schema':
+          return await this.querySchema(params as unknown as ValidateSchemaParams);
+        case 'protocol':
+          return await this.queryProtocol(params as unknown as ValidateProtocolParams);
+        case 'manifest':
+          return await this.queryManifest(params as unknown as ValidateManifestParams);
+        case 'output':
+          return await this.queryOutput(params as unknown as ValidateOutputParams);
+        case 'compliance.summary':
+          return await this.queryCompliance(params as unknown as ValidateComplianceParams);
+        case 'compliance.violations':
+          return await this.queryComplianceViolations(params as unknown as ValidateComplianceViolationsParams);
+        case 'test.status':
+          return await this.queryTestStatus(params as unknown as ValidateTestStatusParams);
+        case 'test.coverage':
+          return await this.queryTestCoverage(params as unknown as ValidateTestCoverageParams);
+        default:
+          return this.createErrorResponse(
+            'cleo_query',
+            'validate',
+            operation,
+            'E_INVALID_OPERATION',
+            `Unknown query operation: ${operation}`,
+            startTime
+          );
+      }
+    } catch (error) {
+      return this.handleError('cleo_query', 'validate', operation, error, startTime);
+    }
+  }
+
+  /**
+   * Mutate operations (write)
+   */
+  async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    try {
+      switch (operation) {
+        case 'fix':
+          return await this.mutateFix(params as unknown as ValidateFixParams);
+        case 'schema':
+          return await this.mutateSchema(params as unknown as ValidateSchemaParams);
+        case 'protocol':
+          return await this.mutateProtocol(params as unknown as ValidateProtocolParams);
+        case 'session':
+          return await this.mutateSession(params as unknown as ValidateSessionParams);
+        case 'research':
+          return await this.mutateResearch(params as unknown as ValidateResearchParams);
+        case 'lifecycle':
+          return await this.mutateLifecycle(params as unknown as ValidateLifecycleParams);
+        case 'compliance.record':
+          return await this.mutateComplianceRecord(params as unknown as ValidateComplianceRecordParams);
+        case 'test.run':
+          return await this.mutateTestRun(params as unknown as ValidateTestRunParams);
+        default:
+          return this.createErrorResponse(
+            'cleo_mutate',
+            'validate',
+            operation,
+            'E_INVALID_OPERATION',
+            `Unknown mutate operation: ${operation}`,
+            startTime
+          );
+      }
+    } catch (error) {
+      return this.handleError('cleo_mutate', 'validate', operation, error, startTime);
+    }
+  }
+
+  /**
+   * Get supported operations
+   */
+  getSupportedOperations(): { query: string[]; mutate: string[] } {
+    return {
+      query: [
+        'report', 'stats', 'task', 'compliance', 'all',
+        'schema', 'protocol', 'manifest', 'output',
+        'compliance.summary', 'compliance.violations',
+        'test.status', 'test.coverage',
+      ],
+      mutate: [
+        'fix', 'schema', 'protocol', 'session', 'research', 'lifecycle',
+        'compliance.record', 'test.run',
+      ],
+    };
+  }
+
+  // ===== Query Operations =====
+
+  /**
+   * report - Get validation report
+   * CLI: cleo validate [--scope <scope>] [--format <fmt>]
+   */
+  private async queryReport(params: ValidateReportParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.scope) flags.scope = params.scope;
+    if (params?.format) flags.format = params.format;
+
+    const result = await this.executor.execute<ValidationReport>({
+      domain: 'validate',
+      operation: '',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'report', startTime);
+  }
+
+  /**
+   * stats - Validation statistics
+   * CLI: cleo validate stats [--since <date>]
+   */
+  private async queryStats(params: ValidateStatsParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.since) flags.since = params.since;
+
+    const result = await this.executor.execute<ValidationStats>({
+      domain: 'validate',
+      operation: 'stats',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'stats', startTime);
+  }
+
+  /**
+   * task - Validate single task
+   * CLI: cleo validate task <taskId> [--mode <mode>]
+   */
+  private async queryTask(params: ValidateTaskParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'validate',
+        'task',
+        'E_INVALID_INPUT',
+        'taskId is required',
+        startTime
+      );
+    }
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.checkMode) flags.mode = params.checkMode;
+
+    const result = await this.executor.execute<ValidationReport>({
+      domain: 'validate',
+      operation: 'task',
+      args: [params.taskId],
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'task', startTime);
+  }
+
+  /**
+   * compliance - Check protocol compliance
+   * CLI: cleo validate compliance [--protocol <type>] [--severity <level>]
+   */
+  private async queryCompliance(params: ValidateComplianceParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.protocolType) flags.protocol = params.protocolType;
+    if (params?.severity) flags.severity = params.severity;
+
+    const result = await this.executor.execute<ComplianceResult>({
+      domain: 'validate',
+      operation: 'compliance',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'compliance', startTime);
+  }
+
+  /**
+   * all - Validate entire system
+   * CLI: cleo validate all [--strict] [--include-archive]
+   */
+  private async queryAll(params: ValidateAllParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.strict) flags.strict = true;
+    if (params?.includeArchive) flags.includeArchive = true;
+
+    const result = await this.executor.execute<ValidationReport>({
+      domain: 'validate',
+      operation: 'all',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'all', startTime);
+  }
+
+  // ===== Mutate Operations =====
+
+  /**
+   * fix - Auto-fix validation errors
+   * CLI: cleo validate --fix [--auto] [--dry-run] [--fix-duplicates] [--fix-missing-sizes]
+   */
+  private async mutateFix(params: ValidateFixParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true, fix: true };
+    if (params?.auto) flags.auto = true;
+    if (params?.dryRun) flags.dryRun = true;
+
+    // Map fixType to specific fix flags
+    if (params?.fixType === 'duplicates') {
+      flags.fixDuplicates = true;
+    } else if (params?.fixType === 'orphans') {
+      flags.fixOrphans = 'unlink'; // Default to unlink
+    } else if (params?.fixType === 'missing-sizes') {
+      flags.fixMissingSizes = true;
+    } else if (params?.fixType === 'all') {
+      // Enable all fix types
+      flags.fixDuplicates = true;
+      flags.fixOrphans = 'unlink';
+      flags.fixMissingSizes = true;
+    }
+
+    const result = await this.executor.execute<FixResult>({
+      domain: 'validate',
+      operation: '',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'fix', startTime);
+  }
+
+  /**
+   * schema - Validate against schema
+   * CLI: cleo validate schema <fileType> [<filePath>]
+   */
+  private async mutateSchema(params: ValidateSchemaParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.fileType) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'validate',
+        'schema',
+        'E_INVALID_INPUT',
+        'fileType is required',
+        startTime
+      );
+    }
+
+    const args: Array<string | number> = [params.fileType];
+    if (params?.filePath) {
+      args.push(params.filePath);
+    }
+
+    const result = await this.executor.execute<ValidationReport>({
+      domain: 'validate',
+      operation: 'schema',
+      args,
+      flags: { json: true },
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'schema', startTime);
+  }
+
+  /**
+   * protocol - Validate protocol compliance
+   * CLI: cleo validate protocol <taskId> <protocolType> [--strict]
+   */
+  private async mutateProtocol(params: ValidateProtocolParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId || !params?.protocolType) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'validate',
+        'protocol',
+        'E_INVALID_INPUT',
+        'taskId and protocolType are required',
+        startTime
+      );
+    }
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.strict) flags.strict = true;
+
+    const result = await this.executor.execute<ComplianceResult>({
+      domain: 'validate',
+      operation: 'protocol',
+      args: [params.taskId, params.protocolType],
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'protocol', startTime);
+  }
+
+  /**
+   * session - Validate session state
+   * CLI: cleo validate session [<sessionId>] [--check-focus]
+   */
+  private async mutateSession(params: ValidateSessionParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.checkFocus) flags.checkFocus = true;
+
+    const args: Array<string | number> = [];
+    if (params?.sessionId) {
+      args.push(params.sessionId);
+    }
+
+    const result = await this.executor.execute<ValidationReport>({
+      domain: 'validate',
+      operation: 'session',
+      args,
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'session', startTime);
+  }
+
+  /**
+   * research - Validate research links
+   * CLI: cleo validate research <taskId> [--check-links]
+   */
+  private async mutateResearch(params: ValidateResearchParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'validate',
+        'research',
+        'E_INVALID_INPUT',
+        'taskId is required',
+        startTime
+      );
+    }
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.checkLinks) flags.checkLinks = true;
+
+    const result = await this.executor.execute<ValidationReport>({
+      domain: 'validate',
+      operation: 'research',
+      args: [params.taskId],
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'research', startTime);
+  }
+
+  /**
+   * lifecycle - Validate lifecycle gates
+   * CLI: cleo validate lifecycle <taskId> [<targetStage>]
+   */
+  private async mutateLifecycle(params: ValidateLifecycleParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'validate',
+        'lifecycle',
+        'E_INVALID_INPUT',
+        'taskId is required',
+        startTime
+      );
+    }
+
+    const args: Array<string | number> = [params.taskId];
+    if (params?.targetStage) {
+      args.push(params.targetStage);
+    }
+
+    const result = await this.executor.execute<ValidationReport>({
+      domain: 'validate',
+      operation: 'lifecycle',
+      args,
+      flags: { json: true },
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'lifecycle', startTime);
+  }
+
+  // ===== New Query Operations =====
+
+  /**
+   * schema (query) - Validate against JSON schema (read-only check)
+   * CLI: cleo validate schema <fileType> [<filePath>]
+   */
+  private async querySchema(params: ValidateSchemaParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.fileType) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'validate',
+        'schema',
+        'E_INVALID_INPUT',
+        'fileType is required',
+        startTime
+      );
+    }
+
+    const args: Array<string | number> = [params.fileType];
+    if (params?.filePath) {
+      args.push(params.filePath);
+    }
+
+    const result = await this.executor.execute({
+      domain: 'validate',
+      operation: 'schema',
+      args,
+      flags: { json: true },
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'schema', startTime);
+  }
+
+  /**
+   * protocol (query) - Validate protocol compliance (read-only check)
+   * CLI: cleo validate protocol <taskId> <protocolType> [--strict]
+   */
+  private async queryProtocol(params: ValidateProtocolParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId || !params?.protocolType) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'validate',
+        'protocol',
+        'E_INVALID_INPUT',
+        'taskId and protocolType are required',
+        startTime
+      );
+    }
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.strict) flags.strict = true;
+
+    const result = await this.executor.execute({
+      domain: 'validate',
+      operation: 'protocol',
+      args: [params.taskId, params.protocolType],
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'protocol', startTime);
+  }
+
+  /**
+   * manifest - Validate manifest entry
+   * CLI: cleo validate manifest [--task <taskId>] [--entry <entry>]
+   */
+  private async queryManifest(params: ValidateManifestParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.taskId) flags.task = params.taskId;
+    if (params?.entry) flags.entry = params.entry;
+
+    const result = await this.executor.execute({
+      domain: 'validate',
+      operation: 'manifest',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'manifest', startTime);
+  }
+
+  /**
+   * output - Validate output file
+   * CLI: cleo validate output <taskId> <filePath>
+   */
+  private async queryOutput(params: ValidateOutputParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId || !params?.filePath) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'validate',
+        'output',
+        'E_INVALID_INPUT',
+        'taskId and filePath are required',
+        startTime
+      );
+    }
+
+    const result = await this.executor.execute({
+      domain: 'validate',
+      operation: 'output',
+      args: [params.taskId, params.filePath],
+      flags: { json: true },
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'output', startTime);
+  }
+
+  /**
+   * compliance.violations - List compliance violations
+   * CLI: cleo compliance violations [--severity <level>] [--protocol <type>]
+   */
+  private async queryComplianceViolations(params: ValidateComplianceViolationsParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.severity) flags.severity = params.severity;
+    if (params?.protocol) flags.protocol = params.protocol;
+
+    const result = await this.executor.execute({
+      domain: 'compliance',
+      operation: 'violations',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'compliance.violations', startTime);
+  }
+
+  /**
+   * test.status - Test suite pass/fail counts
+   * CLI: cleo validate test status [--task <taskId>]
+   */
+  private async queryTestStatus(params: ValidateTestStatusParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.taskId) flags.task = params.taskId;
+
+    const result = await this.executor.execute({
+      domain: 'validate',
+      operation: 'test-status',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'test.status', startTime);
+  }
+
+  /**
+   * test.coverage - Coverage percentages
+   * CLI: cleo validate test coverage [--task <taskId>]
+   */
+  private async queryTestCoverage(params: ValidateTestCoverageParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.taskId) flags.task = params.taskId;
+
+    const result = await this.executor.execute({
+      domain: 'validate',
+      operation: 'test-coverage',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'test.coverage', startTime);
+  }
+
+  // ===== New Mutate Operations =====
+
+  /**
+   * compliance.record - Record compliance check result
+   * CLI: cleo compliance record <taskId> --result <json>
+   */
+  private async mutateComplianceRecord(params: ValidateComplianceRecordParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId || !params?.result) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'validate',
+        'compliance.record',
+        'E_INVALID_INPUT',
+        'taskId and result are required',
+        startTime
+      );
+    }
+
+    const result = await this.executor.execute({
+      domain: 'compliance',
+      operation: 'record',
+      args: [params.taskId],
+      flags: {
+        json: true,
+        result: typeof params.result === 'string' ? params.result : JSON.stringify(params.result),
+      },
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'compliance.record', startTime);
+  }
+
+  /**
+   * test.run - Execute test suite
+   * CLI: npx jest [--scope <scope>] [--pattern <pattern>]
+   */
+  private async mutateTestRun(params: ValidateTestRunParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.scope) flags.scope = params.scope;
+    if (params?.pattern) flags.pattern = params.pattern;
+    if (params?.parallel) flags.parallel = true;
+
+    const result = await this.executor.execute({
+      domain: 'validate',
+      operation: 'test-run',
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'validate', 'test.run', startTime);
+  }
+
+  // ===== Helper Methods =====
+
+  /**
+   * Wrap executor result in DomainResponse format
+   */
+  private wrapExecutorResult(
+    result: any,
+    gateway: string,
+    domain: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+
+    if (result.success) {
+      return {
+        _meta: {
+          gateway,
+          domain,
+          operation,
+          version: '1.0.0',
+          timestamp: new Date().toISOString(),
+          duration_ms,
+        },
+        success: true,
+        data: result.data,
+      };
+    }
+
+    return {
+      _meta: {
+        gateway,
+        domain,
+        operation,
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        duration_ms,
+      },
+      success: false,
+      error: result.error,
+    };
+  }
+
+  /**
+   * Create error response
+   */
+  private createErrorResponse(
+    gateway: string,
+    domain: string,
+    operation: string,
+    code: string,
+    message: string,
+    startTime: number
+  ): DomainResponse {
+    return {
+      _meta: {
+        gateway,
+        domain,
+        operation,
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        duration_ms: Date.now() - startTime,
+      },
+      success: false,
+      error: {
+        code,
+        message,
+      },
+    };
+  }
+
+  /**
+   * Handle unexpected errors
+   */
+  private handleError(
+    gateway: string,
+    domain: string,
+    operation: string,
+    error: unknown,
+    startTime: number
+  ): DomainResponse {
+    return this.createErrorResponse(
+      gateway,
+      domain,
+      operation,
+      'E_INTERNAL_ERROR',
+      error instanceof Error ? error.message : String(error),
+      startTime
+    );
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session.resume request",
+  "description": "Resume existing session",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Session ID to resume"
+    }
+  },
+  "required": ["sessionId"],
+  "additionalProperties": false
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "orchestrate.spawn request",
+  "description": "Generate spawn prompt",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Task ID to spawn"
+    },
+    "skill": {
+      "type": "string",
+      "description": "Skill name (optional, auto-detected if omitted)"
+    },
+    "model": {
+      "type": "string",
+      "enum": ["sonnet", "opus", "haiku"],
+      "default": "sonnet",
+      "description": "Model preference"
+    }
+  },
+  "required": ["taskId"],
+  "additionalProperties": false
+}

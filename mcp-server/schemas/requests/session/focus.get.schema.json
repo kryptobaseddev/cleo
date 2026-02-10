@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session.focus.get request",
+  "description": "Get focused task",
+  "type": "object",
+  "additionalProperties": false
+}

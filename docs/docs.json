@@ -254,6 +254,7 @@
               "commands/restore",
               "commands/archive",
               "commands/upgrade",
+              "commands/mcp-install",
               "commands/migrate",
               "commands/claude-migrate",
               "commands/compliance",

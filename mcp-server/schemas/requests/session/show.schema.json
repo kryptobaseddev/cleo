@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session.show request",
+  "description": "Session details",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Session ID"
+    }
+  },
+  "required": ["sessionId"],
+  "additionalProperties": false
+}

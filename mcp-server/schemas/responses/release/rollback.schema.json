@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "release.rollback response",
+  "description": "Rollback status with reverted changes",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Rollback status with reverted changes"
+        }
+      }
+    }
+  ]
+}

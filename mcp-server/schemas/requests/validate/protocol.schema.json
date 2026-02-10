@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "validate.protocol request",
+  "description": "Protocol compliance",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Task ID"
+    },
+    "protocolType": {
+      "type": "string",
+      "enum": ["research", "consensus", "specification", "decomposition", "implementation", "contribution", "release", "validation", "testing"],
+      "description": "Protocol type"
+    }
+  },
+  "required": ["taskId", "protocolType"],
+  "additionalProperties": false
+}
