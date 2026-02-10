@@ -545,12 +545,25 @@
         "notes": null,
         "gitTag": "v0.85.0",
         "changelog": "## [0.85.0] - 2026-02-09\n\n### Bug Fixes\n- Add checkpoint suppression mechanism for atomic multi-step flows (T4247)\n- Reorder release ship: set status=released BEFORE git commit (T4248)\n- Route release raw writes through save_json or shared helper (T4249)\n- Prevent checkpoint side-effects during validation gates (T4250)\n- Deduplicate checksum recalculation into shared helper (T4251)\n- Integration test: verify checkpoint suppression during release flow (T4252)"
+      },
+      {
+        "version": "v0.85.1",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-10T02:09:40Z",
+        "createdAt": "2026-02-10T02:09:24Z",
+        "tasks": [
+          "T4256"
+        ],
+        "notes": null,
+        "gitTag": "v0.85.1",
+        "changelog": "## [0.85.1] - 2026-02-09\n\n### Bug Fixes\n- Fix agent-facing docs: replace deprecated release-version.sh with cleo release commands (T4256)"
       }
     ]
   },
-  "lastUpdated": "2026-02-10T02:08:32Z",
+  "lastUpdated": "2026-02-10T02:09:40Z",
   "_meta": {
-    "checksum": "cddd049d26dc0a15",
+    "checksum": "107ba2fa743ecb65",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -559,7 +572,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2350
+    "generation": 2355
   },
   "focus": {
     "currentTask": null,
@@ -28437,12 +28450,12 @@
     {
       "id": "T4256",
       "title": "Fix agent-facing docs: replace deprecated release-version.sh with cleo release commands",
-      "status": "active",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3080",
       "createdAt": "2026-02-10T02:07:31Z",
-      "updatedAt": "2026-02-10T02:08:32Z",
+      "updatedAt": "2026-02-10T02:08:38Z",
       "size": "medium",
       "position": 8,
       "positionVersion": 0,
@@ -28451,7 +28464,26 @@
       "labels": [
         "fix",
         "v0.85.1"
-      ]
+      ],
+      "completedAt": "2026-02-10T02:08:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T02:08:38Z] Replaced deprecated dev/release-version.sh in 4 agent-facing docs with cleo release commands"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T02:08:39Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
