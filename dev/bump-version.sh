@@ -93,6 +93,7 @@ This script updates:
   - templates/CLAUDE-INJECTION.md version tag
   - CLAUDE.md injection tag (if present)
   - plugin/plugin.json version (if present)
+  - mcp-server/package.json version (if sync script present)
 
 Features:
   - Pre-bump validation of current version
@@ -415,6 +416,21 @@ if [[ -f "$PLUGIN_JSON" ]]; then
     fi
 else
     [[ "$VERBOSE" == true ]] && [[ "$QUIET" != true ]] && log_info "plugin/plugin.json: File not found (skipping)"
+fi
+
+# 6. Sync MCP server version
+if [[ -f "$PROJECT_ROOT/dev/sync-mcp-version.sh" ]]; then
+    if [[ "$DRY_RUN" == true ]]; then
+        [[ "$QUIET" != true ]] && log_info "mcp-server/package.json (dry-run, no changes made)"
+    else
+        if bash "$PROJECT_ROOT/dev/sync-mcp-version.sh"; then
+            [[ "$QUIET" != true ]] && log_info "mcp-server/package.json"
+        else
+            [[ "$QUIET" != true ]] && log_warn "mcp-server/package.json: sync failed (continuing)"
+        fi
+    fi
+else
+    [[ "$VERBOSE" == true ]] && [[ "$QUIET" != true ]] && log_info "dev/sync-mcp-version.sh: Not found (skipping MCP version sync)"
 fi
 
 [[ "$QUIET" != true ]] && echo ""

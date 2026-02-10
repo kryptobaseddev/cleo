@@ -989,6 +989,7 @@ cmd_ship() {
         [[ -f "CHANGELOG.md" ]] && files_to_stage="$files_to_stage CHANGELOG.md"
         [[ -f "docs/changelog/overview.mdx" ]] && files_to_stage="$files_to_stage docs/changelog/overview.mdx"
         [[ -f ".cleo/todo.json" ]] && files_to_stage="$files_to_stage .cleo/todo.json"
+        [[ -f "mcp-server/package.json" ]] && files_to_stage="$files_to_stage mcp-server/package.json"
 
         git add $files_to_stage 2>/dev/null || {
             log_warn "Some files could not be staged (may not exist)"
