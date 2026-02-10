@@ -592,9 +592,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T19:13:09Z",
+  "lastUpdated": "2026-02-10T19:26:49Z",
   "_meta": {
-    "checksum": "f984dcb3223b654a",
+    "checksum": "f24dad8d54dda29e",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -603,7 +603,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2393
+    "generation": 2394
   },
   "focus": {
     "currentTask": null,
@@ -28534,17 +28534,21 @@
     {
       "id": "T4258",
       "title": "Epic: MCP Server npm Publish and Registry Listing",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-10T15:38:44Z",
-      "updatedAt": "2026-02-10T15:40:56Z",
+      "updatedAt": "2026-02-10T19:26:49Z",
       "size": "medium",
       "position": 840,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Complete MCP server distribution: fix npm publish error (expired token), publish @cleo/mcp-server to npm, submit to MCP registry at modelcontextprotocol.io, verify CI/CD pipeline, commit uncommitted work, release v0.87.0. Handoff: claudedocs/agent-outputs/2026-02-10_session-handoff-mcp-server-complete.md"
+      "description": "Complete MCP server distribution: fix npm publish error (expired token), publish @cleo/mcp-server to npm, submit to MCP registry at modelcontextprotocol.io, verify CI/CD pipeline, commit uncommitted work, release v0.87.0. Handoff: claudedocs/agent-outputs/2026-02-10_session-handoff-mcp-server-complete.md",
+      "completedAt": "2026-02-10T19:26:49Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:26:49Z] Epic complete. All 6 subtasks done: npm auth fixed, work committed, published to npm and MCP registry, CI/CD verified, released v0.87.0 and v0.87.1."
+      ]
     },
     {
       "id": "T4259",
