@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-10T02:10:32Z",
-    "totalSessionsCreated": 606
+    "lastModified": "2026-02-10T15:38:21Z",
+    "totalSessionsCreated": 607
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -34945,6 +34945,50 @@
         "max_tokens": 200000
       },
       "endedAt": "2026-02-10T02:10:32Z"
+    },
+    {
+      "id": "session_20260210_073821_7a454b",
+      "status": "active",
+      "name": "MCP Publish Handoff",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3080",
+        "computedTaskIds": [
+          "T3080",
+          "T4247",
+          "T4248",
+          "T4249",
+          "T4250",
+          "T4251",
+          "T4252",
+          "T4254",
+          "T4256"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": []
+      },
+      "startedAt": "2026-02-10T15:38:21Z",
+      "lastActivity": "2026-02-10T15:38:21Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 0,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260210_073821_7a454b",
+        "start_timestamp": "2026-02-10T15:38:21Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      }
     }
   ],
   "sessionHistory": [
