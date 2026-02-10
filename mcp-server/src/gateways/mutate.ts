@@ -5,7 +5,7 @@
  * audit logging, and rollback support.
  *
  * Domains: tasks, session, orchestrate, research, lifecycle, validate, release, system
- * Total operations: 53
+ * Total operations: 48
  *
  * @task T2929
  */

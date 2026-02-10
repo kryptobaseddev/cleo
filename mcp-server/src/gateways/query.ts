@@ -5,7 +5,7 @@
  * and validation checks. Never modifies state.
  *
  * Domains: tasks, session, orchestrate, research, lifecycle, validate, system
- * Total operations: 45
+ * Total operations: 48
  *
  * @task T2915
  */
