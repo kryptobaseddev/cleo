@@ -26,8 +26,8 @@
 
 | Gateway | Type | Operations | Documentation |
 |---------|------|------------|---------------|
-| [cleo_query](api/gateways/cleo_query.md) | Read-only | 45 | Query, analysis, validation |
-| [cleo_mutate](api/gateways/cleo_mutate.md) | Write | 53 | Create, update, delete |
+| [cleo_query](api/gateways/cleo_query.md) | Read-only | 48 | Query, analysis, validation |
+| [cleo_mutate](api/gateways/cleo_mutate.md) | Write | 48 | Create, update, delete |
 
 ### Domains
 
@@ -42,7 +42,9 @@
 | [release](api/domains/release.md) | 0 | 7 | Release management |
 | [system](api/domains/system.md) | 5 | 7 | System operations |
 
-**Total**: 98 operations (45 query + 53 mutate)
+**Total**: 96 operations (48 query + 48 mutate)
+
+> **Note**: Includes 93 spec operations plus 3 system job operations (job.status, job.list in query; job.cancel in mutate).
 
 ---
 
@@ -337,7 +339,7 @@ Contribution (65)
 ### v1.0.0 (2026-02-04)
 
 - Initial documentation release
-- Complete API reference (98 operations)
+- Complete API reference (96 operations)
 - Error code reference (1-100)
 - Protocol documentation (60-70)
 - Examples and guides

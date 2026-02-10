@@ -800,7 +800,7 @@ await cleo_mutate({
       topics: ["mcp", "documentation", "usage", "workflows"],
       key_findings: [
         "Created comprehensive 8-section usage guide",
-        "Documented all 98 operations across 8 domains",
+        "Documented all 96 operations across 8 domains",
         "Provided 15+ real-world workflow examples",
         "Included complete troubleshooting guide"
       ],
