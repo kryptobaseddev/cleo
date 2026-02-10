@@ -7,7 +7,7 @@
 
 ## Overview
 
-The CLEO MCP Server exposes CLEO's task management capabilities through the Model Context Protocol (MCP), providing AI coding agents with structured access to 98 operations across 8 functional domains.
+The CLEO MCP Server exposes CLEO's task management capabilities through the Model Context Protocol (MCP), providing AI coding agents with structured access to 96 operations across 8 functional domains.
 
 ### Key Features
 
@@ -22,7 +22,7 @@ The CLEO MCP Server exposes CLEO's task management capabilities through the Mode
 ```
 ┌─────────────────────────────────────┐
 │     MCP TOOL LAYER (2 gateways)     │
-│  cleo_query (45) | cleo_mutate (53) │
+│  cleo_query (48) | cleo_mutate (48) │
 └─────────────────┬───────────────────┘
                   │
 ┌─────────────────▼───────────────────┐
@@ -101,8 +101,8 @@ const newTask = await cleo_mutate({
 
 - **[API Overview](api/overview.md)** - Gateway concepts, domains, operations
 - **Gateways**
-  - [cleo_query](api/gateways/cleo_query.md) - Read operations (45)
-  - [cleo_mutate](api/gateways/cleo_mutate.md) - Write operations (53)
+  - [cleo_query](api/gateways/cleo_query.md) - Read operations (48)
+  - [cleo_mutate](api/gateways/cleo_mutate.md) - Write operations (48)
 - **Domains**
   - [tasks](api/domains/tasks.md) - Task management (19 operations)
   - [session](api/domains/session.md) - Session management (12 operations)
@@ -140,8 +140,8 @@ The MCP server uses **CQRS (Command Query Responsibility Segregation)**:
 
 | Gateway | Purpose | Operations | Characteristics |
 |---------|---------|------------|-----------------|
-| `cleo_query` | Read operations | 45 | Idempotent, cacheable, no side effects |
-| `cleo_mutate` | Write operations | 53 | Validated, logged, atomic |
+| `cleo_query` | Read operations | 48 | Idempotent, cacheable, no side effects |
+| `cleo_mutate` | Write operations | 48 | Validated, logged, atomic |
 
 **Benefits**:
 - **Safety**: Read operations cannot modify state
