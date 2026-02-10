@@ -152,8 +152,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: ${{ steps.changelog.outputs.path }}
-          generate_release_notes: true
-          append_body: true
+          generate_release_notes: false
           files: |
             cleo-${{ steps.version.outputs.version }}.tar.gz
             install.sh

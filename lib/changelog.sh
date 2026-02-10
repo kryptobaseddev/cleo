@@ -398,20 +398,29 @@ append_to_changelog() {
 
     # IDEMPOTENCY CHECK: Skip if version header already exists with content
     # This prevents duplicate entries when called multiple times
+    # @task T4248 - Fixed: check beyond blank lines after header (was only checking next_line)
     if [[ -f "$output_file" ]]; then
         if grep -q "^## \[${version_no_v}\]" "$output_file"; then
-            # Check if it has content (not just empty header)
+            # Check if section has any content between this header and next version header
             local header_line
             header_line=$(grep -n "^## \[${version_no_v}\]" "$output_file" | head -1 | cut -d: -f1)
-            local next_line=$((header_line + 1))
-            local next_content
-            next_content=$(sed -n "${next_line}p" "$output_file")
-            # If next line is not empty and not another version header, content exists
-            if [[ -n "$next_content" && ! "$next_content" =~ ^##\  ]]; then
+            # Find next version header after this one
+            local next_header_line
+            next_header_line=$(tail -n +"$((header_line + 1))" "$output_file" | grep -n "^## \[" | head -1 | cut -d: -f1)
+            # Extract content between headers (skip blank lines)
+            local section_content
+            if [[ -n "$next_header_line" ]]; then
+                local end_line=$((header_line + next_header_line - 1))
+                section_content=$(sed -n "$((header_line + 1)),${end_line}p" "$output_file" | grep -v '^$' | head -1)
+            else
+                # No next header - check rest of file
+                section_content=$(tail -n +"$((header_line + 1))" "$output_file" | grep -v '^$' | head -1)
+            fi
+            if [[ -n "$section_content" && ! "$section_content" =~ ^##\  ]]; then
                 log_info "Changelog entry already exists for ${version_no_v} - skipping"
                 return 0
             fi
-            # Header exists but is empty - we'll replace it below
+            # Header exists but section is truly empty - we'll replace it below
             log_info "Found empty header for ${version_no_v} - adding content"
         fi
     fi
