@@ -2,7 +2,7 @@
 #
 # detect-drift.sh - Detect documentation drift in CLEO
 #
-# Usage: ./detect-drift.sh [--quick|--full|--strict] [--recommend] [--json]
+# Usage: ./detect-drift.sh [--quick|--full|--canonical|--mintlify|--strict] [--recommend] [--json]
 #
 # Exit codes:
 #   0 - No drift detected
@@ -28,6 +28,10 @@ COMMANDS_INDEX="$PROJECT_ROOT/docs/commands/COMMANDS-INDEX.json"
 SCRIPTS_DIR="$PROJECT_ROOT/scripts"
 README="$PROJECT_ROOT/README.md"
 VERSION_FILE="$PROJECT_ROOT/VERSION"
+VISION_DOC="$PROJECT_ROOT/docs/concepts/vision.mdx"
+PORTABLE_BRAIN_SPEC="$PROJECT_ROOT/docs/specs/PORTABLE-BRAIN-SPEC.md"
+DOCS_INDEX="$PROJECT_ROOT/docs/INDEX.md"
+DOCS_JSON="$PROJECT_ROOT/docs/docs.json"
 
 # Config helper functions
 get_config_array() {
@@ -65,15 +69,19 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --quick) MODE="quick"; shift ;;
         --full) MODE="full"; shift ;;
+        --canonical) MODE="canonical"; shift ;;
+        --mintlify) MODE="mintlify"; shift ;;
         --strict) STRICT=true; shift ;;
         --recommend) RECOMMEND=true; shift ;;
         --json) JSON_OUTPUT=true; shift ;;
         -h|--help)
-            echo "Usage: $0 [--quick|--full|--strict] [--recommend] [--json]"
+            echo "Usage: $0 [--quick|--full|--canonical|--mintlify|--strict] [--recommend] [--json]"
             echo ""
             echo "Options:"
             echo "  --quick      Check only commands index vs scripts"
             echo "  --full       Full check including docs and versions (default)"
+            echo "  --canonical  Check canonical vision/contract drift only"
+            echo "  --mintlify   Check docs.json page frontmatter compliance only"
             echo "  --strict     Exit with error on any drift"
             echo "  --recommend  Include fix recommendations"
             echo "  --json       Output in JSON format"
@@ -123,11 +131,143 @@ check_prerequisites() {
     [[ ! -f "$COMMANDS_INDEX" ]] && missing+=("COMMANDS-INDEX.json")
     [[ ! -d "$SCRIPTS_DIR" ]] && missing+=("scripts/")
     [[ ! -f "$README" ]] && missing+=("README.md")
+    [[ ! -f "$DOCS_JSON" ]] && missing+=("docs/docs.json")
+    [[ ! -f "$VISION_DOC" ]] && missing+=("docs/concepts/vision.mdx")
+    [[ ! -f "$PORTABLE_BRAIN_SPEC" ]] && missing+=("docs/specs/PORTABLE-BRAIN-SPEC.md")
+    [[ ! -f "$DOCS_INDEX" ]] && missing+=("docs/INDEX.md")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo -e "${RED}ERROR: Missing required files:${NC}"
         printf '  - %s\n' "${missing[@]}"
         exit 2
+    fi
+}
+
+# Check canonical vision and portable-brain contract markers
+check_canonical_contract() {
+    log_header "CANONICAL" "Checking vision and contract alignment"
+
+    # Vision markers
+    if grep -q "## Vision Charter (Immutable)" "$VISION_DOC" 2>/dev/null; then
+        log_ok "Vision charter marker present"
+    else
+        log_error "Vision charter marker missing in docs/concepts/vision.mdx"
+        log_recommend "Add '## Vision Charter (Immutable)' to vision.mdx"
+    fi
+
+    if grep -q "vendor-neutral Brain and Memory system" "$VISION_DOC" 2>/dev/null; then
+        log_ok "Vision includes canonical product statement"
+    else
+        log_error "Canonical product statement missing in vision.mdx"
+    fi
+
+    # Portable spec markers
+    if grep -q "## 3. Canonical Pillars" "$PORTABLE_BRAIN_SPEC" 2>/dev/null; then
+        log_ok "Portable Brain spec includes canonical pillars section"
+    else
+        log_error "Missing canonical pillars section in PORTABLE-BRAIN-SPEC"
+    fi
+
+    local required_terms=(
+        "Portable Memory"
+        "Provenance by Default"
+        "Interoperable Interfaces"
+        "Deterministic Safety"
+        "Cognitive Retrieval"
+    )
+    local missing_term=false
+    local term
+    for term in "${required_terms[@]}"; do
+        if ! grep -q "$term" "$PORTABLE_BRAIN_SPEC" 2>/dev/null; then
+            log_error "Canonical term missing from PORTABLE-BRAIN-SPEC: $term"
+            missing_term=true
+        fi
+    done
+    if [[ "$missing_term" == "false" ]]; then
+        log_ok "All canonical terms present in PORTABLE-BRAIN-SPEC"
+    fi
+
+    # README alignment markers
+    if grep -q "### Source of Truth Hierarchy" "$README" 2>/dev/null; then
+        log_ok "README includes source of truth hierarchy"
+    else
+        log_error "README missing source of truth hierarchy section"
+    fi
+
+    if grep -q "docs/specs/PORTABLE-BRAIN-SPEC.md" "$README" 2>/dev/null; then
+        log_ok "README links to PORTABLE-BRAIN-SPEC"
+    else
+        log_error "README missing link to PORTABLE-BRAIN-SPEC"
+    fi
+
+    # Documentation index markers
+    if grep -q "## Source of Truth Hierarchy" "$DOCS_INDEX" 2>/dev/null; then
+        log_ok "docs/INDEX.md includes hierarchy section"
+    else
+        log_error "docs/INDEX.md missing source of truth hierarchy section"
+    fi
+}
+
+# Check all pages declared in docs/docs.json have required frontmatter
+check_docs_json_frontmatter() {
+    log_header "MINTLIFY" "Checking docs.json pages for required frontmatter"
+
+    local pages
+    pages=$(jq -r '.. | .pages? // empty | .[]' "$DOCS_JSON" 2>/dev/null | sort -u)
+
+    local total_pages=0
+    local checked_pages=0
+    local required_fields=("title" "description")
+
+    while IFS= read -r page; do
+        [[ -z "$page" ]] && continue
+        ((total_pages++))
+
+        local file="$PROJECT_ROOT/docs/${page}.mdx"
+        if [[ ! -f "$file" ]]; then
+            file="$PROJECT_ROOT/docs/${page}.md"
+        fi
+
+        if [[ ! -f "$file" ]]; then
+            log_error "Page listed in docs.json missing file: $page"
+            continue
+        fi
+
+        local first_line
+        first_line=$(sed -n '1p' "$file")
+        if [[ "$first_line" != "---" ]]; then
+            log_error "Missing frontmatter start in: docs/${page}"
+            continue
+        fi
+
+        local fm_end
+        fm_end=$(awk 'NR>1 && /^---$/{print NR; exit}' "$file")
+        if [[ -z "$fm_end" ]]; then
+            log_error "Unterminated frontmatter in: docs/${page}"
+            continue
+        fi
+
+        local fm_content
+        fm_content=$(sed -n "2,$((fm_end-1))p" "$file")
+
+        local missing_field=false
+        local field
+        for field in "${required_fields[@]}"; do
+            if ! grep -q "^${field}:" <<< "$fm_content"; then
+                log_error "Missing frontmatter field '${field}' in: docs/${page}"
+                missing_field=true
+            fi
+        done
+
+        if [[ "$missing_field" == "false" ]]; then
+            ((checked_pages++))
+        fi
+    done <<< "$pages"
+
+    if [[ "$checked_pages" -eq "$total_pages" ]]; then
+        log_ok "All docs.json pages have required frontmatter (title, description)"
+    else
+        log_warn "Frontmatter validated for $checked_pages/$total_pages docs.json pages"
     fi
 }
 
@@ -339,14 +479,14 @@ check_generated_index() {
 
 # Check command documentation files
 check_command_docs() {
-    log_header "DOCS" "Checking docs/commands/*.md coverage"
+    log_header "DOCS" "Checking docs/commands/*.mdx coverage"
 
     local index_cmds
     index_cmds=$(get_index_commands)
     local missing_docs=()
 
     while IFS= read -r cmd; do
-        if [[ ! -f "$PROJECT_ROOT/docs/commands/$cmd.md" ]]; then
+        if [[ ! -f "$PROJECT_ROOT/docs/commands/$cmd.mdx" && ! -f "$PROJECT_ROOT/docs/commands/$cmd.md" ]]; then
             missing_docs+=("$cmd")
         fi
     done <<< "$index_cmds"
@@ -533,24 +673,33 @@ main() {
 
     check_prerequisites
 
-    # Always check commands sync
-    check_commands_sync
-
-    # Always check wrapper template sync
-    check_wrapper_template_sync
-
-    # Always check script headers
-    check_header_sync
-
-    # Always check INDEX matches generated from headers
-    check_generated_index
-
-    if [[ "$MODE" == "full" ]]; then
-        check_command_docs
-        check_version_sync
-        check_readme_commands
+    if [[ "$MODE" == "canonical" ]]; then
+        check_canonical_contract
         check_vision_docs
-        check_agent_injection
+    elif [[ "$MODE" == "mintlify" ]]; then
+        check_docs_json_frontmatter
+    else
+        # Always check commands sync
+        check_commands_sync
+
+        # Always check wrapper template sync
+        check_wrapper_template_sync
+
+        # Always check script headers
+        check_header_sync
+
+        # Always check INDEX matches generated from headers
+        check_generated_index
+
+        if [[ "$MODE" == "full" ]]; then
+            check_command_docs
+            check_version_sync
+            check_readme_commands
+            check_canonical_contract
+            check_docs_json_frontmatter
+            check_vision_docs
+            check_agent_injection
+        fi
     fi
 
     # Summary
