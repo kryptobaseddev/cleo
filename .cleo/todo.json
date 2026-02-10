@@ -570,9 +570,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T16:33:25Z",
+  "lastUpdated": "2026-02-10T17:07:22Z",
   "_meta": {
-    "checksum": "6a566c15e9cec29b",
+    "checksum": "1287e19f2ec2855f",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -581,7 +581,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2361
+    "generation": 2363
   },
   "focus": {
     "currentTask": null,
@@ -28608,7 +28608,22 @@
       "completedAt": "2026-02-10T16:33:25Z",
       "notes": [
         "[COMPLETED 2026-02-10T16:33:25Z] Successfully published @cleocode/mcp-server@0.86.0 to npm. Live at https://www.npmjs.com/package/@cleocode/mcp-server"
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T16:33:26Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4263",
@@ -28631,12 +28646,12 @@
     {
       "id": "T4264",
       "title": "Verify GitHub Actions CI/CD pipeline",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4258",
       "createdAt": "2026-02-10T15:40:21Z",
-      "updatedAt": "2026-02-10T15:40:21Z",
+      "updatedAt": "2026-02-10T17:07:22Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -28644,6 +28659,10 @@
       "description": "Push a test tag or wait for next release to verify .github/workflows/npm-publish.yml and mcp-test.yml work correctly. Confirm NPM_TOKEN secret is accessible in GitHub Actions. Check that version sync from VERSION file works. Verify mcp-test.yml runs across Node 18/20/22.",
       "depends": [
         "T4262"
+      ],
+      "completedAt": "2026-02-10T17:07:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T17:07:22Z] CI/CD pipeline verified: npm-publish.yml, mcp-test.yml, ci.yml all PASS. NPM_TOKEN secret exists, @cleocode scope correct, version sync works, all recent runs succeeding. Minor: mcp-test.yml only runs unit tests (not integration/e2e)."
       ]
     },
     {
