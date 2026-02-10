@@ -543,29 +543,31 @@ Before returning, subagent verifies:
 
 ## Release Workflow
 
-When all tasks are complete, trigger the release workflow:
+When all tasks are complete, use `cleo release` for the full release lifecycle:
 
 ```bash
-# Preview release (no changes)
-./dev/release-version.sh patch --dry-run
+# 1. Create a release (registers version, assigns tasks)
+cleo release create v0.85.0 --tasks T4247,T4248
 
-# Patch release (x.y.z → x.y.z+1)
-./dev/release-version.sh patch --push
+# 2. Plan/modify release (add/remove tasks, set notes)
+cleo release plan v0.85.0 --tasks T4249 --notes "Bug fix release"
 
-# Minor release (x.y.z → x.y+1.0)
-./dev/release-version.sh minor --push
+# 3. Ship release (bumps version, generates changelog, commits, tags, pushes)
+cleo release ship v0.85.0 --bump-version --create-tag --push
 
-# Major release (x.y.z → x+1.0.0)
-./dev/release-version.sh major --push
+# Preview without changes:
+cleo release ship v0.85.0 --bump-version --dry-run
+
+# Other useful commands:
+cleo release list                    # List all releases
+cleo release show v0.85.0            # Show release details
+cleo release changelog v0.85.0       # Preview changelog
 ```
 
-**Script Relationship**:
+**IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0).
+Always use `cleo release create` → `cleo release plan` → `cleo release ship`.
 
-| Script | Purpose |
-|--------|---------|
-| `dev/bump-version.sh` | VERSION + README only |
-| `dev/release-version.sh` | Full: bump + changelog + commit + tag + push |
-| `scripts/generate-changelog.sh` | CHANGELOG.md → Mintlify MDX |
+See `protocols/release.md` for the full release protocol specification.
 
 ---
 

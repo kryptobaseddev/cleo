@@ -434,8 +434,8 @@ interface ValidationResult {
 
 | Operation | Parameters | Returns | CLI Mapping |
 |-----------|------------|---------|-------------|
-| `preview` | `type` (patch\|minor\|major), `dryRun?` | Release preview | `release-version.sh --dry-run` |
-| `execute` | `type`, `push?`, `skipTests?` | Release result | `release-version.sh` |
+| `preview` | `type` (patch\|minor\|major), `dryRun?` | Release preview | `cleo release ship --dry-run` |
+| `execute` | `type`, `push?`, `skipTests?` | Release result | `cleo release ship` |
 | `bump` | `type` | Version bump only | `bump-version.sh` |
 | `changelog` | `since?`, `format?` | Generated changelog | `generate-changelog.sh` |
 | `gates` | - | Release gate status | `run_release_gates()` |

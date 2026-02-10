@@ -95,7 +95,7 @@ This specification **DEFERS TO**:
 | **Decomposition** | setup | `protocols/decomposition.md` | Break into atomic tasks | Task hierarchy, waves |
 | **Implementation** | core | `protocols/implementation.md` | Build functionality | Code, tests |
 | **Contribution** | core | `protocols/contribution.md` | Track multi-agent work | Contribution records |
-| **Release** | polish | `protocols/release.md` + `dev/release-version.sh` | Version, changelog, publish | Tagged release |
+| **Release** | polish | `protocols/release.md` + `cleo release ship` | Version, changelog, publish | Tagged release |
 
 ### 2.3 Protocol Selection Matrix
 
@@ -155,17 +155,20 @@ Research ──┬──→ Specification ──→ Implementation ──→ Con
 
 ## Part 4: Release Workflow Integration
 
-### 4.1 Release Scripts
+### 4.1 Release Commands
 
-| Script | Purpose | When to Use |
-|--------|---------|-------------|
+| Command | Purpose | When to Use |
+|---------|---------|-------------|
+| `cleo release create <version>` | Register a new release, assign tasks | Start of release cycle |
+| `cleo release plan <version>` | Modify tasks, add notes | Adjust release scope |
+| `cleo release ship <version>` | Full release: bump, changelog, commit, tag, push | Ship the release |
 | `dev/bump-version.sh` | Updates VERSION + README only | Version bump without release |
-| `dev/release-version.sh` | Full release workflow | Complete release cycle |
-| `scripts/generate-changelog.sh` | Generates Mintlify changelog | Called by release-version |
 
-### 4.2 Release Protocol + Script Integration
+**IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0). Use `cleo release ship`.
 
-The `release` protocol defines requirements; `dev/release-version.sh` automates execution:
+### 4.2 Release Protocol + CLI Integration
+
+The `release` protocol defines requirements; `cleo release ship` automates execution:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -182,34 +185,36 @@ The `release` protocol defines requirements; `dev/release-version.sh` automates 
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ dev/release-version.sh (Implementation)                     │
+│ cleo release ship (Implementation)                          │
 ├─────────────────────────────────────────────────────────────┤
-│ 1. Bump version (calls bump-version.sh)                     │
-│ 2. Update README badge                                      │
-│ 3. Generate Mintlify changelog (generate-changelog.sh)      │
-│ 4. Create git commit                                        │
-│ 5. Create git tag (vX.Y.Z)                                  │
-│ 6. Push to remote (--push flag)                             │
+│ 1. Auto-discover tasks (populate_release_tasks)             │
+│ 2. Bump version (--bump-version calls bump-version.sh)      │
+│ 3. Generate changelog + Mintlify output                     │
+│ 4. Run validation gates (cleo validate)                     │
+│ 5. Set status=released (before commit)                      │
+│ 6. Create git commit                                        │
+│ 7. Create git tag (--create-tag)                            │
+│ 8. Push to remote (--push)                                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### 4.3 Release Workflow Commands
 
 ```bash
+# Create a release with specific tasks
+cleo release create v0.85.0 --tasks T001,T002
+
 # Preview what would happen
-./dev/release-version.sh patch --dry-run
+cleo release ship v0.85.0 --bump-version --dry-run
 
-# Patch release (0.73.4 → 0.73.5)
-./dev/release-version.sh patch
+# Ship: bump version, tag, push
+cleo release ship v0.85.0 --bump-version --create-tag --push
 
-# Minor release with push (0.73.5 → 0.74.0)
-./dev/release-version.sh minor --push
+# List all releases
+cleo release list
 
-# Major release (0.74.0 → 1.0.0)
-./dev/release-version.sh major --push
-
-# Explicit version
-./dev/release-version.sh 1.0.0 --push
+# Show release details
+cleo release show v0.85.0
 ```
 
 ### 4.4 Pre-Release Checklist (RLSE-003)
@@ -251,7 +256,8 @@ cleo orchestrator spawn T002  # Auto-detects task type → selects protocol
 cleo research list --status complete
 
 # Trigger release when ready
-./dev/release-version.sh patch --push
+cleo release create v0.74.0 --tasks T002,T003
+cleo release ship v0.74.0 --bump-version --create-tag --push
 
 # End session
 cleo session end --note "Feature complete, released v0.74.0"
@@ -331,7 +337,8 @@ cleo complete T104
 
 # 7. RELEASE STAGE
 cleo add "Release v0.75.0 with OAuth" --parent T100 --phase polish
-./dev/release-version.sh minor --push
+cleo release create v0.75.0 --tasks T104,T105,T106
+cleo release ship v0.75.0 --bump-version --create-tag --push
 cleo complete T107  # release task
 
 # End session
@@ -357,7 +364,7 @@ A conforming orchestrator MUST:
 A conforming release workflow MUST:
 
 1. Follow RLSE-001 through RLSE-007 requirements
-2. Use `dev/release-version.sh` for automation
+2. Use `cleo release create` → `cleo release ship` for automation
 3. Generate Mintlify changelog
 4. Create git tags
 5. Update version consistently across files
@@ -379,16 +386,21 @@ protocols/
 └── release.md         # RLSE-001 to RLSE-022
 ```
 
-### Release Script Locations
+### Release Commands & Scripts
 
 ```
+# Primary release workflow (use these):
+cleo release create <version>      # Register release
+cleo release ship <version>        # Full release flow
+
+# Supporting scripts (called internally by cleo release ship):
 dev/
-├── bump-version.sh         # Version + README only
-├── release-version.sh      # Full release workflow
-└── validate-version.sh     # Version consistency check
+├── bump-version.sh                # Version + README only
+├── release-version.sh             # DEPRECATED - use cleo release ship
+└── validate-version.sh            # Version consistency check
 
 scripts/
-└── generate-changelog.sh   # CHANGELOG.md → Mintlify MDX
+└── generate-changelog.sh          # CHANGELOG.md → Mintlify MDX
 ```
 
 ### Shared Protocol References
