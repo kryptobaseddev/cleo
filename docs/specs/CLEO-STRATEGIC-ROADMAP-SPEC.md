@@ -1,18 +1,18 @@
 ---
 title: "CLEO Strategic Roadmap"
-version: "1.1.0"
+version: "1.2.0"
 status: "stable"
 created: "2026-02-03"
-updated: "2026-02-03"
+updated: "2026-02-09"
 epic: "T2968"
 authors: ["Claude Opus 4.5", "CLEO Development Team"]
 ---
 
 # CLEO Strategic Roadmap Specification
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Status**: STABLE
-**Date**: 2026-02-03
+**Date**: 2026-02-09
 **Epic**: T2968 - CLEO Strategic Inflection Point Review
 **Specification Task**: T2973
 **Revision Task**: T2998
@@ -22,6 +22,15 @@ authors: ["Claude Opus 4.5", "CLEO Development Team"]
 ## 1. Executive Summary
 
 This specification defines CLEO's evolution from a Bash-based task manager (Tier S: solo developer, single project) to a cognitive infrastructure system (Tier M: 2-3 projects, cross-project intelligence) and beyond. The roadmap adopts an **evidence-first, incremental approach**: validate assumptions before expansion, fix implementation gaps before consolidation, and maintain agent-first design as core differentiator.
+
+### 1.0 Authority and Scope
+
+This roadmap is an execution and sequencing specification. Product identity is defined by higher-authority documents:
+
+1. `docs/concepts/vision.mdx` (immutable vision identity)
+2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (canonical product contract)
+
+This document MUST NOT redefine CLEO identity. It defines how implementation progresses from current state to target capabilities under evidence-gated phase control.
 
 ### 1.1 Vision Statement
 
@@ -1122,6 +1131,7 @@ BRAIN Certification
 
 ### 10.3 Existing Specifications
 
+- **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical product identity and invariants
 - **docs/specs/MCP-SERVER-SPECIFICATION.md**: Two-tool CQRS gateway (39KB)
 - **docs/specs/CLEO-NEXUS-SPEC.md**: Cross-project intelligence (43KB)
 - **docs/specs/PROJECT-LIFECYCLE-SPEC.md**: RCSD-IVTR pipeline
@@ -1132,6 +1142,7 @@ BRAIN Certification
 - **CLAUDE.md**: Core repository guidelines
 - **.cleo/templates/CLEO-INJECTION.md**: Subagent architecture (v1.0.0)
 - **docs/concepts/vision.mdx**: CLEO vision statement
+- **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical portable brain product contract
 - **docs/guides/protocol-enforcement.md**: Protocol validation guide
 
 ### 10.5 Current State Artifacts
