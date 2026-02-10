@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.compliance response",
+  "description": "Compliance metrics for orchestrator and agent outputs",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Compliance data with summary, violations, trends, and audit results"
+        }
+      }
+    }
+  ]
+}

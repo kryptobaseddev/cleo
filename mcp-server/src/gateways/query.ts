@@ -5,7 +5,7 @@
  * and validation checks. Never modifies state.
  *
  * Domains: tasks, session, orchestrate, research, lifecycle, validate, system
- * Total operations: 48
+ * Total operations: 56
  *
  * @task T2915
  */
@@ -42,6 +42,7 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'deps',       // Get dependencies
     'analyze',    // Triage analysis
     'next',       // Next task suggestion
+    'relates',    // Query task relationships
   ],
   session: [
     'status',     // Current session status
@@ -86,20 +87,27 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'test.coverage',        // Coverage metrics
   ],
   system: [
-    'version',    // CLEO version
-    'doctor',     // Health check
-    'config.get', // Get config value
-    'stats',      // Project statistics
-    'context',    // Context window info
-    'job.status', // Get background job status
-    'job.list',   // List background jobs
+    'version',        // CLEO version
+    'doctor',         // Health check
+    'config.get',     // Get config value
+    'stats',          // Project statistics
+    'context',        // Context window info
+    'job.status',     // Get background job status
+    'job.list',       // List background jobs
+    'dash',           // Project overview dashboard
+    'roadmap',        // Roadmap generation
+    'labels',         // Label listing and stats
+    'compliance',     // Compliance metrics
+    'log',            // Audit log entries
+    'archive-stats',  // Archive analytics
+    'sequence',       // ID sequence inspection
   ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_QUERY_COUNT = 48;
+const EXPECTED_QUERY_COUNT = 56;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

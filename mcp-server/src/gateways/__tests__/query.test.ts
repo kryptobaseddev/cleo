@@ -2,7 +2,7 @@
  * Tests for cleo_query gateway
  *
  * Validates:
- * - All 48 query operations across 7 domains
+ * - All 56 query operations across 7 domains
  * - Parameter validation
  * - Error handling
  * - Read-only enforcement
@@ -24,9 +24,9 @@ import {
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
-    it('should have exactly 48 query operations', () => {
+    it('should have exactly 56 query operations', () => {
       const total = getQueryOperationCount();
-      expect(total).toBe(48);
+      expect(total).toBe(56);
     });
 
     it('should have 7 query domains', () => {
@@ -50,8 +50,8 @@ describe('Query Gateway', () => {
   });
 
   describe('Domain Operation Counts', () => {
-    it('tasks domain should have 9 operations', () => {
-      expect(getQueryOperationCount('tasks')).toBe(9);
+    it('tasks domain should have 10 operations', () => {
+      expect(getQueryOperationCount('tasks')).toBe(10);
     });
 
     it('session domain should have 5 operations', () => {
@@ -74,8 +74,8 @@ describe('Query Gateway', () => {
       expect(getQueryOperationCount('validate')).toBe(9);
     });
 
-    it('system domain should have 7 operations', () => {
-      expect(getQueryOperationCount('system')).toBe(7);
+    it('system domain should have 14 operations', () => {
+      expect(getQueryOperationCount('system')).toBe(14);
     });
   });
 
@@ -180,10 +180,11 @@ describe('Query Gateway', () => {
 
     it('should return all operations for domain', () => {
       const tasksOps = getQueryOperations('tasks');
-      expect(tasksOps).toHaveLength(9);
+      expect(tasksOps).toHaveLength(10);
       expect(tasksOps).toContain('get');
       expect(tasksOps).toContain('list');
       expect(tasksOps).toContain('find');
+      expect(tasksOps).toContain('relates');
     });
 
     it('should return empty array for unknown domain', () => {

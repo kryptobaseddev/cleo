@@ -143,6 +143,15 @@ interface TasksReopenParams {
   taskId: string;
 }
 
+interface TasksRelatesParams {
+  taskId: string;
+  subcommand?: 'suggest' | 'list' | 'discover';
+  targetId?: string;
+  type?: string;
+  reason?: string;
+  threshold?: number;
+}
+
 /**
  * Tasks domain handler implementation
  */
@@ -198,6 +207,8 @@ export class TasksHandler implements DomainHandler {
           return await this.queryShow(params as unknown as TasksGetParams);
         case 'deps':
           return await this.queryDepends(params as unknown as TasksDependsParams);
+        case 'relates':
+          return await this.queryRelates(params as unknown as TasksRelatesParams);
         default:
           return this.createErrorResponse(
             'cleo_query',
@@ -247,6 +258,8 @@ export class TasksHandler implements DomainHandler {
           return await this.mutateAdd(params as unknown as TasksCreateParams);
         case 'unarchive':
           return await this.mutateRestore(params as unknown as TasksUnarchiveParams);
+        case 'relates.add':
+          return await this.mutateRelatesAdd(params as unknown as TasksRelatesParams);
         default:
           return this.createErrorResponse(
             'cleo_mutate',
@@ -285,6 +298,7 @@ export class TasksHandler implements DomainHandler {
         'tree',
         'blockers',
         'analyze',
+        'relates',
       ],
       mutate: [
         'add',
@@ -300,6 +314,7 @@ export class TasksHandler implements DomainHandler {
         'reparent',
         'promote',
         'reopen',
+        'relates.add',
       ],
     };
   }
@@ -1014,6 +1029,68 @@ export class TasksHandler implements DomainHandler {
     });
 
     return this.wrapExecutorResult(result, 'cleo_mutate', 'tasks', 'reopen', startTime);
+  }
+
+  /**
+   * relates - Query task relationships (suggest, list, discover)
+   * CLI: cleo relates suggest|list|discover <taskId> [--json] [--threshold N]
+   * @task T4269
+   */
+  private async queryRelates(params: TasksRelatesParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'tasks',
+        'relates',
+        'E_INVALID_INPUT',
+        'taskId is required',
+        startTime
+      );
+    }
+
+    const flags: Record<string, unknown> = { json: true };
+    if (params?.threshold) flags.threshold = params.threshold;
+
+    const subcommand = params?.subcommand || 'list';
+
+    const result = await this.executor.execute({
+      domain: 'relates',
+      operation: `${subcommand} ${params.taskId}`,
+      flags,
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_query', 'tasks', 'relates', startTime);
+  }
+
+  /**
+   * relates.add - Add a relationship between tasks
+   * CLI: cleo relates add <from> <to> <type> "<reason>" [--json]
+   * @task T4269
+   */
+  private async mutateRelatesAdd(params: TasksRelatesParams): Promise<DomainResponse> {
+    const startTime = Date.now();
+
+    if (!params?.taskId || !params?.targetId || !params?.type || !params?.reason) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'tasks',
+        'relates.add',
+        'E_INVALID_INPUT',
+        'taskId, targetId, type, and reason are required',
+        startTime
+      );
+    }
+
+    const result = await this.executor.execute({
+      domain: 'relates',
+      operation: `add ${params.taskId} ${params.targetId} ${params.type}`,
+      args: [params.reason],
+      flags: { json: true },
+    });
+
+    return this.wrapExecutorResult(result, 'cleo_mutate', 'tasks', 'relates.add', startTime);
   }
 
   // ===== Helper Methods =====

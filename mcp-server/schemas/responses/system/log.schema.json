@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.log response",
+  "description": "Audit log entries with operations, timestamps, and changes",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Log entries with operation details and timestamps"
+        }
+      }
+    }
+  ]
+}

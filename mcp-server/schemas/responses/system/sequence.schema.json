@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.sequence response",
+  "description": "Task ID sequence state (counter, lastId, checksum)",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Sequence state with counter, lastId, and checksum"
+        }
+      }
+    }
+  ]
+}

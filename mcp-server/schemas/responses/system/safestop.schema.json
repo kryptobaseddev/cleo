@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.safestop response",
+  "description": "Graceful agent shutdown result with handoff information",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Safestop result with session state, handoff notes, and shutdown status"
+        }
+      }
+    }
+  ]
+}
