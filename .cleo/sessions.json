@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-10T15:38:21Z",
-    "totalSessionsCreated": 607
+    "lastModified": "2026-02-10T15:50:19Z",
+    "totalSessionsCreated": 609
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -34948,7 +34948,7 @@
     },
     {
       "id": "session_20260210_073821_7a454b",
-      "status": "active",
+      "status": "ended",
       "name": "MCP Publish Handoff",
       "agentId": null,
       "scope": {
@@ -34970,12 +34970,12 @@
         "currentTask": null,
         "currentPhase": null,
         "previousTask": null,
-        "sessionNote": null,
+        "sessionNote": "Switching to MCP publish epic scope",
         "nextAction": null,
         "focusHistory": []
       },
       "startedAt": "2026-02-10T15:38:21Z",
-      "lastActivity": "2026-02-10T15:38:21Z",
+      "lastActivity": "2026-02-10T15:39:36Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -34986,6 +34986,98 @@
       "startMetrics": {
         "session_id": "session_20260210_073821_7a454b",
         "start_timestamp": "2026-02-10T15:38:21Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-10T15:39:36Z"
+    },
+    {
+      "id": "session_20260210_073943_6a3bd8",
+      "status": "ended",
+      "name": "MCP Publish Handoff",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4258",
+        "computedTaskIds": [
+          "T4258"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4258",
+        "sessionNote": "Handoff document written, epic T4258 created with 6 subtasks for MCP publish sprint",
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4258",
+            "timestamp": "2026-02-10T15:39:44Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-10T15:39:44Z",
+      "lastActivity": "2026-02-10T15:40:56Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260210_073943_6a3bd8",
+        "start_timestamp": "2026-02-10T15:39:44Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-10T15:40:56Z"
+    },
+    {
+      "id": "session_20260210_075019_fc6568",
+      "status": "active",
+      "name": "MCP Publish Sprint",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4258",
+        "computedTaskIds": [
+          "T4258",
+          "T4260",
+          "T4261",
+          "T4262",
+          "T4263",
+          "T4264",
+          "T4265"
+        ]
+      },
+      "focus": {
+        "currentTask": "T4260",
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4260",
+            "timestamp": "2026-02-10T15:50:19Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-10T15:50:19Z",
+      "lastActivity": "2026-02-10T15:50:19Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260210_075019_fc6568",
+        "start_timestamp": "2026-02-10T15:50:19Z",
         "start_tokens": 0,
         "max_tokens": 200000
       }
