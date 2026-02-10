@@ -570,9 +570,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T17:24:22Z",
+  "lastUpdated": "2026-02-10T17:29:26Z",
   "_meta": {
-    "checksum": "f8a373a0bddff1c3",
+    "checksum": "f2896d269bf5d4d3",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -581,7 +581,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2368
+    "generation": 2369
   },
   "focus": {
     "currentTask": null,
@@ -28738,6 +28738,115 @@
         "T4263",
         "T4264"
       ]
+    },
+    {
+      "id": "T4266",
+      "title": "Epic: Pre-release fixes from MCP functional testing",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-10T17:25:55Z",
+      "updatedAt": "2026-02-10T17:25:55Z",
+      "size": "medium",
+      "position": 842,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "6 findings from sandbox functional testing that must be addressed before v0.87.0 release. Covers session scope dynamics, sandbox dependencies, MCP-CLI parity, validation warnings, and single-source-of-truth architecture validation."
+    },
+    {
+      "id": "T4267",
+      "title": "Fix static session scope - computedTaskIds must update dynamically",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4266",
+      "createdAt": "2026-02-10T17:26:17Z",
+      "updatedAt": "2026-02-10T17:26:17Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Session computedTaskIds is fixed at session start. New child tasks added after session start are NOT in scope until session restart. This breaks workflow - agents adding tasks mid-session cannot focus on them. Must implement dynamic scope recomputation when tasks are added/removed within an epic scope. Impacts both CLI and MCP."
+    },
+    {
+      "id": "T4268",
+      "title": "Add bc dependency to sandbox Dockerfile",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4266",
+      "createdAt": "2026-02-10T17:26:19Z",
+      "updatedAt": "2026-02-10T17:26:19Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "cleo stats command requires bc (arbitrary precision calculator) which is not in the sandbox base image. Add bc to the Dockerfile dnf install list. Also audit for any other missing CLI dependencies in the sandbox environment."
+    },
+    {
+      "id": "T4269",
+      "title": "Expose dash command in MCP server - full CLI parity required",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4266",
+      "createdAt": "2026-02-10T17:26:20Z",
+      "updatedAt": "2026-02-10T17:26:20Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "The dash command is CLI-only and returns E_INVALID_OPERATION via MCP. ALL CLI functionality MUST be available through the MCP server. Add dash as a query operation in the tasks or system domain. Audit for any other CLI commands not exposed via MCP and add them."
+    },
+    {
+      "id": "T4270",
+      "title": "Fix session.enforcement advisory warning on every command",
+      "status": "done",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4266",
+      "createdAt": "2026-02-10T17:26:22Z",
+      "updatedAt": "2026-02-10T17:29:26Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Every cleo command outputs WARNING: Invalid session.enforcement value advisory, using strict. The config likely has session.enforcement set to advisory but the validation only accepts strict/off. Either add advisory as a valid enforcement level or fix the config value. This warning appears on EVERY command execution and is user-facing noise.",
+      "completedAt": "2026-02-10T17:29:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T17:29:26Z] Fixed: added advisory as alias for warn in lib/session-enforcement.sh. Added enforcement and maxConcurrent to config schema. No more WARNING on every command."
+      ]
+    },
+    {
+      "id": "T4271",
+      "title": "Validate single-source-of-truth: CLI changes auto-reflect in MCP",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4266",
+      "createdAt": "2026-02-10T17:26:24Z",
+      "updatedAt": "2026-02-10T17:26:24Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "MUST validate that the MCP server is a thin wrapper around CLI commands, so any CLI code changes are automatically reflected in MCP without managing duplicate code paths. Also verify that the release pipeline (cleo release ship) builds both the GitHub release AND the npm deployment. Single source of truth is a MUST requirement - no duplication."
+    },
+    {
+      "id": "T4272",
+      "title": "Review MCP add validation vs CLI - document intentional differences",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4266",
+      "createdAt": "2026-02-10T17:26:25Z",
+      "updatedAt": "2026-02-10T17:26:25Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "MCP tasks.add requires both title AND description (anti-hallucination), while CLI cleo add only requires title. This is intentional but needs documentation. Review all MCP vs CLI validation differences, document them in the MCP docs, and confirm each difference is intentional rather than accidental."
     }
   ],
   "labels": {}
