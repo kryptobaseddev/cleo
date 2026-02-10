@@ -4,7 +4,7 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-10T17:31:48Z",
+    "lastModified": "2026-02-10T19:51:12Z",
     "totalSessionsCreated": 610
   },
   "config": {
@@ -11712,7 +11712,7 @@
     },
     {
       "id": "session_20260123_011631_3a489f",
-      "status": "suspended",
+      "status": "ended",
       "name": "Close Test",
       "agentId": null,
       "scope": {
@@ -11725,8 +11725,8 @@
       "focus": {
         "currentTask": null,
         "currentPhase": null,
-        "previousTask": "T2121",
-        "sessionNote": "Switching to dependency graph epic work",
+        "previousTask": null,
+        "sessionNote": "Stale session cleanup - Feb 10 hygiene pass",
         "nextAction": null,
         "focusHistory": [
           {
@@ -11737,7 +11737,7 @@
         ]
       },
       "startedAt": "2026-01-23T09:16:31Z",
-      "lastActivity": "2026-01-23T09:16:50Z",
+      "lastActivity": "2026-02-10T19:51:12Z",
       "suspendedAt": "2026-01-23T09:16:50Z",
       "stats": {
         "tasksCompleted": 0,
@@ -11750,7 +11750,8 @@
         "start_timestamp": "2026-01-23T09:16:31Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-10T19:51:12Z"
     },
     {
       "id": "session_20260123_011741_3a9f1c",
