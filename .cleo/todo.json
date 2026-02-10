@@ -567,10 +567,27 @@
         "createdAt": "2026-02-10T02:14:19Z",
         "tasks": [],
         "notes": "MCP Server: Full CQRS implementation with 96/98 spec operations, rate limiting, background jobs, 1041 tests"
+      },
+      {
+        "version": "v0.87.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-10T17:59:38Z",
+        "tasks": [
+          "T4266",
+          "T4267",
+          "T4268",
+          "T4269",
+          "T4270",
+          "T4271",
+          "T4272"
+        ],
+        "notes": null
       }
     ]
   },
-  "lastUpdated": "2026-02-10T17:36:58Z",
+  "lastUpdated": "2026-02-10T17:59:38Z",
   "_meta": {
     "checksum": "eb33c5a3497f857d",
     "configVersion": "2.1.0",
@@ -581,7 +598,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2379
+    "generation": 2380
   },
   "focus": {
     "currentTask": null,
