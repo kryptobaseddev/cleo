@@ -570,9 +570,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T16:27:51Z",
+  "lastUpdated": "2026-02-10T16:33:25Z",
   "_meta": {
-    "checksum": "7a03a775d25e4c82",
+    "checksum": "6a566c15e9cec29b",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -581,7 +581,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2359
+    "generation": 2361
   },
   "focus": {
     "currentTask": null,
@@ -28556,7 +28556,22 @@
       "completedAt": "2026-02-10T16:27:51Z",
       "notes": [
         "[COMPLETED 2026-02-10T16:27:51Z] Fixed: Created @cleocode npm org, generated granular token, updated GitHub NPM_TOKEN secret, migrated scope from @cleo to @cleocode across 10 files (19 edits). Validated with 8-point check - all passing."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T16:27:52Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4261",
@@ -28576,12 +28591,12 @@
     {
       "id": "T4262",
       "title": "Publish @cleo/mcp-server to npm",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T4258",
       "createdAt": "2026-02-10T15:40:06Z",
-      "updatedAt": "2026-02-10T15:40:06Z",
+      "updatedAt": "2026-02-10T16:33:25Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -28589,6 +28604,10 @@
       "description": "Run npm publish --access public with valid NPM_TOKEN from mcp-server directory. Verify with npm view @cleo/mcp-server. Test installation with npx @cleo/mcp-server. Package: 196.3 kB, 374 files, version 0.86.0.",
       "depends": [
         "T4260"
+      ],
+      "completedAt": "2026-02-10T16:33:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T16:33:25Z] Successfully published @cleocode/mcp-server@0.86.0 to npm. Live at https://www.npmjs.com/package/@cleocode/mcp-server"
       ]
     },
     {
