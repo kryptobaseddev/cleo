@@ -570,17 +570,17 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T15:39:28Z",
+  "lastUpdated": "2026-02-10T15:40:29Z",
   "_meta": {
-    "checksum": "cda1ec4a6fd00290",
+    "checksum": "a148c20f1e7d6c67",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-10T15:38:21Z",
+    "lastModified": "2026-02-10T15:50:19Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 27,
+    "activeSessionCount": 28,
     "generation": 2358
   },
   "focus": {
@@ -28517,7 +28517,7 @@
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-10T15:38:44Z",
-      "updatedAt": "2026-02-10T15:39:28Z",
+      "updatedAt": "2026-02-10T15:40:56Z",
       "size": "medium",
       "position": 840,
       "positionVersion": 0,
@@ -28538,6 +28538,111 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "Publish MCP server to npm and registry"
+    },
+    {
+      "id": "T4260",
+      "title": "Fix npm auth - regenerate NPM_TOKEN",
+      "status": "active",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T4258",
+      "createdAt": "2026-02-10T15:39:52Z",
+      "updatedAt": "2026-02-10T15:50:19Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "npm token is expired/revoked. User must: 1) Log into npmjs.org and regenerate access token, 2) Update GitHub secret NPM_TOKEN with new value, 3) Update local ~/.npmrc with new token. Error seen: Access token expired or revoked."
+    },
+    {
+      "id": "T4261",
+      "title": "Commit all uncommitted MCP work",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T4258",
+      "createdAt": "2026-02-10T15:39:59Z",
+      "updatedAt": "2026-02-10T15:39:59Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Check git status for uncommitted agent changes from the build session. Stage and commit docs MDX updates, CI workflow changes, mcp-server modifications, and .cleo state files with proper commit messages."
+    },
+    {
+      "id": "T4262",
+      "title": "Publish @cleo/mcp-server to npm",
+      "status": "pending",
+      "priority": "high",
+      "type": "subtask",
+      "parentId": "T4258",
+      "createdAt": "2026-02-10T15:40:06Z",
+      "updatedAt": "2026-02-10T15:40:06Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Run npm publish --access public with valid NPM_TOKEN from mcp-server directory. Verify with npm view @cleo/mcp-server. Test installation with npx @cleo/mcp-server. Package: 196.3 kB, 374 files, version 0.86.0.",
+      "depends": [
+        "T4260"
+      ]
+    },
+    {
+      "id": "T4263",
+      "title": "Submit to MCP registry at modelcontextprotocol.io",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4258",
+      "createdAt": "2026-02-10T15:40:14Z",
+      "updatedAt": "2026-02-10T15:40:14Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Follow mcp-server/docs/MCP-REGISTRY-SUBMISSION.md. Install mcp-publisher, authenticate via GitHub device code flow, run mcp-publisher publish from mcp-server directory. Verify listing at registry.modelcontextprotocol.io. Namespace: io.github.kryptobaseddev/cleo-mcp-server.",
+      "depends": [
+        "T4262"
+      ]
+    },
+    {
+      "id": "T4264",
+      "title": "Verify GitHub Actions CI/CD pipeline",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4258",
+      "createdAt": "2026-02-10T15:40:21Z",
+      "updatedAt": "2026-02-10T15:40:21Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Push a test tag or wait for next release to verify .github/workflows/npm-publish.yml and mcp-test.yml work correctly. Confirm NPM_TOKEN secret is accessible in GitHub Actions. Check that version sync from VERSION file works. Verify mcp-test.yml runs across Node 18/20/22.",
+      "depends": [
+        "T4262"
+      ]
+    },
+    {
+      "id": "T4265",
+      "title": "Release v0.87.0 with publish infrastructure",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4258",
+      "createdAt": "2026-02-10T15:40:29Z",
+      "updatedAt": "2026-02-10T15:40:29Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Use cleo release create patch and cleo release ship to cut v0.87.0 including all publish infrastructure (GitHub Actions, version sync, registry metadata). Tag push should trigger automated npm publish via GitHub Actions. Verify npm auto-publish works end-to-end.",
+      "depends": [
+        "T4261",
+        "T4262",
+        "T4263",
+        "T4264"
+      ]
     }
   ],
   "labels": {}
