@@ -1,15 +1,32 @@
 # CLEO MCP Server Specification
 
-**Version**: 1.0.0
-**Status**: DRAFT
-**Date**: 2026-01-31
+**Version**: 1.1.0
+**Status**: STABLE
+**Date**: 2026-02-10
 **Authors**: Claude Opus 4.5, CLEO Development Team
 
 ---
 
 ## 1. Executive Summary
 
-This specification defines the Model Context Protocol (MCP) server interface for CLEO, the task management protocol for solo developers and AI coding agents. The server exposes CLEO's 65 CLI commands and 280+ library functions through **two gateway tools** using a CQRS (Command Query Responsibility Segregation) pattern.
+This specification defines the Model Context Protocol (MCP) server interface for CLEO, the task management protocol for solo developers and AI coding agents. The server exposes CLEO through **two gateway tools** using a CQRS (Command Query Responsibility Segregation) pattern.
+
+### 1.0 Authority and Implementation Source of Truth
+
+This specification is canonical for MCP contract behavior.
+
+Implementation operation counts and live operation matrices MUST be sourced from:
+
+- `mcp-server/src/gateways/query.ts`
+- `mcp-server/src/gateways/mutate.ts`
+
+As of v0.86.0 deployment (T4269), implementation expected counts are:
+
+- `cleo_query`: 56
+- `cleo_mutate`: 51
+- Total: 107
+
+The original core contract matrix (96 operations) remains the baseline model; implementation may include documented parity extensions.
 
 ### 1.1 Design Goals
 
@@ -846,23 +863,50 @@ All write operations MUST use the atomic pattern:
 4. Atomic rename to final path
 5. Append to audit log
 
-### 10.4 Implementation-Only Operations
+### 10.4 Implementation Parity Extensions
 
-The implementation includes 3 additional background job management operations not in the core specification tables above. These were added during implementation to support long-running CLI operations:
+Implementation includes documented parity extensions beyond the original core matrix, introduced to align MCP behavior with deployed CLI capabilities (including T4269 updates).
 
-| Gateway | Domain | Operation | Description |
-|---------|--------|-----------|-------------|
-| `cleo_query` | system | `job.status` | Get background job status |
-| `cleo_query` | system | `job.list` | List background jobs |
-| `cleo_mutate` | system | `job.cancel` | Cancel background job |
+Extensions are maintained in gateway registries and MUST be treated as live source of truth:
 
-This brings the total implementation operation count to **96** (93 spec + 3 background job ops).
+- `mcp-server/src/gateways/query.ts`
+- `mcp-server/src/gateways/mutate.ts`
+
+These include, among others, relationship operations and extended system/observability operations.
+
+Current expected implementation totals:
+
+- Query: 56
+- Mutate: 51
+- Total: 107
 
 ### 10.5 Thread Safety
 
 Concurrent operations are protected via flock on critical files:
 - `.cleo/todo.json.lock`
 - `.cleo/MANIFEST.jsonl.lock`
+
+### 10.6 CLI-MCP Parity Documentation Policy
+
+Parity findings MUST be documented in canonical specifications, not in ad hoc working notes under `mcp-server/docs/`.
+
+Required policy:
+
+1. Intentional differences MUST be listed in this specification with rationale.
+2. Accidental differences MUST be tracked as tasks and resolved or explicitly waived.
+3. Working analysis documents MAY exist during implementation but MUST be consolidated into canonical docs before merge/release.
+
+### 10.7 Known Parity Gaps (Canonical Tracking)
+
+The following known gaps were identified during MCP parity review and MUST be tracked against implementation tasks:
+
+1. Title length validation mismatch (MCP input layer vs CLI enforcement).
+2. Task ID format mismatch risk (`T1`/`T12` acceptance vs CLI 3+ digits pattern).
+3. Status enum coverage mismatch (ensure `cancelled` handling parity where applicable).
+4. Content-length limit mismatch between MCP pre-validation and CLI field-specific limits.
+5. Zero-width/invisible character handling mismatch between MCP sanitization and CLI validation.
+
+These are implementation-alignment concerns. Canonical behavior remains CLI-semantic parity with explicit MCP pre-validation and safety layering.
 
 ---
 
@@ -1114,6 +1158,7 @@ Recommended limits:
 - [RCSD Pipeline Spec](./RCSD-PIPELINE-SPEC.md)
 - [Project Lifecycle Spec](./PROJECT-LIFECYCLE-SPEC.md)
 - [Protocol Enforcement Guide](../guides/protocol-enforcement.md)
+- [MCP-CLI Parity Matrix](./MCP-CLI-PARITY-MATRIX.md)
 
 ---
 

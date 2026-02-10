@@ -90,7 +90,15 @@ CLEO provides:
 | State | What It Means |
 |------|----------------|
 | **Current (Shipped)** | Bash-native CLI is production baseline with atomic operations, anti-hallucination validation, lifecycle enforcement, and persistent project memory |
-| **Strategic (Gated)** | MCP maturation, Nexus validation, memory/reasoning expansion, and Tier M/L multi-agent intelligence are roadmap-driven and evidence-gated |
+| **Strategic (Gated)** | Nexus validation, memory/reasoning expansion, and Tier M/L multi-agent intelligence are roadmap-driven and evidence-gated |
+
+### MCP Server (Deployed)
+
+- CLEO MCP server is deployed and operational in the v0.86.x line.
+- Canonical MCP contract: [`docs/specs/MCP-SERVER-SPECIFICATION.md`](docs/specs/MCP-SERVER-SPECIFICATION.md)
+- Implementation package docs: [`mcp-server/README.md`](mcp-server/README.md)
+- Implementation API index: [`mcp-server/docs/INDEX.md`](mcp-server/docs/INDEX.md)
+- Operation matrix source of truth: `mcp-server/src/gateways/query.ts` and `mcp-server/src/gateways/mutate.ts`
 
 ### Source of Truth Hierarchy
 

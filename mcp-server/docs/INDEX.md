@@ -1,7 +1,7 @@
 # CLEO MCP Server Documentation Index
 
-**Version**: 1.0.0
-**Last Updated**: 2026-02-04
+**Version**: 1.1.0
+**Last Updated**: 2026-02-10
 
 ---
 
@@ -10,6 +10,7 @@
 - [README](README.md) - Overview and getting started
 - [Installation](guides/installation.md) - Setup instructions
 - [Configuration](guides/configuration.md) - Server configuration
+- [MCP CLI Parity Matrix](../../docs/specs/MCP-CLI-PARITY-MATRIX.md) - Canonical parity status and deltas
 
 ---
 
@@ -26,8 +27,8 @@
 
 | Gateway | Type | Operations | Documentation |
 |---------|------|------------|---------------|
-| [cleo_query](api/gateways/cleo_query.md) | Read-only | 48 | Query, analysis, validation |
-| [cleo_mutate](api/gateways/cleo_mutate.md) | Write | 48 | Create, update, delete |
+| [cleo_query](api/gateways/cleo_query.md) | Read-only | 56 | Query, analysis, validation |
+| [cleo_mutate](api/gateways/cleo_mutate.md) | Write | 51 | Create, update, delete |
 
 ### Domains
 
@@ -42,9 +43,11 @@
 | [release](api/domains/release.md) | 0 | 7 | Release management |
 | [system](api/domains/system.md) | 5 | 7 | System operations |
 
-**Total**: 96 operations (48 query + 48 mutate)
+**Total**: 107 operations (56 query + 51 mutate)
 
-> **Note**: Includes 93 spec operations plus 3 system job operations (job.status, job.list in query; job.cancel in mutate).
+> **Source of truth**: `mcp-server/src/gateways/query.ts` and `mcp-server/src/gateways/mutate.ts` expected operation counts.
+>
+> **Contract note**: Core MCP contract is maintained in `docs/specs/MCP-SERVER-SPECIFICATION.md`; implementation includes parity extensions introduced by task T4269.
 
 ---
 
@@ -335,6 +338,11 @@ Contribution (65)
 ---
 
 ## Version History
+
+### v1.1.0 (2026-02-10)
+
+- Updated operation totals to match deployed gateway registries (56 query + 51 mutate)
+- Added canonical/source-of-truth note for operation matrix maintenance
 
 ### v1.0.0 (2026-02-04)
 
