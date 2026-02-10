@@ -314,9 +314,15 @@ set_session_focus() {
     return "${EXIT_SESSION_NOT_FOUND:-31}"
   fi
 
-  # Verify task is in session scope
-  local in_scope
-  in_scope=$(echo "$session_info" | jq --arg taskId "$task_id" '.scope.computedTaskIds | index($taskId)')
+  # Verify task is in session scope (T4267: dynamic recomputation)
+  # Recompute scope from current todo.json to include newly added tasks
+  local current_scope_ids in_scope
+  if declare -f recompute_session_scope >/dev/null 2>&1; then
+    current_scope_ids=$(recompute_session_scope "$session_info" "$todo_content")
+  else
+    current_scope_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+  fi
+  in_scope=$(echo "$current_scope_ids" | jq --arg taskId "$task_id" 'index($taskId)')
 
   if [[ "$in_scope" == "null" ]]; then
     unlock_file "$todo_fd"
@@ -344,16 +350,18 @@ set_session_focus() {
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
   old_focus=$(echo "$session_info" | jq -r '.focus.currentTask // ""')
 
-  # Update session focus
+  # Update session focus (T4267: also persist recomputed scope)
   local updated_sessions
   updated_sessions=$(echo "$sessions_content" | jq \
     --arg sessId "$session_id" \
     --arg taskId "$task_id" \
     --arg ts "$timestamp" \
     --arg oldFocus "$old_focus" \
+    --argjson recomputedIds "$current_scope_ids" \
     '
     .sessions = [.sessions[] |
       if .id == $sessId then
+        .scope.computedTaskIds = $recomputedIds |
         .focus.previousTask = (if $oldFocus == "" then null else $oldFocus end) |
         .focus.currentTask = $taskId |
         .focus.focusHistory += [{
@@ -368,9 +376,9 @@ set_session_focus() {
     ._meta.lastModified = $ts
     ')
 
-  # Update task status in todo.json
+  # Update task status in todo.json (use recomputed scope)
   local scope_ids
-  scope_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds')
+  scope_ids="$current_scope_ids"
 
   local updated_todo
   updated_todo=$(echo "$todo_content" | jq \
