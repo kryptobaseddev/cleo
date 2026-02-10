@@ -2,6 +2,22 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [Unreleased]
+
+## [0.86.0] - 2026-02-09
+
+### Features
+- feat: CLEO MCP Server - full CQRS implementation with 2-gateway architecture (T4248)
+  - 96/98 spec operations across 8 domains (tasks, session, orchestrate, research, lifecycle, validate, release, system)
+  - 2-gateway CQRS pattern (cleo_query + cleo_mutate) with 94% token reduction
+  - 4-layer verification gates (schema, semantic, referential, protocol)
+  - Rate limiting (100 query/min, 30 mutate/min, 10 spawn/min)
+  - Background jobs system for long-running operations
+  - Security hardening with input sanitization and path traversal prevention
+  - Query result caching with per-domain invalidation
+  - 1,041 tests (942 unit + 60 integration + 39 E2E)
+- feat: cleo mcp-install command for easy MCP server setup (T4248)
+
 ## [0.85.1] - 2026-02-10
 
 ### Bug Fixes
