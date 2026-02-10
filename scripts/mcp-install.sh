@@ -48,5 +48,5 @@ echo "Or if published to npm:"
 echo ""
 echo '  "cleo": {'
 echo '    "command": "npx",'
-echo '    "args": ["-y", "@cleo/mcp-server"]'
+echo '    "args": ["-y", "@cleocode/mcp-server"]'
 echo '  }'

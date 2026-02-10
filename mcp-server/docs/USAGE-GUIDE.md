@@ -113,13 +113,13 @@ cleo --validate
 
 **Install globally**:
 ```bash
-npm install -g @cleo/mcp-server
+npm install -g @cleocode/mcp-server
 ```
 
 **Install locally in project**:
 ```bash
 cd /path/to/your-project
-npm install @cleo/mcp-server
+npm install @cleocode/mcp-server
 ```
 
 **Verify installation**:
@@ -141,7 +141,7 @@ cleo-server --version
   "mcpServers": {
     "cleo": {
       "command": "npx",
-      "args": ["-y", "@cleo/mcp-server"]
+      "args": ["-y", "@cleocode/mcp-server"]
     }
   }
 }

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.kryptobaseddev/cleo-mcp-server",
+  "title": "CLEO MCP Server",
+  "description": "Task management protocol for solo developers and AI coding agents with 2-gateway CQRS pattern",
+  "version": "0.86.0",
+  "websiteUrl": "https://github.com/kryptobaseddev/cleo",
+  "repository": {
+    "url": "https://github.com/kryptobaseddev/cleo.git",
+    "source": "github",
+    "subfolder": "mcp-server"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@cleocode/mcp-server",
+      "version": "0.86.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CLEO_PROJECT_DIR",
+          "description": "Path to CLEO project directory (must contain .cleo/ folder)",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "tools": [
+        {
+          "name": "cleo_query",
+          "description": "Read-only operations across 8 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system"
+        },
+        {
+          "name": "cleo_mutate",
+          "description": "Write operations across 8 domains: tasks, session, orchestrate, research, lifecycle, validate, release, system"
+        }
+      ],
+      "features": [
+        "CQRS 2-gateway pattern (94% token reduction vs traditional MCP tool approach)",
+        "RCSD-IVTR lifecycle protocol enforcement",
+        "4-layer validation (schema, semantic, referential, protocol)",
+        "98 operations across 8 domains",
+        "Anti-hallucination validation on all task operations",
+        "Atomic file operations with backup and rollback"
+      ],
+      "categories": ["developer-tools", "task-management", "ai-agents"]
+    }
+  }
+}
