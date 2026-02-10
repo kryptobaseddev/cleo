@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.cleanup request",
+  "description": "Cleanup stale data",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["sessions", "backups", "logs", "all"],
+      "description": "Cleanup type"
+    },
+    "olderThan": {
+      "type": "string",
+      "format": "date",
+      "description": "Remove data older than date"
+    }
+  },
+  "required": ["type"],
+  "additionalProperties": false
+}

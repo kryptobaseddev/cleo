@@ -3,7 +3,7 @@
   "_meta": {
     "version": "2.0.0",
     "lastUpdated": "2026-02-09",
-    "totalCommands": 74,
+    "totalCommands": 75,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0",
     "generatedFrom": "script-headers"
   },
@@ -22,6 +22,7 @@
       "doctor",
       "generate-changelog",
       "init",
+      "mcp-install",
       "migrate",
       "restore",
       "self-update",
@@ -51,7 +52,6 @@
       "otel",
       "phases",
       "relates",
-      "research",
       "roadmap",
       "show",
       "stats",
@@ -87,6 +87,7 @@
       "reopen",
       "reorder",
       "reparent",
+      "research",
       "safestop",
       "session",
       "unarchive",
@@ -977,6 +978,23 @@
       ]
     },
     {
+      "name": "mcp-install",
+      "script": "mcp-install.sh",
+      "category": "maintenance",
+      "synopsis": "Build and configure the CLEO MCP server for AI tool integration",
+      "agentRelevance": "medium",
+      "jsonOutput": false,
+      "jsonDefault": false,
+      "flags": [
+        "--json",
+        "--format"
+      ],
+      "exitCodes": [
+        0,
+        1
+      ]
+    },
+    {
       "name": "next",
       "script": "next.sh",
       "category": "read",
@@ -1032,6 +1050,7 @@
         "list",
         "query",
         "discover",
+        "search",
         "deps",
         "sync"
       ]
@@ -1344,7 +1363,7 @@
     {
       "name": "research",
       "script": "research.sh",
-      "category": "read",
+      "category": "write",
       "synopsis": "Multi-source web research aggregation with MCP servers (Tavily, Context7, Reddit)",
       "agentRelevance": "high",
       "jsonOutput": true,
@@ -1377,6 +1396,8 @@
       ],
       "subcommands": [
         "init",
+        "add",
+        "update",
         "list",
         "show",
         "inject",

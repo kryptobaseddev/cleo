@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.init request",
+  "description": "Initialize CLEO",
+  "type": "object",
+  "properties": {
+    "projectType": {
+      "type": "string",
+      "description": "Project type (bash, python, node, etc.)"
+    },
+    "detect": {
+      "type": "boolean",
+      "default": true,
+      "description": "Auto-detect project type"
+    }
+  },
+  "additionalProperties": false
+}

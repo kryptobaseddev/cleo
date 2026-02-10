@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "validate.compliance.record request",
+  "description": "Record compliance check",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Task ID"
+    },
+    "result": {
+      "type": "object",
+      "description": "Compliance result object",
+      "additionalProperties": true
+    }
+  },
+  "required": ["taskId", "result"],
+  "additionalProperties": false
+}

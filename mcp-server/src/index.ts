@@ -30,6 +30,7 @@ import { createExecutor } from './lib/executor.js';
 import { registerQueryTool } from './gateways/query.js';
 import { registerMutateTool } from './gateways/mutate.js';
 import { QueryCache } from './lib/cache.js';
+import { BackgroundJobManager } from './lib/background-jobs.js';
 
 /**
  * Server state for cleanup
@@ -38,6 +39,7 @@ interface ServerState {
   router: DomainRouter;
   server: Server;
   cache: QueryCache;
+  jobManager: BackgroundJobManager;
 }
 
 let serverState: ServerState | null = null;
@@ -76,11 +78,28 @@ async function main(): Promise<void> {
     const cliVersion = await executor.getVersion();
     console.error(`[CLEO MCP] CLI version: ${cliVersion}`);
 
-    // Initialize domain router with executor
+    // Initialize domain router with executor and rate limiting config
     console.error('[CLEO MCP] Initializing domain router...');
-    const router = new DomainRouter(executor);
+    const router = new DomainRouter(executor, true, config.rateLimiting);
     console.error('[CLEO MCP] Domain router initialized');
+    console.error(`[CLEO MCP] Rate limiting: ${config.rateLimiting.enabled ? 'enabled' : 'disabled'} (query: ${config.rateLimiting.query.maxRequests}/min, mutate: ${config.rateLimiting.mutate.maxRequests}/min, spawn: ${config.rateLimiting.spawn.maxRequests}/min)`);
     console.error(`[CLEO MCP] Registered domains: ${router.getDomains().join(', ')}`);
+
+    // Initialize background job manager
+    const jobManager = new BackgroundJobManager({ maxJobs: 10, retentionMs: 3600000 });
+    console.error('[CLEO MCP] Background job manager initialized (max: 10, retention: 1h)');
+
+    // Wire job manager into system handler via router
+    const systemOps = router.getDomainOperations('system');
+    if (systemOps) {
+      // Access the system handler through the router to inject job manager
+      // The SystemHandler.setJobManager method allows post-construction injection
+      const systemHandler = (router as any).handlers.get('system');
+      if (systemHandler && typeof systemHandler.setJobManager === 'function') {
+        systemHandler.setJobManager(jobManager);
+        console.error('[CLEO MCP] Background job manager wired to system handler');
+      }
+    }
 
     // Initialize query cache
     const cache = new QueryCache(config.queryCacheTtl, config.queryCache);
@@ -270,6 +289,7 @@ async function main(): Promise<void> {
       router,
       server,
       cache,
+      jobManager,
     };
 
     // Create transport and connect
@@ -293,6 +313,8 @@ async function shutdown(signal: string): Promise<void> {
 
   if (serverState) {
     try {
+      // Destroy background job manager
+      serverState.jobManager.destroy();
       // Destroy cache
       serverState.cache.destroy();
       // Close server

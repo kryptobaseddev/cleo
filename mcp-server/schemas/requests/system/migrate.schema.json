@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.migrate request",
+  "description": "Run migrations",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Target version (default: latest)"
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": false,
+      "description": "Preview migrations without applying"
+    }
+  },
+  "additionalProperties": false
+}

@@ -24,6 +24,7 @@ import { CLIExecutor } from './executor.js';
 import { protocolEnforcer, ProtocolType } from './protocol-enforcement.js';
 import { VerificationGate, OperationContext } from './verification-gates.js';
 import { sanitizeParams, SecurityError } from './security.js';
+import { RateLimiter, RateLimitResult, RateLimitingConfig } from './rate-limiter.js';
 
 /**
  * Request from MCP gateway
@@ -111,8 +112,9 @@ export class DomainRouter {
   private handlers: Map<string, DomainHandler>;
   private useProtocolEnforcement: boolean;
   private verificationGate: VerificationGate;
+  private rateLimiter: RateLimiter;
 
-  constructor(executor: CLIExecutor, useProtocolEnforcement: boolean = true) {
+  constructor(executor: CLIExecutor, useProtocolEnforcement: boolean = true, rateLimitConfig?: Partial<RateLimitingConfig>) {
     // Initialize all domain handlers
     this.handlers = new Map<string, DomainHandler>([
       ['tasks', new TasksHandler(executor)],
@@ -126,6 +128,7 @@ export class DomainRouter {
     ]);
     this.useProtocolEnforcement = useProtocolEnforcement;
     this.verificationGate = new VerificationGate(useProtocolEnforcement);
+    this.rateLimiter = new RateLimiter(rateLimitConfig);
   }
 
   /**
@@ -137,6 +140,44 @@ export class DomainRouter {
     try {
       // Validate the route
       this.validateRoute(request);
+
+      // Rate limiting check (Section 13.3)
+      // Support bypassRateLimit param for testing
+      const bypassRateLimit = !!request.params?.bypassRateLimit;
+      const rateLimitResult = bypassRateLimit
+        ? { allowed: true, remaining: Infinity, limit: Infinity, resetMs: 0, category: 'bypassed' as const }
+        : this.rateLimiter.check(request.gateway, request.domain, request.operation);
+
+      if (!rateLimitResult.allowed) {
+        return {
+          _meta: {
+            gateway: request.gateway,
+            domain: request.domain,
+            operation: request.operation,
+            version: '1.0.0',
+            timestamp: new Date().toISOString(),
+            duration_ms: Date.now() - startTime,
+            rateLimit: {
+              limit: rateLimitResult.limit,
+              remaining: rateLimitResult.remaining,
+              resetMs: rateLimitResult.resetMs,
+              category: rateLimitResult.category,
+            },
+          },
+          success: false,
+          error: {
+            code: 'E_RATE_LIMITED',
+            exitCode: 429,
+            message: `Rate limit exceeded for ${rateLimitResult.category} operations. Limit: ${rateLimitResult.limit}/min. Retry after ${Math.ceil(rateLimitResult.resetMs / 1000)}s.`,
+            details: {
+              category: rateLimitResult.category,
+              limit: rateLimitResult.limit,
+              resetMs: rateLimitResult.resetMs,
+            },
+            fix: `Wait ${Math.ceil(rateLimitResult.resetMs / 1000)} seconds before retrying`,
+          },
+        };
+      }
 
       // Sanitize input parameters (T3144)
       if (request.params) {
@@ -217,8 +258,9 @@ export class DomainRouter {
           }
         });
 
-        // Add duration to metadata
+        // Add duration and rate limit metadata
         (response as any)._meta.duration_ms = Date.now() - startTime;
+        this.addRateLimitMeta(response, rateLimitResult);
         return response;
       }
 
@@ -230,8 +272,9 @@ export class DomainRouter {
         response = await handler.mutate(request.operation, request.params);
       }
 
-      // Add duration to metadata
+      // Add duration and rate limit metadata
       (response as any)._meta.duration_ms = Date.now() - startTime;
+      this.addRateLimitMeta(response, rateLimitResult);
 
       return response;
     } catch (error) {
@@ -316,6 +359,25 @@ export class DomainRouter {
   } | null {
     const handler = this.handlers.get(domain);
     return handler ? handler.getSupportedOperations() : null;
+  }
+
+  /**
+   * Get the rate limiter instance (for testing/diagnostics)
+   */
+  getRateLimiter(): RateLimiter {
+    return this.rateLimiter;
+  }
+
+  /**
+   * Add rate limit metadata to response _meta
+   */
+  private addRateLimitMeta(response: DomainResponse, rateLimitResult: RateLimitResult): void {
+    (response._meta as any).rateLimit = {
+      limit: rateLimitResult.limit,
+      remaining: rateLimitResult.remaining,
+      resetMs: rateLimitResult.resetMs,
+      category: rateLimitResult.category,
+    };
   }
 
   /**

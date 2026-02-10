@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "orchestrate.validate response",
+  "description": "Validation result with gate checks",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Validation result with gate checks"
+        }
+      }
+    }
+  ]
+}

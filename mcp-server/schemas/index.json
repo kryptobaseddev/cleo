@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CLEO MCP Schema Registry",
+  "description": "Registry of all request and response schemas for 98 MCP operations",
+  "version": "1.0.0",
+  "domains": {
+    "tasks": {
+      "queries": [
+        "get",
+        "list",
+        "find",
+        "exists",
+        "tree",
+        "blockers",
+        "deps",
+        "analyze",
+        "next"
+      ],
+      "mutations": [
+        "create",
+        "update",
+        "complete",
+        "delete",
+        "archive",
+        "unarchive",
+        "reparent",
+        "promote",
+        "reorder",
+        "reopen"
+      ]
+    },
+    "session": {
+      "queries": [
+        "status",
+        "list",
+        "show",
+        "focus.get",
+        "history"
+      ],
+      "mutations": [
+        "start",
+        "end",
+        "resume",
+        "suspend",
+        "focus.set",
+        "focus.clear",
+        "gc"
+      ]
+    },
+    "orchestrate": {
+      "queries": [
+        "status",
+        "next",
+        "ready",
+        "analyze",
+        "context",
+        "waves",
+        "skill.list"
+      ],
+      "mutations": [
+        "startup",
+        "spawn",
+        "validate",
+        "parallel.start",
+        "parallel.end"
+      ]
+    },
+    "research": {
+      "queries": [
+        "show",
+        "list",
+        "query",
+        "pending",
+        "stats",
+        "manifest.read"
+      ],
+      "mutations": [
+        "inject",
+        "link",
+        "manifest.append",
+        "manifest.archive"
+      ]
+    },
+    "lifecycle": {
+      "queries": [
+        "check",
+        "status",
+        "history",
+        "gates",
+        "prerequisites"
+      ],
+      "mutations": [
+        "progress",
+        "skip",
+        "reset",
+        "gate.pass",
+        "gate.fail"
+      ]
+    },
+    "validate": {
+      "queries": [
+        "schema",
+        "protocol",
+        "task",
+        "manifest",
+        "output",
+        "compliance.summary",
+        "compliance.violations",
+        "test.status",
+        "test.coverage"
+      ],
+      "mutations": [
+        "compliance.record",
+        "test.run"
+      ]
+    },
+    "release": {
+      "queries": [],
+      "mutations": [
+        "prepare",
+        "changelog",
+        "commit",
+        "tag",
+        "push",
+        "gates.run",
+        "rollback"
+      ]
+    },
+    "system": {
+      "queries": [
+        "version",
+        "doctor",
+        "config.get",
+        "stats",
+        "context"
+      ],
+      "mutations": [
+        "init",
+        "config.set",
+        "backup",
+        "restore",
+        "migrate",
+        "sync",
+        "cleanup"
+      ]
+    }
+  },
+  "summary": {
+    "total_operations": 98,
+    "total_queries": 45,
+    "total_mutations": 53,
+    "domains": 8
+  },
+  "common_schemas": [
+    "common/meta.schema.json",
+    "common/error.schema.json",
+    "common/pagination.schema.json"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Error response",
+  "description": "Standard error structure for all MCP operations",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^E_[A-Z_]+$",
+      "description": "Error code constant (e.g., E_NOT_FOUND)"
+    },
+    "exitCode": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 255,
+      "description": "CLI exit code"
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable error message"
+    },
+    "details": {
+      "type": "object",
+      "description": "Additional error context",
+      "additionalProperties": true
+    },
+    "fix": {
+      "type": "string",
+      "description": "Suggested fix command or action"
+    },
+    "alternatives": {
+      "type": "array",
+      "description": "Alternative fix options",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "Action description"
+          },
+          "command": {
+            "type": "string",
+            "description": "Command to execute"
+          }
+        },
+        "required": ["action", "command"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["code", "exitCode", "message"],
+  "additionalProperties": false
+}

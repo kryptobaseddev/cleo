@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session.end response",
+  "description": "Session summary with duration and tasks completed",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Session summary with duration and tasks completed"
+        }
+      }
+    }
+  ]
+}

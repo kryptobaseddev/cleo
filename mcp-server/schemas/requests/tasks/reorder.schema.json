@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "tasks.reorder request",
+  "description": "Reorder siblings",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Task ID to reorder"
+    },
+    "position": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "New position (0-indexed)"
+    }
+  },
+  "required": ["taskId", "position"],
+  "additionalProperties": false
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "system.restore request",
+  "description": "Restore from backup",
+  "type": "object",
+  "properties": {
+    "backupId": {
+      "type": "string",
+      "description": "Backup ID to restore"
+    }
+  },
+  "required": ["backupId"],
+  "additionalProperties": false
+}
