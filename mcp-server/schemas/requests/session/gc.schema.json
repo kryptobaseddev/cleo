@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "session.gc request",
+  "description": "Garbage collect sessions",
+  "type": "object",
+  "properties": {
+    "olderThan": {
+      "type": "string",
+      "format": "date",
+      "description": "Remove sessions older than date"
+    }
+  },
+  "additionalProperties": false
+}

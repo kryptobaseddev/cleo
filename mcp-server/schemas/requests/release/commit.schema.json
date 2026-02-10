@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "release.commit request",
+  "description": "Create release commit",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Version"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Files to include (default: VERSION, CHANGELOG.md, README.md)"
+    }
+  },
+  "required": ["version"],
+  "additionalProperties": false
+}

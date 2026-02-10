@@ -1,0 +1,305 @@
+# CLEO MCP Server
+
+**2-gateway CQRS interface for CLEO task management protocol**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://badge.fury.io/js/%40cleo%2Fmcp-server.svg)](https://badge.fury.io/js/%40cleo%2Fmcp-server)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+[![MCP Protocol](https://img.shields.io/badge/MCP-1.0.0-blue)](https://modelcontextprotocol.io/)
+
+📚 **[Quick Start](docs/QUICK-START.md)** | **[Usage Guide](docs/USAGE-GUIDE.md)** | **[Workflows](docs/WORKFLOWS.md)** | **[API Docs](docs/INDEX.md)**
+
+## Overview
+
+CLEO MCP Server exposes CLEO's 65 CLI commands and 280+ library functions through two gateway tools using a CQRS (Command Query Responsibility Segregation) pattern:
+
+- **`cleo_query`** - 45 read operations (discovery, status, analysis)
+- **`cleo_mutate`** - 53 write operations (create, update, lifecycle management)
+
+**Token efficiency**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = **94% reduction**
+
+## Features
+
+- **Full CLEO Access**: All 98 operations across 8 domains
+- **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
+- **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
+- **Safety by Design**: Read operations cannot mutate state
+- **Minimal Token Footprint**: 0.9% of 200K context window
+
+## Installation
+
+```bash
+npm install @cleo/mcp-server
+```
+
+## Quick Start
+
+### Running the Server
+
+```bash
+# Via npm
+npx cleo-server
+
+# Or directly
+node dist/index.js
+```
+
+### Claude Desktop Configuration
+
+Add to your Claude Desktop config (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "npx",
+      "args": ["-y", "@cleo/mcp-server"]
+    }
+  }
+}
+```
+
+Or use local installation:
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "node",
+      "args": ["/path/to/cleo-todo/mcp-server/dist/index.js"]
+    }
+  }
+}
+```
+
+## Usage Examples
+
+### Task Management
+
+```typescript
+// Find tasks
+await cleo_query({
+  domain: "tasks",
+  operation: "find",
+  params: { query: "authentication" }
+});
+
+// Create task
+await cleo_mutate({
+  domain: "tasks",
+  operation: "create",
+  params: {
+    title: "Implement authentication",
+    description: "Add JWT-based auth system",
+    priority: 1
+  }
+});
+
+// Complete task
+await cleo_mutate({
+  domain: "tasks",
+  operation: "complete",
+  params: {
+    taskId: "T2405",
+    notes: "Completed successfully"
+  }
+});
+```
+
+### Session Management
+
+```typescript
+// Start session
+await cleo_mutate({
+  domain: "session",
+  operation: "start",
+  params: {
+    scope: "epic:T2400",
+    name: "Feature Development",
+    autoFocus: true
+  }
+});
+
+// Set focus
+await cleo_mutate({
+  domain: "session",
+  operation: "focus.set",
+  params: { taskId: "T2405" }
+});
+```
+
+### Orchestration
+
+```typescript
+// Initialize orchestration
+await cleo_mutate({
+  domain: "orchestrate",
+  operation: "startup",
+  params: { epicId: "T2400" }
+});
+
+// Generate spawn prompt
+await cleo_mutate({
+  domain: "orchestrate",
+  operation: "spawn",
+  params: {
+    taskId: "T2405",
+    skill: "ct-task-executor"
+  }
+});
+```
+
+## Domains
+
+### cleo_query (Read-Only)
+
+- **tasks** - get, list, find, exists, tree, blockers, deps, analyze, next
+- **session** - status, list, show, focus.get, history
+- **orchestrate** - status, next, ready, analyze, context, waves, skill.list
+- **research** - show, list, query, pending, stats, manifest.read
+- **lifecycle** - check, status, history, gates, prerequisites
+- **validate** - schema, protocol, task, manifest, output, compliance.*
+- **system** - version, doctor, config.get, stats, context
+
+### cleo_mutate (Write Operations)
+
+- **tasks** - create, update, complete, delete, archive, unarchive, reparent, promote, reorder, reopen
+- **session** - start, end, resume, suspend, focus.set, focus.clear, gc
+- **orchestrate** - startup, spawn, validate, parallel.*
+- **research** - inject, link, manifest.*
+- **lifecycle** - progress, skip, reset, gate.*
+- **validate** - compliance.record, test.run
+- **release** - prepare, changelog, commit, tag, push, gates.run, rollback
+- **system** - init, config.set, backup, restore, migrate, sync, cleanup
+
+## Configuration
+
+Create `.cleo/config.json` in your project:
+
+```json
+{
+  "mcp": {
+    "enabled": true,
+    "transport": "stdio",
+    "features": {
+      "queryCache": true,
+      "queryCacheTtl": 30000,
+      "auditLog": true,
+      "strictValidation": true
+    }
+  },
+  "lifecycleEnforcement": {
+    "mode": "strict",
+    "allowSkip": ["consensus"]
+  }
+}
+```
+
+## Protocol Enforcement
+
+CLEO enforces the RCSD-IVTR lifecycle pipeline:
+
+```
+Research → Consensus → Specification → Decomposition
+    ↓
+Implementation → Validation → Testing → Release
+```
+
+**Exit codes 60-70** indicate protocol violations:
+
+- 60: Research protocol
+- 61: Consensus protocol
+- 62: Specification protocol
+- 63: Decomposition protocol
+- 64: Implementation protocol
+- 65: Contribution protocol
+- 66: Release protocol
+- 68: Validation protocol
+- 69/70: Testing protocol
+
+## Error Handling
+
+All responses include actionable error information:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "E_VALIDATION_FAILED",
+    "exitCode": 6,
+    "message": "Title and description must be different",
+    "fix": "Provide a unique description",
+    "alternatives": [
+      {
+        "action": "Use generated description",
+        "command": "..."
+      }
+    ]
+  }
+}
+```
+
+## Requirements
+
+- **Node.js**: >=18.0.0
+- **CLEO**: v0.70.0+ installed and initialized
+- **Project**: `.cleo/` directory must exist
+
+## Documentation
+
+### Getting Started
+
+- **[Quick Start](docs/QUICK-START.md)** ⚡ - Get started in 5 minutes
+- **[Usage Guide](docs/USAGE-GUIDE.md)** 📖 - Comprehensive guide with examples
+- **[Workflows](docs/WORKFLOWS.md)** 🔄 - Real-world scenario examples
+
+### Complete API Documentation
+
+- **[Documentation Index](docs/INDEX.md)** - Complete documentation navigation
+- **[API Overview](docs/api/overview.md)** - Gateway design and concepts
+- **[Error Codes](docs/api/errors.md)** - Complete error reference
+- **[Protocols](docs/api/protocols.md)** - RCSD-IVTR protocol enforcement
+- **[Examples](docs/examples/task-management.md)** - Complete workflows
+
+### API Reference
+
+- **Gateways**: [cleo_query](docs/api/gateways/cleo_query.md) | [cleo_mutate](docs/api/gateways/cleo_mutate.md)
+- **Domains**: [tasks](docs/api/domains/tasks.md) | [session](docs/api/domains/session.md) | [orchestrate](docs/api/domains/orchestrate.md) | [research](docs/api/domains/research.md) | [lifecycle](docs/api/domains/lifecycle.md) | [validate](docs/api/domains/validate.md) | [release](docs/api/domains/release.md) | [system](docs/api/domains/system.md)
+
+### External Resources
+
+- [Full Specification](https://github.com/cleo-dev/cleo-todo/blob/main/docs/specs/MCP-SERVER-SPECIFICATION.md)
+- [CLEO Documentation](https://github.com/cleo-dev/cleo-todo)
+- [MCP Specification](https://modelcontextprotocol.io/specification)
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Build
+npm run build
+
+# Watch mode
+npm run dev
+
+# Test
+npm test
+
+# Lint
+npm run lint
+```
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/cleo-dev/cleo-todo/issues)
+- **Documentation**: [CLEO Docs](https://github.com/cleo-dev/cleo-todo/tree/main/docs)
+
+## Credits
+
+Built by the CLEO Development Team for solo developers and AI coding agents.

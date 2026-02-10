@@ -91,13 +91,15 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'config.get', // Get config value
     'stats',      // Project statistics
     'context',    // Context window info
+    'job.status', // Get background job status
+    'job.list',   // List background jobs
   ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_QUERY_COUNT = 46;
+const EXPECTED_QUERY_COUNT = 48;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

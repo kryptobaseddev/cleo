@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "release.tag request",
+  "description": "Create git tag",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Version"
+    },
+    "message": {
+      "type": "string",
+      "description": "Tag message (default: version number)"
+    }
+  },
+  "required": ["version"],
+  "additionalProperties": false
+}

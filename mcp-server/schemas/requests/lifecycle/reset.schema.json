@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "lifecycle.reset request",
+  "description": "Reset stage (emergency)",
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "pattern": "^T[0-9]+$",
+      "description": "Task ID"
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["research", "consensus", "specification", "decomposition", "implementation", "validation", "testing", "release"],
+      "description": "Stage to reset"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Reason for reset (logged for audit)"
+    }
+  },
+  "required": ["taskId", "stage", "reason"],
+  "additionalProperties": false
+}

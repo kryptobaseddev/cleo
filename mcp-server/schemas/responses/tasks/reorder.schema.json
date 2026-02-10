@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "tasks.reorder response",
+  "description": "New sibling order",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "New sibling order"
+        }
+      }
+    }
+  ]
+}

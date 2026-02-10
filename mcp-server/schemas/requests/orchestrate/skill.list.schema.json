@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "orchestrate.skill.list request",
+  "description": "Available skills",
+  "type": "object",
+  "properties": {
+    "filter": {
+      "type": "string",
+      "description": "Filter by skill name or tag"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "orchestrate.status response",
+  "description": "Orchestration state for epic",
+  "allOf": [
+    {
+      "$ref": "../common-success.schema.json"
+    },
+    {
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "Orchestration state for epic"
+        }
+      }
+    }
+  ]
+}

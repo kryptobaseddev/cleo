@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "release.prepare request",
+  "description": "Prepare release",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Version (semver)"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["major", "minor", "patch"],
+      "description": "Release type"
+    }
+  },
+  "required": ["version", "type"],
+  "additionalProperties": false
+}

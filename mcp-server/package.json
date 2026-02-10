@@ -1,0 +1,65 @@
+{
+  "name": "@cleo/mcp-server",
+  "version": "0.1.0",
+  "description": "CLEO MCP Server - 2-gateway CQRS interface for CLEO task management",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "cleo-server": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "schemas/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "prestart": "npm run build",
+    "lint": "eslint src --ext .ts",
+    "test": "jest",
+    "test:integration": "jest --config jest.integration.config.js",
+    "test:e2e": "jest --config jest.e2e.config.js",
+    "test:all": "npm test && npm run test:integration && npm run test:e2e",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "cleo",
+    "task-management",
+    "ai-agents",
+    "cqrs",
+    "protocol-enforcement",
+    "rcsd-ivtr",
+    "claude-code",
+    "task-protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cleo-dev/cleo-todo.git",
+    "directory": "mcp-server"
+  },
+  "author": "CLEO Development Team",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.5",
+    "typescript": "^5.5.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

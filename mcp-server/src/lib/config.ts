@@ -16,6 +16,7 @@ import {
   DEFAULT_CONFIG,
   DEFAULT_LIFECYCLE_ENFORCEMENT,
   DEFAULT_PROTOCOL_VALIDATION,
+  DEFAULT_RATE_LIMITING,
   ENV_PREFIX,
   CONFIG_SCHEMA,
   LifecycleEnforcementConfig,
@@ -108,6 +109,18 @@ function loadFromFile(projectRoot?: string): Partial<MCPConfig> {
       result.protocolValidation = {
         ...DEFAULT_PROTOCOL_VALIDATION,
         ...config.protocolValidation,
+      };
+    }
+
+    // Extract rate limiting config (Section 13.3)
+    if (config.rateLimiting || config.mcp?.rateLimiting) {
+      const rlConfig = config.rateLimiting || config.mcp?.rateLimiting;
+      result.rateLimiting = {
+        ...DEFAULT_RATE_LIMITING,
+        ...rlConfig,
+        query: { ...DEFAULT_RATE_LIMITING.query, ...rlConfig?.query },
+        mutate: { ...DEFAULT_RATE_LIMITING.mutate, ...rlConfig?.mutate },
+        spawn: { ...DEFAULT_RATE_LIMITING.spawn, ...rlConfig?.spawn },
       };
     }
 
@@ -205,6 +218,12 @@ export function loadConfig(projectRoot?: string): MCPConfig {
     ...DEFAULT_CONFIG,
     lifecycleEnforcement: { ...DEFAULT_LIFECYCLE_ENFORCEMENT },
     protocolValidation: { ...DEFAULT_PROTOCOL_VALIDATION },
+    rateLimiting: {
+      ...DEFAULT_RATE_LIMITING,
+      query: { ...DEFAULT_RATE_LIMITING.query },
+      mutate: { ...DEFAULT_RATE_LIMITING.mutate },
+      spawn: { ...DEFAULT_RATE_LIMITING.spawn },
+    },
   };
 
   // Load from file (overrides defaults)
@@ -223,6 +242,16 @@ export function loadConfig(projectRoot?: string): MCPConfig {
       ...fileConfig.protocolValidation,
     };
     delete (fileConfig as any).protocolValidation;
+  }
+  if (fileConfig.rateLimiting) {
+    config.rateLimiting = {
+      ...config.rateLimiting,
+      ...fileConfig.rateLimiting,
+      query: { ...config.rateLimiting.query, ...fileConfig.rateLimiting.query },
+      mutate: { ...config.rateLimiting.mutate, ...fileConfig.rateLimiting.mutate },
+      spawn: { ...config.rateLimiting.spawn, ...fileConfig.rateLimiting.spawn },
+    };
+    delete (fileConfig as any).rateLimiting;
   }
   Object.assign(config, fileConfig);
 

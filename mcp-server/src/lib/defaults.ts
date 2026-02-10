@@ -3,7 +3,13 @@
  *
  * @task T2928
  * @task T3145
+ * @task T2916 - Rate limiting configuration (Section 13.3)
  */
+
+import type { RateLimitingConfig } from './rate-limiter.js';
+export type { RateLimitingConfig } from './rate-limiter.js';
+import { DEFAULT_RATE_LIMITING } from './rate-limiter.js';
+export { DEFAULT_RATE_LIMITING } from './rate-limiter.js';
 
 /**
  * Lifecycle enforcement configuration (Section 12.2)
@@ -62,6 +68,9 @@ export interface MCPConfig {
 
   /** Protocol validation configuration (Section 12.3) */
   protocolValidation: ProtocolValidationConfig;
+
+  /** Rate limiting configuration (Section 13.3) */
+  rateLimiting: RateLimitingConfig;
 }
 
 /**
@@ -97,6 +106,7 @@ export const DEFAULT_CONFIG: MCPConfig = {
   strictValidation: true,
   lifecycleEnforcement: { ...DEFAULT_LIFECYCLE_ENFORCEMENT },
   protocolValidation: { ...DEFAULT_PROTOCOL_VALIDATION },
+  rateLimiting: { ...DEFAULT_RATE_LIMITING },
 };
 
 /**
