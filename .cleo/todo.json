@@ -581,9 +581,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T18:00:34Z",
+  "lastUpdated": "2026-02-10T18:01:27Z",
   "_meta": {
-    "checksum": "eb33c5a3497f857d",
+    "checksum": "f984dcb3223b654a",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -592,7 +592,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2384
+    "generation": 2388
   },
   "focus": {
     "currentTask": null,
@@ -28732,12 +28732,12 @@
     {
       "id": "T4265",
       "title": "Release v0.87.0 with publish infrastructure",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4258",
       "createdAt": "2026-02-10T15:40:29Z",
-      "updatedAt": "2026-02-10T15:40:29Z",
+      "updatedAt": "2026-02-10T18:01:22Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -28748,22 +28748,60 @@
         "T4262",
         "T4263",
         "T4264"
-      ]
+      ],
+      "completedAt": "2026-02-10T18:01:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T18:01:22Z] Released v0.87.0. 9 commits, all validation passed (syntax, parity OK 107 ops, 948 tests, drift clean). Tag v0.87.0 pushed. Changelog: 2 features + 3 bug fixes."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T18:01:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4266",
       "title": "Epic: Pre-release fixes from MCP functional testing",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-10T17:25:55Z",
-      "updatedAt": "2026-02-10T17:31:22Z",
+      "updatedAt": "2026-02-10T18:01:26Z",
       "size": "medium",
       "position": 842,
       "positionVersion": 0,
       "phase": "core",
-      "description": "6 findings from sandbox functional testing that must be addressed before v0.87.0 release. Covers session scope dynamics, sandbox dependencies, MCP-CLI parity, validation warnings, and single-source-of-truth architecture validation."
+      "description": "6 findings from sandbox functional testing that must be addressed before v0.87.0 release. Covers session scope dynamics, sandbox dependencies, MCP-CLI parity, validation warnings, and single-source-of-truth architecture validation.",
+      "completedAt": "2026-02-10T18:01:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T18:01:26Z] All 6 pre-release findings resolved: T4267 dynamic scope, T4268 sandbox deps, T4269 MCP parity (107 ops), T4270 warning fix, T4271 architecture validation, T4272 validation docs. Released as v0.87.0."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T18:01:26Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4267",
