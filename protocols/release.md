@@ -353,7 +353,7 @@ GitHub URLs in generated output are resolved dynamically from `git remote origin
 | Event | Workflow | Action |
 |-------|----------|--------|
 | Tag push `v*.*.*` | `release.yml` | Build tarball, generate release notes, create GitHub Release |
-| Tag push `v*.*.*` | `npm-publish.yml` | Build, test, and publish `@cleo/mcp-server` to npm |
+| Tag push `v*.*.*` | `npm-publish.yml` | Build, test, and publish `@cleocode/mcp-server` to npm |
 | CHANGELOG.md changed on main | `docs-update.yml` | Safety net: regenerate platform docs if missed by ship flow |
 | docs/** changed on main | `mintlify-deploy.yml` | Validate Mintlify docs (deployment via Mintlify dashboard) |
 
@@ -361,7 +361,7 @@ GitHub URLs in generated output are resolved dynamically from `git remote origin
 
 ## MCP Server Publishing
 
-The MCP server npm package (`@cleo/mcp-server`) is automatically published when a release is shipped:
+The MCP server npm package (`@cleocode/mcp-server`) is automatically published when a release is shipped:
 
 1. `cleo release ship` bumps VERSION file via `dev/bump-version.sh`
 2. `dev/sync-mcp-version.sh` is called automatically to sync `mcp-server/package.json` version
@@ -372,7 +372,7 @@ The MCP server npm package (`@cleo/mcp-server`) is automatically published when 
 ### Required Setup
 
 - GitHub secret `NPM_TOKEN` must be configured with npm publish access
-- npm package `@cleo/mcp-server` must exist on the registry
+- npm package `@cleocode/mcp-server` must exist on the registry
 - The `dev/sync-mcp-version.sh` script must be present in the repository
 
 ### Version Sync Details

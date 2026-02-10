@@ -8,7 +8,7 @@
 
 ```bash
 # Install globally
-npm install -g @cleo/mcp-server
+npm install -g @cleocode/mcp-server
 
 # Verify installation
 cleo-server --version
@@ -25,7 +25,7 @@ Add to Claude Desktop config (`claude_desktop_config.json`):
   "mcpServers": {
     "cleo": {
       "command": "npx",
-      "args": ["-y", "@cleo/mcp-server"]
+      "args": ["-y", "@cleocode/mcp-server"]
     }
   }
 }

@@ -3,7 +3,8 @@
 **2-gateway CQRS interface for CLEO task management protocol**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![npm version](https://badge.fury.io/js/%40cleo%2Fmcp-server.svg)](https://badge.fury.io/js/%40cleo%2Fmcp-server)
+[![npm version](https://badge.fury.io/js/%40cleocode%2Fmcp-server.svg)](https://badge.fury.io/js/%40cleocode%2Fmcp-server)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-green)](https://registry.modelcontextprotocol.io)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 [![MCP Protocol](https://img.shields.io/badge/MCP-1.0.0-blue)](https://modelcontextprotocol.io/)
 
@@ -29,7 +30,7 @@ CLEO MCP Server exposes CLEO's 65 CLI commands and 280+ library functions throug
 ## Installation
 
 ```bash
-npm install @cleo/mcp-server
+npm install @cleocode/mcp-server
 ```
 
 ## Quick Start
@@ -53,7 +54,7 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
   "mcpServers": {
     "cleo": {
       "command": "npx",
-      "args": ["-y", "@cleo/mcp-server"]
+      "args": ["-y", "@cleocode/mcp-server"]
     }
   }
 }

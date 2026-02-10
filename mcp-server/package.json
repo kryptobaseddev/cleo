@@ -1,5 +1,5 @@
 {
-  "name": "@cleo/mcp-server",
+  "name": "@cleocode/mcp-server",
   "version": "0.86.0",
   "description": "CLEO MCP Server - 2-gateway CQRS interface for CLEO task management",
   "type": "module",
@@ -11,6 +11,7 @@
   "files": [
     "dist/",
     "schemas/",
+    "server.json",
     "README.md",
     "LICENSE"
   ],
@@ -38,9 +39,10 @@
     "claude-code",
     "task-protocol"
   ],
+  "mcpName": "io.github.kryptobaseddev/cleo-mcp-server",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cleo-dev/cleo-todo.git",
+    "url": "https://github.com/kryptobaseddev/cleo.git",
     "directory": "mcp-server"
   },
   "author": "CLEO Development Team",
