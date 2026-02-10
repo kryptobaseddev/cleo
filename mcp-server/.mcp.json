@@ -2,7 +2,7 @@
   "$schema": "https://modelcontextprotocol.io/schemas/server-manifest.json",
   "name": "cleo-server",
   "version": "1.0.0",
-  "description": "Model Context Protocol server for CLEO task management system. Exposes 98 operations across 8 domains through 2 gateway tools using CQRS pattern.",
+  "description": "Model Context Protocol server for CLEO task management system. Exposes 96 operations across 8 domains through 2 gateway tools using CQRS pattern.",
   "author": "CLEO Development Team",
   "license": "MIT",
   "homepage": "https://github.com/cyanheads/cleo",
@@ -31,7 +31,7 @@
     {
       "name": "cleo_query",
       "description": "Read operations for CLEO: task discovery, status checks, analysis, validation, compliance metrics. Never modifies state.",
-      "operations": 45,
+      "operations": 48,
       "domains": [
         "tasks",
         "session",
@@ -45,7 +45,7 @@
     {
       "name": "cleo_mutate",
       "description": "Write operations for CLEO: create/update/complete tasks, manage sessions, spawn agents, progress lifecycle, execute releases. Modifies state with validation.",
-      "operations": 53,
+      "operations": 48,
       "domains": [
         "tasks",
         "session",
