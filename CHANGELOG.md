@@ -4,6 +4,17 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.87.0] - 2026-02-10
+
+### Features
+- feat: Add 11 MCP operations for full CLI parity — dash, roadmap, labels, compliance, log, archive-stats, sequence, relates, safestop, uncancel, relates.add (T4269)
+- feat: Add automated MCP parity guard with CI integration — canonical parity matrix, check-parity.js CI script, command-builder alias fixes (T4269)
+
+### Bug Fixes
+- fix: Implement dynamic session scope recomputation — computedTaskIds recomputed at check time with write-through cache (T4267)
+- fix: Add advisory as valid session enforcement level in config schema (T4270)
+- fix: Add bc, curl, ncurses, diffutils to sandbox Containerfile (T4268)
+
 ## [0.86.0] - 2026-02-09
 
 ### Features
