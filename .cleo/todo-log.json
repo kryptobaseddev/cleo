@@ -99607,11 +99607,31 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_5e229528efbc",
+      "timestamp": "2026-02-10T17:09:37Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4261",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-10T17:09:35Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5216,
-    "lastEntry": "2026-02-10T17:07:24Z",
+    "totalEntries": 5217,
+    "lastEntry": "2026-02-10T17:09:37Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
