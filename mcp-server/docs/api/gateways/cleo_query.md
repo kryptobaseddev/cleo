@@ -1,7 +1,7 @@
 # cleo_query Gateway
 
 **Type**: Read Operations
-**Operations**: 45 across 7 domains
+**Operations**: 48 across 7 domains (46 spec + 2 system job ops)
 
 ---
 

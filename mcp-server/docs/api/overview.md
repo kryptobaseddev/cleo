@@ -20,7 +20,7 @@ The CLEO MCP Server API uses a **two-gateway design** based on CQRS (Command Que
 │                                         │
 │  ┌──────────────────┐  ┌──────────────┐ │
 │  │   cleo_query     │  │ cleo_mutate  │ │
-│  │ (45 operations)  │  │(53 operations)│ │
+│  │ (48 operations)  │  │(48 operations)│ │
 │  │                  │  │              │ │
 │  │ • Idempotent     │  │ • Validated  │ │
 │  │ • Cacheable      │  │ • Logged     │ │

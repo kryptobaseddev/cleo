@@ -17,7 +17,7 @@
 | **Response Schemas** | 95 | `schemas/responses/{domain}/` |
 | **Common Schemas** | 3 | `schemas/common/` |
 | **Registry Index** | 1 | `schemas/index.json` |
-| **Total** | **191** | All 98 operations covered |
+| **Total** | **191** | All 96 operations covered |
 
 ### 2. Domain Coverage
 
@@ -228,7 +228,7 @@ schemas/
 
 ## Key Achievements
 
-1. **Complete Coverage**: All 98 MCP operations have request + response schemas
+1. **Complete Coverage**: All 96 MCP operations have request + response schemas
 2. **Standardized Structure**: Consistent patterns across all domains
 3. **Type Safety**: JSON Schema Draft-07 with strict validation
 4. **Distribution Ready**: Included in npm package via package.json

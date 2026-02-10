@@ -8,13 +8,13 @@
 
 ## Overview
 
-Comprehensive JSON Schema definitions for all **98 MCP operations** across **8 domains** in CLEO's two-gateway MCP server architecture.
+Comprehensive JSON Schema definitions for all **96 MCP operations** across **8 domains** in CLEO's two-gateway MCP server architecture.
 
 ### Coverage
 
 | Category | Count | Description |
 |----------|-------|-------------|
-| **Total Operations** | 98 | Complete MCP API surface |
+| **Total Operations** | 96 | Complete MCP API surface |
 | **Request Schemas** | 93 | Input validation schemas |
 | **Response Schemas** | 95 | Output validation schemas (93 + 2 common) |
 | **Common Schemas** | 3 | Shared structures (_meta, error, pagination) |
@@ -52,8 +52,8 @@ schemas/
 
 | Gateway | Domains | Operations | Purpose |
 |---------|---------|------------|---------|
-| `cleo_query` | 7 | 45 | Read-only operations |
-| `cleo_mutate` | 8 | 53 | State-modifying operations |
+| `cleo_query` | 7 | 48 | Read-only operations (46 spec + 2 job ops) |
+| `cleo_mutate` | 8 | 48 | State-modifying operations (47 spec + 1 job op) |
 
 ---
 
