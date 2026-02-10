@@ -581,18 +581,18 @@
       },
       {
         "version": "v0.87.1",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-10T19:13:09Z",
         "createdAt": "2026-02-10T19:12:13Z",
-        "tasks": [
-          "T4265"
-        ],
-        "notes": null
+        "tasks": [],
+        "notes": null,
+        "gitTag": "v0.87.1",
+        "changelog": "## [0.87.1] - 2026-02-10"
       }
     ]
   },
-  "lastUpdated": "2026-02-10T19:12:13Z",
+  "lastUpdated": "2026-02-10T19:13:09Z",
   "_meta": {
     "checksum": "f984dcb3223b654a",
     "configVersion": "2.1.0",
@@ -603,7 +603,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2389
+    "generation": 2393
   },
   "focus": {
     "currentTask": null,
