@@ -1,6 +1,6 @@
 {
   "name": "@cleo/mcp-server",
-  "version": "0.1.0",
+  "version": "0.86.0",
   "description": "CLEO MCP Server - 2-gateway CQRS interface for CLEO task management",
   "type": "module",
   "main": "dist/index.js",
