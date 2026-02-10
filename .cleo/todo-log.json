@@ -99773,11 +99773,161 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_993dfcb3b96f",
+      "timestamp": "2026-02-10T17:30:20Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4272",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-10T17:30:18Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d09dfb7463f3",
+      "timestamp": "2026-02-10T17:30:58Z",
+      "sessionId": "session_20260210_075019_fc6568",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "restart for scope testing"
+      }
+    },
+    {
+      "id": "log_0718fe029e25",
+      "timestamp": "2026-02-10T17:31:11Z",
+      "sessionId": "session_20260210_093110_fc575d",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4266",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4266"
+      }
+    },
+    {
+      "id": "log-1770744677-12b01e",
+      "timestamp": "2026-02-10T17:31:17Z",
+      "action": "task_created",
+      "taskId": "T4273",
+      "actor": "system",
+      "details": {
+        "title": "Test dynamic scope recomputation",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test dynamic scope recomputation",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_112cb7b86e99",
+      "timestamp": "2026-02-10T17:31:22Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4266"
+      },
+      "after": {
+        "currentTask": "T4273"
+      },
+      "details": null
+    },
+    {
+      "id": "log_a10cdef2f04c",
+      "timestamp": "2026-02-10T17:31:29Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4273"
+      },
+      "after": {
+        "currentTask": "T4267"
+      },
+      "details": null
+    },
+    {
+      "id": "log_18a1b4ef6453",
+      "timestamp": "2026-02-10T17:31:40Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4273",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-10T17:31:39Z"
+      },
+      "details": {
+        "reason": "Test task for T4267 scope fix - no longer needed",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_9e96fe766ce7",
+      "timestamp": "2026-02-10T17:31:48Z",
+      "sessionId": "session_20260210_093110_fc575d",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Scope fix testing complete"
+      }
+    },
+    {
+      "id": "log_9a8c5380c492",
+      "timestamp": "2026-02-10T17:34:06Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4267",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-10T17:34:04Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5218,
-    "lastEntry": "2026-02-10T17:24:23Z",
+    "totalEntries": 5234,
+    "lastEntry": "2026-02-10T17:34:06Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
