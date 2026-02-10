@@ -7,6 +7,7 @@ All notable changes to the CLEO system will be documented in this file.
 ### Bug Fixes
 - fix: Changelog duplication in release pipeline — idempotency check skipped blank lines after header (T4248)
 - fix: GitHub Actions release.yml disabled generate_release_notes to prevent doubled content (T4248)
+- fix: Agent-facing docs referenced deprecated dev/release-version.sh instead of cleo release commands (T4256)
 
 ## [0.85.0] - 2026-02-09
 
