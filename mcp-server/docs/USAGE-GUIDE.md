@@ -27,7 +27,7 @@ CLEO MCP Server provides a Model Context Protocol interface for CLEO's task mana
 
 **Key Benefits**:
 - **94% Token Reduction**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens)
-- **Full Capability**: All 98 operations across 8 domains accessible
+- **Full Capability**: All 96 operations across 8 domains accessible
 - **Safety by Design**: Read operations cannot mutate state
 - **Protocol Enforcement**: RCSD-IVTR lifecycle with automated validation
 - **Anti-Hallucination**: 4-layer validation prevents invalid operations
@@ -64,8 +64,8 @@ CLEO MCP Server provides a Model Context Protocol interface for CLEO's task mana
 ```
 
 **2-Gateway CQRS Design**:
-- **cleo_query**: 45 read operations (discovery, status, analysis, validation)
-- **cleo_mutate**: 53 write operations (create, update, lifecycle, release)
+- **cleo_query**: 48 read operations (discovery, status, analysis, validation)
+- **cleo_mutate**: 48 write operations (create, update, lifecycle, release)
 
 ### 1.3 Key Concepts
 
@@ -761,7 +761,7 @@ await cleo_mutate({
       topics: ["mcp", "documentation", "usage"],
       key_findings: [
         "Created comprehensive usage guide",
-        "Documented all 98 operations",
+        "Documented all 96 operations",
         "Provided workflow examples"
       ],
       actionable: true,
@@ -1281,7 +1281,7 @@ A: `find` returns minimal fields for discovery (99% less context). `list` return
 
 ### 8.1 All Operations Summary
 
-#### cleo_query Operations (45)
+#### cleo_query Operations (48)
 
 **tasks** (9):
 - `get`, `list`, `find`, `exists`, `tree`, `blockers`, `deps`, `analyze`, `next`
@@ -1304,7 +1304,7 @@ A: `find` returns minimal fields for discovery (99% less context). `list` return
 **system** (5):
 - `version`, `doctor`, `config.get`, `stats`, `context`
 
-#### cleo_mutate Operations (53)
+#### cleo_mutate Operations (48)
 
 **tasks** (10):
 - `create`, `update`, `complete`, `delete`, `archive`, `unarchive`, `reparent`, `promote`, `reorder`, `reopen`

@@ -238,7 +238,7 @@ All operations return a consistent envelope:
 
 ## Operation Matrix
 
-### cleo_query (Read Operations - 45)
+### cleo_query (Read Operations - 48)
 
 | Domain | Operations | Count |
 |--------|------------|-------|
@@ -249,8 +249,11 @@ All operations return a consistent envelope:
 | lifecycle | check, status, history, gates, prerequisites | 5 |
 | validate | schema, protocol, task, manifest, output, compliance.summary, compliance.violations, test.status, test.coverage | 9 |
 | system | version, doctor, config.get, stats, context | 5 |
+| *system (job)* | *job.status, job.list* | *2* |
 
-### cleo_mutate (Write Operations - 53)
+> **Note**: 46 spec query operations + 2 system job query operations = 48 total.
+
+### cleo_mutate (Write Operations - 48)
 
 | Domain | Operations | Count |
 |--------|------------|-------|
@@ -262,6 +265,9 @@ All operations return a consistent envelope:
 | validate | compliance.record, test.run | 2 |
 | release | prepare, changelog, commit, tag, push, gates.run, rollback | 7 |
 | system | init, config.set, backup, restore, migrate, sync, cleanup | 7 |
+| *system (job)* | *job.cancel* | *1* |
+
+> **Note**: 47 spec mutate operations + 1 system job mutate operation = 48 total.
 
 ---
 
@@ -399,7 +405,7 @@ Concurrent operations are protected via flock:
 
 - Initial release
 - Two-gateway CQRS design
-- 98 operations across 8 domains
+- 96 operations across 8 domains
 - Full RCSD-IVTR protocol coverage
 - Complete error code mapping
 - Manifest and verification gate systems

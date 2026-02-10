@@ -22,7 +22,7 @@
         {
           "name": "CLEO_PROJECT_DIR",
           "description": "Path to CLEO project directory (must contain .cleo/ folder)",
-          "required": false
+          "isRequired": false
         }
       ]
     }
