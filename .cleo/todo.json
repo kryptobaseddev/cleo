@@ -570,18 +570,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T02:14:19Z",
+  "lastUpdated": "2026-02-10T15:39:28Z",
   "_meta": {
-    "checksum": "107ba2fa743ecb65",
+    "checksum": "cda1ec4a6fd00290",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-10T02:10:32Z",
+    "lastModified": "2026-02-10T15:38:21Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 26,
-    "generation": 2356
+    "activeSessionCount": 27,
+    "generation": 2358
   },
   "focus": {
     "currentTask": null,
@@ -28493,6 +28493,51 @@
         "lastUpdated": "2026-02-10T02:08:39Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4257",
+      "title": "Epic: MCP Server npm Publish & Registry Listing",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-10T15:38:27Z",
+      "updatedAt": "2026-02-10T15:38:27Z",
+      "size": "medium",
+      "position": 839,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Complete the MCP server distribution: fix npm publish error (expired token), publish @cleo/mcp-server to npm, submit to MCP registry at modelcontextprotocol.io, verify CI/CD pipeline, commit uncommitted work, and release v0.87.0. See handoff doc: claudedocs/agent-outputs/2026-02-10_session-handoff-mcp-server-complete.md"
+    },
+    {
+      "id": "T4258",
+      "title": "Epic: MCP Server npm Publish and Registry Listing",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-10T15:38:44Z",
+      "updatedAt": "2026-02-10T15:39:28Z",
+      "size": "medium",
+      "position": 840,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Complete MCP server distribution: fix npm publish error (expired token), publish @cleo/mcp-server to npm, submit to MCP registry at modelcontextprotocol.io, verify CI/CD pipeline, commit uncommitted work, release v0.87.0. Handoff: claudedocs/agent-outputs/2026-02-10_session-handoff-mcp-server-complete.md"
+    },
+    {
+      "id": "T4259",
+      "title": "Epic: MCP Publish",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-10T15:38:50Z",
+      "updatedAt": "2026-02-10T15:38:50Z",
+      "size": "medium",
+      "position": 841,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Publish MCP server to npm and registry"
     }
   ],
   "labels": {}
