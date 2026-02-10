@@ -7,15 +7,20 @@ RUN dnf update -y && \
     dnf install -y \
         bash \
         bash-completion \
+        bc \
+        curl \
+        diffutils \
+        findutils \
         git \
+        hostname \
         jq \
+        ncurses \
         openssh-server \
+        procps-ng \
         sudo \
+        util-linux \
         vim \
         which \
-        hostname \
-        procps-ng \
-        findutils \
         bats \
     && dnf clean all
 
