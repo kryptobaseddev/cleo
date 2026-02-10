@@ -1205,9 +1205,13 @@ check_session_scope_completion() {
   local session_info
   session_info=$(get_active_session_info 2>/dev/null) || return 1
 
-  # Get session scope
+  # Get session scope (T4267: dynamic recomputation)
   local scope_ids
-  scope_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+  if declare -f recompute_session_scope >/dev/null 2>&1; then
+    scope_ids=$(recompute_session_scope "$session_info")
+  else
+    scope_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+  fi
 
   # Check if all tasks in scope are complete
   local incomplete_count
