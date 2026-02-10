@@ -14,7 +14,7 @@ This specification defines the Model Context Protocol (MCP) server interface for
 ### 1.1 Design Goals
 
 1. **Minimal Token Footprint**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = 94% reduction
-2. **Full Capability Access**: All 98 operations accessible through domain routing
+2. **Full Capability Access**: All 93 operations accessible through domain routing (96 including implementation-only background job operations)
 3. **Safety by Design**: Read operations cannot mutate state
 4. **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 5. **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
@@ -27,7 +27,7 @@ This specification defines the Model Context Protocol (MCP) server interface for
 │                                                                                  │
 │   ┌─────────────────────────────────┐    ┌─────────────────────────────────┐    │
 │   │         cleo_query              │    │         cleo_mutate             │    │
-│   │      (45 Read Operations)       │    │      (53 Write Operations)      │    │
+│   │      (48 Read Operations)       │    │      (48 Write Operations)      │    │
 │   └────────────────┬────────────────┘    └────────────────┬────────────────┘    │
 └────────────────────┼──────────────────────────────────────┼──────────────────────┘
                      │                                      │
@@ -100,7 +100,7 @@ This specification defines the Model Context Protocol (MCP) server interface for
 }
 ```
 
-#### 2.1.2 Operations by Domain (45 Total)
+#### 2.1.2 Operations by Domain (48 Total: 46 spec + 2 background job ops)
 
 ##### tasks (9 operations)
 
@@ -224,7 +224,7 @@ This specification defines the Model Context Protocol (MCP) server interface for
 }
 ```
 
-#### 2.2.2 Operations by Domain (53 Total)
+#### 2.2.2 Operations by Domain (48 Total: 47 spec + 1 background job op)
 
 ##### tasks (10 operations)
 
@@ -846,7 +846,19 @@ All write operations MUST use the atomic pattern:
 4. Atomic rename to final path
 5. Append to audit log
 
-### 10.4 Thread Safety
+### 10.4 Implementation-Only Operations
+
+The implementation includes 3 additional background job management operations not in the core specification tables above. These were added during implementation to support long-running CLI operations:
+
+| Gateway | Domain | Operation | Description |
+|---------|--------|-----------|-------------|
+| `cleo_query` | system | `job.status` | Get background job status |
+| `cleo_query` | system | `job.list` | List background jobs |
+| `cleo_mutate` | system | `job.cancel` | Cancel background job |
+
+This brings the total implementation operation count to **96** (93 spec + 3 background job ops).
+
+### 10.5 Thread Safety
 
 Concurrent operations are protected via flock on critical files:
 - `.cleo/todo.json.lock`
@@ -1107,11 +1119,17 @@ Recommended limits:
 
 ## 16. Changelog
 
+### v1.0.1 (2026-02-10)
+
+- Corrected operation counts in architecture diagram: 46 query + 47 mutate -> 48 + 48
+- Updated section headers 2.1.2 and 2.2.2 to reflect implementation totals (93 spec + 3 background job ops = 96)
+- Aligned changelog summary with actual implementation counts
+
 ### v1.0.0 (2026-01-31)
 
 - Initial specification
 - Two-gateway CQRS design (cleo_query + cleo_mutate)
 - Full RCSD-IVTR protocol coverage
-- 98 operations across 8 domains
+- 93 operations across 8 domains (46 query + 47 mutate)
 - Complete exit code mapping
 - Manifest and verification gate systems
