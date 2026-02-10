@@ -4,8 +4,8 @@
  *
  * Exposes CLEO's 65 CLI commands and 280+ library functions through
  * two gateway tools using CQRS pattern:
- * - cleo_query: 45 read operations (never modifies state)
- * - cleo_mutate: 53 write operations (validated, logged, atomic)
+ * - cleo_query: 48 read operations (never modifies state)
+ * - cleo_mutate: 48 write operations (validated, logged, atomic)
  *
  * Wires together:
  * 1. Configuration loader

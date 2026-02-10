@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CLEO MCP Schema Registry",
-  "description": "Registry of all request and response schemas for 98 MCP operations",
+  "description": "Registry of all request and response schemas for 96 MCP operations",
   "version": "1.0.0",
   "domains": {
     "tasks": {
@@ -146,9 +146,9 @@
     }
   },
   "summary": {
-    "total_operations": 98,
-    "total_queries": 45,
-    "total_mutations": 53,
+    "total_operations": 96,
+    "total_queries": 48,
+    "total_mutations": 48,
     "domains": 8
   },
   "common_schemas": [
