@@ -4,7 +4,7 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-10T02:08:09Z",
+    "lastModified": "2026-02-10T02:10:32Z",
     "totalSessionsCreated": 606
   },
   "config": {
@@ -34897,7 +34897,7 @@
     },
     {
       "id": "session_20260209_180809_e7de41",
-      "status": "active",
+      "status": "ended",
       "name": "Patch-v0.85.1",
       "agentId": null,
       "scope": {
@@ -34916,10 +34916,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T4256",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T4256",
+        "sessionNote": "v0.85.1 shipped - deprecated release docs fixed",
         "nextAction": null,
         "focusHistory": [
           {
@@ -34930,7 +34930,7 @@
         ]
       },
       "startedAt": "2026-02-10T02:08:09Z",
-      "lastActivity": "2026-02-10T02:08:09Z",
+      "lastActivity": "2026-02-10T02:10:32Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -34943,7 +34943,8 @@
         "start_timestamp": "2026-02-10T02:08:09Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-10T02:10:32Z"
     }
   ],
   "sessionHistory": [

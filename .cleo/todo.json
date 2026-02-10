@@ -558,21 +558,30 @@
         "notes": null,
         "gitTag": "v0.85.1",
         "changelog": "## [0.85.1] - 2026-02-09\n\n### Bug Fixes\n- Fix agent-facing docs: replace deprecated release-version.sh with cleo release commands (T4256)"
+      },
+      {
+        "version": "v0.86.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-10T02:14:19Z",
+        "tasks": [],
+        "notes": "MCP Server: Full CQRS implementation with 96/98 spec operations, rate limiting, background jobs, 1041 tests"
       }
     ]
   },
-  "lastUpdated": "2026-02-10T02:09:40Z",
+  "lastUpdated": "2026-02-10T02:14:19Z",
   "_meta": {
     "checksum": "107ba2fa743ecb65",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-10T02:08:09Z",
+    "lastModified": "2026-02-10T02:10:32Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 27,
-    "generation": 2355
+    "activeSessionCount": 26,
+    "generation": 2356
   },
   "focus": {
     "currentTask": null,
