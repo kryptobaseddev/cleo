@@ -536,7 +536,7 @@ cleo verify T1586 --all
 
 ### Pattern: Release Workflow
 
-**Release tasks use the `release` protocol** for version management and changelog generation.
+**Release tasks use the `release` protocol** via `cleo release` commands.
 
 ```bash
 # 1. Verify all epic tasks complete
@@ -546,24 +546,18 @@ cleo list --parent T1575 --status pending  # Should be empty
 ./tests/run-all-tests.sh
 cleo validate
 
-# 3. Create release (uses dev/release-version.sh)
-# For patch release:
-./dev/release-version.sh patch --push
-
-# For minor release:
-./dev/release-version.sh minor --push
+# 3. Create and ship release
+cleo release create v0.85.0 --tasks T001,T002,T003
+cleo release ship v0.85.0 --bump-version --create-tag --push
 
 # Preview without changes:
-./dev/release-version.sh patch --dry-run
+cleo release ship v0.85.0 --bump-version --dry-run
 ```
 
-**Release Script Relationship**:
+**IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0).
+Always use `cleo release create` → `cleo release ship`.
 
-| Script | Purpose | Automation Level |
-|--------|---------|------------------|
-| `dev/bump-version.sh` | Updates VERSION + README only | Partial |
-| `dev/release-version.sh` | Full release: bump + changelog + commit + tag + push | Full |
-| `scripts/generate-changelog.sh` | CHANGELOG.md → Mintlify MDX | Called by release-version |
+See `protocols/release.md` for the full release protocol specification.
 
 **Full RCSD-to-Release Lifecycle**:
 
@@ -583,7 +577,8 @@ cleo orchestrator spawn T105  # implementation protocol
 # contribution protocol auto-triggers for shared resources
 
 # RELEASE (polish phase)
-./dev/release-version.sh minor --push
+cleo release create v0.74.0 --tasks T104,T105
+cleo release ship v0.74.0 --bump-version --create-tag --push
 cleo session end --note "Feature X released v0.74.0"
 ```
 
