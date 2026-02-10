@@ -570,9 +570,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T15:40:29Z",
+  "lastUpdated": "2026-02-10T16:27:51Z",
   "_meta": {
-    "checksum": "a148c20f1e7d6c67",
+    "checksum": "7a03a775d25e4c82",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -581,7 +581,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2358
+    "generation": 2359
   },
   "focus": {
     "currentTask": null,
@@ -28542,17 +28542,21 @@
     {
       "id": "T4260",
       "title": "Fix npm auth - regenerate NPM_TOKEN",
-      "status": "active",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T4258",
       "createdAt": "2026-02-10T15:39:52Z",
-      "updatedAt": "2026-02-10T15:50:19Z",
+      "updatedAt": "2026-02-10T16:27:51Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "npm token is expired/revoked. User must: 1) Log into npmjs.org and regenerate access token, 2) Update GitHub secret NPM_TOKEN with new value, 3) Update local ~/.npmrc with new token. Error seen: Access token expired or revoked."
+      "description": "npm token is expired/revoked. User must: 1) Log into npmjs.org and regenerate access token, 2) Update GitHub secret NPM_TOKEN with new value, 3) Update local ~/.npmrc with new token. Error seen: Access token expired or revoked.",
+      "completedAt": "2026-02-10T16:27:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T16:27:51Z] Fixed: Created @cleocode npm org, generated granular token, updated GitHub NPM_TOKEN secret, migrated scope from @cleo to @cleocode across 10 files (19 edits). Validated with 8-point check - all passing."
+      ]
     },
     {
       "id": "T4261",
