@@ -99647,6 +99647,132 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log-1770744355-f04593",
+      "timestamp": "2026-02-10T17:25:55Z",
+      "action": "task_created",
+      "taskId": "T4266",
+      "actor": "system",
+      "details": {
+        "title": "Epic: Pre-release fixes from MCP functional testing",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Epic: Pre-release fixes from MCP functional testing",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770744377-e48ba4",
+      "timestamp": "2026-02-10T17:26:17Z",
+      "action": "task_created",
+      "taskId": "T4267",
+      "actor": "system",
+      "details": {
+        "title": "Fix static session scope - computedTaskIds must update dynamically",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix static session scope - computedTaskIds must update dynamically",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770744379-7d7ca3",
+      "timestamp": "2026-02-10T17:26:19Z",
+      "action": "task_created",
+      "taskId": "T4268",
+      "actor": "system",
+      "details": {
+        "title": "Add bc dependency to sandbox Dockerfile",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Add bc dependency to sandbox Dockerfile",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770744380-f0fb9c",
+      "timestamp": "2026-02-10T17:26:20Z",
+      "action": "task_created",
+      "taskId": "T4269",
+      "actor": "system",
+      "details": {
+        "title": "Expose dash command in MCP server - full CLI parity required",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Expose dash command in MCP server - full CLI parity required",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770744382-27025a",
+      "timestamp": "2026-02-10T17:26:22Z",
+      "action": "task_created",
+      "taskId": "T4270",
+      "actor": "system",
+      "details": {
+        "title": "Fix session.enforcement advisory warning on every command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix session.enforcement advisory warning on every command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770744384-2f3295",
+      "timestamp": "2026-02-10T17:26:24Z",
+      "action": "task_created",
+      "taskId": "T4271",
+      "actor": "system",
+      "details": {
+        "title": "Validate single-source-of-truth: CLI changes auto-reflect in MCP",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Validate single-source-of-truth: CLI changes auto-reflect in MCP",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770744386-4fa771",
+      "timestamp": "2026-02-10T17:26:26Z",
+      "action": "task_created",
+      "taskId": "T4272",
+      "actor": "system",
+      "details": {
+        "title": "Review MCP add validation vs CLI - document intentional differences",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Review MCP add validation vs CLI - document intentional differences",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
