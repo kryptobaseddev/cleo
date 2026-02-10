@@ -49,7 +49,10 @@ The `server.json` file has been created at `mcp-server/server.json`. Review it a
 
 ```bash
 # macOS/Linux via curl
-curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s)_$(uname -m).tar.gz" | tar xz
+# Note: Release assets use lowercase OS and Go arch names (linux/darwin, amd64/arm64)
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && ARCH="amd64"
+curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz" | tar xz
 sudo mv mcp-publisher /usr/local/bin/
 
 # Or via Homebrew
@@ -110,7 +113,7 @@ jobs:
 
       - name: Download mcp-publisher
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_Linux_x86_64.tar.gz" | tar xz
+          curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
           chmod +x mcp-publisher
 
       - name: Authenticate (GitHub OIDC)
