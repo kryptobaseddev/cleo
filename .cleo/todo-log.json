@@ -99587,11 +99587,31 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_b90ebd1d84eb",
+      "timestamp": "2026-02-10T17:07:24Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4264",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-10T17:07:22Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5215,
-    "lastEntry": "2026-02-10T16:33:27Z",
+    "totalEntries": 5216,
+    "lastEntry": "2026-02-10T17:07:24Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
