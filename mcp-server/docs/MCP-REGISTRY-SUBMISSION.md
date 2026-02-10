@@ -47,17 +47,41 @@ The `server.json` file has been created at `mcp-server/server.json`. Review it a
 
 ### Step 3: Install mcp-publisher CLI
 
+> **Note**: `mcp-publisher` is a Go binary from the MCP Registry team. It is used
+> ONLY for publishing metadata to the registry -- it is NOT the CLEO MCP server
+> itself (which is the cross-platform npm package `@cleocode/mcp-server`).
+
+**macOS / Linux** (auto-detects OS and architecture):
+
 ```bash
-# macOS/Linux via curl
-# Note: Release assets use lowercase OS and Go arch names (linux/darwin, amd64/arm64)
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && ARCH="amd64"
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)        ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+esac
 curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz" | tar xz
 sudo mv mcp-publisher /usr/local/bin/
+```
 
-# Or via Homebrew
+**macOS via Homebrew**:
+
+```bash
 brew install mcp-publisher
 ```
+
+**Windows** (PowerShell):
+
+```powershell
+$arch = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq "Arm64") { "arm64" } else { "amd64" }
+Invoke-WebRequest -Uri "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_windows_${arch}.tar.gz" -OutFile "mcp-publisher.tar.gz"
+tar xf mcp-publisher.tar.gz mcp-publisher.exe
+Remove-Item mcp-publisher.tar.gz
+# Move mcp-publisher.exe to a directory in your PATH
+```
+
+> **Windows alternative**: Use WSL (Windows Subsystem for Linux) and follow the
+> macOS/Linux instructions above.
 
 ### Step 4: Authenticate with GitHub
 
@@ -112,8 +136,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download mcp-publisher
+        # Auto-detect OS/arch for cross-platform runner support
         run: |
-          curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+          esac
+          curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz" | tar xz
           chmod +x mcp-publisher
 
       - name: Authenticate (GitHub OIDC)

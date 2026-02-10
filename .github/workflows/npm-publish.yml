@@ -53,8 +53,20 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Download mcp-publisher
+        # mcp-publisher is a Go binary from the MCP Registry team, used ONLY
+        # for publishing metadata to the MCP Registry. It is NOT the CLEO MCP
+        # server itself (which is the cross-platform npm package @cleocode/mcp-server).
+        # Auto-detect OS/arch so this works across GitHub Actions runner types
+        # (ubuntu, macos, ARM runners, etc.).
         run: |
-          curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  ARCH="amd64" ;;
+            aarch64|arm64) ARCH="arm64" ;;
+          esac
+          echo "Downloading mcp-publisher for ${OS}_${ARCH}"
+          curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz" | tar xz
           chmod +x mcp-publisher
 
       - name: Authenticate with MCP Registry (GitHub OIDC)
