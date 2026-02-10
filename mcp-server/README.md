@@ -14,14 +14,14 @@
 
 CLEO MCP Server exposes CLEO's 65 CLI commands and 280+ library functions through two gateway tools using a CQRS (Command Query Responsibility Segregation) pattern:
 
-- **`cleo_query`** - 45 read operations (discovery, status, analysis)
-- **`cleo_mutate`** - 53 write operations (create, update, lifecycle management)
+- **`cleo_query`** - 48 read operations (discovery, status, analysis)
+- **`cleo_mutate`** - 48 write operations (create, update, lifecycle management)
 
 **Token efficiency**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = **94% reduction**
 
 ## Features
 
-- **Full CLEO Access**: All 98 operations across 8 domains
+- **Full CLEO Access**: All 96 operations across 8 domains
 - **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 - **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
 - **Safety by Design**: Read operations cannot mutate state
