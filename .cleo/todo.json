@@ -570,9 +570,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-10T17:07:23Z",
+  "lastUpdated": "2026-02-10T17:24:21Z",
   "_meta": {
-    "checksum": "e2b9341b914de9ed",
+    "checksum": "a4e9c705c71bb5a2",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -581,7 +581,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2364
+    "generation": 2367
   },
   "focus": {
     "currentTask": null,
@@ -28576,17 +28576,36 @@
     {
       "id": "T4261",
       "title": "Commit all uncommitted MCP work",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T4258",
       "createdAt": "2026-02-10T15:39:59Z",
-      "updatedAt": "2026-02-10T15:39:59Z",
+      "updatedAt": "2026-02-10T17:09:35Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Check git status for uncommitted agent changes from the build session. Stage and commit docs MDX updates, CI workflow changes, mcp-server modifications, and .cleo state files with proper commit messages."
+      "description": "Check git status for uncommitted agent changes from the build session. Stage and commit docs MDX updates, CI workflow changes, mcp-server modifications, and .cleo state files with proper commit messages.",
+      "completedAt": "2026-02-10T17:09:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T17:09:35Z] Committed in 7 organized batches: scope migration, docs updates (80 files), CI workflows, MCP operation count fixes, CLEO state files. 105 files total across 7 commits. Not pushed."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T17:09:36Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4262",
@@ -28628,12 +28647,12 @@
     {
       "id": "T4263",
       "title": "Submit to MCP registry at modelcontextprotocol.io",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4258",
       "createdAt": "2026-02-10T15:40:14Z",
-      "updatedAt": "2026-02-10T15:40:14Z",
+      "updatedAt": "2026-02-10T17:24:21Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -28641,6 +28660,10 @@
       "description": "Follow mcp-server/docs/MCP-REGISTRY-SUBMISSION.md. Install mcp-publisher, authenticate via GitHub device code flow, run mcp-publisher publish from mcp-server directory. Verify listing at registry.modelcontextprotocol.io. Namespace: io.github.kryptobaseddev/cleo-mcp-server.",
       "depends": [
         "T4262"
+      ],
+      "completedAt": "2026-02-10T17:24:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T17:24:21Z] Published to MCP registry. Verified at https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.kryptobaseddev/cleo-mcp-server"
       ]
     },
     {
