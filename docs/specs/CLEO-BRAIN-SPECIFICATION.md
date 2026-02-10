@@ -1,8 +1,9 @@
 ---
 title: "CLEO BRAIN Specification"
-version: "1.0.0"
+version: "1.1.0"
 status: "draft"
 created: "2026-02-03"
+updated: "2026-02-09"
 epic: "T2975"
 task: "T3002"
 authors: ["Claude Opus 4.5", "CLEO Development Team"]
@@ -10,9 +11,9 @@ authors: ["Claude Opus 4.5", "CLEO Development Team"]
 
 # CLEO BRAIN Specification
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Status**: DRAFT
-**Date**: 2026-02-03
+**Date**: 2026-02-09
 **Epic**: T2975 - CLEO Consolidation Sprint
 **Task**: T3002 - Specification: Define AGENTIC BRAIN Concrete Requirements
 
@@ -21,6 +22,15 @@ authors: ["Claude Opus 4.5", "CLEO Development Team"]
 ## 1. Executive Summary
 
 This specification defines CLEO as an **Agentic Cognitive Infrastructure** implementing the BRAIN model: a five-dimensional system that transforms CLEO from a task manager into persistent cognitive substrate for autonomous AI agent coordination.
+
+### 1.0 Authority and Scope
+
+This document is a capability-model specification. Product identity and canonical invariants are defined by higher-authority documents:
+
+1. `docs/concepts/vision.mdx` (immutable vision identity)
+2. `docs/specs/PORTABLE-BRAIN-SPEC.md` (canonical product contract)
+
+If conflicts occur, higher-authority documents prevail. This specification defines dimension-level implementation requirements and measurable certification criteria.
 
 **BRAIN** is not metaphor but architecture:
 
@@ -1556,6 +1566,7 @@ All 5 dimensions MUST meet certification criteria:
 
 ### 7.2 Specifications
 
+- **docs/specs/PORTABLE-BRAIN-SPEC.md**: Canonical product contract and invariants
 - **docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md**: Phase definitions and timeline
 - **docs/specs/MCP-SERVER-SPECIFICATION.md**: MCP architecture (prepares for Agent enhancements)
 - **docs/specs/CLEO-NEXUS-SPEC.md**: Network dimension architecture

@@ -1,12 +1,58 @@
 ---
 title: "CLEO Vision"
-description: "The task management protocol for solo developers and their AI coding agents"
+description: "The immutable vision for CLEO as a portable Brain and Memory system for AI agents"
 icon: "compass"
 ---
 
 # CLEO Vision
 
 **The contract between you and your AI coding agent.**
+
+## Vision Charter (Immutable)
+
+This document is CLEO's constitutional vision and source of product identity.
+
+## Agent Entry (Deterministic)
+
+```
+MODE: READ_ONLY_IDENTITY_BOOTSTRAP
+PRIMARY_SOURCE: docs/concepts/vision.mdx
+IDENTITY_LOCK: TRUE
+
+READ_ORDER:
+1) docs/concepts/vision.mdx
+2) docs/specs/PORTABLE-BRAIN-SPEC.md
+3) README.md
+4) docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md
+5) docs/specs/CLEO-BRAIN-SPECIFICATION.md
+
+NON_NEGOTIABLES:
+- Do not redefine CLEO identity
+- Treat planned/gated as not shipped
+- Preserve canonical pillars and terminology
+
+CANONICAL_IDENTITY:
+CLEO is a vendor-neutral Brain and Memory system for AI software development that provides portable project memory, verifiable provenance, and agent-safe orchestration across any repository, model provider, or coding tool.
+
+CANONICAL_PILLARS:
+- Portable Memory
+- Provenance by Default
+- Interoperable Interfaces
+- Deterministic Safety
+- Cognitive Retrieval
+```
+
+### Canonical Product Statement
+
+CLEO is a vendor-neutral Brain and Memory system for AI software development that provides portable project memory, verifiable provenance, and agent-safe orchestration across any repository, model provider, or coding tool.
+
+### Five Pillars
+
+1. **Portable Memory**: Project -> Epic -> Task hierarchy, research manifests, and agent outputs.
+2. **Provenance by Default**: Every artifact is traceable to task, decision, agent, and operation.
+3. **Interoperable Interfaces**: CLI + MCP + adapters for any AI agent framework/provider.
+4. **Deterministic Safety**: Validation layers, lifecycle gates, atomic writes, immutable audit logs.
+5. **Cognitive Retrieval**: Page index + graph/vector/RAG for contextual reasoning at Tier M/L.
 
 ## Mission Statement
 
@@ -33,9 +79,19 @@ CLEO provides a structured protocol that:
 
 ## Core Philosophy
 
+### Command System Architecture
+
+CLEO uses an interface-layer architecture with a single semantic contract:
+
+- **CLI (Bash baseline)**: authoritative runtime behavior and deterministic enforcement
+- **MCP (strategic interface)**: provider-neutral integration surface for AI tooling
+- **Adapters (optional)**: tool-specific UX optimizations without changing core semantics
+
+All interfaces MUST preserve the same memory model, lifecycle guarantees, and provenance invariants.
+
 ### Agent-First Design
 
-CLEO is built for LLM agents first, with human accessibility second. When your primary "user" is Claude Code, everything changes:
+CLEO is built for LLM agents first, with human accessibility second. When your primary "user" is an AI coding agent, everything changes:
 
 | Dimension | Human User | LLM Agent |
 |-----------|------------|-----------|
@@ -124,7 +180,7 @@ graph LR
 
 ## The Contract
 
-When you use CLEO with Claude Code, you establish a formal contract:
+When you use CLEO with any AI coding tool, you establish a formal contract:
 
 <AccordionGroup>
   <Accordion title="Stable Identity" icon="fingerprint">
@@ -187,11 +243,26 @@ cleo session end --note "Completed auth flow, tests passing"
 
 | Problem | CLEO Solution |
 |---------|---------------|
-| Claude forgets yesterday's context | Session notes + audit logs |
+| AI agent forgets yesterday's context | Session notes + audit logs |
 | Unclear which tasks are actually done | Verification gates + status tracking |
 | Hallucinated task references | ID validation on every operation |
 | Context degrades over long sessions | Manifest-based handoffs |
 | Complex workflows overwhelm context | Orchestrator with 10K token budget |
+
+## Current State vs Strategic Direction
+
+<CardGroup cols={2}>
+  <Card title="Current State (Shipped)" icon="check">
+    Bash-native CLI, deterministic validation, atomic operations, audit logs, hierarchy lifecycle, and project-local memory are production baseline.
+  </Card>
+  <Card title="Strategic Direction (Gated)" icon="road">
+    MCP maturity, Nexus validation, and Tier M/L cognitive infrastructure expansion follow evidence-gated roadmap progression.
+  </Card>
+</CardGroup>
+
+## Provider Neutrality
+
+CLEO is provider-agnostic by design. Tool-specific integrations MAY optimize user experience, but core memory models, provenance semantics, and lifecycle enforcement MUST remain neutral and portable.
 
 ## Global Intelligence (Nexus)
 
@@ -230,6 +301,12 @@ CLEO bridges the gap between human intention and AI execution:
     Structured protocols that prevent hallucination and enable reliable workflows
   </Card>
 </CardGroup>
+
+## Vision Governance
+
+- This document defines what CLEO **is**, not just what CLEO builds next.
+- Any change that alters canonical identity requires explicit vision amendment and synchronized updates to `README.md` and `docs/specs/PORTABLE-BRAIN-SPEC.md`.
+- Strategic docs MUST align to this vision; they cannot redefine it.
 
 ## Next Steps
 
