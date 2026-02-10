@@ -22,6 +22,7 @@
     "prestart": "npm run build",
     "lint": "eslint src --ext .ts",
     "test": "jest",
+    "parity:check": "node scripts/check-parity.js",
     "test:integration": "jest --config jest.integration.config.js",
     "test:e2e": "jest --config jest.e2e.config.js",
     "test:all": "npm test && npm run test:integration && npm run test:e2e",

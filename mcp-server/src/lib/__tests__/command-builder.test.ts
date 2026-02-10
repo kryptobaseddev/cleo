@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { escapeArg, formatFlags, buildCLICommand } from '../command-builder';
+import { escapeArg, formatFlags, buildCLICommand, mapDomainToCommand } from '../command-builder';
 
 describe('command-builder', () => {
   describe('escapeArg', () => {
@@ -223,6 +223,41 @@ describe('command-builder', () => {
     it('should handle empty operation string', () => {
       const cmd = buildCLICommand('cleo', 'list', '', [], { json: true });
       expect(cmd).toBe('cleo list --json');
+    });
+
+    it('should resolve depends alias to deps command', () => {
+      const cmd = buildCLICommand('cleo', 'depends', 'T1234', [], { json: true });
+      expect(cmd).toBe("cleo deps 'T1234' --json");
+    });
+
+    it('should resolve import alias to import-tasks command', () => {
+      const cmd = buildCLICommand('cleo', 'import', '/tmp/tasks.json', [], { json: true });
+      expect(cmd).toBe("cleo import-tasks '/tmp/tasks.json' --json");
+    });
+
+    it('should resolve lint alias to validate command', () => {
+      const cmd = buildCLICommand('cleo', 'lint', 'T1234', [], { json: true });
+      expect(cmd).toBe("cleo validate 'T1234' --json");
+    });
+
+    it('should resolve skill alias to skills command', () => {
+      const cmd = buildCLICommand('cleo', 'skill', 'list', [], { json: true });
+      expect(cmd).toBe("cleo skills 'list' --json");
+    });
+
+    it('should resolve version alias to version command', () => {
+      const cmd = buildCLICommand('cleo', 'version', '', [], { json: true });
+      expect(cmd).toBe('cleo version --json');
+    });
+  });
+
+  describe('mapDomainToCommand parity aliases', () => {
+    it('maps legacy parity risk domains to canonical commands', () => {
+      expect(mapDomainToCommand('depends', 'T1')).toEqual({ command: 'deps', addOperationAsSubcommand: true });
+      expect(mapDomainToCommand('import', 'x.json')).toEqual({ command: 'import-tasks', addOperationAsSubcommand: true });
+      expect(mapDomainToCommand('lint', 'T1')).toEqual({ command: 'validate', addOperationAsSubcommand: true });
+      expect(mapDomainToCommand('skill', 'list')).toEqual({ command: 'skills', addOperationAsSubcommand: true });
+      expect(mapDomainToCommand('version', '')).toEqual({ command: 'version', addOperationAsSubcommand: false });
     });
   });
 });

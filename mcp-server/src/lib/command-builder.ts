@@ -76,6 +76,20 @@ export function formatFlags(flags: Record<string, unknown>): string[] {
  * For example: domain='tasks', operation='add' -> command='add', addOperationAsSubcommand=false
  */
 export function mapDomainToCommand(domain: string, operation: string): { command: string; addOperationAsSubcommand: boolean } {
+  // Domain aliases used by legacy handlers/comments that should resolve to
+  // canonical CLI commands.
+  const domainAliases: Record<string, { command: string; addOperationAsSubcommand: boolean }> = {
+    depends: { command: 'deps', addOperationAsSubcommand: true },
+    import: { command: 'import-tasks', addOperationAsSubcommand: true },
+    lint: { command: 'validate', addOperationAsSubcommand: true },
+    skill: { command: 'skills', addOperationAsSubcommand: true },
+    version: { command: 'version', addOperationAsSubcommand: false },
+  };
+
+  if (domainAliases[domain]) {
+    return domainAliases[domain];
+  }
+
   // For tasks domain, the operation IS the command
   // For session/lifecycle domains, we need both (e.g., 'session start')
   const domainOperationMap: Record<string, Record<string, { command: string; addOperationAsSubcommand: boolean }>> = {

@@ -7,7 +7,7 @@
 
 ## Overview
 
-The CLEO MCP Server exposes CLEO's task management capabilities through the Model Context Protocol (MCP), providing AI coding agents with structured access to 96 operations across 8 functional domains.
+The CLEO MCP Server exposes CLEO's task management capabilities through the Model Context Protocol (MCP), providing AI coding agents with structured access to the deployed gateway operation matrix across 8 functional domains.
 
 ### Key Features
 
@@ -22,7 +22,7 @@ The CLEO MCP Server exposes CLEO's task management capabilities through the Mode
 ```
 ┌─────────────────────────────────────┐
 │     MCP TOOL LAYER (2 gateways)     │
-│  cleo_query (48) | cleo_mutate (48) │
+│  cleo_query (56) | cleo_mutate (51) │
 └─────────────────┬───────────────────┘
                   │
 ┌─────────────────▼───────────────────┐
@@ -101,8 +101,8 @@ const newTask = await cleo_mutate({
 
 - **[API Overview](api/overview.md)** - Gateway concepts, domains, operations
 - **Gateways**
-  - [cleo_query](api/gateways/cleo_query.md) - Read operations (48)
-  - [cleo_mutate](api/gateways/cleo_mutate.md) - Write operations (48)
+  - [cleo_query](api/gateways/cleo_query.md) - Read operations (56)
+  - [cleo_mutate](api/gateways/cleo_mutate.md) - Write operations (51)
 - **Domains**
   - [tasks](api/domains/tasks.md) - Task management (19 operations)
   - [session](api/domains/session.md) - Session management (12 operations)
@@ -140,8 +140,8 @@ The MCP server uses **CQRS (Command Query Responsibility Segregation)**:
 
 | Gateway | Purpose | Operations | Characteristics |
 |---------|---------|------------|-----------------|
-| `cleo_query` | Read operations | 48 | Idempotent, cacheable, no side effects |
-| `cleo_mutate` | Write operations | 48 | Validated, logged, atomic |
+| `cleo_query` | Read operations | 56 | Idempotent, cacheable, no side effects |
+| `cleo_mutate` | Write operations | 51 | Validated, logged, atomic |
 
 **Benefits**:
 - **Safety**: Read operations cannot modify state
@@ -238,7 +238,7 @@ All operations return a consistent envelope:
 
 ## Operation Matrix
 
-### cleo_query (Read Operations - 48)
+### cleo_query (Read Operations - 56)
 
 | Domain | Operations | Count |
 |--------|------------|-------|
@@ -251,9 +251,9 @@ All operations return a consistent envelope:
 | system | version, doctor, config.get, stats, context | 5 |
 | *system (job)* | *job.status, job.list* | *2* |
 
-> **Note**: 46 spec query operations + 2 system job query operations = 48 total.
+> **Note**: Implementation count is sourced from `src/gateways/query.ts` (`EXPECTED_QUERY_COUNT=56`).
 
-### cleo_mutate (Write Operations - 48)
+### cleo_mutate (Write Operations - 51)
 
 | Domain | Operations | Count |
 |--------|------------|-------|
@@ -267,7 +267,7 @@ All operations return a consistent envelope:
 | system | init, config.set, backup, restore, migrate, sync, cleanup | 7 |
 | *system (job)* | *job.cancel* | *1* |
 
-> **Note**: 47 spec mutate operations + 1 system job mutate operation = 48 total.
+> **Note**: Implementation count is sourced from `src/gateways/mutate.ts` (`EXPECTED_MUTATE_COUNT=51`).
 
 ---
 
@@ -382,6 +382,17 @@ All inputs are validated:
 - **Content**: Size limits, no control characters
 - **Enums**: Strict value checking
 
+### Intentional Validation Differences (MCP vs CLI)
+
+The MCP server intentionally applies stricter validation than the CLI in several areas to support anti-hallucination and agent safety:
+
+- **Description always required**: `tasks.add`/`tasks.create` requires both `title` AND `description` (CLI makes description configurable)
+- **Rate limiting**: MCP enforces per-minute limits on queries (100), mutations (30), and spawns (10)
+- **Pre-flight verification**: Protocol compliance checked before operations execute (CLI checks at completion)
+- **Session scope always required**: MCP agents must always specify scope when starting sessions
+
+Canonical parity and validation policy is maintained in [`docs/specs/MCP-SERVER-SPECIFICATION.md`](../../docs/specs/MCP-SERVER-SPECIFICATION.md).
+
 ### Thread Safety
 
 Concurrent operations are protected via flock:
@@ -401,11 +412,16 @@ Concurrent operations are protected via flock:
 
 ## Version History
 
+### v1.1.0 (2026-02-10)
+
+- Updated deployed operation counts to gateway source-of-truth (56 query + 51 mutate)
+- Removed ad hoc validation-differences dependency in favor of canonical spec policy
+
 ### v1.0.0 (2026-02-04)
 
 - Initial release
 - Two-gateway CQRS design
-- 96 operations across 8 domains
+- Initial operation matrix release
 - Full RCSD-IVTR protocol coverage
 - Complete error code mapping
 - Manifest and verification gate systems

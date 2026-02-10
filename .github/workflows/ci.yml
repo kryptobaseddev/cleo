@@ -124,6 +124,9 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
+      - name: Run MCP parity check
+        run: node mcp-server/scripts/check-parity.js
+
       - name: Make scripts executable
         run: chmod +x dev/skills/ct-docs-sync/scripts/detect-drift.sh
 

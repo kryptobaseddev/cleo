@@ -12,16 +12,23 @@
 
 ## Overview
 
-CLEO MCP Server exposes CLEO's 65 CLI commands and 280+ library functions through two gateway tools using a CQRS (Command Query Responsibility Segregation) pattern:
+CLEO MCP Server exposes CLEO's CLI and library capabilities through two gateway tools using a CQRS (Command Query Responsibility Segregation) pattern:
 
-- **`cleo_query`** - 48 read operations (discovery, status, analysis)
-- **`cleo_mutate`** - 48 write operations (create, update, lifecycle management)
+- **`cleo_query`** - query operations (read-only)
+- **`cleo_mutate`** - mutate operations (state-changing)
+
+Current implementation operation matrix is maintained in:
+
+- `src/gateways/query.ts` (`EXPECTED_QUERY_COUNT=56`)
+- `src/gateways/mutate.ts` (`EXPECTED_MUTATE_COUNT=51`)
+
+Total implemented operations: **107** (core contract plus parity extensions).
 
 **Token efficiency**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = **94% reduction**
 
 ## Features
 
-- **Full CLEO Access**: All 96 operations across 8 domains
+- **Full CLEO Access**: 107 implemented operations across 8 domains
 - **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 - **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
 - **Safety by Design**: Read operations cannot mutate state
@@ -154,24 +161,24 @@ await cleo_mutate({
 
 ### cleo_query (Read-Only)
 
-- **tasks** - get, list, find, exists, tree, blockers, deps, analyze, next
+- **tasks** - get, list, find, exists, tree, blockers, deps, analyze, next, relates
 - **session** - status, list, show, focus.get, history
 - **orchestrate** - status, next, ready, analyze, context, waves, skill.list
 - **research** - show, list, query, pending, stats, manifest.read
 - **lifecycle** - check, status, history, gates, prerequisites
 - **validate** - schema, protocol, task, manifest, output, compliance.*
-- **system** - version, doctor, config.get, stats, context
+- **system** - version, doctor, config.get, stats, context, metrics, health, config, diagnostics, help, job.*, dash, roadmap, labels, compliance, log, archive-stats, sequence
 
 ### cleo_mutate (Write Operations)
 
-- **tasks** - create, update, complete, delete, archive, unarchive, reparent, promote, reorder, reopen
+- **tasks** - create, update, complete, delete, archive, unarchive, reparent, promote, reorder, reopen, relates.add
 - **session** - start, end, resume, suspend, focus.set, focus.clear, gc
 - **orchestrate** - startup, spawn, validate, parallel.*
 - **research** - inject, link, manifest.*
 - **lifecycle** - progress, skip, reset, gate.*
 - **validate** - compliance.record, test.run
 - **release** - prepare, changelog, commit, tag, push, gates.run, rollback
-- **system** - init, config.set, backup, restore, migrate, sync, cleanup
+- **system** - init, config.set, backup, restore, migrate, sync, cleanup, audit, job.cancel, safestop, uncancel
 
 ## Configuration
 
