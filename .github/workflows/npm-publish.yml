@@ -54,7 +54,7 @@ jobs:
 
       - name: Download mcp-publisher
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_Linux_x86_64.tar.gz" | tar xz
+          curl -fL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz
           chmod +x mcp-publisher
 
       - name: Authenticate with MCP Registry (GitHub OIDC)
