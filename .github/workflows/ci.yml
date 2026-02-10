@@ -127,8 +127,18 @@ jobs:
       - name: Make scripts executable
         run: chmod +x dev/skills/ct-docs-sync/scripts/detect-drift.sh
 
-      - name: Run drift detection
-        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --full --strict
+      - name: Run canonical drift gate (strict)
+        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --canonical --strict
+        env:
+          CLEO_HOME: ${{ github.workspace }}
+
+      - name: Run Mintlify frontmatter gate (strict)
+        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --mintlify --strict
+        env:
+          CLEO_HOME: ${{ github.workspace }}
+
+      - name: Run full drift report (non-blocking warnings)
+        run: ./dev/skills/ct-docs-sync/scripts/detect-drift.sh --full
         env:
           CLEO_HOME: ${{ github.workspace }}
 
