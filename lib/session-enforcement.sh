@@ -132,6 +132,10 @@ get_enforcement_mode() {
         strict|warn|none)
             echo "$mode"
             ;;
+        advisory)
+            # Accept 'advisory' as alias for 'warn' (warns but doesn't block)
+            echo "warn"
+            ;;
         off|disabled|false)
             # Accept common aliases for 'none'
             echo "none"
@@ -331,9 +335,15 @@ validate_task_in_scope() {
         return 0
     fi
 
-    # Get computed task IDs from session scope
+    # Get computed task IDs from session scope (T4267: dynamic recomputation)
+    # Recompute scope from current todo.json to include newly added tasks
     local scope_task_ids
-    scope_task_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+    if declare -f recompute_session_scope >/dev/null 2>&1; then
+        scope_task_ids=$(recompute_session_scope "$session_info")
+    else
+        # Fallback to stored scope if recompute not available
+        scope_task_ids=$(echo "$session_info" | jq -c '.scope.computedTaskIds // []')
+    fi
 
     # Check if task is in scope
     local in_scope
