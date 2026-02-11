@@ -104900,11 +104900,483 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_688fc785540f",
+      "timestamp": "2026-02-11T23:33:49Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T2021",
+      "before": {
+        "title": "EPIC: CLEO v2.0 TypeScript Implementation",
+        "status": "pending",
+        "priority": "high",
+        "description": "Implementation of CLEO v2.0 based on validated architecture decisions (ADR approved 2026-01-23).\n\nKey Changes:\n1. TypeScript port with Commander.js + esbuild (D1, D5)\n2. Four-gate manifest validation architecture (D3)\n3. DEBT-LEDGER.jsonl for TODO/FIXME tracking (D4)\n4. Dependency algorithm optimization O(n^2) to O(n) (D2)\n5. Multi-agent consensus protocol with 2/3 majority (D6)\n\nPhases:\n- Phase 1: Foundation (project setup, core modules, basic commands)\n- Phase 2: Core Commands (task lifecycle, focus, session, hierarchy)\n- Phase 3: Feature Parity (all 50+ commands, optimization)\n- Phase 4: Polish (performance, docs, migration, parallel release)\n\nSuccess Criteria:\n- 100% exit code parity (49 codes)\n- <50ms startup time\n- <500KB bundle size\n- 80%+ test coverage\n- All BATS integration tests pass\n\nReference: claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md",
+        "phase": "core",
+        "labels": [
+          "implementation",
+          "typescript",
+          "v2.0"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T2112"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: CLEO v2.0 TypeScript Implementation",
+        "status": "pending",
+        "priority": "high",
+        "description": "Implementation of CLEO v2.0 based on validated architecture decisions (ADR approved 2026-01-23).\n\nKey Changes:\n1. TypeScript port with Commander.js + esbuild (D1, D5)\n2. Four-gate manifest validation architecture (D3)\n3. DEBT-LEDGER.jsonl for TODO/FIXME tracking (D4)\n4. Dependency algorithm optimization O(n^2) to O(n) (D2)\n5. Multi-agent consensus protocol with 2/3 majority (D6)\n\nPhases:\n- Phase 1: Foundation (project setup, core modules, basic commands)\n- Phase 2: Core Commands (task lifecycle, focus, session, hierarchy)\n- Phase 3: Feature Parity (all 50+ commands, optimization)\n- Phase 4: Polish (performance, docs, migration, parallel release)\n\nSuccess Criteria:\n- 100% exit code parity (49 codes)\n- <50ms startup time\n- <500KB bundle size\n- 80%+ test coverage\n- All BATS integration tests pass\n\nReference: claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md",
+        "phase": "core",
+        "labels": [
+          "implementation",
+          "typescript",
+          "v2.0"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T2112"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1770852838-a88b3b",
+      "timestamp": "2026-02-11T23:33:58Z",
+      "action": "task_created",
+      "taskId": "T4340",
+      "actor": "system",
+      "details": {
+        "title": "Document canonical TS migration doctrine: MCP-first then hotspots",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Document canonical TS migration doctrine: MCP-first then hotspots",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_a3c2951be2e0",
+      "timestamp": "2026-02-11T23:34:31Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T2742",
+      "before": {
+        "title": "Research: Folder Structure & Memory-Trees Agent Architecture",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Multi-phase research initiative investigating two interconnected topics:\n\n1. **Codebase Folder Structure Analysis**: Evaluate current flat folder organization, identify benefits/drawbacks, and explore reorganization possibilities.\n\n2. **Memory-Trees Subagent Architecture**: Novel concept for enhancing agent context traversal:\n   - Memory trees as folder-anchored context zones\n   - 4-5 tier pyramid with subagents passing information\n   - Cross-cutting capability between memory trees (like an internal API)\n   - More precise context, less contextual rot\n   - Subagents guiding information from one subfolder to another\n\n**Scope**: Investigation and research ONLY - no changes to codebase.\n\n**Deliverables**:\n- Current folder structure analysis report\n- Memory-trees architecture concept document\n- Consensus on potential benefits/risks\n- Recommendations for CLEO enhancement (if warranted)",
+        "phase": "core",
+        "labels": [
+          "agents",
+          "architecture",
+          "memory-trees",
+          "research"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Research: Folder Structure & Memory-Trees Agent Architecture",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Multi-phase research initiative investigating two interconnected topics:\n\n1. **Codebase Folder Structure Analysis**: Evaluate current flat folder organization, identify benefits/drawbacks, and explore reorganization possibilities.\n\n2. **Memory-Trees Subagent Architecture**: Novel concept for enhancing agent context traversal:\n   - Memory trees as folder-anchored context zones\n   - 4-5 tier pyramid with subagents passing information\n   - Cross-cutting capability between memory trees (like an internal API)\n   - More precise context, less contextual rot\n   - Subagents guiding information from one subfolder to another\n\n**Scope**: Investigation and research ONLY - no changes to codebase.\n\n**Deliverables**:\n- Current folder structure analysis report\n- Memory-trees architecture concept document\n- Consensus on potential benefits/risks\n- Recommendations for CLEO enhancement (if warranted)",
+        "phase": "core",
+        "labels": [
+          "agents",
+          "architecture",
+          "memory-trees",
+          "research"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_b8622303cdbd",
+      "timestamp": "2026-02-11T23:34:38Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2742",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T23:34:37Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770852883-38f2a5",
+      "timestamp": "2026-02-11T23:34:43Z",
+      "action": "task_created",
+      "taskId": "T4341",
+      "actor": "system",
+      "details": {
+        "title": "Publish @cleocode/caamp v0.2.0 to npm",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Publish @cleocode/caamp v0.2.0 to npm",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770852889-36ecda",
+      "timestamp": "2026-02-11T23:34:49Z",
+      "action": "task_created",
+      "taskId": "T4342",
+      "actor": "system",
+      "details": {
+        "title": "Add @cleocode/caamp ^0.2.0 dependency to mcp-server",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Add @cleocode/caamp ^0.2.0 dependency to mcp-server",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770852897-a8a5d7",
+      "timestamp": "2026-02-11T23:34:57Z",
+      "action": "task_created",
+      "taskId": "T4343",
+      "actor": "system",
+      "details": {
+        "title": "Evaluate extracting T4334 native engine modules into caamp",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Evaluate extracting T4334 native engine modules into caamp",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770852951-68bdd2",
+      "timestamp": "2026-02-11T23:35:51Z",
+      "action": "task_created",
+      "taskId": "T4344",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: lib/ Hierarchy Refactor",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: lib/ Hierarchy Refactor",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770852961-280c03",
+      "timestamp": "2026-02-11T23:36:01Z",
+      "action": "task_created",
+      "taskId": "T4345",
+      "actor": "system",
+      "details": {
+        "title": "Create migration script for lib/ import path updates",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create migration script for lib/ import path updates",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770852971-1f08d0",
+      "timestamp": "2026-02-11T23:36:11Z",
+      "action": "task_created",
+      "taskId": "T4346",
+      "actor": "system",
+      "details": {
+        "title": "Move lib/ files into subdirectories with git mv",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Move lib/ files into subdirectories with git mv",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770852979-5c9bea",
+      "timestamp": "2026-02-11T23:36:19Z",
+      "action": "task_created",
+      "taskId": "T4347",
+      "actor": "system",
+      "details": {
+        "title": "Update all source references across codebase",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update all source references across codebase",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770852987-10daaa",
+      "timestamp": "2026-02-11T23:36:27Z",
+      "action": "task_created",
+      "taskId": "T4348",
+      "actor": "system",
+      "details": {
+        "title": "Create lib/README.md navigation guide",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create lib/README.md navigation guide",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770852994-e60c6b",
+      "timestamp": "2026-02-11T23:36:34Z",
+      "action": "task_created",
+      "taskId": "T4349",
+      "actor": "system",
+      "details": {
+        "title": "Run full BATS test suite verification",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Run full BATS test suite verification",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770853002-cbf474",
+      "timestamp": "2026-02-11T23:36:42Z",
+      "action": "task_created",
+      "taskId": "T4350",
+      "actor": "system",
+      "details": {
+        "title": "Update CLAUDE.md and developer documentation",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Update CLAUDE.md and developer documentation",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853010-dea482",
+      "timestamp": "2026-02-11T23:36:50Z",
+      "action": "task_created",
+      "taskId": "T4351",
+      "actor": "system",
+      "details": {
+        "title": "Version bump and changelog for lib/ refactor",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Version bump and changelog for lib/ refactor",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853021-5ead15",
+      "timestamp": "2026-02-11T23:37:01Z",
+      "action": "task_created",
+      "taskId": "T4352",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Manifest Hierarchy + Path Query Engine",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Manifest Hierarchy + Path Query Engine",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853031-f8b525",
+      "timestamp": "2026-02-11T23:37:11Z",
+      "action": "task_created",
+      "taskId": "T4353",
+      "actor": "system",
+      "details": {
+        "title": "Design manifest hierarchy schema extension",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Design manifest hierarchy schema extension",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770853038-8e2e7a",
+      "timestamp": "2026-02-11T23:37:18Z",
+      "action": "task_created",
+      "taskId": "T4354",
+      "actor": "system",
+      "details": {
+        "title": "Implement manifest hierarchy field writers",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement manifest hierarchy field writers",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770853046-0ef0f5",
+      "timestamp": "2026-02-11T23:37:26Z",
+      "action": "task_created",
+      "taskId": "T4355",
+      "actor": "system",
+      "details": {
+        "title": "Backfill existing manifest entries with hierarchy fields",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Backfill existing manifest entries with hierarchy fields",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770853054-ae98ba",
+      "timestamp": "2026-02-11T23:37:34Z",
+      "action": "task_created",
+      "taskId": "T4356",
+      "actor": "system",
+      "details": {
+        "title": "Add tree invariant validation to manifest operations",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add tree invariant validation to manifest operations",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770853067-179acd",
+      "timestamp": "2026-02-11T23:37:47Z",
+      "action": "task_created",
+      "taskId": "T4357",
+      "actor": "system",
+      "details": {
+        "title": "Update AGENT-INJECTION.md for MCP-first guidance",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update AGENT-INJECTION.md for MCP-first guidance",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770853068-3c3163",
+      "timestamp": "2026-02-11T23:37:48Z",
+      "action": "task_created",
+      "taskId": "T4358",
+      "actor": "system",
+      "details": {
+        "title": "Phase 1 testing: manifest hierarchy unit and integration tests",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 1 testing: manifest hierarchy unit and integration tests",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853073-9937dd",
+      "timestamp": "2026-02-11T23:37:53Z",
+      "action": "task_created",
+      "taskId": "T4359",
+      "actor": "system",
+      "details": {
+        "title": "Update CLEO-INJECTION.md for MCP-first guidance",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update CLEO-INJECTION.md for MCP-first guidance",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5490,
-    "lastEntry": "2026-02-11T23:30:08Z",
+    "totalEntries": 5493,
+    "lastEntry": "2026-02-11T23:34:38Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
