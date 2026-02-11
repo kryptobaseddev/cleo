@@ -589,12 +589,21 @@
         "notes": null,
         "gitTag": "v0.87.1",
         "changelog": "## [0.87.1] - 2026-02-10"
+      },
+      {
+        "version": "v0.88.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-11T00:28:38Z",
+        "tasks": [],
+        "notes": "feat: Smart mcp-install with 12-tool auto-detection, JSONC/YAML/TOML support, Goose YAML, Flatpak detection, idempotent writes"
       }
     ]
   },
-  "lastUpdated": "2026-02-10T19:26:50Z",
+  "lastUpdated": "2026-02-11T00:28:38Z",
   "_meta": {
-    "checksum": "9d1fdeb1ba49506b",
+    "checksum": "11a2c76b16cabb98",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -603,7 +612,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2395
+    "generation": 2430
   },
   "focus": {
     "currentTask": null,
@@ -10250,17 +10259,21 @@
     {
       "id": "T3066",
       "title": "MCP Server Validation & Testing",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-04T17:25:23Z",
-      "updatedAt": "2026-02-04T17:25:23Z",
+      "updatedAt": "2026-02-10T19:53:24Z",
       "size": "medium",
       "position": 207,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Comprehensive validation of MCP server implementation in sandbox environment. Test all 98 operations, protocol enforcement, lifecycle gates, and integration with CLEO CLI."
+      "description": "Comprehensive validation of MCP server implementation in sandbox environment. Test all 98 operations, protocol enforcement, lifecycle gates, and integration with CLEO CLI.",
+      "completedAt": "2026-02-10T19:53:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:53:24Z] Stale - MCP server already published and stable at v0.87.1 with 948 tests"
+      ]
     },
     {
       "id": "T3077",
@@ -10280,77 +10293,157 @@
     {
       "id": "T3078",
       "title": "MCP Test Task 103139",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-04T18:58:11Z",
-      "updatedAt": "2026-02-04T18:58:11Z",
+      "updatedAt": "2026-02-10T19:52:35Z",
       "size": "medium",
       "position": 208,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Test task for MCP integration"
+      "description": "Test task for MCP integration",
+      "completedAt": "2026-02-10T19:52:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:35Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:36Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3079",
       "title": "MCP Test Task 106878",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-04T18:59:19Z",
-      "updatedAt": "2026-02-04T18:59:19Z",
+      "updatedAt": "2026-02-10T19:52:38Z",
       "size": "medium",
       "position": 209,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Test task for MCP integration"
+      "description": "Test task for MCP integration",
+      "completedAt": "2026-02-10T19:52:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:38Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3080",
       "title": "MCP Server Production Readiness",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-04T19:40:11Z",
-      "updatedAt": "2026-02-04T19:40:11Z",
+      "updatedAt": "2026-02-10T19:52:16Z",
       "size": "medium",
       "position": 210,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Fix all critical issues found during validation (T3066) to achieve production-ready MCP server. Includes CLI connection fix, documentation updates, operation count audits, and full integration testing in sandbox."
+      "description": "Fix all critical issues found during validation (T3066) to achieve production-ready MCP server. Includes CLI connection fix, documentation updates, operation count audits, and full integration testing in sandbox.",
+      "completedAt": "2026-02-10T19:52:16Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:16Z] MCP server published to npm, registry listed, 948 tests passing, 107 operations. Production ready."
+      ]
     },
     {
       "id": "T3089",
       "title": "MCP Test Task 378461",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-05T00:13:41Z",
-      "updatedAt": "2026-02-05T00:13:41Z",
+      "updatedAt": "2026-02-10T19:52:41Z",
       "size": "medium",
       "position": 211,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Test task for MCP integration"
+      "description": "Test task for MCP integration",
+      "completedAt": "2026-02-10T19:52:41Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:41Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:42Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3090",
       "title": "MCP Test Task 390704",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-05T00:16:38Z",
-      "updatedAt": "2026-02-05T00:16:38Z",
+      "updatedAt": "2026-02-10T19:52:44Z",
       "size": "medium",
       "position": 212,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Test task for MCP integration"
+      "description": "Test task for MCP integration",
+      "completedAt": "2026-02-10T19:52:44Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:44Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3104",
@@ -10766,12 +10859,12 @@
     {
       "id": "T3158",
       "title": "Fix remaining MCP server build issues",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T3156",
       "createdAt": "2026-02-07T16:54:09Z",
-      "updatedAt": "2026-02-07T16:54:09Z",
+      "updatedAt": "2026-02-10T19:53:26Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -10782,7 +10875,26 @@
         "foundation",
         "mcp-server",
         "wave-0"
-      ]
+      ],
+      "completedAt": "2026-02-10T19:53:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:53:26Z] Stale - MCP server already published and stable at v0.87.1 with 948 tests"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:53:27Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3159",
@@ -11054,12 +11166,12 @@
     {
       "id": "T3170",
       "title": "Stabilize MCP server for production",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T3156",
       "createdAt": "2026-02-07T16:56:05Z",
-      "updatedAt": "2026-02-07T16:56:05Z",
+      "updatedAt": "2026-02-10T19:53:35Z",
       "size": "large",
       "position": 14,
       "positionVersion": 0,
@@ -11074,7 +11186,26 @@
       "depends": [
         "T3158",
         "T3164"
-      ]
+      ],
+      "completedAt": "2026-02-10T19:53:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:53:35Z] Stale - MCP server already published and stable at v0.87.1 with 948 tests"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:53:36Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3171",
@@ -11188,32 +11319,70 @@
     {
       "id": "T3187",
       "title": "Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:30:21Z",
-      "updatedAt": "2026-02-09T21:30:21Z",
+      "updatedAt": "2026-02-10T19:52:47Z",
       "size": "medium",
       "position": 217,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Test description"
+      "description": "Test description",
+      "completedAt": "2026-02-10T19:52:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:47Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3188",
       "title": "E2E Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:30:35Z",
-      "updatedAt": "2026-02-09T21:30:35Z",
+      "updatedAt": "2026-02-10T19:52:50Z",
       "size": "medium",
       "position": 218,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task created for end-to-end workflow testing"
+      "description": "Task created for end-to-end workflow testing",
+      "completedAt": "2026-02-10T19:52:50Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:50Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:51Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3189",
@@ -11266,17 +11435,36 @@
     {
       "id": "T3192",
       "title": "Test Task Debug",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:32:42Z",
-      "updatedAt": "2026-02-09T21:32:42Z",
+      "updatedAt": "2026-02-10T19:52:54Z",
       "size": "medium",
       "position": 222,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Debug E2E data format"
+      "description": "Debug E2E data format",
+      "completedAt": "2026-02-10T19:52:54Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:54Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:54Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3193",
@@ -11299,17 +11487,36 @@
     {
       "id": "T3194",
       "title": "Mutate Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3193",
       "createdAt": "2026-02-09T21:33:58Z",
-      "updatedAt": "2026-02-09T21:33:58Z",
+      "updatedAt": "2026-02-10T19:52:57Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing mutate operations"
+      "description": "Task for testing mutate operations",
+      "completedAt": "2026-02-10T19:52:57Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:57Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:58Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3195",
@@ -11329,17 +11536,36 @@
     {
       "id": "T3196",
       "title": "E2E Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:34:17Z",
-      "updatedAt": "2026-02-09T21:34:17Z",
+      "updatedAt": "2026-02-10T19:53:00Z",
       "size": "medium",
       "position": 224,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task created for end-to-end workflow testing"
+      "description": "Task created for end-to-end workflow testing",
+      "completedAt": "2026-02-10T19:53:00Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:53:00Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:53:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3197",
@@ -11492,17 +11718,36 @@
     {
       "id": "T3205",
       "title": "E2E Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:35:58Z",
-      "updatedAt": "2026-02-09T21:35:58Z",
+      "updatedAt": "2026-02-10T19:53:03Z",
       "size": "medium",
       "position": 232,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task created for end-to-end workflow testing"
+      "description": "Task created for end-to-end workflow testing",
+      "completedAt": "2026-02-10T19:53:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:53:03Z] MCP test artifact - hygiene cleanup"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:53:04Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3206",
@@ -28519,17 +28764,36 @@
     {
       "id": "T4257",
       "title": "Epic: MCP Server npm Publish & Registry Listing",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-10T15:38:27Z",
-      "updatedAt": "2026-02-10T15:38:27Z",
+      "updatedAt": "2026-02-10T19:52:27Z",
       "size": "medium",
       "position": 839,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Complete the MCP server distribution: fix npm publish error (expired token), publish @cleo/mcp-server to npm, submit to MCP registry at modelcontextprotocol.io, verify CI/CD pipeline, commit uncommitted work, and release v0.87.0. See handoff doc: claudedocs/agent-outputs/2026-02-10_session-handoff-mcp-server-complete.md"
+      "description": "Complete the MCP server distribution: fix npm publish error (expired token), publish @cleo/mcp-server to npm, submit to MCP registry at modelcontextprotocol.io, verify CI/CD pipeline, commit uncommitted work, and release v0.87.0. See handoff doc: claudedocs/agent-outputs/2026-02-10_session-handoff-mcp-server-complete.md",
+      "completedAt": "2026-02-10T19:52:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:27Z] Duplicate of T4258, archived"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4258",
@@ -28568,17 +28832,36 @@
     {
       "id": "T4259",
       "title": "Epic: MCP Publish",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-10T15:38:50Z",
-      "updatedAt": "2026-02-10T15:38:50Z",
+      "updatedAt": "2026-02-10T19:52:31Z",
       "size": "medium",
       "position": 841,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Publish MCP server to npm and registry"
+      "description": "Publish MCP server to npm and registry",
+      "completedAt": "2026-02-10T19:52:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:31Z] Duplicate of T4258, archived"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4260",
@@ -28870,17 +29153,36 @@
     {
       "id": "T4268",
       "title": "Add bc dependency to sandbox Dockerfile",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4266",
       "createdAt": "2026-02-10T17:26:19Z",
-      "updatedAt": "2026-02-10T17:26:19Z",
+      "updatedAt": "2026-02-10T19:52:19Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "cleo stats command requires bc (arbitrary precision calculator) which is not in the sandbox base image. Add bc to the Dockerfile dnf install list. Also audit for any other missing CLI dependencies in the sandbox environment."
+      "description": "cleo stats command requires bc (arbitrary precision calculator) which is not in the sandbox base image. Add bc to the Dockerfile dnf install list. Also audit for any other missing CLI dependencies in the sandbox environment.",
+      "completedAt": "2026-02-10T19:52:19Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:19Z] BC dependency added to sandbox Dockerfile during MCP publish sprint"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:20Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4269",
@@ -28953,17 +29255,36 @@
     {
       "id": "T4271",
       "title": "Validate single-source-of-truth: CLI changes auto-reflect in MCP",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4266",
       "createdAt": "2026-02-10T17:26:24Z",
-      "updatedAt": "2026-02-10T17:26:24Z",
+      "updatedAt": "2026-02-10T19:52:22Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
       "phase": "core",
-      "description": "MUST validate that the MCP server is a thin wrapper around CLI commands, so any CLI code changes are automatically reflected in MCP without managing duplicate code paths. Also verify that the release pipeline (cleo release ship) builds both the GitHub release AND the npm deployment. Single source of truth is a MUST requirement - no duplication."
+      "description": "MUST validate that the MCP server is a thin wrapper around CLI commands, so any CLI code changes are automatically reflected in MCP without managing duplicate code paths. Also verify that the release pipeline (cleo release ship) builds both the GitHub release AND the npm deployment. Single source of truth is a MUST requirement - no duplication.",
+      "completedAt": "2026-02-10T19:52:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-10T19:52:22Z] Architecture validation confirmed single-source-of-truth"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-10T19:52:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4272",
