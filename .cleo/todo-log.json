@@ -105666,11 +105666,58 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_d1f2191f5961",
+      "timestamp": "2026-02-11T23:46:31Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4332",
+      "before": {
+        "title": "EPIC: CAAMP Library API Enhancements for CLEO Integration",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Promote CLI-first MCP operations (listing, removal, config reading, lock file access) to proper library APIs in src/core/ and export them from src/index.ts. Publish as @cleocode/caamp to npm. GitHub repo: kryptobaseddev/caamp.",
+        "phase": "core",
+        "labels": [
+          "api",
+          "caamp",
+          "integration",
+          "npm"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: CAAMP Library API Enhancements for CLEO Integration",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Promote CLI-first MCP operations (listing, removal, config reading, lock file access) to proper library APIs in src/core/ and export them from src/index.ts. Publish as @cleocode/caamp to npm. GitHub repo: kryptobaseddev/caamp.",
+        "phase": "core",
+        "labels": [
+          "api",
+          "caamp",
+          "integration",
+          "npm"
+        ],
+        "files": [
+          "docs/specs/CAAMP-INTEGRATION-GAP-ANALYSIS.md"
+        ],
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5496,
-    "lastEntry": "2026-02-11T23:42:29Z",
+    "totalEntries": 5497,
+    "lastEntry": "2026-02-11T23:46:31Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
