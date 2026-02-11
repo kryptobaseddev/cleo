@@ -603,9 +603,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T03:59:30Z",
+  "lastUpdated": "2026-02-11T04:08:45Z",
   "_meta": {
-    "checksum": "ce0b693acd503906",
+    "checksum": "15a4e05ca399c97f",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -614,7 +614,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2448
+    "generation": 2449
   },
   "focus": {
     "currentTask": null,
@@ -29616,12 +29616,12 @@
     {
       "id": "T4285",
       "title": "Set up web server package structure (Fastify + TypeScript)",
-      "status": "active",
+      "status": "completed",
       "priority": "critical",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:06Z",
-      "updatedAt": "2026-02-11T03:59:30Z",
+      "updatedAt": "2026-02-11T04:06:34.455Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -29639,12 +29639,12 @@
     {
       "id": "T4286",
       "title": "Implement file watcher for CLEO data changes",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:07Z",
-      "updatedAt": "2026-02-11T03:58:07Z",
+      "updatedAt": "2026-02-11T04:07:36.296Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -29659,12 +29659,12 @@
     {
       "id": "T4287",
       "title": "Create project listing API endpoint",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:08Z",
-      "updatedAt": "2026-02-11T03:58:08Z",
+      "updatedAt": "2026-02-11T04:07:36.303Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -29679,12 +29679,12 @@
     {
       "id": "T4288",
       "title": "Build basic HTML/CSS/JS frontend shell",
-      "status": "pending",
+      "status": "completed",
       "priority": "critical",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:09Z",
-      "updatedAt": "2026-02-11T03:58:09Z",
+      "updatedAt": "2026-02-11T04:07:36.304Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -29699,12 +29699,12 @@
     {
       "id": "T4289",
       "title": "Implement WebSocket real-time update system",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:10Z",
-      "updatedAt": "2026-02-11T03:58:10Z",
+      "updatedAt": "2026-02-11T04:07:36.304Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -30095,6 +30095,249 @@
         "phase-4",
         "release",
         "web-ui"
+      ]
+    },
+    {
+      "id": "T4309",
+      "title": "EPIC: P0 MCP Gateway Defect Burndown",
+      "status": "pending",
+      "priority": "critical",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T04:07:21Z",
+      "updatedAt": "2026-02-11T04:07:21Z",
+      "size": "medium",
+      "position": 845,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fix all 10 confirmed MCP/Gateway defects blocking new feature work. These are command routing, parameter forwarding, and response parsing bugs in the MCP server domain handlers. Every defect must have a regression test before close. Parent epic context: T3156 (CLEO Claude Code Tasks Integration).",
+      "labels": [
+        "defects",
+        "gateway",
+        "mcp-server",
+        "p0"
+      ]
+    },
+    {
+      "id": "T4310",
+      "title": "Fix system domain command routing (doctor, stats, dash)",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:07:35Z",
+      "updatedAt": "2026-02-11T04:07:35Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fix 3 system domain defects: (1) system.doctor uses domain:'cleo',operation:'--validate' which buildCLICommand maps to 'cleo cleo --validate' - fix to use customCommand:'cleo --validate --json'. (2) system.stats uses domain:'metrics',operation:'show' but no 'metrics' CLI command exists - map to actual CLI command. (3) system.dash uses customCommand but returns success:true with data:null - fix JSON parsing. Files: mcp-server/src/domains/system.ts, mcp-server/src/lib/command-builder.ts",
+      "labels": [
+        "defect",
+        "mcp-server",
+        "system-domain"
+      ]
+    },
+    {
+      "id": "T4311",
+      "title": "Fix session.list active filtering and pagination",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:07:37Z",
+      "updatedAt": "2026-02-11T04:07:37Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "session.list(active=true) returns archived/ended sessions and ignores limit parameter. The handler passes --active flag but CLI session list does not properly filter by status. Also verify limit parameter is forwarded. Files: mcp-server/src/domains/session.ts, scripts/session.sh (CLI side)",
+      "labels": [
+        "defect",
+        "mcp-server",
+        "session-domain"
+      ]
+    },
+    {
+      "id": "T4312",
+      "title": "Fix tasks.next timeout at 30s",
+      "status": "cancelled",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:07:39Z",
+      "updatedAt": "2026-02-11T04:08:45Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "tasks.next times out at ~30s default timeout. Root cause likely the CLI scanning all 1555 tasks (401 synthetic garbage). Fix: (1) reduce dataset via synthetic cleanup (separate task), (2) verify tasks.next passes --json flag and has bounded response, (3) consider increasing timeout for this operation or adding pagination. Files: mcp-server/src/domains/tasks.ts, scripts/next.sh",
+      "labels": [
+        "defect",
+        "mcp-server",
+        "performance",
+        "tasks-domain"
+      ],
+      "cancelledAt": "2026-02-11T04:08:45Z",
+      "cancelReason": "duplicate task",
+      "notes": [
+        "[CANCELLED 2026-02-11T04:08:45Z] duplicate task"
+      ]
+    },
+    {
+      "id": "T4313",
+      "title": "Fix tasks.next 30s timeout",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:07:51Z",
+      "updatedAt": "2026-02-11T04:07:51Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "tasks.next operation times out at the 30s default. Likely caused by CLI scanning all 1555 tasks including 401 synthetic test artifacts. Verify --json flag is passed, consider increasing timeout for this operation, and ensure bounded response payload. Files: mcp-server/src/domains/tasks.ts, scripts/next.sh",
+      "labels": [
+        "defect",
+        "mcp-server",
+        "performance"
+      ]
+    },
+    {
+      "id": "T4314",
+      "title": "Fix tasks.next 30s timeout issue",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:07:56Z",
+      "updatedAt": "2026-02-11T04:07:56Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "The tasks.next MCP operation times out at 30s. Likely caused by CLI scanning 1555 tasks. Verify json flag, consider timeout increase, ensure bounded response.",
+      "labels": [
+        "defect",
+        "mcp-server"
+      ]
+    },
+    {
+      "id": "T4315",
+      "title": "Fix tasks.tree root scoping",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:08:13Z",
+      "updatedAt": "2026-02-11T04:08:13Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "tasks.tree(rootId=T###) returns the global tree instead of scoped subtree. The rootId parameter is likely not forwarded as a positional argument to cleo tree command. Files: mcp-server/src/domains/tasks.ts",
+      "labels": [
+        "defect",
+        "mcp-server"
+      ]
+    },
+    {
+      "id": "T4316",
+      "title": "Fix research domain operations",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:08:14Z",
+      "updatedAt": "2026-02-11T04:08:14Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Three research domain bugs: (1) research.stats shows manifest size and entries but empty counters. (2) research.list returns empty while manifest has entries. (3) research.manifest.read(status=complete) fails enum validation. Check CLI research command JSON output and MCP parameter forwarding. Files: mcp-server/src/domains/research.ts, mcp-server/src/lib/command-builder.ts",
+      "labels": [
+        "defect",
+        "mcp-server",
+        "research-domain"
+      ]
+    },
+    {
+      "id": "T4317",
+      "title": "Fix validate.task and validate.manifest scoping",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:08:16Z",
+      "updatedAt": "2026-02-11T04:08:16Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "validate.task and validate.manifest run full cleo validate instead of scoped checks. The command-builder maps both to command:validate with addOperationAsSubcommand:false, losing the task/manifest scope. Fix parameter forwarding. Files: mcp-server/src/domains/validate.ts, mcp-server/src/lib/command-builder.ts",
+      "labels": [
+        "defect",
+        "mcp-server",
+        "validate-domain"
+      ]
+    },
+    {
+      "id": "T4318",
+      "title": "Add MCP regression tests for all gateway defects",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:08:18Z",
+      "updatedAt": "2026-02-11T04:08:18Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write regression tests for each of the 10 MCP gateway defects fixed in this epic. Tests must verify correct CLI command generation, parameter forwarding, and response parsing. Cover: system.doctor, system.stats, system.dash, session.list filtering, tasks.next, tasks.tree scoping, research.stats/list/manifest.read, validate.task/manifest scoping. Files: mcp-server/src/domains/__tests__/",
+      "labels": [
+        "mcp-server",
+        "regression",
+        "testing"
+      ]
+    },
+    {
+      "id": "T4319",
+      "title": "Fix research domain ops consistency",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:08:26Z",
+      "updatedAt": "2026-02-11T04:08:26Z",
+      "size": "medium",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Three research domain bugs: research.stats shows manifest size but empty counters, research.list returns empty while manifest has entries, research.manifest.read fails status enum validation. Fix CLI command mapping and parameter forwarding. Files: mcp-server/src/domains/research.ts",
+      "labels": [
+        "defect",
+        "mcp-server"
+      ]
+    },
+    {
+      "id": "T4320",
+      "title": "MCP regression tests for gateway defects",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4309",
+      "createdAt": "2026-02-11T04:08:28Z",
+      "updatedAt": "2026-02-11T04:08:28Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write regression tests for all 10 MCP gateway defects. Must cover system.doctor/stats/dash, session.list filtering, tasks.next, tasks.tree scoping, research operations, and validate scoping. Files: mcp-server/src/domains/__tests__/",
+      "labels": [
+        "mcp-server",
+        "testing"
       ]
     }
   ],

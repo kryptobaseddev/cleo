@@ -101126,11 +101126,270 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_5d4821dabd55",
+      "timestamp": "2026-02-11T03:59:31Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4285",
+      "before": {
+        "title": "Set up web server package structure (Fastify + TypeScript)",
+        "status": "pending",
+        "priority": "critical",
+        "description": "Create mcp-server/web/ directory structure with Fastify server, TypeScript configuration, and basic Express-style routing. Set up build scripts and development workflow.",
+        "phase": "core",
+        "labels": [
+          "infrastructure",
+          "phase-1",
+          "web-ui"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Set up web server package structure (Fastify + TypeScript)",
+        "status": "active",
+        "priority": "critical",
+        "description": "Create mcp-server/web/ directory structure with Fastify server, TypeScript configuration, and basic Express-style routing. Set up build scripts and development workflow.",
+        "phase": "core",
+        "labels": [
+          "infrastructure",
+          "phase-1",
+          "web-ui"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1770782841-7a5bac",
+      "timestamp": "2026-02-11T04:07:21Z",
+      "action": "task_created",
+      "taskId": "T4309",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: P0 MCP Gateway Defect Burndown",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: P0 MCP Gateway Defect Burndown",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782855-ad0cbd",
+      "timestamp": "2026-02-11T04:07:35Z",
+      "action": "task_created",
+      "taskId": "T4310",
+      "actor": "system",
+      "details": {
+        "title": "Fix system domain command routing (doctor, stats, dash)",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix system domain command routing (doctor, stats, dash)",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782857-bb588b",
+      "timestamp": "2026-02-11T04:07:37Z",
+      "action": "task_created",
+      "taskId": "T4311",
+      "actor": "system",
+      "details": {
+        "title": "Fix session.list active filtering and pagination",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix session.list active filtering and pagination",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782859-020b5f",
+      "timestamp": "2026-02-11T04:07:39Z",
+      "action": "task_created",
+      "taskId": "T4312",
+      "actor": "system",
+      "details": {
+        "title": "Fix tasks.next timeout at 30s",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix tasks.next timeout at 30s",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782871-b82063",
+      "timestamp": "2026-02-11T04:07:51Z",
+      "action": "task_created",
+      "taskId": "T4313",
+      "actor": "system",
+      "details": {
+        "title": "Fix tasks.next 30s timeout",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix tasks.next 30s timeout",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782876-1fe097",
+      "timestamp": "2026-02-11T04:07:56Z",
+      "action": "task_created",
+      "taskId": "T4314",
+      "actor": "system",
+      "details": {
+        "title": "Fix tasks.next 30s timeout issue",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix tasks.next 30s timeout issue",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782893-5f54f2",
+      "timestamp": "2026-02-11T04:08:13Z",
+      "action": "task_created",
+      "taskId": "T4315",
+      "actor": "system",
+      "details": {
+        "title": "Fix tasks.tree root scoping",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix tasks.tree root scoping",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782895-62bd0d",
+      "timestamp": "2026-02-11T04:08:15Z",
+      "action": "task_created",
+      "taskId": "T4316",
+      "actor": "system",
+      "details": {
+        "title": "Fix research domain operations",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix research domain operations",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782896-fee0ff",
+      "timestamp": "2026-02-11T04:08:16Z",
+      "action": "task_created",
+      "taskId": "T4317",
+      "actor": "system",
+      "details": {
+        "title": "Fix validate.task and validate.manifest scoping",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix validate.task and validate.manifest scoping",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782898-734bc3",
+      "timestamp": "2026-02-11T04:08:18Z",
+      "action": "task_created",
+      "taskId": "T4318",
+      "actor": "system",
+      "details": {
+        "title": "Add MCP regression tests for all gateway defects",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add MCP regression tests for all gateway defects",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770782906-a16737",
+      "timestamp": "2026-02-11T04:08:26Z",
+      "action": "task_created",
+      "taskId": "T4319",
+      "actor": "system",
+      "details": {
+        "title": "Fix research domain ops consistency",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix research domain ops consistency",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782908-d8eeb9",
+      "timestamp": "2026-02-11T04:08:28Z",
+      "action": "task_created",
+      "taskId": "T4320",
+      "actor": "system",
+      "details": {
+        "title": "MCP regression tests for gateway defects",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "MCP regression tests for gateway defects",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5263,
-    "lastEntry": "2026-02-11T01:18:38Z",
+    "totalEntries": 5264,
+    "lastEntry": "2026-02-11T03:59:31Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
