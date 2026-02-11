@@ -1,0 +1,173 @@
+---
+title: "MCP Server"
+description: "Connect AI agents to CLEO via the Model Context Protocol"
+icon: "plug"
+---
+
+# MCP Server
+
+CLEO's MCP Server lets AI agents interact with your tasks programmatically through the [Model Context Protocol](https://modelcontextprotocol.io). Instead of parsing CLI output, agents call structured operations to create tasks, manage sessions, run orchestration, and more.
+
+## How It Works
+
+The MCP Server exposes **two gateway tools** using a CQRS (Command Query Responsibility Segregation) pattern:
+
+| Tool | Purpose | Operations |
+|------|---------|------------|
+| `cleo_query` | Read-only operations | Find tasks, check status, analyze dependencies |
+| `cleo_mutate` | Write operations | Create tasks, start sessions, complete work |
+
+This 2-tool design uses ~1,800 tokens of context -- a **94% reduction** compared to exposing each operation as a separate tool.
+
+<Info>
+The MCP Server covers **107 operations** across 8 domains: tasks, sessions, orchestration, research, lifecycle, validation, release, and system.
+</Info>
+
+## Install in One Command
+
+CLEO auto-detects your installed AI tools and writes the correct configuration:
+
+```bash
+cleo mcp-install
+```
+
+This interactive command scans for supported tools and configures them automatically.
+
+```bash
+# Configure all detected tools at once
+cleo mcp-install --all
+
+# Preview changes without writing anything
+cleo mcp-install --dry-run
+```
+
+## Supported Tools
+
+<CardGroup cols={3}>
+  <Card title="Claude Code" icon="terminal">
+    `.mcp.json` in project root
+  </Card>
+  <Card title="Claude Desktop" icon="desktop">
+    `claude_desktop_config.json`
+  </Card>
+  <Card title="Cursor" icon="i-cursor">
+    `~/.cursor/mcp.json`
+  </Card>
+  <Card title="VS Code" icon="code">
+    `.vscode/mcp.json`
+  </Card>
+  <Card title="Gemini CLI" icon="terminal">
+    `~/.gemini/settings.json`
+  </Card>
+  <Card title="Zed" icon="code">
+    `~/.config/zed/settings.json`
+  </Card>
+</CardGroup>
+
+Also supports: Goose, OpenCode, Windsurf, Kimi, Antigravity, and Codex.
+
+## Verify the Connection
+
+After installing, ask your AI agent to run a version check:
+
+```typescript
+await cleo_query({
+  domain: "system",
+  operation: "version"
+});
+```
+
+You should see a response with `"success": true` and the current CLEO version.
+
+## Quick Example
+
+Here is a typical agent workflow -- find a task, focus on it, then mark it complete:
+
+```typescript
+// Find tasks matching a query
+await cleo_query({
+  domain: "tasks",
+  operation: "find",
+  params: { query: "authentication" }
+});
+
+// Set focus on a task
+await cleo_mutate({
+  domain: "session",
+  operation: "focus.set",
+  params: { taskId: "T042" }
+});
+
+// Complete the task
+await cleo_mutate({
+  domain: "tasks",
+  operation: "complete",
+  params: { taskId: "T042", notes: "Auth flow implemented" }
+});
+```
+
+## Manual Configuration
+
+If you prefer to configure manually instead of using `cleo mcp-install`:
+
+<Tabs>
+  <Tab title="Claude Code">
+    Add to `.mcp.json` in your project root:
+    ```json
+    {
+      "mcpServers": {
+        "cleo": {
+          "command": "npx",
+          "args": ["-y", "@cleocode/mcp-server"]
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Cursor">
+    Add to `~/.cursor/mcp.json`:
+    ```json
+    {
+      "mcpServers": {
+        "cleo": {
+          "command": "npx",
+          "args": ["-y", "@cleocode/mcp-server"]
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="VS Code">
+    Add to `.vscode/mcp.json`:
+    ```json
+    {
+      "servers": {
+        "cleo": {
+          "command": "npx",
+          "args": ["-y", "@cleocode/mcp-server"]
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+**Restart your AI tool** after adding or changing MCP configuration. Most tools do not hot-reload MCP server configs.
+</Warning>
+
+## Requirements
+
+- **CLEO** v0.70.0+ installed and initialized (`cleo init`)
+- **Node.js** >= 18.0.0 (for the MCP server runtime)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MCP Quickstart Guide" icon="bolt" href="/guides/mcp-quickstart">
+    Detailed setup, all operations, and common workflows
+  </Card>
+  <Card title="MCP Server Specification" icon="book" href="/developer/specifications/MCP-SERVER">
+    Full technical specification and gateway architecture
+  </Card>
+</CardGroup>

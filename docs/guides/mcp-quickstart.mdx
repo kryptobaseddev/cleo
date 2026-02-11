@@ -1,0 +1,375 @@
+---
+title: "MCP Server Quickstart"
+description: "Set up and use the CLEO MCP Server with your AI tools"
+icon: "bolt"
+---
+
+# MCP Server Quickstart
+
+This guide walks through installing the CLEO MCP Server, configuring it for your AI tool, and using the two gateway tools to manage tasks programmatically.
+
+## Prerequisites
+
+Before starting, make sure you have:
+
+- **CLEO** v0.70.0+ installed and initialized in your project (`cleo init`)
+- **Node.js** >= 18.0.0
+- At least one supported AI tool installed (Claude Code, Cursor, VS Code, etc.)
+
+Verify your setup:
+
+```bash
+cleo version    # Should show v0.70.0+
+node --version  # Should show v18.0.0+
+```
+
+## Installation
+
+<Steps>
+
+### Run the installer
+
+```bash
+cleo mcp-install
+```
+
+The installer auto-detects which AI tools you have installed and prompts you to configure each one.
+
+### Choose your tools
+
+Select which tools to configure. Use `--all` to skip the interactive prompt:
+
+```bash
+cleo mcp-install --all
+```
+
+### Restart your AI tool
+
+MCP server configs are read at startup. Restart your AI tool (or reload the window in VS Code/Cursor) to pick up the new configuration.
+
+### Verify the connection
+
+Ask your AI agent to check the CLEO version:
+
+```typescript
+await cleo_query({
+  domain: "system",
+  operation: "version"
+});
+```
+
+A successful response looks like:
+
+```json
+{
+  "success": true,
+  "data": {
+    "version": "0.88.0",
+    "mcp_version": "1.0.0"
+  }
+}
+```
+
+</Steps>
+
+<Info>
+Use `cleo mcp-install --dry-run` to preview what configuration changes would be made without writing any files.
+</Info>
+
+## Tool Configuration Reference
+
+If you need to configure manually or troubleshoot, here are the config locations:
+
+| Tool | Config File | Key |
+|------|------------|-----|
+| Claude Code | `.mcp.json` (project root) | `mcpServers` |
+| Claude Desktop | `claude_desktop_config.json` | `mcpServers` |
+| Cursor | `~/.cursor/mcp.json` | `mcpServers` |
+| Gemini CLI | `~/.gemini/settings.json` | `mcpServers` |
+| VS Code | `.vscode/mcp.json` | `servers` |
+| Zed | `~/.config/zed/settings.json` | `context_servers` |
+| OpenCode | `~/.config/opencode/.opencode.json` | `mcp` |
+| Goose | `.goose/config.yaml` | `extensions` (YAML) |
+| Codex | `~/.codex/config.toml` | (TOML format) |
+
+The standard JSON configuration block is:
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "npx",
+      "args": ["-y", "@cleocode/mcp-server"]
+    }
+  }
+}
+```
+
+## The Two Gateway Tools
+
+All MCP operations go through exactly two tools:
+
+### cleo_query -- Read Operations
+
+Use `cleo_query` for anything that reads state without modifying it.
+
+```typescript
+await cleo_query({
+  domain: "<domain>",
+  operation: "<operation>",
+  params: { /* operation-specific parameters */ }
+});
+```
+
+**Domains**: `tasks`, `session`, `orchestrate`, `research`, `lifecycle`, `validate`, `system`
+
+**Common operations**:
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `find` | Search tasks by query string |
+| `tasks` | `get` | Get full task details by ID |
+| `tasks` | `list` | List tasks with filters |
+| `tasks` | `tree` | View task hierarchy |
+| `session` | `status` | Current session info |
+| `session` | `list` | All sessions |
+| `system` | `version` | CLEO version |
+| `system` | `dash` | Project overview dashboard |
+| `lifecycle` | `check` | Validate lifecycle gates |
+
+### cleo_mutate -- Write Operations
+
+Use `cleo_mutate` for anything that creates, updates, or deletes state.
+
+```typescript
+await cleo_mutate({
+  domain: "<domain>",
+  operation: "<operation>",
+  params: { /* operation-specific parameters */ }
+});
+```
+
+**Domains**: `tasks`, `session`, `orchestrate`, `research`, `lifecycle`, `validate`, `release`, `system`
+
+**Common operations**:
+
+| Domain | Operation | Description |
+|--------|-----------|-------------|
+| `tasks` | `create` | Create a new task |
+| `tasks` | `update` | Update task fields |
+| `tasks` | `complete` | Mark task as done |
+| `session` | `start` | Start a work session |
+| `session` | `end` | End current session |
+| `session` | `focus.set` | Set active task |
+| `orchestrate` | `startup` | Initialize orchestration for an epic |
+| `orchestrate` | `spawn` | Generate a spawn prompt for a task |
+
+## Common Workflows
+
+### Task Discovery and Management
+
+```typescript
+// 1. Search for tasks (minimal context, fast)
+const results = await cleo_query({
+  domain: "tasks",
+  operation: "find",
+  params: { query: "authentication" }
+});
+
+// 2. Get full details for a specific task
+const task = await cleo_query({
+  domain: "tasks",
+  operation: "get",
+  params: { taskId: "T042" }
+});
+
+// 3. Create a new task
+await cleo_mutate({
+  domain: "tasks",
+  operation: "create",
+  params: {
+    title: "Add JWT token refresh",
+    description: "Implement automatic token refresh before expiry",
+    priority: 1
+  }
+});
+
+// 4. Complete a task
+await cleo_mutate({
+  domain: "tasks",
+  operation: "complete",
+  params: {
+    taskId: "T042",
+    notes: "Implemented with refresh token rotation"
+  }
+});
+```
+
+### Session Workflow
+
+```typescript
+// 1. Check for existing sessions
+const sessions = await cleo_query({
+  domain: "session",
+  operation: "list"
+});
+
+// 2. Start a new session scoped to an epic
+await cleo_mutate({
+  domain: "session",
+  operation: "start",
+  params: {
+    scope: "epic:T100",
+    name: "Feature Development",
+    autoFocus: true
+  }
+});
+
+// 3. Set focus on a specific task
+await cleo_mutate({
+  domain: "session",
+  operation: "focus.set",
+  params: { taskId: "T105" }
+});
+
+// 4. End the session
+await cleo_mutate({
+  domain: "session",
+  operation: "end",
+  params: { notes: "Completed auth tasks" }
+});
+```
+
+### System Health Check
+
+```typescript
+// Project dashboard
+await cleo_query({
+  domain: "system",
+  operation: "dash"
+});
+
+// Run diagnostics
+await cleo_query({
+  domain: "system",
+  operation: "doctor"
+});
+
+// Check lifecycle status for a task
+await cleo_query({
+  domain: "lifecycle",
+  operation: "status",
+  params: { taskId: "T100" }
+});
+```
+
+## Error Handling
+
+All responses follow a consistent structure. Check `success` before using the data:
+
+```typescript
+const result = await cleo_mutate({
+  domain: "tasks",
+  operation: "create",
+  params: {
+    title: "New task",
+    description: "Task description"
+  }
+});
+
+if (!result.success) {
+  // result.error.message - Human-readable error
+  // result.error.fix     - Suggested fix
+  // result.error.exitCode - Numeric exit code
+}
+```
+
+**Common exit codes**:
+
+| Code | Meaning | Resolution |
+|------|---------|------------|
+| 0 | Success | Continue |
+| 4 | Not found | Verify the task ID exists with `tasks.exists` |
+| 6 | Validation failed | Check field lengths, ensure title differs from description |
+| 7 | Retryable error | Retry with exponential backoff |
+| 75 | Lifecycle gate failed | Complete prerequisite stages first |
+
+## Troubleshooting
+
+### MCP tools not appearing in your AI agent
+
+1. Verify the config file exists in the correct location (see table above)
+2. Ensure the JSON is valid -- no trailing commas, correct key names
+3. Restart the AI tool completely (not just reload)
+4. Check that Node.js >= 18 is available on your PATH
+
+### "CLEO not initialized" errors
+
+Run `cleo init` in your project directory to create the `.cleo/` directory.
+
+### Operations timing out
+
+The default timeout is 30 seconds. For large projects, you can increase it via environment variable:
+
+```bash
+export CLEO_MCP_TIMEOUT=60000
+```
+
+Or in the MCP server configuration:
+
+```json
+{
+  "mcpServers": {
+    "cleo": {
+      "command": "npx",
+      "args": ["-y", "@cleocode/mcp-server"],
+      "env": {
+        "CLEO_MCP_TIMEOUT": "60000"
+      }
+    }
+  }
+}
+```
+
+### Lifecycle gate failures (exit 75)
+
+Check which stages are missing:
+
+```typescript
+await cleo_query({
+  domain: "lifecycle",
+  operation: "status",
+  params: { taskId: "T100" }
+});
+```
+
+Then complete or skip the missing stages:
+
+```typescript
+await cleo_mutate({
+  domain: "lifecycle",
+  operation: "progress",
+  params: {
+    taskId: "T100",
+    stage: "research",
+    status: "completed"
+  }
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MCP Server Specification" icon="book" href="/developer/specifications/MCP-SERVER">
+    Full technical specification with all 107 operations
+  </Card>
+  <Card title="MCP Gateway Design" icon="arrows-split-up-and-left" href="/developer/specifications/MCP-GATEWAY">
+    Architecture details of the CQRS gateway pattern
+  </Card>
+  <Card title="Orchestrator Guide" icon="diagram-project" href="/guides/orchestrator">
+    Multi-agent orchestration workflows via MCP
+  </Card>
+  <Card title="Session Management" icon="clock" href="/guides/sessions">
+    Session protocols and focus management
+  </Card>
+</CardGroup>

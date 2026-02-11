@@ -636,12 +636,21 @@
         "notes": "Patch: T1432 docs, T3173 release fixes, T2974 consolidation sprint",
         "gitTag": "v0.90.1",
         "changelog": "## [0.90.1] - 2026-02-10"
+      },
+      {
+        "version": "v0.90.2",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-11T06:12:08Z",
+        "tasks": [],
+        "notes": "Mintlify docs: full changelog page, MCP Server getting started, MCP quickstart guide"
       }
     ]
   },
-  "lastUpdated": "2026-02-11T06:00:52Z",
+  "lastUpdated": "2026-02-11T06:12:08Z",
   "_meta": {
-    "checksum": "6f068aa8db28736c",
+    "checksum": "2e03b1171d970c9b",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -650,7 +659,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2715
+    "generation": 2716
   },
   "focus": {
     "currentTask": null,
@@ -10839,12 +10848,12 @@
     {
       "id": "T4291",
       "title": "Implement task hierarchy tree visualization",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:29Z",
-      "updatedAt": "2026-02-11T03:58:29Z",
+      "updatedAt": "2026-02-11T06:09:10.899Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
@@ -10859,12 +10868,12 @@
     {
       "id": "T4292",
       "title": "Create dependency graph visualization with D3.js",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:30Z",
-      "updatedAt": "2026-02-11T03:58:30Z",
+      "updatedAt": "2026-02-11T06:09:10.907Z",
       "size": "large",
       "position": 8,
       "positionVersion": 0,
