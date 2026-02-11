@@ -70,6 +70,12 @@
             ]
           },
           {
+            "group": "MCP Server",
+            "pages": [
+              "getting-started/mcp-server"
+            ]
+          },
+          {
             "group": "Core Concepts",
             "pages": [
               "concepts/vision",
@@ -102,6 +108,12 @@
               "guides/project-management",
               "guides/sessions",
               "guides/context-monitoring"
+            ]
+          },
+          {
+            "group": "MCP Integration",
+            "pages": [
+              "guides/mcp-quickstart"
             ]
           },
           {
