@@ -151,6 +151,18 @@ export class ResearchHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
+    // CLI-only domain: check CLI availability
+    if (!this.executor.isAvailable()) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'research',
+        operation,
+        'E_CLI_REQUIRED',
+        `Operation 'research.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
+        startTime
+      );
+    }
+
     try {
       switch (operation) {
         case 'list':
@@ -195,6 +207,18 @@ export class ResearchHandler implements DomainHandler {
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
+
+    // CLI-only domain: check CLI availability
+    if (!this.executor.isAvailable()) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'research',
+        operation,
+        'E_CLI_REQUIRED',
+        `Operation 'research.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
+        startTime
+      );
+    }
 
     try {
       switch (operation) {

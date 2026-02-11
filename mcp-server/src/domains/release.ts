@@ -94,13 +94,13 @@ export class ReleaseHandler implements DomainHandler {
     const startTime = Date.now();
 
     // Require executor for all operations
-    if (!this.executor) {
+    if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_query',
         'release',
         operation,
-        'E_NOT_INITIALIZED',
-        'Release handler not initialized with executor',
+        'E_CLI_REQUIRED',
+        `Operation 'release.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
         startTime
       );
     }
@@ -135,13 +135,13 @@ export class ReleaseHandler implements DomainHandler {
     const startTime = Date.now();
 
     // Require executor for all operations
-    if (!this.executor) {
+    if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_mutate',
         'release',
         operation,
-        'E_NOT_INITIALIZED',
-        'Release handler not initialized with executor',
+        'E_CLI_REQUIRED',
+        `Operation 'release.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
         startTime
       );
     }

@@ -13,6 +13,21 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import type { ResolvedMode } from '../lib/mode-detector.js';
+import {
+  sessionStatus as nativeSessionStatus,
+  sessionList as nativeSessionList,
+  sessionShow as nativeSessionShow,
+  focusGet as nativeFocusGet,
+  focusSet as nativeFocusSet,
+  focusClear as nativeFocusClear,
+  sessionStart as nativeSessionStart,
+  sessionEnd as nativeSessionEnd,
+  resolveProjectRoot,
+  isProjectInitialized,
+} from '../engine/index.js';
+import { createCLIRequiredError, createNotInitializedError } from '../lib/mode-detector.js';
 import type {
   Session,
   FocusInfo,
@@ -64,7 +79,47 @@ interface SessionStats {
  * Session domain handler implementation
  */
 export class SessionHandler implements DomainHandler {
-  constructor(private executor?: CLIExecutor) {}
+  private executionMode: ResolvedMode;
+  private projectRoot: string;
+
+  constructor(private executor?: CLIExecutor, executionMode: ResolvedMode = 'cli') {
+    this.executionMode = executionMode;
+    this.projectRoot = resolveProjectRoot();
+  }
+
+  /**
+   * Check if we should use native engine for this operation
+   */
+  private useNative(operation: string, gateway: GatewayType): boolean {
+    if (this.executionMode === 'cli' && this.executor?.isAvailable()) {
+      return false;
+    }
+    return canRunNatively('session', operation, gateway);
+  }
+
+  /**
+   * Wrap a native engine result in DomainResponse format
+   */
+  private wrapNativeResult(
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    gateway: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+    if (result.success) {
+      return {
+        _meta: { gateway, domain: 'session', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        success: true,
+        data: result.data,
+      };
+    }
+    return {
+      _meta: { gateway, domain: 'session', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      success: false,
+      error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
+    };
+  }
 
   /**
    * Query operations (read-only)
@@ -72,16 +127,19 @@ export class SessionHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations
-    if (!this.executor) {
-      return this.createErrorResponse(
-        'cleo_query',
-        'session',
-        operation,
-        'E_NOT_INITIALIZED',
-        'Session handler not initialized with executor',
-        startTime
-      );
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'query')) {
+      try {
+        return this.queryNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_query', 'session', operation, error, startTime);
+      }
+    }
+
+    // Require executor for CLI operations
+    if (!this.executor || !this.executor.isAvailable()) {
+      const err = createCLIRequiredError('session', operation);
+      return this.wrapNativeResult(err, 'cleo_query', operation, startTime);
     }
 
     try {
@@ -116,21 +174,61 @@ export class SessionHandler implements DomainHandler {
   }
 
   /**
+   * Route query operations to native TypeScript engine
+   */
+  private queryNative(
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number
+  ): DomainResponse {
+    if (!isProjectInitialized(this.projectRoot)) {
+      return this.wrapNativeResult(createNotInitializedError(), 'cleo_query', operation, startTime);
+    }
+
+    switch (operation) {
+      case 'status':
+        return this.wrapNativeResult(nativeSessionStatus(this.projectRoot), 'cleo_query', operation, startTime);
+      case 'list': {
+        const p = params as unknown as SessionListParams;
+        return this.wrapNativeResult(
+          nativeSessionList(this.projectRoot, { active: p?.active, limit: p?.limit }),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'show': {
+        const sessionId = (params as unknown as SessionShowParams)?.sessionId;
+        if (!sessionId) {
+          return this.createErrorResponse('cleo_query', 'session', operation, 'E_INVALID_INPUT', 'sessionId is required', startTime);
+        }
+        return this.wrapNativeResult(nativeSessionShow(this.projectRoot, sessionId), 'cleo_query', operation, startTime);
+      }
+      case 'focus-show':
+      case 'focus.get':
+        return this.wrapNativeResult(nativeFocusGet(this.projectRoot), 'cleo_query', operation, startTime);
+      default:
+        return this.createErrorResponse('cleo_query', 'session', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
+    }
+  }
+
+  /**
    * Mutate operations (write)
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations
-    if (!this.executor) {
-      return this.createErrorResponse(
-        'cleo_mutate',
-        'session',
-        operation,
-        'E_NOT_INITIALIZED',
-        'Session handler not initialized with executor',
-        startTime
-      );
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'mutate')) {
+      try {
+        return await this.mutateNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_mutate', 'session', operation, error, startTime);
+      }
+    }
+
+    // Require executor for CLI operations
+    if (!this.executor || !this.executor.isAvailable()) {
+      const err = createCLIRequiredError('session', operation);
+      return this.wrapNativeResult(err, 'cleo_mutate', operation, startTime);
     }
 
     try {
@@ -171,6 +269,56 @@ export class SessionHandler implements DomainHandler {
       }
     } catch (error) {
       return this.handleError('cleo_mutate', 'session', operation, error, startTime);
+    }
+  }
+
+  /**
+   * Route mutate operations to native TypeScript engine
+   */
+  private async mutateNative(
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number
+  ): Promise<DomainResponse> {
+    if (!isProjectInitialized(this.projectRoot)) {
+      return this.wrapNativeResult(createNotInitializedError(), 'cleo_mutate', operation, startTime);
+    }
+
+    switch (operation) {
+      case 'start': {
+        const p = params as unknown as SessionStartParams;
+        if (!p?.scope) {
+          return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT', 'scope is required', startTime);
+        }
+        const result = await nativeSessionStart(this.projectRoot, {
+          scope: p.scope,
+          name: p.name,
+          autoFocus: p.autoFocus,
+          focus: p.focus,
+        });
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'end': {
+        const p = params as unknown as SessionEndParams;
+        const result = await nativeSessionEnd(this.projectRoot, p?.notes);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'focus-set':
+      case 'focus.set': {
+        const taskId = (params as unknown as SessionFocusSetParams)?.taskId;
+        if (!taskId) {
+          return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        const result = await nativeFocusSet(this.projectRoot, taskId);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'focus-clear':
+      case 'focus.clear': {
+        const result = await nativeFocusClear(this.projectRoot);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      default:
+        return this.createErrorResponse('cleo_mutate', 'session', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
     }
   }
 
