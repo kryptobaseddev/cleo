@@ -14,8 +14,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-LIB_DIR="$PROJECT_ROOT/lib"
+LIB_DIR="$SCRIPT_DIR/../lib"
+# PROJECT_ROOT must be $PWD (the project directory), NOT derived from SCRIPT_DIR.
+# When called via the CLEO CLI, scripts live in ~/.cleo/scripts/ — deriving from
+# SCRIPT_DIR would make PROJECT_ROOT=~/.cleo/ and write output to the wrong place.
+PROJECT_ROOT="$PWD"
 
 # Source config library
 source "$LIB_DIR/config.sh"
