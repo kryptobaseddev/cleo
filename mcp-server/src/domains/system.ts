@@ -453,27 +453,26 @@ export class SystemHandler implements DomainHandler {
   }
 
   private async getMetrics(params: SystemMetricsParams | undefined, startTime: number): Promise<DomainResponse> {
-    const flags: Record<string, unknown> = { json: true };
-    if (params?.scope) flags.scope = params.scope;
-    if (params?.since) flags.since = params.since;
+    const parts = ['cleo', 'stats', '--json'];
+    if (params?.scope) parts.push('--scope', params.scope);
+    if (params?.since) parts.push('--since', params.since);
 
     const result = await this.executor!.execute<MetricsInfo>({
-      domain: 'metrics',
-      operation: 'show',
-      flags
+      domain: 'system',
+      operation: 'stats',
+      customCommand: parts.join(' ')
     });
 
     return this.wrapExecutorResult(result, 'query', 'system', 'metrics', startTime);
   }
 
   private async checkHealth(params: SystemHealthParams | undefined, startTime: number): Promise<DomainResponse> {
-    const flags: Record<string, unknown> = { json: true };
-    if (params?.detailed) flags.detailed = true;
-
     const result = await this.executor!.execute<HealthInfo>({
-      domain: 'cleo',
-      operation: '--validate',
-      flags
+      domain: 'system',
+      operation: 'health',
+      customCommand: params?.detailed
+        ? 'cleo doctor --verbose --json'
+        : 'cleo doctor --json'
     });
 
     return this.wrapExecutorResult(result, 'query', 'system', 'health', startTime);
@@ -753,6 +752,39 @@ export class SystemHandler implements DomainHandler {
       operation: 'dash',
       customCommand: 'cleo dash --json'
     });
+
+    // The dash command returns many top-level fields (project, summary, focus,
+    // phases, etc.). The executor's smart unwrapping incorrectly picks a single
+    // primary field (e.g., 'focus') instead of the full dashboard. Re-parse
+    // raw stdout to return the complete payload.
+    if (result.success && result.stdout) {
+      try {
+        const parsed = JSON.parse(result.stdout.trim());
+        if (parsed && parsed.success) {
+          const envelope = new Set(['$schema', '_meta', 'success', 'error', 'warnings']);
+          const payload: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(parsed)) {
+            if (!envelope.has(key)) {
+              payload[key] = value;
+            }
+          }
+          return {
+            _meta: {
+              gateway: 'query',
+              domain: 'system',
+              operation: 'dash',
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: Date.now() - startTime,
+            },
+            success: true,
+            data: payload,
+          };
+        }
+      } catch {
+        // Fall through to default handling
+      }
+    }
 
     return this.wrapExecutorResult(result, 'query', 'system', 'dash', startTime);
   }

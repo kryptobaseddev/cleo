@@ -243,46 +243,120 @@ export class ResearchHandler implements DomainHandler {
 
   /**
    * list - List research entries
-   * CLI: cleo research list [--task <id>] [--status <status>] [--type <type>] [--topic <topic>] [--limit <n>] [--actionable]
+   * Uses ManifestReader directly for reliable parsing (CLI has jq issues with malformed lines)
    */
   private async queryList(params: ResearchListParams): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    const flags: Record<string, unknown> = { json: true };
+    try {
+      const entries = await this.manifestReader.readManifest();
 
-    if (params?.taskId) flags.task = params.taskId;
-    if (params?.status) flags.status = params.status;
-    if (params?.type) flags.type = params.type;
-    if (params?.topic) flags.topic = params.topic;
-    if (params?.limit) flags.limit = params.limit;
-    if (params?.actionable) flags.actionable = true;
+      // Build filter from params
+      const filter: ManifestFilter = {};
+      if (params?.taskId) filter.taskId = params.taskId;
+      if (params?.status) filter.status = params.status as ManifestFilter['status'];
+      if (params?.type) filter.agent_type = params.type;
+      if (params?.topic) filter.topic = params.topic;
+      if (params?.limit) filter.limit = params.limit;
+      if (params?.actionable !== undefined) filter.actionable = params.actionable;
 
-    const result = await this.executor.execute<ResearchEntry[]>({
-      domain: 'research',
-      operation: 'list',
-      flags,
-    });
+      const filtered = this.manifestReader.filterEntries(entries, filter);
 
-    return this.wrapExecutorResult(result, 'cleo_query', 'research', 'list', startTime);
+      return {
+        _meta: {
+          gateway: 'cleo_query',
+          domain: 'research',
+          operation: 'list',
+          version: '1.0.0',
+          timestamp: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+        },
+        success: true,
+        data: {
+          entries: filtered,
+          total: filtered.length,
+        },
+      };
+    } catch (error) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'research',
+        'list',
+        'E_MANIFEST_READ_FAILED',
+        error instanceof Error ? error.message : String(error),
+        startTime
+      );
+    }
   }
 
   /**
    * stats - Research statistics
-   * CLI: cleo research stats [--epic <id>]
+   * Uses ManifestReader directly for reliable parsing (CLI has jq issues with malformed lines)
    */
   private async queryStats(params: ResearchStatsParams): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    const flags: Record<string, unknown> = { json: true };
-    if (params?.epicId) flags.epic = params.epicId;
+    try {
+      const entries = await this.manifestReader.readManifest();
 
-    const result = await this.executor.execute<ResearchStats>({
-      domain: 'research',
-      operation: 'stats',
-      flags,
-    });
+      // If epicId filter is provided, filter entries first
+      let filteredEntries = entries;
+      if (params?.epicId) {
+        filteredEntries = entries.filter(
+          (e) =>
+            e.id.startsWith(params.epicId!) ||
+            e.linked_tasks?.includes(params.epicId!)
+        );
+      }
 
-    return this.wrapExecutorResult(result, 'cleo_query', 'research', 'stats', startTime);
+      // Compute stats from entries
+      const byStatus: Record<string, number> = {};
+      const byType: Record<string, number> = {};
+      let actionable = 0;
+      let needsFollowup = 0;
+      let totalFindings = 0;
+
+      for (const entry of filteredEntries) {
+        byStatus[entry.status] = (byStatus[entry.status] || 0) + 1;
+        byType[entry.agent_type] = (byType[entry.agent_type] || 0) + 1;
+        if (entry.actionable) actionable++;
+        if (entry.needs_followup && entry.needs_followup.length > 0) needsFollowup++;
+        if (entry.key_findings) totalFindings += entry.key_findings.length;
+      }
+
+      const stats: ResearchStats = {
+        total: filteredEntries.length,
+        byStatus,
+        byType,
+        actionable,
+        needsFollowup,
+        averageFindings: filteredEntries.length > 0
+          ? Math.round((totalFindings / filteredEntries.length) * 10) / 10
+          : 0,
+      };
+
+      return {
+        _meta: {
+          gateway: 'cleo_query',
+          domain: 'research',
+          operation: 'stats',
+          version: '1.0.0',
+          timestamp: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+        },
+        success: true,
+        data: stats,
+      };
+    } catch (error) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'research',
+        'stats',
+        'E_MANIFEST_READ_FAILED',
+        error instanceof Error ? error.message : String(error),
+        startTime
+      );
+    }
   }
 
   /**

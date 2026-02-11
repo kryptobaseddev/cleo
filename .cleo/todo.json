@@ -600,21 +600,30 @@
         "notes": "feat: Smart mcp-install with 12-tool auto-detection, JSONC/YAML/TOML support, Goose YAML, Flatpak detection, idempotent writes",
         "gitTag": "v0.88.0",
         "changelog": "## [0.88.0] - 2026-02-10"
+      },
+      {
+        "version": "v0.89.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-11T05:06:44Z",
+        "tasks": [],
+        "notes": "P0 MCP Gateway defect burndown + P0.5 Data Integrity Recovery"
       }
     ]
   },
-  "lastUpdated": "2026-02-11T05:04:43Z",
+  "lastUpdated": "2026-02-11T05:07:13Z",
   "_meta": {
     "checksum": "7b639812c53eb532",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:02:23Z",
+    "lastModified": "2026-02-11T05:04:52Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 27,
-    "generation": 2630
+    "activeSessionCount": 26,
+    "generation": 2633
   },
   "focus": {
     "currentTask": null,

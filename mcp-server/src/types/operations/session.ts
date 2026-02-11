@@ -40,6 +40,7 @@ export interface SessionStatusResult {
 // session.list
 export interface SessionListParams {
   active?: boolean;
+  limit?: number;
 }
 export type SessionListResult = Session[];
 

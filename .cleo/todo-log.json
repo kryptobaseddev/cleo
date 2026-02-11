@@ -103522,11 +103522,44 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_149cfa5e0bc8",
+      "timestamp": "2026-02-11T05:04:44Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4325",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:04:43Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_f91ed5b1992f",
+      "timestamp": "2026-02-11T05:04:52Z",
+      "sessionId": "session_20260210_205231_a75d0e",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "P0.5 Data Integrity Recovery complete. valid:true achieved. 152 orphans resolved, 868 synthetics archived, status model normalized, manifest fixed, checksum repaired."
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5421,
-    "lastEntry": "2026-02-11T05:04:14Z",
+    "totalEntries": 5423,
+    "lastEntry": "2026-02-11T05:04:52Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

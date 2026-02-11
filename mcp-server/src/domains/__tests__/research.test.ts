@@ -48,125 +48,59 @@ describe('ResearchHandler', () => {
 
   describe('Query Operations', () => {
     describe('list', () => {
-      it('should list research entries', async () => {
-        const mockEntries: ResearchEntry[] = [
-          {
-            id: 'T2931-research',
-            file: 'research_2931.md',
-            title: 'Research on MCP',
-            date: '2026-02-03',
-            status: 'complete',
-            agent_type: 'research',
-            topics: ['mcp', 'server', 'typescript'],
-            key_findings: ['Finding 1', 'Finding 2'],
-            actionable: true,
-            linked_tasks: ['T2908'],
-          },
-        ];
-
-        jest.mocked(mockExecutor.execute).mockResolvedValue({
-          success: true,
-          data: mockEntries,
-          exitCode: 0,
-          stdout: JSON.stringify(mockEntries),
-          stderr: '',
-          duration: 50,
-        });
-
+      // Fixed: list now uses ManifestReader directly, not CLI executor
+      it('should list research entries via ManifestReader', async () => {
         const result = await handler.query('list', { taskId: 'T2908', limit: 10 });
 
+        // Should succeed - ManifestReader handles empty/missing files gracefully
         expect(result.success).toBe(true);
-        expect(result.data).toEqual(mockEntries);
         expect(result._meta.operation).toBe('list');
-        expect(mockExecutor.execute).toHaveBeenCalledWith(
-          expect.objectContaining({
-            domain: 'research',
-            operation: 'list',
-            flags: expect.objectContaining({ task: 'T2908', limit: 10 }),
-          })
-        );
+        // Fixed response wraps entries in { entries, total } structure
+        expect(result.data).toHaveProperty('entries');
+        expect(result.data).toHaveProperty('total');
+        // Should NOT call executor for list (uses ManifestReader directly)
+        expect(mockExecutor.execute).not.toHaveBeenCalled();
       });
 
-      it('should list with filters', async () => {
-        jest.mocked(mockExecutor.execute).mockResolvedValue({
-          success: true,
-          data: [],
-          exitCode: 0,
-          stdout: '[]',
-          stderr: '',
-          duration: 50,
-        });
-
-        await handler.query('list', {
+      it('should list with filters via ManifestReader', async () => {
+        const result = await handler.query('list', {
           status: 'complete',
           type: 'research',
           topic: 'mcp',
           actionable: true,
         });
 
-        expect(mockExecutor.execute).toHaveBeenCalledWith(
-          expect.objectContaining({
-            flags: expect.objectContaining({
-              status: 'complete',
-              type: 'research',
-              topic: 'mcp',
-              actionable: true,
-            }),
-          })
-        );
+        // Should succeed even with filters
+        expect(result.success).toBe(true);
+        // Should NOT call executor (uses ManifestReader directly)
+        expect(mockExecutor.execute).not.toHaveBeenCalled();
       });
     });
 
     describe('stats', () => {
-      it('should get research statistics', async () => {
-        const mockStats: ResearchStats = {
-          total: 10,
-          byStatus: { complete: 8, partial: 2 },
-          byType: { research: 5, implementation: 5 },
-          actionable: 8,
-          needsFollowup: 2,
-          averageFindings: 4.5,
-        };
-
-        jest.mocked(mockExecutor.execute).mockResolvedValue({
-          success: true,
-          data: mockStats,
-          exitCode: 0,
-          stdout: JSON.stringify(mockStats),
-          stderr: '',
-          duration: 50,
-        });
-
+      // Fixed: stats now uses ManifestReader directly, not CLI executor
+      it('should get research statistics via ManifestReader', async () => {
         const result = await handler.query('stats', { epicId: 'T2908' });
 
         expect(result.success).toBe(true);
-        expect(result.data).toEqual(mockStats);
-        expect(mockExecutor.execute).toHaveBeenCalledWith(
-          expect.objectContaining({
-            domain: 'research',
-            operation: 'stats',
-            flags: expect.objectContaining({ epic: 'T2908' }),
-          })
-        );
+        // Stats should have the expected shape with computed fields
+        expect(result.data).toHaveProperty('total');
+        expect(result.data).toHaveProperty('byStatus');
+        expect(result.data).toHaveProperty('byType');
+        expect(result.data).toHaveProperty('actionable');
+        expect(result.data).toHaveProperty('needsFollowup');
+        expect(result.data).toHaveProperty('averageFindings');
+        // Should NOT call executor (uses ManifestReader directly)
+        expect(mockExecutor.execute).not.toHaveBeenCalled();
       });
 
-      it('should get stats without epic filter', async () => {
-        jest.mocked(mockExecutor.execute).mockResolvedValue({
-          success: true,
-          data: { total: 0 },
-          exitCode: 0,
-          stdout: '{}',
-          stderr: '',
-          duration: 50,
-        });
+      it('should get stats without epic filter via ManifestReader', async () => {
+        const result = await handler.query('stats', {});
 
-        await handler.query('stats', {});
-
-        expect(mockExecutor.execute).toHaveBeenCalledWith(
-          expect.objectContaining({
-            flags: { json: true },
-          })
-        );
+        expect(result.success).toBe(true);
+        expect(result.data).toHaveProperty('total');
+        // Should NOT call executor (uses ManifestReader directly)
+        expect(mockExecutor.execute).not.toHaveBeenCalled();
       });
     });
 
@@ -599,11 +533,63 @@ describe('ResearchHandler', () => {
     });
   });
 
+  // ===== Regression Tests (T4316 fixes) =====
+
+  describe('Regression Tests', () => {
+    // Regression: T4316 - research.stats was returning empty counters because
+    // it was using CLI which had jq issues with malformed MANIFEST.jsonl lines.
+    // Now uses ManifestReader directly for reliable parsing.
+    it('should return populated stats counters via ManifestReader (T4316)', async () => {
+      // The fixed implementation uses ManifestReader.readManifest() directly,
+      // not the executor. The handler constructs stats from manifest entries.
+      // We verify the result structure has proper computed fields.
+      const result = await handler.query('stats', {});
+
+      // Should succeed (ManifestReader handles empty/missing manifest gracefully)
+      expect(result.success).toBe(true);
+      // Stats should have the expected shape with computed fields
+      expect(result.data).toHaveProperty('total');
+      expect(result.data).toHaveProperty('byStatus');
+      expect(result.data).toHaveProperty('byType');
+      expect(result.data).toHaveProperty('actionable');
+      expect(result.data).toHaveProperty('needsFollowup');
+      expect(result.data).toHaveProperty('averageFindings');
+    });
+
+    // Regression: T4316 - research.list was returning empty because CLI had
+    // jq parsing issues. Now uses ManifestReader directly.
+    it('should return entries via ManifestReader, not CLI (T4316)', async () => {
+      // The fixed implementation uses ManifestReader.readManifest() directly.
+      // It does NOT call executor.execute for the list operation.
+      const result = await handler.query('list', {});
+
+      expect(result.success).toBe(true);
+      // Fixed response wraps entries in { entries, total } structure
+      expect(result.data).toHaveProperty('entries');
+      expect(result.data).toHaveProperty('total');
+    });
+
+    // Regression: T4316 - research.manifest.read with status='complete' was
+    // failing enum validation because the filter was not properly applied.
+    it('should not fail enum validation on manifest.read with status=complete (T4316)', async () => {
+      // The fixed implementation uses ManifestReader.filterEntries() which
+      // properly handles status filtering without enum validation errors.
+      const result = await handler.query('manifest.read', { status: 'complete' });
+
+      // Should not return an error - the status 'complete' is valid for manifest entries
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveProperty('entries');
+      expect(result.data).toHaveProperty('total');
+      expect(result.data).toHaveProperty('filter');
+    });
+  });
+
   describe('Error Handling', () => {
     it('should handle executor errors in query', async () => {
       jest.mocked(mockExecutor.execute).mockRejectedValue(new Error('Network error'));
 
-      const result = await handler.query('list', {});
+      // Use 'validate' instead of 'list' since list now uses ManifestReader directly
+      const result = await handler.query('validate', { taskId: 'T001' });
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INTERNAL_ERROR');

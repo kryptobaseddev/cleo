@@ -442,6 +442,7 @@ export class TasksHandler implements DomainHandler {
       domain: 'next',
       operation: '',
       flags,
+      timeout: 60000,  // next scans all tasks, needs more time than default 30s
     });
 
     return this.wrapExecutorResult(result, 'cleo_query', 'tasks', 'next', startTime);
@@ -653,11 +654,12 @@ export class TasksHandler implements DomainHandler {
     const startTime = Date.now();
 
     const flags: Record<string, unknown> = { json: true };
+    if (params?.rootId) flags.parent = params.rootId;
     if (params?.depth) flags.depth = params.depth;
 
     const result = await this.executor.execute({
       domain: 'tree',
-      operation: params?.rootId || '',
+      operation: '',
       flags,
     });
 
