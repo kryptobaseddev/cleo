@@ -609,21 +609,32 @@
         "createdAt": "2026-02-11T05:06:44Z",
         "tasks": [],
         "notes": "P0 MCP Gateway defect burndown + P0.5 Data Integrity Recovery"
+      },
+      {
+        "version": "v0.90.0",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-11T05:43:15Z",
+        "createdAt": "2026-02-11T05:42:26Z",
+        "tasks": [],
+        "notes": "P1: JSON pagination system + workflow bug fixes + backlog triage",
+        "gitTag": "v0.90.0",
+        "changelog": "## [0.90.0] - 2026-02-10"
       }
     ]
   },
-  "lastUpdated": "2026-02-11T05:39:46Z",
+  "lastUpdated": "2026-02-11T05:43:15Z",
   "_meta": {
-    "checksum": "054ef5582dc4daa4",
+    "checksum": "20fa5649310872d6",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:40:19Z",
+    "lastModified": "2026-02-11T05:41:37Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 27,
-    "generation": 2662
+    "activeSessionCount": 26,
+    "generation": 2671
   },
   "focus": {
     "currentTask": null,
@@ -3741,7 +3752,7 @@
     {
       "id": "T1435",
       "title": "DESIGN: Create lib/json-output.sh library specification",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T1432",
@@ -3762,11 +3773,28 @@
         "T1434"
       ],
       "notes": [
-        "2026-01-04 22:08:06 UTC: ## Design Requirements (from LLM-AGENT-FIRST-SPEC.md):\n\n**Compact JSON Enforcement** (error-json.sh:142-146 rationale):\n- Agents parse JSON programmatically, formatting doesn't matter\n- Compact prevents truncation issues ('+N lines')\n- Humans can pipe through 'jq .' for pretty output\n- ALL success outputs MUST use jq -c flag\n\n**Standard Envelope** (LLM-AGENT-FIRST-SPEC.md Part 3.4):\n```json\n{\n  \"\\$schema\": \"https://cleo.dev/schemas/v1/output.schema.json\",\n  \"_meta\": {\n    \"format\": \"json\",\n    \"version\": \"<version>\",\n    \"command\": \"<command-name>\",\n    \"timestamp\": \"<ISO-8601>\"\n  },\n  \"success\": true,\n  \"summary\": {},\n  \"data\": []\n}\n```\n\n**Pagination Metadata** (new requirement):\n```json\n{\n  \"_meta\": {...},\n  \"success\": true,\n  \"count\": 91,        // Total matching\n  \"returned\": 20,     // Returned in response\n  \"truncated\": true,  // More exist\n  \"pagination\": {\n    \"limit\": 20,\n    \"offset\": 0,\n    \"hasMore\": true,\n    \"sort\": {\"field\": \"lastActivity\", \"order\": \"desc\"}\n  },\n  \"data\": [...]\n}\n```\n\n**Function Signatures** (draft):\n- output_json_envelope(command, data_json) → compact JSON string\n- output_json_array(command, array_json, count) → envelope with count\n- output_json_paginated(command, array_json, total, limit, offset, sort_field, sort_order) → full pagination envelope\n- sort_json_array(array_json, field, order) → sorted array\n- limit_json_array(array_json, limit, offset) → {array, truncated, returned}\n\n**Integration Points**:\n- Source from scripts/ just like error-json.sh\n- Use same VERSION loading pattern\n- Compatible with resolve_format() from output-format.sh\n- Must work with existing jq-helpers.sh functions"
+        "2026-01-04 22:08:06 UTC: ## Design Requirements (from LLM-AGENT-FIRST-SPEC.md):\n\n**Compact JSON Enforcement** (error-json.sh:142-146 rationale):\n- Agents parse JSON programmatically, formatting doesn't matter\n- Compact prevents truncation issues ('+N lines')\n- Humans can pipe through 'jq .' for pretty output\n- ALL success outputs MUST use jq -c flag\n\n**Standard Envelope** (LLM-AGENT-FIRST-SPEC.md Part 3.4):\n```json\n{\n  \"\\$schema\": \"https://cleo.dev/schemas/v1/output.schema.json\",\n  \"_meta\": {\n    \"format\": \"json\",\n    \"version\": \"<version>\",\n    \"command\": \"<command-name>\",\n    \"timestamp\": \"<ISO-8601>\"\n  },\n  \"success\": true,\n  \"summary\": {},\n  \"data\": []\n}\n```\n\n**Pagination Metadata** (new requirement):\n```json\n{\n  \"_meta\": {...},\n  \"success\": true,\n  \"count\": 91,        // Total matching\n  \"returned\": 20,     // Returned in response\n  \"truncated\": true,  // More exist\n  \"pagination\": {\n    \"limit\": 20,\n    \"offset\": 0,\n    \"hasMore\": true,\n    \"sort\": {\"field\": \"lastActivity\", \"order\": \"desc\"}\n  },\n  \"data\": [...]\n}\n```\n\n**Function Signatures** (draft):\n- output_json_envelope(command, data_json) → compact JSON string\n- output_json_array(command, array_json, count) → envelope with count\n- output_json_paginated(command, array_json, total, limit, offset, sort_field, sort_order) → full pagination envelope\n- sort_json_array(array_json, field, order) → sorted array\n- limit_json_array(array_json, limit, offset) → {array, truncated, returned}\n\n**Integration Points**:\n- Source from scripts/ just like error-json.sh\n- Use same VERSION loading pattern\n- Compatible with resolve_format() from output-format.sh\n- Must work with existing jq-helpers.sh functions",
+        "[COMPLETED 2026-02-11T05:41:19Z] Design complete. lib/json-output.sh specification created with output_success, output_paginated, apply_pagination, compact helpers"
       ],
-      "updatedAt": "2026-02-11T05:35:10Z",
+      "updatedAt": "2026-02-11T05:41:19Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:41:19Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:41:20Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1436",
@@ -3817,7 +3845,7 @@
     {
       "id": "T1437",
       "title": "IMPLEMENTATION: Create lib/json-output.sh library",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T1432",
@@ -3838,11 +3866,28 @@
         "T1457"
       ],
       "notes": [
-        "2026-01-04 22:12:22 UTC: BLOCKER: Cannot start until DYNAMIC-OUTPUT-LIMITS-SPEC.md (T1457) is approved. Implementation MUST follow spec exactly."
+        "2026-01-04 22:12:22 UTC: BLOCKER: Cannot start until DYNAMIC-OUTPUT-LIMITS-SPEC.md (T1457) is approved. Implementation MUST follow spec exactly.",
+        "[COMPLETED 2026-02-11T05:41:23Z] lib/json-output.sh implemented with 8 exported functions. 95 unit tests passing."
       ],
-      "updatedAt": "2026-01-04T22:08:44Z",
+      "updatedAt": "2026-02-11T05:41:23Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:41:23Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:41:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1438",
@@ -4048,7 +4093,7 @@
     {
       "id": "T1446",
       "title": "IMPLEMENTATION: Audit and fix remaining list commands (list, log, history)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1432",
@@ -4069,11 +4114,28 @@
         "T1457"
       ],
       "notes": [
-        "2026-01-04 22:12:26 UTC: BLOCKER: Requires T1457 spec approval + T1437 library + T1433 audit results."
+        "2026-01-04 22:12:26 UTC: BLOCKER: Requires T1457 spec approval + T1437 library + T1433 audit results.",
+        "[COMPLETED 2026-02-11T05:40:27Z] Retrofitted pagination metadata to 3 list commands: list.sh, log.sh, find.sh. Each now includes a 'pagination' object in JSON output with total/limit/offset/hasMore when --limit or --offset is used. Added --offset flag to log list and find. history.sh, deps.sh, blockers.sh skipped as they are analytics/graph outputs not suited for item-level pagination."
       ],
-      "updatedAt": "2026-02-11T05:35:11Z",
+      "updatedAt": "2026-02-11T05:40:27Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:40:27Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:40:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1447",

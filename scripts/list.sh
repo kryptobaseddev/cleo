@@ -67,6 +67,13 @@ if [[ -f "$LIB_DIR/flags.sh" ]]; then
   source "$LIB_DIR/flags.sh"
 fi
 
+# Source JSON output library for pagination support
+# @task T1446
+if [[ -f "$LIB_DIR/json-output.sh" ]]; then
+  # shellcheck source=../lib/json-output.sh
+  source "$LIB_DIR/json-output.sh"
+fi
+
 # Detect Unicode support (respects NO_COLOR, LANG=C, config)
 if declare -f detect_unicode_support >/dev/null 2>&1 && detect_unicode_support; then
   UNICODE_ENABLED=true
@@ -550,21 +557,20 @@ fi
 # PERFORMANCE: Combine filter, sort, and pagination into single jq operation
 # This reduces memory usage and avoids multiple jq invocations
 
-# Build pagination slice expression
-PAGINATION_EXPR=""
-if [[ -n "$LIMIT" ]] && [[ "$OFFSET" -gt 0 ]]; then
-  PAGINATION_EXPR=".[$OFFSET:$((OFFSET + LIMIT))]"
-elif [[ -n "$LIMIT" ]]; then
-  PAGINATION_EXPR=".[:$LIMIT]"
-elif [[ "$OFFSET" -gt 0 ]]; then
-  PAGINATION_EXPR=".[$OFFSET:]"
-fi
+# Apply filter and sort first (we need total count before pagination)
+ALL_SORTED_TASKS=$(echo "$TASKS" | jq -s "map($JQ_FILTER) | $SORT_EXPR")
+TOTAL_FILTERED=$(echo "$ALL_SORTED_TASKS" | jq 'length')
 
-# Apply filter, sort, and pagination in single jq operation
-if [[ -n "$PAGINATION_EXPR" ]]; then
-  FILTERED_TASKS=$(echo "$TASKS" | jq -s "map($JQ_FILTER) | $SORT_EXPR | $PAGINATION_EXPR")
+# Apply pagination slice
+# @task T1446 - Track total for pagination metadata
+if [[ -n "$LIMIT" ]] && [[ "$OFFSET" -gt 0 ]]; then
+  FILTERED_TASKS=$(echo "$ALL_SORTED_TASKS" | jq ".[$OFFSET:$((OFFSET + LIMIT))]")
+elif [[ -n "$LIMIT" ]]; then
+  FILTERED_TASKS=$(echo "$ALL_SORTED_TASKS" | jq ".[:$LIMIT]")
+elif [[ "$OFFSET" -gt 0 ]]; then
+  FILTERED_TASKS=$(echo "$ALL_SORTED_TASKS" | jq ".[$OFFSET:]")
 else
-  FILTERED_TASKS=$(echo "$TASKS" | jq -s "map($JQ_FILTER) | $SORT_EXPR")
+  FILTERED_TASKS="$ALL_SORTED_TASKS"
 fi
 
 TASK_COUNT=$(echo "$FILTERED_TASKS" | jq 'length')
@@ -863,6 +869,28 @@ case "$FORMAT" in
     # Get session context
     SESSION_CTX=$(get_session_context)
 
+    # Build pagination metadata (@task T1446)
+    # When --limit or --offset is used, include pagination envelope
+    PAGINATION_JSON="null"
+    if [[ -n "$LIMIT" || "$OFFSET" -gt 0 ]]; then
+      _effective_limit="${LIMIT:-0}"
+      if declare -f get_pagination_meta >/dev/null 2>&1; then
+        PAGINATION_JSON=$(get_pagination_meta "$TOTAL_FILTERED" "$_effective_limit" "$OFFSET")
+      else
+        # Inline fallback
+        _has_more="false"
+        if [[ "$_effective_limit" -gt 0 ]] && (( OFFSET + _effective_limit < TOTAL_FILTERED )); then
+          _has_more="true"
+        fi
+        PAGINATION_JSON=$(jq -nc \
+          --argjson total "$TOTAL_FILTERED" \
+          --argjson limit "$_effective_limit" \
+          --argjson offset "$OFFSET" \
+          --argjson has_more "$_has_more" \
+          '{total: $total, limit: $limit, offset: $offset, hasMore: $has_more}')
+      fi
+    fi
+
     # Use --slurpfile to read large JSON from files instead of command line
     jq -nc \
       --slurpfile tasks "$TEMP_TASKS_FILE" \
@@ -886,6 +914,7 @@ case "$FORMAT" in
       --argjson cancelled "$CANCELLED_COUNT" \
       --argjson show_tree "$(if [[ "$SHOW_TREE" == true ]]; then echo true; else echo false; fi)" \
       --argjson session "$SESSION_CTX" \
+      --argjson pagination "$PAGINATION_JSON" \
       '{
       "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
       "_meta": {
@@ -915,9 +944,11 @@ case "$FORMAT" in
         done: $done,
         cancelled: $cancelled
       },
+      pagination: $pagination,
       tasks: $tasks[0],
       tree: (if $show_tree then $tree_data[0] else null end)
-    } | if .tree == null then del(.tree) else . end'
+    } | if .tree == null then del(.tree) else . end
+      | if .pagination == null then del(.pagination) else . end'
     ;;
 
   jsonl)
