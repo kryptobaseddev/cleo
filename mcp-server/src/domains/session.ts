@@ -210,19 +210,36 @@ export class SessionHandler implements DomainHandler {
 
   /**
    * list - List all sessions
-   * CLI: cleo session list [--active]
+   * CLI: cleo session list [--status active|suspended|ended|all]
    */
   private async queryList(params: SessionListParams): Promise<DomainResponse> {
     const startTime = Date.now();
 
     const flags: Record<string, unknown> = { json: true };
-    if (params?.active !== undefined) flags.active = params.active;
+    // CLI uses --status <value>, not --active boolean flag
+    if (params?.active === true) {
+      flags.status = 'active';
+    } else if (params?.active === false) {
+      // active=false means show non-active sessions; default CLI shows all,
+      // so we don't set a status filter (no CLI flag for "not active")
+    }
 
     const result = await this.executor!.execute<SessionListResult>({
       domain: 'session',
       operation: 'list',
       flags,
     });
+
+    // Apply limit post-processing since CLI doesn't support --limit
+    if (result.success && params?.limit && result.data) {
+      const data = result.data as unknown as Record<string, unknown>;
+      if (data && typeof data === 'object' && Array.isArray(data.sessions)) {
+        data.sessions = (data.sessions as unknown[]).slice(0, params.limit);
+        data.count = (data.sessions as unknown[]).length;
+      } else if (Array.isArray(result.data)) {
+        result.data = (result.data as unknown as unknown[]).slice(0, params.limit) as SessionListResult;
+      }
+    }
 
     return this.wrapExecutorResult(result, 'cleo_query', 'session', 'list', startTime);
   }

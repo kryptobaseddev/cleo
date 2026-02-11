@@ -89,19 +89,25 @@ describe('ValidateHandler', () => {
     });
 
     describe('task', () => {
-      it('should validate single task', async () => {
-        const mockValidation = {
-          success: true,
-          errors: [],
-          warnings: [],
-          summary: { totalChecks: 5, passed: 5, failed: 0 },
+      // Fixed: validate.task now fetches task via 'cleo show' and runs
+      // programmatic validation, not via 'cleo validate task'
+      it('should validate single task via show + programmatic checks', async () => {
+        const mockTask = {
+          task: {
+            id: 'T2933',
+            title: 'Test task',
+            description: 'Test description',
+            status: 'active',
+            createdAt: '2026-01-01T00:00:00Z',
+            size: 'medium',
+          },
         };
 
         jest.mocked(mockExecutor.execute).mockResolvedValue({
           success: true,
-          data: mockValidation,
+          data: mockTask,
           exitCode: 0,
-          stdout: JSON.stringify(mockValidation),
+          stdout: JSON.stringify(mockTask),
           stderr: '',
           duration: 50,
         });
@@ -109,15 +115,18 @@ describe('ValidateHandler', () => {
         const result = await handler.query('task', { taskId: 'T2933', checkMode: 'full' });
 
         expect(result.success).toBe(true);
-        expect(result.data).toEqual(mockValidation);
+        // Now calls 'show' instead of 'validate task'
         expect(mockExecutor.execute).toHaveBeenCalledWith(
           expect.objectContaining({
-            domain: 'validate',
-            operation: 'task',
-            args: ['T2933'],
-            flags: expect.objectContaining({ mode: 'full' }),
+            domain: 'show',
+            operation: 'T2933',
           })
         );
+        // Result contains programmatic validation output
+        expect(result.data).toHaveProperty('taskId', 'T2933');
+        expect(result.data).toHaveProperty('valid');
+        expect(result.data).toHaveProperty('errors');
+        expect(result.data).toHaveProperty('warnings');
       });
 
       it('should return error when taskId missing', async () => {
@@ -489,6 +498,152 @@ describe('ValidateHandler', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_OPERATION');
       expect(result.error?.message).toContain('unknown');
+    });
+  });
+
+  // ===== Regression Tests (T4317 fixes) =====
+
+  describe('Regression Tests', () => {
+    // Regression: T4317 - validate.task was running full system validation
+    // instead of scoping to the specific task. Now uses 'cleo show' to fetch
+    // the task, then runs programmatic validation checks on it.
+    it('should validate only the specified task, not run full validate (T4317)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T001',
+          title: 'Test task',
+          description: 'Test description',
+          status: 'active',
+          createdAt: '2026-01-01T00:00:00Z',
+          size: 'medium',
+        },
+      };
+
+      jest.mocked(mockExecutor.execute).mockResolvedValue({
+        success: true,
+        data: mockTask,
+        exitCode: 0,
+        stdout: JSON.stringify(mockTask),
+        stderr: '',
+        duration: 50,
+      });
+
+      const result = await handler.query('task', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      // Should call 'show' to fetch the task, NOT 'validate task'
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'show',
+          operation: 'T001',
+        })
+      );
+      // Result should contain task-specific validation data
+      expect(result.data).toHaveProperty('taskId', 'T001');
+      expect(result.data).toHaveProperty('valid');
+      expect(result.data).toHaveProperty('errors');
+      expect(result.data).toHaveProperty('warnings');
+    });
+
+    // Regression: T4317 - validate.task should detect validation issues in task data
+    it('should detect missing required fields on task validation (T4317)', async () => {
+      const mockTask = {
+        task: {
+          id: 'T002',
+          // Missing title, missing createdAt
+          status: 'active',
+        },
+      };
+
+      jest.mocked(mockExecutor.execute).mockResolvedValue({
+        success: true,
+        data: mockTask,
+        exitCode: 0,
+        stdout: JSON.stringify(mockTask),
+        stderr: '',
+        duration: 50,
+      });
+
+      const result = await handler.query('task', { taskId: 'T002' });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { valid: boolean; errors: unknown[] };
+      expect(data.valid).toBe(false);
+      expect(data.errors.length).toBeGreaterThan(0);
+    });
+
+    // Regression: T4317 - validate.manifest was not scoping to specific entries.
+    // Now uses 'cleo research list' and filters by taskId/entry.
+    it('should scope manifest validation to specific task entries (T4317)', async () => {
+      const mockManifestEntries = {
+        entries: [
+          {
+            id: 'T001-research',
+            file: 'research.md',
+            title: 'Research on T001',
+            date: '2026-02-01',
+            status: 'complete',
+            agent_type: 'research',
+          },
+        ],
+      };
+
+      jest.mocked(mockExecutor.execute).mockResolvedValue({
+        success: true,
+        data: mockManifestEntries,
+        exitCode: 0,
+        stdout: JSON.stringify(mockManifestEntries),
+        stderr: '',
+        duration: 50,
+      });
+
+      const result = await handler.query('manifest', { taskId: 'T001' });
+
+      expect(result.success).toBe(true);
+      // Should call research list with task filter
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'research',
+          operation: 'list',
+          flags: expect.objectContaining({ task: 'T001' }),
+        })
+      );
+      // Result should include validation data
+      expect(result.data).toHaveProperty('valid');
+      expect(result.data).toHaveProperty('entriesChecked');
+    });
+
+    // Regression: T4317 - validate.manifest should properly validate status enum
+    // for manifest entries without throwing
+    it('should validate manifest entries with valid status enum (T4317)', async () => {
+      const mockManifestEntries = {
+        entries: [
+          {
+            id: 'T001-spec',
+            file: 'spec.md',
+            title: 'Spec',
+            date: '2026-02-01',
+            status: 'complete',  // Valid manifest status
+            agent_type: 'specification',
+          },
+        ],
+      };
+
+      jest.mocked(mockExecutor.execute).mockResolvedValue({
+        success: true,
+        data: mockManifestEntries,
+        exitCode: 0,
+        stdout: JSON.stringify(mockManifestEntries),
+        stderr: '',
+        duration: 50,
+      });
+
+      const result = await handler.query('manifest', {});
+
+      expect(result.success).toBe(true);
+      const data = result.data as { valid: boolean; errors: unknown[] };
+      expect(data.valid).toBe(true);
+      expect(data.errors).toHaveLength(0);
     });
   });
 

@@ -433,6 +433,74 @@ describe('TasksHandler', () => {
     });
   });
 
+  // ===== Regression Tests (T4314, T4315 fixes) =====
+
+  describe('Regression Tests', () => {
+    // Regression: T4314 - tasks.next was using default 30s timeout which caused
+    // timeouts on large task lists. Now uses 60s timeout.
+    it('should set timeout > 30000ms for next operation (T4314)', async () => {
+      jest.mocked(mockExecutor.execute).mockResolvedValue({
+        success: true,
+        data: { taskId: 'T2917', title: 'Next task', score: 0.9 },
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 50,
+      });
+
+      await handler.query('next', {});
+
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'next',
+          timeout: 60000,
+          flags: expect.objectContaining({ json: true }),
+        })
+      );
+    });
+
+    // Regression: T4315 - tasks.tree with rootId was passing rootId as positional arg
+    // but now correctly uses --parent flag
+    it('should pass rootId as --parent flag for tree operation (T4315)', async () => {
+      jest.mocked(mockExecutor.execute).mockResolvedValue({
+        success: true,
+        data: { tree: [] },
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 50,
+      });
+
+      await handler.query('tree', { rootId: 'T3156' });
+
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'tree',
+          flags: expect.objectContaining({ json: true, parent: 'T3156' }),
+        })
+      );
+    });
+
+    it('should pass depth flag for tree operation (T4315)', async () => {
+      jest.mocked(mockExecutor.execute).mockResolvedValue({
+        success: true,
+        data: { tree: [] },
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 50,
+      });
+
+      await handler.query('tree', { rootId: 'T3156', depth: 2 });
+
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          flags: expect.objectContaining({ parent: 'T3156', depth: 2 }),
+        })
+      );
+    });
+  });
+
   describe('Error Handling', () => {
     it('should handle unknown query operation', async () => {
       const result = await handler.query('unknown', {});

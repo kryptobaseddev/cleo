@@ -4,7 +4,7 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-11T05:02:23Z",
+    "lastModified": "2026-02-11T05:04:52Z",
     "totalSessionsCreated": 613
   },
   "config": {
@@ -35244,7 +35244,7 @@
     },
     {
       "id": "session_20260210_205231_a75d0e",
-      "status": "active",
+      "status": "ended",
       "name": "P0.5 Data Integrity Recovery",
       "agentId": null,
       "scope": {
@@ -35260,10 +35260,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T4330",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": "T4329",
-        "sessionNote": null,
+        "previousTask": "T4330",
+        "sessionNote": "P0.5 Data Integrity Recovery complete. valid:true achieved. 152 orphans resolved, 868 synthetics archived, status model normalized, manifest fixed, checksum repaired.",
         "nextAction": null,
         "focusHistory": [
           {
@@ -35299,7 +35299,7 @@
         ]
       },
       "startedAt": "2026-02-11T04:52:31Z",
-      "lastActivity": "2026-02-11T05:02:23Z",
+      "lastActivity": "2026-02-11T05:04:52Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -35312,7 +35312,8 @@
         "start_timestamp": "2026-02-11T04:52:31Z",
         "start_tokens": 70248,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-11T05:04:52Z"
     }
   ],
   "sessionHistory": [

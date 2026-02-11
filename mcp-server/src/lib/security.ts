@@ -249,6 +249,10 @@ export const VALID_GATEWAYS = ['cleo_query', 'cleo_mutate'] as const;
 
 export const VALID_STATUSES = ['pending', 'active', 'blocked', 'done'] as const;
 
+export const VALID_MANIFEST_STATUSES = ['complete', 'partial', 'blocked'] as const;
+
+export const ALL_VALID_STATUSES = [...VALID_STATUSES, 'complete', 'partial'] as const;
+
 export const VALID_PRIORITIES = ['low', 'medium', 'high', 'critical'] as const;
 
 /**
@@ -478,9 +482,9 @@ export function sanitizeParams(
       continue;
     }
 
-    // Status enum
+    // Status enum - accept both task statuses and manifest statuses
     if (typeof value === 'string' && key === 'status') {
-      sanitized[key] = validateEnum(value, [...VALID_STATUSES], 'status');
+      sanitized[key] = validateEnum(value, [...ALL_VALID_STATUSES], 'status');
       continue;
     }
 

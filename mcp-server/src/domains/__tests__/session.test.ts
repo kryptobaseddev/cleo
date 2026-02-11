@@ -92,10 +92,11 @@ describe('SessionHandler', () => {
 
       expect(result.success).toBe(true);
       expect(Array.isArray(result.data)).toBe(true);
+      // Fixed: active=true now maps to --status active, not --active boolean
       expect(mockExecutor.execute).toHaveBeenCalledWith({
         domain: 'session',
         operation: 'list',
-        flags: { json: true, active: true },
+        flags: { json: true, status: 'active' },
       });
     });
 
@@ -510,6 +511,100 @@ describe('SessionHandler', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('E_INVALID_OPERATION');
       expect(result.error?.message).toContain('Unknown mutate operation');
+    });
+  });
+
+  // ===== Regression Tests (T4311 fixes) =====
+
+  describe('Regression Tests', () => {
+    // Regression: T4311 - session.list was passing --active boolean flag
+    // instead of --status active when filtering active sessions
+    it('should use --status active flag, not --active boolean (T4311)', async () => {
+      const mockResponse = {
+        success: true,
+        data: [
+          {
+            id: 'session_123',
+            name: 'Active Session',
+            scope: 'epic:T001',
+            started: '2026-02-03T12:00:00Z',
+            status: 'active',
+          },
+        ],
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 100,
+      };
+
+      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
+
+      await handler.query('list', { active: true });
+
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'session',
+          operation: 'list',
+          flags: expect.objectContaining({ status: 'active' }),
+        })
+      );
+      // Should NOT have the boolean 'active' flag
+      const callArgs = (mockExecutor.execute as any).mock.calls[0][0];
+      expect(callArgs.flags).not.toHaveProperty('active');
+    });
+
+    // Regression: T4311 - session.list with limit was not slicing results
+    it('should slice results when limit is provided (T4311)', async () => {
+      const mockResponse = {
+        success: true,
+        data: [
+          { id: 'session_1', name: 'Session 1', status: 'active' },
+          { id: 'session_2', name: 'Session 2', status: 'active' },
+          { id: 'session_3', name: 'Session 3', status: 'ended' },
+          { id: 'session_4', name: 'Session 4', status: 'ended' },
+          { id: 'session_5', name: 'Session 5', status: 'ended' },
+        ],
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 100,
+      };
+
+      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
+
+      const result = await handler.query('list', { limit: 2 });
+
+      expect(result.success).toBe(true);
+      // Result data should be sliced to 2 items
+      expect(Array.isArray(result.data)).toBe(true);
+      expect((result.data as any[]).length).toBe(2);
+    });
+
+    // Regression: T4311 - limit should also work with sessions sub-object format
+    it('should slice sessions sub-object when limit is provided (T4311)', async () => {
+      const mockResponse = {
+        success: true,
+        data: {
+          sessions: [
+            { id: 'session_1', name: 'Session 1' },
+            { id: 'session_2', name: 'Session 2' },
+            { id: 'session_3', name: 'Session 3' },
+          ],
+          count: 3,
+        },
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 100,
+      };
+
+      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
+
+      const result = await handler.query('list', { limit: 1 });
+
+      expect(result.success).toBe(true);
+      const data = result.data as { sessions: unknown[]; count: number };
+      expect(data.sessions.length).toBe(1);
     });
   });
 

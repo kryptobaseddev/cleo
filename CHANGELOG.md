@@ -2,6 +2,30 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [0.89.0] - 2026-02-10
+
+### P0: MCP Gateway Defect Burndown
+- fix(mcp): system.doctor now uses `cleo doctor --json` instead of malformed domain routing
+- fix(mcp): system.stats uses `cleo stats --json` instead of non-existent `metrics` command
+- fix(mcp): system.dash manual stdout re-parsing to avoid executor smart-unwrap losing data
+- fix(mcp): session.list uses `--status active` instead of boolean `--active` flag
+- fix(mcp): session.list adds limit post-processing for result slicing
+- fix(mcp): tasks.next timeout increased to 60s for large backlogs
+- fix(mcp): tasks.tree forwards rootId as `--parent` flag instead of positional arg
+- fix(mcp): research.stats/list switched to ManifestReader for direct JSONL reads
+- fix(mcp): validate.task replaced with programmatic 7-check validation
+- fix(mcp): validate.manifest replaced with scoped manifest entry validation
+- fix(mcp): security.ts added manifest statuses to valid status constants
+- test(mcp): 17 regression tests added across 5 test files (967 total passing)
+
+### P0.5: Data Integrity Recovery
+- fix(data): Resolved 152 orphaned tasks (1 promoted to root, 151 synthetic removed)
+- fix(data): Normalized status model — 8 tasks + 2 phases from `completed` to canonical `done`
+- fix(data): Archived 868 synthetic test artifacts (backlog reduced from 1354 to 486)
+- fix(data): Fixed 2 invalid research manifest JSONL entries
+- fix(data): Deduplicated 717 archive entries (4152 to 3435)
+- fix(data): Repaired checksum mismatch — `ct validate` now returns `valid: true`
+
 ## [Unreleased]
 
 ## [0.88.0] - 2026-02-10

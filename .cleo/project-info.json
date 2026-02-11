@@ -4,7 +4,7 @@
   "projectHash": "85f1cc25bb9f",
   "name": "claude-todo",
   "registeredAt": "2026-01-22T16:49:07Z",
-  "lastUpdated": "2026-02-10T15:34:36Z",
+  "lastUpdated": "2026-02-11T04:22:45Z",
   "cleoVersion": "0.77.4",
   "schemas": {
     "todo": {
@@ -39,13 +39,13 @@
     }
   },
   "health": {
-    "status": "warning",
-    "lastCheck": "2026-02-10T15:34:36Z",
+    "status": "error",
+    "lastCheck": "2026-02-11T04:22:45Z",
     "issues": [
       {
-        "severity": "warning",
-        "code": "GENERAL_ISSUE",
-        "message": "Features out of sync (run 'cleo upgrade' to fix)"
+        "severity": "error",
+        "code": "VALIDATION_FAILED",
+        "message": "Validation: [ERROR] Found 152 orphaned tasks (parentId references missing parent)"
       }
     ],
     "history": []

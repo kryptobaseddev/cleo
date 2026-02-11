@@ -120,8 +120,11 @@ describe('SystemHandler', () => {
       expect(response.data).toHaveProperty('tokens');
       expect(response.data).toHaveProperty('compliance');
       expect(response.data).toHaveProperty('sessions');
+      // Fixed: metrics now routes via customCommand 'cleo stats --json'
       expect(mockExecutor.execute).toHaveBeenCalledWith(
-        expect.objectContaining({ domain: 'metrics', operation: 'show' })
+        expect.objectContaining({
+          customCommand: expect.stringContaining('cleo stats --json'),
+        })
       );
     });
 
@@ -133,11 +136,10 @@ describe('SystemHandler', () => {
 
       await handler.query('metrics', { scope: 'session', since: '2026-01-01' });
 
+      // Fixed: metrics now routes via customCommand with params appended
       expect(mockExecutor.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          domain: 'metrics',
-          operation: 'show',
-          flags: expect.objectContaining({ scope: 'session', since: '2026-01-01' }),
+          customCommand: expect.stringContaining('cleo stats --json --scope session --since 2026-01-01'),
         })
       );
     });
@@ -163,8 +165,11 @@ describe('SystemHandler', () => {
       expect(response.success).toBe(true);
       expect(response.data).toHaveProperty('overall');
       expect(response.data).toHaveProperty('checks');
+      // Fixed: health now routes via customCommand 'cleo doctor --json'
       expect(mockExecutor.execute).toHaveBeenCalledWith(
-        expect.objectContaining({ domain: 'cleo', operation: '--validate' })
+        expect.objectContaining({
+          customCommand: 'cleo doctor --json',
+        })
       );
     });
 
@@ -176,11 +181,10 @@ describe('SystemHandler', () => {
 
       await handler.query('health', { detailed: true });
 
+      // Fixed: health with detailed uses 'cleo doctor --verbose --json'
       expect(mockExecutor.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          domain: 'cleo',
-          operation: '--validate',
-          flags: expect.objectContaining({ detailed: true }),
+          customCommand: 'cleo doctor --verbose --json',
         })
       );
     });
@@ -692,6 +696,144 @@ describe('SystemHandler', () => {
           flags: expect.objectContaining({ fix: true }),
         })
       );
+    });
+  });
+
+  /**
+   * REGRESSION TESTS (T4310 fixes)
+   */
+
+  describe('regression: system.doctor routing (T4310)', () => {
+    // Regression: T4310 - system.doctor was incorrectly routing via domain:'cleo'
+    // instead of using customCommand 'cleo doctor --json'
+    it('should route doctor via customCommand, not domain routing', async () => {
+      (mockExecutor.execute as jest.Mock<any>).mockResolvedValueOnce({
+        success: true,
+        data: {
+          overall: 'healthy',
+          checks: [{ name: 'schema', status: 'pass' }],
+          version: '0.88.0',
+          installation: 'ok',
+        },
+      });
+
+      const response = await handler.query('doctor');
+
+      expect(response.success).toBe(true);
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customCommand: 'cleo doctor --json',
+        })
+      );
+    });
+
+    it('should route doctor with verbose flag when detailed is true', async () => {
+      (mockExecutor.execute as jest.Mock<any>).mockResolvedValueOnce({
+        success: true,
+        data: { overall: 'healthy', checks: [], version: '0.88.0', installation: 'ok' },
+      });
+
+      await handler.query('doctor', { detailed: true });
+
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customCommand: 'cleo doctor --verbose --json',
+        })
+      );
+    });
+  });
+
+  describe('regression: system.stats routing (T4310)', () => {
+    // Regression: T4310 - system.stats was incorrectly routing via domain:'metrics'
+    // instead of using customCommand 'cleo stats --json'
+    it('should route stats via customCommand, not domain routing', async () => {
+      (mockExecutor.execute as jest.Mock<any>).mockResolvedValueOnce({
+        success: true,
+        data: {
+          tokens: { input: 10000, output: 5000, cache: 2000, total: 17000 },
+          compliance: { total: 50, passed: 45, failed: 5, score: 0.9 },
+        },
+      });
+
+      const response = await handler.query('stats');
+
+      expect(response.success).toBe(true);
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customCommand: expect.stringContaining('cleo stats --json'),
+        })
+      );
+    });
+
+    it('should pass scope and since params in customCommand', async () => {
+      (mockExecutor.execute as jest.Mock<any>).mockResolvedValueOnce({
+        success: true,
+        data: {},
+      });
+
+      await handler.query('stats', { scope: 'session', since: '2026-01-01' });
+
+      expect(mockExecutor.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customCommand: expect.stringContaining('cleo stats --json --scope session --since 2026-01-01'),
+        })
+      );
+    });
+  });
+
+  describe('regression: system.dash full payload (T4310)', () => {
+    // Regression: T4310 - system.dash was returning only the focus sub-object
+    // instead of the full dashboard payload due to executor's smart unwrapping
+    it('should return full dashboard data, not just focus sub-object', async () => {
+      const fullDashboard = {
+        success: true,
+        project: { name: 'claude-todo', version: '0.88.0' },
+        summary: { total: 42, pending: 10, active: 5, done: 27 },
+        focus: { taskId: 'T4310', title: 'Fix system routing' },
+        phases: [{ name: 'Phase 1', status: 'active' }],
+      };
+
+      (mockExecutor.execute as jest.Mock<any>).mockResolvedValueOnce({
+        success: true,
+        data: fullDashboard.focus, // Simulate executor's smart unwrapping picking focus only
+        stdout: JSON.stringify(fullDashboard),
+      });
+
+      const response = await handler.query('dash');
+
+      expect(response.success).toBe(true);
+      // Should contain all top-level fields, not just focus
+      expect(response.data).toHaveProperty('project');
+      expect(response.data).toHaveProperty('summary');
+      expect(response.data).toHaveProperty('focus');
+      expect(response.data).toHaveProperty('phases');
+    });
+
+    it('should strip envelope fields from dash response', async () => {
+      const fullDashboard = {
+        success: true,
+        $schema: 'cleo-dash',
+        _meta: { version: '1.0' },
+        project: { name: 'test' },
+        focus: { taskId: 'T001' },
+      };
+
+      (mockExecutor.execute as jest.Mock<any>).mockResolvedValueOnce({
+        success: true,
+        data: fullDashboard.focus,
+        stdout: JSON.stringify(fullDashboard),
+      });
+
+      const response = await handler.query('dash');
+
+      expect(response.success).toBe(true);
+      // Envelope fields should be stripped
+      expect(response.data).not.toHaveProperty('$schema');
+      expect(response.data).not.toHaveProperty('_meta');
+      expect(response.data).not.toHaveProperty('success');
+      // Content fields should remain
+      expect(response.data).toHaveProperty('project');
+      expect(response.data).toHaveProperty('focus');
     });
   });
 

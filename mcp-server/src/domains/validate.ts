@@ -316,7 +316,10 @@ export class ValidateHandler implements DomainHandler {
 
   /**
    * task - Validate single task
-   * CLI: cleo validate task <taskId> [--mode <mode>]
+   *
+   * The CLI `cleo validate` does not support per-task scoping, so we fetch the
+   * task via `cleo show` and run programmatic validation checks on the returned
+   * data, filtering relevant checks from the full validation report.
    */
   private async queryTask(params: ValidateTaskParams): Promise<DomainResponse> {
     const startTime = Date.now();
@@ -332,17 +335,136 @@ export class ValidateHandler implements DomainHandler {
       );
     }
 
-    const flags: Record<string, unknown> = { json: true };
-    if (params?.checkMode) flags.mode = params.checkMode;
-
-    const result = await this.executor.execute<ValidationReport>({
-      domain: 'validate',
-      operation: 'task',
-      args: [params.taskId],
-      flags,
+    // Step 1: Fetch the task to verify it exists and get its data
+    const showResult = await this.executor.execute<{ task: Record<string, unknown> }>({
+      domain: 'show',
+      operation: params.taskId,
+      flags: { json: true },
     });
 
-    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'task', startTime);
+    if (!showResult.success) {
+      return this.wrapExecutorResult(showResult, 'cleo_query', 'validate', 'task', startTime);
+    }
+
+    const task = showResult.data?.task;
+    if (!task) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'validate',
+        'task',
+        'E_NOT_FOUND',
+        `Task ${params.taskId} not found`,
+        startTime
+      );
+    }
+
+    // Step 2: Run programmatic validation checks on the task
+    const errors: ValidationIssue[] = [];
+    const warnings: ValidationIssue[] = [];
+
+    // Required fields check
+    const requiredFields = ['id', 'title', 'status', 'createdAt'];
+    for (const field of requiredFields) {
+      if (!task[field]) {
+        errors.push({
+          check: 'required_fields',
+          severity: 'error',
+          message: `Missing required field: ${field}`,
+          taskId: params.taskId,
+        });
+      }
+    }
+
+    // Title and description must differ
+    if (task.title && task.description && task.title === task.description) {
+      errors.push({
+        check: 'title_description_diff',
+        severity: 'error',
+        message: 'Title and description must be different',
+        taskId: params.taskId,
+      });
+    }
+
+    // Valid status check
+    const validStatuses = ['pending', 'active', 'blocked', 'done'];
+    if (task.status && !validStatuses.includes(task.status as string)) {
+      errors.push({
+        check: 'valid_status',
+        severity: 'error',
+        message: `Invalid status: ${task.status}. Must be one of: ${validStatuses.join(', ')}`,
+        taskId: params.taskId,
+      });
+    }
+
+    // Completed tasks must have completedAt
+    if (task.status === 'done' && !task.completedAt) {
+      errors.push({
+        check: 'completed_at',
+        severity: 'error',
+        message: 'Done tasks must have completedAt timestamp',
+        taskId: params.taskId,
+      });
+    }
+
+    // Blocked tasks should have blockedBy or depends
+    if (task.status === 'blocked' && !task.blockedBy && !(task.depends as unknown[])?.length) {
+      warnings.push({
+        check: 'blocked_reasons',
+        severity: 'warning',
+        message: 'Blocked task has no blockedBy reason or dependencies',
+        taskId: params.taskId,
+      });
+    }
+
+    // Size field check
+    if (!task.size) {
+      warnings.push({
+        check: 'missing_size',
+        severity: 'warning',
+        message: 'Task is missing size field',
+        taskId: params.taskId,
+      });
+    }
+
+    // Future timestamp check
+    const now = new Date();
+    if (task.createdAt && new Date(task.createdAt as string) > now) {
+      errors.push({
+        check: 'future_timestamp',
+        severity: 'error',
+        message: 'createdAt timestamp is in the future',
+        taskId: params.taskId,
+      });
+    }
+
+    const totalChecks = 7; // Number of checks performed
+    const report: ValidationReport = {
+      success: errors.length === 0,
+      errors,
+      warnings,
+      summary: {
+        totalChecks,
+        passed: totalChecks - errors.length,
+        failed: errors.length,
+      },
+    };
+
+    return {
+      _meta: {
+        gateway: 'cleo_query',
+        domain: 'validate',
+        operation: 'task',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        duration_ms: Date.now() - startTime,
+      },
+      success: true,
+      data: {
+        taskId: params.taskId,
+        valid: errors.length === 0,
+        ...report,
+      },
+    };
   }
 
   /**
@@ -642,22 +764,89 @@ export class ValidateHandler implements DomainHandler {
 
   /**
    * manifest - Validate manifest entry
-   * CLI: cleo validate manifest [--task <taskId>] [--entry <entry>]
+   *
+   * The CLI `cleo validate` does not support manifest-scoped validation.
+   * We use `cleo research list --json` to fetch manifest entries, then
+   * filter by taskId/entry and validate the matching entries.
    */
   private async queryManifest(params: ValidateManifestParams): Promise<DomainResponse> {
     const startTime = Date.now();
 
+    // Fetch manifest entries via research list
     const flags: Record<string, unknown> = { json: true };
     if (params?.taskId) flags.task = params.taskId;
-    if (params?.entry) flags.entry = params.entry;
 
-    const result = await this.executor.execute({
-      domain: 'validate',
-      operation: 'manifest',
+    const result = await this.executor.execute<{ entries?: Array<Record<string, unknown>> }>({
+      domain: 'research',
+      operation: 'list',
       flags,
     });
 
-    return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'manifest', startTime);
+    if (!result.success) {
+      return this.wrapExecutorResult(result, 'cleo_query', 'validate', 'manifest', startTime);
+    }
+
+    const entries = result.data?.entries || [];
+
+    // Filter by entry ID if specified
+    let filtered = entries;
+    if (params?.entry) {
+      filtered = entries.filter((e: Record<string, unknown>) => e.id === params.entry);
+    }
+
+    // Validate each matching entry
+    const errors: ValidationIssue[] = [];
+    const warnings: ValidationIssue[] = [];
+
+    const requiredManifestFields = ['id', 'file', 'title', 'date', 'status'];
+    for (const entry of filtered) {
+      for (const field of requiredManifestFields) {
+        if (!entry[field]) {
+          errors.push({
+            check: 'manifest_required_fields',
+            severity: 'error',
+            message: `Manifest entry ${entry.id || '(unknown)'} missing required field: ${field}`,
+            taskId: params?.taskId,
+          });
+        }
+      }
+
+      // Validate status enum
+      const validStatuses = ['complete', 'partial', 'blocked'];
+      if (entry.status && !validStatuses.includes(entry.status as string)) {
+        errors.push({
+          check: 'manifest_valid_status',
+          severity: 'error',
+          message: `Manifest entry ${entry.id} has invalid status: ${entry.status}`,
+          taskId: params?.taskId,
+        });
+      }
+    }
+
+    const totalChecks = filtered.length * (requiredManifestFields.length + 1);
+
+    return {
+      _meta: {
+        gateway: 'cleo_query',
+        domain: 'validate',
+        operation: 'manifest',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        duration_ms: Date.now() - startTime,
+      },
+      success: true,
+      data: {
+        valid: errors.length === 0,
+        entriesChecked: filtered.length,
+        errors,
+        warnings,
+        summary: {
+          totalChecks,
+          passed: totalChecks - errors.length,
+          failed: errors.length,
+        },
+      },
+    };
   }
 
   /**

@@ -2,8 +2,8 @@
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "2.0.0",
-    "lastUpdated": "2026-02-09",
-    "totalCommands": 75,
+    "lastUpdated": "2026-02-11",
+    "totalCommands": 76,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0",
     "generatedFrom": "script-headers"
   },
@@ -63,6 +63,9 @@
       "import-tasks",
       "inject",
       "sync"
+    ],
+    "system": [
+      "web"
     ],
     "validation": [
       "consensus",
@@ -955,6 +958,33 @@
       ]
     },
     {
+      "name": "mcp-install",
+      "script": "mcp-install.sh",
+      "category": "maintenance",
+      "synopsis": "Auto-detect AI tools and configure CLEO MCP server integration",
+      "agentRelevance": "medium",
+      "jsonOutput": true,
+      "jsonDefault": false,
+      "flags": [
+        "--tool",
+        "--mode",
+        "--global",
+        "--project",
+        "--all",
+        "--dry-run",
+        "--force",
+        "--json",
+        "--human",
+        "--list-tools",
+        "--format"
+      ],
+      "exitCodes": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
       "name": "migrate",
       "script": "migrate.sh",
       "category": "maintenance",
@@ -975,23 +1005,6 @@
       "subcommands": [
         "status",
         "run"
-      ]
-    },
-    {
-      "name": "mcp-install",
-      "script": "mcp-install.sh",
-      "category": "maintenance",
-      "synopsis": "Build and configure the CLEO MCP server for AI tool integration",
-      "agentRelevance": "medium",
-      "jsonOutput": false,
-      "jsonDefault": false,
-      "flags": [
-        "--json",
-        "--format"
-      ],
-      "exitCodes": [
-        0,
-        1
       ]
     },
     {
@@ -1896,6 +1909,24 @@
         43,
         44,
         45
+      ]
+    },
+    {
+      "name": "web",
+      "script": "web.sh",
+      "category": "system",
+      "synopsis": "Start, stop, or check status of CLEO Web UI server",
+      "agentRelevance": "high",
+      "jsonOutput": true,
+      "jsonDefault": false,
+      "flags": [
+        "--port",
+        "--host",
+        "--format"
+      ],
+      "exitCodes": [
+        0,
+        1
       ]
     }
   ],
