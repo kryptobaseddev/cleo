@@ -603,9 +603,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T04:08:45Z",
+  "lastUpdated": "2026-02-11T04:13:45Z",
   "_meta": {
-    "checksum": "15a4e05ca399c97f",
+    "checksum": "9ee87949d8295e25",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -614,7 +614,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2449
+    "generation": 2467
   },
   "focus": {
     "currentTask": null,
@@ -12349,12 +12349,12 @@
     {
       "id": "T3244",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3243",
       "createdAt": "2026-02-09T21:41:30Z",
-      "updatedAt": "2026-02-09T21:41:30Z",
+      "updatedAt": "2026-02-11T04:13:34Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -12363,7 +12363,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:13:34Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:35Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3245",
@@ -12725,12 +12741,12 @@
     {
       "id": "T3266",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3264",
       "createdAt": "2026-02-09T21:42:45Z",
-      "updatedAt": "2026-02-09T21:42:45Z",
+      "updatedAt": "2026-02-11T04:13:38Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -12739,7 +12755,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:13:38Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3267",
@@ -14212,12 +14244,12 @@
     {
       "id": "T3360",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3359",
       "createdAt": "2026-02-09T21:48:31Z",
-      "updatedAt": "2026-02-09T21:48:31Z",
+      "updatedAt": "2026-02-11T04:13:41Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -14226,7 +14258,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:13:41Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:42Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3361",
@@ -14637,12 +14685,12 @@
     {
       "id": "T3386",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3385",
       "createdAt": "2026-02-09T21:50:13Z",
-      "updatedAt": "2026-02-09T21:50:13Z",
+      "updatedAt": "2026-02-11T04:13:44Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -14651,7 +14699,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:13:44Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3387",
@@ -29719,12 +29783,12 @@
     {
       "id": "T4290",
       "title": "Create project detail view with task list",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:11Z",
-      "updatedAt": "2026-02-11T03:58:11Z",
+      "updatedAt": "2026-02-11T04:09:26.314Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -30121,12 +30185,12 @@
     {
       "id": "T4310",
       "title": "Fix system domain command routing (doctor, stats, dash)",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4309",
       "createdAt": "2026-02-11T04:07:35Z",
-      "updatedAt": "2026-02-11T04:07:35Z",
+      "updatedAt": "2026-02-11T04:13:40Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -30136,17 +30200,21 @@
         "defect",
         "mcp-server",
         "system-domain"
+      ],
+      "completedAt": "2026-02-11T04:13:40Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:13:40Z] Fixed 3 bugs in system domain handler: (1) checkHealth used domain=cleo causing 'Unknown command: cleo' - changed to customCommand with cleo doctor --json, (2) getMetrics used domain=metrics causing 'Unknown command: metrics' - changed to customCommand with cleo stats --json, (3) getDash returned data=null because executor unwrapped only focus field - added manual stdout re-parsing to return full dashboard payload."
       ]
     },
     {
       "id": "T4311",
       "title": "Fix session.list active filtering and pagination",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4309",
       "createdAt": "2026-02-11T04:07:37Z",
-      "updatedAt": "2026-02-11T04:07:37Z",
+      "updatedAt": "2026-02-11T04:13:20Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -30156,53 +30224,26 @@
         "defect",
         "mcp-server",
         "session-domain"
-      ]
-    },
-    {
-      "id": "T4312",
-      "title": "Fix tasks.next timeout at 30s",
-      "status": "cancelled",
-      "priority": "critical",
-      "type": "task",
-      "parentId": "T4309",
-      "createdAt": "2026-02-11T04:07:39Z",
-      "updatedAt": "2026-02-11T04:08:45Z",
-      "size": "medium",
-      "position": 3,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "tasks.next times out at ~30s default timeout. Root cause likely the CLI scanning all 1555 tasks (401 synthetic garbage). Fix: (1) reduce dataset via synthetic cleanup (separate task), (2) verify tasks.next passes --json flag and has bounded response, (3) consider increasing timeout for this operation or adding pagination. Files: mcp-server/src/domains/tasks.ts, scripts/next.sh",
-      "labels": [
-        "defect",
-        "mcp-server",
-        "performance",
-        "tasks-domain"
       ],
-      "cancelledAt": "2026-02-11T04:08:45Z",
-      "cancelReason": "duplicate task",
+      "completedAt": "2026-02-11T04:13:20Z",
       "notes": [
-        "[CANCELLED 2026-02-11T04:08:45Z] duplicate task"
-      ]
-    },
-    {
-      "id": "T4313",
-      "title": "Fix tasks.next 30s timeout",
-      "status": "pending",
-      "priority": "critical",
-      "type": "task",
-      "parentId": "T4309",
-      "createdAt": "2026-02-11T04:07:51Z",
-      "updatedAt": "2026-02-11T04:07:51Z",
-      "size": "medium",
-      "position": 4,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "tasks.next operation times out at the 30s default. Likely caused by CLI scanning all 1555 tasks including 401 synthetic test artifacts. Verify --json flag is passed, consider increasing timeout for this operation, and ensure bounded response payload. Files: mcp-server/src/domains/tasks.ts, scripts/next.sh",
-      "labels": [
-        "defect",
-        "mcp-server",
-        "performance"
-      ]
+        "[COMPLETED 2026-02-11T04:13:20Z] Fixed queryList to use --status active CLI flag instead of --active boolean. Added limit post-processing."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:21Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4314",
@@ -30303,41 +30344,61 @@
       ]
     },
     {
-      "id": "T4319",
-      "title": "Fix research domain ops consistency",
+      "id": "T4321",
+      "title": "EPIC: P0 Backlog Hygiene Surgery",
       "status": "pending",
       "priority": "critical",
-      "type": "task",
-      "parentId": "T4309",
-      "createdAt": "2026-02-11T04:08:26Z",
-      "updatedAt": "2026-02-11T04:08:26Z",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T04:09:13Z",
+      "updatedAt": "2026-02-11T04:09:13Z",
       "size": "medium",
-      "position": 10,
+      "position": 846,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Three research domain bugs: research.stats shows manifest size but empty counters, research.list returns empty while manifest has entries, research.manifest.read fails status enum validation. Fix CLI command mapping and parameter forwarding. Files: mcp-server/src/domains/research.ts",
+      "description": "Clean up CLEO backlog integrity issues. (1) Archive 401 synthetic test artifacts (Test Task, MCP Test Task, Integration Test, Mutate Test, Session Test, Audit Test, E2E Test, Bad Task, Searchable Test families from Feb 9 2026). (2) Repair integrity anomalies: T1522, T2213, T2178/T2213, T3066/T3077, T3173/T3183, T2120. Must complete before any strategic epic work resumes.",
       "labels": [
-        "defect",
-        "mcp-server"
+        "backlog",
+        "hygiene",
+        "p0"
       ]
     },
     {
-      "id": "T4320",
-      "title": "MCP regression tests for gateway defects",
+      "id": "T4322",
+      "title": "Archive synthetic test artifact families",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": "T4321",
+      "createdAt": "2026-02-11T04:09:22Z",
+      "updatedAt": "2026-02-11T04:09:22Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Bulk archive all 401 synthetic test artifacts created during MCP server testing. Families to archive: Test Task, MCP Test Task, Integration Test Epic/Task, Mutate Integration Test Epic/Task, Session Test Epic, Audit Test Task, E2E Test Task, Searchable Test, Bad Task. Use cleo delete with reason or cleo archive. Verify count drops from ~1555 to ~1154.",
+      "labels": [
+        "cleanup",
+        "hygiene"
+      ]
+    },
+    {
+      "id": "T4323",
+      "title": "Repair integrity anomalies",
       "status": "pending",
       "priority": "high",
       "type": "task",
-      "parentId": "T4309",
-      "createdAt": "2026-02-11T04:08:28Z",
-      "updatedAt": "2026-02-11T04:08:28Z",
+      "parentId": "T4321",
+      "createdAt": "2026-02-11T04:09:24Z",
+      "updatedAt": "2026-02-11T04:09:24Z",
       "size": "medium",
-      "position": 11,
+      "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Write regression tests for all 10 MCP gateway defects. Must cover system.doctor/stats/dash, session.list filtering, tasks.next, tasks.tree scoping, research operations, and validate scoping. Files: mcp-server/src/domains/__tests__/",
+      "description": "Fix known integrity issues: T1522 (project registry not persisting), T2213 (hybrid registry format), T2178/T2213 (related registry issues), T3066/T3077 (MCP test tasks marked done but should be archived), T3173/T3183, T2120. Verify each task has correct status, parent relationships, and labels.",
       "labels": [
-        "mcp-server",
-        "testing"
+        "hygiene",
+        "integrity"
       ]
     }
   ],
