@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-11T05:51:22Z",
-    "totalSessionsCreated": 616
+    "lastModified": "2026-02-11T05:56:02Z",
+    "totalSessionsCreated": 619
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35493,7 +35493,7 @@
     },
     {
       "id": "session_20260210_215122_40fbad",
-      "status": "active",
+      "status": "ended",
       "name": "Patch Sprint",
       "agentId": null,
       "scope": {
@@ -35529,31 +35529,249 @@
         ]
       },
       "focus": {
-        "currentTask": "T1438",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
+        "previousTask": "T1457",
+        "sessionNote": "Switching to T3173 scope for release fixes",
         "nextAction": null,
         "focusHistory": [
           {
             "taskId": "T1438",
             "timestamp": "2026-02-11T05:51:22Z",
             "action": "focused"
+          },
+          {
+            "taskId": "T1457",
+            "timestamp": "2026-02-11T05:53:07Z",
+            "action": "focused"
           }
         ]
       },
       "startedAt": "2026-02-11T05:51:22Z",
-      "lastActivity": "2026-02-11T05:51:22Z",
+      "lastActivity": "2026-02-11T05:53:13Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
-        "focusChanges": 1,
+        "focusChanges": 2,
         "suspendCount": 0,
         "resumeCount": 0
       },
       "startMetrics": {
         "session_id": "session_20260210_215122_40fbad",
         "start_timestamp": "2026-02-11T05:51:22Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-11T05:53:13Z"
+    },
+    {
+      "id": "session_20260210_215320_6d8768",
+      "status": "active",
+      "name": "Release flow fixes",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3173",
+        "computedTaskIds": [
+          "T3173",
+          "T2536",
+          "T2676",
+          "T2736",
+          "T2840",
+          "T2885"
+        ]
+      },
+      "focus": {
+        "currentTask": "T2840",
+        "currentPhase": null,
+        "previousTask": "T2676",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T2676",
+            "timestamp": "2026-02-11T05:53:20Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2736",
+            "timestamp": "2026-02-11T05:53:27Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2676",
+            "timestamp": "2026-02-11T05:53:45Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2840",
+            "timestamp": "2026-02-11T05:55:13Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-11T05:53:20Z",
+      "lastActivity": "2026-02-11T05:55:13Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 4,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260210_215320_6d8768",
+        "start_timestamp": "2026-02-11T05:53:20Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      }
+    },
+    {
+      "id": "session_20260210_215350_e27493",
+      "status": "ended",
+      "name": "T2974 Consolidation Completion",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T2974",
+        "computedTaskIds": [
+          "T2974",
+          "T2975",
+          "T3109",
+          "T3064",
+          "T3118",
+          "T3127"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T2974",
+        "sessionNote": "Completed T2974 consolidation sprint: T3064 done, T2975 done, T3109 done (children T3118/T3127 completed, T3126/T3128/T3129 promoted to standalone). T2974 closed.",
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T3109",
+            "timestamp": "2026-02-11T05:53:50Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T3064",
+            "timestamp": "2026-02-11T05:53:57Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2975",
+            "timestamp": "2026-02-11T05:54:16Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T3109",
+            "timestamp": "2026-02-11T05:54:33Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T2974",
+            "timestamp": "2026-02-11T05:55:17Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-11T05:53:50Z",
+      "lastActivity": "2026-02-11T05:55:27Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 5,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260210_215350_e27493",
+        "start_timestamp": "2026-02-11T05:53:50Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-11T05:55:27Z"
+    },
+    {
+      "id": "session_20260210_215429_ddacb0",
+      "status": "active",
+      "name": "T1432 Documentation",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1432",
+        "computedTaskIds": [
+          "T1432",
+          "T1433",
+          "T1434",
+          "T1435",
+          "T1436",
+          "T1437",
+          "T1441",
+          "T1446",
+          "T1450",
+          "T1451",
+          "T1452",
+          "T1453",
+          "T1454",
+          "T1455",
+          "T1456",
+          "T1457",
+          "T1438",
+          "T1439",
+          "T1440",
+          "T1442",
+          "T1443",
+          "T1444",
+          "T1445",
+          "T1447",
+          "T1448",
+          "T1449"
+        ]
+      },
+      "focus": {
+        "currentTask": "T1455",
+        "currentPhase": null,
+        "previousTask": "T1454",
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1438",
+            "timestamp": "2026-02-11T05:54:29Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T1453",
+            "timestamp": "2026-02-11T05:54:34Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T1454",
+            "timestamp": "2026-02-11T05:55:17Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T1455",
+            "timestamp": "2026-02-11T05:56:02Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-11T05:54:29Z",
+      "lastActivity": "2026-02-11T05:56:02Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 4,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260210_215429_ddacb0",
+        "start_timestamp": "2026-02-11T05:54:29Z",
         "start_tokens": 0,
         "max_tokens": 200000
       }

@@ -104119,11 +104119,417 @@
         "type": "epic",
         "rootTaskId": "T1432"
       }
+    },
+    {
+      "id": "log_4ac226991ef8",
+      "timestamp": "2026-02-11T05:53:07Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T1438"
+      },
+      "after": {
+        "currentTask": "T1457"
+      },
+      "details": null
+    },
+    {
+      "id": "log_e2751d5f2cc7",
+      "timestamp": "2026-02-11T05:53:13Z",
+      "sessionId": "session_20260210_215122_40fbad",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Switching to T3173 scope for release fixes"
+      }
+    },
+    {
+      "id": "log_ded99ed6218e",
+      "timestamp": "2026-02-11T05:53:21Z",
+      "sessionId": "session_20260210_215320_6d8768",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T2676",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T3173"
+      }
+    },
+    {
+      "id": "log_1610652717c5",
+      "timestamp": "2026-02-11T05:53:27Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T2676"
+      },
+      "after": {
+        "currentTask": "T2736"
+      },
+      "details": null
+    },
+    {
+      "id": "log_2895c03bffc5",
+      "timestamp": "2026-02-11T05:53:35Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2736",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:53:35Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5c1b6bbc27cb",
+      "timestamp": "2026-02-11T05:53:45Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T2736"
+      },
+      "after": {
+        "currentTask": "T2676"
+      },
+      "details": null
+    },
+    {
+      "id": "log_bff5540b7eb1",
+      "timestamp": "2026-02-11T05:53:50Z",
+      "sessionId": "session_20260210_215350_e27493",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T3109",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T2974"
+      }
+    },
+    {
+      "id": "log_cc4d71bb936b",
+      "timestamp": "2026-02-11T05:53:57Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T3109"
+      },
+      "after": {
+        "currentTask": "T3064"
+      },
+      "details": null
+    },
+    {
+      "id": "log_a570f9123e5c",
+      "timestamp": "2026-02-11T05:54:05Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3064",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:54:04Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_f24355d4e257",
+      "timestamp": "2026-02-11T05:54:16Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T3064"
+      },
+      "after": {
+        "currentTask": "T2975"
+      },
+      "details": null
+    },
+    {
+      "id": "log_c9f12a1a7870",
+      "timestamp": "2026-02-11T05:54:26Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2975",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:54:26Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_9cdc43c84824",
+      "timestamp": "2026-02-11T05:54:29Z",
+      "sessionId": "session_20260210_215429_ddacb0",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T1438",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1432"
+      }
+    },
+    {
+      "id": "log_a4623185f50c",
+      "timestamp": "2026-02-11T05:54:33Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2676",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:54:32Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_b7ce678e6a89",
+      "timestamp": "2026-02-11T05:54:34Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T1438"
+      },
+      "after": {
+        "currentTask": "T1453"
+      },
+      "details": null
+    },
+    {
+      "id": "log_fe5ee67b66a3",
+      "timestamp": "2026-02-11T05:54:45Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3118",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:54:44Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_2368de21ae30",
+      "timestamp": "2026-02-11T05:54:49Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3127",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:54:48Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_003be0bbc4a5",
+      "timestamp": "2026-02-11T05:55:10Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3109",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "active",
+        "completedAt": null
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_3c26469df553",
+      "timestamp": "2026-02-11T05:55:13Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T2676"
+      },
+      "after": {
+        "currentTask": "T2840"
+      },
+      "details": null
+    },
+    {
+      "id": "log_a8d4452f1d78",
+      "timestamp": "2026-02-11T05:55:17Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T3109"
+      },
+      "after": {
+        "currentTask": "T2974"
+      },
+      "details": null
+    },
+    {
+      "id": "log_98d5eac8e627",
+      "timestamp": "2026-02-11T05:55:20Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2974",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:55:19Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_018369be192b",
+      "timestamp": "2026-02-11T05:55:26Z",
+      "sessionId": "session_20260210_215350_e27493",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Completed T2974 consolidation sprint: T3064 done, T2975 done, T3109 done (children T3118/T3127 completed, T3126/T3128/T3129 promoted to standalone). T2974 closed."
+      }
+    },
+    {
+      "id": "log_b104fa97a7cd",
+      "timestamp": "2026-02-11T05:55:56Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1454",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:55:55Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_5a2306dad597",
+      "timestamp": "2026-02-11T05:56:02Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T1454"
+      },
+      "after": {
+        "currentTask": "T1455"
+      },
+      "details": null
+    },
+    {
+      "id": "log_2ea234066900",
+      "timestamp": "2026-02-11T05:56:22Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1455",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:56:21Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5453,
-    "lastEntry": "2026-02-11T05:51:22Z",
+    "totalEntries": 5477,
+    "lastEntry": "2026-02-11T05:56:22Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
