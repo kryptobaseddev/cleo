@@ -88,8 +88,8 @@ CLEO evolves from task management protocol to cognitive infrastructure, implemen
 | Asset | Status | Evidence Gap |
 |-------|--------|--------------|
 | **Nexus** | Shipped v0.80.0 (8 days ago) | Zero real-world multi-project usage |
-| **MCP Server** | Specification complete (39KB) | Not implemented, no integration tests |
-| **TypeScript Rewrite** | Referenced in planning | No specification, unclear scope |
+| **MCP Server** | v0.91.0 shipped (native TypeScript engine, 29 ops) | Adoption metrics pending (Phase 1 validation) |
+| **TypeScript Rewrite** | MCP-first strategy validated (T4334) | Hotspot migration scope TBD pending adoption data |
 
 ---
 
@@ -149,6 +149,15 @@ The following cleanup **MUST** occur:
 | **Architecture Validation** | N/A | Complete | Research T2992-T2996 confirms sound design |
 
 #### 3.1.3 MCP Server Implementation (Epic 2)
+
+##### Status Update (2026-02-11)
+
+T4334 (MCP Server Native TypeScript Engine) completed and shipped as v0.91.0. Key outcomes:
+
+- **Native TypeScript engine**: The MCP server now has a standalone native TypeScript engine that operates cross-platform without requiring the Bash CLI
+- **29 native operations**: Core CLEO operations (task CRUD, sessions, orchestration, research, lifecycle, validation, release, system) run natively in TypeScript
+- **Cross-platform standalone mode**: The MCP server can operate independently on any platform with Node.js, removing the Bash/jq dependency for MCP consumers
+- **MCP-first migration validated**: This delivery validates the incremental "MCP-first then hotspots" migration strategy as canonical doctrine. The MCP server provides the foundation for further TypeScript expansion, independent of the T2112 Bash stabilization gate
 
 **Architecture** (TypeScript + FastMCP)
 
@@ -1233,8 +1242,13 @@ BRAIN Certification
 ---
 
 **Specification Status**: STABLE
-**Last Updated**: 2026-02-03
-**Version**: 1.1.0
+**Last Updated**: 2026-02-11
+**Version**: 1.2.0
+**Changes from v1.1.0**:
+1. MCP Server status updated: v0.91.0 shipped with native TypeScript engine (T4334)
+2. Unvalidated Assets table updated to reflect MCP implementation and TS migration validation
+3. T2742 research (folder structure/memory-trees) completed and indexed in MANIFEST
+
 **Changes from v1.0.0**:
 1. Phase 0 revised: Implementation gaps, not consolidation (based on T2992-T2996)
 2. Success criteria updated: Protocol CLI +2, Nexus CLI +3, enforcement 22%→40%
