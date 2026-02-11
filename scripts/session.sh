@@ -4,7 +4,7 @@
 # category: write
 # synopsis: Work session lifecycle (start, end, status, gc for garbage collection)
 # relevance: high
-# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale
+# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale,--no-focus
 # exits: 0,4,101
 # json-output: true
 # subcommands: start,end,status,suspend,resume,close,list,show,switch,gc
@@ -116,6 +116,13 @@ elif [[ -f "$LIB_DIR/flags.sh" ]]; then
   source "$LIB_DIR/flags.sh"
 fi
 
+# Source json-output library for pagination support (T1436)
+if [[ -f "$CLEO_HOME/lib/json-output.sh" ]]; then
+  source "$CLEO_HOME/lib/json-output.sh"
+elif [[ -f "$LIB_DIR/json-output.sh" ]]; then
+  source "$LIB_DIR/json-output.sh"
+fi
+
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 # Note: LOG_FILE is set by lib/logging.sh (readonly) - don't reassign here
@@ -197,6 +204,7 @@ Multi-Session Options (requires multiSession.enabled=true):
   --scope TYPE:ID   Scope definition (epic:T001, taskGroup:T005, etc.)
   --focus ID        Task to focus on (required for multi-session start)
   --auto-focus      Auto-select highest priority pending task in scope
+  --no-focus        Start session without requiring initial focus task
   --name TEXT       Session name for identification
   --agent ID        Agent identifier for the session
 
@@ -237,6 +245,7 @@ Examples (Single-Session):
 Examples (Multi-Session):
   cleo session start --scope epic:T001 --focus T005 --name "Auth impl"
   cleo session start --scope taskGroup:T010 --auto-focus
+  cleo session start --scope epic:T001 --no-focus --name "Planning"
   cleo session list                     # List all sessions
   cleo session suspend --note "Waiting for review"
   cleo session resume session_20251227_...
@@ -375,7 +384,7 @@ parse_scope_string() {
 
 # Start a new session
 cmd_start() {
-  local scope_str="" focus_task="" session_name="" agent_id="" auto_focus=false phase_filter=""
+  local scope_str="" focus_task="" session_name="" agent_id="" auto_focus=false no_focus=false phase_filter=""
 
   # Parse multi-session options (including global flags passed after subcommand)
   while [[ $# -gt 0 ]]; do
@@ -384,6 +393,7 @@ cmd_start() {
       --scope) scope_str="$2"; shift 2 ;;
       --focus) focus_task="$2"; shift 2 ;;
       --auto-focus) auto_focus=true; shift ;;
+      --no-focus) no_focus=true; shift ;;
       --name) session_name="$2"; shift 2 ;;
       --agent) agent_id="$2"; shift 2 ;;
       --phase) phase_filter="$2"; shift 2 ;;
@@ -395,6 +405,16 @@ cmd_start() {
       *) shift ;;
     esac
   done
+
+  # Validate mutual exclusivity of focus flags
+  local focus_flag_count=0
+  [[ "$auto_focus" == "true" ]] && ((focus_flag_count++)) || true
+  [[ "$no_focus" == "true" ]] && ((focus_flag_count++)) || true
+  [[ -n "$focus_task" ]] && ((focus_flag_count++)) || true
+  if [[ "$focus_flag_count" -gt 1 ]]; then
+    log_error "Flags --focus, --auto-focus, and --no-focus are mutually exclusive" "E_INVALID_INPUT" "$EXIT_INVALID_INPUT"
+    exit "$EXIT_INVALID_INPUT"
+  fi
 
   # Resolve format with TTY-aware detection after parsing
   FORMAT=$(resolve_format "$FORMAT")
@@ -421,7 +441,7 @@ cmd_start() {
       exit "$EXIT_INVALID_INPUT"
     fi
 
-    cmd_start_multi_session "$scope_str" "$focus_task" "$session_name" "$agent_id" "$auto_focus" "$phase_filter"
+    cmd_start_multi_session "$scope_str" "$focus_task" "$session_name" "$agent_id" "$auto_focus" "$phase_filter" "$no_focus"
     return
   fi
 
@@ -666,6 +686,7 @@ cmd_start_multi_session() {
   local agent_id="$4"
   local auto_focus="$5"
   local phase_filter="$6"
+  local no_focus="${7:-false}"
 
   # Check for existing TTY binding conflict (T1794)
   if declare -f get_tty_bound_session >/dev/null 2>&1; then
@@ -709,10 +730,16 @@ cmd_start_multi_session() {
     fi
   fi
 
-  # Validate focus is provided (skip when auto-focus found nothing)
-  if [[ -z "$focus_task" ]] && [[ "$auto_focus" != "true" ]]; then
-    log_error "Session requires --focus <task-id> or --auto-focus" "E_FOCUS_REQUIRED" 38
+  # Validate focus is provided (skip when auto-focus found nothing or --no-focus set)
+  if [[ -z "$focus_task" ]] && [[ "$auto_focus" != "true" ]] && [[ "$no_focus" != "true" ]]; then
+    log_error "Session requires --focus <task-id>, --auto-focus, or --no-focus" "E_FOCUS_REQUIRED" 38
     exit 38
+  fi
+
+  # When --no-focus is set, explicitly clear focus_task and log
+  if [[ "$no_focus" == "true" ]]; then
+    focus_task=""
+    log_info "Session starting without focus task (--no-focus)"
   fi
 
   # Handle dry-run
@@ -1758,11 +1785,13 @@ cmd_archive() {
 
 # List all sessions
 cmd_list() {
-  local status_filter="all" format_arg=""
+  local status_filter="all" format_arg="" limit_arg="" offset_arg=""
 
   while [[ $# -gt 0 ]]; do
     case $1 in
       --status) status_filter="$2"; shift 2 ;;
+      --limit) limit_arg="$2"; shift 2 ;;
+      --offset) offset_arg="$2"; shift 2 ;;
       -f|--format) format_arg="$2"; shift 2 ;;
       --human) format_arg="human"; shift ;;
       --json) format_arg="json"; shift ;;
@@ -1773,60 +1802,122 @@ cmd_list() {
   local output_format
   output_format=$(resolve_format "$format_arg")
 
+  # Resolve pagination defaults
+  # --limit 0 or --limit all = no pagination (backward compat escape hatch)
+  # --limit N = explicit limit
+  # no --limit = smart default from get_default_limit
+  local limit offset
+  if [[ -z "$limit_arg" ]]; then
+    limit=$(get_default_limit "sessions")
+  elif [[ "$limit_arg" == "all" || "$limit_arg" == "0" ]]; then
+    limit=0
+  else
+    limit="$limit_arg"
+  fi
+  offset="${offset_arg:-0}"
+
   local sessions_file
   sessions_file=$(get_sessions_file)
 
   if [[ ! -f "$sessions_file" ]]; then
     if [[ "$output_format" == "json" ]]; then
-      jq -nc '{
-        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-        "success": true,
-        "sessions": [],
-        "message": "No sessions file found (multi-session not initialized)"
-      }'
+      output_paginated "session list" "sessions" "[]" 0 "${limit:-0}" "$offset"
     else
       log_info "No sessions (multi-session not initialized)"
     fi
     exit "$EXIT_SUCCESS"
   fi
 
+  # Get filtered sessions and sort by lastActivity descending (most recent first)
   local sessions
   sessions=$(list_sessions "$status_filter")
+  sessions=$(echo "$sessions" | jq -c 'sort_by(.lastActivity) | reverse')
+
+  local total
+  total=$(echo "$sessions" | jq 'length')
 
   if [[ "$output_format" == "json" ]]; then
-    local timestamp
-    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    # Use --slurpfile with process substitution to avoid ARG_MAX limits
-    # when sessions.json is large (>130KB can hit "Argument list too long")
-    jq -nc \
-      --arg ts "$timestamp" \
-      --arg version "${CLEO_VERSION:-$(get_version)}" \
-      --slurpfile sessions <(echo "$sessions") \
-      --arg filter "$status_filter" \
-      '{
-        "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-        "_meta": {
-          "format": "json",
-          "command": "session list",
-          "timestamp": $ts,
-          "version": $version
-        },
-        "success": true,
-        "filter": $filter,
-        "count": ($sessions[0] | length),
-        "sessions": $sessions[0]
-      }'
-  else
-    local count
-    count=$(echo "$sessions" | jq 'length')
+    # Apply compact_session inline via jq to strip verbose fields
+    # (focusHistory, stats, taskSnapshots, notes, events)
+    # Use a temp file + --slurpfile to avoid ARG_MAX on large session lists
+    local compact_tmp
+    compact_tmp=$(mktemp)
+    trap "rm -f '$compact_tmp'" EXIT
 
-    if [[ "$count" -eq 0 ]]; then
+    echo "$sessions" | jq -c '[.[] | {
+        id,
+        name,
+        status,
+        scope,
+        focus: (if .focus then {currentTask: .focus.currentTask} else null end),
+        startedAt,
+        endedAt,
+        lastActivity
+    } | with_entries(select(.value != null))]' > "$compact_tmp"
+
+    if [[ "$limit" -gt 0 ]]; then
+      # Paginated: slice in jq, use output_paginated for envelope
+      local page_items
+      page_items=$(jq -c --argjson lim "$limit" --argjson off "$offset" \
+        '.[$off:($off + $lim)]' "$compact_tmp")
+      output_paginated "session list" "sessions" "$page_items" "$total" "$limit" "$offset"
+    else
+      # Unlimited: use --slurpfile to avoid ARG_MAX with large payloads
+      local version timestamp
+      version=$(_json_output_version)
+      timestamp=$(_json_output_timestamp)
+      jq -nc \
+        --arg version "$version" \
+        --arg command "session list" \
+        --arg timestamp "$timestamp" \
+        --slurpfile items "$compact_tmp" \
+        --argjson total "$total" \
+        '{
+          "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+          "_meta": {
+            "format": "json",
+            "command": $command,
+            "timestamp": $timestamp,
+            "version": $version
+          },
+          "success": true,
+          "pagination": {
+            "total": $total,
+            "limit": $total,
+            "offset": 0,
+            "hasMore": false
+          },
+          "sessions": $items[0]
+        }'
+    fi
+    rm -f "$compact_tmp"
+  else
+    # Human output - apply pagination for display too
+    local display_sessions
+    if [[ "$limit" -gt 0 ]]; then
+      display_sessions=$(apply_pagination "$sessions" "$limit" "$offset")
+    else
+      display_sessions="$sessions"
+    fi
+
+    local display_count
+    display_count=$(echo "$display_sessions" | jq 'length')
+
+    if [[ "$total" -eq 0 ]]; then
       echo "No sessions found (filter: $status_filter)"
     else
       echo ""
-      echo "Sessions ($count):"
+      if [[ "$limit" -gt 0 && "$total" -gt "$limit" ]]; then
+        echo "Sessions (showing $display_count of $total, offset $offset):"
+      else
+        echo "Sessions ($total):"
+      fi
       echo "─────────────────────────────────────────────────────────"
-      echo "$sessions" | jq -r '.[] | "\(.status | if . == "active" then "●" else "○" end) \(.id) \(.name // "(unnamed)") [\(.scope.type):\(.scope.rootTaskId // "custom")]"'
+      echo "$display_sessions" | jq -r '.[] | "\(.status | if . == "active" then "●" else "○" end) \(.id) \(.name // "(unnamed)") [\(.scope.type):\(.scope.rootTaskId // "custom")]"'
+      if [[ "$limit" -gt 0 ]] && (( offset + limit < total )); then
+        echo ""
+        echo "Use --offset $((offset + limit)) to see more"
+      fi
       echo ""
     fi
   fi

@@ -102,6 +102,15 @@ elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
     source "$CLEO_HOME/lib/flags.sh"
 fi
 
+# Source JSON output library for pagination support
+# @task T1446
+if [[ -f "$LIB_DIR/json-output.sh" ]]; then
+    # shellcheck source=../lib/json-output.sh
+    source "$LIB_DIR/json-output.sh"
+elif [[ -f "$CLEO_HOME/lib/json-output.sh" ]]; then
+    source "$CLEO_HOME/lib/json-output.sh"
+fi
+
 # ============================================================================
 # DEFAULTS
 # ============================================================================
@@ -111,6 +120,7 @@ ID_PATTERN=""
 FIELD="title,description"
 STATUS_FILTER=""
 LIMIT=10
+OFFSET=0
 THRESHOLD="0.3"
 EXACT_MATCH=false
 INCLUDE_ARCHIVE=false
@@ -248,6 +258,18 @@ while [[ $# -gt 0 ]]; do
                 exit "$EXIT_INVALID_INPUT"
             fi
             LIMIT="$2"
+            shift 2
+            ;;
+        --offset)
+            if [[ $# -lt 2 ]]; then
+                if declare -f output_error >/dev/null 2>&1; then
+                    output_error "$E_INPUT_MISSING" "--offset requires a number" "$EXIT_INVALID_INPUT" true "Example: ct find 'test' --offset 10"
+                else
+                    echo "[ERROR] --offset requires a number" >&2
+                fi
+                exit "$EXIT_INVALID_INPUT"
+            fi
+            OFFSET="$2"
             shift 2
             ;;
         -t|--threshold)
@@ -636,15 +658,21 @@ VERBOSE_JSON="false"
 
 MATCHES=$(perform_search "$TASKS" "$QUERY" "$SEARCH_MODE" "$THRESHOLD" "$VERBOSE_JSON")
 
-# Apply limit
+# Count total matches before pagination (@task T1446)
+TOTAL_MATCHES=$(echo "$MATCHES" | jq 'length')
+
+# Apply offset then limit for pagination
+if [[ "$OFFSET" -gt 0 ]]; then
+    MATCHES=$(echo "$MATCHES" | jq --argjson offset "$OFFSET" '.[$offset:]')
+fi
 MATCHES=$(echo "$MATCHES" | jq --argjson limit "$LIMIT" '.[:$limit]')
 
-# Count matches
+# Count matches on this page
 MATCH_COUNT=$(echo "$MATCHES" | jq 'length')
 
-# Check if results were truncated
+# Check if results were truncated (more available beyond this page)
 TRUNCATED=false
-if [[ "$MATCH_COUNT" -eq "$LIMIT" ]]; then
+if (( OFFSET + MATCH_COUNT < TOTAL_MATCHES )); then
     TRUNCATED=true
 fi
 
@@ -677,6 +705,23 @@ fi
 
 case "$FORMAT" in
     json)
+        # Build pagination metadata (@task T1446)
+        PAGINATION_JSON="null"
+        if declare -f get_pagination_meta >/dev/null 2>&1; then
+            PAGINATION_JSON=$(get_pagination_meta "$TOTAL_MATCHES" "$LIMIT" "$OFFSET")
+        else
+            _has_more="false"
+            if (( OFFSET + LIMIT < TOTAL_MATCHES )); then
+                _has_more="true"
+            fi
+            PAGINATION_JSON=$(jq -nc \
+                --argjson total "$TOTAL_MATCHES" \
+                --argjson limit "$LIMIT" \
+                --argjson offset "$OFFSET" \
+                --argjson has_more "$_has_more" \
+                '{total: $total, limit: $limit, offset: $offset, hasMore: $has_more}')
+        fi
+
         # JSON output with LLM-Agent-First envelope
         jq -nc \
             --arg version "${CLEO_VERSION:-$(get_version)}" \
@@ -688,8 +733,10 @@ case "$FORMAT" in
             --argjson threshold "$THRESHOLD" \
             --argjson total_searched "$TOTAL_SEARCHED" \
             --argjson match_count "$MATCH_COUNT" \
+            --argjson total_matches "$TOTAL_MATCHES" \
             --argjson truncated "$TRUNCATED" \
             --argjson matches "$MATCHES" \
+            --argjson pagination "$PAGINATION_JSON" \
             '{
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
@@ -710,10 +757,12 @@ case "$FORMAT" in
                 "summary": {
                     "total_searched": $total_searched,
                     "matches": $match_count,
+                    "total_matches": $total_matches,
                     "truncated": $truncated
                 },
+                "pagination": $pagination,
                 "matches": $matches
-            }'
+            } | if .pagination == null then del(.pagination) else . end'
 
         # Exit with appropriate code
         if [[ "$MATCH_COUNT" -eq 0 ]]; then

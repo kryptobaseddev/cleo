@@ -2,6 +2,29 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [0.90.0] - 2026-02-11
+
+### P1: LLM-Agent-First JSON Pagination System (T1432)
+- feat: New `lib/json-output.sh` with 8 exported functions: output_success, output_error_envelope, output_paginated, apply_pagination, get_pagination_meta, get_default_limit, compact_task, compact_session
+- feat: Session list pagination with smart defaults (limit=10, --limit/--offset flags, compact output)
+- feat: Session list output reduced from 560KB to 4KB (99.3% reduction)
+- feat: Pagination metadata added to list, log, and find commands (total, limit, offset, hasMore)
+- feat: --offset flag added to log and find commands
+- feat: Smart default limits per command type (sessions=10, tasks=50, search=10, logs=20)
+- test: 112 new tests (95 unit, 9 integration, 8 performance) for pagination system
+
+### Workflow Bug Fixes (T2862)
+- fix: Pre-commit hook now reads staged files via `git show` instead of working directory (T2864)
+- fix: Added `--no-focus` flag for `session start` — allows sessions without initial focus task (T2865)
+- fix(resolved): Release ship timeout confirmed fixed (T2736)
+
+### Backlog Triage & Consolidation
+- chore: Archived 59 stale/obsolete/duplicate tasks (test artifacts, orphaned subtasks, superseded RCSD impl)
+- chore: Consolidated 30 tasks into 8 parent epics (release bugs → T3173, testing → T3013, etc.)
+- chore: Archived 22 additional tasks with cascading children (plugin system, NEXUS, meta-backlog)
+- chore: Created T4331 "EPIC: Injection System Maintenance" to group 7 orphaned injection tasks
+- chore: Total backlog reduced from 486 to 456 tasks, root-level from 138 to 107
+
 ## [0.89.0] - 2026-02-10
 
 ### P0: MCP Gateway Defect Burndown

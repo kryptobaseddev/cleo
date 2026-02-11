@@ -54,6 +54,13 @@ if [[ -f "$LIB_DIR/flags.sh" ]]; then
   source "$LIB_DIR/flags.sh"
 fi
 
+# Source JSON output library for pagination support
+# @task T1446
+if [[ -f "$LIB_DIR/json-output.sh" ]]; then
+  # shellcheck source=../lib/json-output.sh
+  source "$LIB_DIR/json-output.sh"
+fi
+
 # Set TODO_FILE after sourcing logging.sh (LOG_FILE is set by logging.sh)
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 
@@ -192,6 +199,7 @@ case "$SUBCOMMAND" in
   list)
     # List log entries with filtering
     LIMIT=20
+    OFFSET=0
     FILTER_ACTION=""
     FILTER_TASK_ID=""
     FILTER_ACTOR=""
@@ -216,6 +224,7 @@ case "$SUBCOMMAND" in
     while [[ $# -gt 0 ]]; do
       case $1 in
         --limit) LIMIT="$2"; shift 2 ;;
+        --offset) OFFSET="$2"; shift 2 ;;
         --action) FILTER_ACTION="$2"; shift 2 ;;
         --task-id) FILTER_TASK_ID="$2"; shift 2 ;;
         --actor) FILTER_ACTOR="$2"; shift 2 ;;
@@ -245,7 +254,8 @@ case "$SUBCOMMAND" in
       exit "${EXIT_FILE_ERROR:-4}"
     fi
 
-    # Build jq filter
+    # Build jq filter for content filtering (before pagination)
+    # @task T1446 - Separate filtering from pagination for metadata
     JQ_FILTER='.entries'
 
     # Apply filters
@@ -267,24 +277,56 @@ case "$SUBCOMMAND" in
       JQ_FILTER="$JQ_FILTER | map(select(.timestamp >= \"$SINCE_ISO\"))"
     fi
 
-    # Apply limit (0 = all entries)
-    if [[ "$LIMIT" -gt 0 ]]; then
-      JQ_FILTER="$JQ_FILTER | .[-$LIMIT:]"
+    # Get total filtered count BEFORE pagination
+    all_filtered=$(jq -c "$JQ_FILTER" "$LOG_FILE")
+    total_filtered=$(echo "$all_filtered" | jq 'length')
+
+    # Apply pagination: limit + offset
+    if [[ "$LIMIT" -gt 0 ]] && [[ "$OFFSET" -gt 0 ]]; then
+      entries=$(echo "$all_filtered" | jq -c ".[-$(( LIMIT + OFFSET )):][-$LIMIT:] // .[$OFFSET:$((OFFSET + LIMIT))]")
+    elif [[ "$LIMIT" -gt 0 ]]; then
+      entries=$(echo "$all_filtered" | jq -c ".[-$LIMIT:]")
+    elif [[ "$OFFSET" -gt 0 ]]; then
+      entries=$(echo "$all_filtered" | jq -c ".[$OFFSET:]")
+    else
+      entries="$all_filtered"
     fi
+
+    entry_count=$(echo "$entries" | jq 'length')
 
     # Output format
     if [[ "$FORMAT" == "json" ]]; then
       # Wrap in standard envelope per LLM-Agent-First spec
       current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-      entries=$(jq -c "$JQ_FILTER" "$LOG_FILE")
-      entry_count=$(echo "$entries" | jq 'length')
+
+      # Build pagination metadata (@task T1446)
+      PAGINATION_JSON="null"
+      if [[ "$LIMIT" -gt 0 || "$OFFSET" -gt 0 ]]; then
+        _effective_limit="${LIMIT:-0}"
+        if declare -f get_pagination_meta >/dev/null 2>&1; then
+          PAGINATION_JSON=$(get_pagination_meta "$total_filtered" "$_effective_limit" "$OFFSET")
+        else
+          _has_more="false"
+          if [[ "$_effective_limit" -gt 0 ]] && (( OFFSET + _effective_limit < total_filtered )); then
+            _has_more="true"
+          fi
+          PAGINATION_JSON=$(jq -nc \
+            --argjson total "$total_filtered" \
+            --argjson limit "$_effective_limit" \
+            --argjson offset "$OFFSET" \
+            --argjson has_more "$_has_more" \
+            '{total: $total, limit: $limit, offset: $offset, hasMore: $has_more}')
+        fi
+      fi
 
       jq -nc \
         --arg timestamp "$current_timestamp" \
         --arg version "${CLEO_VERSION:-$(get_version)}" \
         --argjson entries "$entries" \
         --argjson count "$entry_count" \
+        --argjson total_filtered "$total_filtered" \
         --argjson limit "$LIMIT" \
+        --argjson pagination "$PAGINATION_JSON" \
         '{
           "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
           "_meta": {
@@ -296,17 +338,19 @@ case "$SUBCOMMAND" in
           "success": true,
           "summary": {
             "entryCount": $count,
+            "totalFiltered": $total_filtered,
             "limit": (if $limit == 0 then null else $limit end)
           },
+          "pagination": $pagination,
           "entries": $entries
-        }'
+        } | if .pagination == null then del(.pagination) else . end'
     else
       # Text format - output each entry line by line
-      jq -r "$JQ_FILTER"' | .[] |
+      echo "$entries" | jq -r '.[] |
         "[\(.timestamp | sub("T"; " ") | sub("Z"; ""))] \(.action) - \(.taskId // "(no task)") by \(.actor)" +
         (if .after.title then "\n  title: \"\(.after.title)\"" else "" end) +
         (if .details then "\n  details: \(.details | tostring)" else "" end)
-      ' "$LOG_FILE"
+      '
     fi
 
     exit "$EXIT_SUCCESS"
