@@ -661,9 +661,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T06:21:10Z",
+  "lastUpdated": "2026-02-11T23:29:59Z",
   "_meta": {
-    "checksum": "2e03b1171d970c9b",
+    "checksum": "a4683b5c58605ed4",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -672,7 +672,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2722
+    "generation": 2723
   },
   "focus": {
     "currentTask": null,
@@ -11282,6 +11282,145 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "Consolidate injection system tasks: CLEO-INJECTION.md, AGENT-INJECTION.md, init/upgrade/doctor integration"
+    },
+    {
+      "id": "T4332",
+      "title": "EPIC: CAAMP Library API Enhancements for CLEO Integration",
+      "status": "pending",
+      "priority": "medium",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T22:06:11Z",
+      "updatedAt": "2026-02-11T22:06:11Z",
+      "size": "medium",
+      "position": 849,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Promote CLI-first MCP operations (listing, removal, config reading, lock file access) to proper library APIs in src/core/ and export them from src/index.ts. Publish as @cleocode/caamp to npm. GitHub repo: kryptobaseddev/caamp.",
+      "labels": [
+        "api",
+        "caamp",
+        "integration",
+        "npm"
+      ]
+    },
+    {
+      "id": "T4333",
+      "title": "EPIC: MCP Server Native TypeScript Engine - Cross-Platform Standalone Mode",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T23:28:54Z",
+      "updatedAt": "2026-02-11T23:28:54Z",
+      "size": "large",
+      "position": 850,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Native TypeScript data engine enabling MCP server standalone operation without bash/jq dependency. Implements dual-mode execution (native/cli/auto via MCP_EXECUTION_MODE), capability matrix (29 native + 1 hybrid + 105 CLI-only ops), atomic file I/O with cross-process locking, anti-hallucination validation, and graceful E_CLI_REQUIRED degradation for CLI-only operations. Solves Windows installation failures. Foundation for incremental MCP-first TypeScript migration strategy. Phases: P0 (capability matrix) DONE, P1 (native engine core) DONE, P2 (dual-mode routing) DONE, P3 (golden parity tests) PLANNED, P4 (rollout) PLANNED.",
+      "labels": [
+        "cross-platform",
+        "engine",
+        "mcp",
+        "typescript"
+      ]
+    },
+    {
+      "id": "T4334",
+      "title": "EPIC: MCP Server Native TypeScript Engine",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T23:29:10Z",
+      "updatedAt": "2026-02-11T23:29:10Z",
+      "size": "large",
+      "position": 851,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Native TypeScript data engine enabling MCP server standalone operation without bash/jq. Dual-mode execution, capability matrix, atomic writes, cross-process locking."
+    },
+    {
+      "id": "T4335",
+      "title": "P0: Capability Matrix and Mode Detection",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4334",
+      "createdAt": "2026-02-11T23:29:26Z",
+      "updatedAt": "2026-02-11T23:29:59Z",
+      "size": "small",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implemented capability-matrix.ts (135 ops tagged native/cli/hybrid) and mode-detector.ts (CLI detection, execution mode resolution). COMPLETED.",
+      "completedAt": "2026-02-11T23:29:59Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T23:29:59Z] Implemented capability-matrix.ts and mode-detector.ts"
+      ]
+    },
+    {
+      "id": "T4336",
+      "title": "P1: Native Engine Core (10 modules)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4334",
+      "createdAt": "2026-02-11T23:29:27Z",
+      "updatedAt": "2026-02-11T23:29:27Z",
+      "size": "large",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implemented store.ts, schema-validator.ts, validation-rules.ts, id-generator.ts, task-engine.ts, session-engine.ts, config-engine.ts, init-engine.ts, index.ts barrel. Atomic writes, cross-process locking, backup rotation, anti-hallucination validation. COMPLETED."
+    },
+    {
+      "id": "T4337",
+      "title": "P2: Dual-Mode Domain Routing",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4334",
+      "createdAt": "2026-02-11T23:29:29Z",
+      "updatedAt": "2026-02-11T23:29:29Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Modified all 8 domain handlers for dual-mode routing. tasks.ts, session.ts, system.ts route to native engine when CLI unavailable. CLI-only domains return E_CLI_REQUIRED. Modified executor.ts, router.ts, index.ts for mode detection. COMPLETED."
+    },
+    {
+      "id": "T4338",
+      "title": "P3: Golden Parity Tests and Cross-Platform CI",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4334",
+      "createdAt": "2026-02-11T23:29:31Z",
+      "updatedAt": "2026-02-11T23:29:31Z",
+      "size": "large",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write golden parity test suite (native vs CLI output diff), lock contention tests, cross-platform CI matrix (ubuntu, macos, windows). Gate criteria before enabling auto mode by default."
+    },
+    {
+      "id": "T4339",
+      "title": "P4: Feature-flagged Rollout",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4334",
+      "createdAt": "2026-02-11T23:29:33Z",
+      "updatedAt": "2026-02-11T23:29:33Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Alpha (native opt-in) -> Beta (auto default) -> GA. Documentation updates, npm README, MCP server listing. Mark as cross-platform.",
+      "depends": [
+        "T4337"
+      ]
     }
   ],
   "labels": {}
