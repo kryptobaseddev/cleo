@@ -101385,11 +101385,229 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_d96df11c194a",
+      "timestamp": "2026-02-11T04:08:46Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4312",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-11T04:08:45Z"
+      },
+      "details": {
+        "reason": "duplicate task",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_d5b7438c5c81",
+      "timestamp": "2026-02-11T04:08:51Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4313",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-11T04:08:50Z"
+      },
+      "details": {
+        "reason": "duplicate task",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_97cbfe1eab02",
+      "timestamp": "2026-02-11T04:08:55Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4319",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-11T04:08:54Z"
+      },
+      "details": {
+        "reason": "duplicate task",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_ef59b7aef905",
+      "timestamp": "2026-02-11T04:09:00Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4320",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-11T04:08:59Z"
+      },
+      "details": {
+        "reason": "duplicate task",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log-1770782953-f875c8",
+      "timestamp": "2026-02-11T04:09:14Z",
+      "action": "task_created",
+      "taskId": "T4321",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: P0 Backlog Hygiene Surgery",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: P0 Backlog Hygiene Surgery",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782963-9c8daf",
+      "timestamp": "2026-02-11T04:09:23Z",
+      "action": "task_created",
+      "taskId": "T4322",
+      "actor": "system",
+      "details": {
+        "title": "Archive synthetic test artifact families",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Archive synthetic test artifact families",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770782964-70794e",
+      "timestamp": "2026-02-11T04:09:24Z",
+      "action": "task_created",
+      "taskId": "T4323",
+      "actor": "system",
+      "details": {
+        "title": "Repair integrity anomalies",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Repair integrity anomalies",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_013cf893fc88",
+      "timestamp": "2026-02-11T04:13:22Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4311",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:13:20Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_c175850a22b9",
+      "timestamp": "2026-02-11T04:13:36Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3244",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:13:34Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_372b1b39d3c5",
+      "timestamp": "2026-02-11T04:13:39Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3266",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:13:38Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_b9da63b84e11",
+      "timestamp": "2026-02-11T04:13:43Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3360",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:13:41Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5264,
-    "lastEntry": "2026-02-11T03:59:31Z",
+    "totalEntries": 5272,
+    "lastEntry": "2026-02-11T04:13:43Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
