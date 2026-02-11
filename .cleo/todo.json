@@ -618,11 +618,11 @@
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:04:52Z",
+    "lastModified": "2026-02-11T05:17:32Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 26,
+    "activeSessionCount": 27,
     "generation": 2633
   },
   "focus": {
@@ -4243,7 +4243,7 @@
     {
       "id": "T1435",
       "title": "DESIGN: Create lib/json-output.sh library specification",
-      "status": "pending",
+      "status": "active",
       "priority": "critical",
       "type": "task",
       "parentId": "T1432",
@@ -4266,7 +4266,7 @@
       "notes": [
         "2026-01-04 22:08:06 UTC: ## Design Requirements (from LLM-AGENT-FIRST-SPEC.md):\n\n**Compact JSON Enforcement** (error-json.sh:142-146 rationale):\n- Agents parse JSON programmatically, formatting doesn't matter\n- Compact prevents truncation issues ('+N lines')\n- Humans can pipe through 'jq .' for pretty output\n- ALL success outputs MUST use jq -c flag\n\n**Standard Envelope** (LLM-AGENT-FIRST-SPEC.md Part 3.4):\n```json\n{\n  \"\\$schema\": \"https://cleo.dev/schemas/v1/output.schema.json\",\n  \"_meta\": {\n    \"format\": \"json\",\n    \"version\": \"<version>\",\n    \"command\": \"<command-name>\",\n    \"timestamp\": \"<ISO-8601>\"\n  },\n  \"success\": true,\n  \"summary\": {},\n  \"data\": []\n}\n```\n\n**Pagination Metadata** (new requirement):\n```json\n{\n  \"_meta\": {...},\n  \"success\": true,\n  \"count\": 91,        // Total matching\n  \"returned\": 20,     // Returned in response\n  \"truncated\": true,  // More exist\n  \"pagination\": {\n    \"limit\": 20,\n    \"offset\": 0,\n    \"hasMore\": true,\n    \"sort\": {\"field\": \"lastActivity\", \"order\": \"desc\"}\n  },\n  \"data\": [...]\n}\n```\n\n**Function Signatures** (draft):\n- output_json_envelope(command, data_json) → compact JSON string\n- output_json_array(command, array_json, count) → envelope with count\n- output_json_paginated(command, array_json, total, limit, offset, sort_field, sort_order) → full pagination envelope\n- sort_json_array(array_json, field, order) → sorted array\n- limit_json_array(array_json, limit, offset) → {array, truncated, returned}\n\n**Integration Points**:\n- Source from scripts/ just like error-json.sh\n- Use same VERSION loading pattern\n- Compatible with resolve_format() from output-format.sh\n- Must work with existing jq-helpers.sh functions"
       ],
-      "updatedAt": "2026-01-21T16:32:33Z",
+      "updatedAt": "2026-02-11T05:17:32Z",
       "relates": [],
       "origin": null
     },
