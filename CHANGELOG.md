@@ -2,6 +2,13 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [0.90.3] - 2026-02-11
+
+### Fixes
+- fix: Remove duplicate CHANGELOG.md entries (stale [Unreleased] + empty [0.90.2] duplicate)
+- fix: Regenerate Mintlify changelog via generate-changelog.sh (was empty stub)
+- fix: Bump MCP server version to 0.90.3 to resolve npm publish E403 (0.90.2 already published)
+
 ## [0.90.2] - 2026-02-11
 
 ### Documentation
@@ -78,13 +85,6 @@ All notable changes to the CLEO system will be documented in this file.
 - fix(data): Fixed 2 invalid research manifest JSONL entries
 - fix(data): Deduplicated 717 archive entries (4152 to 3435)
 - fix(data): Repaired checksum mismatch — `ct validate` now returns `valid: true`
-
-## [Unreleased]
-
-## [0.90.2] - 2026-02-10
-
-
-
 
 ## [0.88.0] - 2026-02-10
 
