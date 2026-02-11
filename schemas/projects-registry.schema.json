@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/projects-registry.schema.json",
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "2.0.0",
   "title": "CLEO Projects Registry Schema",
-  "description": "Global registry tracking all CLEO-initialized projects across the system for multi-project management, injection tracking, and health monitoring.",
+  "description": "Unified global registry tracking all CLEO-initialized projects. Single source of truth for both project management and Nexus cross-project coordination.",
   "type": "object",
   "required": ["schemaVersion", "lastUpdated", "projects"],
   "additionalProperties": false,
@@ -38,8 +38,8 @@
   "definitions": {
     "projectEntry": {
       "type": "object",
-      "description": "Individual project registration record with metadata, schema versions, and health status.",
-      "required": ["hash", "path", "name", "registeredAt", "lastSeen", "cleoVersion", "schemas", "injection", "health"],
+      "description": "Individual project registration record with metadata and optional Nexus fields.",
+      "required": ["hash", "path", "name", "registeredAt", "lastSeen"],
       "additionalProperties": false,
       "properties": {
         "hash": {
@@ -68,114 +68,38 @@
           "format": "date-time",
           "description": "ISO 8601 timestamp of last CLEO operation in this project."
         },
-        "cleoVersion": {
+        "healthStatus": {
           "type": "string",
-          "pattern": "^\\d+\\.\\d+\\.\\d+$",
-          "description": "CLEO version that last operated on this project (semver)."
+          "enum": ["healthy", "warning", "error", "unknown"],
+          "description": "Overall project health status. Defaults to 'unknown' if not yet checked."
         },
-        "schemas": {
-          "type": "object",
-          "description": "Schema versions for core CLEO data files in this project.",
-          "required": ["todo", "config", "archive", "log"],
-          "additionalProperties": false,
-          "properties": {
-            "todo": {
-              "type": "string",
-              "pattern": "^\\d+\\.\\d+\\.\\d+$",
-              "description": "Schema version for todo.json (semver)."
-            },
-            "config": {
-              "type": "string",
-              "pattern": "^\\d+\\.\\d+\\.\\d+$",
-              "description": "Schema version for config.json (semver)."
-            },
-            "archive": {
-              "type": "string",
-              "pattern": "^\\d+\\.\\d+\\.\\d+$",
-              "description": "Schema version for todo-archive.json (semver)."
-            },
-            "log": {
-              "type": "string",
-              "pattern": "^\\d+\\.\\d+\\.\\d+$",
-              "description": "Schema version for todo-log.json (semver)."
-            }
-          }
+        "healthLastCheck": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last health check. Null if never checked."
         },
-        "injection": {
-          "type": "object",
-          "description": "Injection versions for LLM agent documentation files. Version string or 'none' if not injected.",
-          "additionalProperties": false,
-          "properties": {
-            "CLAUDE.md": {
-              "type": "string",
-              "pattern": "^(\\d+\\.\\d+\\.\\d+|none)$",
-              "description": "Injection version in CLAUDE.md (semver) or 'none' if not injected."
-            },
-            "AGENTS.md": {
-              "type": "string",
-              "pattern": "^(\\d+\\.\\d+\\.\\d+|none)$",
-              "description": "Injection version in AGENTS.md (semver) or 'none' if not injected."
-            },
-            "GEMINI.md": {
-              "type": "string",
-              "pattern": "^(\\d+\\.\\d+\\.\\d+|none)$",
-              "description": "Injection version in GEMINI.md (semver) or 'none' if not injected."
-            }
-          }
+        "permissions": {
+          "type": "string",
+          "enum": ["read", "write", "execute"],
+          "description": "Nexus cross-project permission level. Defaults to 'read'."
         },
-        "health": {
-          "type": "object",
-          "description": "Project health status and diagnostic information.",
-          "required": ["status", "lastCheck", "issues"],
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "type": "string",
-              "enum": ["healthy", "warning", "error", "unknown"],
-              "description": "Overall project health: healthy=no issues, warning=minor issues, error=critical issues, unknown=not yet checked."
-            },
-            "lastCheck": {
-              "type": ["string", "null"],
-              "format": "date-time",
-              "description": "ISO 8601 timestamp of last health check (doctor command). Null if never checked."
-            },
-            "issues": {
-              "type": "array",
-              "description": "Array of health check issues. Empty if status='healthy'.",
-              "items": {
-                "type": "object",
-                "required": ["severity", "code", "message"],
-                "additionalProperties": false,
-                "properties": {
-                  "severity": {
-                    "type": "string",
-                    "enum": ["warning", "error"],
-                    "description": "Issue severity: warning=non-blocking, error=critical/blocking."
-                  },
-                  "code": {
-                    "type": "string",
-                    "pattern": "^[A-Z_]+$",
-                    "description": "Machine-readable issue code (e.g., 'SCHEMA_OUTDATED', 'INJECTION_MISSING')."
-                  },
-                  "message": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 500,
-                    "description": "Human-readable issue description."
-                  },
-                  "file": {
-                    "type": "string",
-                    "description": "File path related to the issue (relative to project root)."
-                  },
-                  "fix": {
-                    "type": "string",
-                    "maxLength": 200,
-                    "description": "Suggested command or action to resolve the issue."
-                  }
-                }
-              }
-            }
-          }
+        "taskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tasks in project. Cached for quick reference."
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Unique labels across all tasks in the project."
+        },
+        "lastSync": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of last Nexus sync. Null if never synced."
         }
       }
     }
