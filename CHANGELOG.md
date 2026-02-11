@@ -2,6 +2,27 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [Unreleased]
+
+## [0.88.0] - 2026-02-10
+
+### Features
+- feat: Smart mcp-install with 12-tool auto-detection and multi-format config writing — supports Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex across 6 config formats (JSON, JSONC, TOML, YAML)
+- feat: JSONC support for Zed and OpenCode — strips comments for parsing, preserves comment header on write
+- feat: Goose YAML config format support — new _mcp_merge_goose_yaml handler
+- feat: Flatpak detection for Linux Zed installs
+- feat: Idempotent writes with post-merge verification — aborts if merge would lose existing entries
+- feat: Interactive and non-interactive modes (--all, --force, --dry-run, --json)
+
+### New Files
+- lib/mcp-config.sh — core library: tool registry, detection, config generation, merge, backup, write
+- tests/unit/mcp-config.bats — 68 tests covering all formats and edge cases
+
+### Documentation
+- docs/commands/mcp-install.mdx — full 12-tool reference with detection strategy and JSONC/YAML notes
+- mcp-server/README.md — auto-configure quickstart with per-tool config table
+- README.md — MCP Server section with one-liner install command
+
 ## [0.87.1] - 2026-02-10
 
 ### Bug Fixes

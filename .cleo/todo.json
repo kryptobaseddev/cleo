@@ -592,16 +592,18 @@
       },
       {
         "version": "v0.88.0",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-11T00:30:05Z",
         "createdAt": "2026-02-11T00:28:38Z",
         "tasks": [],
-        "notes": "feat: Smart mcp-install with 12-tool auto-detection, JSONC/YAML/TOML support, Goose YAML, Flatpak detection, idempotent writes"
+        "notes": "feat: Smart mcp-install with 12-tool auto-detection, JSONC/YAML/TOML support, Goose YAML, Flatpak detection, idempotent writes",
+        "gitTag": "v0.88.0",
+        "changelog": "## [0.88.0] - 2026-02-10"
       }
     ]
   },
-  "lastUpdated": "2026-02-11T00:28:38Z",
+  "lastUpdated": "2026-02-11T00:30:05Z",
   "_meta": {
     "checksum": "11a2c76b16cabb98",
     "configVersion": "2.1.0",
@@ -612,7 +614,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2430
+    "generation": 2435
   },
   "focus": {
     "currentTask": null,

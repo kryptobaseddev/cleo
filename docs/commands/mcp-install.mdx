@@ -1,6 +1,6 @@
 ---
 title: "cleo mcp-install"
-description: "Build and configure the CLEO MCP server for AI tool integration"
+description: "Auto-detect AI tools and configure CLEO MCP server integration"
 icon: "server"
 ---
 
@@ -8,30 +8,105 @@ icon: "server"
 
 # cleo mcp-install
 
-Build and configure the CLEO MCP server for AI tool integration
+Auto-detect installed AI tools and configure CLEO MCP server integration.
 
 ## Synopsis
 
 ```bash
-cleo mcp-install
+cleo mcp-install [OPTIONS]
 ```
 
 ## Description
 
-Builds the CLEO MCP server (if not already built) and outputs the JSON configuration snippet needed to add it to your AI tool's MCP settings.
+Scans your system for installed AI coding tools, displays what it found, and writes the appropriate MCP server configuration for each tool. Supports 12 tools across 6 config formats (standard JSON, OpenCode JSON, VS Code JSON, Zed JSONC, Codex TOML, Goose YAML).
 
-Supports Claude Desktop, Claude Code, Cursor, and other MCP-compatible tools.
+By default, uses `npx` mode which runs the published `@cleocode/mcp-server` package. Use `--mode local` to point configs at a local development build instead.
+
+## Options
+
+| Flag | Description |
+|------|-------------|
+| `--tool <name>` | Configure a single tool by key |
+| `--mode <mode>` | Install mode: `npx` (default) or `local` |
+| `--global` | Use global/user config scope |
+| `--project` | Use project-level config scope (default for dual-scope tools) |
+| `--all` | Configure all detected tools without prompting |
+| `--dry-run` | Preview changes without writing any files |
+| `--force` | Skip confirmation prompts |
+| `--list-tools` | Show all supported tools and exit |
+| `--json` | Output in JSON format |
+| `--human` | Output in human-readable format (default) |
+
+## Supported Tools
+
+| Key | Name | Format | Default Config Path |
+|-----|------|--------|-------------------|
+| `claude-code` | Claude Code | standard | `.mcp.json` (project) |
+| `claude-desktop` | Claude Desktop | standard | OS-specific `claude_desktop_config.json` |
+| `cursor` | Cursor | standard | `~/.cursor/mcp.json` |
+| `gemini-cli` | Gemini CLI | standard | `~/.gemini/settings.json` |
+| `kimi` | Kimi Code | standard | `~/.kimi/mcp.json` |
+| `antigravity` | Antigravity | standard | `~/.gemini/antigravity/mcp_config.json` |
+| `windsurf` | Windsurf | standard | `~/.codeium/windsurf/mcp_config.json` |
+| `goose` | Goose | goose (YAML) | `.goose/config.yaml` (project) |
+| `opencode` | OpenCode | opencode (JSONC) | `~/.config/opencode/.opencode.json` |
+| `vscode` | VS Code | vscode | `.vscode/mcp.json` (project), `~/Library/Application Support/Code/User/mcp.json` (macOS global) |
+| `zed` | Zed | zed (JSONC) | `~/.config/zed/settings.json` |
+| `codex` | Codex | codex | `~/.codex/config.toml` |
+
+**Dual-scope tools** (support both `--project` and `--global`): Claude Code, Cursor, Gemini CLI, Goose, VS Code, Zed.
+
+**Format notes:**
+- **JSONC**: Zed and OpenCode support JSON with Comments (JSONC) format
+- **YAML**: Goose uses YAML configuration format
+
+## Detection Strategy
+
+For each tool, the installer checks (in order):
+1. Binary on PATH (e.g., `claude`, `cursor`, `code`)
+2. Config directory exists (e.g., `~/.cursor/`, `~/.gemini/`)
+3. macOS app bundle exists (e.g., `/Applications/Cursor.app`)
+4. Flatpak installation exists (e.g., Zed via Flatpak)
+
+The detection method is reported in the output for transparency.
 
 ## Examples
 
 ```bash
-# Build and get config
+# Interactive mode: detect tools, select which to configure
 cleo mcp-install
+
+# Configure all detected tools, no prompts
+cleo mcp-install --all
+
+# Configure a single tool
+cleo mcp-install --tool claude-code --mode npx
+
+# Preview what would change
+cleo mcp-install --tool vscode --project --dry-run
+
+# Non-interactive with JSON output
+cleo mcp-install --all --force --json
+
+# List all supported tools
+cleo mcp-install --list-tools
+
+# Use local build instead of npm
+cleo mcp-install --tool claude-code --mode local
 ```
+
+## Safety
+
+- Existing config files are **backed up** before modification (timestamped `.cleo-backup.*` file)
+- Invalid JSON files are **skipped** with a warning (not overwritten)
+- Existing MCP server entries in configs are **preserved** (only `cleo` key is added/updated)
+- `--dry-run` previews all changes without writing
+- Parent directories are created if missing
 
 ## Exit Codes
 
 | Code | Description |
 |------|-------------|
 | `0` | Success |
-| `1` | Build failed |
+| `1` | Configuration failed (build error, write error) |
+| `2` | Invalid input (unknown flag, invalid tool name, invalid mode) |
