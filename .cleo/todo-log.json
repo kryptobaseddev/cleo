@@ -105612,6 +105612,60 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log-1770853571-330554",
+      "timestamp": "2026-02-11T23:46:11Z",
+      "action": "task_created",
+      "taskId": "T4367",
+      "actor": "system",
+      "details": {
+        "title": "Create CAAMP adapter layer in mcp-server for P0 provider/injection functions",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create CAAMP adapter layer in mcp-server for P0 provider/injection functions",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853580-493899",
+      "timestamp": "2026-02-11T23:46:20Z",
+      "action": "task_created",
+      "taskId": "T4368",
+      "actor": "system",
+      "details": {
+        "title": "Add providers domain to MCP gateway with list/detect/inject operations",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Add providers domain to MCP gateway with list/detect/inject operations",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853582-2655f2",
+      "timestamp": "2026-02-11T23:46:22Z",
+      "action": "task_created",
+      "taskId": "T4369",
+      "actor": "system",
+      "details": {
+        "title": "Bump mcp-server Node.js engine requirement from >=18 to >=20",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Bump mcp-server Node.js engine requirement from >=18 to >=20",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
