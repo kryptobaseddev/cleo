@@ -103863,11 +103863,84 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_6f4cab2ca2e0",
+      "timestamp": "2026-02-11T05:31:51Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2864",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:31:50Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770787924-f35625",
+      "timestamp": "2026-02-11T05:32:04Z",
+      "action": "task_created",
+      "taskId": "T4331",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Injection System Maintenance",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Injection System Maintenance",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_d88bf827bf8b",
+      "timestamp": "2026-02-11T05:33:58Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2862",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:33:57Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_a6310340e443",
+      "timestamp": "2026-02-11T05:35:10Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T1437"
+      },
+      "after": {
+        "currentTask": "T1450"
+      },
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 5439,
-    "lastEntry": "2026-02-11T05:27:20Z",
+    "totalEntries": 5442,
+    "lastEntry": "2026-02-11T05:35:10Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
