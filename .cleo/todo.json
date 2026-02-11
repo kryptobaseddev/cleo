@@ -603,9 +603,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T00:30:05Z",
+  "lastUpdated": "2026-02-11T01:18:21Z",
   "_meta": {
-    "checksum": "11a2c76b16cabb98",
+    "checksum": "fe0ed9cdc204e96c",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -614,7 +614,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2435
+    "generation": 2436
   },
   "focus": {
     "currentTask": null,
@@ -29321,6 +29321,166 @@
         "lastUpdated": "2026-02-10T17:30:19Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4274",
+      "title": "Review release pipeline defaults and CLEO config for push behavior",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-11T01:16:22Z",
+      "updatedAt": "2026-02-11T01:16:22Z",
+      "size": "medium",
+      "position": 843,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Investigate whether cleo release ship should default to --push or require explicit opt-in. Review all CLEO config settings that control release behavior (push, tag creation, version bump). Audit agent protocols to ensure no agent or subagent ever bypasses cleo release ship for git push operations on releases. This was triggered by a protocol violation where git push was run manually outside the release pipeline, breaking provenance tracking.",
+      "labels": [
+        "config",
+        "epic",
+        "release",
+        "review"
+      ]
+    },
+    {
+      "id": "T4275",
+      "title": "Audit cleo release ship flags and determine safe defaults",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:16:42Z",
+      "updatedAt": "2026-02-11T01:16:42Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Review the current cleo release ship flags (--bump-version, --create-tag, --push, --dry-run). Determine: 1) Should --push be default or explicit opt-in? 2) Should there be a config setting in .cleo/config.json to control default push behavior? 3) What guardrails exist to prevent partial releases (committed+tagged but not pushed)? 4) Should ship refuse to complete without --push unless --no-push is explicitly passed? Document findings and recommend config schema changes."
+    },
+    {
+      "id": "T4276",
+      "title": "Review .cleo/config.json release settings and add push policy",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:16:50Z",
+      "updatedAt": "2026-02-11T01:16:50Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Examine the current .cleo/config.json schema for release-related settings. Add a release.pushPolicy config option with values: 'always' (--push is implicit), 'explicit' (--push must be passed), 'prompt' (interactive confirmation before push). Default should be determined by T4275 findings. Update schemas/config.schema.json accordingly."
+    },
+    {
+      "id": "T4277",
+      "title": "Review config.json release settings and add push policy",
+      "status": "done",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:17:00Z",
+      "updatedAt": "2026-02-11T01:18:21Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Examine current config.json schema for release settings. Add release.pushPolicy config: always, explicit, or prompt. Update schemas accordingly.",
+      "completedAt": "2026-02-11T01:18:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T01:18:21Z] Duplicate task, cleaned up"
+      ]
+    },
+    {
+      "id": "T4278",
+      "title": "Add release push policy to config schema",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:17:07Z",
+      "updatedAt": "2026-02-11T01:17:07Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add release.pushPolicy to .cleo/config.json with values: always (push implicit), explicit (push flag required), prompt (ask interactively). Update config schema."
+    },
+    {
+      "id": "T4279",
+      "title": "Add agent protocol guard against manual git push for releases",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:17:14Z",
+      "updatedAt": "2026-02-11T01:17:14Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update agent injection templates and protocols to explicitly prohibit manual git push for release operations. Add to CLEO-INJECTION.md and agent-protocol.md: agents MUST use cleo release ship --push, NEVER git push directly for tagged releases. Add enforcement check in release.sh that warns if HEAD has a release tag but remote is behind."
+    },
+    {
+      "id": "T4280",
+      "title": "Guard against manual git push for releases in agent protocols",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:17:19Z",
+      "updatedAt": "2026-02-11T01:17:19Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update agent injection templates to prohibit manual git push for release ops. Agents MUST use cleo release ship --push. Add enforcement in release.sh that warns if HEAD has release tag but remote is behind."
+    },
+    {
+      "id": "T4281",
+      "title": "Guard against manual git push for releases",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:17:25Z",
+      "updatedAt": "2026-02-11T01:17:25Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update agent protocols to prohibit manual git push for releases. Agents MUST use cleo release ship with --push. Add enforcement check in release.sh."
+    },
+    {
+      "id": "T4282",
+      "title": "Enforce release push via agent protocols",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:17:31Z",
+      "updatedAt": "2026-02-11T01:17:31Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Prohibit manual git push for releases in agent protocols. MUST use cleo release ship --push. Add enforcement in release.sh."
+    },
+    {
+      "id": "T4283",
+      "title": "Enforce release push in agent protocols",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4274",
+      "createdAt": "2026-02-11T01:17:37Z",
+      "updatedAt": "2026-02-11T01:17:37Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Ban manual git push for releases in agent protocols and add enforcement check in release.sh"
     }
   ],
   "labels": {}
