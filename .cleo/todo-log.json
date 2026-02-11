@@ -104525,11 +104525,182 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_2855d1f9c562",
+      "timestamp": "2026-02-11T05:56:29Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2840",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:56:28Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_719a466154ba",
+      "timestamp": "2026-02-11T05:56:36Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T2840"
+      },
+      "after": {
+        "currentTask": "T2885"
+      },
+      "details": null
+    },
+    {
+      "id": "log_532e371bf47b",
+      "timestamp": "2026-02-11T05:56:55Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1456",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:56:54Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d64e2ca8ee04",
+      "timestamp": "2026-02-11T05:57:03Z",
+      "sessionId": "session_20260210_215429_ddacb0",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Completed all 5 documentation tasks for T1432: T1457 spec, T1453 LLM-AGENT-FIRST update, T1454 API reference, T1455 command headers, T1456 migration guide"
+      }
+    },
+    {
+      "id": "log_00338f810974",
+      "timestamp": "2026-02-11T05:57:11Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T2885"
+      },
+      "after": {
+        "currentTask": "T2536"
+      },
+      "details": null
+    },
+    {
+      "id": "log_09ba9cde4be0",
+      "timestamp": "2026-02-11T05:57:32Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T2536",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:57:31Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d0b0330cc90c",
+      "timestamp": "2026-02-11T05:57:55Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T2536"
+      },
+      "after": {
+        "currentTask": "T3173"
+      },
+      "details": null
+    },
+    {
+      "id": "log_cd3d842e940a",
+      "timestamp": "2026-02-11T05:58:05Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T3173",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:58:04Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_bad1c0c50abf",
+      "timestamp": "2026-02-11T05:58:12Z",
+      "sessionId": "session_20260210_215320_6d8768",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "All T3173 children completed: T2736, T2676, T2840, T2885, T2536. Parent epic T3173 marked done."
+      }
+    },
+    {
+      "id": "log_33ee3301f76b",
+      "timestamp": "2026-02-11T05:59:03Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1432",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:59:02Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5477,
-    "lastEntry": "2026-02-11T05:56:22Z",
+    "totalEntries": 5487,
+    "lastEntry": "2026-02-11T05:59:03Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

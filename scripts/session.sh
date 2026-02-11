@@ -4,7 +4,7 @@
 # category: write
 # synopsis: Work session lifecycle (start, end, status, gc for garbage collection)
 # relevance: high
-# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale,--no-focus
+# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale,--no-focus,--limit,--offset
 # exits: 0,4,101
 # json-output: true
 # subcommands: start,end,status,suspend,resume,close,list,show,switch,gc

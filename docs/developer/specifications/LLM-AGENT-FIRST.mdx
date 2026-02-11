@@ -8,7 +8,7 @@ icon: "file-code"
 
 > **Developer implementation guide for LLM-agent-first CLI design**
 >
-> **Version**: 3.3 | **Updated**: 2025-12-29
+> **Version**: 3.4 | **Updated**: 2026-02-10
 > **Scope**: CLI command development standards for agent automation
 
 ---
@@ -1386,6 +1386,97 @@ General:    E_UNKNOWN, E_NOT_INITIALIZED, E_DEPENDENCY_MISSING, E_DEPENDENCY_VER
 
 ---
 
-*Specification v3.3 - Authoritative Standard for LLM-Agent-First CLI Design*
+## Part 14: Pagination Standards (v0.88.0+)
+
+### 14.1 Pagination Envelope
+
+Commands returning arrays **SHOULD** include a `pagination` object in the JSON envelope when results are paginated:
+
+```json
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+  "_meta": { "format": "json", "command": "list", "timestamp": "...", "version": "..." },
+  "success": true,
+  "pagination": {
+    "total": 150,
+    "limit": 50,
+    "offset": 0,
+    "hasMore": true
+  },
+  "tasks": [ ... ]
+}
+```
+
+The `pagination` object conforms to `mcp-server/schemas/common/pagination.schema.json`. All four fields (`total`, `limit`, `offset`, `hasMore`) are **REQUIRED** when the `pagination` key is present.
+
+### 14.2 Smart Default Limits
+
+Each command type has a context-optimized default page size via `get_default_limit()` in `lib/json-output.sh`:
+
+| Command | Default | Override |
+|---------|:-------:|----------|
+| `list` / `tasks` | 50 | `--limit N` |
+| `session list` | 10 | `--limit N` |
+| `find` / `search` | 10 | `--limit N` |
+| `log` | 20 | `--limit N` |
+| `archive` | 25 | `--limit N` |
+| Others | 50 | `--limit N` |
+
+Use `--limit 0` to disable pagination and retrieve all items.
+
+### 14.3 Pagination Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--limit N` | integer | Smart default | Maximum items to return (0 = unlimited) |
+| `--offset N` | integer | 0 | Number of items to skip |
+
+Commands that support pagination **MUST** document these flags in their `###CLEO` header block.
+
+### 14.4 Compact Output Mode
+
+List commands **SHOULD** use compact representations to minimize token consumption:
+
+- `compact_task()` strips `notes`, `description`, `acceptance`, `files`, `verification`, `_archive`
+- `compact_session()` strips `focusHistory`, `stats`, `taskSnapshots`, `notes`, `events`
+
+Agents use `ct show <id>` when full detail is needed for a specific item.
+
+### 14.5 Agent Pagination Pattern
+
+Agents **SHOULD** follow this pattern for paginated data:
+
+```bash
+# Page 1 (uses smart default limit)
+result=$(ct list)
+has_more=$(echo "$result" | jq -r '.pagination.hasMore')
+
+# Page 2 (only if needed)
+if [[ "$has_more" == "true" ]]; then
+  offset=$(echo "$result" | jq '.pagination.offset + .pagination.limit')
+  result=$(ct list --offset "$offset")
+fi
+```
+
+### 14.6 Implementation Library
+
+All pagination functionality is centralized in `lib/json-output.sh`:
+
+| Function | Purpose |
+|----------|---------|
+| `output_success` | Standard non-paginated success envelope |
+| `output_error_envelope` | Lightweight error envelope |
+| `output_paginated` | Paginated success envelope with metadata |
+| `apply_pagination` | Slice a JSON array by limit/offset |
+| `get_pagination_meta` | Generate pagination metadata object |
+| `get_default_limit` | Smart default limit by command type |
+| `compact_task` | Strip verbose fields from tasks |
+| `compact_session` | Strip verbose fields from sessions |
+
+**Full specification**: [DYNAMIC-OUTPUT-LIMITS-SPEC.md](DYNAMIC-OUTPUT-LIMITS-SPEC.md)
+
+---
+
+*Specification v3.4 - Authoritative Standard for LLM-Agent-First CLI Design*
 *Applicable to: cleo and any LLM-agent-first CLI project*
-*Last updated: 2025-12-29*
+*Last updated: 2026-02-10*

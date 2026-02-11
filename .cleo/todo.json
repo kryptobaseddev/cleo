@@ -625,21 +625,32 @@
         "notes": "P1: JSON pagination system + workflow bug fixes + backlog triage",
         "gitTag": "v0.90.0",
         "changelog": "## [0.90.0] - 2026-02-10"
+      },
+      {
+        "version": "v0.90.1",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-11T06:00:52Z",
+        "createdAt": "2026-02-11T05:59:57Z",
+        "tasks": [],
+        "notes": "Patch: T1432 docs, T3173 release fixes, T2974 consolidation sprint",
+        "gitTag": "v0.90.1",
+        "changelog": "## [0.90.1] - 2026-02-10"
       }
     ]
   },
-  "lastUpdated": "2026-02-11T05:56:28Z",
+  "lastUpdated": "2026-02-11T06:00:52Z",
   "_meta": {
-    "checksum": "e5599285fde9890a",
+    "checksum": "6f068aa8db28736c",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:56:02Z",
+    "lastModified": "2026-02-11T05:58:12Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 28,
-    "generation": 2702
+    "activeSessionCount": 27,
+    "generation": 2715
   },
   "focus": {
     "currentTask": null,
@@ -3665,7 +3676,7 @@
     {
       "id": "T1432",
       "title": "EPIC: LLM-Agent-First JSON Output System with Smart Pagination",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "epic",
       "parentId": null,
@@ -3681,9 +3692,13 @@
         "llm-agent-first",
         "pagination"
       ],
-      "updatedAt": "2026-01-21T06:49:38Z",
+      "updatedAt": "2026-02-11T05:59:02Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:59:02Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:59:02Z] All 15 children complete: research (T1433, T1434), design (T1435, T1436, T1457), implementation (T1437, T1441, T1446), testing (T1450, T1451, T1452), documentation (T1453, T1454, T1455, T1456). lib/json-output.sh with 8 functions, session list 560KB→4KB, pagination metadata on list/log/find, 112 tests, full docs."
+      ]
     },
     {
       "id": "T1433",
@@ -4476,7 +4491,7 @@
     {
       "id": "T1456",
       "title": "DOCUMENTATION: Create migration guide for breaking changes",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1432",
@@ -4495,9 +4510,28 @@
         "T1441",
         "T1446"
       ],
-      "updatedAt": "2026-01-04T22:11:35Z",
+      "updatedAt": "2026-02-11T05:56:54Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:56:54Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:56:54Z] Created docs/guides/pagination-migration.md with what changed, agent adaptation guide, backward compatibility, and recommended patterns"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:56:55Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1457",
@@ -8290,12 +8324,12 @@
     {
       "id": "T2536",
       "title": "EPIC: Unified Release System - Dogfood CLEO to Build CLEO",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "epic",
       "parentId": "T3173",
       "createdAt": "2026-01-28T01:08:59Z",
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-11T05:57:31Z",
       "size": "medium",
       "position": 161,
       "positionVersion": 0,
@@ -8305,6 +8339,10 @@
         "dogfooding",
         "rcsd-pipeline",
         "release"
+      ],
+      "completedAt": "2026-02-11T05:57:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:57:31Z] Unified release system is fully operational. All goals met: 1) dev/release-version.sh deprecated since v0.78.0, wrapper to cleo release ship. 2) scripts/release.sh has full lifecycle: create/plan/ship/list/show/changelog/init-ci/validate. 3) VERSION integration via --bump-version. 4) Git tags via --create-tag/--force-tag/--push. 5) Changelog unified in lib/changelog.sh (task-based) + generate_changelog_from_commits() (git-based fallback). 6) CI/CD templates via init-ci. No remaining gaps."
       ]
     },
     {
@@ -9040,7 +9078,22 @@
       "completedAt": "2026-02-11T05:56:28Z",
       "notes": [
         "[COMPLETED 2026-02-11T05:56:28Z] Fixed duplicate changelog headers: 1) append_to_changelog() now strips version header from generate_changelog() output when header already exists (empty header path). 2) Cleaned 7 duplicate lines from CHANGELOG.md (0.79.1 x3, 0.80.3 x2, 0.80.1 x2, 0.80.0 x2, 0.78.1 x2). Root cause: ensure_changelog_header() and generate_changelog() both emitted ## [version] headers."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:56:29Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2847",
@@ -9152,12 +9205,12 @@
     {
       "id": "T2885",
       "title": "Root cause: CHANGELOG auto-generation failure",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": "T3173",
       "createdAt": "2026-02-01T06:20:32Z",
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-11T05:57:03Z",
       "size": "medium",
       "position": 191,
       "positionVersion": 0,
@@ -9167,6 +9220,10 @@
         "bug",
         "critical",
         "release"
+      ],
+      "completedAt": "2026-02-11T05:57:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:57:03Z] Root causes identified and fixed: 1) Duplicate headers from ensure_changelog_header + generate_changelog both emitting ## [version] (fixed in T2840 via append_to_changelog). 2) Missing createdAt causing populate_release_tasks failure (fixed in T2676). 3) Empty sections created between duplicate headers looked like empty changelog to validation. The task-based changelog requires version labels on tasks - this is by design."
       ]
     },
     {
@@ -10532,12 +10589,12 @@
     {
       "id": "T3173",
       "title": "EPIC: Git Checkpoint System + Release Flow Fixes (v0.83.0)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-07T17:20:32Z",
-      "updatedAt": "2026-02-07T17:28:13Z",
+      "updatedAt": "2026-02-11T05:58:04Z",
       "size": "medium",
       "position": 216,
       "positionVersion": 0,
@@ -10548,6 +10605,10 @@
         "fix",
         "release",
         "v0.83.0"
+      ],
+      "completedAt": "2026-02-11T05:58:04Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:58:04Z] All release flow fixes complete. T2736: ship timeout already fixed (opt-in tests, GIT_TERMINAL_PROMPT=0). T2676: createdAt already present in cmd_create(), backfilled 5 old releases. T2840: fixed duplicate changelog headers in append_to_changelog(), cleaned 7 duplicate lines from CHANGELOG.md. T2885: root caused to dual header emission + missing createdAt. T2536: unified release system fully operational since v0.78.0."
       ]
     },
     {
