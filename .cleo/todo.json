@@ -672,9 +672,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T23:32:43Z",
+  "lastUpdated": "2026-02-11T23:37:53Z",
   "_meta": {
-    "checksum": "32aa2adc4a621b7a",
+    "checksum": "8c53336e641348bf",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -683,7 +683,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2733
+    "generation": 2737
   },
   "focus": {
     "currentTask": null,
@@ -5740,9 +5740,21 @@
       "depends": [
         "T2112"
       ],
-      "updatedAt": "2026-01-23T06:10:30Z",
-      "relates": [],
-      "origin": null
+      "updatedAt": "2026-02-11T23:33:49Z",
+      "relates": [
+        {
+          "taskId": "T2112",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4334",
+          "type": "relates-to"
+        }
+      ],
+      "origin": null,
+      "notes": [
+        "2026-02-11 23:33:49 UTC: MCP-first incremental migration is canonical strategy. T4334 (MCP native engine v0.91.0) provides foundation. The MCP server now operates cross-platform with 29 native operations. T2021 full TS conversion remains gated on T2112 but incremental MCP hotspot work proceeds independently."
+      ]
     },
     {
       "id": "T2022",
@@ -8949,12 +8961,12 @@
     {
       "id": "T2742",
       "title": "Research: Folder Structure & Memory-Trees Agent Architecture",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-01-30T01:40:30Z",
-      "updatedAt": "2026-01-30T01:40:30Z",
+      "updatedAt": "2026-02-11T23:34:37Z",
       "size": "large",
       "position": 177,
       "positionVersion": 0,
@@ -8965,7 +8977,38 @@
         "architecture",
         "memory-trees",
         "research"
-      ]
+      ],
+      "notes": [
+        "2026-02-11 23:34:31 UTC: Research completed via subtasks T2743-T2748 (now archived/purged). All deliverables produced: folder structure analysis (T2743), memory-trees concept (T2744), agent architecture analysis (T2745), folder reorg consensus (T2746), memory-trees viability (T2747), unified recommendations (T2748). Key findings: lib/ reorg recommended first (80 flat files -> 6-8 categories), memory-trees viable but requires phased rollout with go/no-go gates. Outputs in claudedocs/agent-outputs/.",
+        "[COMPLETED 2026-02-11T23:34:37Z] All research deliverables produced: folder structure analysis, memory-trees concept, agent architecture analysis, folder reorg consensus, memory-trees viability, unified recommendations. Sequence recommendation: 1) lib/ reorg, 2) memory-tree infra, 3) full multi-tier after measured wins."
+      ],
+      "relates": [
+        {
+          "taskId": "T2743",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T2744",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T2745",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T2746",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T2747",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T2748",
+          "type": "relates-to"
+        }
+      ],
+      "completedAt": "2026-02-11T23:34:37Z"
     },
     {
       "id": "T2751",
@@ -11484,6 +11527,389 @@
       "description": "Alpha (native opt-in) -> Beta (auto default) -> GA. Documentation updates, npm README, MCP server listing. Mark as cross-platform.",
       "depends": [
         "T4337"
+      ]
+    },
+    {
+      "id": "T4340",
+      "title": "Document canonical TS migration doctrine: MCP-first then hotspots",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T2021",
+      "createdAt": "2026-02-11T23:33:58Z",
+      "updatedAt": "2026-02-11T23:33:58Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Document the dual-track TypeScript migration doctrine that has emerged from T4334 (MCP native engine). Track 1: MCP-first - build native TypeScript capabilities inside the MCP server (cross-platform, standalone mode, 29 native operations as of v0.91.0). This track operates independently of the T2112 Bash stabilization gate. Track 2: Full TS conversion - gated on T2112, covers the complete Bash-to-TypeScript port per the ADR (D1-D6). The MCP-first track provides incremental evidence for the full conversion decision. Update CLAUDE.md, relevant specs, and architecture docs to reflect this canonical doctrine.",
+      "labels": [
+        "documentation",
+        "typescript"
+      ]
+    },
+    {
+      "id": "T4341",
+      "title": "Publish @cleocode/caamp v0.2.0 to npm",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4332",
+      "createdAt": "2026-02-11T23:34:43Z",
+      "updatedAt": "2026-02-11T23:34:43Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers."
+    },
+    {
+      "id": "T4342",
+      "title": "Add @cleocode/caamp ^0.2.0 dependency to mcp-server",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4332",
+      "createdAt": "2026-02-11T23:34:49Z",
+      "updatedAt": "2026-02-11T23:34:49Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "After v0.2.0 is published to npm, add it as a dependency in mcp-server/package.json. The caamp library exports MCP config reading, provider registry, skills management, and instruction injection APIs that can replace bash-shelled operations. Depends on T4341 (npm publish).",
+      "depends": [
+        "T4341"
+      ]
+    },
+    {
+      "id": "T4343",
+      "title": "Evaluate extracting T4334 native engine modules into caamp",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4332",
+      "createdAt": "2026-02-11T23:34:57Z",
+      "updatedAt": "2026-02-11T23:34:57Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "T4334 (MCP Server Native TypeScript Engine) builds standalone TS modules for config, validation, file ops, schema, sessions, tasks. Evaluate which of these 10 modules could be extracted into @cleocode/caamp as shared library APIs, reducing duplication between caamp CLI and mcp-server. Candidates: config-engine, schema-validator, store (file ops), id-generator. Depends on T4334 completion and T4342 integration.",
+      "depends": [
+        "T4334",
+        "T4342"
+      ]
+    },
+    {
+      "id": "T4344",
+      "title": "EPIC: lib/ Hierarchy Refactor",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T23:35:51Z",
+      "updatedAt": "2026-02-11T23:35:51Z",
+      "size": "large",
+      "position": 852,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Reorganize lib/ directory from 80 flat shell scripts into 7 semantic subdirectories (core/, validation/, session/, tasks/, skills/, data/, ui/) plus existing rcsd/. Research T2748 recommends this with 0.85 confidence as highest-ROI architectural improvement. Migration is mechanical (git mv + import path updates) with full BATS test verification. Success criteria: zero import errors, 70% cognitive load reduction, improved function discoverability. Rollback: git checkout pre-lib-reorg tag within 7-day window.",
+      "labels": [
+        "architecture",
+        "lib",
+        "refactor"
+      ]
+    },
+    {
+      "id": "T4345",
+      "title": "Create migration script for lib/ import path updates",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4344",
+      "createdAt": "2026-02-11T23:36:01Z",
+      "updatedAt": "2026-02-11T23:36:01Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write an automated migration script that: (1) Inventories all source/import references to lib/*.sh across the codebase (scripts/, tests/, dev/, lib/ itself). (2) Maps each lib/foo.sh to its target subdirectory (core/, validation/, session/, tasks/, skills/, data/, ui/). (3) Generates sed/awk commands to update all 'source lib/foo.sh' to 'source lib/category/foo.sh'. (4) Handles edge cases: relative paths, dynamic sourcing via variables, lib/rcsd/ already hierarchical (skip). (5) Produces a dry-run report showing all changes before execution. Target: lib/migrate-paths.sh (disposable after migration).",
+      "labels": [
+        "refactor",
+        "tooling"
+      ]
+    },
+    {
+      "id": "T4346",
+      "title": "Move lib/ files into subdirectories with git mv",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4344",
+      "createdAt": "2026-02-11T23:36:10Z",
+      "updatedAt": "2026-02-11T23:36:10Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Execute the physical file reorganization using git mv to preserve commit history. Target structure: lib/core/ (exit-codes.sh, error-json.sh, output-format.sh, logging.sh, config.sh), lib/validation/ (schema-validation.sh, compliance.sh, protocol-validation.sh, validate-*.sh), lib/session/ (session-*.sh, context-*.sh), lib/tasks/ (task-*.sh, dependency-check.sh, hierarchy.sh, focus.sh), lib/skills/ (skill-*.sh, agent-registry.sh, orchestrator-spawn.sh, injection-registry.sh), lib/data/ (atomic-write.sh, backup.sh, cache.sh, file-ops.sh, migrate.sh), lib/ui/ (flags.sh, help.sh, prompts.sh, completion-generation.sh). Skip lib/rcsd/ (already hierarchical). Create subdirectories first, then git mv each file. Tag pre-migration state as 'pre-lib-reorg'.",
+      "labels": [
+        "refactor"
+      ],
+      "depends": [
+        "T4345"
+      ]
+    },
+    {
+      "id": "T4347",
+      "title": "Update all source references across codebase",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4344",
+      "createdAt": "2026-02-11T23:36:19Z",
+      "updatedAt": "2026-02-11T23:36:19Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Run the migration script (T4345) to update all import/source paths. Scope: scripts/*.sh, lib/**/*.sh, tests/**/*.bats, tests/**/*.bash, dev/*.sh, install.sh, and any other files sourcing lib/ functions. Verify via comprehensive grep that zero references to old paths remain (e.g., 'source.*lib/exit-codes' should all become 'source.*lib/core/exit-codes'). Handle dynamic sourcing patterns where paths are built from variables. Update any hardcoded lib/ paths in documentation comments within source files.",
+      "labels": [
+        "refactor"
+      ],
+      "depends": [
+        "T4346"
+      ]
+    },
+    {
+      "id": "T4348",
+      "title": "Create lib/README.md navigation guide",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4344",
+      "createdAt": "2026-02-11T23:36:26Z",
+      "updatedAt": "2026-02-11T23:36:26Z",
+      "size": "small",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write a navigation guide for the new lib/ hierarchy. Include: (1) Overview of each subdirectory with purpose and key files. (2) Quick reference table mapping common functions to their locations. (3) Dependency graph showing which categories source from others (e.g., most categories depend on core/). (4) Migration note explaining the reorganization rationale (link to T2748 research). (5) Contribution guidelines for adding new lib/ files (which category, naming conventions). Keep concise - this is a developer reference, not a tutorial.",
+      "labels": [
+        "documentation",
+        "refactor"
+      ],
+      "depends": [
+        "T4346"
+      ]
+    },
+    {
+      "id": "T4349",
+      "title": "Run full BATS test suite verification",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4344",
+      "createdAt": "2026-02-11T23:36:34Z",
+      "updatedAt": "2026-02-11T23:36:34Z",
+      "size": "small",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Execute the complete BATS test suite to verify zero regressions after the lib/ reorganization. Steps: (1) Run ./tests/run-all-tests.sh and capture output. (2) Run bats tests/unit/*.bats individually to identify any failures. (3) Run bats tests/integration/*.bats for end-to-end verification. (4) Run bash -n on all moved lib/ files to verify syntax. (5) Grep for any remaining old-path references that the migration script missed. (6) Test install.sh to verify it works with new paths. All tests must pass. Any failures must be fixed before proceeding.",
+      "labels": [
+        "refactor",
+        "testing"
+      ],
+      "depends": [
+        "T4347"
+      ]
+    },
+    {
+      "id": "T4350",
+      "title": "Update CLAUDE.md and developer documentation",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4344",
+      "createdAt": "2026-02-11T23:36:42Z",
+      "updatedAt": "2026-02-11T23:36:42Z",
+      "size": "small",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update all developer-facing documentation to reflect the new lib/ hierarchy. Targets: (1) CLAUDE.md - Update 'Project Structure' section with new lib/ subdirectory layout. (2) .cleo/templates/AGENT-INJECTION.md - Update any lib/ path references. (3) docs/ - Update any developer guides that reference lib/ file paths. (4) Update MIGRATION-SYSTEM.md if migrate.sh path changed. (5) Update any skill files that reference lib/ paths. (6) Verify CLAUDE.md 'Library Functions' section lists correct new paths.",
+      "labels": [
+        "documentation",
+        "refactor"
+      ],
+      "depends": [
+        "T4349"
+      ]
+    },
+    {
+      "id": "T4351",
+      "title": "Version bump and changelog for lib/ refactor",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4344",
+      "createdAt": "2026-02-11T23:36:50Z",
+      "updatedAt": "2026-02-11T23:36:50Z",
+      "size": "small",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Bump version (minor) to reflect the lib/ hierarchy refactor. Steps: (1) Use cleo release workflow to create a release. (2) Generate changelog entry documenting the reorganization. (3) Highlight breaking change: all lib/ import paths have changed (provide migration guide link). (4) Tag the release. Note: This is a breaking change for any external consumers sourcing lib/ files directly. Internal CLI commands are updated by T4347.",
+      "labels": [
+        "refactor",
+        "release"
+      ],
+      "depends": [
+        "T4350"
+      ]
+    },
+    {
+      "id": "T4352",
+      "title": "EPIC: Manifest Hierarchy + Path Query Engine",
+      "status": "pending",
+      "priority": "medium",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T23:37:01Z",
+      "updatedAt": "2026-02-11T23:37:01Z",
+      "size": "large",
+      "position": 853,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Extend MANIFEST.jsonl with hierarchical fields and build tree-aware query commands. Research T2748 Phase 1-2 recommendations. Phase 1: Add parentId, path, depth, childCount fields to manifest entries, backfill existing 400+ entries, enforce tree invariants (parent exists, no cycles, depth limits). Phase 2: Implement tree-aware commands (cleo research tree, cleo research query --path, cleo research aggregate --depth). Go/no-go gate after Phase 2: proceed to full memory-trees (Phase 3-4 navigators/synthesizers) only if subtree queries show 10x+ performance gains. Conditional on Track A (lib/ refactor) success.",
+      "labels": [
+        "architecture",
+        "manifest",
+        "memory-trees"
+      ]
+    },
+    {
+      "id": "T4353",
+      "title": "Design manifest hierarchy schema extension",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:37:10Z",
+      "updatedAt": "2026-02-11T23:37:10Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Design the schema extension for MANIFEST.jsonl adding hierarchical fields. New fields: parentId (string|null - references parent entry id), path (string - slash-delimited hierarchy e.g. '/research/auth/jwt-analysis'), depth (integer - 0 for root, 1+ for children), childCount (integer - number of direct children). Define: (1) JSON Schema additions to existing manifest schema. (2) Tree invariant rules (parent must exist, no cycles, max depth 5). (3) Backward compatibility strategy (new fields optional initially, required after backfill). (4) Path derivation rules from epic/task hierarchy. Output: schema diff and validation rules document.",
+      "labels": [
+        "manifest",
+        "specification"
+      ]
+    },
+    {
+      "id": "T4354",
+      "title": "Implement manifest hierarchy field writers",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:37:18Z",
+      "updatedAt": "2026-02-11T23:37:18Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Update the manifest append logic to support the new hierarchical fields (parentId, path, depth, childCount). Modify the JSONL writer functions to: (1) Accept optional parentId parameter. (2) Auto-compute path from parentId chain. (3) Auto-compute depth from path. (4) Increment parent's childCount when adding child entry. (5) Validate tree invariants on write (parent exists, no cycles, depth limit). (6) Maintain backward compatibility - entries without hierarchy fields remain valid.",
+      "labels": [
+        "implementation",
+        "manifest"
+      ],
+      "depends": [
+        "T4353"
+      ]
+    },
+    {
+      "id": "T4355",
+      "title": "Backfill existing manifest entries with hierarchy fields",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:37:26Z",
+      "updatedAt": "2026-02-11T23:37:26Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write a one-time migration script to backfill the 400+ existing MANIFEST.jsonl entries with parentId, path, depth, and childCount fields. Strategy: (1) Parse linked_tasks to infer parent-child relationships (epic tasks as parents). (2) Derive paths from task hierarchy and topic slugs. (3) Compute depth from path. (4) Count children per parent. (5) Handle orphaned entries (no linked epic) as depth-0 roots. (6) Validate all tree invariants after backfill. (7) Create backup before modification. (8) Generate report: entries backfilled, orphans found, tree statistics. Target: zero data corruption, all entries have valid hierarchy fields.",
+      "labels": [
+        "manifest",
+        "migration"
+      ],
+      "depends": [
+        "T4354"
+      ]
+    },
+    {
+      "id": "T4356",
+      "title": "Add tree invariant validation to manifest operations",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:37:34Z",
+      "updatedAt": "2026-02-11T23:37:34Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implement tree invariant enforcement in the manifest validation layer. Invariants: (1) Parent reference integrity - parentId must reference an existing entry. (2) Cycle detection - no entry can be its own ancestor. (3) Depth limit - max depth 5 (configurable). (4) Path consistency - path must match parentId chain. (5) childCount accuracy - must equal actual child count. (6) Root entries - depth 0, no parentId, valid path. Add validation to: manifest append, manifest read/query, and a standalone 'cleo research validate' command. Performance target: validation overhead <50ms for 1K entries.",
+      "labels": [
+        "manifest",
+        "validation"
+      ],
+      "depends": [
+        "T4354"
+      ]
+    },
+    {
+      "id": "T4357",
+      "title": "Update AGENT-INJECTION.md for MCP-first guidance",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-11T23:37:47Z",
+      "updatedAt": "2026-02-11T23:37:47Z",
+      "size": "medium",
+      "position": 854,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add MCP quick reference section at top of .cleo/templates/AGENT-INJECTION.md. Reorder content so MCP tools (cleo_query/cleo_mutate) appear before CLI commands. Add Level 0 progressive disclosure content (~200 tokens) as the primary entry point. Move CLI content to a clearly marked fallback section. Reference: docs/specs/MCP-AGENT-INTERACTION-SPEC.md Section 8."
+    },
+    {
+      "id": "T4358",
+      "title": "Phase 1 testing: manifest hierarchy unit and integration tests",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:37:47Z",
+      "updatedAt": "2026-02-11T23:37:53Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write comprehensive tests for the manifest hierarchy extension. Unit tests (BATS): (1) Test field writers with valid parentId/path/depth. (2) Test tree invariant violations (missing parent, cycles, depth exceeded). (3) Test backward compatibility (entries without hierarchy fields). (4) Test childCount increment/decrement. (5) Test path computation from parentId chain. Integration tests: (6) Test backfill script on fixture data. (7) Test manifest append with hierarchy in full workflow. (8) Performance benchmark: validation overhead with 1K entries. All tests in tests/unit/manifest-hierarchy.bats and tests/integration/manifest-hierarchy.bats.",
+      "labels": [
+        "manifest",
+        "testing"
+      ],
+      "depends": [
+        "T4355",
+        "T4356"
       ]
     }
   ],
