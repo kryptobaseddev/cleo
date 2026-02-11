@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cleo-dev.com/schemas/v1/nexus-registry.schema.json",
-  "title": "CLEO Nexus Registry Schema",
-  "description": "Schema for the global Nexus project registry (~/.cleo/projects-registry.json)",
+  "title": "CLEO Nexus Registry Schema (DEPRECATED)",
+  "description": "DEPRECATED: This schema is superseded by projects-registry.schema.json (v2.0.0). The unified registry at ~/.cleo/projects-registry.json now serves both global project management and Nexus cross-project coordination. This file is retained for reference only.",
   "type": "object",
   "required": ["version", "lastUpdated", "projects"],
   "additionalProperties": false,

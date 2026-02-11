@@ -14,7 +14,7 @@
 #
 # ARCHITECTURE:
 #   - Reuses generate_project_hash() from project-registry.sh
-#   - Stores global index at ~/.cleo/nexus/registry.json
+#   - Reads/writes ~/.cleo/projects-registry.json (unified registry)
 #   - Maintains backward compatibility with single-project workflows
 #   - Implements permission-aware project registration
 #
@@ -72,9 +72,9 @@ fi
 
 #=== TEST OVERRIDES ==============================================
 
-# Allow override for testing (default to ~/.cleo/nexus)
+# Allow override for testing (default to ~/.cleo/nexus for cache)
 NEXUS_HOME="${NEXUS_HOME:-$(get_cleo_home)/nexus}"
-NEXUS_REGISTRY_FILE="${NEXUS_REGISTRY_FILE:-$NEXUS_HOME/registry.json}"
+NEXUS_REGISTRY_FILE="${NEXUS_REGISTRY_FILE:-$(get_cleo_home)/projects-registry.json}"
 NEXUS_CACHE_DIR="${NEXUS_CACHE_DIR:-$NEXUS_HOME/cache}"
 
 #=== FUNCTIONS ===================================================
@@ -105,12 +105,12 @@ nexus_get_registry_path() {
 #######################################
 # Initialize Nexus directory structure
 #
-# Creates the global Nexus directory and registry file if they don't exist.
+# Creates the Nexus cache directory and ensures the unified registry exists.
 # Safe to call multiple times (idempotent).
 #
 # Directory Structure:
+#   ~/.cleo/projects-registry.json  (unified project registry)
 #   ~/.cleo/nexus/
-#   ├── registry.json       (global project index)
 #   └── cache/              (graph and relationship caches)
 #
 # Arguments:
@@ -130,7 +130,7 @@ nexus_init() {
     local registry_path
     registry_path=$(nexus_get_registry_path)
 
-    # Create Nexus home directory
+    # Create Nexus home directory (for cache)
     if [[ ! -d "$NEXUS_HOME" ]]; then
         if ! mkdir -p "$NEXUS_HOME"; then
             echo "ERROR: Failed to create Nexus directory: $NEXUS_HOME" >&2
@@ -146,34 +146,20 @@ nexus_init() {
         fi
     fi
 
-    # Create empty registry if it doesn't exist
+    # Create empty registry if it doesn't exist (uses projects-registry format)
     if [[ ! -f "$registry_path" ]]; then
-        local temp_file
-        temp_file=$(mktemp)
-        # Use double quotes to expand temp_file immediately (BATS compatibility)
-        trap "rm -f '$temp_file'" RETURN
-
-        cat > "$temp_file" <<'EOF'
-{
-  "_meta": {
-    "schemaVersion": "1.0.0",
-    "createdAt": "",
-    "updatedAt": ""
-  },
-  "projects": {}
-}
-EOF
-
-        # Set timestamps
         local now
         now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        local _nr_content
-        _nr_content=$(jq --arg now "$now" '._meta.createdAt = $now | ._meta.updatedAt = $now' "$temp_file")
-        echo "$_nr_content" > "$temp_file"
+        local registry_content
+        registry_content=$(jq -nc --arg now "$now" '{
+            "$schema": "./schemas/projects-registry.schema.json",
+            "schemaVersion": "1.0.0",
+            "lastUpdated": $now,
+            "projects": {}
+        }')
 
-        # Save using atomic write
-        if ! save_json "$registry_path" < "$temp_file"; then
-            echo "ERROR: Failed to save Nexus registry file" >&2
+        if ! save_json "$registry_path" <<< "$registry_content"; then
+            echo "ERROR: Failed to create unified registry file" >&2
             return 1
         fi
     fi
@@ -245,16 +231,27 @@ nexus_register() {
     local registry_path
     registry_path=$(nexus_get_registry_path)
 
-    # Check if already registered
-    if jq -e --arg hash "$project_hash" '.projects[$hash]' "$registry_path" >/dev/null 2>&1; then
-        echo "ERROR: Project already registered with hash: $project_hash" >&2
-        return "$EXIT_NEXUS_PROJECT_EXISTS"
+    # Check if already registered with nexus fields (has permissions)
+    local existing_entry
+    existing_entry=$(jq -r --arg hash "$project_hash" '.projects[$hash] // empty' "$registry_path" 2>/dev/null)
+
+    if [[ -n "$existing_entry" ]]; then
+        # Entry exists - check if it already has nexus fields
+        local has_permissions
+        has_permissions=$(echo "$existing_entry" | jq -r '.permissions // empty')
+        if [[ -n "$has_permissions" ]]; then
+            echo "ERROR: Project already registered with hash: $project_hash" >&2
+            return "$EXIT_NEXUS_PROJECT_EXISTS"
+        fi
+        # Entry exists without nexus fields - will merge below
     fi
 
-    # Check for name conflicts
-    if jq -e --arg name "$project_name" '.projects[] | select(.name == $name)' "$registry_path" >/dev/null 2>&1; then
-        echo "ERROR: Project name '$project_name' already exists in registry" >&2
-        return "$EXIT_VALIDATION_ERROR"
+    # Check for name conflicts (only when creating new entries, not merging)
+    if [[ -z "$existing_entry" ]]; then
+        if jq -e --arg name "$project_name" '.projects[] | select(.name == $name)' "$registry_path" >/dev/null 2>&1; then
+            echo "ERROR: Project name '$project_name' already exists in registry" >&2
+            return "$EXIT_VALIDATION_ERROR"
+        fi
     fi
 
     # Get task count
@@ -273,22 +270,44 @@ nexus_register() {
     local now
     now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    jq --arg hash "$project_hash" \
-       --arg path "$project_path" \
-       --arg name "$project_name" \
-       --arg permissions "$permissions" \
-       --arg now "$now" \
-       --argjson taskCount "$task_count" \
-       --argjson labels "$labels" \
-       '.projects[$hash] = {
-           "path": $path,
-           "name": $name,
-           "permissions": $permissions,
-           "lastSync": $now,
-           "taskCount": $taskCount,
-           "labels": $labels
-       } | ._meta.updatedAt = $now' \
-       "$registry_path" > "$temp_file"
+    if [[ -n "$existing_entry" ]]; then
+        # Merge nexus fields into existing global entry
+        jq --arg hash "$project_hash" \
+           --arg permissions "$permissions" \
+           --arg now "$now" \
+           --argjson taskCount "$task_count" \
+           --argjson labels "$labels" \
+           '.projects[$hash].permissions = $permissions |
+            .projects[$hash].lastSync = $now |
+            .projects[$hash].taskCount = $taskCount |
+            .projects[$hash].labels = $labels |
+            .projects[$hash].lastSeen = $now |
+            .lastUpdated = $now' \
+           "$registry_path" > "$temp_file"
+    else
+        # Create new full entry
+        jq --arg hash "$project_hash" \
+           --arg path "$project_path" \
+           --arg name "$project_name" \
+           --arg permissions "$permissions" \
+           --arg now "$now" \
+           --argjson taskCount "$task_count" \
+           --argjson labels "$labels" \
+           '.projects[$hash] = {
+               "hash": $hash,
+               "path": $path,
+               "name": $name,
+               "registeredAt": $now,
+               "lastSeen": $now,
+               "healthStatus": "unknown",
+               "healthLastCheck": null,
+               "permissions": $permissions,
+               "lastSync": $now,
+               "taskCount": $taskCount,
+               "labels": $labels
+           } | .lastUpdated = $now' \
+           "$registry_path" > "$temp_file"
+    fi
 
     # Save using atomic write
     if ! save_json "$registry_path" < "$temp_file"; then
@@ -370,7 +389,7 @@ nexus_unregister() {
 
     jq --arg hash "$project_hash" \
        --arg now "$now" \
-       'del(.projects[$hash]) | ._meta.updatedAt = $now' \
+       'del(.projects[$hash]) | .lastUpdated = $now' \
        "$registry_path" > "$temp_file"
 
     # Save using atomic write
@@ -556,7 +575,7 @@ nexus_sync() {
        '.projects[$hash].taskCount = $taskCount |
         .projects[$hash].labels = $labels |
         .projects[$hash].lastSync = $now |
-        ._meta.updatedAt = $now' \
+        .lastUpdated = $now' \
        "$registry_path" > "$temp_file"
 
     # Save using atomic write

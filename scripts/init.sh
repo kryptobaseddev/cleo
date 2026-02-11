@@ -1444,10 +1444,21 @@ register_project() {
     temp_registry=$(mktemp)
     trap 'rm -f "${temp_registry:-}" "${temp_info:-}"' RETURN
 
+    # Get task count and labels for nexus fields
+    local task_count=0
+    local task_labels="[]"
+    local todo_file="${project_path}/.cleo/todo.json"
+    if [[ -f "$todo_file" ]]; then
+        task_count=$(jq '.tasks | length' "$todo_file" 2>/dev/null || echo "0")
+        task_labels=$(jq -c '[.tasks[].labels // [] | .[] ] | unique' "$todo_file" 2>/dev/null || echo "[]")
+    fi
+
     jq --arg hash "$project_hash" \
        --arg path "$project_path" \
        --arg name "$project_name" \
        --arg timestamp "$timestamp" \
+       --argjson taskCount "$task_count" \
+       --argjson labels "$task_labels" \
        '.projects[$hash] = {
            hash: $hash,
            path: $path,
@@ -1455,7 +1466,11 @@ register_project() {
            registeredAt: $timestamp,
            lastSeen: $timestamp,
            healthStatus: "healthy",
-           healthLastCheck: $timestamp
+           healthLastCheck: $timestamp,
+           permissions: "read",
+           lastSync: $timestamp,
+           taskCount: $taskCount,
+           labels: $labels
        } | .lastUpdated = $timestamp' "$registry" > "$temp_registry"
 
     if ! save_json "$registry" < "$temp_registry"; then

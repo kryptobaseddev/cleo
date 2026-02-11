@@ -23,10 +23,10 @@ setup() {
     # Use BATS temp directory (TEST_TEMP_DIR is set by common_setup)
     export TEST_DIR="${TEST_TEMP_DIR:-$BATS_TEST_TMPDIR}"
 
-    # Create isolated Nexus environment
+    # Create isolated Nexus environment (unified registry)
     export TEST_NEXUS_HOME="$TEST_DIR/.cleo/nexus"
     export NEXUS_HOME="$TEST_NEXUS_HOME"
-    export NEXUS_REGISTRY_FILE="$TEST_NEXUS_HOME/registry.json"
+    export NEXUS_REGISTRY_FILE="$TEST_DIR/.cleo/projects-registry.json"
     export NEXUS_CACHE_DIR="$TEST_NEXUS_HOME/cache"
 
     # Create mock projects
@@ -63,7 +63,7 @@ teardown() {
 
 @test "nexus_init creates valid JSON registry" {
     nexus_init
-    jq -e '._meta.schemaVersion == "1.0.0"' "$NEXUS_REGISTRY_FILE"
+    jq -e '.schemaVersion' "$NEXUS_REGISTRY_FILE"
     jq -e '.projects == {}' "$NEXUS_REGISTRY_FILE"
 }
 
