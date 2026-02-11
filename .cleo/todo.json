@@ -672,9 +672,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T23:42:29Z",
+  "lastUpdated": "2026-02-11T23:46:31Z",
   "_meta": {
-    "checksum": "d7814777da312b40",
+    "checksum": "40d7e891a64a9577",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -683,7 +683,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2740
+    "generation": 2741
   },
   "focus": {
     "currentTask": null,
@@ -11345,7 +11345,7 @@
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-11T22:06:11Z",
-      "updatedAt": "2026-02-11T22:06:11Z",
+      "updatedAt": "2026-02-11T23:46:31Z",
       "size": "medium",
       "position": 849,
       "positionVersion": 0,
@@ -11356,6 +11356,30 @@
         "caamp",
         "integration",
         "npm"
+      ],
+      "notes": [
+        "2026-02-11 23:46:31 UTC: Gap analysis complete (2026-02-11). Key findings: (1) MCP native engine and CAAMP are COMPLEMENTARY with zero overlap - engine covers tasks/sessions/config, CAAMP covers providers/skills/injection. (2) 0 of 131 pending functions addressed by native engine. (3) Priority triage: P0=20 functions (provider detection, injection, MCP config), P1=50 (property accessors for Track A), P2=0 (Track B independent), P3=61 (skills/marketplace for full V2). (4) HARD BLOCKER: T4341 npm publish blocks all 131 functions. (5) Recommendation: Option A - CAAMP as direct mcp-server dependency. (6) Git dependency workaround NOT recommended. (7) New tasks created: T4367 (CAAMP adapter layer), T4368 (providers MCP domain), T4369 (Node >=20 bump). Full analysis: docs/specs/CAAMP-INTEGRATION-GAP-ANALYSIS.md"
+      ],
+      "files": [
+        "docs/specs/CAAMP-INTEGRATION-GAP-ANALYSIS.md"
+      ],
+      "relates": [
+        {
+          "taskId": "T4341",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4367",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4368",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4369",
+          "type": "relates-to"
+        }
       ]
     },
     {
@@ -12068,6 +12092,60 @@
         "lastUpdated": "2026-02-11T23:42:29Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4367",
+      "title": "Create CAAMP adapter layer in mcp-server for P0 provider/injection functions",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4332",
+      "createdAt": "2026-02-11T23:46:11Z",
+      "updatedAt": "2026-02-11T23:46:11Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create mcp-server/src/providers/caamp-adapter.ts that wraps CAAMP's P0 functions: getAllProviders, getProvider, detectProvider, getInstalledProviders, inject, checkInjection, injectAll, installMcpServer, buildServerConfig, resolveConfigPath, resolveAlias. This thin adapter bridges CAAMP's provider-focused APIs into CLEO's MCP server context. Per gap analysis: 20 P0 functions identified.",
+      "depends": [
+        "T4342"
+      ]
+    },
+    {
+      "id": "T4368",
+      "title": "Add providers domain to MCP gateway with list/detect/inject operations",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4332",
+      "createdAt": "2026-02-11T23:46:19Z",
+      "updatedAt": "2026-02-11T23:46:19Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Extend the MCP gateway (cleo_query/cleo_mutate) with a new 'providers' domain. Operations: providers.list (all providers), providers.detect (detect installed), providers.inject (update injections), providers.config (MCP config management). This exposes CAAMP's multi-provider capabilities through the standard MCP interface. Depends on CAAMP adapter layer.",
+      "depends": [
+        "T4367"
+      ]
+    },
+    {
+      "id": "T4369",
+      "title": "Bump mcp-server Node.js engine requirement from >=18 to >=20",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4332",
+      "createdAt": "2026-02-11T23:46:21Z",
+      "updatedAt": "2026-02-11T23:46:21Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Node 18 is past EOL (April 2025). Bump mcp-server/package.json engines.node from >=18 to >=20. Required for CAAMP v0.2.0 compatibility (CAAMP requires Node >=20). Also update any CI/CD or documentation references to the minimum Node version.",
+      "depends": [
+        "T4341"
+      ]
     }
   ],
   "labels": {}
