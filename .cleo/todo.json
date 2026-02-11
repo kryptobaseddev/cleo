@@ -612,21 +612,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T05:23:24Z",
+  "lastUpdated": "2026-02-11T05:25:47Z",
   "_meta": {
-    "checksum": "6fd00fe33e0ea6c2",
+    "checksum": "5dd228c1ddcb5cf2",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:20:16Z",
+    "lastModified": "2026-02-11T05:25:09Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2638
+    "generation": 2646
   },
   "focus": {
-    "currentTask": "T1433",
+    "currentTask": "T1435",
     "blockedUntil": null,
     "sessionNote": "Writing research output document",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -1765,7 +1765,7 @@
     {
       "id": "T1185",
       "title": "NEXUS Agent Protocol Specification",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "epic",
       "parentId": null,
@@ -1781,17 +1781,19 @@
       ],
       "position": 67,
       "positionVersion": 0,
-      "updatedAt": "2026-01-23T03:07:47Z",
+      "updatedAt": "2026-02-11T05:25:14Z",
       "notes": [
-        "2026-01-23 03:07:45 UTC: Demoted - NEXUS protocol stale, not actively developed"
+        "2026-01-23 03:07:45 UTC: Demoted - NEXUS protocol stale, not actively developed",
+        "[COMPLETED 2026-02-11T05:25:14Z] Superseded by subagent architecture"
       ],
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:25:14Z"
     },
     {
       "id": "T1231",
       "title": "BACKLOG: Deferred Features & Future Enhancements",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "epic",
       "parentId": null,
@@ -1805,9 +1807,13 @@
       "size": "medium",
       "position": 73,
       "positionVersion": 0,
-      "updatedAt": "2026-01-02T10:54:25Z",
+      "updatedAt": "2026-02-11T05:25:47Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:25:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:25:47Z] Meta-backlog not actionable"
+      ]
     },
     {
       "id": "T1043",
@@ -2091,7 +2097,7 @@
     {
       "id": "T1107",
       "title": "Document CLI Interface Contract for Plugin Compatibility",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": null,
@@ -2102,9 +2108,28 @@
       "labels": [],
       "position": 18,
       "positionVersion": 0,
-      "updatedAt": "2026-01-26T16:43:24Z",
+      "updatedAt": "2026-02-11T05:24:59Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:24:59Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:24:59Z] Plugin system obsolete. Archiving."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:25:00Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1236",
@@ -3402,49 +3427,6 @@
       "origin": null
     },
     {
-      "id": "T1269",
-      "title": "Convert existing migrations to timestamp format",
-      "status": "done",
-      "priority": "low",
-      "type": "subtask",
-      "parentId": null,
-      "createdAt": "2026-01-03T08:42:27Z",
-      "size": "large",
-      "position": 20,
-      "positionVersion": 4,
-      "phase": "polish",
-      "description": "PHASE 5 (P4) CONVERSION: One-time conversion of existing migrate_*_to_* functions to timestamp format. Create lib/migrations/ directory, move each migration to separate file with timestamp. MAPPING: 2.6.0→20260101120000 (approximate dates based on git history). UPDATE: All callers to use new names. DEPRECATION: Keep old functions as aliases temporarily. ACCEPTANCE: All migrations in lib/migrations/, old functions work via aliases, new pattern enforced for future.",
-      "labels": [
-        "future",
-        "infrastructure",
-        "migration"
-      ],
-      "notes": [
-        "2026-01-03 22:50:31 UTC: PHASE 5 TASK 2/2: Blocked by T1268. Final task - convert existing migrations to lib/migrations/ with timestamps.",
-        "[COMPLETED 2026-01-03T22:58:36Z] ✅ IMPLEMENTATION COMPLETE\n\n**1. Migration Conversion Script Created:**\n- Created dev/convert-migrations.sh (executable)\n- Scans lib/migrate.sh for semver migration functions\n- Generates timestamp equivalents with conversion commands\n- Output format: sed commands (review before executing)\n- Timestamp generation: Based on current date + version offset\n- Includes warnings to adjust timestamps based on git history\n\n**2. Documentation Updated (docs/MIGRATION-SYSTEM.md):**\n- Added comprehensive section explaining both migration patterns\n- Documented semver pattern (legacy): migrate_<type>_to_<major>_<minor>_<patch>\n- Documented timestamp pattern (recommended): migrate_<type>_<YYYYMMDDHHMMSS>_<description>\n- Explained migration discovery order (semver first, then timestamp)\n- Added decision table: when to use each pattern\n- Examples for each use case (schema changes, data cleanup, hotfixes, etc.)\n\n**3. Migration Function Comments Updated:**\n- Added DEPRECATED notices to all semver migration functions\n- 6 migration functions updated: migrate_config_to_2_1_0, migrate_config_to_2_2_0, migrate_todo_to_2_2_0, migrate_todo_to_2_3_0, migrate_todo_to_2_4_0, migrate_todo_to_2_5_0, migrate_todo_to_2_6_0\n- Each notice includes reference to docs/MIGRATION-SYSTEM.md\n- Existing migrations continue to work (backward compatible)\n\n**Verification:**\n- All 31 migrate tests pass\n- Conversion script generates valid sed commands\n- Documentation clearly explains both patterns and their use cases\n- Existing migrations remain functional with deprecation notices",
-        "[COMPLETED 2026-02-11T04:54:57Z] Status normalized: pending+completedAt→done (data integrity fix T4327)"
-      ],
-      "updatedAt": "2026-02-11T04:54:57Z",
-      "completedAt": "2026-02-11T04:54:57Z",
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-02-11T04:54:57Z",
-        "failureLog": []
-      },
-      "relates": [],
-      "origin": null
-    },
-    {
       "id": "T1316",
       "title": "Document context command following DOCUMENTATION-MAINTENANCE.md",
       "status": "pending",
@@ -4262,7 +4244,7 @@
     {
       "id": "T1435",
       "title": "DESIGN: Create lib/json-output.sh library specification",
-      "status": "pending",
+      "status": "active",
       "priority": "critical",
       "type": "task",
       "parentId": "T1432",
@@ -4285,7 +4267,7 @@
       "notes": [
         "2026-01-04 22:08:06 UTC: ## Design Requirements (from LLM-AGENT-FIRST-SPEC.md):\n\n**Compact JSON Enforcement** (error-json.sh:142-146 rationale):\n- Agents parse JSON programmatically, formatting doesn't matter\n- Compact prevents truncation issues ('+N lines')\n- Humans can pipe through 'jq .' for pretty output\n- ALL success outputs MUST use jq -c flag\n\n**Standard Envelope** (LLM-AGENT-FIRST-SPEC.md Part 3.4):\n```json\n{\n  \"\\$schema\": \"https://cleo.dev/schemas/v1/output.schema.json\",\n  \"_meta\": {\n    \"format\": \"json\",\n    \"version\": \"<version>\",\n    \"command\": \"<command-name>\",\n    \"timestamp\": \"<ISO-8601>\"\n  },\n  \"success\": true,\n  \"summary\": {},\n  \"data\": []\n}\n```\n\n**Pagination Metadata** (new requirement):\n```json\n{\n  \"_meta\": {...},\n  \"success\": true,\n  \"count\": 91,        // Total matching\n  \"returned\": 20,     // Returned in response\n  \"truncated\": true,  // More exist\n  \"pagination\": {\n    \"limit\": 20,\n    \"offset\": 0,\n    \"hasMore\": true,\n    \"sort\": {\"field\": \"lastActivity\", \"order\": \"desc\"}\n  },\n  \"data\": [...]\n}\n```\n\n**Function Signatures** (draft):\n- output_json_envelope(command, data_json) → compact JSON string\n- output_json_array(command, array_json, count) → envelope with count\n- output_json_paginated(command, array_json, total, limit, offset, sort_field, sort_order) → full pagination envelope\n- sort_json_array(array_json, field, order) → sorted array\n- limit_json_array(array_json, limit, offset) → {array, truncated, returned}\n\n**Integration Points**:\n- Source from scripts/ just like error-json.sh\n- Use same VERSION loading pattern\n- Compatible with resolve_format() from output-format.sh\n- Must work with existing jq-helpers.sh functions"
       ],
-      "updatedAt": "2026-02-11T05:19:00Z",
+      "updatedAt": "2026-02-11T05:25:09Z",
       "relates": [],
       "origin": null
     },
@@ -4984,51 +4966,6 @@
         "validation"
       ],
       "updatedAt": "2026-01-05T04:08:09Z",
-      "relates": [],
-      "origin": null
-    },
-    {
-      "id": "T1522",
-      "title": "Investigate: Project registry not persisting after upgrade",
-      "status": "done",
-      "priority": "critical",
-      "type": "task",
-      "parentId": null,
-      "createdAt": "2026-01-05T16:25:19Z",
-      "position": 96,
-      "positionVersion": 0,
-      "phase": "testing",
-      "description": "After deploying v0.50.3 fixes, ~/.cleo/projects-registry.json is missing again despite appearing to be created during upgrade. Symptoms: (1) Registry file existed briefly at 08:12, (2) Now missing after subsequent operations, (3) upgrade.sh update_project_registration() may have logic issues. Need deep investigation of: when registry is created vs deleted, race conditions, error paths that silently fail, whether backup/restore operations affect registry. This is a regression from the T1520 fix.",
-      "labels": [
-        "bug",
-        "investigation",
-        "project-registry"
-      ],
-      "notes": [
-        "2026-01-05 16:25:19 UTC: Context from previous session: Registry was created successfully during testing, then disappeared. May be related to session cleanup, validation, or other commands that touch ~/.cleo/ directory. Check install.sh, upgrade.sh, validate.sh for operations that might delete or overwrite registry.",
-        "[COMPLETED 2026-01-05T18:01:30Z] Identified that install.sh was wiping ~/.cleo directory during upgrades/reinstalls. Modified install.sh to preserve projects-registry.json, config.json, and plugins directory before wiping, and restore them afterwards. Verified logic with test script.",
-        "2026-01-05 18:07:39 UTC: Refactored fix to use Targeted Replacement strategy. Instead of wiping the entire directory and trying to restore files, we now only wipe specific managed directories (scripts, lib, etc.) and leave the root directory and plugins/ untouched. This is much more robust against future changes.",
-        "[COMPLETED 2026-02-11T04:55:02Z] Status normalized: pending+completedAt→done (data integrity fix T4327)",
-        "2026-02-11 05:22:30 UTC: Test note on done task"
-      ],
-      "updatedAt": "2026-02-11T05:22:30Z",
-      "completedAt": "2026-02-11T04:55:02Z",
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-02-11T04:55:03Z",
-        "failureLog": []
-      },
-      "size": "medium",
       "relates": [],
       "origin": null
     },
@@ -9134,12 +9071,12 @@
     {
       "id": "T2722",
       "title": "Fix: Unarchive T2602 specs to developer specifications",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-01-28T18:25:54Z",
-      "updatedAt": "2026-01-28T18:25:54Z",
+      "updatedAt": "2026-02-11T05:25:03Z",
       "size": "medium",
       "position": 173,
       "positionVersion": 0,
@@ -9148,7 +9085,26 @@
       "labels": [
         "docs",
         "fix"
-      ]
+      ],
+      "completedAt": "2026-02-11T05:25:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T05:25:03Z] Trivial file move, stale. Archiving."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:25:04Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2723",
@@ -11382,132 +11338,6 @@
       ]
     },
     {
-      "id": "T4309",
-      "title": "EPIC: P0 MCP Gateway Defect Burndown",
-      "status": "done",
-      "priority": "critical",
-      "type": "epic",
-      "parentId": null,
-      "createdAt": "2026-02-11T04:07:21Z",
-      "updatedAt": "2026-02-11T04:25:32Z",
-      "size": "medium",
-      "position": 845,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Fix all 10 confirmed MCP/Gateway defects blocking new feature work. These are command routing, parameter forwarding, and response parsing bugs in the MCP server domain handlers. Every defect must have a regression test before close. Parent epic context: T3156 (CLEO Claude Code Tasks Integration).",
-      "labels": [
-        "defects",
-        "gateway",
-        "mcp-server",
-        "p0"
-      ],
-      "completedAt": "2026-02-11T04:25:32Z",
-      "notes": [
-        "[COMPLETED 2026-02-11T04:25:32Z] All 10 MCP gateway defects fixed: system.doctor/stats/dash routing, session.list filtering, tasks.next timeout, tasks.tree scoping, research stats/list/manifest.read, validate.task/manifest scoping. 17 regression tests added, 967 total tests passing. 7 subtasks completed."
-      ]
-    },
-    {
-      "id": "T4318",
-      "title": "Add MCP regression tests for all gateway defects",
-      "status": "done",
-      "priority": "high",
-      "type": "task",
-      "parentId": "T4309",
-      "createdAt": "2026-02-11T04:08:18Z",
-      "updatedAt": "2026-02-11T04:24:14Z",
-      "size": "medium",
-      "position": 9,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Write regression tests for each of the 10 MCP gateway defects fixed in this epic. Tests must verify correct CLI command generation, parameter forwarding, and response parsing. Cover: system.doctor, system.stats, system.dash, session.list filtering, tasks.next, tasks.tree scoping, research.stats/list/manifest.read, validate.task/manifest scoping. Files: mcp-server/src/domains/__tests__/",
-      "labels": [
-        "mcp-server",
-        "regression",
-        "testing"
-      ],
-      "completedAt": "2026-02-11T04:24:14Z",
-      "notes": [
-        "[COMPLETED 2026-02-11T04:24:14Z] Added 17 regression tests across 5 domain test files (system, session, tasks, research, validate) covering all 10 MCP gateway defects fixed in T4310-T4317. Updated 6 pre-existing tests to match new implementations. All 967 tests pass."
-      ],
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-02-11T04:24:15Z",
-        "failureLog": []
-      }
-    },
-    {
-      "id": "T4321",
-      "title": "EPIC: P0 Backlog Hygiene Surgery",
-      "status": "done",
-      "priority": "critical",
-      "type": "epic",
-      "parentId": null,
-      "createdAt": "2026-02-11T04:09:13Z",
-      "updatedAt": "2026-02-11T04:25:35Z",
-      "size": "medium",
-      "position": 846,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Clean up CLEO backlog integrity issues. (1) Archive 401 synthetic test artifacts (Test Task, MCP Test Task, Integration Test, Mutate Test, Session Test, Audit Test, E2E Test, Bad Task, Searchable Test families from Feb 9 2026). (2) Repair integrity anomalies: T1522, T2213, T2178/T2213, T3066/T3077, T3173/T3183, T2120. Must complete before any strategic epic work resumes.",
-      "labels": [
-        "backlog",
-        "hygiene",
-        "p0"
-      ],
-      "completedAt": "2026-02-11T04:25:35Z",
-      "notes": [
-        "[COMPLETED 2026-02-11T04:25:35Z] Backlog hygiene complete: 133 synthetic test artifacts archived, 6 integrity anomalies repaired, todo.json corruption fixed. Task count reduced from 1563 to 1354 (13.4% reduction)."
-      ]
-    },
-    {
-      "id": "T4322",
-      "title": "Archive synthetic test artifact families",
-      "status": "done",
-      "priority": "critical",
-      "type": "task",
-      "parentId": "T4321",
-      "createdAt": "2026-02-11T04:09:22Z",
-      "updatedAt": "2026-02-11T04:20:17Z",
-      "size": "medium",
-      "position": 1,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Bulk archive all 401 synthetic test artifacts created during MCP server testing. Families to archive: Test Task, MCP Test Task, Integration Test Epic/Task, Mutate Integration Test Epic/Task, Session Test Epic, Audit Test Task, E2E Test Task, Searchable Test, Bad Task. Use cleo delete with reason or cleo archive. Verify count drops from ~1555 to ~1154.",
-      "labels": [
-        "cleanup",
-        "hygiene"
-      ],
-      "completedAt": "2026-02-11T04:20:17Z",
-      "notes": [
-        "[COMPLETED 2026-02-11T04:20:17Z] Archived 133 synthetic test artifacts. Patterns: Test Task, MCP Test Task, Integration Test Epic/Task, Mutate Integration/Test Task, Session Test Epic, Audit Test Task, E2E Test Task, Searchable Test, Bad Task. Task count reduced from 1563 to 1354."
-      ],
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-02-11T04:20:18Z",
-        "failureLog": []
-      }
-    },
-    {
       "id": "T4325",
       "title": "EPIC: P0.5 Data Integrity Recovery",
       "status": "done",
@@ -11527,40 +11357,6 @@
       ]
     },
     {
-      "id": "T4326",
-      "title": "Resolve 152 orphaned tasks",
-      "status": "done",
-      "priority": "high",
-      "type": "task",
-      "parentId": "T4325",
-      "createdAt": "2026-02-11T04:51:09Z",
-      "updatedAt": "2026-02-11T05:01:30Z",
-      "size": "medium",
-      "position": 1,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Identify all 152 orphaned tasks (parentId references missing parent). For each: (1) If parent was archived, re-parent to nearest surviving ancestor or promote to root. (2) If parent never existed, archive the orphan. (3) Run 'ct validate' after to confirm orphan count drops to 0. Use jq to scan todo.json for tasks where parentId is set but parent ID does not exist in the file.",
-      "completedAt": "2026-02-11T05:01:30Z",
-      "notes": [
-        "[COMPLETED 2026-02-11T05:01:30Z] Resolved 152 orphaned tasks: 1 promoted to root (T3077 - Add JSON output to version command), 151 test artifacts removed from todo.json (already existed in archive). All 31 orphan parent IDs were found in archive (previously archived parents). Validation confirms 0 orphans remaining."
-      ],
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-02-11T05:01:30Z",
-        "failureLog": []
-      }
-    },
-    {
       "id": "T4327",
       "title": "Normalize status model to canonical enum",
       "status": "pending",
@@ -11576,40 +11372,6 @@
       "description": "Fix status model drift: (1) Find all tasks with status=completed and change to status=done with proper completedAt timestamp. (2) Find all tasks with status=pending but completedAt set (T1522, T1269) and either clear completedAt or set status=done. (3) Verify schema enum is pending|active|blocked|done|cancelled. (4) Validate all tasks match canonical enum after fix."
     },
     {
-      "id": "T4328",
-      "title": "Archive remaining synthetic test artifacts",
-      "status": "done",
-      "priority": "high",
-      "type": "task",
-      "parentId": "T4325",
-      "createdAt": "2026-02-11T04:51:24Z",
-      "updatedAt": "2026-02-11T04:59:22Z",
-      "size": "medium",
-      "position": 3,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Archive the ~599 remaining synthetic/test tasks created on 2026-02-09 that match test naming patterns. Include: (1) Tasks matching patterns like 'Searchable Task', 'Test task', 'Batch test', 'Search test', 'Sort test', 'Filter test'. (2) Tasks with labels containing 'search-test', 'batch-test'. (3) 34 remaining 'Searchable Task ...' entries. Use ct archive with appropriate filters. Verify task count drops significantly after.",
-      "completedAt": "2026-02-11T04:59:22Z",
-      "notes": [
-        "[COMPLETED 2026-02-11T04:59:22Z] Archived 868+ synthetic test artifacts created on 2026-02-09. Reduced total task count from ~1360 to 492 (final ~486 after concurrent operations). Only legitimate task T4246 retained from that date. Patterns matched: Focus Test, Parent Task, Child Task, Blocker Task, Searchable Task, Orchestration/Wave/Gate/Session/Lifecycle test epics, and many more synthetic patterns."
-      ],
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-02-11T04:59:23Z",
-        "failureLog": []
-      }
-    },
-    {
       "id": "T4329",
       "title": "Fix research manifest invalid entries",
       "status": "pending",
@@ -11623,46 +11385,6 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "ct validate reports 2 invalid research manifest entries. Diagnose: (1) Read .cleo/research/MANIFEST.jsonl and identify malformed lines. (2) Fix or remove invalid entries. (3) Verify manifest parses cleanly with jq."
-    },
-    {
-      "id": "T4330",
-      "title": "Repair checksum and validate clean",
-      "status": "done",
-      "priority": "high",
-      "type": "task",
-      "parentId": "T4325",
-      "createdAt": "2026-02-11T04:51:39Z",
-      "updatedAt": "2026-02-11T05:04:13Z",
-      "size": "medium",
-      "position": 5,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "After all other integrity fixes: (1) Run ct validate --fix to repair the stored checksum. (2) If --fix flag does not exist, manually compute and update checksum in .cleo/todo.json _meta section. (3) Run ct validate --json and confirm valid:true with 0 errors. (4) This is the gate task - all other T4325 children must complete first.",
-      "depends": [
-        "T4326",
-        "T4327",
-        "T4328",
-        "T4329"
-      ],
-      "completedAt": "2026-02-11T05:04:13Z",
-      "notes": [
-        "[COMPLETED 2026-02-11T05:04:13Z] Final validation: valid=true, 0 errors, 1 warning (197 tasks pending >30 days - acceptable). Fixed: 717 duplicate archive entries deduplicated (4152→3435), checksum repaired (bc5dc535a12bab71→33e51b9896116048). All P0.5 integrity issues resolved."
-      ],
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-02-11T05:04:13Z",
-        "failureLog": []
-      }
     }
   ],
   "labels": {}
