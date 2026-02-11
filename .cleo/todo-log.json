@@ -105372,11 +105372,111 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_8ef71b341ff6",
+      "timestamp": "2026-02-11T23:37:54Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4358",
+      "before": {
+        "title": "Phase 1 testing: manifest hierarchy unit and integration tests",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Write comprehensive tests for the manifest hierarchy extension. Unit tests (BATS): (1) Test field writers with valid parentId/path/depth. (2) Test tree invariant violations (missing parent, cycles, depth exceeded). (3) Test backward compatibility (entries without hierarchy fields). (4) Test childCount increment/decrement. (5) Test path computation from parentId chain. Integration tests: (6) Test backfill script on fixture data. (7) Test manifest append with hierarchy in full workflow. (8) Performance benchmark: validation overhead with 1K entries. All tests in tests/unit/manifest-hierarchy.bats and tests/integration/manifest-hierarchy.bats.",
+        "phase": "core",
+        "labels": [
+          "manifest",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4355"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Phase 1 testing: manifest hierarchy unit and integration tests",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Write comprehensive tests for the manifest hierarchy extension. Unit tests (BATS): (1) Test field writers with valid parentId/path/depth. (2) Test tree invariant violations (missing parent, cycles, depth exceeded). (3) Test backward compatibility (entries without hierarchy fields). (4) Test childCount increment/decrement. (5) Test path computation from parentId chain. Integration tests: (6) Test backfill script on fixture data. (7) Test manifest append with hierarchy in full workflow. (8) Performance benchmark: validation overhead with 1K entries. All tests in tests/unit/manifest-hierarchy.bats and tests/integration/manifest-hierarchy.bats.",
+        "phase": "core",
+        "labels": [
+          "manifest",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4355",
+          "T4356"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1770853079-c73366",
+      "timestamp": "2026-02-11T23:37:59Z",
+      "action": "task_created",
+      "taskId": "T4360",
+      "actor": "system",
+      "details": {
+        "title": "Update CLEO-INJECTION.md for MCP-first guidance",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Update CLEO-INJECTION.md for MCP-first guidance",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770853084-c1ea68",
+      "timestamp": "2026-02-11T23:38:04Z",
+      "action": "task_created",
+      "taskId": "T4361",
+      "actor": "system",
+      "details": {
+        "title": "Implement cleo research tree command",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement cleo research tree command",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853086-6990d9",
+      "timestamp": "2026-02-11T23:38:06Z",
+      "action": "task_created",
+      "taskId": "T4362",
+      "actor": "system",
+      "details": {
+        "title": "Implement progressive disclosure layer in MCP server",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement progressive disclosure layer in MCP server",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5493,
-    "lastEntry": "2026-02-11T23:34:38Z",
+    "totalEntries": 5494,
+    "lastEntry": "2026-02-11T23:37:54Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
