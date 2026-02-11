@@ -629,11 +629,11 @@
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:41:37Z",
+    "lastModified": "2026-02-11T05:51:22Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 26,
+    "activeSessionCount": 27,
     "generation": 2671
   },
   "focus": {
@@ -3892,7 +3892,7 @@
     {
       "id": "T1438",
       "title": "Implement core envelope functions (output_json_envelope, output_json_compact)",
-      "status": "pending",
+      "status": "active",
       "priority": "critical",
       "type": "subtask",
       "parentId": "T1437",
@@ -3906,7 +3906,7 @@
         "core-function",
         "implementation"
       ],
-      "updatedAt": "2026-01-04T22:08:55Z",
+      "updatedAt": "2026-02-11T05:51:22Z",
       "relates": [],
       "origin": null
     },

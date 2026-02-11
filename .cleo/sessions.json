@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-11T05:41:37Z",
-    "totalSessionsCreated": 615
+    "lastModified": "2026-02-11T05:51:22Z",
+    "totalSessionsCreated": 616
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35490,6 +35490,73 @@
         "max_tokens": 200000
       },
       "endedAt": "2026-02-11T05:41:37Z"
+    },
+    {
+      "id": "session_20260210_215122_40fbad",
+      "status": "active",
+      "name": "Patch Sprint",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1432",
+        "computedTaskIds": [
+          "T1432",
+          "T1433",
+          "T1434",
+          "T1435",
+          "T1436",
+          "T1437",
+          "T1441",
+          "T1446",
+          "T1450",
+          "T1451",
+          "T1452",
+          "T1453",
+          "T1454",
+          "T1455",
+          "T1456",
+          "T1457",
+          "T1438",
+          "T1439",
+          "T1440",
+          "T1442",
+          "T1443",
+          "T1444",
+          "T1445",
+          "T1447",
+          "T1448",
+          "T1449"
+        ]
+      },
+      "focus": {
+        "currentTask": "T1438",
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T1438",
+            "timestamp": "2026-02-11T05:51:22Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-11T05:51:22Z",
+      "lastActivity": "2026-02-11T05:51:22Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260210_215122_40fbad",
+        "start_timestamp": "2026-02-11T05:51:22Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      }
     }
   ],
   "sessionHistory": [
