@@ -5,7 +5,7 @@
 # synopsis: Fuzzy search tasks by title/description. ID prefix matching via --id.
 # aliases: search
 # relevance: critical
-# flags: --format,--quiet,--id,--exact,--status,--field,--include-archive
+# flags: --format,--quiet,--id,--exact,--status,--field,--include-archive,--limit,--offset
 # exits: 0,2,100
 # json-output: true
 ###END

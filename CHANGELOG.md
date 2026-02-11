@@ -2,6 +2,28 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [0.90.1] - 2026-02-11
+
+### Documentation (T1432)
+- docs: Created DYNAMIC-OUTPUT-LIMITS-SPEC.md with smart defaults, pagination schema, token budget rationale
+- docs: Updated LLM-AGENT-FIRST-SPEC.md v3.3→v3.4 with Part 14: Pagination Standards
+- docs: Created lib/json-output.sh API reference at docs/reference/json-output-api.md
+- docs: Updated command headers (session.sh, find.sh, log.sh) with --limit/--offset flags
+- docs: Created pagination migration guide at docs/guides/pagination-migration.md
+
+### Release System Fixes (T3173)
+- fix: Duplicate changelog headers in lib/changelog.sh — append_to_changelog() now detects empty headers
+- fix: Cleaned 7 duplicate version header lines from CHANGELOG.md
+- fix: Backfilled createdAt on 5 old releases missing timestamps
+- fix: Verified CHANGELOG auto-generation root cause (T2840 + T2676 combination)
+- chore: Closed T2536 (Unified Release System) — all goals met since v0.78.0
+
+### Consolidation Sprint (T2974)
+- chore: Closed T2975 (Phase 0 Execution) — all scope items verified done
+- chore: Closed T3109 (Phase 0 Foundation) — MCP server operational, validation clean
+- chore: Closed T3064 (orchestrator context reduction) — addressed by 2-tier architecture
+- chore: Promoted T3126, T3128, T3129 to standalone tasks (future scope)
+
 ## [0.90.0] - 2026-02-11
 
 ### P1: LLM-Agent-First JSON Pagination System (T1432)
@@ -390,8 +412,6 @@ All notable changes to the CLEO system will be documented in this file.
 - 41 unit tests in `tests/unit/nexus.bats` (T2966)
 - 24 functional tests in `tests/functional/nexus-functional-test.sh`
 - All tests passing in production-like environment
-
-## [0.79.1] - 2026-02-01
 
 ## [0.79.1] - 2026-02-01
 
@@ -916,11 +936,9 @@ All notable changes to the CLEO system will be documented in this file.
   - Developer mode bypass and runtime protection working correctly
   - Agent documentation sanitization verified - no low-level `migrate` command references
 
-## [0.80.3] - 2026-02-06
 
 ### Bug Fixes
 - Resolve 270+ unit test failures across 16 test files (T1342)
-## [0.80.1] - 2026-02-03
 
 ### Features
 - Complete protocol enforcement system - 9/9 CLI coverage (T2975)
@@ -947,17 +965,14 @@ All notable changes to the CLEO system will be documented in this file.
 - Add experimental scripts and docs
 - Sync CLEO metrics and state
 - Sync CLEO task state
-## [0.80.0] - 2026-02-02
 
 ### Bug Fixes
 - **tests**: Reduce smoke test to 2 files for <30s target (T2907)
-## [0.79.1] - 2026-02-01
 
 ### Bug Fixes
 - **tests**: Increase timeouts and add smoke-test.sh (T2907)
 - **validate**: Update checksum after validation repairs (T2953)
 - **validate**: Resolve validation errors - orphans, focus, manifest types (T2953)
-## [0.78.1] - 2026-02-01
 
 ### Bug Fixes
 - **init**: Create CLAUDE.md, AGENTS.md, GEMINI.md in new projects (T2946)
