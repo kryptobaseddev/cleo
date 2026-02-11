@@ -100376,6 +100376,186 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log-1770772582-0859c3",
+      "timestamp": "2026-02-11T01:16:22Z",
+      "action": "task_created",
+      "taskId": "T4274",
+      "actor": "system",
+      "details": {
+        "title": "Review release pipeline defaults and CLEO config for push behavior",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Review release pipeline defaults and CLEO config for push behavior",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772602-f7bd98",
+      "timestamp": "2026-02-11T01:16:42Z",
+      "action": "task_created",
+      "taskId": "T4275",
+      "actor": "system",
+      "details": {
+        "title": "Audit cleo release ship flags and determine safe defaults",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Audit cleo release ship flags and determine safe defaults",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772610-1a2a08",
+      "timestamp": "2026-02-11T01:16:50Z",
+      "action": "task_created",
+      "taskId": "T4276",
+      "actor": "system",
+      "details": {
+        "title": "Review .cleo/config.json release settings and add push policy",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Review .cleo/config.json release settings and add push policy",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772621-07eb16",
+      "timestamp": "2026-02-11T01:17:01Z",
+      "action": "task_created",
+      "taskId": "T4277",
+      "actor": "system",
+      "details": {
+        "title": "Review config.json release settings and add push policy",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Review config.json release settings and add push policy",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772627-db4d49",
+      "timestamp": "2026-02-11T01:17:07Z",
+      "action": "task_created",
+      "taskId": "T4278",
+      "actor": "system",
+      "details": {
+        "title": "Add release push policy to config schema",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Add release push policy to config schema",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772634-834b6a",
+      "timestamp": "2026-02-11T01:17:14Z",
+      "action": "task_created",
+      "taskId": "T4279",
+      "actor": "system",
+      "details": {
+        "title": "Add agent protocol guard against manual git push for releases",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Add agent protocol guard against manual git push for releases",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772639-5d74ca",
+      "timestamp": "2026-02-11T01:17:19Z",
+      "action": "task_created",
+      "taskId": "T4280",
+      "actor": "system",
+      "details": {
+        "title": "Guard against manual git push for releases in agent protocols",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Guard against manual git push for releases in agent protocols",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772645-2c4fc2",
+      "timestamp": "2026-02-11T01:17:25Z",
+      "action": "task_created",
+      "taskId": "T4281",
+      "actor": "system",
+      "details": {
+        "title": "Guard against manual git push for releases",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Guard against manual git push for releases",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772651-017003",
+      "timestamp": "2026-02-11T01:17:31Z",
+      "action": "task_created",
+      "taskId": "T4282",
+      "actor": "system",
+      "details": {
+        "title": "Enforce release push via agent protocols",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Enforce release push via agent protocols",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770772657-f7b9e2",
+      "timestamp": "2026-02-11T01:17:37Z",
+      "action": "task_created",
+      "taskId": "T4283",
+      "actor": "system",
+      "details": {
+        "title": "Enforce release push in agent protocols",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Enforce release push in agent protocols",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
