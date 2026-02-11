@@ -2,6 +2,14 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [0.90.2] - 2026-02-11
+
+### Documentation
+- docs: Full Mintlify changelog page with all releases from v0.90.1 to v0.37.0 (835 lines)
+- docs: MCP Server getting started page in Mintlify (docs/getting-started/mcp-server.mdx)
+- docs: MCP Server quickstart guide with installation, configuration, and workflows (docs/guides/mcp-quickstart.mdx)
+- docs: Updated docs.json navigation with MCP Server group in Getting Started and MCP Integration group in Guides
+
 ## [0.90.1] - 2026-02-11
 
 ### Documentation (T1432)
@@ -72,6 +80,11 @@ All notable changes to the CLEO system will be documented in this file.
 - fix(data): Repaired checksum mismatch — `ct validate` now returns `valid: true`
 
 ## [Unreleased]
+
+## [0.90.2] - 2026-02-10
+
+
+
 
 ## [0.88.0] - 2026-02-10
 

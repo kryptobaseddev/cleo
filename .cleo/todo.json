@@ -639,16 +639,18 @@
       },
       {
         "version": "v0.90.2",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-11T06:13:09Z",
         "createdAt": "2026-02-11T06:12:08Z",
         "tasks": [],
-        "notes": "Mintlify docs: full changelog page, MCP Server getting started, MCP quickstart guide"
+        "notes": "Mintlify docs: full changelog page, MCP Server getting started, MCP quickstart guide",
+        "gitTag": "v0.90.2",
+        "changelog": "## [0.90.2] - 2026-02-10"
       }
     ]
   },
-  "lastUpdated": "2026-02-11T06:12:08Z",
+  "lastUpdated": "2026-02-11T06:13:09Z",
   "_meta": {
     "checksum": "2e03b1171d970c9b",
     "configVersion": "2.1.0",
@@ -659,7 +661,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2716
+    "generation": 2719
   },
   "focus": {
     "currentTask": null,
