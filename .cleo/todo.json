@@ -672,9 +672,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T23:37:53Z",
+  "lastUpdated": "2026-02-11T23:38:06Z",
   "_meta": {
-    "checksum": "8c53336e641348bf",
+    "checksum": "044b302d2653ce6e",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -11911,6 +11911,59 @@
         "T4355",
         "T4356"
       ]
+    },
+    {
+      "id": "T4360",
+      "title": "Update CLEO-INJECTION.md for MCP-first guidance",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-11T23:37:59Z",
+      "updatedAt": "2026-02-11T23:37:59Z",
+      "size": "medium",
+      "position": 855,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add MCP-first entry section (Level 0) at top of templates/CLEO-INJECTION.md. Add progressive disclosure guidance showing how agents escalate from Level 0 to Level 3. Condense CLI reference into a fallback appendix. Keep full protocol stack content (Level 3) intact for orchestrator use. Reference: docs/specs/MCP-AGENT-INTERACTION-SPEC.md Section 8."
+    },
+    {
+      "id": "T4361",
+      "title": "Implement cleo research tree command",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:38:04Z",
+      "updatedAt": "2026-02-11T23:38:04Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Build 'cleo research tree' command to visualize the manifest hierarchy as an ASCII tree. Features: (1) Display full tree from root entries. (2) Support --root <id> to show subtree from specific entry. (3) Support --depth <n> to limit display depth. (4) Show entry metadata inline (title, status, date, topic count). (5) Color-coded by status (complete=green, partial=yellow, blocked=red). (6) JSON output mode (--json) for programmatic consumption. (7) Performance: render <1s for 1K entries. Implementation in scripts/research.sh with tree-rendering helpers in lib/ (or lib/ui/ post-Track-A).",
+      "labels": [
+        "commands",
+        "implementation",
+        "manifest"
+      ],
+      "depends": [
+        "T4358"
+      ]
+    },
+    {
+      "id": "T4362",
+      "title": "Implement progressive disclosure layer in MCP server",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-11T23:38:06Z",
+      "updatedAt": "2026-02-11T23:38:06Z",
+      "size": "medium",
+      "position": 856,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add system.help operation to MCP server that serves context at 4 disclosure levels. Level 0: minimal entry (two tools, quick reference). Level 1: domain discovery (all operations listed). Level 2: operation-specific (parameter schemas, error codes, examples). Level 3: protocol-aware (full lifecycle gates, validation rules). Implementation in mcp-server/src/engine/ or new disclosure module. Reference: docs/specs/MCP-AGENT-INTERACTION-SPEC.md Section 6."
     }
   ],
   "labels": {}
