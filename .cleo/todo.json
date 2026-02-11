@@ -603,9 +603,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T04:13:45Z",
+  "lastUpdated": "2026-02-11T04:18:45Z",
   "_meta": {
-    "checksum": "9ee87949d8295e25",
+    "checksum": "56b97c02202f5342",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -614,7 +614,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2467
+    "generation": 2611
   },
   "focus": {
     "currentTask": null,
@@ -4983,7 +4983,7 @@
       "updatedAt": "2026-01-05T18:07:40Z",
       "completedAt": "2026-01-05T18:01:30Z",
       "verification": {
-        "passed": true,
+        "passed": false,
         "round": 0,
         "gates": {
           "implemented": true,
@@ -4994,7 +4994,7 @@
           "documented": null
         },
         "lastAgent": "coder",
-        "lastUpdated": "2026-01-05T18:01:31Z",
+        "lastUpdated": "2026-02-11T04:16:28Z",
         "failureLog": []
       },
       "size": "medium",
@@ -6846,20 +6846,6 @@
       ]
     },
     {
-      "id": "T2120",
-      "title": "Test metrics integration",
-      "status": "pending",
-      "priority": "medium",
-      "type": "task",
-      "parentId": null,
-      "createdAt": "2026-01-23T09:13:50Z",
-      "updatedAt": "2026-01-23T09:13:50Z",
-      "size": "medium",
-      "position": 127,
-      "positionVersion": 0,
-      "phase": "core"
-    },
-    {
       "id": "T2150",
       "title": "Add format validation before resolve_format calls",
       "status": "pending",
@@ -7068,28 +7054,6 @@
       ]
     },
     {
-      "id": "T2178",
-      "title": "Project Registry Architecture Fix",
-      "status": "done",
-      "priority": "critical",
-      "type": "epic",
-      "parentId": null,
-      "createdAt": "2026-01-23T22:53:41Z",
-      "updatedAt": "2026-02-03T09:00:22Z",
-      "size": "large",
-      "position": 132,
-      "positionVersion": 1,
-      "phase": "core",
-      "description": "Fix project registry system: projects are being registered IN the CLEO repo instead of properly distributed between global ~/.cleo/ (system-wide list) and per-project .cleo/ (project details). Must preserve compatibility with doctor, self-update, install, init, upgrade commands.",
-      "notes": [
-        "[COMPLETED 2026-01-24T00:21:53Z] Epic complete. Git maintenance done (removed .claude/, .serena/, projects-registry.json from tracking). Hybrid registry architecture implemented with global+per-project split. 59 new tests. Full documentation.",
-        "[REOPENED 2026-01-24T02:04:03Z] Reason: Additional fixes needed: injection version cleanup, cleoVersion update issues | Was completed at: 2026-01-24T00:21:53Z",
-        "[COMPLETED 2026-01-24T11:40:34Z] Epic complete. Hybrid registry architecture fully implemented and cleaned up. v0.69.0 released.",
-        "[COMPLETED 2026-02-03T09:00:22Z] Hybrid registry architecture fully implemented and cleaned up. Completed 2026-01-24. Status correction per T2989."
-      ],
-      "completedAt": "2026-02-03T09:00:22Z"
-    },
-    {
       "id": "T2199",
       "title": "Release Management & Version Automation Epic",
       "status": "pending",
@@ -7194,40 +7158,6 @@
         "T2200",
         "T2201"
       ]
-    },
-    {
-      "id": "T2213",
-      "title": "Clean up hybrid registry data format issues",
-      "status": "pending",
-      "priority": "high",
-      "type": "task",
-      "parentId": "T2178",
-      "createdAt": "2026-01-24T02:04:07Z",
-      "updatedAt": "2026-01-26T21:53:55Z",
-      "size": "medium",
-      "position": 3,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Issues found during testing:\n1. Global registry 'injection' field has 'version' subfield that should be removed (minimal format)\n2. 'cleoVersion' not updating properly - still shows old version, especially in mode=dev\n3. Global registry has duplicate data (both old full format AND new minimal fields)\n4. Additional findings from user review TBD\n\nGoal: Global registry should have ONLY minimal fields, detailed data stays in project-info.json",
-      "completedAt": "2026-01-24T11:40:07Z",
-      "notes": [
-        "[COMPLETED 2026-01-24T11:40:07Z] All 13 subtasks complete. v0.69.0 released with doctor validation details, registry cleanup, and feature sync."
-      ],
-      "verification": {
-        "passed": false,
-        "round": 0,
-        "gates": {
-          "implemented": true,
-          "testsPassed": null,
-          "qaPassed": null,
-          "cleanupDone": null,
-          "securityPassed": null,
-          "documented": null
-        },
-        "lastAgent": "coder",
-        "lastUpdated": "2026-01-24T11:40:08Z",
-        "failureLog": []
-      }
     },
     {
       "id": "T2235",
@@ -11471,12 +11401,12 @@
     {
       "id": "T3193",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:33:19Z",
-      "updatedAt": "2026-02-09T21:34:03Z",
+      "updatedAt": "2026-02-11T04:14:44Z",
       "size": "medium",
       "position": 223,
       "positionVersion": 0,
@@ -11484,7 +11414,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:44Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3194",
@@ -12024,12 +11970,12 @@
     {
       "id": "T3224",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:40:44Z",
-      "updatedAt": "2026-02-09T21:41:10Z",
+      "updatedAt": "2026-02-11T04:14:48Z",
       "size": "medium",
       "position": 247,
       "positionVersion": 0,
@@ -12037,7 +11983,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:48Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3225",
@@ -12106,17 +12068,33 @@
     {
       "id": "T3228",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:40:56Z",
-      "updatedAt": "2026-02-09T21:40:56Z",
+      "updatedAt": "2026-02-11T04:14:51Z",
       "size": "medium",
       "position": 248,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:14:51Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:52Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3229",
@@ -12301,17 +12279,33 @@
     {
       "id": "T3241",
       "title": "Bad Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:41:08Z",
-      "updatedAt": "2026-02-09T21:41:08Z",
+      "updatedAt": "2026-02-11T04:14:54Z",
       "size": "medium",
       "position": 252,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Bad Task"
+      "description": "Bad Task",
+      "completedAt": "2026-02-11T04:14:54Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:55Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3242",
@@ -12331,12 +12325,12 @@
     {
       "id": "T3243",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:41:29Z",
-      "updatedAt": "2026-02-09T21:41:59Z",
+      "updatedAt": "2026-02-11T04:14:57Z",
       "size": "medium",
       "position": 254,
       "positionVersion": 0,
@@ -12344,7 +12338,23 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:57Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:58Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3244",
@@ -12384,12 +12394,12 @@
     {
       "id": "T3245",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:42:18Z",
-      "updatedAt": "2026-02-09T21:42:36Z",
+      "updatedAt": "2026-02-11T04:15:01Z",
       "size": "medium",
       "position": 255,
       "positionVersion": 0,
@@ -12397,7 +12407,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:01Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3246",
@@ -12451,17 +12477,33 @@
     {
       "id": "T3248",
       "title": "E2E Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:42:22Z",
-      "updatedAt": "2026-02-09T21:42:22Z",
+      "updatedAt": "2026-02-11T04:15:04Z",
       "size": "medium",
       "position": 256,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task created for end-to-end workflow testing"
+      "description": "Task created for end-to-end workflow testing",
+      "completedAt": "2026-02-11T04:15:04Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3249",
@@ -12562,17 +12604,33 @@
     {
       "id": "T3255",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:42:31Z",
-      "updatedAt": "2026-02-09T21:42:31Z",
+      "updatedAt": "2026-02-11T04:15:07Z",
       "size": "medium",
       "position": 261,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:15:07Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:08Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3256",
@@ -12708,12 +12766,12 @@
     {
       "id": "T3264",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:42:44Z",
-      "updatedAt": "2026-02-09T21:43:28Z",
+      "updatedAt": "2026-02-11T04:15:10Z",
       "size": "medium",
       "position": 268,
       "positionVersion": 0,
@@ -12721,7 +12779,23 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:10Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3265",
@@ -12861,12 +12935,12 @@
     {
       "id": "T3272",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:42:59Z",
-      "updatedAt": "2026-02-09T21:43:16Z",
+      "updatedAt": "2026-02-11T04:15:14Z",
       "size": "medium",
       "position": 271,
       "positionVersion": 0,
@@ -12875,7 +12949,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:14Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:14Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3273",
@@ -13345,12 +13435,12 @@
     {
       "id": "T3305",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:44:31Z",
-      "updatedAt": "2026-02-09T21:44:48Z",
+      "updatedAt": "2026-02-11T04:15:17Z",
       "size": "medium",
       "position": 291,
       "positionVersion": 0,
@@ -13358,7 +13448,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:17Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:18Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3306",
@@ -13537,17 +13643,33 @@
     {
       "id": "T3316",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:44:44Z",
-      "updatedAt": "2026-02-09T21:44:44Z",
+      "updatedAt": "2026-02-11T04:15:20Z",
       "size": "medium",
       "position": 297,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:15:20Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:21Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3317",
@@ -13627,12 +13749,12 @@
     {
       "id": "T3322",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:44:48Z",
-      "updatedAt": "2026-02-09T21:45:21Z",
+      "updatedAt": "2026-02-11T04:15:24Z",
       "size": "medium",
       "position": 302,
       "positionVersion": 0,
@@ -13641,7 +13763,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:24Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3323",
@@ -14080,17 +14218,33 @@
     {
       "id": "T3351",
       "title": "E2E Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:46:34Z",
-      "updatedAt": "2026-02-09T21:46:34Z",
+      "updatedAt": "2026-02-11T04:15:27Z",
       "size": "medium",
       "position": 326,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task created for end-to-end workflow testing"
+      "description": "Task created for end-to-end workflow testing",
+      "completedAt": "2026-02-11T04:15:27Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3352",
@@ -14226,12 +14380,12 @@
     {
       "id": "T3359",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:48:30Z",
-      "updatedAt": "2026-02-09T21:48:44Z",
+      "updatedAt": "2026-02-11T04:15:30Z",
       "size": "medium",
       "position": 334,
       "positionVersion": 0,
@@ -14239,7 +14393,23 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:30Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3360",
@@ -14345,12 +14515,12 @@
     {
       "id": "T3365",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:49:29Z",
-      "updatedAt": "2026-02-09T21:49:55Z",
+      "updatedAt": "2026-02-11T04:15:34Z",
       "size": "medium",
       "position": 338,
       "positionVersion": 0,
@@ -14358,7 +14528,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:34Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:34Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3366",
@@ -14442,17 +14628,33 @@
     {
       "id": "T3370",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:49:42Z",
-      "updatedAt": "2026-02-09T21:49:42Z",
+      "updatedAt": "2026-02-11T04:15:37Z",
       "size": "medium",
       "position": 340,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:15:37Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:38Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3371",
@@ -14637,17 +14839,33 @@
     {
       "id": "T3383",
       "title": "Bad Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:49:53Z",
-      "updatedAt": "2026-02-09T21:49:53Z",
+      "updatedAt": "2026-02-11T04:15:40Z",
       "size": "medium",
       "position": 344,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Bad Task"
+      "description": "Bad Task",
+      "completedAt": "2026-02-11T04:15:40Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3384",
@@ -14667,12 +14885,12 @@
     {
       "id": "T3385",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:50:12Z",
-      "updatedAt": "2026-02-09T21:50:28Z",
+      "updatedAt": "2026-02-11T04:15:44Z",
       "size": "medium",
       "position": 346,
       "positionVersion": 0,
@@ -14680,7 +14898,23 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:44Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3386",
@@ -14836,12 +15070,12 @@
     {
       "id": "T3393",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:51:10Z",
-      "updatedAt": "2026-02-09T21:52:00Z",
+      "updatedAt": "2026-02-11T04:15:47Z",
       "size": "medium",
       "position": 352,
       "positionVersion": 0,
@@ -14849,7 +15083,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:47Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3394",
@@ -14889,17 +15139,33 @@
     {
       "id": "T3395",
       "title": "Mutate Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3393",
       "createdAt": "2026-02-09T21:51:13Z",
-      "updatedAt": "2026-02-09T21:51:13Z",
+      "updatedAt": "2026-02-11T04:13:48Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing mutate operations"
+      "description": "Task for testing mutate operations",
+      "completedAt": "2026-02-11T04:13:48Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:49Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3397",
@@ -14937,17 +15203,33 @@
     {
       "id": "T3400",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:51:24Z",
-      "updatedAt": "2026-02-09T21:51:24Z",
+      "updatedAt": "2026-02-11T04:15:50Z",
       "size": "medium",
       "position": 355,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:15:50Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:51Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3401",
@@ -15152,17 +15434,33 @@
     {
       "id": "T3414",
       "title": "Bad Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:51:35Z",
-      "updatedAt": "2026-02-09T21:51:35Z",
+      "updatedAt": "2026-02-11T04:15:53Z",
       "size": "medium",
       "position": 360,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Bad Task"
+      "description": "Bad Task",
+      "completedAt": "2026-02-11T04:15:53Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:54Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3415",
@@ -15212,17 +15510,33 @@
     {
       "id": "T3418",
       "title": "E2E Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:52:15Z",
-      "updatedAt": "2026-02-09T21:52:15Z",
+      "updatedAt": "2026-02-11T04:15:57Z",
       "size": "medium",
       "position": 363,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task created for end-to-end workflow testing"
+      "description": "Task created for end-to-end workflow testing",
+      "completedAt": "2026-02-11T04:15:57Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:58Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3419",
@@ -15317,12 +15631,12 @@
     {
       "id": "T3425",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:52:24Z",
-      "updatedAt": "2026-02-09T21:52:28Z",
+      "updatedAt": "2026-02-11T04:16:00Z",
       "size": "medium",
       "position": 367,
       "positionVersion": 0,
@@ -15330,7 +15644,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:00Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3426",
@@ -15380,17 +15710,33 @@
     {
       "id": "T3429",
       "title": "Mutate Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3425",
       "createdAt": "2026-02-09T21:52:26Z",
-      "updatedAt": "2026-02-09T21:52:26Z",
+      "updatedAt": "2026-02-11T04:13:51Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing mutate operations"
+      "description": "Task for testing mutate operations",
+      "completedAt": "2026-02-11T04:13:51Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:52Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3430",
@@ -15534,12 +15880,12 @@
     {
       "id": "T3439",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:52:47Z",
-      "updatedAt": "2026-02-09T21:52:57Z",
+      "updatedAt": "2026-02-11T04:16:03Z",
       "size": "medium",
       "position": 375,
       "positionVersion": 0,
@@ -15548,7 +15894,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:03Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:04Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3440",
@@ -16243,12 +16605,12 @@
     {
       "id": "T3483",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:54:45Z",
-      "updatedAt": "2026-02-09T21:54:56Z",
+      "updatedAt": "2026-02-11T04:16:07Z",
       "size": "medium",
       "position": 395,
       "positionVersion": 0,
@@ -16257,7 +16619,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:07Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:08Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3484",
@@ -17119,12 +17497,12 @@
     {
       "id": "T3537",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:56:30Z",
-      "updatedAt": "2026-02-09T21:56:40Z",
+      "updatedAt": "2026-02-11T04:16:10Z",
       "size": "medium",
       "position": 430,
       "positionVersion": 0,
@@ -17133,7 +17511,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:10Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3538",
@@ -17677,12 +18071,12 @@
     {
       "id": "T3571",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:57:39Z",
-      "updatedAt": "2026-02-09T21:57:48Z",
+      "updatedAt": "2026-02-11T04:16:13Z",
       "size": "medium",
       "position": 449,
       "positionVersion": 0,
@@ -17690,7 +18084,23 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:13Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:14Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3572",
@@ -17710,12 +18120,12 @@
     {
       "id": "T3573",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3571",
       "createdAt": "2026-02-09T21:57:39Z",
-      "updatedAt": "2026-02-09T21:57:39Z",
+      "updatedAt": "2026-02-11T04:13:54Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -17724,7 +18134,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:13:54Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:55Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3574",
@@ -17799,12 +18225,12 @@
     {
       "id": "T3578",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:57:52Z",
-      "updatedAt": "2026-02-09T21:58:03Z",
+      "updatedAt": "2026-02-11T04:16:17Z",
       "size": "medium",
       "position": 452,
       "positionVersion": 0,
@@ -17813,7 +18239,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:17Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:17Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3579",
@@ -18399,12 +18841,12 @@
     {
       "id": "T3615",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:59:16Z",
-      "updatedAt": "2026-02-09T21:59:49Z",
+      "updatedAt": "2026-02-11T04:16:20Z",
       "size": "medium",
       "position": 476,
       "positionVersion": 0,
@@ -18412,7 +18854,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:20Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:21Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3616",
@@ -18496,17 +18954,33 @@
     {
       "id": "T3621",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:59:32Z",
-      "updatedAt": "2026-02-09T21:59:32Z",
+      "updatedAt": "2026-02-11T04:16:23Z",
       "size": "medium",
       "position": 477,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:16:23Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3622",
@@ -18691,17 +19165,33 @@
     {
       "id": "T3634",
       "title": "Bad Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T21:59:44Z",
-      "updatedAt": "2026-02-09T21:59:44Z",
+      "updatedAt": "2026-02-11T04:16:27Z",
       "size": "medium",
       "position": 481,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Bad Task"
+      "description": "Bad Task",
+      "completedAt": "2026-02-11T04:16:27Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:27Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3635",
@@ -18740,12 +19230,12 @@
     {
       "id": "T3636",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:00:10Z",
-      "updatedAt": "2026-02-09T22:01:47Z",
+      "updatedAt": "2026-02-11T04:16:30Z",
       "size": "medium",
       "position": 483,
       "positionVersion": 0,
@@ -18753,17 +19243,18 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:30Z"
     },
     {
       "id": "T3637",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3636",
       "createdAt": "2026-02-09T22:00:11Z",
-      "updatedAt": "2026-02-09T22:00:11Z",
+      "updatedAt": "2026-02-11T04:13:58Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -18772,7 +19263,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:13:58Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:13:59Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3638",
@@ -18807,12 +19314,12 @@
     {
       "id": "T3640",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:01:54Z",
-      "updatedAt": "2026-02-09T22:02:29Z",
+      "updatedAt": "2026-02-11T04:16:34Z",
       "size": "medium",
       "position": 486,
       "positionVersion": 0,
@@ -18820,7 +19327,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:34Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:35Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3641",
@@ -18922,17 +19445,33 @@
     {
       "id": "T3646",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:02:11Z",
-      "updatedAt": "2026-02-09T22:02:11Z",
+      "updatedAt": "2026-02-11T04:16:37Z",
       "size": "medium",
       "position": 488,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:16:37Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:38Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3647",
@@ -19117,17 +19656,33 @@
     {
       "id": "T3659",
       "title": "Bad Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:02:24Z",
-      "updatedAt": "2026-02-09T22:02:24Z",
+      "updatedAt": "2026-02-11T04:16:41Z",
       "size": "medium",
       "position": 492,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Bad Task"
+      "description": "Bad Task",
+      "completedAt": "2026-02-11T04:16:41Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3660",
@@ -19166,12 +19721,12 @@
     {
       "id": "T3661",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:02:53Z",
-      "updatedAt": "2026-02-09T22:03:02Z",
+      "updatedAt": "2026-02-11T04:16:44Z",
       "size": "medium",
       "position": 494,
       "positionVersion": 0,
@@ -19179,17 +19734,33 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:44Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3662",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3661",
       "createdAt": "2026-02-09T22:02:54Z",
-      "updatedAt": "2026-02-09T22:02:54Z",
+      "updatedAt": "2026-02-11T04:14:01Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -19198,7 +19769,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:01Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:02Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3663",
@@ -19370,12 +19957,12 @@
     {
       "id": "T3673",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:03:36Z",
-      "updatedAt": "2026-02-09T22:03:49Z",
+      "updatedAt": "2026-02-11T04:16:47Z",
       "size": "medium",
       "position": 499,
       "positionVersion": 0,
@@ -19384,7 +19971,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:47Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3674",
@@ -19874,12 +20477,12 @@
     {
       "id": "T3704",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:04:37Z",
-      "updatedAt": "2026-02-09T22:05:07Z",
+      "updatedAt": "2026-02-11T04:16:51Z",
       "size": "medium",
       "position": 519,
       "positionVersion": 0,
@@ -19887,7 +20490,23 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:16:51Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:51Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3706",
@@ -20014,7 +20633,22 @@
       "position": 522,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:55Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3714",
@@ -20199,17 +20833,33 @@
     {
       "id": "T3727",
       "title": "Bad Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:05:06Z",
-      "updatedAt": "2026-02-09T22:05:06Z",
+      "updatedAt": "2026-02-11T04:16:57Z",
       "size": "medium",
       "position": 526,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Bad Task"
+      "description": "Bad Task",
+      "completedAt": "2026-02-11T04:16:57Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:16:58Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3728",
@@ -20342,12 +20992,12 @@
     {
       "id": "T3736",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:05:18Z",
-      "updatedAt": "2026-02-09T22:06:13Z",
+      "updatedAt": "2026-02-11T04:17:00Z",
       "size": "medium",
       "position": 535,
       "positionVersion": 0,
@@ -20356,7 +21006,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:17:00Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3737",
@@ -20767,17 +21433,33 @@
     {
       "id": "T3761",
       "title": "E2E Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:06:25Z",
-      "updatedAt": "2026-02-09T22:06:25Z",
+      "updatedAt": "2026-02-11T04:17:03Z",
       "size": "medium",
       "position": 557,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task created for end-to-end workflow testing"
+      "description": "Task created for end-to-end workflow testing",
+      "completedAt": "2026-02-11T04:17:03Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:04Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3762",
@@ -20878,12 +21560,12 @@
     {
       "id": "T3768",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:06:37Z",
-      "updatedAt": "2026-02-09T22:06:37Z",
+      "updatedAt": "2026-02-11T04:17:07Z",
       "size": "medium",
       "position": 561,
       "positionVersion": 0,
@@ -20892,7 +21574,23 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:17:07Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:08Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3769",
@@ -21066,12 +21764,12 @@
     {
       "id": "T3780",
       "title": "Mutate Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:07:00Z",
-      "updatedAt": "2026-02-09T22:07:54Z",
+      "updatedAt": "2026-02-11T04:17:10Z",
       "size": "medium",
       "position": 571,
       "positionVersion": 0,
@@ -21079,17 +21777,33 @@
       "description": "Epic for testing mutate gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:17:10Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3781",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:07:03Z",
-      "updatedAt": "2026-02-09T22:07:03Z",
+      "updatedAt": "2026-02-11T04:17:13Z",
       "size": "medium",
       "position": 572,
       "positionVersion": 0,
@@ -21097,7 +21811,23 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:17:13Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:14Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3782",
@@ -21181,17 +21911,33 @@
     {
       "id": "T3786",
       "title": "Audit Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:07:37Z",
-      "updatedAt": "2026-02-09T22:07:37Z",
+      "updatedAt": "2026-02-11T04:17:17Z",
       "size": "medium",
       "position": 573,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing audit logging"
+      "description": "Task for testing audit logging",
+      "completedAt": "2026-02-11T04:17:17Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:18Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3787",
@@ -21376,17 +22122,33 @@
     {
       "id": "T3799",
       "title": "Bad Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:07:49Z",
-      "updatedAt": "2026-02-09T22:07:49Z",
+      "updatedAt": "2026-02-11T04:17:20Z",
       "size": "medium",
       "position": 577,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Bad Task"
+      "description": "Bad Task",
+      "completedAt": "2026-02-11T04:17:20Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:21Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3800",
@@ -21460,12 +22222,12 @@
     {
       "id": "T3802",
       "title": "Session Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:08:20Z",
-      "updatedAt": "2026-02-09T22:08:21Z",
+      "updatedAt": "2026-02-11T04:17:24Z",
       "size": "medium",
       "position": 580,
       "positionVersion": 0,
@@ -21474,17 +22236,33 @@
       "labels": [
         "epic",
         "session-test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:17:24Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3803",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:08:21Z",
-      "updatedAt": "2026-02-09T22:08:29Z",
+      "updatedAt": "2026-02-11T04:17:27Z",
       "size": "medium",
       "position": 581,
       "positionVersion": 0,
@@ -21492,17 +22270,33 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:17:27Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:17:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3804",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3803",
       "createdAt": "2026-02-09T22:08:22Z",
-      "updatedAt": "2026-02-09T22:08:22Z",
+      "updatedAt": "2026-02-11T04:14:04Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -21511,7 +22305,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:04Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3805",
@@ -21576,12 +22386,12 @@
     {
       "id": "T3809",
       "title": "Integration Test Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-09T22:13:00Z",
-      "updatedAt": "2026-02-09T22:13:26Z",
+      "updatedAt": "2026-02-11T04:17:30Z",
       "size": "medium",
       "position": 585,
       "positionVersion": 0,
@@ -21589,17 +22399,18 @@
       "description": "Epic for testing query gateway operations",
       "labels": [
         "epic"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:17:30Z"
     },
     {
       "id": "T3810",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3809",
       "createdAt": "2026-02-09T22:13:01Z",
-      "updatedAt": "2026-02-09T22:13:01Z",
+      "updatedAt": "2026-02-11T04:14:07Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -21608,7 +22419,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:07Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:08Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3811",
@@ -22750,17 +23577,33 @@
     {
       "id": "T3884",
       "title": "Mutate Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3874",
       "createdAt": "2026-02-09T22:14:54Z",
-      "updatedAt": "2026-02-09T22:14:54Z",
+      "updatedAt": "2026-02-11T04:14:11Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Task for testing mutate operations"
+      "description": "Task for testing mutate operations",
+      "completedAt": "2026-02-11T04:14:11Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:12Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3885",
@@ -23035,12 +23878,12 @@
     {
       "id": "T3904",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3902",
       "createdAt": "2026-02-09T22:15:24Z",
-      "updatedAt": "2026-02-09T22:15:24Z",
+      "updatedAt": "2026-02-11T04:14:14Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -23049,7 +23892,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:14Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:15Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3905",
@@ -23780,12 +24639,12 @@
     {
       "id": "T3950",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3949",
       "createdAt": "2026-02-09T22:18:08Z",
-      "updatedAt": "2026-02-09T22:18:08Z",
+      "updatedAt": "2026-02-11T04:14:17Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -23794,7 +24653,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:17Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:18Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3951",
@@ -24143,12 +25018,12 @@
     {
       "id": "T3973",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3972",
       "createdAt": "2026-02-09T22:19:22Z",
-      "updatedAt": "2026-02-09T22:19:22Z",
+      "updatedAt": "2026-02-11T04:14:20Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -24157,7 +25032,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:20Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:21Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3974",
@@ -24274,12 +25165,12 @@
     {
       "id": "T3981",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T3980",
       "createdAt": "2026-02-09T22:21:25Z",
-      "updatedAt": "2026-02-09T22:21:25Z",
+      "updatedAt": "2026-02-11T04:14:24Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -24288,7 +25179,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:24Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3982",
@@ -24908,12 +25815,12 @@
     {
       "id": "T4019",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4018",
       "createdAt": "2026-02-09T22:26:57Z",
-      "updatedAt": "2026-02-09T22:26:57Z",
+      "updatedAt": "2026-02-11T04:14:27Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -24922,7 +25829,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:27Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4020",
@@ -25455,12 +26378,12 @@
     {
       "id": "T4052",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4050",
       "createdAt": "2026-02-09T22:29:26Z",
-      "updatedAt": "2026-02-09T22:29:26Z",
+      "updatedAt": "2026-02-11T04:14:30Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -25469,7 +26392,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:30Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4053",
@@ -26451,12 +27390,12 @@
     {
       "id": "T4113",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4112",
       "createdAt": "2026-02-09T22:31:54Z",
-      "updatedAt": "2026-02-09T22:31:54Z",
+      "updatedAt": "2026-02-11T04:14:33Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -26465,7 +27404,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:33Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:34Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4114",
@@ -27600,12 +28555,12 @@
     {
       "id": "T4188",
       "title": "Integration Test Task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4163",
       "createdAt": "2026-02-09T22:34:37Z",
-      "updatedAt": "2026-02-09T22:34:37Z",
+      "updatedAt": "2026-02-11T04:14:36Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -27614,7 +28569,23 @@
       "labels": [
         "integration",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:14:36Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:14:37Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4189",
@@ -30248,12 +31219,12 @@
     {
       "id": "T4314",
       "title": "Fix tasks.next 30s timeout issue",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4309",
       "createdAt": "2026-02-11T04:07:56Z",
-      "updatedAt": "2026-02-11T04:07:56Z",
+      "updatedAt": "2026-02-11T04:15:32Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -30262,17 +31233,36 @@
       "labels": [
         "defect",
         "mcp-server"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:15:32Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:15:32Z] Added timeout: 60000 to queryNext() executor call to prevent 30s timeout"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:15:33Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4315",
       "title": "Fix tasks.tree root scoping",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4309",
       "createdAt": "2026-02-11T04:08:13Z",
-      "updatedAt": "2026-02-11T04:08:13Z",
+      "updatedAt": "2026-02-11T04:15:36Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -30281,17 +31271,21 @@
       "labels": [
         "defect",
         "mcp-server"
+      ],
+      "completedAt": "2026-02-11T04:15:36Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:15:36Z] Changed queryTree() to pass rootId as --parent flag instead of positional arg, so cleo tree scopes correctly"
       ]
     },
     {
       "id": "T4316",
       "title": "Fix research domain operations",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4309",
       "createdAt": "2026-02-11T04:08:14Z",
-      "updatedAt": "2026-02-11T04:08:14Z",
+      "updatedAt": "2026-02-11T04:16:25Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
@@ -30301,17 +31295,21 @@
         "defect",
         "mcp-server",
         "research-domain"
+      ],
+      "completedAt": "2026-02-11T04:16:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:16:25Z] Fixed 3 research domain bugs: (1) stats now uses ManifestReader directly instead of CLI for reliable parsing, (2) list now uses ManifestReader directly instead of CLI, (3) sanitizeParams now accepts manifest status values (complete/partial) alongside task statuses"
       ]
     },
     {
       "id": "T4317",
       "title": "Fix validate.task and validate.manifest scoping",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4309",
       "createdAt": "2026-02-11T04:08:16Z",
-      "updatedAt": "2026-02-11T04:08:16Z",
+      "updatedAt": "2026-02-11T04:18:44Z",
       "size": "medium",
       "position": 8,
       "positionVersion": 0,
@@ -30321,6 +31319,25 @@
         "defect",
         "mcp-server",
         "validate-domain"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:18:45Z",
+        "failureLog": []
+      },
+      "completedAt": "2026-02-11T04:18:44Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:18:44Z] Fixed scoped validation - queryTask runs 7 programmatic checks, queryManifest validates specific entries"
       ]
     },
     {
@@ -30385,12 +31402,12 @@
     {
       "id": "T4323",
       "title": "Repair integrity anomalies",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4321",
       "createdAt": "2026-02-11T04:09:24Z",
-      "updatedAt": "2026-02-11T04:09:24Z",
+      "updatedAt": "2026-02-11T04:18:31Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -30399,7 +31416,26 @@
       "labels": [
         "hygiene",
         "integrity"
-      ]
+      ],
+      "completedAt": "2026-02-11T04:18:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:18:31Z] Repaired 6 integrity anomalies: archived T3066 T3080, completed T1522, deleted T3077 T2213 T2120. Fixed todo.json corruption from concurrent write."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:18:32Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
