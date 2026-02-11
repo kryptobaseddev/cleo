@@ -4,6 +4,20 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.92.0] - 2026-02-11
+
+### Documentation (T4334, T4332)
+- docs: MCP-first Agent Interaction Specification with progressive disclosure architecture
+- docs: CLEO Path Forward Q1 2026 - canonical migration doctrine (MCP-first then hotspots)
+- docs: CAAMP Integration Interface - 191-function migration matrix across 9 domains
+- docs: CAAMP Integration Gap Analysis - priority triage (20 P0, 50 P1, 61 P3)
+- docs: Updated CLEO-STRATEGIC-ROADMAP-SPEC Phase 0 with T4334 completion status
+
+### Planning (T4344, T4352)
+- plan: Track A - lib/ hierarchy refactor epic (T4344) with 7 decomposed tasks
+- plan: Track B - manifest hierarchy + path query engine epic (T4352) with 9 decomposed tasks
+- plan: Established canonical TS migration doctrine: MCP-first then hotspots (not broad T2021 rewrite)
+
 ## [0.91.0] - 2026-02-11
 
 ### Features (T4334)
