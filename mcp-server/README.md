@@ -42,19 +42,23 @@ npm install @cleocode/mcp-server
 
 ## Quick Start
 
-### Running the Server
+### Option A: Auto-Configure (Recommended)
+
+CLEO's CLI auto-detects your installed AI tools and writes configs:
 
 ```bash
-# Via npm
-npx cleo-server
-
-# Or directly
-node dist/index.js
+cleo mcp-install              # Interactive: detect and configure
+cleo mcp-install --all        # Non-interactive: configure all detected tools
+cleo mcp-install --dry-run    # Preview changes without writing
 ```
 
-### Claude Desktop Configuration
+**Supported tools** (12): Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex
 
-Add to your Claude Desktop config (`claude_desktop_config.json`):
+See `cleo mcp-install --help` for all options.
+
+### Option B: Manual Configuration
+
+Add to your tool's MCP config:
 
 ```json
 {
@@ -67,7 +71,34 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 }
 ```
 
-Or use local installation:
+| Tool | Config Location |
+|------|----------------|
+| Claude Code | `.mcp.json` (project root) |
+| Claude Desktop | `claude_desktop_config.json` (OS-specific) |
+| Cursor | `~/.cursor/mcp.json` |
+| Gemini CLI | `~/.gemini/settings.json` |
+| VS Code | `.vscode/mcp.json` (key: `servers`) |
+| Zed | `~/.config/zed/settings.json` (key: `context_servers`, JSONC) |
+| OpenCode | `~/.config/opencode/.opencode.json` (key: `mcp`, array command, JSONC) |
+| Goose | `.goose/config.yaml` (YAML format) |
+| Codex | `~/.codex/config.toml` (TOML format) |
+
+**Goose YAML config example:**
+
+```yaml
+# .goose/config.yaml
+extensions:
+  cleo:
+    args:
+    - -y
+    - '@cleocode/mcp-server'
+    cmd: npx
+    enabled: true
+    name: cleo
+    type: stdio
+```
+
+For local development installs:
 
 ```json
 {

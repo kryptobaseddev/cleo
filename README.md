@@ -11,7 +11,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/License-BSL%201.1-blue" alt="License: Business Source License 1.1">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.87.1-blue.svg" alt="Version"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.88.0-blue.svg" alt="Version"></a>
   <a href="docs/specs/LLM-AGENT-FIRST-SPEC.md"><img src="https://img.shields.io/badge/design-LLM--Agent--First-purple.svg" alt="LLM-Agent-First"></a>
   <a href="tests/"><img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests"></a>
 </p>
@@ -94,7 +94,15 @@ CLEO provides:
 
 ### MCP Server (Deployed)
 
-- CLEO MCP server is deployed and operational in the v0.86.x line.
+Auto-configure CLEO's MCP server across your AI tools:
+
+```bash
+cleo mcp-install              # Auto-detect and configure all AI tools
+cleo mcp-install --list-tools # Show 12 supported tools
+```
+
+Supports: Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex
+
 - Canonical MCP contract: [`docs/specs/MCP-SERVER-SPECIFICATION.md`](docs/specs/MCP-SERVER-SPECIFICATION.md)
 - Implementation package docs: [`mcp-server/README.md`](mcp-server/README.md)
 - Implementation API index: [`mcp-server/docs/INDEX.md`](mcp-server/docs/INDEX.md)
