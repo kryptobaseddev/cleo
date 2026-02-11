@@ -603,18 +603,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T04:24:14Z",
+  "lastUpdated": "2026-02-11T04:51:39Z",
   "_meta": {
-    "checksum": "50bcbd90f2c6baaa",
+    "checksum": "737ac20e36da0ad9",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-10T17:31:48Z",
+    "lastModified": "2026-02-11T04:51:58Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 27,
-    "generation": 2615
+    "activeSessionCount": 28,
+    "generation": 2618
   },
   "focus": {
     "currentTask": null,
@@ -24428,7 +24428,7 @@
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:06Z",
-      "updatedAt": "2026-02-11T04:06:34.455Z",
+      "updatedAt": "2026-02-11T04:29:54.712Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -24451,7 +24451,7 @@
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:07Z",
-      "updatedAt": "2026-02-11T04:07:36.296Z",
+      "updatedAt": "2026-02-11T04:29:54.712Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -24471,7 +24471,7 @@
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:08Z",
-      "updatedAt": "2026-02-11T04:07:36.303Z",
+      "updatedAt": "2026-02-11T04:29:54.713Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -24491,7 +24491,7 @@
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:09Z",
-      "updatedAt": "2026-02-11T04:07:36.304Z",
+      "updatedAt": "2026-02-11T04:29:54.713Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -24511,7 +24511,7 @@
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:10Z",
-      "updatedAt": "2026-02-11T04:07:36.304Z",
+      "updatedAt": "2026-02-11T04:29:54.713Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -24531,7 +24531,7 @@
       "type": "task",
       "parentId": "T4284",
       "createdAt": "2026-02-11T03:58:11Z",
-      "updatedAt": "2026-02-11T04:09:26.314Z",
+      "updatedAt": "2026-02-11T04:29:54.713Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -24907,12 +24907,12 @@
     {
       "id": "T4309",
       "title": "EPIC: P0 MCP Gateway Defect Burndown",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-11T04:07:21Z",
-      "updatedAt": "2026-02-11T04:07:21Z",
+      "updatedAt": "2026-02-11T04:25:32Z",
       "size": "medium",
       "position": 845,
       "positionVersion": 0,
@@ -24923,6 +24923,10 @@
         "gateway",
         "mcp-server",
         "p0"
+      ],
+      "completedAt": "2026-02-11T04:25:32Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:25:32Z] All 10 MCP gateway defects fixed: system.doctor/stats/dash routing, session.list filtering, tasks.next timeout, tasks.tree scoping, research stats/list/manifest.read, validate.task/manifest scoping. 17 regression tests added, 967 total tests passing. 7 subtasks completed."
       ]
     },
     {
@@ -24947,17 +24951,32 @@
       "completedAt": "2026-02-11T04:24:14Z",
       "notes": [
         "[COMPLETED 2026-02-11T04:24:14Z] Added 17 regression tests across 5 domain test files (system, session, tasks, research, validate) covering all 10 MCP gateway defects fixed in T4310-T4317. Updated 6 pre-existing tests to match new implementations. All 967 tests pass."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T04:24:15Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4321",
       "title": "EPIC: P0 Backlog Hygiene Surgery",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-11T04:09:13Z",
-      "updatedAt": "2026-02-11T04:09:13Z",
+      "updatedAt": "2026-02-11T04:25:35Z",
       "size": "medium",
       "position": 846,
       "positionVersion": 0,
@@ -24967,6 +24986,10 @@
         "backlog",
         "hygiene",
         "p0"
+      ],
+      "completedAt": "2026-02-11T04:25:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-11T04:25:35Z] Backlog hygiene complete: 133 synthetic test artifacts archived, 6 integrity anomalies repaired, todo.json corruption fixed. Task count reduced from 1563 to 1354 (13.4% reduction)."
       ]
     },
     {
@@ -25006,6 +25029,102 @@
         "lastUpdated": "2026-02-11T04:20:18Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4325",
+      "title": "EPIC: P0.5 Data Integrity Recovery",
+      "status": "pending",
+      "priority": "critical",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-11T04:50:46Z",
+      "updatedAt": "2026-02-11T04:50:46Z",
+      "size": "medium",
+      "position": 847,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Systematic repair of all data integrity issues blocking reliable analytics and UI development. Must resolve before P1 execution lanes. Scope: (1) Archive/re-parent 152 orphaned tasks, (2) Normalize status model to canonical enum pending|active|blocked|done, (3) Fix pending+completedAt and completed-without-completedAt anomalies, (4) Repair checksum mismatch, (5) Archive remaining synthetic test artifacts (599+ matching synthetic patterns), (6) Fix 2 invalid research manifest entries, (7) Run validate until clean (valid:true). Exit criteria: ct validate --json returns valid:true with 0 errors."
+    },
+    {
+      "id": "T4326",
+      "title": "Resolve 152 orphaned tasks",
+      "status": "active",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4325",
+      "createdAt": "2026-02-11T04:51:09Z",
+      "updatedAt": "2026-02-11T04:51:58Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Identify all 152 orphaned tasks (parentId references missing parent). For each: (1) If parent was archived, re-parent to nearest surviving ancestor or promote to root. (2) If parent never existed, archive the orphan. (3) Run 'ct validate' after to confirm orphan count drops to 0. Use jq to scan todo.json for tasks where parentId is set but parent ID does not exist in the file."
+    },
+    {
+      "id": "T4327",
+      "title": "Normalize status model to canonical enum",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4325",
+      "createdAt": "2026-02-11T04:51:15Z",
+      "updatedAt": "2026-02-11T04:51:15Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fix status model drift: (1) Find all tasks with status=completed and change to status=done with proper completedAt timestamp. (2) Find all tasks with status=pending but completedAt set (T1522, T1269) and either clear completedAt or set status=done. (3) Verify schema enum is pending|active|blocked|done|cancelled. (4) Validate all tasks match canonical enum after fix."
+    },
+    {
+      "id": "T4328",
+      "title": "Archive remaining synthetic test artifacts",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4325",
+      "createdAt": "2026-02-11T04:51:24Z",
+      "updatedAt": "2026-02-11T04:51:24Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Archive the ~599 remaining synthetic/test tasks created on 2026-02-09 that match test naming patterns. Include: (1) Tasks matching patterns like 'Searchable Task', 'Test task', 'Batch test', 'Search test', 'Sort test', 'Filter test'. (2) Tasks with labels containing 'search-test', 'batch-test'. (3) 34 remaining 'Searchable Task ...' entries. Use ct archive with appropriate filters. Verify task count drops significantly after."
+    },
+    {
+      "id": "T4329",
+      "title": "Fix research manifest invalid entries",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4325",
+      "createdAt": "2026-02-11T04:51:30Z",
+      "updatedAt": "2026-02-11T04:51:30Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "ct validate reports 2 invalid research manifest entries. Diagnose: (1) Read .cleo/research/MANIFEST.jsonl and identify malformed lines. (2) Fix or remove invalid entries. (3) Verify manifest parses cleanly with jq."
+    },
+    {
+      "id": "T4330",
+      "title": "Repair checksum and validate clean",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4325",
+      "createdAt": "2026-02-11T04:51:39Z",
+      "updatedAt": "2026-02-11T04:51:39Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "After all other integrity fixes: (1) Run ct validate --fix to repair the stored checksum. (2) If --fix flag does not exist, manually compute and update checksum in .cleo/todo.json _meta section. (3) Run ct validate --json and confirm valid:true with 0 errors. (4) This is the gate task - all other T4325 children must complete first.",
+      "depends": [
+        "T4326",
+        "T4327",
+        "T4328",
+        "T4329"
+      ]
     }
   ],
   "labels": {}

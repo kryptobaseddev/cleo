@@ -103113,11 +103113,194 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_f6bfaefb3400",
+      "timestamp": "2026-02-11T04:24:16Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4318",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:24:14Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_28a4253bba6a",
+      "timestamp": "2026-02-11T04:25:33Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4309",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:25:32Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_82ef03de1777",
+      "timestamp": "2026-02-11T04:25:36Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4321",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:25:35Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770785446-f11228",
+      "timestamp": "2026-02-11T04:50:46Z",
+      "action": "task_created",
+      "taskId": "T4325",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: P0.5 Data Integrity Recovery",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: P0.5 Data Integrity Recovery",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1770785469-cea7e1",
+      "timestamp": "2026-02-11T04:51:09Z",
+      "action": "task_created",
+      "taskId": "T4326",
+      "actor": "system",
+      "details": {
+        "title": "Resolve 152 orphaned tasks",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Resolve 152 orphaned tasks",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770785476-074fd8",
+      "timestamp": "2026-02-11T04:51:16Z",
+      "action": "task_created",
+      "taskId": "T4327",
+      "actor": "system",
+      "details": {
+        "title": "Normalize status model to canonical enum",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Normalize status model to canonical enum",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770785484-0634aa",
+      "timestamp": "2026-02-11T04:51:24Z",
+      "action": "task_created",
+      "taskId": "T4328",
+      "actor": "system",
+      "details": {
+        "title": "Archive remaining synthetic test artifacts",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Archive remaining synthetic test artifacts",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770785490-d7df44",
+      "timestamp": "2026-02-11T04:51:30Z",
+      "action": "task_created",
+      "taskId": "T4329",
+      "actor": "system",
+      "details": {
+        "title": "Fix research manifest invalid entries",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix research manifest invalid entries",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770785499-c9d717",
+      "timestamp": "2026-02-11T04:51:39Z",
+      "action": "task_created",
+      "taskId": "T4330",
+      "actor": "system",
+      "details": {
+        "title": "Repair checksum and validate clean",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Repair checksum and validate clean",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_c7e8e0138b40",
+      "timestamp": "2026-02-11T04:51:59Z",
+      "sessionId": "session_20260210_205158_3bd86a",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4326",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4325"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5398,
-    "lastEntry": "2026-02-11T04:20:18Z",
+    "totalEntries": 5402,
+    "lastEntry": "2026-02-11T04:51:59Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
