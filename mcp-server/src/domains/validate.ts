@@ -173,6 +173,18 @@ export class ValidateHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
+    // CLI-only domain: check CLI availability
+    if (!this.executor.isAvailable()) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'validate',
+        operation,
+        'E_CLI_REQUIRED',
+        `Operation 'validate.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
+        startTime
+      );
+    }
+
     try {
       switch (operation) {
         case 'report':
@@ -221,6 +233,18 @@ export class ValidateHandler implements DomainHandler {
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
+
+    // CLI-only domain: check CLI availability
+    if (!this.executor.isAvailable()) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'validate',
+        operation,
+        'E_CLI_REQUIRED',
+        `Operation 'validate.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
+        startTime
+      );
+    }
 
     try {
       switch (operation) {

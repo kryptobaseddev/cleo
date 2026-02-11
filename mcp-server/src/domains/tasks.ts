@@ -15,6 +15,22 @@ import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
 import { formatSuccess, formatError, createError } from '../lib/formatter.js';
 import { ManifestReader } from '../lib/manifest.js';
+import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import type { ResolvedMode } from '../lib/mode-detector.js';
+import {
+  taskShow as nativeTaskShow,
+  taskList as nativeTaskList,
+  taskFind as nativeTaskFind,
+  taskExists as nativeTaskExists,
+  taskCreate as nativeTaskCreate,
+  taskUpdate as nativeTaskUpdate,
+  taskComplete as nativeTaskComplete,
+  taskDelete as nativeTaskDelete,
+  taskArchive as nativeTaskArchive,
+  resolveProjectRoot,
+  isProjectInitialized,
+} from '../engine/index.js';
+import { createCLIRequiredError, createNotInitializedError } from '../lib/mode-detector.js';
 import type {
   Task,
   MinimalTask,
@@ -157,12 +173,51 @@ interface TasksRelatesParams {
  */
 export class TasksHandler implements DomainHandler {
   private manifestReader: ManifestReader;
+  private executionMode: ResolvedMode;
+  private projectRoot: string;
 
   constructor(
     private executor: CLIExecutor,
-    manifestPath: string = 'claudedocs/agent-outputs/MANIFEST.jsonl'
+    manifestPath: string = 'claudedocs/agent-outputs/MANIFEST.jsonl',
+    executionMode: ResolvedMode = 'cli'
   ) {
     this.manifestReader = new ManifestReader(manifestPath);
+    this.executionMode = executionMode;
+    this.projectRoot = resolveProjectRoot();
+  }
+
+  /**
+   * Check if we should use native engine for this operation
+   */
+  private useNative(operation: string, gateway: GatewayType): boolean {
+    if (this.executionMode === 'cli' && this.executor.isAvailable()) {
+      return false;
+    }
+    return canRunNatively('tasks', operation, gateway);
+  }
+
+  /**
+   * Wrap a native engine result in DomainResponse format
+   */
+  private wrapNativeResult(
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    gateway: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+    if (result.success) {
+      return {
+        _meta: { gateway, domain: 'tasks', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        success: true,
+        data: result.data,
+      };
+    }
+    return {
+      _meta: { gateway, domain: 'tasks', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      success: false,
+      error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
+    };
   }
 
   /**
@@ -170,6 +225,21 @@ export class TasksHandler implements DomainHandler {
    */
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
+
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'query')) {
+      try {
+        return this.queryNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_query', 'tasks', operation, error, startTime);
+      }
+    }
+
+    // CLI-only operations: check CLI availability
+    if (!this.executor.isAvailable()) {
+      const err = createCLIRequiredError('tasks', operation);
+      return this.wrapNativeResult(err, 'cleo_query', operation, startTime);
+    }
 
     try {
       switch (operation) {
@@ -229,6 +299,21 @@ export class TasksHandler implements DomainHandler {
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
+
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'mutate')) {
+      try {
+        return await this.mutateNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_mutate', 'tasks', operation, error, startTime);
+      }
+    }
+
+    // CLI-only operations: check CLI availability
+    if (!this.executor.isAvailable()) {
+      const err = createCLIRequiredError('tasks', operation);
+      return this.wrapNativeResult(err, 'cleo_mutate', operation, startTime);
+    }
 
     try {
       switch (operation) {
@@ -1093,6 +1178,127 @@ export class TasksHandler implements DomainHandler {
     });
 
     return this.wrapExecutorResult(result, 'cleo_mutate', 'tasks', 'relates.add', startTime);
+  }
+
+  // ===== Native Engine Operations =====
+
+  /**
+   * Route query operations to native TypeScript engine
+   */
+  private queryNative(
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number
+  ): DomainResponse {
+    if (!isProjectInitialized(this.projectRoot)) {
+      return this.wrapNativeResult(createNotInitializedError(), 'cleo_query', operation, startTime);
+    }
+
+    switch (operation) {
+      case 'show':
+      case 'get': {
+        const taskId = (params as unknown as TasksGetParams)?.taskId;
+        if (!taskId) {
+          return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        return this.wrapNativeResult(nativeTaskShow(this.projectRoot, taskId), 'cleo_query', operation, startTime);
+      }
+      case 'list': {
+        const p = params as unknown as TasksListParams;
+        return this.wrapNativeResult(
+          nativeTaskList(this.projectRoot, { parent: p?.parent, status: p?.status, limit: p?.limit }),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'find': {
+        const p = params as unknown as TasksFindParams;
+        if (!p?.query) {
+          return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'query is required', startTime);
+        }
+        return this.wrapNativeResult(
+          nativeTaskFind(this.projectRoot, p.query, p?.limit),
+          'cleo_query', operation, startTime
+        );
+      }
+      case 'exists': {
+        const taskId = (params as unknown as TasksExistsParams)?.taskId;
+        if (!taskId) {
+          return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        return this.wrapNativeResult(nativeTaskExists(this.projectRoot, taskId), 'cleo_query', operation, startTime);
+      }
+      default:
+        return this.createErrorResponse('cleo_query', 'tasks', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
+    }
+  }
+
+  /**
+   * Route mutate operations to native TypeScript engine
+   */
+  private async mutateNative(
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number
+  ): Promise<DomainResponse> {
+    if (!isProjectInitialized(this.projectRoot)) {
+      return this.wrapNativeResult(createNotInitializedError(), 'cleo_mutate', operation, startTime);
+    }
+
+    switch (operation) {
+      case 'add':
+      case 'create': {
+        const p = params as unknown as TasksCreateParams;
+        if (!p?.title || !p?.description) {
+          return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'title and description are required', startTime);
+        }
+        const result = await nativeTaskCreate(this.projectRoot, {
+          title: p.title,
+          description: p.description,
+          parent: p.parent,
+          depends: p.depends,
+          priority: p.priority,
+          labels: p.labels,
+        });
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'update': {
+        const p = params as unknown as TasksUpdateParams;
+        if (!p?.taskId) {
+          return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        const result = await nativeTaskUpdate(this.projectRoot, p.taskId, {
+          title: p.title,
+          description: p.description,
+          status: p.status,
+          priority: p.priority,
+          notes: p.notes,
+        });
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'complete': {
+        const p = params as unknown as TasksCompleteParams;
+        if (!p?.taskId) {
+          return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        const result = await nativeTaskComplete(this.projectRoot, p.taskId, p.notes);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'delete': {
+        const p = params as unknown as TasksDeleteParams;
+        if (!p?.taskId) {
+          return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_INPUT', 'taskId is required', startTime);
+        }
+        const result = await nativeTaskDelete(this.projectRoot, p.taskId, p.force);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      case 'archive': {
+        const p = params as unknown as TasksArchiveParams;
+        const result = await nativeTaskArchive(this.projectRoot, p?.taskId, p?.before);
+        return this.wrapNativeResult(result, 'cleo_mutate', operation, startTime);
+      }
+      default:
+        return this.createErrorResponse('cleo_mutate', 'tasks', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
+    }
   }
 
   // ===== Helper Methods =====

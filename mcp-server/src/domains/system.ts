@@ -15,6 +15,17 @@
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
 import { BackgroundJobManager } from '../lib/background-jobs.js';
+import { canRunNatively, generateCapabilityReport, type GatewayType } from '../engine/capability-matrix.js';
+import type { ResolvedMode } from '../lib/mode-detector.js';
+import {
+  configGet as nativeConfigGet,
+  configSet as nativeConfigSet,
+  initProject as nativeInitProject,
+  getVersion as nativeGetVersion,
+  resolveProjectRoot,
+  isProjectInitialized,
+} from '../engine/index.js';
+import { createCLIRequiredError, createNotInitializedError } from '../lib/mode-detector.js';
 
 /**
  * Query operation parameters and results
@@ -290,9 +301,47 @@ interface SystemUncancelParams {
 
 export class SystemHandler implements DomainHandler {
   private jobManager?: BackgroundJobManager;
+  private executionMode: ResolvedMode;
+  private projectRoot: string;
 
-  constructor(private executor?: CLIExecutor, jobManager?: BackgroundJobManager) {
+  constructor(private executor?: CLIExecutor, jobManager?: BackgroundJobManager, executionMode: ResolvedMode = 'cli') {
     this.jobManager = jobManager;
+    this.executionMode = executionMode;
+    this.projectRoot = resolveProjectRoot();
+  }
+
+  /**
+   * Check if we should use native engine for this operation
+   */
+  private useNative(operation: string, gateway: GatewayType): boolean {
+    if (this.executionMode === 'cli' && this.executor?.isAvailable()) {
+      return false;
+    }
+    return canRunNatively('system', operation, gateway);
+  }
+
+  /**
+   * Wrap a native engine result in DomainResponse format
+   */
+  private wrapNativeResult(
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    gateway: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+    if (result.success) {
+      return {
+        _meta: { gateway, domain: 'system', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        success: true,
+        data: result.data,
+      };
+    }
+    return {
+      _meta: { gateway, domain: 'system', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      success: false,
+      error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
+    };
   }
 
   /**
@@ -312,15 +361,18 @@ export class SystemHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    if (!this.executor) {
-      return this.createErrorResponse(
-        'query',
-        'system',
-        operation,
-        'E_NOT_INITIALIZED',
-        'System handler not initialized with executor',
-        startTime
-      );
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'query')) {
+      try {
+        return this.queryNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('query', 'system', operation, error, startTime);
+      }
+    }
+
+    if (!this.executor || !this.executor.isAvailable()) {
+      const err = createCLIRequiredError('system', operation);
+      return this.wrapNativeResult(err, 'query', operation, startTime);
     }
 
     try {
@@ -381,15 +433,18 @@ export class SystemHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    if (!this.executor) {
-      return this.createErrorResponse(
-        'mutate',
-        'system',
-        operation,
-        'E_NOT_INITIALIZED',
-        'System handler not initialized with executor',
-        startTime
-      );
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'mutate')) {
+      try {
+        return await this.mutateNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('mutate', 'system', operation, error, startTime);
+      }
+    }
+
+    if (!this.executor || !this.executor.isAvailable()) {
+      const err = createCLIRequiredError('system', operation);
+      return this.wrapNativeResult(err, 'mutate', operation, startTime);
     }
 
     try {
@@ -1113,6 +1168,81 @@ export class SystemHandler implements DomainHandler {
       },
     };
   }
+
+  // ===== Native Engine Operations =====
+
+  /**
+   * Route query operations to native TypeScript engine
+   */
+  private queryNative(
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number
+  ): DomainResponse {
+    switch (operation) {
+      case 'version':
+        return this.wrapNativeResult(nativeGetVersion(this.projectRoot), 'query', operation, startTime);
+      case 'config':
+      case 'config.get': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'query', operation, startTime);
+        }
+        const key = (params as SystemConfigParams)?.key;
+        return this.wrapNativeResult(nativeConfigGet(this.projectRoot, key), 'query', operation, startTime);
+      }
+      case 'doctor': {
+        // Hybrid: native capability report + CLI health check when available
+        const report = generateCapabilityReport();
+        return {
+          _meta: { gateway: 'query', domain: 'system', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms: Date.now() - startTime },
+          success: true,
+          data: {
+            mode: this.executionMode,
+            cliAvailable: this.executor?.isAvailable() ?? false,
+            capabilities: report,
+            projectInitialized: isProjectInitialized(this.projectRoot),
+          },
+        };
+      }
+      default:
+        return this.createErrorResponse('query', 'system', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
+    }
+  }
+
+  /**
+   * Route mutate operations to native TypeScript engine
+   */
+  private async mutateNative(
+    operation: string,
+    params: Record<string, unknown> | undefined,
+    startTime: number
+  ): Promise<DomainResponse> {
+    switch (operation) {
+      case 'init': {
+        const p = params as SystemInitParams;
+        const result = nativeInitProject(this.projectRoot, {
+          projectName: p?.projectType,
+          force: false,
+        });
+        return this.wrapNativeResult(result, 'mutate', operation, startTime);
+      }
+      case 'config.set': {
+        if (!isProjectInitialized(this.projectRoot)) {
+          return this.wrapNativeResult(createNotInitializedError(), 'mutate', operation, startTime);
+        }
+        const p = params as unknown as SystemConfigSetParams;
+        if (!p?.key) {
+          return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'key is required', startTime);
+        }
+        const result = await nativeConfigSet(this.projectRoot, p.key, p.value);
+        return this.wrapNativeResult(result, 'mutate', operation, startTime);
+      }
+      default:
+        return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_OPERATION', `No native handler for: ${operation}`, startTime);
+    }
+  }
+
+  // ===== Helper Methods =====
 
   private createErrorResponse(
     gateway: string,

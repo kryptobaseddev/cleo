@@ -31,6 +31,8 @@ import { registerQueryTool } from './gateways/query.js';
 import { registerMutateTool } from './gateways/mutate.js';
 import { QueryCache } from './lib/cache.js';
 import { BackgroundJobManager } from './lib/background-jobs.js';
+import { detectExecutionMode, type ResolvedMode } from './lib/mode-detector.js';
+import { generateCapabilityReport } from './engine/capability-matrix.js';
 
 /**
  * Server state for cleanup
@@ -54,6 +56,18 @@ async function main(): Promise<void> {
     console.error('[CLEO MCP] Loading configuration...');
     const config = loadConfig();
 
+    // Detect execution mode
+    console.error('[CLEO MCP] Detecting execution mode...');
+    const modeDetection = detectExecutionMode();
+    const executionMode: ResolvedMode = modeDetection.mode;
+    console.error(`[CLEO MCP] Execution mode: ${executionMode} (${modeDetection.reason})`);
+
+    if (executionMode === 'native') {
+      const report = generateCapabilityReport();
+      console.error(`[CLEO MCP] Native mode: ${report.native} native + ${report.hybrid} hybrid operations available`);
+      console.error(`[CLEO MCP] CLI-only operations (${report.cli}) will return E_CLI_REQUIRED`);
+    }
+
     // Log startup info (to stderr, not stdout which is used by MCP)
     console.error('[CLEO MCP] Starting server...');
     console.error(`[CLEO MCP] CLI path: ${config.cliPath}`);
@@ -66,21 +80,31 @@ async function main(): Promise<void> {
     console.error('[CLEO MCP] Creating CLI executor...');
     const executor = createExecutor(config.cliPath, config.timeout, config.maxRetries);
 
-    // Test CLI connection
+    // Test CLI connection (non-fatal in native/auto mode)
     console.error('[CLEO MCP] Testing CLI connection...');
     const connected = await executor.testConnection();
     if (!connected) {
-      throw new Error(`Failed to connect to CLEO CLI at ${config.cliPath}`);
+      if (executionMode === 'cli' && modeDetection.configuredMode === 'cli') {
+        // CLI mode was forced but CLI isn't available
+        throw new Error(`Failed to connect to CLEO CLI at ${config.cliPath}`);
+      }
+      // In native/auto mode, CLI unavailability is expected
+      console.error('[CLEO MCP] CLI not available - running in native TypeScript mode');
+      executor.setAvailable(false);
+    } else {
+      console.error('[CLEO MCP] CLI connection successful');
+      executor.setAvailable(true);
     }
-    console.error('[CLEO MCP] CLI connection successful');
 
-    // Get CLI version
-    const cliVersion = await executor.getVersion();
-    console.error(`[CLEO MCP] CLI version: ${cliVersion}`);
+    // Get CLI version (only if connected)
+    if (connected) {
+      const cliVersion = await executor.getVersion();
+      console.error(`[CLEO MCP] CLI version: ${cliVersion}`);
+    }
 
-    // Initialize domain router with executor and rate limiting config
+    // Initialize domain router with executor, rate limiting config, and execution mode
     console.error('[CLEO MCP] Initializing domain router...');
-    const router = new DomainRouter(executor, true, config.rateLimiting);
+    const router = new DomainRouter(executor, true, config.rateLimiting, executionMode);
     console.error('[CLEO MCP] Domain router initialized');
     console.error(`[CLEO MCP] Rate limiting: ${config.rateLimiting.enabled ? 'enabled' : 'disabled'} (query: ${config.rateLimiting.query.maxRequests}/min, mutate: ${config.rateLimiting.mutate.maxRequests}/min, spawn: ${config.rateLimiting.spawn.maxRequests}/min)`);
     console.error(`[CLEO MCP] Registered domains: ${router.getDomains().join(', ')}`);

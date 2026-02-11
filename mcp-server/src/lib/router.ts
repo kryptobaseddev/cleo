@@ -21,6 +21,7 @@ import { ReleaseHandler } from '../domains/release.js';
 import { SystemHandler } from '../domains/system.js';
 import { formatError, createError } from './formatter.js';
 import { CLIExecutor } from './executor.js';
+import type { ResolvedMode } from './mode-detector.js';
 import { protocolEnforcer, ProtocolType } from './protocol-enforcement.js';
 import { VerificationGate, OperationContext } from './verification-gates.js';
 import { sanitizeParams, SecurityError } from './security.js';
@@ -114,17 +115,22 @@ export class DomainRouter {
   private verificationGate: VerificationGate;
   private rateLimiter: RateLimiter;
 
-  constructor(executor: CLIExecutor, useProtocolEnforcement: boolean = true, rateLimitConfig?: Partial<RateLimitingConfig>) {
-    // Initialize all domain handlers
+  constructor(
+    executor: CLIExecutor,
+    useProtocolEnforcement: boolean = true,
+    rateLimitConfig?: Partial<RateLimitingConfig>,
+    executionMode: ResolvedMode = 'cli'
+  ) {
+    // Initialize all domain handlers with execution mode
     this.handlers = new Map<string, DomainHandler>([
-      ['tasks', new TasksHandler(executor)],
-      ['session', new SessionHandler(executor)],
+      ['tasks', new TasksHandler(executor, undefined, executionMode)],
+      ['session', new SessionHandler(executor, executionMode)],
       ['orchestrate', new OrchestrateHandler(executor)],
       ['research', new ResearchHandler(executor)],
       ['lifecycle', new LifecycleHandler(executor)],
       ['validate', new ValidateHandler(executor)],
       ['release', new ReleaseHandler(executor)],
-      ['system', new SystemHandler(executor)],
+      ['system', new SystemHandler(executor, undefined, executionMode)],
     ]);
     this.useProtocolEnforcement = useProtocolEnforcement;
     this.verificationGate = new VerificationGate(useProtocolEnforcement);

@@ -471,6 +471,25 @@ export class CLIExecutor {
       return false;
     }
   }
+
+  /**
+   * Check if CLI is available (non-blocking check)
+   */
+  isAvailable(): boolean {
+    return this._available;
+  }
+
+  /**
+   * Set CLI availability status
+   */
+  setAvailable(available: boolean): void {
+    this._available = available;
+  }
+
+  /**
+   * Internal availability flag
+   */
+  private _available: boolean = true;
 }
 
 /**
