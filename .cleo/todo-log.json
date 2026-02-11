@@ -103447,11 +103447,86 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_9d0dbf82f39d",
+      "timestamp": "2026-02-11T04:59:24Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4328",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:59:22Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_b85f1e0ea12d",
+      "timestamp": "2026-02-11T05:01:31Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4326",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:01:30Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_c25d392a07f2",
+      "timestamp": "2026-02-11T05:02:23Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4329"
+      },
+      "after": {
+        "currentTask": "T4330"
+      },
+      "details": null
+    },
+    {
+      "id": "log_ac0f98970a02",
+      "timestamp": "2026-02-11T05:04:14Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4330",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:04:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5417,
-    "lastEntry": "2026-02-11T04:55:39Z",
+    "totalEntries": 5421,
+    "lastEntry": "2026-02-11T05:04:14Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
