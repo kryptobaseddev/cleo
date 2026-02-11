@@ -299,6 +299,18 @@ export class LifecycleHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
+    // CLI-only domain: check CLI availability
+    if (!this.executor.isAvailable()) {
+      return this.createErrorResponse(
+        'cleo_query',
+        'lifecycle',
+        operation,
+        'E_CLI_REQUIRED',
+        `Operation 'lifecycle.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
+        startTime
+      );
+    }
+
     try {
       switch (operation) {
         case 'stages':
@@ -339,6 +351,18 @@ export class LifecycleHandler implements DomainHandler {
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
+
+    // CLI-only domain: check CLI availability
+    if (!this.executor.isAvailable()) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'lifecycle',
+        operation,
+        'E_CLI_REQUIRED',
+        `Operation 'lifecycle.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
+        startTime
+      );
+    }
 
     try {
       switch (operation) {

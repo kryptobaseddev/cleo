@@ -178,14 +178,14 @@ export class OrchestrateHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations
-    if (!this.executor) {
+    // Require executor for all operations (orchestrate is CLI-only)
+    if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_query',
         'orchestrate',
         operation,
-        'E_NOT_INITIALIZED',
-        'Orchestrate handler not initialized with executor',
+        'E_CLI_REQUIRED',
+        `Operation 'orchestrate.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
         startTime
       );
     }
@@ -229,14 +229,14 @@ export class OrchestrateHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations
-    if (!this.executor) {
+    // Require executor for all operations (orchestrate is CLI-only)
+    if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_mutate',
         'orchestrate',
         operation,
-        'E_NOT_INITIALIZED',
-        'Orchestrate handler not initialized with executor',
+        'E_CLI_REQUIRED',
+        `Operation 'orchestrate.${operation}' requires the CLEO CLI (bash). Install with: ./install.sh`,
         startTime
       );
     }
