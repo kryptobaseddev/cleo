@@ -2,6 +2,30 @@
 
 All notable changes to the CLEO system will be documented in this file.
 
+## [Unreleased]
+
+## [0.91.0] - 2026-02-11
+
+### Features (T4334)
+- feat(mcp): Native TypeScript engine for cross-platform standalone mode
+  - Dual-mode execution: native/cli/auto via MCP_EXECUTION_MODE env
+  - 29 native + 1 hybrid + 105 CLI-only operations with capability matrix
+  - Atomic file I/O with cross-process locking (proper-lockfile)
+  - Numbered backup rotation matching bash Tier 1 behavior
+  - Anti-hallucination validation (title != description, no future timestamps)
+  - JSON Schema validation via Ajv against existing schemas
+  - Task ID generation (T#### format) with cross-file uniqueness
+  - Session lifecycle management (start/end/focus)
+  - Config engine with dot-notation navigation
+  - Explicit project initialization (no silent .cleo/ creation)
+  - E_CLI_REQUIRED graceful degradation for CLI-only operations
+  - Solves Windows installation failures (no bash/jq dependency)
+
+### Dependencies
+- Added: ajv ^8.17.1, ajv-formats ^3.0.1, proper-lockfile ^4.1.2
+
+
+
 ## [0.90.3] - 2026-02-11
 
 ### Fixes
