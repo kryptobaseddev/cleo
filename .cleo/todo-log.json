@@ -103076,11 +103076,48 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_ef1d9f1ebf34",
+      "timestamp": "2026-02-11T04:19:43Z",
+      "sessionId": null,
+      "action": "config_changed",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "operation": "backup_rotation",
+        "type": "archive",
+        "deleted": 1,
+        "retained": 3,
+        "errors": 0
+      }
+    },
+    {
+      "id": "log_0e3911bbbeee",
+      "timestamp": "2026-02-11T04:20:18Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4322",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:20:17Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5396,
-    "lastEntry": "2026-02-11T04:18:46Z",
+    "totalEntries": 5398,
+    "lastEntry": "2026-02-11T04:20:18Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
