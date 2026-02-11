@@ -230,7 +230,7 @@ nexus_set_permission() {
        --arg permission "$permission" \
        --arg now "$now" \
        '.projects[$hash].permissions = $permission |
-        ._meta.updatedAt = $now' \
+        .lastUpdated = $now' \
        "$registry_path" > "$temp_file"
 
     # Save using atomic write
