@@ -103923,24 +103923,119 @@
       }
     },
     {
-      "id": "log_a6310340e443",
-      "timestamp": "2026-02-11T05:35:10Z",
+      "id": "log_af3d9176d88a",
+      "timestamp": "2026-02-11T05:35:11Z",
       "sessionId": null,
       "action": "session_focus_changed",
       "actor": "claude",
       "taskId": null,
       "before": {
-        "currentTask": "T1437"
+        "currentTask": "T1446"
       },
       "after": {
-        "currentTask": "T1450"
+        "currentTask": "T1436"
       },
       "details": null
+    },
+    {
+      "id": "log_9bdb63692ddd",
+      "timestamp": "2026-02-11T05:39:18Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1450",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:39:17Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_f1e22e77e645",
+      "timestamp": "2026-02-11T05:39:27Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1451",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:39:26Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_e8562fc3dd86",
+      "timestamp": "2026-02-11T05:39:30Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1436",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:39:28Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_25d67359d7b6",
+      "timestamp": "2026-02-11T05:39:38Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T1436"
+      },
+      "after": {
+        "currentTask": "T1441"
+      },
+      "details": null
+    },
+    {
+      "id": "log_22edfdb0fd75",
+      "timestamp": "2026-02-11T05:39:47Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1441",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:39:46Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5442,
-    "lastEntry": "2026-02-11T05:35:10Z",
+    "totalEntries": 5447,
+    "lastEntry": "2026-02-11T05:39:47Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
