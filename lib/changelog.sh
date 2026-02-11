@@ -396,9 +396,10 @@ append_to_changelog() {
     # Normalize version (remove v prefix for comparison)
     local version_no_v="${version#v}"
 
+    # @task T2840 - Fixed duplicate changelog headers
     # IDEMPOTENCY CHECK: Skip if version header already exists with content
     # This prevents duplicate entries when called multiple times
-    # @task T4248 - Fixed: check beyond blank lines after header (was only checking next_line)
+    local header_exists_empty=false
     if [[ -f "$output_file" ]]; then
         if grep -q "^## \[${version_no_v}\]" "$output_file"; then
             # Check if section has any content between this header and next version header
@@ -420,50 +421,67 @@ append_to_changelog() {
                 log_info "Changelog entry already exists for ${version_no_v} - skipping"
                 return 0
             fi
-            # Header exists but section is truly empty - we'll replace it below
+            # Header exists but section is truly empty - we'll insert content after it
             log_info "Found empty header for ${version_no_v} - adding content"
+            header_exists_empty=true
         fi
     fi
 
     local changelog_content
     changelog_content=$(generate_changelog "$version" "" "$todo_file")
 
+    # Strip the version header line from generated content if header already exists
+    # This prevents duplicate ## [version] headers (T2840)
+    local content_to_insert="$changelog_content"
+    if [[ "$header_exists_empty" == true ]]; then
+        content_to_insert=$(echo "$changelog_content" | sed "1{/^## \[${version_no_v}\]/d}")
+        # Also strip leading blank line left after header removal
+        content_to_insert=$(echo "$content_to_insert" | sed '/./,$!d')
+    fi
+
     if [[ -f "$output_file" ]]; then
-        # Prepend to existing changelog (after header if present)
         local temp_file
         temp_file=$(mktemp)
 
-        # Check if file has standard changelog header
-        if head -n1 "$output_file" | grep -q "^# Changelog"; then
-            # Find the first version header (## [v) line to insert before
+        if [[ "$header_exists_empty" == true ]]; then
+            # Header already exists but is empty - insert content right after it
+            local header_line
+            header_line=$(grep -n "^## \[${version_no_v}\]" "$output_file" | head -1 | cut -d: -f1)
+            head -n "$header_line" "$output_file" > "$temp_file"
+            echo "" >> "$temp_file"
+            echo "$content_to_insert" >> "$temp_file"
+            echo "" >> "$temp_file"
+            tail -n +"$((header_line + 1))" "$output_file" >> "$temp_file"
+        elif head -n1 "$output_file" | grep -q "^# Changelog"; then
+            # Prepend to existing changelog (after file header)
+            # Find the first version header (## [) line to insert before
             local insert_line
-            insert_line=$(grep -n "^## \[v\|^## \[" "$output_file" | head -1 | cut -d: -f1)
+            insert_line=$(grep -n "^## \[" "$output_file" | head -1 | cut -d: -f1)
 
             if [[ -n "$insert_line" && "$insert_line" -gt 1 ]]; then
                 # Insert new content before first version
                 head -n $((insert_line - 1)) "$output_file" > "$temp_file"
-                echo "$changelog_content" >> "$temp_file"
+                echo "$content_to_insert" >> "$temp_file"
                 echo "" >> "$temp_file"
                 tail -n +$insert_line "$output_file" >> "$temp_file"
             else
-                # No existing versions, add after header block (find first blank line after header)
+                # No existing versions, add after header block
                 local header_end
                 header_end=$(awk 'NR>1 && /^$/ {print NR; exit}' "$output_file")
                 if [[ -n "$header_end" ]]; then
                     head -n "$header_end" "$output_file" > "$temp_file"
-                    echo "$changelog_content" >> "$temp_file"
+                    echo "$content_to_insert" >> "$temp_file"
                     tail -n +$((header_end + 1)) "$output_file" >> "$temp_file"
                 else
-                    # Fallback: keep first 4 lines as header
                     head -n4 "$output_file" > "$temp_file"
                     echo "" >> "$temp_file"
-                    echo "$changelog_content" >> "$temp_file"
+                    echo "$content_to_insert" >> "$temp_file"
                     tail -n +5 "$output_file" >> "$temp_file"
                 fi
             fi
         else
             # No header, just prepend
-            echo "$changelog_content" > "$temp_file"
+            echo "$content_to_insert" > "$temp_file"
             echo "" >> "$temp_file"
             cat "$output_file" >> "$temp_file"
         fi

@@ -4,7 +4,7 @@
 # category: read
 # synopsis: View audit log entries (operations, timestamps, changes)
 # relevance: medium
-# flags: --format,--quiet,--limit,--operation,--task
+# flags: --format,--quiet,--limit,--offset,--operation,--task
 # exits: 0,100
 # json-output: true
 ###END
