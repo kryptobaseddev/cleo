@@ -3,10 +3,10 @@
   "version": "2.4.0",
   "project": "claude-todo",
   "_meta": {
-    "totalArchived": 2365,
-    "lastArchived": "2026-02-11T04:09:01Z",
+    "totalArchived": 2369,
+    "lastArchived": "2026-02-11T04:17:31Z",
     "oldestTask": "2025-12-06T06:35:41Z",
-    "newestTask": "2026-02-07T17:27:55Z",
+    "newestTask": "2026-02-03T09:00:22Z",
     "lastModified": "2025-12-29T18:07:08Z",
     "schemaVersion": "2.4.0"
   },
@@ -63385,7 +63385,7 @@
       "status": "cancelled",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:28:21Z",
       "updatedAt": "2026-01-24T08:28:38Z",
       "size": "small",
@@ -63419,7 +63419,7 @@
       "status": "cancelled",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:28:27Z",
       "updatedAt": "2026-01-24T08:28:43Z",
       "size": "small",
@@ -79581,7 +79581,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:28:15Z",
       "updatedAt": "2026-01-24T11:39:26Z",
       "size": "small",
@@ -79653,7 +79653,7 @@
       "status": "done",
       "priority": "low",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T09:30:19Z",
       "updatedAt": "2026-01-24T11:08:34Z",
       "size": "medium",
@@ -79713,7 +79713,7 @@
       "status": "done",
       "priority": "low",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T09:29:47Z",
       "updatedAt": "2026-01-24T11:00:24Z",
       "size": "small",
@@ -79773,7 +79773,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T09:30:08Z",
       "updatedAt": "2026-01-24T10:59:47Z",
       "size": "medium",
@@ -79834,7 +79834,7 @@
       "status": "done",
       "priority": "high",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T09:29:21Z",
       "updatedAt": "2026-01-24T10:55:20Z",
       "size": "small",
@@ -80449,7 +80449,7 @@
       "status": "done",
       "priority": "high",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T09:29:57Z",
       "updatedAt": "2026-01-24T10:41:38Z",
       "size": "small",
@@ -80508,7 +80508,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T09:29:38Z",
       "updatedAt": "2026-01-24T10:41:38Z",
       "size": "small",
@@ -80551,7 +80551,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T09:29:31Z",
       "updatedAt": "2026-01-24T10:41:16Z",
       "size": "small",
@@ -80609,7 +80609,7 @@
       "status": "done",
       "priority": "medium",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:39:39Z",
       "updatedAt": "2026-01-24T08:40:46Z",
       "size": "small",
@@ -80665,7 +80665,7 @@
       "status": "done",
       "priority": "high",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:37:11Z",
       "updatedAt": "2026-01-24T08:38:16Z",
       "size": "small",
@@ -80721,7 +80721,7 @@
       "status": "done",
       "priority": "high",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:28:02Z",
       "updatedAt": "2026-01-24T08:35:35Z",
       "size": "small",
@@ -80777,7 +80777,7 @@
       "status": "done",
       "priority": "high",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:28:07Z",
       "updatedAt": "2026-01-24T08:32:41Z",
       "size": "small",
@@ -80833,7 +80833,7 @@
       "status": "done",
       "priority": "high",
       "type": "subtask",
-      "parentId": "T2213",
+      "parentId": "T4324",
       "createdAt": "2026-01-24T08:27:37Z",
       "updatedAt": "2026-01-24T08:32:37Z",
       "size": "small",
@@ -125001,20 +125001,208 @@
           "previousStatus": "pending"
         }
       }
+    },
+    {
+      "id": "T2120",
+      "title": "Test metrics integration",
+      "status": "cancelled",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-01-23T09:13:50Z",
+      "updatedAt": "2026-02-11T04:16:31Z",
+      "size": "medium",
+      "position": 127,
+      "positionVersion": 0,
+      "phase": "core",
+      "cancelledAt": "2026-02-11T04:16:31Z",
+      "notes": [
+        "[CANCELLED 2026-02-11T04:16:31Z] stale - no description, orphaned test metrics task, no longer relevant"
+      ],
+      "completedAt": "2026-02-11T04:16:31Z",
+      "cancellationReason": "stale - no description, orphaned test metrics task, no longer relevant",
+      "_archive": {
+        "archivedAt": "2026-02-11T04:16:34Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 18,
+        "cancellationDetails": {
+          "cancelledAt": "2026-02-11T04:16:31Z",
+          "cancellationReason": "stale - no description, orphaned test metrics task, no longer relevant",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T4324",
+      "title": "Clean up hybrid registry data format issues",
+      "status": "cancelled",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2178",
+      "createdAt": "2026-01-24T02:04:07Z",
+      "updatedAt": "2026-02-11T04:16:54Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Issues found during testing:\n1. Global registry 'injection' field has 'version' subfield that should be removed (minimal format)\n2. 'cleoVersion' not updating properly - still shows old version, especially in mode=dev\n3. Global registry has duplicate data (both old full format AND new minimal fields)\n4. Additional findings from user review TBD\n\nGoal: Global registry should have ONLY minimal fields, detailed data stays in project-info.json",
+      "completedAt": "2026-02-11T04:16:54Z",
+      "notes": [
+        "[COMPLETED 2026-01-24T11:40:07Z] All 13 subtasks complete. v0.69.0 released with doctor validation details, registry cleanup, and feature sync.",
+        "[CANCELLED 2026-02-11T04:16:54Z] stale - parent T2178 done, registry format issues from v0.50.x era resolved in subsequent releases"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-24T11:40:08Z",
+        "failureLog": []
+      },
+      "cancelledAt": "2026-02-11T04:16:54Z",
+      "cancellationReason": "stale - parent T2178 done, registry format issues from v0.50.x era resolved in subsequent releases",
+      "_archive": {
+        "archivedAt": "2026-02-11T04:16:56Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 18,
+        "cancellationDetails": {
+          "cancelledAt": "2026-02-11T04:16:54Z",
+          "cancellationReason": "stale - parent T2178 done, registry format issues from v0.50.x era resolved in subsequent releases",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T2178",
+      "title": "Project Registry Architecture Fix",
+      "status": "done",
+      "priority": "critical",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-01-23T22:53:41Z",
+      "updatedAt": "2026-02-03T09:00:22Z",
+      "size": "large",
+      "position": 132,
+      "positionVersion": 1,
+      "phase": "core",
+      "description": "Fix project registry system: projects are being registered IN the CLEO repo instead of properly distributed between global ~/.cleo/ (system-wide list) and per-project .cleo/ (project details). Must preserve compatibility with doctor, self-update, install, init, upgrade commands.",
+      "notes": [
+        "[COMPLETED 2026-01-24T00:21:53Z] Epic complete. Git maintenance done (removed .claude/, .serena/, projects-registry.json from tracking). Hybrid registry architecture implemented with global+per-project split. 59 new tests. Full documentation.",
+        "[REOPENED 2026-01-24T02:04:03Z] Reason: Additional fixes needed: injection version cleanup, cleoVersion update issues | Was completed at: 2026-01-24T00:21:53Z",
+        "[COMPLETED 2026-01-24T11:40:34Z] Epic complete. Hybrid registry architecture fully implemented and cleaned up. v0.69.0 released.",
+        "[COMPLETED 2026-02-03T09:00:22Z] Hybrid registry architecture fully implemented and cleaned up. Completed 2026-01-24. Status correction per T2989."
+      ],
+      "completedAt": "2026-02-03T09:00:22Z",
+      "_archive": {
+        "archivedAt": "2026-02-11T04:17:31Z",
+        "reason": "auto",
+        "archiveSource": "auto",
+        "sessionId": "system",
+        "cycleTimeDays": 10,
+        "triggerDetails": {
+          "configRule": "daysUntilArchive=7"
+        },
+        "relationshipState": {
+          "hadChildren": true,
+          "childIds": [
+            "T2213"
+          ],
+          "hadDependents": false,
+          "dependentIds": [],
+          "parentId": null
+        },
+        "restoreInfo": {
+          "originalStatus": "done",
+          "canRestore": true,
+          "restoreBlockers": []
+        }
+      }
+    },
+    {
+      "id": "T2213",
+      "title": "Clean up hybrid registry data format issues",
+      "status": "cancelled",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T2178",
+      "createdAt": "2026-01-24T02:04:07Z",
+      "updatedAt": "2026-02-11T04:16:54Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Issues found during testing:\n1. Global registry 'injection' field has 'version' subfield that should be removed (minimal format)\n2. 'cleoVersion' not updating properly - still shows old version, especially in mode=dev\n3. Global registry has duplicate data (both old full format AND new minimal fields)\n4. Additional findings from user review TBD\n\nGoal: Global registry should have ONLY minimal fields, detailed data stays in project-info.json",
+      "completedAt": "2026-01-24T11:40:07Z",
+      "notes": [
+        "[COMPLETED 2026-01-24T11:40:07Z] All 13 subtasks complete. v0.69.0 released with doctor validation details, registry cleanup, and feature sync.",
+        "[CANCELLED 2026-02-11T04:16:54Z] stale - parent T2178 done, registry format issues from v0.50.x era resolved in subsequent releases"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-01-24T11:40:08Z",
+        "failureLog": []
+      },
+      "cancelledAt": "2026-02-11T04:16:54Z",
+      "cancelReason": "stale - parent T2178 done, registry format issues from v0.50.x era resolved in subsequent releases",
+      "_archive": {
+        "archivedAt": "2026-02-11T04:17:31Z",
+        "reason": "auto",
+        "archiveSource": "auto",
+        "sessionId": "system",
+        "cycleTimeDays": 0,
+        "triggerDetails": {
+          "configRule": "daysUntilArchive=7"
+        },
+        "relationshipState": {
+          "hadChildren": false,
+          "childIds": [],
+          "hadDependents": false,
+          "dependentIds": [],
+          "parentId": "T2178"
+        },
+        "restoreInfo": {
+          "originalStatus": "cancelled",
+          "canRestore": true,
+          "restoreBlockers": []
+        }
+      }
     }
   ],
   "statistics": {
     "byPhase": {
-      "core": 1676,
+      "core": 1680,
       "maintenance": 56,
       "polish": 248,
       "setup": 61,
       "testing": 233
     },
     "byPriority": {
-      "critical": 277,
-      "high": 972,
-      "medium": 992,
+      "critical": 278,
+      "high": 974,
+      "medium": 993,
       "low": 113
     },
     "byLabel": {
@@ -125178,6 +125366,7 @@
       "deduplication": 1,
       "deep-read": 5,
       "defaults": 1,
+      "defect": 3,
       "delete": 1,
       "deletion": 1,
       "dependencies": 28,
@@ -125361,6 +125550,7 @@
       "manifest": 12,
       "mcp": 31,
       "mcp-prep": 1,
+      "mcp-server": 4,
       "medium": 1,
       "medium-priority": 5,
       "memory-review": 5,
@@ -125590,6 +125780,7 @@
       "task-management": 3,
       "task-mgmt": 1,
       "tasks": 3,
+      "tasks-domain": 1,
       "td-001": 1,
       "td-002": 1,
       "td-003": 1,
@@ -125714,19 +125905,16 @@
       "workstream-b": 5,
       "workstream-c": 5,
       "workstream-d": 1,
-      "wrapper": 2,
-      "defect": 3,
-      "mcp-server": 4,
-      "tasks-domain": 1
+      "wrapper": 2
     },
-    "averageCycleTime": 1.27,
-    "cancelled": 162
+    "averageCycleTime": 1.28,
+    "cancelled": 164
   },
   "phaseSummary": {
     "core": {
-      "totalTasks": 1671,
+      "totalTasks": 1680,
       "firstCompleted": "2025-12-13T07:57:23Z",
-      "lastCompleted": "2026-02-07T17:27:55Z"
+      "lastCompleted": "2026-02-11T04:16:54Z"
     },
     "maintenance": {
       "totalTasks": 56,
