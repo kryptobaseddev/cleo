@@ -612,23 +612,23 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T05:07:13Z",
+  "lastUpdated": "2026-02-11T05:23:24Z",
   "_meta": {
-    "checksum": "7b639812c53eb532",
+    "checksum": "6fd00fe33e0ea6c2",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:17:32Z",
+    "lastModified": "2026-02-11T05:20:16Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2633
+    "generation": 2638
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T1433",
     "blockedUntil": null,
-    "sessionNote": "Research complete. Writing findings to output file.",
+    "sessionNote": "Writing research output document",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
     "currentPhase": "core",
     "sessionNotes": [
@@ -4193,7 +4193,7 @@
     {
       "id": "T1433",
       "title": "RESEARCH: Audit current JSON output patterns across all 34 commands",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1432",
@@ -4209,16 +4209,18 @@
         "research"
       ],
       "notes": [
-        "2026-01-04 22:07:06 UTC: ## Research Context (2026-01-04)\n\n**Trigger**: User reported 'cleo session list' truncation showing '... [1 lines truncated] ...' when returning all 91 sessions (79KB output).\n\n**Root Cause Analysis**:\n1. Truncation occurred at Claude Code tool result rendering layer (not CLI bug)\n2. Exposed LLM-Agent-First design flaw: no smart defaults for large datasets\n3. scripts/session.sh:1469-1477 dumps ALL sessions unsorted with no pagination\n\n**Current State Findings**:\n- lib/error-json.sh: Uses jq -c (compact) correctly per line 146 comment\n- scripts/session.sh: Uses jq -nc for success output (no compact flag\\!)\n- Most commands use jq -n (pretty) which causes multi-line truncation risk\n\n**Commands Likely Affected**:\n- session list (confirmed: 91 sessions, 79KB, no sort/limit)\n- list (could have 1000s of tasks)\n- log (unbounded audit log)\n- history (unbounded timeline)\n\n**Evidence Files**:\n- lib/error-json.sh:142-146 (correct compact pattern with rationale comment)\n- scripts/session.sh:1469-1477 (session list JSON output - no pagination)\n- docs/specs/LLM-AGENT-FIRST-SPEC.md (authoritative standard)\n\n**Previous Work**: T672 (archived 2025-12-23) fixed tree rendering truncation for TEXT format only, NOT JSON pagination."
+        "2026-01-04 22:07:06 UTC: ## Research Context (2026-01-04)\n\n**Trigger**: User reported 'cleo session list' truncation showing '... [1 lines truncated] ...' when returning all 91 sessions (79KB output).\n\n**Root Cause Analysis**:\n1. Truncation occurred at Claude Code tool result rendering layer (not CLI bug)\n2. Exposed LLM-Agent-First design flaw: no smart defaults for large datasets\n3. scripts/session.sh:1469-1477 dumps ALL sessions unsorted with no pagination\n\n**Current State Findings**:\n- lib/error-json.sh: Uses jq -c (compact) correctly per line 146 comment\n- scripts/session.sh: Uses jq -nc for success output (no compact flag\\!)\n- Most commands use jq -n (pretty) which causes multi-line truncation risk\n\n**Commands Likely Affected**:\n- session list (confirmed: 91 sessions, 79KB, no sort/limit)\n- list (could have 1000s of tasks)\n- log (unbounded audit log)\n- history (unbounded timeline)\n\n**Evidence Files**:\n- lib/error-json.sh:142-146 (correct compact pattern with rationale comment)\n- scripts/session.sh:1469-1477 (session list JSON output - no pagination)\n- docs/specs/LLM-AGENT-FIRST-SPEC.md (authoritative standard)\n\n**Previous Work**: T672 (archived 2025-12-23) fixed tree rendering truncation for TEXT format only, NOT JSON pagination.",
+        "[COMPLETED 2026-02-11T05:23:24Z] Audited 71 commands: 61 have standard JSON envelope, 10 have non-standard/missing JSON, 0 have pagination metadata, 6 have --limit/--offset flags. Key finding: no command includes hasMore/totalCount pagination metadata. Wrote full audit to claudedocs/agent-outputs/T1433-json-output-audit.md"
       ],
-      "updatedAt": "2026-01-21T16:32:33Z",
+      "updatedAt": "2026-02-11T05:23:24Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:23:24Z"
     },
     {
       "id": "T1434",
       "title": "RESEARCH: Document CLI pagination patterns and best practices",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1432",
@@ -4234,16 +4236,33 @@
         "research"
       ],
       "notes": [
-        "2026-01-04 22:07:43 UTC: ## Key Questions to Answer:\n\n1. What are standard default limits? (10? 20? 50? 100?)\n2. How do CLIs indicate 'more results exist'?\n3. Cursor-based vs offset-based pagination?\n4. Should --all be explicit or implicit unlimited?\n5. Performance: at what dataset size does pagination become critical?\n\n## Initial Findings:\n\n**GitHub CLI (gh)**:\n- gh pr list: Default limit 30, --limit flag, --state flag for filtering\n- JSON output includes pagination URL in headers (not in body)\n\n**kubectl**:\n- No limit by default (returns all), but uses server-side pagination internally\n- --chunk-size flag for large lists\n\n**AWS CLI**:\n- Default: returns first page only\n- --max-items flag for limit\n- --starting-token for cursor-based pagination\n- NextToken in JSON output when more results exist\n\n**Preferred Pattern for CLEO**:\n- Default limit: 20 (balance between useful and non-truncating)\n- Smart sorting: most relevant first (lastActivity for sessions)\n- Pagination metadata in JSON envelope (not separate headers)\n- --all flag to override (explicit unlimited)"
+        "2026-01-04 22:07:43 UTC: ## Key Questions to Answer:\n\n1. What are standard default limits? (10? 20? 50? 100?)\n2. How do CLIs indicate 'more results exist'?\n3. Cursor-based vs offset-based pagination?\n4. Should --all be explicit or implicit unlimited?\n5. Performance: at what dataset size does pagination become critical?\n\n## Initial Findings:\n\n**GitHub CLI (gh)**:\n- gh pr list: Default limit 30, --limit flag, --state flag for filtering\n- JSON output includes pagination URL in headers (not in body)\n\n**kubectl**:\n- No limit by default (returns all), but uses server-side pagination internally\n- --chunk-size flag for large lists\n\n**AWS CLI**:\n- Default: returns first page only\n- --max-items flag for limit\n- --starting-token for cursor-based pagination\n- NextToken in JSON output when more results exist\n\n**Preferred Pattern for CLEO**:\n- Default limit: 20 (balance between useful and non-truncating)\n- Smart sorting: most relevant first (lastActivity for sessions)\n- Pagination metadata in JSON envelope (not separate headers)\n- --all flag to override (explicit unlimited)",
+        "[COMPLETED 2026-02-11T05:21:48Z] Researched CLI pagination patterns. Recommended: offset-based pagination with smart defaults. Key findings: (1) offset pagination is right for CLEO's local file datasets, (2) session list at 560KB needs default limit of 10 with compact output, (3) pagination metadata (hasMore/total) missing from all JSON output, (4) token budget (~25KB) should drive per-command defaults, (5) existing MCP pagination schema is well-designed and should be adopted, (6) Anthropic recommends targeted search over unbounded lists, (7) compact-by-default matches existing find/show pattern."
       ],
-      "updatedAt": "2026-01-04T22:07:43Z",
+      "updatedAt": "2026-02-11T05:21:48Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-11T05:21:48Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-11T05:21:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1435",
       "title": "DESIGN: Create lib/json-output.sh library specification",
-      "status": "active",
+      "status": "pending",
       "priority": "critical",
       "type": "task",
       "parentId": "T1432",
@@ -4266,7 +4285,7 @@
       "notes": [
         "2026-01-04 22:08:06 UTC: ## Design Requirements (from LLM-AGENT-FIRST-SPEC.md):\n\n**Compact JSON Enforcement** (error-json.sh:142-146 rationale):\n- Agents parse JSON programmatically, formatting doesn't matter\n- Compact prevents truncation issues ('+N lines')\n- Humans can pipe through 'jq .' for pretty output\n- ALL success outputs MUST use jq -c flag\n\n**Standard Envelope** (LLM-AGENT-FIRST-SPEC.md Part 3.4):\n```json\n{\n  \"\\$schema\": \"https://cleo.dev/schemas/v1/output.schema.json\",\n  \"_meta\": {\n    \"format\": \"json\",\n    \"version\": \"<version>\",\n    \"command\": \"<command-name>\",\n    \"timestamp\": \"<ISO-8601>\"\n  },\n  \"success\": true,\n  \"summary\": {},\n  \"data\": []\n}\n```\n\n**Pagination Metadata** (new requirement):\n```json\n{\n  \"_meta\": {...},\n  \"success\": true,\n  \"count\": 91,        // Total matching\n  \"returned\": 20,     // Returned in response\n  \"truncated\": true,  // More exist\n  \"pagination\": {\n    \"limit\": 20,\n    \"offset\": 0,\n    \"hasMore\": true,\n    \"sort\": {\"field\": \"lastActivity\", \"order\": \"desc\"}\n  },\n  \"data\": [...]\n}\n```\n\n**Function Signatures** (draft):\n- output_json_envelope(command, data_json) → compact JSON string\n- output_json_array(command, array_json, count) → envelope with count\n- output_json_paginated(command, array_json, total, limit, offset, sort_field, sort_order) → full pagination envelope\n- sort_json_array(array_json, field, order) → sorted array\n- limit_json_array(array_json, limit, offset) → {array, truncated, returned}\n\n**Integration Points**:\n- Source from scripts/ just like error-json.sh\n- Use same VERSION loading pattern\n- Compatible with resolve_format() from output-format.sh\n- Must work with existing jq-helpers.sh functions"
       ],
-      "updatedAt": "2026-02-11T05:17:32Z",
+      "updatedAt": "2026-02-11T05:19:00Z",
       "relates": [],
       "origin": null
     },
@@ -4989,9 +5008,10 @@
         "2026-01-05 16:25:19 UTC: Context from previous session: Registry was created successfully during testing, then disappeared. May be related to session cleanup, validation, or other commands that touch ~/.cleo/ directory. Check install.sh, upgrade.sh, validate.sh for operations that might delete or overwrite registry.",
         "[COMPLETED 2026-01-05T18:01:30Z] Identified that install.sh was wiping ~/.cleo directory during upgrades/reinstalls. Modified install.sh to preserve projects-registry.json, config.json, and plugins directory before wiping, and restore them afterwards. Verified logic with test script.",
         "2026-01-05 18:07:39 UTC: Refactored fix to use Targeted Replacement strategy. Instead of wiping the entire directory and trying to restore files, we now only wipe specific managed directories (scripts, lib, etc.) and leave the root directory and plugins/ untouched. This is much more robust against future changes.",
-        "[COMPLETED 2026-02-11T04:55:02Z] Status normalized: pending+completedAt→done (data integrity fix T4327)"
+        "[COMPLETED 2026-02-11T04:55:02Z] Status normalized: pending+completedAt→done (data integrity fix T4327)",
+        "2026-02-11 05:22:30 UTC: Test note on done task"
       ],
-      "updatedAt": "2026-02-11T04:55:02Z",
+      "updatedAt": "2026-02-11T05:22:30Z",
       "completedAt": "2026-02-11T04:55:02Z",
       "verification": {
         "passed": false,

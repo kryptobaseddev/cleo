@@ -103570,11 +103570,117 @@
         "type": "epic",
         "rootTaskId": "T1432"
       }
+    },
+    {
+      "id": "log_92e70d62f17e",
+      "timestamp": "2026-02-11T05:17:54Z",
+      "sessionId": "session_20260210_211732_93e4ac",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Stale session from prior attempt"
+      }
+    },
+    {
+      "id": "log_c33adc4f435a",
+      "timestamp": "2026-02-11T05:18:01Z",
+      "sessionId": "session_20260210_211801_e6aad3",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T1435",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T1432"
+      }
+    },
+    {
+      "id": "log_af35b64c81ce",
+      "timestamp": "2026-02-11T05:19:00Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T1434"
+      },
+      "after": {
+        "currentTask": "T1433"
+      },
+      "details": null
+    },
+    {
+      "id": "log_add430b8f010",
+      "timestamp": "2026-02-11T05:21:49Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1434",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T05:21:48Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_9ca086680253",
+      "timestamp": "2026-02-11T05:22:30Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T1522",
+      "before": {
+        "title": "Investigate: Project registry not persisting after upgrade",
+        "status": "done",
+        "priority": "critical",
+        "description": "After deploying v0.50.3 fixes, ~/.cleo/projects-registry.json is missing again despite appearing to be created during upgrade. Symptoms: (1) Registry file existed briefly at 08:12, (2) Now missing after subsequent operations, (3) upgrade.sh update_project_registration() may have logic issues. Need deep investigation of: when registry is created vs deleted, race conditions, error paths that silently fail, whether backup/restore operations affect registry. This is a regression from the T1520 fix.",
+        "phase": "testing",
+        "labels": [
+          "bug",
+          "investigation",
+          "project-registry"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Investigate: Project registry not persisting after upgrade",
+        "status": "done",
+        "priority": "critical",
+        "description": "After deploying v0.50.3 fixes, ~/.cleo/projects-registry.json is missing again despite appearing to be created during upgrade. Symptoms: (1) Registry file existed briefly at 08:12, (2) Now missing after subsequent operations, (3) upgrade.sh update_project_registration() may have logic issues. Need deep investigation of: when registry is created vs deleted, race conditions, error paths that silently fail, whether backup/restore operations affect registry. This is a regression from the T1520 fix.",
+        "phase": "testing",
+        "labels": [
+          "bug",
+          "investigation",
+          "project-registry"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5424,
-    "lastEntry": "2026-02-11T05:17:32Z",
+    "totalEntries": 5429,
+    "lastEntry": "2026-02-11T05:22:30Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
