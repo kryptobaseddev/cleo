@@ -105472,11 +105472,113 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log-1770853094-f6d6fc",
+      "timestamp": "2026-02-11T23:38:14Z",
+      "action": "task_created",
+      "taskId": "T4363",
+      "actor": "system",
+      "details": {
+        "title": "Implement cleo research query --path for subtree queries",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement cleo research query --path for subtree queries",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853102-120569",
+      "timestamp": "2026-02-11T23:38:22Z",
+      "action": "task_created",
+      "taskId": "T4364",
+      "actor": "system",
+      "details": {
+        "title": "Implement cleo research aggregate for rollup statistics",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement cleo research aggregate for rollup statistics",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770853117-3fe87c",
+      "timestamp": "2026-02-11T23:38:37Z",
+      "action": "task_created",
+      "taskId": "T4365",
+      "actor": "system",
+      "details": {
+        "title": "Phase 2 performance benchmarks and go/no-go validation",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Phase 2 performance benchmarks and go/no-go validation",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log_79628bc2e984",
+      "timestamp": "2026-02-11T23:38:41Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4365",
+      "before": {
+        "title": "Phase 2 performance benchmarks and go/no-go validation",
+        "status": "pending",
+        "priority": "high",
+        "description": "Run performance benchmarks comparing tree-aware queries vs flat manifest linear search. Benchmarks: (1) Subtree query at 400 entries (current size). (2) Subtree query at 1K entries (synthetic data). (3) Subtree query at 10K entries (synthetic data). (4) Tree visualization render time at each scale. (5) Aggregate computation time. (6) Memory usage comparison. Go/no-go criteria from T2748: subtree queries must be 10x faster than linear at 1K entries, tree visualization must render in less than 1s. Document results and recommendation for Phase 3-4 (navigator/synthesizer tiers). If criteria not met, document findings and halt memory-trees expansion.",
+        "phase": "core",
+        "labels": [
+          "manifest",
+          "performance",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4361"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Phase 2 performance benchmarks and go/no-go validation",
+        "status": "pending",
+        "priority": "high",
+        "description": "Run performance benchmarks comparing tree-aware queries vs flat manifest linear search. Benchmarks: (1) Subtree query at 400 entries (current size). (2) Subtree query at 1K entries (synthetic data). (3) Subtree query at 10K entries (synthetic data). (4) Tree visualization render time at each scale. (5) Aggregate computation time. (6) Memory usage comparison. Go/no-go criteria from T2748: subtree queries must be 10x faster than linear at 1K entries, tree visualization must render in less than 1s. Document results and recommendation for Phase 3-4 (navigator/synthesizer tiers). If criteria not met, document findings and halt memory-trees expansion.",
+        "phase": "core",
+        "labels": [
+          "manifest",
+          "performance",
+          "testing"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4361",
+          "T4363"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5494,
-    "lastEntry": "2026-02-11T23:37:54Z",
+    "totalEntries": 5495,
+    "lastEntry": "2026-02-11T23:38:41Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

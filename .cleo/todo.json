@@ -672,9 +672,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T23:38:06Z",
+  "lastUpdated": "2026-02-11T23:38:40Z",
   "_meta": {
-    "checksum": "044b302d2653ce6e",
+    "checksum": "edfbd69f33ffd81f",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -683,7 +683,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 27,
-    "generation": 2737
+    "generation": 2738
   },
   "focus": {
     "currentTask": null,
@@ -11964,6 +11964,76 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "Add system.help operation to MCP server that serves context at 4 disclosure levels. Level 0: minimal entry (two tools, quick reference). Level 1: domain discovery (all operations listed). Level 2: operation-specific (parameter schemas, error codes, examples). Level 3: protocol-aware (full lifecycle gates, validation rules). Implementation in mcp-server/src/engine/ or new disclosure module. Reference: docs/specs/MCP-AGENT-INTERACTION-SPEC.md Section 6."
+    },
+    {
+      "id": "T4363",
+      "title": "Implement cleo research query --path for subtree queries",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:38:14Z",
+      "updatedAt": "2026-02-11T23:38:14Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Build path-based query engine for manifest entries. 'cleo research query --path <glob>' enables subtree queries using path patterns. Features: (1) Glob matching on path field (e.g., '/research/auth/*' matches all auth research children). (2) Regex support via --regex flag. (3) Depth-limited queries (--max-depth <n>). (4) Filter by status, date range, topics. (5) Output modes: summary (default), full (--verbose), JSON (--json). (6) Performance target: O(log n) for indexed paths vs O(n) linear scan - at minimum 10x faster than grep-based search at 1K entries. (7) Support compound queries (path + status + date). Implementation: path indexing in memory, jq-based filtering.",
+      "labels": [
+        "commands",
+        "implementation",
+        "manifest"
+      ],
+      "depends": [
+        "T4358"
+      ]
+    },
+    {
+      "id": "T4364",
+      "title": "Implement cleo research aggregate for rollup statistics",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:38:22Z",
+      "updatedAt": "2026-02-11T23:38:22Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Build 'cleo research aggregate' command for hierarchical rollup statistics. Features: (1) Aggregate by depth level (--depth <n>): count entries, statuses, topics per subtree. (2) Aggregate by path prefix: group entries under common ancestors. (3) Statistics: entry count, complete/partial/blocked counts, date range, unique topics, avg key_findings count. (4) Support --format table|json|csv. (5) Support --group-by path|topic|status|agent_type. (6) Rollup mode: each parent shows aggregate of all descendants. Useful for orchestrator to understand research coverage without reading individual entries.",
+      "labels": [
+        "commands",
+        "implementation",
+        "manifest"
+      ],
+      "depends": [
+        "T4358"
+      ]
+    },
+    {
+      "id": "T4365",
+      "title": "Phase 2 performance benchmarks and go/no-go validation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4352",
+      "createdAt": "2026-02-11T23:38:36Z",
+      "updatedAt": "2026-02-11T23:38:40Z",
+      "size": "small",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Run performance benchmarks comparing tree-aware queries vs flat manifest linear search. Benchmarks: (1) Subtree query at 400 entries (current size). (2) Subtree query at 1K entries (synthetic data). (3) Subtree query at 10K entries (synthetic data). (4) Tree visualization render time at each scale. (5) Aggregate computation time. (6) Memory usage comparison. Go/no-go criteria from T2748: subtree queries must be 10x faster than linear at 1K entries, tree visualization must render in less than 1s. Document results and recommendation for Phase 3-4 (navigator/synthesizer tiers). If criteria not met, document findings and halt memory-trees expansion.",
+      "labels": [
+        "manifest",
+        "performance",
+        "testing"
+      ],
+      "depends": [
+        "T4361",
+        "T4363"
+      ]
     }
   ],
   "labels": {}
