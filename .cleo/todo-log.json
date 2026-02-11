@@ -103296,11 +103296,162 @@
         "type": "epic",
         "rootTaskId": "T4325"
       }
+    },
+    {
+      "id": "log_c8166f699cb0",
+      "timestamp": "2026-02-11T04:52:21Z",
+      "sessionId": "session_20260210_201831_ecabd6",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "P0 defect burndown completed in prior session"
+      }
+    },
+    {
+      "id": "log_f4057a4dc900",
+      "timestamp": "2026-02-11T04:52:24Z",
+      "sessionId": "session_20260210_205158_3bd86a",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Stale session from prior attempt, restarting"
+      }
+    },
+    {
+      "id": "log_cd3671431981",
+      "timestamp": "2026-02-11T04:52:31Z",
+      "sessionId": "session_20260210_205231_a75d0e",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4326",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4325"
+      }
+    },
+    {
+      "id": "log_fdcef3691416",
+      "timestamp": "2026-02-11T04:53:54Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4326"
+      },
+      "after": {
+        "currentTask": "T4328"
+      },
+      "details": null
+    },
+    {
+      "id": "log_529fc994911b",
+      "timestamp": "2026-02-11T04:53:55Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4326"
+      },
+      "after": {
+        "currentTask": "T4329"
+      },
+      "details": null
+    },
+    {
+      "id": "log_2fbe4efae02b",
+      "timestamp": "2026-02-11T04:54:58Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1269",
+      "before": {
+        "status": "pending",
+        "completedAt": "2026-01-03T22:58:36Z"
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:54:57Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_934e445b3c2f",
+      "timestamp": "2026-02-11T04:55:03Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T1522",
+      "before": {
+        "status": "pending",
+        "completedAt": "2026-01-05T18:01:30Z"
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:55:02Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_2b512dec7c77",
+      "timestamp": "2026-02-11T04:55:20Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4329",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:55:18Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_df9fe2b07d62",
+      "timestamp": "2026-02-11T04:55:39Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4327",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-11T04:55:38Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5402,
-    "lastEntry": "2026-02-11T04:51:59Z",
+    "totalEntries": 5417,
+    "lastEntry": "2026-02-11T04:55:39Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
