@@ -691,12 +691,30 @@
         "notes": null,
         "gitTag": "v0.92.1",
         "changelog": "## [0.92.1] - 2026-02-11"
+      },
+      {
+        "version": "v0.93.0",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-12T01:43:11Z",
+        "tasks": [
+          "T4344",
+          "T4345",
+          "T4346",
+          "T4347",
+          "T4348",
+          "T4349",
+          "T4350",
+          "T4351"
+        ],
+        "notes": null
       }
     ]
   },
-  "lastUpdated": "2026-02-12T01:36:09Z",
+  "lastUpdated": "2026-02-12T01:43:11Z",
   "_meta": {
-    "checksum": "5f8a255cbbcbf944",
+    "checksum": "3066490acdb5b5c6",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -705,7 +723,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2765
+    "generation": 2767
   },
   "focus": {
     "currentTask": "T4349",
@@ -11876,7 +11894,22 @@
       "completedAt": "2026-02-12T01:36:09Z",
       "notes": [
         "[COMPLETED 2026-02-12T01:36:09Z] Updated CLAUDE.md with new lib/ hierarchy structure"
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T01:36:09Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4351",
