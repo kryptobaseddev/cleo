@@ -713,10 +713,19 @@
         "notes": "Track A cleanup: close epic, remove lib/ artifacts",
         "gitTag": "v0.93.1",
         "changelog": "## [0.93.1] - 2026-02-11"
+      },
+      {
+        "version": "v0.93.2",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-12T14:21:41Z",
+        "tasks": [],
+        "notes": "Task hygiene, P3/P4 sprint decomposition, migration doctrine, Track B prep"
       }
     ]
   },
-  "lastUpdated": "2026-02-12T02:21:39Z",
+  "lastUpdated": "2026-02-12T14:21:41Z",
   "_meta": {
     "checksum": "e199816f7b5cb48b",
     "configVersion": "2.1.0",
@@ -727,7 +736,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2804
+    "generation": 2805
   },
   "focus": {
     "currentTask": "T4338",
