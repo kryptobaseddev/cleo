@@ -5,7 +5,7 @@
 readonly _INJECTION_CONFIG_LOADED=1
 
 # Dependencies (Layer 0 only)
-source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/injection-registry.sh"
+source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/ui/injection-registry.sh"
 
 # ==============================================================================
 # REGISTRY QUERY FUNCTIONS
