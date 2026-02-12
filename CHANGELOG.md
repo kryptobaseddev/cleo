@@ -4,6 +4,13 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.92.1] - 2026-02-12
+
+### Fixes (T4334)
+- fix(mcp): Update test mocks with isAvailable/setAvailable for dual-mode routing
+- fix(mcp): Update domain handler tests for native engine error code changes (E_CLI_REQUIRED)
+- fix(mcp): Update session/system tests for native engine behavior (project-not-initialized)
+
 ## [0.92.0] - 2026-02-11
 
 ### Documentation (T4334, T4332)
