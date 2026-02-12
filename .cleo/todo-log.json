@@ -107125,11 +107125,111 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_05d2ea151a74",
+      "timestamp": "2026-02-12T21:03:44Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4386",
+      "before": {
+        "title": "Fix release ship wiping planned release task links",
+        "status": "pending",
+        "priority": "high",
+        "description": "cleo release ship currently clears manually planned release.tasks during auto-populate, causing shipped releases to lose task linkage and changelog generation to be empty.",
+        "phase": "core",
+        "labels": [
+          "bug",
+          "release"
+        ],
+        "files": null,
+        "acceptance": [
+          "release ship preserves manually planned tasks when discovery returns none",
+          "release show for shipped versions retains explicit task links",
+          "changelog generation includes task-derived entries when tasks are planned"
+        ],
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix release ship wiping planned release task links",
+        "status": "active",
+        "priority": "high",
+        "description": "cleo release ship currently clears manually planned release.tasks during auto-populate, causing shipped releases to lose task linkage and changelog generation to be empty.",
+        "phase": "core",
+        "labels": [
+          "bug",
+          "release"
+        ],
+        "files": null,
+        "acceptance": [
+          "release ship preserves manually planned tasks when discovery returns none",
+          "release show for shipped versions retains explicit task links",
+          "changelog generation includes task-derived entries when tasks are planned"
+        ],
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_93e1204c387f",
+      "timestamp": "2026-02-12T21:04:42Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4386",
+      "before": {
+        "title": "Fix release ship wiping planned release task links",
+        "status": "active",
+        "priority": "high",
+        "description": "cleo release ship currently clears manually planned release.tasks during auto-populate, causing shipped releases to lose task linkage and changelog generation to be empty.",
+        "phase": "core",
+        "labels": [
+          "bug",
+          "release"
+        ],
+        "files": null,
+        "acceptance": [
+          "release ship preserves manually planned tasks when discovery returns none",
+          "release show for shipped versions retains explicit task links",
+          "changelog generation includes task-derived entries when tasks are planned"
+        ],
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Fix release ship wiping planned release task links",
+        "status": "active",
+        "priority": "high",
+        "description": "cleo release ship currently clears manually planned release.tasks during auto-populate, causing shipped releases to lose task linkage and changelog generation to be empty.",
+        "phase": "core",
+        "labels": [
+          "bug",
+          "release"
+        ],
+        "files": [
+          "lib/ui/changelog.sh"
+        ],
+        "acceptance": [
+          "release ship preserves manually planned tasks when discovery returns none",
+          "release show for shipped versions retains explicit task links",
+          "changelog generation includes task-derived entries when tasks are planned"
+        ],
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5590,
-    "lastEntry": "2026-02-12T20:36:59Z",
+    "totalEntries": 5592,
+    "lastEntry": "2026-02-12T21:04:42Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

@@ -60,14 +60,14 @@ CHANGELOG_FILE="${CHANGELOG_FILE:-CHANGELOG.md}"
 #   $1 - version (e.g., "v0.65.0")
 #   $2 - (optional) todo file path
 #
-# Output: Updates todo.json with discovered task IDs in release.tasks[]
+# Output: Merges discovered task IDs into release.tasks[] (deduped)
 # Returns: 0 on success, 1 on failure
 #
 # Algorithm:
 #   1. Find tasks completed between prev_release and current_release
 #   2. Filter by labels: version/changelog/release
 #   3. Exclude epics (type != "epic")
-#   4. Update release.tasks[] array
+#   4. Merge into existing release.tasks[] array (deduped)
 populate_release_tasks() {
     local version="$1"
     local todo_file="${2:-$TODO_FILE}"
@@ -122,7 +122,7 @@ populate_release_tasks() {
          # Filter 5: Must have relevant label
          select(
             (.labels // []) | (
-                index($v1) or index($v2)
+                index($v1) or index($v2) or index("changelog") or index("release")
             )
          ) |
          # Filter 6: Exclude tasks already claimed by other versions explicit labels
@@ -134,7 +134,7 @@ populate_release_tasks() {
         ]
     ' "$todo_file")
 
-    # Update release.tasks[] with discovered IDs
+    # Merge discovered IDs into existing release.tasks[] (preserve manual planning links)
     local updated_json
     updated_json=$(jq \
         --arg version "$version_with_v" \
@@ -143,7 +143,7 @@ populate_release_tasks() {
         .project.releases = [
             .project.releases[] |
             if .version == $version then
-                .tasks = $task_ids
+                .tasks = (((.tasks // []) + $task_ids) | reduce .[] as $id ([]; if index($id) then . else . + [$id] end))
             else .
             end
         ]
