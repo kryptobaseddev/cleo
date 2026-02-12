@@ -4,7 +4,7 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-12T02:21:25Z",
+    "lastModified": "2026-02-12T20:16:13Z",
     "totalSessionsCreated": 621
   },
   "config": {
@@ -15,59 +15,6 @@
     "allowScopeOverlap": false
   },
   "sessions": [
-    {
-      "id": "session_20251229_002859_d9aa85",
-      "status": "archived",
-      "name": "Session Docs Epic",
-      "agentId": "claude-opus",
-      "scope": {
-        "type": "epic",
-        "rootTaskId": "T998",
-        "computedTaskIds": [
-          "T998",
-          "T999",
-          "T1000",
-          "T1001",
-          "T1002",
-          "T1003",
-          "T1004",
-          "T1005",
-          "T1006",
-          "T1007"
-        ]
-      },
-      "focus": {
-        "currentTask": null,
-        "currentPhase": null,
-        "previousTask": "T999",
-        "sessionNote": "Ending to refresh scope",
-        "nextAction": null,
-        "focusHistory": [
-          {
-            "taskId": "T999",
-            "timestamp": "2025-12-29T08:28:59Z",
-            "action": "focused"
-          },
-          {
-            "taskId": "T999",
-            "timestamp": "2025-12-29T08:45:52Z",
-            "action": "focused"
-          }
-        ]
-      },
-      "startedAt": "2025-12-29T08:28:59Z",
-      "lastActivity": "2026-01-30T18:45:17Z",
-      "suspendedAt": null,
-      "stats": {
-        "tasksCompleted": 0,
-        "focusChanges": 2,
-        "suspendCount": 0,
-        "resumeCount": 0
-      },
-      "endedAt": "2025-12-29T21:05:14Z",
-      "archivedAt": "2026-01-30T18:45:17Z",
-      "archiveReason": "Auto-archived after 30 days of inactivity"
-    },
     {
       "id": "session_20251229_084558_e4306b",
       "status": "archived",
@@ -2684,7 +2631,7 @@
     },
     {
       "id": "session_20260101_203554_86cec1",
-      "status": "ended",
+      "status": "archived",
       "name": "Wave 2 Verification",
       "agentId": null,
       "scope": {
@@ -2751,7 +2698,7 @@
         ]
       },
       "startedAt": "2026-01-02T04:35:54Z",
-      "lastActivity": "2026-01-02T07:33:14Z",
+      "lastActivity": "2026-02-12T20:15:49Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -2759,7 +2706,9 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T07:33:14Z"
+      "endedAt": "2026-01-02T07:33:14Z",
+      "archivedAt": "2026-02-12T20:15:49Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260101_203723_1b3587",
@@ -2826,7 +2775,7 @@
     },
     {
       "id": "session_20260101_222942_a1a8a6",
-      "status": "ended",
+      "status": "archived",
       "name": "T993 RCSD Package Init",
       "agentId": null,
       "scope": {
@@ -2851,7 +2800,7 @@
         ]
       },
       "startedAt": "2026-01-02T06:29:42Z",
-      "lastActivity": "2026-01-02T06:31:31Z",
+      "lastActivity": "2026-02-12T20:15:49Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -2859,11 +2808,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T06:31:31Z"
+      "endedAt": "2026-01-02T06:31:31Z",
+      "archivedAt": "2026-02-12T20:15:49Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260101_223445_28f95f",
-      "status": "ended",
+      "status": "archived",
       "name": "T549 Analyze Config Schema",
       "agentId": null,
       "scope": {
@@ -2888,7 +2839,7 @@
         ]
       },
       "startedAt": "2026-01-02T06:34:45Z",
-      "lastActivity": "2026-01-02T06:37:13Z",
+      "lastActivity": "2026-02-12T20:15:49Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -2896,11 +2847,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T06:37:13Z"
+      "endedAt": "2026-01-02T06:37:13Z",
+      "archivedAt": "2026-02-12T20:15:49Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260101_225458_d49ff0",
-      "status": "ended",
+      "status": "archived",
       "name": "T548 Critical Path Analysis",
       "agentId": null,
       "scope": {
@@ -2925,7 +2878,7 @@
         ]
       },
       "startedAt": "2026-01-02T06:54:58Z",
-      "lastActivity": "2026-01-02T07:02:07Z",
+      "lastActivity": "2026-02-12T20:15:50Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -2933,11 +2886,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T07:02:07Z"
+      "endedAt": "2026-01-02T07:02:07Z",
+      "archivedAt": "2026-02-12T20:15:50Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_001434_ab3e6d",
-      "status": "ended",
+      "status": "archived",
       "name": "Context Safeguard Architecture",
       "agentId": null,
       "scope": {
@@ -2971,7 +2926,7 @@
         ]
       },
       "startedAt": "2026-01-02T08:14:34Z",
-      "lastActivity": "2026-01-02T08:18:10Z",
+      "lastActivity": "2026-02-12T20:15:50Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -2979,11 +2934,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T08:18:10Z"
+      "endedAt": "2026-01-02T08:18:10Z",
+      "archivedAt": "2026-02-12T20:15:50Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_010159_896d87",
-      "status": "ended",
+      "status": "archived",
       "name": "T314 Migrate Checksum Fix",
       "agentId": null,
       "scope": {
@@ -3008,7 +2965,7 @@
         ]
       },
       "startedAt": "2026-01-02T09:01:59Z",
-      "lastActivity": "2026-01-02T09:43:36Z",
+      "lastActivity": "2026-02-12T20:15:50Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3016,11 +2973,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T09:43:36Z"
+      "endedAt": "2026-01-02T09:43:36Z",
+      "archivedAt": "2026-02-12T20:15:50Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_015134_9d38eb",
-      "status": "ended",
+      "status": "archived",
       "name": "Config Polish",
       "agentId": null,
       "scope": {
@@ -3062,7 +3021,7 @@
         ]
       },
       "startedAt": "2026-01-02T09:51:34Z",
-      "lastActivity": "2026-01-02T10:13:51Z",
+      "lastActivity": "2026-02-12T20:15:51Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3070,11 +3029,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T10:13:51Z"
+      "endedAt": "2026-01-02T10:13:51Z",
+      "archivedAt": "2026-02-12T20:15:51Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_020205_7d1a3f",
-      "status": "ended",
+      "status": "archived",
       "name": "Unified Update Command",
       "agentId": null,
       "scope": {
@@ -3103,7 +3064,7 @@
         ]
       },
       "startedAt": "2026-01-02T10:02:05Z",
-      "lastActivity": "2026-01-02T10:07:28Z",
+      "lastActivity": "2026-02-12T20:15:51Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3111,11 +3072,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T10:07:28Z"
+      "endedAt": "2026-01-02T10:07:28Z",
+      "archivedAt": "2026-02-12T20:15:51Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_021806_76afe9",
-      "status": "ended",
+      "status": "archived",
       "name": "T1205 Cleanup",
       "agentId": null,
       "scope": {
@@ -3144,7 +3107,7 @@
         ]
       },
       "startedAt": "2026-01-02T10:18:06Z",
-      "lastActivity": "2026-01-02T10:18:39Z",
+      "lastActivity": "2026-02-12T20:15:51Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3152,11 +3115,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T10:18:39Z"
+      "endedAt": "2026-01-02T10:18:39Z",
+      "archivedAt": "2026-02-12T20:15:51Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_022423_3783ca",
-      "status": "ended",
+      "status": "archived",
       "name": "T1209 upgrade tests",
       "agentId": null,
       "scope": {
@@ -3181,7 +3146,7 @@
         ]
       },
       "startedAt": "2026-01-02T10:24:23Z",
-      "lastActivity": "2026-01-02T10:35:36Z",
+      "lastActivity": "2026-02-12T20:15:52Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3189,11 +3154,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T10:35:36Z"
+      "endedAt": "2026-01-02T10:35:36Z",
+      "archivedAt": "2026-02-12T20:15:52Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_023553_2c18aa",
-      "status": "ended",
+      "status": "archived",
       "name": "Position System Design",
       "agentId": null,
       "scope": {
@@ -3219,7 +3186,7 @@
         ]
       },
       "startedAt": "2026-01-02T10:35:53Z",
-      "lastActivity": "2026-01-02T10:42:31Z",
+      "lastActivity": "2026-02-12T20:15:52Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3227,11 +3194,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T10:42:31Z"
+      "endedAt": "2026-01-02T10:42:31Z",
+      "archivedAt": "2026-02-12T20:15:52Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_024404_aedb61",
-      "status": "ended",
+      "status": "archived",
       "name": "Roadmap MVP",
       "agentId": null,
       "scope": {
@@ -3261,7 +3230,7 @@
         ]
       },
       "startedAt": "2026-01-02T10:44:04Z",
-      "lastActivity": "2026-01-02T10:50:52Z",
+      "lastActivity": "2026-02-12T20:15:52Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3269,11 +3238,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T10:50:52Z"
+      "endedAt": "2026-01-02T10:50:52Z",
+      "archivedAt": "2026-02-12T20:15:52Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_025518_211617",
-      "status": "ended",
+      "status": "archived",
       "name": "Config Polish T395-T396",
       "agentId": null,
       "scope": {
@@ -3305,7 +3276,7 @@
         ]
       },
       "startedAt": "2026-01-02T10:55:18Z",
-      "lastActivity": "2026-01-02T11:11:29Z",
+      "lastActivity": "2026-02-12T20:15:53Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3313,11 +3284,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T11:11:29Z"
+      "endedAt": "2026-01-02T11:11:29Z",
+      "archivedAt": "2026-02-12T20:15:53Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_031501_3481c7",
-      "status": "ended",
+      "status": "archived",
       "name": "Epic Update",
       "agentId": null,
       "scope": {
@@ -3349,7 +3322,7 @@
         ]
       },
       "startedAt": "2026-01-02T11:15:01Z",
-      "lastActivity": "2026-01-02T11:15:16Z",
+      "lastActivity": "2026-02-12T20:15:53Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3357,11 +3330,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T11:15:16Z"
+      "endedAt": "2026-01-02T11:15:16Z",
+      "archivedAt": "2026-02-12T20:15:53Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_032343_82b74f",
-      "status": "ended",
+      "status": "archived",
       "name": "T422-T423 completion",
       "agentId": null,
       "scope": {
@@ -3393,7 +3368,7 @@
         ]
       },
       "startedAt": "2026-01-02T11:23:43Z",
-      "lastActivity": "2026-01-02T11:24:03Z",
+      "lastActivity": "2026-02-12T20:15:53Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3401,11 +3376,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T11:24:03Z"
+      "endedAt": "2026-01-02T11:24:03Z",
+      "archivedAt": "2026-02-12T20:15:53Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_035938_03adf4",
-      "status": "ended",
+      "status": "archived",
       "name": "Context Safeguard Implementation",
       "agentId": null,
       "scope": {
@@ -3436,7 +3413,7 @@
         ]
       },
       "startedAt": "2026-01-02T11:59:38Z",
-      "lastActivity": "2026-01-02T12:10:32Z",
+      "lastActivity": "2026-02-12T20:15:54Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3444,11 +3421,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T12:10:32Z"
+      "endedAt": "2026-01-02T12:10:32Z",
+      "archivedAt": "2026-02-12T20:15:54Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_041127_019bec",
-      "status": "ended",
+      "status": "archived",
       "name": "Complete Epic",
       "agentId": null,
       "scope": {
@@ -3473,7 +3452,7 @@
         ]
       },
       "startedAt": "2026-01-02T12:11:27Z",
-      "lastActivity": "2026-01-02T12:11:41Z",
+      "lastActivity": "2026-02-12T20:15:54Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3481,11 +3460,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T12:11:41Z"
+      "endedAt": "2026-01-02T12:11:41Z",
+      "archivedAt": "2026-02-12T20:15:54Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_042245_c6855f",
-      "status": "ended",
+      "status": "archived",
       "name": "Statusline Integration",
       "agentId": null,
       "scope": {
@@ -3510,7 +3491,7 @@
         ]
       },
       "startedAt": "2026-01-02T12:22:45Z",
-      "lastActivity": "2026-01-02T12:27:37Z",
+      "lastActivity": "2026-02-12T20:15:54Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3518,11 +3499,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-02T12:27:37Z"
+      "endedAt": "2026-01-02T12:27:37Z",
+      "archivedAt": "2026-02-12T20:15:54Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260102_235116_706ebd",
-      "status": "ended",
+      "status": "archived",
       "name": "T1247 validate fix atomicity",
       "agentId": null,
       "scope": {
@@ -3547,7 +3530,7 @@
         ]
       },
       "startedAt": "2026-01-03T07:51:16Z",
-      "lastActivity": "2026-01-03T08:02:40Z",
+      "lastActivity": "2026-02-12T20:15:55Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3555,11 +3538,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T08:02:40Z"
+      "endedAt": "2026-01-03T08:02:40Z",
+      "archivedAt": "2026-02-12T20:15:55Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_004018_1616e5",
-      "status": "ended",
+      "status": "archived",
       "name": "T1249 Decomposition",
       "agentId": null,
       "scope": {
@@ -3601,7 +3586,7 @@
         ]
       },
       "startedAt": "2026-01-03T08:40:18Z",
-      "lastActivity": "2026-01-03T08:43:52Z",
+      "lastActivity": "2026-02-12T20:15:55Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3609,11 +3594,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T08:43:52Z"
+      "endedAt": "2026-01-03T08:43:52Z",
+      "archivedAt": "2026-02-12T20:15:55Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_004527_1ccdb9",
-      "status": "ended",
+      "status": "archived",
       "name": "Import/Export Feature Development",
       "agentId": null,
       "scope": {
@@ -3638,7 +3625,7 @@
         ]
       },
       "startedAt": "2026-01-03T08:45:27Z",
-      "lastActivity": "2026-01-03T09:37:21Z",
+      "lastActivity": "2026-02-12T20:15:55Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3646,11 +3633,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T09:37:21Z"
+      "endedAt": "2026-01-03T09:37:21Z",
+      "archivedAt": "2026-02-12T20:15:55Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_010102_6cc3b0",
-      "status": "ended",
+      "status": "archived",
       "name": "T1249 Migration Refactor Orchestration",
       "agentId": null,
       "scope": {
@@ -3698,7 +3687,7 @@
         ]
       },
       "startedAt": "2026-01-03T09:01:02Z",
-      "lastActivity": "2026-01-03T09:15:35Z",
+      "lastActivity": "2026-02-12T20:15:56Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3706,11 +3695,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T09:15:35Z"
+      "endedAt": "2026-01-03T09:15:35Z",
+      "archivedAt": "2026-02-12T20:15:56Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_012331_144f2d",
-      "status": "ended",
+      "status": "archived",
       "name": "T1252 completion",
       "agentId": null,
       "scope": {
@@ -3768,7 +3759,7 @@
         ]
       },
       "startedAt": "2026-01-03T09:23:31Z",
-      "lastActivity": "2026-01-03T21:59:22Z",
+      "lastActivity": "2026-02-12T20:15:56Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3776,11 +3767,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T21:59:22Z"
+      "endedAt": "2026-01-03T21:59:22Z",
+      "archivedAt": "2026-02-12T20:15:56Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_013723_1fc3b6",
-      "status": "ended",
+      "status": "archived",
       "name": "Phase 3 Orchestrator",
       "agentId": null,
       "scope": {
@@ -3858,7 +3851,7 @@
         ]
       },
       "startedAt": "2026-01-03T09:37:23Z",
-      "lastActivity": "2026-01-03T17:33:33Z",
+      "lastActivity": "2026-02-12T20:15:56Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3866,11 +3859,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T17:33:33Z"
+      "endedAt": "2026-01-03T17:33:33Z",
+      "archivedAt": "2026-02-12T20:15:56Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_093351_c5e058",
-      "status": "ended",
+      "status": "archived",
       "name": "Phase3-T1310",
       "agentId": null,
       "scope": {
@@ -3895,7 +3890,7 @@
         ]
       },
       "startedAt": "2026-01-03T17:33:51Z",
-      "lastActivity": "2026-01-03T22:00:08Z",
+      "lastActivity": "2026-02-12T20:15:57Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3903,11 +3898,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T22:00:08Z"
+      "endedAt": "2026-01-03T22:00:08Z",
+      "archivedAt": "2026-02-12T20:15:57Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_093815_af3c2c",
-      "status": "ended",
+      "status": "archived",
       "name": "Phase3-T1262",
       "agentId": null,
       "scope": {
@@ -3932,7 +3929,7 @@
         ]
       },
       "startedAt": "2026-01-03T17:38:15Z",
-      "lastActivity": "2026-01-03T17:40:23Z",
+      "lastActivity": "2026-02-12T20:15:57Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -3940,11 +3937,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T17:40:23Z"
+      "endedAt": "2026-01-03T17:40:23Z",
+      "archivedAt": "2026-02-12T20:15:57Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_094407_7d0427",
-      "status": "ended",
+      "status": "archived",
       "name": "Phase 6 Setup",
       "agentId": null,
       "scope": {
@@ -4007,7 +4006,7 @@
         ]
       },
       "startedAt": "2026-01-03T17:44:07Z",
-      "lastActivity": "2026-01-03T21:36:39Z",
+      "lastActivity": "2026-02-12T20:15:57Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4015,11 +4014,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T21:36:39Z"
+      "endedAt": "2026-01-03T21:36:39Z",
+      "archivedAt": "2026-02-12T20:15:57Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_094505_270939",
-      "status": "ended",
+      "status": "archived",
       "name": "Phase3-T1263",
       "agentId": null,
       "scope": {
@@ -4044,7 +4045,7 @@
         ]
       },
       "startedAt": "2026-01-03T17:45:05Z",
-      "lastActivity": "2026-01-03T17:45:34Z",
+      "lastActivity": "2026-02-12T20:15:58Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4052,11 +4053,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T17:45:34Z"
+      "endedAt": "2026-01-03T17:45:34Z",
+      "archivedAt": "2026-02-12T20:15:58Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_095442_857593",
-      "status": "ended",
+      "status": "archived",
       "name": "Phase3-T1317",
       "agentId": null,
       "scope": {
@@ -4081,7 +4084,7 @@
         ]
       },
       "startedAt": "2026-01-03T17:54:42Z",
-      "lastActivity": "2026-01-03T17:57:26Z",
+      "lastActivity": "2026-02-12T20:15:58Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4089,11 +4092,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T17:57:26Z"
+      "endedAt": "2026-01-03T17:57:26Z",
+      "archivedAt": "2026-02-12T20:15:58Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_133520_f9980f",
-      "status": "ended",
+      "status": "archived",
       "name": "Context Alert Research",
       "agentId": null,
       "scope": {
@@ -4130,7 +4135,7 @@
         ]
       },
       "startedAt": "2026-01-03T21:35:20Z",
-      "lastActivity": "2026-01-03T21:40:59Z",
+      "lastActivity": "2026-02-12T20:15:58Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4138,11 +4143,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T21:40:59Z"
+      "endedAt": "2026-01-03T21:40:59Z",
+      "archivedAt": "2026-02-12T20:15:58Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_133640_ef76ef",
-      "status": "ended",
+      "status": "archived",
       "name": "T1341 Audit Logging Test",
       "agentId": null,
       "scope": {
@@ -4224,7 +4231,7 @@
         ]
       },
       "startedAt": "2026-01-03T21:36:40Z",
-      "lastActivity": "2026-01-03T22:02:28Z",
+      "lastActivity": "2026-02-12T20:15:59Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4232,11 +4239,13 @@
         "suspendCount": 0,
         "resumeCount": 2
       },
-      "endedAt": "2026-01-03T22:02:28Z"
+      "endedAt": "2026-01-03T22:02:28Z",
+      "archivedAt": "2026-02-12T20:15:59Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_134245_027a95",
-      "status": "ended",
+      "status": "archived",
       "name": null,
       "agentId": null,
       "scope": {
@@ -4278,7 +4287,7 @@
         ]
       },
       "startedAt": "2026-01-03T21:42:45Z",
-      "lastActivity": "2026-01-03T22:46:46Z",
+      "lastActivity": "2026-02-12T20:15:59Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4286,11 +4295,13 @@
         "suspendCount": 0,
         "resumeCount": 1
       },
-      "endedAt": "2026-01-03T22:46:46Z"
+      "endedAt": "2026-01-03T22:46:46Z",
+      "archivedAt": "2026-02-12T20:15:59Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_135159_e9a101",
-      "status": "ended",
+      "status": "archived",
       "name": null,
       "agentId": null,
       "scope": {
@@ -4315,7 +4326,7 @@
         ]
       },
       "startedAt": "2026-01-03T21:51:59Z",
-      "lastActivity": "2026-01-03T21:53:33Z",
+      "lastActivity": "2026-02-12T20:15:59Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4323,11 +4334,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T21:53:33Z"
+      "endedAt": "2026-01-03T21:53:33Z",
+      "archivedAt": "2026-02-12T20:15:59Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_140009_770833",
-      "status": "ended",
+      "status": "archived",
       "name": "T1319-fix",
       "agentId": null,
       "scope": {
@@ -4352,7 +4365,7 @@
         ]
       },
       "startedAt": "2026-01-03T22:00:09Z",
-      "lastActivity": "2026-01-03T22:01:12Z",
+      "lastActivity": "2026-02-12T20:16:00Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4360,11 +4373,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T22:01:12Z"
+      "endedAt": "2026-01-03T22:01:12Z",
+      "archivedAt": "2026-02-12T20:16:00Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_140229_03ac07",
-      "status": "ended",
+      "status": "archived",
       "name": "Export-Import Final Tasks",
       "agentId": null,
       "scope": {
@@ -4404,7 +4419,7 @@
         ]
       },
       "startedAt": "2026-01-03T22:02:29Z",
-      "lastActivity": "2026-01-03T22:03:06Z",
+      "lastActivity": "2026-02-12T20:16:00Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4412,11 +4427,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T22:03:06Z"
+      "endedAt": "2026-01-03T22:03:06Z",
+      "archivedAt": "2026-02-12T20:16:00Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_140347_4a2076",
-      "status": "ended",
+      "status": "archived",
       "name": "Export/Import Integration",
       "agentId": null,
       "scope": {
@@ -4456,7 +4473,7 @@
         ]
       },
       "startedAt": "2026-01-03T22:03:47Z",
-      "lastActivity": "2026-01-03T22:08:47Z",
+      "lastActivity": "2026-02-12T20:16:00Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4464,11 +4481,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T22:08:47Z"
+      "endedAt": "2026-01-03T22:08:47Z",
+      "archivedAt": "2026-02-12T20:16:00Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_141015_83ac7e",
-      "status": "ended",
+      "status": "archived",
       "name": "Export subtree functional test",
       "agentId": null,
       "scope": {
@@ -4493,7 +4512,7 @@
         ]
       },
       "startedAt": "2026-01-03T22:10:15Z",
-      "lastActivity": "2026-01-03T22:12:14Z",
+      "lastActivity": "2026-02-12T20:16:01Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4501,11 +4520,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T22:12:14Z"
+      "endedAt": "2026-01-03T22:12:14Z",
+      "archivedAt": "2026-02-12T20:16:01Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_145015_9eed22",
-      "status": "ended",
+      "status": "archived",
       "name": "Epic T1249 Final Tasks",
       "agentId": null,
       "scope": {
@@ -4556,7 +4577,7 @@
         ]
       },
       "startedAt": "2026-01-03T22:50:15Z",
-      "lastActivity": "2026-01-03T22:50:40Z",
+      "lastActivity": "2026-02-12T20:16:01Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4564,11 +4585,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-03T22:50:40Z"
+      "endedAt": "2026-01-03T22:50:40Z",
+      "archivedAt": "2026-02-12T20:16:01Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_145331_fc0c60",
-      "status": "ended",
+      "status": "archived",
       "name": "Migration System Enhancement",
       "agentId": null,
       "scope": {
@@ -4644,7 +4667,7 @@
         ]
       },
       "startedAt": "2026-01-03T22:53:31Z",
-      "lastActivity": "2026-01-03T23:07:13Z",
+      "lastActivity": "2026-02-12T20:16:01Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4652,7 +4675,9 @@
         "suspendCount": 0,
         "resumeCount": 1
       },
-      "endedAt": "2026-01-03T23:07:13Z"
+      "endedAt": "2026-01-03T23:07:13Z",
+      "archivedAt": "2026-02-12T20:16:01Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260103_155207_c21933",
@@ -4707,7 +4732,7 @@
     },
     {
       "id": "session_20260104_123256_41621b",
-      "status": "ended",
+      "status": "archived",
       "name": "Multi-File Injection System",
       "agentId": null,
       "scope": {
@@ -4761,7 +4786,7 @@
         ]
       },
       "startedAt": "2026-01-04T20:32:56Z",
-      "lastActivity": "2026-01-04T21:45:07Z",
+      "lastActivity": "2026-02-12T20:16:02Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4769,11 +4794,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-04T21:45:07Z"
+      "endedAt": "2026-01-04T21:45:07Z",
+      "archivedAt": "2026-02-12T20:16:02Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_134701_045714",
-      "status": "ended",
+      "status": "archived",
       "name": "Design refinement",
       "agentId": null,
       "scope": {
@@ -4844,7 +4871,7 @@
         ]
       },
       "startedAt": "2026-01-04T21:47:01Z",
-      "lastActivity": "2026-01-04T21:48:36Z",
+      "lastActivity": "2026-02-12T20:16:02Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4852,11 +4879,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-04T21:48:36Z"
+      "endedAt": "2026-01-04T21:48:36Z",
+      "archivedAt": "2026-02-12T20:16:02Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_135059_c2193e",
-      "status": "ended",
+      "status": "archived",
       "name": "Fix doc tasks",
       "agentId": null,
       "scope": {
@@ -4928,7 +4957,7 @@
         ]
       },
       "startedAt": "2026-01-04T21:50:59Z",
-      "lastActivity": "2026-01-04T21:52:00Z",
+      "lastActivity": "2026-02-12T20:16:02Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -4936,11 +4965,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-04T21:52:00Z"
+      "endedAt": "2026-01-04T21:52:00Z",
+      "archivedAt": "2026-02-12T20:16:02Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_135729_295c11",
-      "status": "ended",
+      "status": "archived",
       "name": "Injection System Research",
       "agentId": null,
       "scope": {
@@ -5032,7 +5063,7 @@
         ]
       },
       "startedAt": "2026-01-04T21:57:29Z",
-      "lastActivity": "2026-01-04T23:07:10Z",
+      "lastActivity": "2026-02-12T20:16:03Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5040,11 +5071,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-04T23:07:10Z"
+      "endedAt": "2026-01-04T23:07:10Z",
+      "archivedAt": "2026-02-12T20:16:03Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_152122_19bacb",
-      "status": "ended",
+      "status": "archived",
       "name": "CLEO Philosophy Cleanup",
       "agentId": null,
       "scope": {
@@ -5131,7 +5164,7 @@
         ]
       },
       "startedAt": "2026-01-04T23:21:22Z",
-      "lastActivity": "2026-01-05T03:35:24Z",
+      "lastActivity": "2026-02-12T20:16:03Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5139,11 +5172,13 @@
         "suspendCount": 0,
         "resumeCount": 1
       },
-      "endedAt": "2026-01-05T03:35:24Z"
+      "endedAt": "2026-01-05T03:35:24Z",
+      "archivedAt": "2026-02-12T20:16:03Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_154611_d2c177",
-      "status": "ended",
+      "status": "archived",
       "name": "T1384 CLI Integration",
       "agentId": null,
       "scope": {
@@ -5221,7 +5256,7 @@
         ]
       },
       "startedAt": "2026-01-04T23:46:11Z",
-      "lastActivity": "2026-01-04T23:59:16Z",
+      "lastActivity": "2026-02-12T20:16:03Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5229,11 +5264,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-04T23:59:16Z"
+      "endedAt": "2026-01-04T23:59:16Z",
+      "archivedAt": "2026-02-12T20:16:03Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_160205_d1df9a",
-      "status": "ended",
+      "status": "archived",
       "name": "Multi-File Injection System",
       "agentId": null,
       "scope": {
@@ -5317,7 +5354,7 @@
         ]
       },
       "startedAt": "2026-01-05T00:02:05Z",
-      "lastActivity": "2026-01-05T00:30:26Z",
+      "lastActivity": "2026-02-12T20:16:04Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5325,11 +5362,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T00:30:26Z"
+      "endedAt": "2026-01-05T00:30:26Z",
+      "archivedAt": "2026-02-12T20:16:04Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_163029_826953",
-      "status": "ended",
+      "status": "archived",
       "name": "T1384 Multi-Agent Injection (resumed)",
       "agentId": null,
       "scope": {
@@ -5409,7 +5448,7 @@
         ]
       },
       "startedAt": "2026-01-05T00:30:29Z",
-      "lastActivity": "2026-01-05T00:43:17Z",
+      "lastActivity": "2026-02-12T20:16:04Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5417,11 +5456,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T00:43:17Z"
+      "endedAt": "2026-01-05T00:43:17Z",
+      "archivedAt": "2026-02-12T20:16:04Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_164810_6dadf0",
-      "status": "ended",
+      "status": "archived",
       "name": "T1384 Multi-Agent Injection (array fix)",
       "agentId": null,
       "scope": {
@@ -5496,7 +5537,7 @@
         ]
       },
       "startedAt": "2026-01-05T00:48:10Z",
-      "lastActivity": "2026-01-05T00:48:42Z",
+      "lastActivity": "2026-02-12T20:16:04Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5504,11 +5545,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T00:48:42Z"
+      "endedAt": "2026-01-05T00:48:42Z",
+      "archivedAt": "2026-02-12T20:16:04Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_164845_9be717",
-      "status": "ended",
+      "status": "archived",
       "name": "T1384 Array Splitting Bug Fix",
       "agentId": null,
       "scope": {
@@ -5589,7 +5632,7 @@
         ]
       },
       "startedAt": "2026-01-05T00:48:45Z",
-      "lastActivity": "2026-01-05T00:56:45Z",
+      "lastActivity": "2026-02-12T20:16:05Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5597,11 +5640,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T00:56:45Z"
+      "endedAt": "2026-01-05T00:56:45Z",
+      "archivedAt": "2026-02-12T20:16:05Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_171216_3349f3",
-      "status": "ended",
+      "status": "archived",
       "name": "T1384 Final Validation & Notes",
       "agentId": null,
       "scope": {
@@ -5677,7 +5722,7 @@
         ]
       },
       "startedAt": "2026-01-05T01:12:16Z",
-      "lastActivity": "2026-01-05T01:12:43Z",
+      "lastActivity": "2026-02-12T20:16:05Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5685,11 +5730,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T01:12:43Z"
+      "endedAt": "2026-01-05T01:12:43Z",
+      "archivedAt": "2026-02-12T20:16:05Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_190952_f7ebbe",
-      "status": "ended",
+      "status": "archived",
       "name": "Schema Migration Recovery",
       "agentId": null,
       "scope": {
@@ -5718,7 +5765,7 @@
         ]
       },
       "startedAt": "2026-01-05T03:09:52Z",
-      "lastActivity": "2026-01-05T03:10:32Z",
+      "lastActivity": "2026-02-12T20:16:06Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5726,11 +5773,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T03:10:32Z"
+      "endedAt": "2026-01-05T03:10:32Z",
+      "archivedAt": "2026-02-12T20:16:06Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_191033_64d5a0",
-      "status": "ended",
+      "status": "archived",
       "name": "Schema Migration Recovery",
       "agentId": null,
       "scope": {
@@ -5761,7 +5810,7 @@
         ]
       },
       "startedAt": "2026-01-05T03:10:33Z",
-      "lastActivity": "2026-01-05T03:15:23Z",
+      "lastActivity": "2026-02-12T20:16:06Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5769,11 +5818,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T03:15:23Z"
+      "endedAt": "2026-01-05T03:15:23Z",
+      "archivedAt": "2026-02-12T20:16:06Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_194856_69698c",
-      "status": "ended",
+      "status": "archived",
       "name": "Document Schema Automation Epic",
       "agentId": null,
       "scope": {
@@ -5798,7 +5849,7 @@
         ]
       },
       "startedAt": "2026-01-05T03:48:56Z",
-      "lastActivity": "2026-01-05T03:49:18Z",
+      "lastActivity": "2026-02-12T20:16:06Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5806,11 +5857,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T03:49:18Z"
+      "endedAt": "2026-01-05T03:49:18Z",
+      "archivedAt": "2026-02-12T20:16:06Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_194920_9142bb",
-      "status": "ended",
+      "status": "archived",
       "name": "Document Schema Automation Epic",
       "agentId": null,
       "scope": {
@@ -5835,7 +5888,7 @@
         ]
       },
       "startedAt": "2026-01-05T03:49:20Z",
-      "lastActivity": "2026-01-05T03:54:46Z",
+      "lastActivity": "2026-02-12T20:16:07Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5843,11 +5896,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T03:54:46Z"
+      "endedAt": "2026-01-05T03:54:46Z",
+      "archivedAt": "2026-02-12T20:16:07Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_200557_c841e0",
-      "status": "ended",
+      "status": "archived",
       "name": "T1463 Epic Completion Notes",
       "agentId": null,
       "scope": {
@@ -5893,7 +5948,7 @@
         ]
       },
       "startedAt": "2026-01-05T04:05:57Z",
-      "lastActivity": "2026-01-05T04:15:49Z",
+      "lastActivity": "2026-02-12T20:16:07Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5901,11 +5956,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T04:15:49Z"
+      "endedAt": "2026-01-05T04:15:49Z",
+      "archivedAt": "2026-02-12T20:16:07Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_202840_cb3f3f",
-      "status": "ended",
+      "status": "archived",
       "name": "T1463 Schema Migration Fixes",
       "agentId": null,
       "scope": {
@@ -5958,7 +6015,7 @@
         ]
       },
       "startedAt": "2026-01-05T04:28:40Z",
-      "lastActivity": "2026-01-05T04:46:15Z",
+      "lastActivity": "2026-02-12T20:16:07Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -5966,11 +6023,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T04:46:15Z"
+      "endedAt": "2026-01-05T04:46:15Z",
+      "archivedAt": "2026-02-12T20:16:07Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_204902_f2108a",
-      "status": "ended",
+      "status": "archived",
       "name": "T1384 Testing Phase",
       "agentId": null,
       "scope": {
@@ -6075,7 +6134,7 @@
         ]
       },
       "startedAt": "2026-01-05T04:49:02Z",
-      "lastActivity": "2026-01-05T05:44:58Z",
+      "lastActivity": "2026-02-12T20:16:08Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6083,11 +6142,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T05:36:54Z"
+      "endedAt": "2026-01-05T05:36:54Z",
+      "archivedAt": "2026-02-12T20:16:08Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_213836_7736f5",
-      "status": "ended",
+      "status": "archived",
       "name": "T1399 Unit Testing",
       "agentId": null,
       "scope": {
@@ -6121,7 +6182,7 @@
         ]
       },
       "startedAt": "2026-01-05T05:38:36Z",
-      "lastActivity": "2026-01-05T06:01:49Z",
+      "lastActivity": "2026-02-12T20:16:08Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6129,11 +6190,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T06:01:49Z"
+      "endedAt": "2026-01-05T06:01:49Z",
+      "archivedAt": "2026-02-12T20:16:08Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_220446_76743d",
-      "status": "ended",
+      "status": "archived",
       "name": "T1492 Epic Completion",
       "agentId": null,
       "scope": {
@@ -6167,7 +6230,7 @@
         ]
       },
       "startedAt": "2026-01-05T06:04:46Z",
-      "lastActivity": "2026-01-05T06:05:23Z",
+      "lastActivity": "2026-02-12T20:16:08Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6175,11 +6238,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T06:05:23Z"
+      "endedAt": "2026-01-05T06:05:23Z",
+      "archivedAt": "2026-02-12T20:16:08Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_220735_78d115",
-      "status": "ended",
+      "status": "archived",
       "name": "Unit Testing Epic Completion",
       "agentId": null,
       "scope": {
@@ -6208,7 +6273,7 @@
         ]
       },
       "startedAt": "2026-01-05T06:07:35Z",
-      "lastActivity": "2026-01-05T06:10:48Z",
+      "lastActivity": "2026-02-12T20:16:09Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6216,11 +6281,13 @@
         "suspendCount": 0,
         "resumeCount": 1
       },
-      "endedAt": "2026-01-05T06:10:48Z"
+      "endedAt": "2026-01-05T06:10:48Z",
+      "archivedAt": "2026-02-12T20:16:09Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_220944_6b6ed7",
-      "status": "ended",
+      "status": "archived",
       "name": "T1428/T1429 Research Handoff",
       "agentId": null,
       "scope": {
@@ -6245,7 +6312,7 @@
         ]
       },
       "startedAt": "2026-01-05T06:09:44Z",
-      "lastActivity": "2026-01-05T06:55:21Z",
+      "lastActivity": "2026-02-12T20:16:09Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6253,11 +6320,13 @@
         "suspendCount": 0,
         "resumeCount": 1
       },
-      "endedAt": "2026-01-05T06:55:21Z"
+      "endedAt": "2026-01-05T06:55:21Z",
+      "archivedAt": "2026-02-12T20:16:09Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_221128_a06ce1",
-      "status": "ended",
+      "status": "archived",
       "name": "Complete T1413",
       "agentId": null,
       "scope": {
@@ -6286,7 +6355,7 @@
         ]
       },
       "startedAt": "2026-01-05T06:11:28Z",
-      "lastActivity": "2026-01-05T06:11:39Z",
+      "lastActivity": "2026-02-12T20:16:09Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6294,11 +6363,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T06:11:39Z"
+      "endedAt": "2026-01-05T06:11:39Z",
+      "archivedAt": "2026-02-12T20:16:09Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_225523_d1ddfd",
-      "status": "ended",
+      "status": "archived",
       "name": "Setup-Agents Implementation",
       "agentId": null,
       "scope": {
@@ -6333,7 +6404,7 @@
         ]
       },
       "startedAt": "2026-01-05T06:55:23Z",
-      "lastActivity": "2026-01-05T07:21:40Z",
+      "lastActivity": "2026-02-12T20:16:10Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6341,11 +6412,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T07:21:40Z"
+      "endedAt": "2026-01-05T07:21:40Z",
+      "archivedAt": "2026-02-12T20:16:10Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_225700_c54a8f",
-      "status": "ended",
+      "status": "archived",
       "name": "T1131 Reconciliation Review",
       "agentId": null,
       "scope": {
@@ -6378,7 +6451,7 @@
         ]
       },
       "startedAt": "2026-01-05T06:57:00Z",
-      "lastActivity": "2026-01-05T07:02:43Z",
+      "lastActivity": "2026-02-12T20:16:10Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6386,11 +6459,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T07:02:43Z"
+      "endedAt": "2026-01-05T07:02:43Z",
+      "archivedAt": "2026-02-12T20:16:10Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_230246_7a7616",
-      "status": "ended",
+      "status": "archived",
       "name": "T1492 Final Task",
       "agentId": null,
       "scope": {
@@ -6424,7 +6499,7 @@
         ]
       },
       "startedAt": "2026-01-05T07:02:46Z",
-      "lastActivity": "2026-01-05T07:03:59Z",
+      "lastActivity": "2026-02-12T20:16:10Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6432,11 +6507,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T07:03:59Z"
+      "endedAt": "2026-01-05T07:03:59Z",
+      "archivedAt": "2026-02-12T20:16:10Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_232948_97263b",
-      "status": "ended",
+      "status": "archived",
       "name": "T1429 Doctor System",
       "agentId": null,
       "scope": {
@@ -6468,7 +6545,7 @@
         ]
       },
       "startedAt": "2026-01-05T07:29:48Z",
-      "lastActivity": "2026-01-05T07:40:04Z",
+      "lastActivity": "2026-02-12T20:16:11Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6476,11 +6553,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T07:40:04Z"
+      "endedAt": "2026-01-05T07:40:04Z",
+      "archivedAt": "2026-02-12T20:16:11Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_234335_e4316f",
-      "status": "ended",
+      "status": "archived",
       "name": "Doctor Implementation",
       "agentId": "sonnet-4.5",
       "scope": {
@@ -6512,7 +6591,7 @@
         ]
       },
       "startedAt": "2026-01-05T07:43:35Z",
-      "lastActivity": "2026-01-05T07:53:21Z",
+      "lastActivity": "2026-02-12T20:16:11Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6520,11 +6599,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T07:53:21Z"
+      "endedAt": "2026-01-05T07:53:21Z",
+      "archivedAt": "2026-02-12T20:16:11Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260104_235522_61e6dd",
-      "status": "ended",
+      "status": "archived",
       "name": "T1516 Implementation",
       "agentId": null,
       "scope": {
@@ -6559,7 +6640,7 @@
         ]
       },
       "startedAt": "2026-01-05T07:55:22Z",
-      "lastActivity": "2026-01-05T07:56:15Z",
+      "lastActivity": "2026-02-12T20:16:11Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6567,11 +6648,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T07:56:15Z"
+      "endedAt": "2026-01-05T07:56:15Z",
+      "archivedAt": "2026-02-12T20:16:11Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260105_000611_5569f1",
-      "status": "ended",
+      "status": "archived",
       "name": "Project Registration Integration",
       "agentId": null,
       "scope": {
@@ -6601,7 +6684,7 @@
         ]
       },
       "startedAt": "2026-01-05T08:06:11Z",
-      "lastActivity": "2026-01-05T08:12:16Z",
+      "lastActivity": "2026-02-12T20:16:12Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6609,11 +6692,13 @@
         "suspendCount": 0,
         "resumeCount": 1
       },
-      "endedAt": "2026-01-05T08:12:16Z"
+      "endedAt": "2026-01-05T08:12:16Z",
+      "archivedAt": "2026-02-12T20:16:12Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260105_001316_d84f99",
-      "status": "ended",
+      "status": "archived",
       "name": "Fix doctor tasks",
       "agentId": null,
       "scope": {
@@ -6650,7 +6735,7 @@
         ]
       },
       "startedAt": "2026-01-05T08:13:16Z",
-      "lastActivity": "2026-01-05T08:28:51Z",
+      "lastActivity": "2026-02-12T20:16:12Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6658,11 +6743,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T08:28:51Z"
+      "endedAt": "2026-01-05T08:28:51Z",
+      "archivedAt": "2026-02-12T20:16:12Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260105_003747_62a8be",
-      "status": "ended",
+      "status": "archived",
       "name": "Doctor post-implementation fixes",
       "agentId": null,
       "scope": {
@@ -6749,7 +6836,7 @@
         ]
       },
       "startedAt": "2026-01-05T08:37:48Z",
-      "lastActivity": "2026-01-05T08:38:06Z",
+      "lastActivity": "2026-02-12T20:16:12Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6757,11 +6844,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T08:38:06Z"
+      "endedAt": "2026-01-05T08:38:06Z",
+      "archivedAt": "2026-02-12T20:16:12Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260105_004142_40929d",
-      "status": "ended",
+      "status": "archived",
       "name": "Critical Fixes",
       "agentId": null,
       "scope": {
@@ -6796,7 +6885,7 @@
         ]
       },
       "startedAt": "2026-01-05T08:41:42Z",
-      "lastActivity": "2026-01-05T16:25:21Z",
+      "lastActivity": "2026-02-12T20:16:13Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6804,11 +6893,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T16:25:21Z"
+      "endedAt": "2026-01-05T16:25:21Z",
+      "archivedAt": "2026-02-12T20:16:13Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260105_100129_2dd4f3",
-      "status": "ended",
+      "status": "archived",
       "name": "Investigate Project Registry Persistence",
       "agentId": null,
       "scope": {
@@ -6833,7 +6924,7 @@
         ]
       },
       "startedAt": "2026-01-05T18:01:29Z",
-      "lastActivity": "2026-01-05T18:01:32Z",
+      "lastActivity": "2026-02-12T20:16:13Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6841,11 +6932,13 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T18:01:32Z"
+      "endedAt": "2026-01-05T18:01:32Z",
+      "archivedAt": "2026-02-12T20:16:13Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260105_100738_ceb578",
-      "status": "ended",
+      "status": "archived",
       "name": "Refactor Install Logic",
       "agentId": null,
       "scope": {
@@ -6870,7 +6963,7 @@
         ]
       },
       "startedAt": "2026-01-05T18:07:38Z",
-      "lastActivity": "2026-01-05T18:07:40Z",
+      "lastActivity": "2026-02-12T20:16:13Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -6878,7 +6971,9 @@
         "suspendCount": 0,
         "resumeCount": 0
       },
-      "endedAt": "2026-01-05T18:07:40Z"
+      "endedAt": "2026-01-05T18:07:40Z",
+      "archivedAt": "2026-02-12T20:16:13Z",
+      "archiveReason": "Auto-archived after 30 days of inactivity"
     },
     {
       "id": "session_20260105_213723_7c2cb5",
