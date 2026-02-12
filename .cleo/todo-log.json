@@ -105713,44 +105713,11 @@
       "details": {
         "operation": "update"
       }
-    },
-    {
-      "id": "log-1770854501-cef440",
-      "timestamp": "2026-02-12T00:01:41Z",
-      "action": "task_created",
-      "taskId": "T4370",
-      "actor": "system",
-      "details": {
-        "title": "Remove obsolete root documentation files",
-        "status": "pending",
-        "priority": "medium"
-      },
-      "before": null,
-      "after": {
-        "title": "Remove obsolete root documentation files",
-        "status": "pending",
-        "priority": "medium"
-      }
-    },
-    {
-      "id": "log_a60721d82f77",
-      "timestamp": "2026-02-12T00:01:52Z",
-      "sessionId": "session_20260211_160152_c334fc",
-      "action": "session_start",
-      "actor": "system",
-      "taskId": "T4370",
-      "before": null,
-      "after": null,
-      "details": "Multi-session started",
-      "scope": {
-        "type": "task",
-        "rootTaskId": "T4370"
-      }
     }
   ],
   "_meta": {
-    "totalEntries": 5498,
-    "lastEntry": "2026-02-12T00:01:52Z",
+    "totalEntries": 5497,
+    "lastEntry": "2026-02-11T23:46:31Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

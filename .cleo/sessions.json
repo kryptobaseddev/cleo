@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-12T00:01:52Z",
-    "totalSessionsCreated": 620
+    "lastModified": "2026-02-11T05:58:12Z",
+    "totalSessionsCreated": 619
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35797,48 +35797,6 @@
         "max_tokens": 200000
       },
       "endedAt": "2026-02-11T05:57:03Z"
-    },
-    {
-      "id": "session_20260211_160152_c334fc",
-      "status": "active",
-      "name": "docs cleanup commit",
-      "agentId": null,
-      "scope": {
-        "type": "task",
-        "rootTaskId": "T4370",
-        "computedTaskIds": [
-          "T4370"
-        ]
-      },
-      "focus": {
-        "currentTask": "T4370",
-        "currentPhase": null,
-        "previousTask": null,
-        "sessionNote": null,
-        "nextAction": null,
-        "focusHistory": [
-          {
-            "taskId": "T4370",
-            "timestamp": "2026-02-12T00:01:52Z",
-            "action": "focused"
-          }
-        ]
-      },
-      "startedAt": "2026-02-12T00:01:52Z",
-      "lastActivity": "2026-02-12T00:01:52Z",
-      "suspendedAt": null,
-      "stats": {
-        "tasksCompleted": 0,
-        "focusChanges": 1,
-        "suspendCount": 0,
-        "resumeCount": 0
-      },
-      "startMetrics": {
-        "session_id": "session_20260211_160152_c334fc",
-        "start_timestamp": "2026-02-12T00:01:52Z",
-        "start_tokens": 0,
-        "max_tokens": 200000
-      }
     }
   ],
   "sessionHistory": [
