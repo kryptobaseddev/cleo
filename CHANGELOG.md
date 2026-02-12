@@ -4,6 +4,19 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.93.3] - 2026-02-12
+
+### Fixes
+- Unify context-state path resolution through shared helpers in `lib/core/paths.sh` to prevent nested `.cleo/.cleo` drift.
+- Auto-heal legacy path artifacts by migrating nested and flat per-session context files into canonical `.cleo/context-states/`.
+- Harden `cleo session doctor` with structured findings, actionable remediation hints, and `--repair` auto-heal reporting.
+
+### Documentation
+- Update context safeguard and architecture specs to document canonical context-state locations and repair workflow.
+
+
+
+
 ## [0.93.2] - 2026-02-12
 
 ### Documentation

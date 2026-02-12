@@ -724,12 +724,23 @@
         "notes": "Task hygiene, P3/P4 sprint decomposition, migration doctrine, Track B prep",
         "gitTag": "v0.93.2",
         "changelog": "## [0.93.2] - 2026-02-12"
+      },
+      {
+        "version": "v0.93.3",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-12T20:37:49Z",
+        "createdAt": "2026-02-12T20:36:10Z",
+        "tasks": [],
+        "notes": "Patch release: unify context-state paths, add doctor actionable auto-heal diagnostics, and align docs/specs.",
+        "gitTag": "v0.93.3",
+        "changelog": "## [0.93.3] - 2026-02-12"
       }
     ]
   },
-  "lastUpdated": "2026-02-12T20:35:20Z",
+  "lastUpdated": "2026-02-12T20:37:49Z",
   "_meta": {
-    "checksum": "1b393a39170a9565",
+    "checksum": "363fd33226fc5cd1",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -738,7 +749,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2816
+    "generation": 2821
   },
   "focus": {
     "currentTask": null,
@@ -12812,7 +12823,7 @@
       "type": "task",
       "parentId": "T4382",
       "createdAt": "2026-02-12T20:32:33Z",
-      "updatedAt": "2026-02-12T20:35:14Z",
+      "updatedAt": "2026-02-12T20:36:58Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -12820,6 +12831,7 @@
       "description": "Add categorized doctor findings with severity and remediation, plus explicit auto-heal/repair reporting for path drift and consistency issues.",
       "labels": [
         "diagnostics",
+        "fix",
         "session"
       ],
       "acceptance": [
@@ -12829,7 +12841,8 @@
       ],
       "completedAt": "2026-02-12T20:35:14Z",
       "notes": [
-        "[COMPLETED 2026-02-12T20:35:14Z] Added doctor repair mode findings, actionable warnings, and auto-heal summaries"
+        "[COMPLETED 2026-02-12T20:35:14Z] Added doctor repair mode findings, actionable warnings, and auto-heal summaries",
+        "2026-02-12 20:36:58 UTC: Classified for release changelog: fix"
       ],
       "verification": {
         "passed": false,
