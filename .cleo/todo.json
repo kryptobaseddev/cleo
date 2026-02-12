@@ -705,9 +705,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T01:51:58Z",
+  "lastUpdated": "2026-02-12T02:12:32Z",
   "_meta": {
-    "checksum": "a35f1e56546cf610",
+    "checksum": "5ff79988ec9cb0a3",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -716,7 +716,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2776
+    "generation": 2777
   },
   "focus": {
     "currentTask": null,
@@ -11927,12 +11927,12 @@
     {
       "id": "T4351",
       "title": "Version bump and changelog for lib/ refactor",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4344",
       "createdAt": "2026-02-11T23:36:50Z",
-      "updatedAt": "2026-02-11T23:36:50Z",
+      "updatedAt": "2026-02-12T02:12:32Z",
       "size": "small",
       "position": 7,
       "positionVersion": 0,
@@ -11944,6 +11944,10 @@
       ],
       "depends": [
         "T4350"
+      ],
+      "completedAt": "2026-02-12T02:12:32Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T02:12:32Z] Version bump already done as part of v0.93.0 release"
       ]
     },
     {
