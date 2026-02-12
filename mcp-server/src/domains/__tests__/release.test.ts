@@ -521,8 +521,8 @@ describe('ReleaseHandler', () => {
       const result = await handlerNoExecutor.query('version', {});
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_INITIALIZED');
-      expect(result.error?.message).toContain('not initialized with executor');
+      expect(result.error?.code).toBe('E_CLI_REQUIRED');
+      expect(result.error?.message).toContain('requires the CLEO CLI');
     });
 
     it('should return error when executor is not provided for mutate', async () => {
@@ -531,8 +531,8 @@ describe('ReleaseHandler', () => {
       const result = await handlerNoExecutor.mutate('bump', { type: 'patch' });
 
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_INITIALIZED');
-      expect(result.error?.message).toContain('not initialized with executor');
+      expect(result.error?.code).toBe('E_CLI_REQUIRED');
+      expect(result.error?.message).toContain('requires the CLEO CLI');
     });
   });
 });

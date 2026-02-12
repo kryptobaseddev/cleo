@@ -420,7 +420,7 @@ describe('OrchestrateHandler', () => {
       const handlerNoExecutor = new OrchestrateHandler();
       const result = await handlerNoExecutor.query('status', { epicId: 'T2908' });
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_NOT_INITIALIZED');
+      expect(result.error?.code).toBe('E_CLI_REQUIRED');
     });
   });
 
