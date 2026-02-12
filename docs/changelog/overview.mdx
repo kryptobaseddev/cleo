@@ -17,6 +17,25 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.93.3" tags={["Fix", "Sessions", "Context"]}>
+## v0.93.3 Release
+
+
+**Fixes**
+- Unify context-state path resolution through shared helpers in `lib/core/paths.sh` to prevent nested `.cleo/.cleo` drift.
+- Auto-heal legacy path artifacts by migrating nested and flat per-session context files into canonical `.cleo/context-states/`.
+- Harden `cleo session doctor` with structured findings, actionable remediation hints, and `--repair` auto-heal reporting.
+
+**Documentation**
+- Update context safeguard and architecture specs to document canonical context-state locations and repair workflow.
+
+
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.93.3)
+</Update>
+
 <Update label="February 2026" description="v0.93.2" tags={["Documentation"]}>
 ## v0.93.2 Release
 
@@ -410,32 +429,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.83.1)
-</Update>
-
-<Update label="February 2026" description="v0.83.0" tags={["Fix", "Feature", "Sessions"]}>
-## v0.83.0 Release
-
-
-**Features**
-- feat: Git checkpoint library (lib/git-checkpoint.sh) (T3174)
-- feat: Checkpoint CLI command (scripts/checkpoint.sh) (T3175)
-- feat: Integrate checkpoint into save_json and session end (T3176)
-- feat: Add gitCheckpoint to config schema (T3177)
-
-**Bug Fixes**
-- fix: Release flow empty tag annotations with --no-changelog (T3178)
-- fix: Filter checkpoint commits from changelog generation (T3179)
-- fix: Clean up CHANGELOG.md - duplicates, missing entries (T3180)
-- fix: Update GitHub release notes for v0.81.0-v0.82.1 (T3181)
-- fix: Session enforcement config value 'off' silently falls back to strict (T3184)
-- fix: Session enforcement config value off silently falls back to strict (T3185)
-- fix: Auto-focus fails with E_SCOPE_EMPTY on new epic with no children (T3186)
-
-**Documentation**
-- docs: Update release protocol and command docs (T3182)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.83.0)
 </Update>
 
 ## Earlier Releases
