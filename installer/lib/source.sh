@@ -80,8 +80,8 @@ readonly SOURCE_REQUIRED_DIRS=(
 # Required files for a valid CLEO repo
 readonly SOURCE_REQUIRED_FILES=(
     "VERSION"
-    "lib/validation.sh"
-    "lib/file-ops.sh"
+    "lib/validation/validation.sh"
+    "lib/data/file-ops.sh"
     "scripts/add.sh"
     "schemas/todo.schema.json"
 )
@@ -965,8 +965,8 @@ installer_source_get_versions() {
 
     if [[ -n "$source_dir" && -f "$source_dir/VERSION" ]]; then
         local_version=$(head -n1 "$source_dir/VERSION")
-    elif [[ -n "$source_dir" && -f "$source_dir/lib/version.sh" ]]; then
-        local_version=$(grep -E "^CLEO_VERSION=" "$source_dir/lib/version.sh" | cut -d'"' -f2)
+    elif [[ -n "$source_dir" && -f "$source_dir/lib/core/version.sh" ]]; then
+        local_version=$(grep -E "^CLEO_VERSION=" "$source_dir/lib/core/version.sh" | cut -d'"' -f2)
     fi
 
     if [[ -n "$local_version" ]]; then
@@ -1368,8 +1368,8 @@ installer_source_verify_staging() {
 
     # Verify minimum required files exist
     local required=(
-        "lib/validation.sh"
-        "lib/file-ops.sh"
+        "lib/validation/validation.sh"
+        "lib/data/file-ops.sh"
         "scripts/add.sh"
         "schemas/todo.schema.json"
     )
