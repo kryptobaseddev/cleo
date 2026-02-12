@@ -716,30 +716,32 @@
       },
       {
         "version": "v0.93.2",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-12T14:23:26Z",
         "createdAt": "2026-02-12T14:21:41Z",
         "tasks": [],
-        "notes": "Task hygiene, P3/P4 sprint decomposition, migration doctrine, Track B prep"
+        "notes": "Task hygiene, P3/P4 sprint decomposition, migration doctrine, Track B prep",
+        "gitTag": "v0.93.2",
+        "changelog": "## [0.93.2] - 2026-02-12"
       }
     ]
   },
-  "lastUpdated": "2026-02-12T14:21:41Z",
+  "lastUpdated": "2026-02-12T14:23:26Z",
   "_meta": {
     "checksum": "e199816f7b5cb48b",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-12T02:21:25Z",
+    "lastModified": "2026-02-12T14:22:49Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2805
+    "generation": 2809
   },
   "focus": {
-    "currentTask": "T4338",
+    "currentTask": null,
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
