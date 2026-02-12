@@ -12,7 +12,9 @@ readonly _INJECTION_REGISTRY_LOADED=1
 # Add new targets here; all commands auto-discover them.
 
 # Supported injection targets (space-separated)
-readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md CODEX.md KIMI.md"
+# Only 3 real instruction files: CLAUDE.md (Claude Code), AGENTS.md (all others), GEMINI.md (Gemini CLI)
+# Codex and Kimi use AGENTS.md - no standalone CODEX.md or KIMI.md files
+readonly INJECTION_TARGETS="CLAUDE.md AGENTS.md GEMINI.md"
 
 # Marker format specification
 readonly INJECTION_MARKER_START="<!-- CLEO:START"
@@ -36,6 +38,4 @@ declare -gA INJECTION_VALIDATION_KEYS=(
     ["CLAUDE.md"]="claude_md"
     ["AGENTS.md"]="agents_md"
     ["GEMINI.md"]="gemini_md"
-    ["CODEX.md"]="codex_md"
-    ["KIMI.md"]="kimi_md"
 )

@@ -24,14 +24,6 @@ Use `ct` (alias for `cleo`) for task operations. Full docs: `~/.cleo/docs/TODO_T
 | 38 | `E_FOCUS_REQUIRED` | Add `--auto-focus` to session start |
 | 100 | `E_SESSION_DISCOVERY_MODE` | Add `--scope epic:<id>` + run `ct session list` first |
 
-**Full reference**: See `protocols/agent-protocol.md` for all 56 exit codes, error recovery decision trees, and state transitions.
-
-**Recovery procedures for common errors:**
-- **Exit 34** (NOT_IN_SCOPE): `ct session end --note "Scope mismatch"` → restart with correct `--scope epic:<parentId>`
-- **Exit 35** (CLAIMED): `ct next` → focus on suggested unclaimed task
-- **Exit 38** (FOCUS_REQUIRED): `ct focus set T###` → retry original command
-- **Exit 100** (NO_DATA): `ct session list` first → resume existing or start new with `--scope`
-
 **Shell escaping:**
 ```bash
 ct update T001 --notes "Price: \$395"  # Correct
@@ -51,16 +43,6 @@ ct session status          # Current session
 ct dash                    # Project overview
 ct context                 # Context window usage
 ```
-
-### Output Key Patterns
-| Command | Output Key |
-|---------|------------|
-| ct add "Title" | .task.id |
-| ct show T### | .task |
-| ct find "query" | .tasks[].id |
-| ct done T### | .completedAt |
-| ct session start | .session.id |
-| ct next | .recommendation.taskId |
 
 ### Session Protocol
 
