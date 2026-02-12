@@ -49,6 +49,7 @@
   "author": "CLEO Development Team",
   "license": "MIT",
   "dependencies": {
+    "@cleocode/caamp": "^0.3.0",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -67,6 +68,6 @@
     "typescript": "^5.5.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }
