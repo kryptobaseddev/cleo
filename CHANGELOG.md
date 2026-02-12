@@ -4,6 +4,18 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.93.2] - 2026-02-12
+
+### Documentation
+- Canonical TypeScript migration doctrine (docs/specs/CLEO-MIGRATION-DOCTRINE.md)
+- Track B readiness report and RCSD pipeline initialization
+
+### Task Management
+- P3 golden parity tests decomposed into 6 subtasks (T4370-T4376)
+- P4 rollout hardening decomposed into 5 subtasks (T4377-T4381)
+- Task hygiene: T4341, T4342, T4369 completed; T4332/T2021 reconciled
+- Track B (T4352) RCSD initialized, 9 tasks validated, ready for execution
+
 ## [0.93.1] - 2026-02-12
 
 ### Chores
