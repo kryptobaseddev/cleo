@@ -106217,11 +106217,686 @@
         "type": "epic",
         "rootTaskId": "T4334"
       }
+    },
+    {
+      "id": "log_f59682fed138",
+      "timestamp": "2026-02-12T02:18:52Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4338"
+      },
+      "after": {
+        "currentTask": "T4338"
+      },
+      "details": null
+    },
+    {
+      "id": "log-1770862741-b81063",
+      "timestamp": "2026-02-12T02:19:01Z",
+      "action": "task_created",
+      "taskId": "T4370",
+      "actor": "system",
+      "details": {
+        "title": "Create golden test fixtures for parity comparison",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Create golden test fixtures for parity comparison",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_5cde0e48c5ab",
+      "timestamp": "2026-02-12T02:19:02Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4333",
+      "before": {
+        "title": "EPIC: MCP Server Native TypeScript Engine - Cross-Platform Standalone Mode",
+        "status": "done",
+        "priority": "high",
+        "description": "Native TypeScript data engine enabling MCP server standalone operation without bash/jq dependency. Implements dual-mode execution (native/cli/auto via MCP_EXECUTION_MODE), capability matrix (29 native + 1 hybrid + 105 CLI-only ops), atomic file I/O with cross-process locking, anti-hallucination validation, and graceful E_CLI_REQUIRED degradation for CLI-only operations. Solves Windows installation failures. Foundation for incremental MCP-first TypeScript migration strategy. Phases: P0 (capability matrix) DONE, P1 (native engine core) DONE, P2 (dual-mode routing) DONE, P3 (golden parity tests) PLANNED, P4 (rollout) PLANNED.",
+        "phase": "core",
+        "labels": [
+          "cross-platform",
+          "engine",
+          "mcp",
+          "typescript"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: MCP Server Native TypeScript Engine - Cross-Platform Standalone Mode",
+        "status": "done",
+        "priority": "high",
+        "description": "Native TypeScript data engine enabling MCP server standalone operation without bash/jq dependency. Implements dual-mode execution (native/cli/auto via MCP_EXECUTION_MODE), capability matrix (29 native + 1 hybrid + 105 CLI-only ops), atomic file I/O with cross-process locking, anti-hallucination validation, and graceful E_CLI_REQUIRED degradation for CLI-only operations. Solves Windows installation failures. Foundation for incremental MCP-first TypeScript migration strategy. Phases: P0 (capability matrix) DONE, P1 (native engine core) DONE, P2 (dual-mode routing) DONE, P3 (golden parity tests) PLANNED, P4 (rollout) PLANNED.",
+        "phase": "core",
+        "labels": [
+          "cross-platform",
+          "engine",
+          "mcp",
+          "typescript"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_a53d0752e354",
+      "timestamp": "2026-02-12T02:19:05Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4334",
+      "before": {
+        "title": "EPIC: MCP Server Native TypeScript Engine",
+        "status": "pending",
+        "priority": "high",
+        "description": "Native TypeScript data engine enabling MCP server standalone operation without bash/jq. Dual-mode execution, capability matrix, atomic writes, cross-process locking.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: MCP Server Native TypeScript Engine",
+        "status": "pending",
+        "priority": "high",
+        "description": "Native TypeScript data engine enabling MCP server standalone operation without bash/jq. Dual-mode execution, capability matrix, atomic writes, cross-process locking.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_7fad64e11555",
+      "timestamp": "2026-02-12T02:19:14Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4341",
+      "before": {
+        "title": "Publish @cleocode/caamp v0.2.0 to npm",
+        "status": "pending",
+        "priority": "medium",
+        "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Publish @cleocode/caamp v0.2.0 to npm",
+        "status": "pending",
+        "priority": "medium",
+        "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_a81f4f52c4db",
+      "timestamp": "2026-02-12T02:19:17Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4341",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T02:19:16Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770862759-1df618",
+      "timestamp": "2026-02-12T02:19:19Z",
+      "action": "task_created",
+      "taskId": "T4371",
+      "actor": "system",
+      "details": {
+        "title": "Task operation golden parity tests (native vs CLI)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Task operation golden parity tests (native vs CLI)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_e279a00a05c6",
+      "timestamp": "2026-02-12T02:19:25Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4342",
+      "before": {
+        "title": "Add @cleocode/caamp ^0.2.0 dependency to mcp-server",
+        "status": "pending",
+        "priority": "medium",
+        "description": "After v0.2.0 is published to npm, add it as a dependency in mcp-server/package.json. The caamp library exports MCP config reading, provider registry, skills management, and instruction injection APIs that can replace bash-shelled operations. Depends on T4341 (npm publish).",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4341"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Add @cleocode/caamp ^0.2.0 dependency to mcp-server",
+        "status": "pending",
+        "priority": "medium",
+        "description": "After v0.2.0 is published to npm, add it as a dependency in mcp-server/package.json. The caamp library exports MCP config reading, provider registry, skills management, and instruction injection APIs that can replace bash-shelled operations. Depends on T4341 (npm publish).",
+        "phase": "core",
+        "labels": null,
+        "files": [
+          "dist/cli.d.ts",
+          "dist/index.d.ts"
+        ],
+        "acceptance": null,
+        "depends": [
+          "T4341"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_524e8518753a",
+      "timestamp": "2026-02-12T02:19:29Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4342",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T02:19:27Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770862771-38a805",
+      "timestamp": "2026-02-12T02:19:31Z",
+      "action": "task_created",
+      "taskId": "T4373",
+      "actor": "system",
+      "details": {
+        "title": "Session operation golden parity tests (native vs CLI)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Session operation golden parity tests (native vs CLI)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770862777-0aec99",
+      "timestamp": "2026-02-12T02:19:37Z",
+      "action": "task_created",
+      "taskId": "T4374",
+      "actor": "system",
+      "details": {
+        "title": "E_CLI_REQUIRED degradation path tests",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "E_CLI_REQUIRED degradation path tests",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_87ce26a9b60f",
+      "timestamp": "2026-02-12T02:19:40Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4343",
+      "before": {
+        "title": "Evaluate extracting T4334 native engine modules into caamp",
+        "status": "pending",
+        "priority": "medium",
+        "description": "T4334 (MCP Server Native TypeScript Engine) builds standalone TS modules for config, validation, file ops, schema, sessions, tasks. Evaluate which of these 10 modules could be extracted into @cleocode/caamp as shared library APIs, reducing duplication between caamp CLI and mcp-server. Candidates: config-engine, schema-validator, store (file ops), id-generator. Depends on T4334 completion and T4342 integration.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4334",
+          "T4342"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Evaluate extracting T4334 native engine modules into caamp",
+        "status": "pending",
+        "priority": "medium",
+        "description": "T4334 (MCP Server Native TypeScript Engine) builds standalone TS modules for config, validation, file ops, schema, sessions, tasks. Evaluate which of these 10 modules could be extracted into @cleocode/caamp as shared library APIs, reducing duplication between caamp CLI and mcp-server. Candidates: config-engine, schema-validator, store (file ops), id-generator. Depends on T4334 completion and T4342 integration.",
+        "phase": "core",
+        "labels": null,
+        "files": [
+          "mcp-server/src/engine/schema-validator.ts"
+        ],
+        "acceptance": null,
+        "depends": [
+          "T4334",
+          "T4342"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_9407d87497ed",
+      "timestamp": "2026-02-12T02:19:43Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4367",
+      "before": {
+        "title": "Create CAAMP adapter layer in mcp-server for P0 provider/injection functions",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Create mcp-server/src/providers/caamp-adapter.ts that wraps CAAMP's P0 functions: getAllProviders, getProvider, detectProvider, getInstalledProviders, inject, checkInjection, injectAll, installMcpServer, buildServerConfig, resolveConfigPath, resolveAlias. This thin adapter bridges CAAMP's provider-focused APIs into CLEO's MCP server context. Per gap analysis: 20 P0 functions identified.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4342"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Create CAAMP adapter layer in mcp-server for P0 provider/injection functions",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Create mcp-server/src/providers/caamp-adapter.ts that wraps CAAMP's P0 functions: getAllProviders, getProvider, detectProvider, getInstalledProviders, inject, checkInjection, injectAll, installMcpServer, buildServerConfig, resolveConfigPath, resolveAlias. This thin adapter bridges CAAMP's provider-focused APIs into CLEO's MCP server context. Per gap analysis: 20 P0 functions identified.",
+        "phase": "core",
+        "labels": null,
+        "files": [
+          "mcp-server/src/providers/caamp-adapter.ts"
+        ],
+        "acceptance": null,
+        "depends": [
+          "T4342"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1770862785-bf24fa",
+      "timestamp": "2026-02-12T02:19:45Z",
+      "action": "task_created",
+      "taskId": "T4375",
+      "actor": "system",
+      "details": {
+        "title": "Mixed-writer safety tests (lock contention, atomic writes)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Mixed-writer safety tests (lock contention, atomic writes)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_8b8ce1ee893f",
+      "timestamp": "2026-02-12T02:19:46Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4368",
+      "before": {
+        "title": "Add providers domain to MCP gateway with list/detect/inject operations",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Extend the MCP gateway (cleo_query/cleo_mutate) with a new 'providers' domain. Operations: providers.list (all providers), providers.detect (detect installed), providers.inject (update injections), providers.config (MCP config management). This exposes CAAMP's multi-provider capabilities through the standard MCP interface. Depends on CAAMP adapter layer.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4367"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Add providers domain to MCP gateway with list/detect/inject operations",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Extend the MCP gateway (cleo_query/cleo_mutate) with a new 'providers' domain. Operations: providers.list (all providers), providers.detect (detect installed), providers.inject (update injections), providers.config (MCP config management). This exposes CAAMP's multi-provider capabilities through the standard MCP interface. Depends on CAAMP adapter layer.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T4367"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_99a7bb5208f1",
+      "timestamp": "2026-02-12T02:19:49Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4369",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T02:19:48Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770862792-004c6e",
+      "timestamp": "2026-02-12T02:19:52Z",
+      "action": "task_created",
+      "taskId": "T4376",
+      "actor": "system",
+      "details": {
+        "title": "Cross-platform CI test matrix (Linux, macOS, Windows)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Cross-platform CI test matrix (Linux, macOS, Windows)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770862799-d09f52",
+      "timestamp": "2026-02-12T02:19:59Z",
+      "action": "task_created",
+      "taskId": "T4377",
+      "actor": "system",
+      "details": {
+        "title": "Expose capability matrix in system.doctor and system.capabilities",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Expose capability matrix in system.doctor and system.capabilities",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_97c441514650",
+      "timestamp": "2026-02-12T02:20:01Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T2021",
+      "before": {
+        "title": "EPIC: CLEO v2.0 TypeScript Implementation",
+        "status": "pending",
+        "priority": "high",
+        "description": "Implementation of CLEO v2.0 based on validated architecture decisions (ADR approved 2026-01-23).\n\nKey Changes:\n1. TypeScript port with Commander.js + esbuild (D1, D5)\n2. Four-gate manifest validation architecture (D3)\n3. DEBT-LEDGER.jsonl for TODO/FIXME tracking (D4)\n4. Dependency algorithm optimization O(n^2) to O(n) (D2)\n5. Multi-agent consensus protocol with 2/3 majority (D6)\n\nPhases:\n- Phase 1: Foundation (project setup, core modules, basic commands)\n- Phase 2: Core Commands (task lifecycle, focus, session, hierarchy)\n- Phase 3: Feature Parity (all 50+ commands, optimization)\n- Phase 4: Polish (performance, docs, migration, parallel release)\n\nSuccess Criteria:\n- 100% exit code parity (49 codes)\n- <50ms startup time\n- <500KB bundle size\n- 80%+ test coverage\n- All BATS integration tests pass\n\nReference: claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md",
+        "phase": "core",
+        "labels": [
+          "implementation",
+          "typescript",
+          "v2.0"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T2112"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: CLEO v2.0 TypeScript Implementation",
+        "status": "pending",
+        "priority": "high",
+        "description": "Implementation of CLEO v2.0 based on validated architecture decisions (ADR approved 2026-01-23).\n\nKey Changes:\n1. TypeScript port with Commander.js + esbuild (D1, D5)\n2. Four-gate manifest validation architecture (D3)\n3. DEBT-LEDGER.jsonl for TODO/FIXME tracking (D4)\n4. Dependency algorithm optimization O(n^2) to O(n) (D2)\n5. Multi-agent consensus protocol with 2/3 majority (D6)\n\nPhases:\n- Phase 1: Foundation (project setup, core modules, basic commands)\n- Phase 2: Core Commands (task lifecycle, focus, session, hierarchy)\n- Phase 3: Feature Parity (all 50+ commands, optimization)\n- Phase 4: Polish (performance, docs, migration, parallel release)\n\nSuccess Criteria:\n- 100% exit code parity (49 codes)\n- <50ms startup time\n- <500KB bundle size\n- 80%+ test coverage\n- All BATS integration tests pass\n\nReference: claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md",
+        "phase": "core",
+        "labels": [
+          "implementation",
+          "typescript",
+          "v2.0"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": [
+          "T2112"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_b7e7c38bf8a5",
+      "timestamp": "2026-02-12T02:20:05Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4340",
+      "before": {
+        "title": "Document canonical TS migration doctrine: MCP-first then hotspots",
+        "status": "pending",
+        "priority": "medium",
+        "description": "Document the dual-track TypeScript migration doctrine that has emerged from T4334 (MCP native engine). Track 1: MCP-first - build native TypeScript capabilities inside the MCP server (cross-platform, standalone mode, 29 native operations as of v0.91.0). This track operates independently of the T2112 Bash stabilization gate. Track 2: Full TS conversion - gated on T2112, covers the complete Bash-to-TypeScript port per the ADR (D1-D6). The MCP-first track provides incremental evidence for the full conversion decision. Update CLAUDE.md, relevant specs, and architecture docs to reflect this canonical doctrine.",
+        "phase": "core",
+        "labels": [
+          "documentation",
+          "typescript"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Document canonical TS migration doctrine: MCP-first then hotspots",
+        "status": "pending",
+        "priority": "high",
+        "description": "Document the dual-track TypeScript migration doctrine that has emerged from T4334 (MCP native engine). Track 1: MCP-first - build native TypeScript capabilities inside the MCP server (cross-platform, standalone mode, 29 native operations as of v0.91.0). This track operates independently of the T2112 Bash stabilization gate. Track 2: Full TS conversion - gated on T2112, covers the complete Bash-to-TypeScript port per the ADR (D1-D6). The MCP-first track provides incremental evidence for the full conversion decision. Update CLAUDE.md, relevant specs, and architecture docs to reflect this canonical doctrine.",
+        "phase": "core",
+        "labels": [
+          "architecture",
+          "documentation",
+          "typescript"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1770862808-55bab1",
+      "timestamp": "2026-02-12T02:20:08Z",
+      "action": "task_created",
+      "taskId": "T4378",
+      "actor": "system",
+      "details": {
+        "title": "Enforce initialization policy (auto-init vs explicit system.init)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Enforce initialization policy (auto-init vs explicit system.init)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770862816-94fcc3",
+      "timestamp": "2026-02-12T02:20:16Z",
+      "action": "task_created",
+      "taskId": "T4379",
+      "actor": "system",
+      "details": {
+        "title": "Update roadmap and decision docs for single-source migration narrative",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Update roadmap and decision docs for single-source migration narrative",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770862823-18d464",
+      "timestamp": "2026-02-12T02:20:23Z",
+      "action": "task_created",
+      "taskId": "T4380",
+      "actor": "system",
+      "details": {
+        "title": "Define MCP native mode GA exit criteria",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Define MCP native mode GA exit criteria",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770862832-5ddf77",
+      "timestamp": "2026-02-12T02:20:32Z",
+      "action": "task_created",
+      "taskId": "T4381",
+      "actor": "system",
+      "details": {
+        "title": "Implement feature-flagged rollout (alpha/beta/GA)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Implement feature-flagged rollout (alpha/beta/GA)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_1adf5aa661c0",
+      "timestamp": "2026-02-12T02:21:24Z",
+      "sessionId": "session_20260211_181847_3feeee",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "P3/P4 sprint decomposition complete. 11 subtasks created."
+      }
+    },
+    {
+      "id": "log_e90bb61b24ec",
+      "timestamp": "2026-02-12T02:21:40Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4340",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T02:21:39Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5520,
-    "lastEntry": "2026-02-12T02:18:47Z",
+    "totalEntries": 5584,
+    "lastEntry": "2026-02-12T02:21:40Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
