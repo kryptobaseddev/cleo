@@ -107057,11 +107057,79 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_37b4ca1b6e23",
+      "timestamp": "2026-02-12T20:36:59Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4384",
+      "before": {
+        "title": "Strengthen session doctor diagnostics and auto-heal",
+        "status": "done",
+        "priority": "high",
+        "description": "Add categorized doctor findings with severity and remediation, plus explicit auto-heal/repair reporting for path drift and consistency issues.",
+        "phase": "core",
+        "labels": [
+          "diagnostics",
+          "session"
+        ],
+        "files": null,
+        "acceptance": [
+          "Doctor JSON includes actionable categorized findings",
+          "Doctor supports explicit repair mode with repair summary",
+          "Warnings include concrete next commands"
+        ],
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Strengthen session doctor diagnostics and auto-heal",
+        "status": "done",
+        "priority": "high",
+        "description": "Add categorized doctor findings with severity and remediation, plus explicit auto-heal/repair reporting for path drift and consistency issues.",
+        "phase": "core",
+        "labels": [
+          "diagnostics",
+          "fix",
+          "session"
+        ],
+        "files": null,
+        "acceptance": [
+          "Doctor JSON includes actionable categorized findings",
+          "Doctor supports explicit repair mode with repair summary",
+          "Warnings include concrete next commands"
+        ],
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1770928728-ea3134",
+      "timestamp": "2026-02-12T20:38:48Z",
+      "action": "task_created",
+      "taskId": "T4386",
+      "actor": "system",
+      "details": {
+        "title": "Fix release ship wiping planned release task links",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix release ship wiping planned release task links",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5589,
-    "lastEntry": "2026-02-12T20:35:21Z",
+    "totalEntries": 5590,
+    "lastEntry": "2026-02-12T20:36:59Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
