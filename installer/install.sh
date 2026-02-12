@@ -91,11 +91,14 @@ source "$INSTALLER_LIB_DIR/recover.sh"
 
 # Source agents-install.sh from repo lib/ (not installer/lib/)
 REPO_LIB_DIR="$(dirname "$INSTALLER_DIR")/lib"
-if [[ -f "$REPO_LIB_DIR/agents-install.sh" ]]; then
+if [[ -f "$REPO_LIB_DIR/skills/agents-install.sh" ]]; then
+    source "$REPO_LIB_DIR/skills/agents-install.sh"
+elif [[ -f "$REPO_LIB_DIR/agents-install.sh" ]]; then
+    # Legacy flat path fallback
     source "$REPO_LIB_DIR/agents-install.sh"
 else
     # Fallback: try relative to install.sh location
-    FALLBACK_LIB="$INSTALLER_DIR/../lib/agents-install.sh"
+    FALLBACK_LIB="$INSTALLER_DIR/../lib/skills/agents-install.sh"
     [[ -f "$FALLBACK_LIB" ]] && source "$FALLBACK_LIB"
 fi
 

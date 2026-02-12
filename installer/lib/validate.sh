@@ -33,9 +33,9 @@ readonly VALIDATE_REQUIRED_DIRS=(
 )
 
 readonly VALIDATE_REQUIRED_FILES=(
-    "lib/validation.sh"
-    "lib/file-ops.sh"
-    "lib/config.sh"
+    "lib/validation/validation.sh"
+    "lib/data/file-ops.sh"
+    "lib/core/config.sh"
     "scripts/add.sh"
     "schemas/todo.schema.json"
 )
@@ -377,12 +377,12 @@ installer_validate_compare_versions() {
 installer_validate_get_installed_version() {
     local install_dir="${1:-$INSTALL_DIR}"
     local version_file="$install_dir/VERSION"
-    local lib_version="$install_dir/lib/version.sh"
+    local lib_version="$install_dir/lib/core/version.sh"
 
     if [[ -f "$version_file" ]]; then
         cat "$version_file"
     elif [[ -f "$lib_version" ]]; then
-        # Extract version from lib/version.sh
+        # Extract version from lib/core/version.sh
         grep -E "^CLEO_VERSION=" "$lib_version" | cut -d'"' -f2
     else
         echo ""

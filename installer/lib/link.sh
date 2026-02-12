@@ -25,7 +25,10 @@ source "${INSTALLER_LIB_DIR}/core.sh"
 
 # Source agent config registry functions
 CLEO_LIB_DIR="$(dirname "$(dirname "$INSTALLER_LIB_DIR")")/lib"
-if [[ -f "$CLEO_LIB_DIR/agent-config.sh" ]]; then
+if [[ -f "$CLEO_LIB_DIR/skills/agent-config.sh" ]]; then
+    source "$CLEO_LIB_DIR/skills/agent-config.sh"
+elif [[ -f "$CLEO_LIB_DIR/agent-config.sh" ]]; then
+    # Legacy flat path fallback
     source "$CLEO_LIB_DIR/agent-config.sh"
 fi
 
@@ -372,7 +375,10 @@ case "$cmd" in
         # Check for JSON flag
         if [[ "${1:-}" == "--json" ]]; then
             # Source migrate.sh to get schema version
-            if [[ -f "$LIB_DIR/migrate.sh" ]]; then
+            if [[ -f "$LIB_DIR/data/migrate.sh" ]]; then
+                source "$LIB_DIR/data/migrate.sh"
+                schema_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
+            elif [[ -f "$LIB_DIR/migrate.sh" ]]; then
                 source "$LIB_DIR/migrate.sh"
                 schema_version=$(get_schema_version_from_file "todo" 2>/dev/null || echo "unknown")
             else
