@@ -858,10 +858,11 @@ describe('SystemHandler', () => {
 
     it('should handle executor not provided', async () => {
       const handlerWithoutExecutor = new SystemHandler();
+      // With dual-mode routing, version runs natively and succeeds even without executor
       const response = await handlerWithoutExecutor.query('version');
 
-      expect(response.success).toBe(false);
-      expect(response.error?.code).toBe('E_NOT_INITIALIZED');
+      expect(response.success).toBe(true);
+      expect(response.data).toBeDefined();
     });
   });
 });

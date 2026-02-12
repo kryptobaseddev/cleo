@@ -16,6 +16,10 @@ import type { Task, MinimalTask } from '../types/index.js';
 export function createMockExecutor(): jest.Mocked<CLIExecutor> {
   return {
     execute: jest.fn(),
+    isAvailable: jest.fn().mockReturnValue(true),
+    setAvailable: jest.fn(),
+    getVersion: jest.fn(),
+    testConnection: jest.fn(),
   } as any;
 }
 
