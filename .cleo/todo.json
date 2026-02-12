@@ -735,10 +735,23 @@
         "notes": "Patch release: unify context-state paths, add doctor actionable auto-heal diagnostics, and align docs/specs.",
         "gitTag": "v0.93.3",
         "changelog": "## [0.93.3] - 2026-02-12"
+      },
+      {
+        "version": "v0.93.4",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-12T21:05:50Z",
+        "createdAt": "2026-02-12T21:05:34Z",
+        "tasks": [
+          "T4386"
+        ],
+        "notes": "Patch release: fix release ship task-link overwrite by preserving planned release.tasks and merging discovered tasks.",
+        "gitTag": "v0.93.4",
+        "changelog": "## [0.93.4] - 2026-02-12\n\n### Bug Fixes\n- Fix release ship wiping planned release task links (T4386)"
       }
     ]
   },
-  "lastUpdated": "2026-02-12T21:04:41Z",
+  "lastUpdated": "2026-02-12T21:05:50Z",
   "_meta": {
     "checksum": "fe63c874860be460",
     "configVersion": "2.1.0",
@@ -749,7 +762,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2823
+    "generation": 2826
   },
   "focus": {
     "currentTask": null,
