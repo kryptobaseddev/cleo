@@ -4,7 +4,7 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-12T01:14:22Z",
+    "lastModified": "2026-02-12T01:14:28Z",
     "totalSessionsCreated": 620
   },
   "config": {
@@ -35820,7 +35820,7 @@
       "focus": {
         "currentTask": "T4345",
         "currentPhase": null,
-        "previousTask": null,
+        "previousTask": "T4345",
         "sessionNote": null,
         "nextAction": null,
         "focusHistory": [
@@ -35828,15 +35828,20 @@
             "taskId": "T4345",
             "timestamp": "2026-02-12T01:14:22Z",
             "action": "focused"
+          },
+          {
+            "taskId": "T4345",
+            "timestamp": "2026-02-12T01:14:28Z",
+            "action": "focused"
           }
         ]
       },
       "startedAt": "2026-02-12T01:14:22Z",
-      "lastActivity": "2026-02-12T01:14:22Z",
+      "lastActivity": "2026-02-12T01:14:28Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
-        "focusChanges": 1,
+        "focusChanges": 2,
         "suspendCount": 0,
         "resumeCount": 0
       },

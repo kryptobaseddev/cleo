@@ -105862,11 +105862,31 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log_2cc20a256479",
+      "timestamp": "2026-02-12T01:17:37Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4345",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T01:17:36Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5502,
-    "lastEntry": "2026-02-12T01:15:48Z",
+    "totalEntries": 5503,
+    "lastEntry": "2026-02-12T01:17:37Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
