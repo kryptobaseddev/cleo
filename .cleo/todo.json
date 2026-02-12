@@ -738,9 +738,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T20:37:49Z",
+  "lastUpdated": "2026-02-12T21:03:43Z",
   "_meta": {
-    "checksum": "363fd33226fc5cd1",
+    "checksum": "c5b82e974745edfa",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -749,7 +749,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2821
+    "generation": 2822
   },
   "focus": {
     "currentTask": null,
@@ -12902,6 +12902,33 @@
         "lastUpdated": "2026-02-12T20:35:18Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4386",
+      "title": "Fix release ship wiping planned release task links",
+      "status": "active",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-12T20:38:48Z",
+      "updatedAt": "2026-02-12T21:03:43Z",
+      "size": "medium",
+      "position": 859,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "cleo release ship currently clears manually planned release.tasks during auto-populate, causing shipped releases to lose task linkage and changelog generation to be empty.",
+      "labels": [
+        "bug",
+        "release"
+      ],
+      "acceptance": [
+        "release ship preserves manually planned tasks when discovery returns none",
+        "release show for shipped versions retains explicit task links",
+        "changelog generation includes task-derived entries when tasks are planned"
+      ],
+      "notes": [
+        "2026-02-12 21:03:43 UTC: RCSD research started: multi-agent investigation launched (ses_3ac59f946ffeSWdF1en9L0jUrc, ses_3ac59f925ffeYwdhxd9ekYP3Pd)."
+      ]
     }
   ],
   "labels": {}
