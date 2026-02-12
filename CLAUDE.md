@@ -80,7 +80,17 @@ jq 'select(.linkedTask != null and (.linkedTask | startswith("T")))' .cleo/metri
 
 ```
 scripts/          # CLI command entrypoints (user-facing commands ONLY)
-lib/              # Shared Bash helpers (validation, logging, file ops, config)
+lib/              # Shared Bash helpers organized into semantic subdirectories
+  lib/core/       #   Foundation: exit codes, error handling, logging, config, paths
+  lib/validation/ #   Schema validation, protocol enforcement, compliance, doctor
+  lib/session/    #   Session lifecycle, context monitoring, lock detection
+  lib/tasks/      #   Task mutations, dependency graphs, hierarchy, lifecycle
+  lib/skills/     #   Skill discovery/dispatch, agent registry, orchestrator
+  lib/data/       #   Atomic writes, file ops, backup, cache, migration, nexus
+  lib/ui/         #   CLI flags, command registry, injection system, changelog
+  lib/metrics/    #   Token estimation, metrics aggregation, OpenTelemetry
+  lib/release/    #   Release lifecycle, artifacts, CI, provenance
+  lib/rcsd/       #   RCSD pipeline stages
 schemas/          # JSON Schema definitions for validation
 templates/        # Starter templates for new projects
 tests/            # BATS test suite with unit/, integration/, golden/, fixtures/
@@ -94,7 +104,7 @@ dev/migrations/   # Internal one-time migration scripts (NOT user commands)
 ### Key Architecture Principles
 - **Scripts/** contains ONLY user-facing commands (checked by drift detection)
 - **Dev/migrations/** contains internal one-time scripts (NOT user commands)
-- **Lib/** contains all shared functions used by multiple scripts
+- **Lib/** contains shared functions in 9 semantic subdirectories (see `lib/README.md`)
 - **Atomic file operations** are mandatory for all write operations
 - **JSON Schema validation** runs on every data modification
 - **Append-only logging** to todo-log.json for audit trails
