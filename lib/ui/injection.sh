@@ -5,9 +5,9 @@
 readonly _INJECTION_LOADED=1
 
 # Dependencies
-source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/injection-registry.sh"
-source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/injection-config.sh"
-source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/exit-codes.sh"
+source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/ui/injection-registry.sh"
+source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/ui/injection-config.sh"
+source "${CLEO_LIB_DIR:-$CLEO_HOME/lib}/core/exit-codes.sh"
 
 # ==============================================================================
 # INJECTION OPERATIONS

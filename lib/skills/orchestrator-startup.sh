@@ -891,8 +891,8 @@ orchestrator_pre_spawn_check() {
         # Source orchestrator-validator if not already loaded
         if ! declare -f orchestrator_verify_compliance >/dev/null 2>&1; then
             local lib_dir="${BASH_SOURCE[0]%/*}/.."
-            if [[ -f "$lib_dir/orchestrator-validator.sh" ]]; then
-                source "$lib_dir/orchestrator-validator.sh"
+            if [[ -f "$lib_dir/skills/orchestrator-validator.sh" ]]; then
+                source "$lib_dir/skills/orchestrator-validator.sh"
             fi
         fi
 
@@ -1191,8 +1191,8 @@ orchestrator_auto_stop() {
         # Source sessions library if not already loaded
         if ! declare -f end_session >/dev/null 2>&1; then
             local lib_dir="${BASH_SOURCE[0]%/*}/.."
-            if [[ -f "$lib_dir/sessions.sh" ]]; then
-                source "$lib_dir/sessions.sh"
+            if [[ -f "$lib_dir/session/sessions.sh" ]]; then
+                source "$lib_dir/session/sessions.sh"
             fi
         fi
 
