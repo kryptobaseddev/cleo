@@ -213,6 +213,38 @@ EOF
     [[ "$tasks" == "T001,T002,T003" ]]
 }
 
+@test "ship command should preserve pre-planned tasks when auto-discovering" {
+    create_test_release_data
+
+    # Seed a manual planned link and keep one discovered task already present
+    jq '.tasks += [{
+          "id": "T999",
+          "title": "Manual planned task",
+          "type": "task",
+          "status": "pending",
+          "labels": []
+        }] |
+        .project.releases = (.project.releases | map(
+          if .version == "v0.65.0" then
+            .tasks = ["T999", "T001"]
+          else
+            .
+          end
+        ))' "$TODO_FILE" > "$TODO_FILE.tmp"
+    mv "$TODO_FILE.tmp" "$TODO_FILE"
+
+    run bash "$RELEASE_SCRIPT" ship v0.65.0
+    assert_success
+
+    local tasks_csv
+    tasks_csv=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | .tasks | join(",")' "$TODO_FILE")
+    [[ "$tasks_csv" == "T999,T001,T002,T003" ]]
+
+    local t001_count
+    t001_count=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | [.tasks[] | select(. == "T001")] | length' "$TODO_FILE")
+    [[ "$t001_count" -eq 1 ]]
+}
+
 @test "ship command should normalize version (with or without v prefix)" {
     create_test_release_data
 
