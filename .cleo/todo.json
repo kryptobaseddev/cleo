@@ -683,17 +683,17 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-11T23:51:08Z",
+  "lastUpdated": "2026-02-12T00:01:41Z",
   "_meta": {
-    "checksum": "40d7e891a64a9577",
+    "checksum": "e4942ab36d746728",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-11T05:58:12Z",
+    "lastModified": "2026-02-12T00:01:52Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 27,
+    "activeSessionCount": 28,
     "generation": 2745
   },
   "focus": {
@@ -12157,6 +12157,21 @@
       "depends": [
         "T4341"
       ]
+    },
+    {
+      "id": "T4370",
+      "title": "Remove obsolete root documentation files",
+      "status": "active",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-12T00:01:41Z",
+      "updatedAt": "2026-02-12T00:01:52Z",
+      "size": "medium",
+      "position": 858,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Delete stale integration/session verification markdown files from repository root and commit as docs cleanup chore"
     }
   ],
   "labels": {}

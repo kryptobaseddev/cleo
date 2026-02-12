@@ -87,9 +87,9 @@ teardown_file() {
     [[ "$INJECTION_TARGETS" =~ [[:space:]] ]]
 }
 
-@test "INJECTION_TARGETS contains exactly 5 targets" {
+@test "INJECTION_TARGETS contains exactly 3 targets" {
     local count=$(echo "$INJECTION_TARGETS" | wc -w)
-    [ "$count" -eq 5 ]
+    [ "$count" -eq 3 ]
 }
 
 # =============================================================================
@@ -194,16 +194,10 @@ teardown_file() {
     assert_success
 }
 
-@test "INJECTION_HEADERS empty for CODEX.md" {
-    local header_section
-    header_section=$(sed -n '/declare -gA INJECTION_HEADERS/,/^)/p' "${LIB_DIR}/injection-registry.sh")
-    [[ ! "$header_section" == *'["CODEX.md"]='* ]]
-}
-
-@test "INJECTION_HEADERS empty for KIMI.md" {
-    local header_section
-    header_section=$(sed -n '/declare -gA INJECTION_HEADERS/,/^)/p' "${LIB_DIR}/injection-registry.sh")
-    [[ ! "$header_section" == *'["KIMI.md"]='* ]]
+@test "CODEX.md and KIMI.md not in INJECTION_TARGETS" {
+    # Codex and Kimi use AGENTS.md, not standalone files
+    [[ ! " $INJECTION_TARGETS " == *" CODEX.md "* ]]
+    [[ ! " $INJECTION_TARGETS " == *" KIMI.md "* ]]
 }
 
 @test "INJECTION_HEADERS legacy system removed comment exists" {
@@ -362,7 +356,7 @@ teardown_file() {
 @test "validation keys count matches targets count" {
     local targets_count=$(echo "$INJECTION_TARGETS" | wc -w)
     local keys_count=$(grep -c '^\s*\[".*\.md"\]=' "${LIB_DIR}/injection-registry.sh" | tail -1)
-    [ "$targets_count" -eq 5 ]
+    [ "$targets_count" -eq 3 ]
 }
 
 # =============================================================================
