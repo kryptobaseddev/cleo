@@ -4,6 +4,13 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.93.1] - 2026-02-12
+
+### Chores
+- Close Track A epic T4344 (all 7 children complete)
+- Close Phase 0 Foundation epic T3109 (2/2 children complete)
+- Remove leftover .backup and documentation artifacts from lib/ root
+
 ## [0.93.0] - 2026-02-12
 
 ### Features

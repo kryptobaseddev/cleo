@@ -702,10 +702,21 @@
         "notes": null,
         "gitTag": "v0.93.0",
         "changelog": "## [0.93.0] - 2026-02-11"
+      },
+      {
+        "version": "v0.93.1",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-12T02:14:43Z",
+        "createdAt": "2026-02-12T02:14:10Z",
+        "tasks": [],
+        "notes": "Track A cleanup: close epic, remove lib/ artifacts",
+        "gitTag": "v0.93.1",
+        "changelog": "## [0.93.1] - 2026-02-11"
       }
     ]
   },
-  "lastUpdated": "2026-02-12T02:12:58Z",
+  "lastUpdated": "2026-02-12T02:14:43Z",
   "_meta": {
     "checksum": "0e705671d6319bd3",
     "configVersion": "2.1.0",
@@ -716,7 +727,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2783
+    "generation": 2787
   },
   "focus": {
     "currentTask": null,
