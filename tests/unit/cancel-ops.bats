@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# cancel-ops.bats - Unit tests for lib/cancel-ops.sh
+# cancel-ops.bats - Unit tests for lib/tasks/cancel-ops.sh
 # =============================================================================
 # Tests preflight validation for delete/cancel operations.
 # Part of: Delete Command Implementation (T708)
@@ -18,7 +18,7 @@ setup() {
     common_setup_per_test
 
     # Source the cancel-ops library
-    source "$LIB_DIR/cancel-ops.sh"
+    source "$LIB_DIR/tasks/cancel-ops.sh"
 }
 
 teardown() {
@@ -34,15 +34,15 @@ teardown_file() {
 # =============================================================================
 
 @test "cancel-ops library exists" {
-    [ -f "$LIB_DIR/cancel-ops.sh" ]
+    [ -f "$LIB_DIR/tasks/cancel-ops.sh" ]
 }
 
 @test "cancel-ops library is executable" {
-    [ -x "$LIB_DIR/cancel-ops.sh" ]
+    [ -x "$LIB_DIR/tasks/cancel-ops.sh" ]
 }
 
 @test "cancel-ops library sources without error" {
-    run bash -c "source '$LIB_DIR/cancel-ops.sh' && echo 'OK'"
+    run bash -c "source '$LIB_DIR/tasks/cancel-ops.sh' && echo 'OK'"
     assert_success
     assert_output "OK"
 }

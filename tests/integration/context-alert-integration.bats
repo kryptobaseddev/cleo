@@ -13,8 +13,8 @@ setup_file() {
     load '../test_helper/common_setup'
     common_setup_file
 
-    export CONTEXT_ALERT_LIB="${LIB_DIR}/context-alert.sh"
-    export OUTPUT_FORMAT_LIB="${LIB_DIR}/output-format.sh"
+    export CONTEXT_ALERT_LIB="${LIB_DIR}/session/context-alert.sh"
+    export OUTPUT_FORMAT_LIB="${LIB_DIR}/core/output-format.sh"
 }
 
 setup() {

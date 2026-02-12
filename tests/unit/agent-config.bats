@@ -17,8 +17,8 @@ setup() {
     mkdir -p "$TEST_DIR/.gemini"
 
     # Copy required libraries
-    cp "$BATS_TEST_DIRNAME/../../lib/injection-registry.sh" "$CLEO_LIB_DIR/"
-    cp "$BATS_TEST_DIRNAME/../../lib/agent-config.sh" "$CLEO_LIB_DIR/"
+    cp "$BATS_TEST_DIRNAME/../../lib/ui/injection-registry.sh" "$CLEO_LIB_DIR/"
+    cp "$BATS_TEST_DIRNAME/../../lib/skills/agent-config.sh" "$CLEO_LIB_DIR/"
 
     # Copy required schemas
     cp "$BATS_TEST_DIRNAME/../../schemas/agent-registry.json" "$CLEO_HOME/schemas/"

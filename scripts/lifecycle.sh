@@ -15,20 +15,20 @@
 #
 # @task T3085
 # LAYER: CLI Entry Point
-# DEPENDS: lib/lifecycle.sh, lib/output-format.sh
+# DEPENDS: lib/tasks/lifecycle.sh, lib/core/output-format.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source core libraries
-source "$LIB_DIR/exit-codes.sh"
-[[ -f "$LIB_DIR/output-format.sh" ]] && source "$LIB_DIR/output-format.sh"
-[[ -f "$LIB_DIR/error-json.sh" ]] && source "$LIB_DIR/error-json.sh"
-[[ -f "$LIB_DIR/flags.sh" ]] && source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/core/exit-codes.sh"
+[[ -f "$LIB_DIR/core/output-format.sh" ]] && source "$LIB_DIR/core/output-format.sh"
+[[ -f "$LIB_DIR/core/error-json.sh" ]] && source "$LIB_DIR/core/error-json.sh"
+[[ -f "$LIB_DIR/ui/flags.sh" ]] && source "$LIB_DIR/ui/flags.sh"
 
 # Source lifecycle library
-source "$LIB_DIR/lifecycle.sh"
+source "$LIB_DIR/tasks/lifecycle.sh"
 
 TODO_DIR="${TODO_DIR:-.cleo}"
 COMMAND_NAME="lifecycle"

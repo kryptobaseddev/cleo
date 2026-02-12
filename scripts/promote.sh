@@ -22,15 +22,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
-source "${LIB_DIR}/exit-codes.sh"
-source "${LIB_DIR}/output-format.sh"
-source "${LIB_DIR}/file-ops.sh"
-source "${LIB_DIR}/logging.sh"
-source "${LIB_DIR}/flags.sh"
+source "${LIB_DIR}/core/exit-codes.sh"
+source "${LIB_DIR}/core/output-format.sh"
+source "${LIB_DIR}/data/file-ops.sh"
+source "${LIB_DIR}/core/logging.sh"
+source "${LIB_DIR}/ui/flags.sh"
 
 # Source version library for proper version management
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  source "$LIB_DIR/core/version.sh"
 fi
 
 CLEO_DIR="${CLEO_DIR:-$(pwd)/.cleo}"

@@ -77,7 +77,7 @@ cat > "$EXPORT_FILE" <<EOF
 EOF
 
 # Source the library
-source "$LIB_DIR/import-logging.sh"
+source "$LIB_DIR/data/import-logging.sh"
 
 echo ""
 echo "========================================"

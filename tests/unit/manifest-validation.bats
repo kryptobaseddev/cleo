@@ -12,7 +12,7 @@ load '../libs/bats-assert/load'
 
 setup() {
     # Source the library under test
-    source lib/manifest-validation.sh 2>/dev/null || true
+    source lib/validation/manifest-validation.sh 2>/dev/null || true
 
     # Create temp directory for test fixtures
     TEST_DIR=$(mktemp -d)

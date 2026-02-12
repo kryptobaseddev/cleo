@@ -18,40 +18,40 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source libraries
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  source "$LIB_DIR/core/logging.sh"
 fi
 
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-  source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+  source "$LIB_DIR/data/file-ops.sh"
 fi
 
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  source "$LIB_DIR/core/config.sh"
 fi
 
-if [[ -f "$LIB_DIR/verification.sh" ]]; then
-  source "$LIB_DIR/verification.sh"
+if [[ -f "$LIB_DIR/validation/verification.sh" ]]; then
+  source "$LIB_DIR/validation/verification.sh"
 fi
 
 # Source lifecycle library for gate enforcement (T2579)
-if [[ -f "$LIB_DIR/lifecycle.sh" ]]; then
-  source "$LIB_DIR/lifecycle.sh"
+if [[ -f "$LIB_DIR/tasks/lifecycle.sh" ]]; then
+  source "$LIB_DIR/tasks/lifecycle.sh"
 fi
 
 # Source flags library for standardized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Command name for output
@@ -577,7 +577,7 @@ reset_verification() {
 
 # Main
 main() {
-  # Parse common flags first using lib/flags.sh
+  # Parse common flags first using lib/ui/flags.sh
   init_flag_defaults
   parse_common_flags "$@"
   set -- "${REMAINING_ARGS[@]}"

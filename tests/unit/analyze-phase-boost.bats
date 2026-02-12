@@ -70,13 +70,13 @@ add_task_direct() {
 }
 
 # =============================================================================
-# Phase Distance Function Tests (lib/phase-tracking.sh)
+# Phase Distance Function Tests (lib/tasks/phase-tracking.sh)
 # =============================================================================
 
 @test "get_phase_order returns correct order for setup phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_order "setup" "$TODO_FILE")
     [[ "$result" == "1" ]]
@@ -85,7 +85,7 @@ add_task_direct() {
 @test "get_phase_order returns correct order for core phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_order "core" "$TODO_FILE")
     [[ "$result" == "2" ]]
@@ -94,7 +94,7 @@ add_task_direct() {
 @test "get_phase_order returns correct order for testing phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_order "testing" "$TODO_FILE")
     [[ "$result" == "3" ]]
@@ -103,7 +103,7 @@ add_task_direct() {
 @test "get_phase_order returns correct order for polish phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_order "polish" "$TODO_FILE")
     [[ "$result" == "4" ]]
@@ -112,7 +112,7 @@ add_task_direct() {
 @test "get_phase_order returns correct order for maintenance phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_order "maintenance" "$TODO_FILE")
     [[ "$result" == "5" ]]
@@ -121,7 +121,7 @@ add_task_direct() {
 @test "get_phase_order returns 0 for nonexistent phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_order "nonexistent" "$TODO_FILE")
     [[ "$result" == "0" ]]
@@ -130,7 +130,7 @@ add_task_direct() {
 @test "get_phase_order returns 0 for empty phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_order "" "$TODO_FILE")
     [[ "$result" == "0" ]]
@@ -139,7 +139,7 @@ add_task_direct() {
 @test "get_phase_distance returns 0 for same phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "core" "core" "$TODO_FILE")
     [[ "$result" == "0" ]]
@@ -148,7 +148,7 @@ add_task_direct() {
 @test "get_phase_distance returns 1 for adjacent phases (setup to core)" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "setup" "core" "$TODO_FILE")
     [[ "$result" == "1" ]]
@@ -157,7 +157,7 @@ add_task_direct() {
 @test "get_phase_distance returns 1 for adjacent phases (core to testing)" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "core" "testing" "$TODO_FILE")
     [[ "$result" == "1" ]]
@@ -166,7 +166,7 @@ add_task_direct() {
 @test "get_phase_distance returns 2 for distance-2 phases (setup to testing)" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "setup" "testing" "$TODO_FILE")
     [[ "$result" == "2" ]]
@@ -175,7 +175,7 @@ add_task_direct() {
 @test "get_phase_distance returns 3 for distance-3 phases (setup to polish)" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "setup" "polish" "$TODO_FILE")
     [[ "$result" == "3" ]]
@@ -184,7 +184,7 @@ add_task_direct() {
 @test "get_phase_distance returns 4 for distance-4 phases (setup to maintenance)" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "setup" "maintenance" "$TODO_FILE")
     [[ "$result" == "4" ]]
@@ -193,7 +193,7 @@ add_task_direct() {
 @test "get_phase_distance handles reverse direction (testing to core)" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     # Distance should be absolute value
     result=$(get_phase_distance "testing" "core" "$TODO_FILE")
@@ -203,7 +203,7 @@ add_task_direct() {
 @test "get_phase_distance returns 0 for empty task phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "" "core" "$TODO_FILE")
     [[ "$result" == "0" ]]
@@ -212,7 +212,7 @@ add_task_direct() {
 @test "get_phase_distance returns 0 for empty current phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "core" "" "$TODO_FILE")
     [[ "$result" == "0" ]]
@@ -221,7 +221,7 @@ add_task_direct() {
 @test "get_phase_distance returns 0 for unknown phase" {
     create_empty_todo
 
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 
     result=$(get_phase_distance "nonexistent" "core" "$TODO_FILE")
     [[ "$result" == "0" ]]

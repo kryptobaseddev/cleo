@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Unit tests for lib/agents-install.sh
+# Unit tests for lib/skills/agents-install.sh
 # Tests agent discovery, installation, and uninstallation functions
 
 load '../libs/bats-support/load'
@@ -22,10 +22,10 @@ setup() {
 
     # Copy the agents-install.sh to test location
     # BATS_TEST_DIRNAME is tests/unit, so we need to go up twice to repo root
-    cp "$BATS_TEST_DIRNAME/../../lib/agents-install.sh" "$CLEO_REPO_ROOT/lib/"
+    cp "$BATS_TEST_DIRNAME/../../lib/skills/agents-install.sh" "$CLEO_REPO_ROOT/lib/"
 
     # Source the library
-    source "$CLEO_REPO_ROOT/lib/agents-install.sh"
+    source "$CLEO_REPO_ROOT/lib/skills/agents-install.sh"
 }
 
 teardown() {

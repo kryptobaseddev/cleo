@@ -18,9 +18,9 @@ setup_file() {
     export AGENT_FILE="${PROJECT_ROOT}/agents/cleo-subagent/AGENT.md"
     export PROTOCOLS_DIR="${PROJECT_ROOT}/protocols"
     export SKILLS_DIR="${PROJECT_ROOT}/skills"
-    export TOKEN_INJECT_LIB="${LIB_DIR}/token-inject.sh"
-    export SKILL_DISPATCH_LIB="${LIB_DIR}/skill-dispatch.sh"
-    export SKILL_VALIDATE_LIB="${LIB_DIR}/skill-validate.sh"
+    export TOKEN_INJECT_LIB="${LIB_DIR}/skills/token-inject.sh"
+    export SKILL_DISPATCH_LIB="${LIB_DIR}/skills/skill-dispatch.sh"
+    export SKILL_VALIDATE_LIB="${LIB_DIR}/skills/skill-validate.sh"
 }
 
 setup() {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Tests for lib/otel-integration.sh
+# Tests for lib/metrics/otel-integration.sh
 # @task T2855 - Create BATS tests for otel-integration.sh
 
 # Setup test environment
@@ -22,7 +22,7 @@ setup() {
     export TOKEN_METRICS_FILE="${OTEL_METRICS_DIR}/token_metrics.jsonl"
 
     # Source the library
-    source "${ORIGINAL_DIR}/lib/otel-integration.sh"
+    source "${ORIGINAL_DIR}/lib/metrics/otel-integration.sh"
 }
 
 teardown() {

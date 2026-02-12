@@ -33,10 +33,10 @@ CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 LIB_DIR="${CLEO_HOME}/lib"
 
 # Source libraries
-[[ -f "$LIB_DIR/file-ops.sh" ]] && source "$LIB_DIR/file-ops.sh"
-[[ -f "$LIB_DIR/logging.sh" ]] && source "$LIB_DIR/logging.sh"
-[[ -f "$LIB_DIR/exit-codes.sh" ]] && source "$LIB_DIR/exit-codes.sh"
-[[ -f "$LIB_DIR/error-json.sh" ]] && source "$LIB_DIR/error-json.sh"
+[[ -f "$LIB_DIR/data/file-ops.sh" ]] && source "$LIB_DIR/data/file-ops.sh"
+[[ -f "$LIB_DIR/core/logging.sh" ]] && source "$LIB_DIR/core/logging.sh"
+[[ -f "$LIB_DIR/core/exit-codes.sh" ]] && source "$LIB_DIR/core/exit-codes.sh"
+[[ -f "$LIB_DIR/core/error-json.sh" ]] && source "$LIB_DIR/core/error-json.sh"
 
 VERSION="0.1.0"
 RALPH_STATE_FILE=".claude/ralph-loop.local.md"

@@ -26,28 +26,28 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source version library for proper version management
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-    # shellcheck source=../lib/version.sh
-    source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+    # shellcheck source=../lib/core/version.sh
+    source "$LIB_DIR/core/version.sh"
 fi
 
 # Source libraries
-# shellcheck source=../lib/logging.sh
-source "$LIB_DIR/logging.sh"
+# shellcheck source=../lib/core/logging.sh
+source "$LIB_DIR/core/logging.sh"
 
-# shellcheck source=../lib/output-format.sh
-source "$LIB_DIR/output-format.sh"
+# shellcheck source=../lib/core/output-format.sh
+source "$LIB_DIR/core/output-format.sh"
 
-# shellcheck source=../lib/flags.sh
-source "$LIB_DIR/flags.sh"
+# shellcheck source=../lib/ui/flags.sh
+source "$LIB_DIR/ui/flags.sh"
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-    # shellcheck source=../lib/exit-codes.sh
-    source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+    # shellcheck source=../lib/core/exit-codes.sh
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # File paths

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# paths-env.bats - Unit tests for lib/paths.sh
+# paths-env.bats - Unit tests for lib/core/paths.sh
 # =============================================================================
 # Tests CLEO path resolution with environment variables.
 # Verifies TRUE CLEAN BREAK: NO legacy CLAUDE_TODO_* fallback.
@@ -17,7 +17,7 @@ setup() {
     common_setup_per_test
 
     # Source the paths library
-    source "$PROJECT_ROOT/lib/paths.sh"
+    source "$PROJECT_ROOT/lib/core/paths.sh"
 
     # Clear all CLEO environment variables for clean tests
     unset CLEO_HOME CLEO_DIR CLEO_FORMAT CLEO_DEBUG
@@ -39,15 +39,15 @@ teardown_file() {
 # =============================================================================
 
 @test "paths.sh library exists" {
-    [ -f "$PROJECT_ROOT/lib/paths.sh" ]
+    [ -f "$PROJECT_ROOT/lib/core/paths.sh" ]
 }
 
 @test "paths.sh library is executable" {
-    [ -x "$PROJECT_ROOT/lib/paths.sh" ]
+    [ -x "$PROJECT_ROOT/lib/core/paths.sh" ]
 }
 
 @test "paths.sh has no syntax errors" {
-    run bash -n "$PROJECT_ROOT/lib/paths.sh"
+    run bash -n "$PROJECT_ROOT/lib/core/paths.sh"
     assert_success
 }
 

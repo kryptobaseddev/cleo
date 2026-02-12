@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# injection.bats - Unit tests for lib/injection.sh core (pure) functions
+# injection.bats - Unit tests for lib/ui/injection.sh core (pure) functions
 # =============================================================================
 # Tests injection operations for agent documentation files.
 # Focuses on PURE functions: has_block, validate_markers, check_status.
@@ -21,8 +21,8 @@ setup() {
     export CLEO_LIB_DIR="${PROJECT_ROOT}/lib"
 
     # Source injection libraries
-    source "${PROJECT_ROOT}/lib/injection-registry.sh"
-    source "${PROJECT_ROOT}/lib/injection-config.sh"
+    source "${PROJECT_ROOT}/lib/ui/injection-registry.sh"
+    source "${PROJECT_ROOT}/lib/ui/injection-config.sh"
 }
 
 teardown() {
@@ -72,7 +72,7 @@ teardown_file() {
 
 @test "injection_check reports 'missing' status for nonexistent file" {
     local result status file_exists
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "${FIXTURES_DIR}/injection/nonexistent.md")
+    result=$(cd "$PROJECT_ROOT" && source lib/ui/injection.sh && injection_check "${FIXTURES_DIR}/injection/nonexistent.md")
 
     status=$(echo "$result" | jq -r '.status')
     file_exists=$(echo "$result" | jq -r '.fileExists')
@@ -83,7 +83,7 @@ teardown_file() {
 
 @test "injection_check reports 'none' status for clean file" {
     local result status file_exists
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "${FIXTURES_DIR}/injection/clean.md")
+    result=$(cd "$PROJECT_ROOT" && source lib/ui/injection.sh && injection_check "${FIXTURES_DIR}/injection/clean.md")
 
     status=$(echo "$result" | jq -r '.status')
     file_exists=$(echo "$result" | jq -r '.fileExists')
@@ -95,7 +95,7 @@ teardown_file() {
 @test "injection_check reports 'outdated' for legacy content without @-reference" {
     # Legacy content (not @-reference format) is considered outdated
     local result status
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "${FIXTURES_DIR}/injection/legacy-unversioned.md")
+    result=$(cd "$PROJECT_ROOT" && source lib/ui/injection.sh && injection_check "${FIXTURES_DIR}/injection/legacy-unversioned.md")
 
     status=$(echo "$result" | jq -r '.status')
 
@@ -116,7 +116,7 @@ teardown_file() {
 <!-- CLEO:END -->
 EOF
 
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "$temp_file")
+    result=$(cd "$PROJECT_ROOT" && source lib/ui/injection.sh && injection_check "$temp_file")
 
     status=$(echo "$result" | jq -r '.status')
 
@@ -135,7 +135,7 @@ Old content
 EOF
 
     local result status
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "$temp_file")
+    result=$(cd "$PROJECT_ROOT" && source lib/ui/injection.sh && injection_check "$temp_file")
 
     status=$(echo "$result" | jq -r '.status')
 
@@ -145,7 +145,7 @@ EOF
 
 @test "injection_check returns valid JSON" {
     local result
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "${FIXTURES_DIR}/injection/current.md")
+    result=$(cd "$PROJECT_ROOT" && source lib/ui/injection.sh && injection_check "${FIXTURES_DIR}/injection/current.md")
 
     # Should parse as valid JSON
     echo "$result" | jq empty
@@ -153,7 +153,7 @@ EOF
 
 @test "injection_check includes target in response" {
     local result target
-    result=$(cd "$PROJECT_ROOT" && source lib/injection.sh && injection_check "${FIXTURES_DIR}/injection/current.md")
+    result=$(cd "$PROJECT_ROOT" && source lib/ui/injection.sh && injection_check "${FIXTURES_DIR}/injection/current.md")
 
     target=$(echo "$result" | jq -r '.target')
     [ "$target" = "${FIXTURES_DIR}/injection/current.md" ]
@@ -264,8 +264,8 @@ EOF
     # Test in subshell to avoid BATS associative array issues
     run bash -c "
         export CLEO_HOME='${PROJECT_ROOT}'
-        source '${PROJECT_ROOT}/lib/injection-registry.sh'
-        source '${PROJECT_ROOT}/lib/injection-config.sh'
+        source '${PROJECT_ROOT}/lib/ui/injection-registry.sh'
+        source '${PROJECT_ROOT}/lib/ui/injection-config.sh'
         injection_get_header_path 'CLAUDE.md'
     "
     assert_success
@@ -276,8 +276,8 @@ EOF
     # Test in subshell to avoid BATS associative array issues
     run bash -c "
         export CLEO_HOME='${PROJECT_ROOT}'
-        source '${PROJECT_ROOT}/lib/injection-registry.sh'
-        source '${PROJECT_ROOT}/lib/injection-config.sh'
+        source '${PROJECT_ROOT}/lib/ui/injection-registry.sh'
+        source '${PROJECT_ROOT}/lib/ui/injection-config.sh'
         injection_get_header_path 'AGENTS.md'
     "
     assert_success
@@ -288,8 +288,8 @@ EOF
     # Legacy headers removed - all agents use unified AGENT-INJECTION.md
     run bash -c "
         export CLEO_HOME='${PROJECT_ROOT}'
-        source '${PROJECT_ROOT}/lib/injection-registry.sh'
-        source '${PROJECT_ROOT}/lib/injection-config.sh'
+        source '${PROJECT_ROOT}/lib/ui/injection-registry.sh'
+        source '${PROJECT_ROOT}/lib/ui/injection-config.sh'
         injection_get_header_path 'GEMINI.md'
     "
     assert_success

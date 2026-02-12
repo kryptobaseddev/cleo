@@ -29,7 +29,7 @@ setup() {
     export MANIFEST_FILE="${CONTRIB_DIR}/CONTRIBUTIONS.jsonl"
 
     # Source the contribution protocol library
-    source "${PROJECT_ROOT}/lib/contribution-protocol.sh"
+    source "${PROJECT_ROOT}/lib/skills/contribution-protocol.sh"
 }
 
 teardown() {
@@ -79,7 +79,7 @@ _create_test_contribution() {
       "rationale": "Based on analysis of existing patterns in the codebase.",
       "evidence": [
         {
-          "file": "lib/file-ops.sh",
+          "file": "lib/data/file-ops.sh",
           "section": "atomic_write function",
           "type": "code"
         }

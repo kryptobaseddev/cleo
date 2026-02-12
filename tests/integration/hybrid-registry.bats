@@ -33,7 +33,7 @@ setup() {
     export CLEO_LIB_DIR="${PROJECT_ROOT}/lib"
 
     # Source library for helper functions
-    source "$LIB_DIR/project-registry.sh"
+    source "$LIB_DIR/data/project-registry.sh"
 
     cd "$TEST_TEMP_DIR"
 }

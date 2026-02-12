@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Tests for lib/changelog.sh
+# Tests for lib/ui/changelog.sh
 # @task T2842 - Auto-generate changelog from conventional commits
 
 # Setup test environment
@@ -21,7 +21,7 @@ setup() {
     git commit -m "chore: Initial commit" --quiet
 
     # Source the changelog library
-    source "${ORIGINAL_DIR}/lib/changelog.sh"
+    source "${ORIGINAL_DIR}/lib/ui/changelog.sh"
 }
 
 teardown() {

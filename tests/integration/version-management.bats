@@ -66,7 +66,7 @@ teardown_file() {
 
 @test "discover_migration_versions finds all migrations" {
     # Source migrate.sh to get access to discover_migration_versions
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Get discovered versions
     run discover_migration_versions

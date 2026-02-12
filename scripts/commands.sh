@@ -22,15 +22,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 
 # Source required libraries
-source "${LIB_DIR}/exit-codes.sh"
-source "${LIB_DIR}/error-json.sh"
-source "${LIB_DIR}/output-format.sh"
-source "${LIB_DIR}/flags.sh"
+source "${LIB_DIR}/core/exit-codes.sh"
+source "${LIB_DIR}/core/error-json.sh"
+source "${LIB_DIR}/core/output-format.sh"
+source "${LIB_DIR}/ui/flags.sh"
 
 # Source version library for proper version management
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  # shellcheck source=../lib/version.sh
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  # shellcheck source=../lib/core/version.sh
+  source "$LIB_DIR/core/version.sh"
 fi
 
 # Command identification (for error reporting)
@@ -170,10 +170,10 @@ FORMAT=$(resolve_format "$FORMAT")
 
 if [[ "$DO_REBUILD" == true ]]; then
     # Source the command registry library
-    if [[ -f "$LIB_DIR/command-registry.sh" ]]; then
-        source "$LIB_DIR/command-registry.sh"
+    if [[ -f "$LIB_DIR/ui/command-registry.sh" ]]; then
+        source "$LIB_DIR/ui/command-registry.sh"
     else
-        output_error "E_FILE_NOT_FOUND" "lib/command-registry.sh not found" $EXIT_FILE_ERROR false \
+        output_error "E_FILE_NOT_FOUND" "lib/ui/command-registry.sh not found" $EXIT_FILE_ERROR false \
             "Library required for rebuild. Check installation."
         exit $EXIT_FILE_ERROR
     fi

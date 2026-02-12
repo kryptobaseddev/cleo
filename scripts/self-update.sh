@@ -42,10 +42,10 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source required libraries
-source "$LIB_DIR/exit-codes.sh"
-source "$LIB_DIR/config.sh"
-source "$LIB_DIR/output-format.sh" 2>/dev/null || true
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/core/exit-codes.sh"
+source "$LIB_DIR/core/config.sh"
+source "$LIB_DIR/core/output-format.sh" 2>/dev/null || true
+source "$LIB_DIR/ui/flags.sh"
 
 # Command name for error reporting
 COMMAND_NAME="self-update"

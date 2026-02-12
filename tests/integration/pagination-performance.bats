@@ -20,7 +20,7 @@ setup() {
     common_setup_per_test
 
     # Source the library under test
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
 
     # Set predictable version
     export CLEO_VERSION="1.0.0-test"

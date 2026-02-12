@@ -38,31 +38,31 @@ else
 fi
 
 # Source required libraries
-# shellcheck source=lib/logging.sh
-source "$LIB_DIR/logging.sh"
-# shellcheck source=lib/backup.sh
-source "$LIB_DIR/backup.sh"
-# shellcheck source=lib/file-ops.sh
-source "$LIB_DIR/file-ops.sh"
+# shellcheck source=lib/core/logging.sh
+source "$LIB_DIR/core/logging.sh"
+# shellcheck source=lib/data/backup.sh
+source "$LIB_DIR/data/backup.sh"
+# shellcheck source=lib/data/file-ops.sh
+source "$LIB_DIR/data/file-ops.sh"
 
 # Source output formatting library
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # ============================================================================
 # CONFIGURATION

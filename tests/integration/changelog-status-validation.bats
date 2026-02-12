@@ -105,7 +105,7 @@ teardown() {
 EOFTODO
 
     # Source the changelog library
-    source "$PROJECT_ROOT/lib/changelog.sh"
+    source "$PROJECT_ROOT/lib/ui/changelog.sh"
 
     # Run populate_release_tasks
     populate_release_tasks "v0.65.0" "$TODO_FILE"
@@ -211,7 +211,7 @@ EOFCHANGELOG
 EOFTODO
 
     # Source the changelog library
-    source "$PROJECT_ROOT/lib/changelog.sh"
+    source "$PROJECT_ROOT/lib/ui/changelog.sh"
 
     # Populate release tasks (this should filter by status)
     populate_release_tasks "v0.65.0" "$TODO_FILE"

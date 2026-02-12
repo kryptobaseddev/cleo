@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
-# Tests for lib/mcp-config.sh and scripts/mcp-install.sh
+# Tests for lib/ui/mcp-config.sh and scripts/mcp-install.sh
 
 setup_file() {
     load '../test_helper/common_setup'
     common_setup_file
-    export MCP_CONFIG_LIB="$LIB_DIR/mcp-config.sh"
+    export MCP_CONFIG_LIB="$LIB_DIR/ui/mcp-config.sh"
     export MCP_INSTALL_SCRIPT="$SCRIPTS_DIR/mcp-install.sh"
 }
 

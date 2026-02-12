@@ -236,7 +236,7 @@ fi
 # @why Standardize error handling for better agent/user experience
 # @what Convert all release.sh errors to JSON format with fix suggestions
 
-# Format-aware log_error - Uses lib/error-json.sh for proper JSON output
+# Format-aware log_error - Uses lib/core/error-json.sh for proper JSON output
 log_error() {
     local message="$1"
     local error_code="${2:-E_UNKNOWN}"
@@ -869,9 +869,9 @@ cmd_ship() {
     else
         log_info "Generating changelog for $normalized..."
 
-        # Generate changelog using lib/changelog.sh
+        # Generate changelog using lib/ui/changelog.sh
         if ! changelog_content=$(generate_changelog "$normalized" "" "$TODO_FILE"); then
-            log_error "Changelog generation failed" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check lib/changelog.sh:generate_changelog()"
+            log_error "Changelog generation failed" "E_CHANGELOG_GENERATION_FAILED" "$EXIT_CHANGELOG_GENERATION_FAILED" "Check lib/ui/changelog.sh:generate_changelog()"
             exit "$EXIT_CHANGELOG_GENERATION_FAILED"
         fi
 
@@ -1397,7 +1397,7 @@ cmd_show() {
 cmd_init_ci() {
     log_info "Initializing CI/CD workflow configuration..."
 
-    # Call generate_ci_config from lib/release-ci.sh
+    # Call generate_ci_config from lib/release/release-ci.sh
     if declare -f generate_ci_config >/dev/null 2>&1; then
         if generate_ci_config "$CI_PLATFORM" "$CI_OUTPUT" "$DRY_RUN" "$CI_FORCE"; then
             if [[ "$FORMAT" == "json" ]]; then
@@ -1430,7 +1430,7 @@ cmd_init_ci() {
             exit 72
         fi
     else
-        log_error "CI template generator not available" "E_CI_INIT_FAILED" 72 "lib/release-ci.sh not loaded"
+        log_error "CI template generator not available" "E_CI_INIT_FAILED" 72 "lib/release/release-ci.sh not loaded"
         exit 72
     fi
 }
@@ -1442,8 +1442,8 @@ cmd_validate() {
 
     # Source protocol validation library if not already loaded
     if ! declare -f validate_release_protocol &>/dev/null; then
-        if [[ -f "$LIB_DIR/protocol-validation.sh" ]]; then
-            source "$LIB_DIR/protocol-validation.sh"
+        if [[ -f "$LIB_DIR/validation/protocol-validation.sh" ]]; then
+            source "$LIB_DIR/validation/protocol-validation.sh"
         else
             log_error "Protocol validation library not found" "E_FILE_NOT_FOUND" "$EXIT_NOT_FOUND"
             exit "$EXIT_NOT_FOUND"

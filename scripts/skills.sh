@@ -42,16 +42,16 @@ fi
 VERSION="$(cat "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0")"
 
 # Source libraries
-source "$LIB_DIR/logging.sh" 2>/dev/null || true
-source "$LIB_DIR/output-format.sh" 2>/dev/null || true
-source "$LIB_DIR/exit-codes.sh" 2>/dev/null || true
-source "$LIB_DIR/flags.sh" 2>/dev/null || true
-source "$LIB_DIR/config.sh" 2>/dev/null || true
-source "$LIB_DIR/agent-config.sh" 2>/dev/null || true
-source "$LIB_DIR/skill-validate.sh" 2>/dev/null || true
-source "$LIB_DIR/skill-discovery.sh" 2>/dev/null || true
-source "$LIB_DIR/error-json.sh" 2>/dev/null || true
-source "$LIB_DIR/skillsmp.sh" 2>/dev/null || true
+source "$LIB_DIR/core/logging.sh" 2>/dev/null || true
+source "$LIB_DIR/core/output-format.sh" 2>/dev/null || true
+source "$LIB_DIR/core/exit-codes.sh" 2>/dev/null || true
+source "$LIB_DIR/ui/flags.sh" 2>/dev/null || true
+source "$LIB_DIR/core/config.sh" 2>/dev/null || true
+source "$LIB_DIR/skills/agent-config.sh" 2>/dev/null || true
+source "$LIB_DIR/skills/skill-validate.sh" 2>/dev/null || true
+source "$LIB_DIR/skills/skill-discovery.sh" 2>/dev/null || true
+source "$LIB_DIR/core/error-json.sh" 2>/dev/null || true
+source "$LIB_DIR/skills/skillsmp.sh" 2>/dev/null || true
 
 # Command metadata
 COMMAND_NAME="skills"
@@ -672,7 +672,7 @@ cmd_sync() {
   if ! declare -f sync_manifest >/dev/null 2>&1; then
     if [[ "$output_format" == "json" ]]; then
       output_error "$E_DEPENDENCY_MISSING" "skill-discovery.sh library not loaded" \
-        "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skill-discovery.sh is available"
+        "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skills/skill-discovery.sh is available"
     else
       get_colors
       echo ""
@@ -968,7 +968,7 @@ cmd_install() {
     if ! declare -f smp_install_skill >/dev/null 2>&1; then
       if [[ "$output_format" == "json" ]]; then
         output_error "$E_DEPENDENCY_MISSING" "SkillsMP library not loaded" \
-          "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skillsmp.sh is available"
+          "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skills/skillsmp.sh is available"
       else
         get_colors
         echo ""
@@ -1236,7 +1236,7 @@ cmd_update() {
   if ! declare -f smp_get_skill_details >/dev/null 2>&1; then
     if [[ "$output_format" == "json" ]]; then
       output_error "$E_DEPENDENCY_MISSING" "SkillsMP library not loaded" \
-        "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skillsmp.sh is available"
+        "$EXIT_DEPENDENCY_ERROR" true "Ensure lib/skills/skillsmp.sh is available"
     else
       get_colors
       echo ""

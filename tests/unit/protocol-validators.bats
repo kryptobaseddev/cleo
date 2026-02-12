@@ -9,7 +9,7 @@ setup() {
     common_setup_per_test
 
     # Source the validation library
-    source "${BATS_TEST_DIRNAME}/../../lib/protocol-validation.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/validation/protocol-validation.sh"
 }
 
 # ============================================================================

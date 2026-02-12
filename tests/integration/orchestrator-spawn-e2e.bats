@@ -467,7 +467,7 @@ EOF
     prompt=$(echo "$result" | jq -r '.result.prompt')
 
     # Source the validation library
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 
     # Validate protocol injection
     run orchestrator_verify_protocol_injection "$prompt"

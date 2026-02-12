@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# size-weighting.bats - Unit tests for lib/size-weighting.sh
+# size-weighting.bats - Unit tests for lib/tasks/size-weighting.sh
 # =============================================================================
 # Tests size weighting calculation for analyze leverage scoring.
 # Validates strategy-based weight calculation and edge case handling.
@@ -11,7 +11,7 @@ setup_file() {
     common_setup_file
 
     # Source the library under test
-    source "$LIB_DIR/size-weighting.sh"
+    source "$LIB_DIR/tasks/size-weighting.sh"
 }
 
 setup() {
@@ -33,7 +33,7 @@ teardown_file() {
 # =============================================================================
 
 @test "size-weighting library exists" {
-    [ -f "$LIB_DIR/size-weighting.sh" ]
+    [ -f "$LIB_DIR/tasks/size-weighting.sh" ]
 }
 
 @test "size-weighting library exports calculate_size_weight" {

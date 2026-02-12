@@ -98,7 +98,7 @@ EOF
 }
 
 @test "migrate library exists" {
-    [ -f "$PROJECT_ROOT/lib/migrate.sh" ]
+    [ -f "$PROJECT_ROOT/lib/data/migrate.sh" ]
 }
 
 # =============================================================================
@@ -316,7 +316,7 @@ EOF
 # =============================================================================
 
 @test "parse_migration_identifier recognizes semver pattern" {
-    source "$PROJECT_ROOT/lib/migrate.sh"
+    source "$PROJECT_ROOT/lib/data/migrate.sh"
 
     # Define a test function
     migrate_test_to_2_5_0() { echo "test"; }
@@ -327,7 +327,7 @@ EOF
 }
 
 @test "parse_migration_identifier recognizes timestamp pattern" {
-    source "$PROJECT_ROOT/lib/migrate.sh"
+    source "$PROJECT_ROOT/lib/data/migrate.sh"
 
     # Define a test function
     migrate_test_20260103120000_add_field() { echo "test"; }
@@ -338,14 +338,14 @@ EOF
 }
 
 @test "parse_migration_identifier rejects invalid pattern" {
-    source "$PROJECT_ROOT/lib/migrate.sh"
+    source "$PROJECT_ROOT/lib/data/migrate.sh"
 
     run parse_migration_identifier "invalid_function_name"
     assert_failure
 }
 
 @test "discover_migration_versions finds semver migrations" {
-    source "$PROJECT_ROOT/lib/migrate.sh"
+    source "$PROJECT_ROOT/lib/data/migrate.sh"
 
     # Define test functions
     migrate_test_to_2_3_0() { echo "test"; }
@@ -357,7 +357,7 @@ EOF
 }
 
 @test "discover_migration_versions finds timestamp migrations" {
-    source "$PROJECT_ROOT/lib/migrate.sh"
+    source "$PROJECT_ROOT/lib/data/migrate.sh"
 
     # Define test functions
     migrate_test_20260103120000_add_field() { echo "test"; }
@@ -369,7 +369,7 @@ EOF
 }
 
 @test "discover_migration_versions sorts semver before timestamp" {
-    source "$PROJECT_ROOT/lib/migrate.sh"
+    source "$PROJECT_ROOT/lib/data/migrate.sh"
 
     # Define mixed migrations
     migrate_test_to_2_3_0() { echo "test"; }
@@ -390,7 +390,7 @@ EOF
 }
 
 @test "discover_migration_versions filters by file type" {
-    source "$PROJECT_ROOT/lib/migrate.sh"
+    source "$PROJECT_ROOT/lib/data/migrate.sh"
 
     # Define migrations for different types
     migrate_todo_to_2_3_0() { echo "test"; }

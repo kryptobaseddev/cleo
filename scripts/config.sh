@@ -37,9 +37,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 
 # Source version library for proper version management
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  # shellcheck source=../lib/version.sh
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  # shellcheck source=../lib/core/version.sh
+  source "$LIB_DIR/core/version.sh"
 fi
 
 # Source version from central location (fallback)
@@ -53,26 +53,26 @@ else
 fi
 
 # Source libraries (with defensive checks)
-if [[ -f "$LIB_DIR/platform-compat.sh" ]]; then
-  source "$LIB_DIR/platform-compat.sh"
+if [[ -f "$LIB_DIR/core/platform-compat.sh" ]]; then
+  source "$LIB_DIR/core/platform-compat.sh"
 fi
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  source "$LIB_DIR/core/output-format.sh"
 fi
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  source "$LIB_DIR/core/error-json.sh"
 fi
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  source "$LIB_DIR/core/config.sh"
 fi
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-  source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+  source "$LIB_DIR/data/file-ops.sh"
 fi
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Command identification

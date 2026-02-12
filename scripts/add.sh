@@ -16,8 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source paths.sh for path resolution functions
-if [[ -f "$LIB_DIR/paths.sh" ]]; then
-    source "$LIB_DIR/paths.sh"
+if [[ -f "$LIB_DIR/core/paths.sh" ]]; then
+    source "$LIB_DIR/core/paths.sh"
 fi
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
@@ -25,90 +25,90 @@ CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Source logging library for should_use_color function
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  # shellcheck source=../lib/version.sh
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  # shellcheck source=../lib/core/version.sh
+  source "$LIB_DIR/core/version.sh"
 fi
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source validation library for circular dependency check
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-  # shellcheck source=../lib/validation.sh
-  source "$LIB_DIR/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+  # shellcheck source=../lib/validation/validation.sh
+  source "$LIB_DIR/validation/validation.sh"
 fi
 
 # Source file operations library for atomic writes with locking
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-  # shellcheck source=../lib/file-ops.sh
-  source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+  # shellcheck source=../lib/data/file-ops.sh
+  source "$LIB_DIR/data/file-ops.sh"
 fi
 
 # Source output formatting library for format-aware output
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library for structured error output (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source config library for defaults resolution (v0.24.0)
 # IMPORTANT: Must be sourced BEFORE hierarchy.sh so config functions are available
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "$LIB_DIR/core/config.sh"
 fi
 
 # Source hierarchy library for parent/type/depth validation (v0.17.0)
-if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
-  # shellcheck source=../lib/hierarchy.sh
-  source "$LIB_DIR/hierarchy.sh"
+if [[ -f "$LIB_DIR/tasks/hierarchy.sh" ]]; then
+  # shellcheck source=../lib/tasks/hierarchy.sh
+  source "$LIB_DIR/tasks/hierarchy.sh"
 fi
 
 # Source phase tracking library for phase context validation (v2.2.0)
-if [[ -f "$LIB_DIR/phase-tracking.sh" ]]; then
-  # shellcheck source=../lib/phase-tracking.sh
-  source "$LIB_DIR/phase-tracking.sh"
+if [[ -f "$LIB_DIR/tasks/phase-tracking.sh" ]]; then
+  # shellcheck source=../lib/tasks/phase-tracking.sh
+  source "$LIB_DIR/tasks/phase-tracking.sh"
 fi
 
 # Source session enforcement for Epic-Bound Sessions (v0.40.0)
-if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
-  # shellcheck source=../lib/session-enforcement.sh
-  source "$LIB_DIR/session-enforcement.sh"
+if [[ -f "$LIB_DIR/session/session-enforcement.sh" ]]; then
+  # shellcheck source=../lib/session/session-enforcement.sh
+  source "$LIB_DIR/session/session-enforcement.sh"
 fi
 
 # Source sequence library for robust task ID generation (v0.52.0)
-if [[ -f "$LIB_DIR/sequence.sh" ]]; then
-  # shellcheck source=../lib/sequence.sh
-  source "$LIB_DIR/sequence.sh"
+if [[ -f "$LIB_DIR/core/sequence.sh" ]]; then
+  # shellcheck source=../lib/core/sequence.sh
+  source "$LIB_DIR/core/sequence.sh"
 fi
 
 # Source context alert library for context monitoring (T1323)
-if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
-  # shellcheck source=../lib/context-alert.sh
-  source "$LIB_DIR/context-alert.sh"
+if [[ -f "$LIB_DIR/session/context-alert.sh" ]]; then
+  # shellcheck source=../lib/session/context-alert.sh
+  source "$LIB_DIR/session/context-alert.sh"
 fi
 
 # Source protocol validation library for protocol enforcement (T2695)
-if [[ -f "$LIB_DIR/protocol-validation.sh" ]]; then
-  # shellcheck source=../lib/protocol-validation.sh
-  source "$LIB_DIR/protocol-validation.sh"
+if [[ -f "$LIB_DIR/validation/protocol-validation.sh" ]]; then
+  # shellcheck source=../lib/validation/protocol-validation.sh
+  source "$LIB_DIR/validation/protocol-validation.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
@@ -386,11 +386,11 @@ generate_task_id() {
   fi
 }
 
-# Validate task title (local wrapper - calls lib/validation.sh function)
+# Validate task title (local wrapper - calls lib/validation/validation.sh function)
 validate_title_local() {
   local title="$1"
 
-  # Call the shared validation function from lib/validation.sh
+  # Call the shared validation function from lib/validation/validation.sh
   if ! validate_title "$title"; then
     return 1
   fi
@@ -908,7 +908,7 @@ if [[ -n "$PARENT_ID" ]]; then
     exit "${EXIT_INVALID_INPUT:-2}"
   fi
 
-  # Validate hierarchy constraints using lib/hierarchy.sh
+  # Validate hierarchy constraints using lib/tasks/hierarchy.sh
   if declare -f validate_hierarchy >/dev/null 2>&1; then
     if ! validate_parent_exists "$PARENT_ID" "$TODO_FILE"; then
       _err_escaped_title=$(printf '%s' "$TITLE" | sed "s/'/'\\\\''/g")

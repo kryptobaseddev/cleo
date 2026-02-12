@@ -16,7 +16,7 @@ setup() {
     common_setup_per_test
 
     # Source the paths library
-    source "$PROJECT_ROOT/lib/paths.sh"
+    source "$PROJECT_ROOT/lib/core/paths.sh"
 
     # Reset warning state for each test
     reset_migration_warnings
@@ -201,7 +201,7 @@ teardown_file() {
 
 @test "emit_migration_warning outputs to stderr" {
     # Capture stderr only
-    run bash -c 'source "$1/lib/paths.sh"; emit_migration_warning "global" 2>&1 >/dev/null' -- "$PROJECT_ROOT"
+    run bash -c 'source "$1/lib/core/paths.sh"; emit_migration_warning "global" 2>&1 >/dev/null' -- "$PROJECT_ROOT"
     assert_output --partial "[MIGRATION]"
 }
 

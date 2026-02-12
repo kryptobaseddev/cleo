@@ -17,7 +17,7 @@ setup_file() {
     common_setup_file
 
     # Export paths
-    export SPAWN_LIB="${LIB_DIR}/orchestrator-spawn.sh"
+    export SPAWN_LIB="${LIB_DIR}/skills/orchestrator-spawn.sh"
 }
 
 setup() {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# graph-ops.bats - Unit tests for lib/graph-ops.sh
+# graph-ops.bats - Unit tests for lib/tasks/graph-ops.sh
 # =============================================================================
 # T2140: Comprehensive tests for graph algorithms including:
 # - Critical path analysis
@@ -30,7 +30,7 @@ setup() {
     common_setup_per_test
     
     # Skip all tests if graph-ops.sh is not implemented
-    if [[ ! -f "$LIB_DIR/graph-ops.sh" ]]; then
+    if [[ ! -f "$LIB_DIR/tasks/graph-ops.sh" ]]; then
         skip "graph-ops.sh not yet implemented"
     fi
     
@@ -55,8 +55,8 @@ setup() {
     export GRAPH_CACHE_DIR GRAPH_FORWARD_INDEX GRAPH_REVERSE_INDEX GRAPH_CHECKSUM_FILE GRAPH_METADATA_FILE
     
     # Source required libraries
-    source "$LIB_DIR/graph-cache.sh"
-    source "$LIB_DIR/graph-ops.sh"
+    source "$LIB_DIR/tasks/graph-cache.sh"
+    source "$LIB_DIR/tasks/graph-ops.sh"
 }
 
 teardown() {
@@ -461,6 +461,6 @@ setup_empty_todo() {
     }' > "$TODO_FILE"
     invalidate_graph_cache "$TODO_FILE"
     
-    run timeout 5 bash -c "export CLAUDE_DIR='$CLEO_DIR' && export CLEO_DIR='$CLEO_DIR' && export TODO_FILE='$TODO_FILE' && export GRAPH_CACHE_DIR='$GRAPH_CACHE_DIR' && source '$LIB_DIR/graph-cache.sh' && source '$LIB_DIR/graph-ops.sh' && calculate_dependency_waves"
+    run timeout 5 bash -c "export CLAUDE_DIR='$CLEO_DIR' && export CLEO_DIR='$CLEO_DIR' && export TODO_FILE='$TODO_FILE' && export GRAPH_CACHE_DIR='$GRAPH_CACHE_DIR' && source '$LIB_DIR/tasks/graph-cache.sh' && source '$LIB_DIR/tasks/graph-ops.sh' && calculate_dependency_waves"
     assert_success
 }

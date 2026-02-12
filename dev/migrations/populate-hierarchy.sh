@@ -5,11 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(dirname "$SCRIPT_DIR")/lib"
 
-source "${LIB_DIR}/exit-codes.sh"
-source "${LIB_DIR}/error-json.sh"
-source "${LIB_DIR}/output-format.sh"
-source "${LIB_DIR}/version.sh"
-source "${LIB_DIR}/flags.sh"
+source "${LIB_DIR}/core/exit-codes.sh"
+source "${LIB_DIR}/core/error-json.sh"
+source "${LIB_DIR}/core/output-format.sh"
+source "${LIB_DIR}/core/version.sh"
+source "${LIB_DIR}/ui/flags.sh"
 
 # Get CLI version (fail loudly if unreadable)
 if [[ -z "${CLEO_VERSION:-}" ]]; then

@@ -13,8 +13,8 @@ setup_file() {
     common_setup_file
 
     # Export paths
-    export ORCH_LIB="${LIB_DIR}/orchestrator-startup.sh"
-    export OUTPUT_FORMAT_LIB="${LIB_DIR}/output-format.sh"
+    export ORCH_LIB="${LIB_DIR}/skills/orchestrator-startup.sh"
+    export OUTPUT_FORMAT_LIB="${LIB_DIR}/core/output-format.sh"
 }
 
 setup() {

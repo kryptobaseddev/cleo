@@ -36,8 +36,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source paths.sh for path resolution functions
-if [[ -f "$LIB_DIR/paths.sh" ]]; then
-    source "$LIB_DIR/paths.sh"
+if [[ -f "$LIB_DIR/core/paths.sh" ]]; then
+    source "$LIB_DIR/core/paths.sh"
 fi
 
 # Default file paths
@@ -46,52 +46,52 @@ CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Source required libraries
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-    # shellcheck source=../lib/version.sh
-    source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+    # shellcheck source=../lib/core/version.sh
+    source "$LIB_DIR/core/version.sh"
 fi
 
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-    # shellcheck source=../lib/logging.sh
-    source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+    # shellcheck source=../lib/core/logging.sh
+    source "$LIB_DIR/core/logging.sh"
 fi
 
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-    # shellcheck source=../lib/validation.sh
-    source "$LIB_DIR/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+    # shellcheck source=../lib/validation/validation.sh
+    source "$LIB_DIR/validation/validation.sh"
 fi
 
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-    # shellcheck source=../lib/file-ops.sh
-    source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+    # shellcheck source=../lib/data/file-ops.sh
+    source "$LIB_DIR/data/file-ops.sh"
 fi
 
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    # shellcheck source=../lib/output-format.sh
-    source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    # shellcheck source=../lib/core/output-format.sh
+    source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source exit codes first
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-    # shellcheck source=../lib/exit-codes.sh
-    source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+    # shellcheck source=../lib/core/exit-codes.sh
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source error JSON library for structured error output
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
 fi
 
-if [[ -f "$LIB_DIR/export.sh" ]]; then
-    # shellcheck source=../lib/export.sh
-    source "$LIB_DIR/export.sh"
+if [[ -f "$LIB_DIR/data/export.sh" ]]; then
+    # shellcheck source=../lib/data/export.sh
+    source "$LIB_DIR/data/export.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-    # shellcheck source=../lib/flags.sh
-    source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+    # shellcheck source=../lib/ui/flags.sh
+    source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables)
@@ -479,7 +479,7 @@ collect_task_selection() {
 # -----------------------------------------------------------------------------
 # Export package building wrappers
 # -----------------------------------------------------------------------------
-# These functions wrap the lib/export.sh implementations to match the script's
+# These functions wrap the lib/data/export.sh implementations to match the script's
 # calling conventions. The lib functions require specific parameters while the
 # script has already determined export mode, filters, etc.
 
@@ -491,7 +491,7 @@ collect_task_selection() {
 # Returns:
 #   Complete export package JSON conforming to schema
 #
-# Calls lib/export.sh build_export_package() with proper parameters
+# Calls lib/data/export.sh build_export_package() with proper parameters
 build_export_package_wrapper() {
     local tasks_json="$1"
 
@@ -521,7 +521,7 @@ build_export_package_wrapper() {
 # Returns:
 #   0 if valid, 1 if invalid
 #
-# Note: lib/export.sh validate_export_package() expects a file path,
+# Note: lib/data/export.sh validate_export_package() expects a file path,
 # so we write to temp file first
 validate_export_package_wrapper() {
     local package="$1"
@@ -663,7 +663,7 @@ main() {
     if [[ "$INTERACTIVE_MODE" == true ]]; then
         log_info "Launching interactive task selection..."
         
-        # Call interactive_select_tasks from lib/export.sh
+        # Call interactive_select_tasks from lib/data/export.sh
 
     # INCLUDE-DEPS MODE: Expand dependencies (T1298)
     if [[ "$INCLUDE_DEPS" == true && "$task_count" -gt 0 ]]; then
@@ -673,7 +673,7 @@ main() {
         local selected_ids
         selected_ids=$(echo "$task_selection" | jq -r '[.[].id] | join(" ")')
         
-        # Call expand_dependencies from lib/export.sh
+        # Call expand_dependencies from lib/data/export.sh
         if declare -f expand_dependencies >/dev/null 2>&1; then
             local expanded_ids
             expanded_ids=$(expand_dependencies "$selected_ids" "$TODO_FILE")

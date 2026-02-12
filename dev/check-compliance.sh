@@ -518,9 +518,9 @@ generate_fix_suggestions() {
         "foundation_libs")
             cat << EOF
 Add missing library sources at script top:
-  source "\$LIB_DIR/exit-codes.sh" || source "\$CLAUDE_TODO_HOME/lib/exit-codes.sh"
-  source "\$LIB_DIR/error-json.sh" || source "\$CLAUDE_TODO_HOME/lib/error-json.sh"
-  source "\$LIB_DIR/output-format.sh" || source "\$CLAUDE_TODO_HOME/lib/output-format.sh"
+  source "\$LIB_DIR/core/exit-codes.sh" || source "\$CLAUDE_TODO_HOME/lib/core/exit-codes.sh"
+  source "\$LIB_DIR/core/error-json.sh" || source "\$CLAUDE_TODO_HOME/lib/core/error-json.sh"
+  source "\$LIB_DIR/core/output-format.sh" || source "\$CLAUDE_TODO_HOME/lib/core/output-format.sh"
 EOF
             ;;
         "command_name")
@@ -575,7 +575,7 @@ EOF
             ;;
         "exit_constants"|"no_magic_numbers")
             cat << EOF
-Replace magic exit numbers with constants from lib/exit-codes.sh:
+Replace magic exit numbers with constants from lib/core/exit-codes.sh:
   exit 0  → exit \$EXIT_SUCCESS
   exit 1  → exit \$EXIT_GENERAL_ERROR
   exit 2  → exit \$EXIT_USAGE_ERROR

@@ -39,27 +39,27 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
-# shellcheck source=../lib/file-ops.sh
-source "${LIB_DIR}/file-ops.sh"
+# shellcheck source=../lib/data/file-ops.sh
+source "${LIB_DIR}/data/file-ops.sh"
 
-# shellcheck source=../lib/validation.sh
-source "${LIB_DIR}/validation.sh"
+# shellcheck source=../lib/validation/validation.sh
+source "${LIB_DIR}/validation/validation.sh"
 
-# shellcheck source=../lib/output-format.sh
-source "${LIB_DIR}/output-format.sh"
+# shellcheck source=../lib/core/output-format.sh
+source "${LIB_DIR}/core/output-format.sh"
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # Default configuration
 PERIOD_DAYS=30

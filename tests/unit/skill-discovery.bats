@@ -15,9 +15,9 @@ setup() {
     mkdir -p "$PROJECT_ROOT/skills/_shared"
 
     # Copy required libraries
-    cp "$BATS_TEST_DIRNAME/../../lib/exit-codes.sh" "$PROJECT_ROOT/lib/"
-    cp "$BATS_TEST_DIRNAME/../../lib/skill-validate.sh" "$PROJECT_ROOT/lib/"
-    cp "$BATS_TEST_DIRNAME/../../lib/skill-discovery.sh" "$PROJECT_ROOT/lib/"
+    cp "$BATS_TEST_DIRNAME/../../lib/core/exit-codes.sh" "$PROJECT_ROOT/lib/"
+    cp "$BATS_TEST_DIRNAME/../../lib/skills/skill-validate.sh" "$PROJECT_ROOT/lib/"
+    cp "$BATS_TEST_DIRNAME/../../lib/skills/skill-discovery.sh" "$PROJECT_ROOT/lib/"
 
     # Create initial manifest
     cat > "$PROJECT_ROOT/skills/manifest.json" <<'EOF'
@@ -38,7 +38,7 @@ EOF
 
     # Source library (with correct PROJECT_ROOT)
     cd "$PROJECT_ROOT"
-    source "$PROJECT_ROOT/lib/skill-discovery.sh"
+    source "$PROJECT_ROOT/lib/skills/skill-discovery.sh"
 }
 
 teardown() {

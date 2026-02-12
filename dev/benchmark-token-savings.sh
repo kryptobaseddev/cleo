@@ -6,8 +6,8 @@
 set -euo pipefail
 
 # Source file-ops for atomic JSONL append
-# shellcheck source=lib/file-ops.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../lib/file-ops.sh"
+# shellcheck source=lib/data/file-ops.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/data/file-ops.sh"
 
 # Constants
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -154,7 +154,7 @@ test_case_1_small_task() {
     log_info "Running Test Case 1: Small task lookup (single entry)"
 
     local entry_id="T2405-token-pre-resolution"
-    local file_path="$PROJECT_ROOT/lib/token-inject.sh"
+    local file_path="$PROJECT_ROOT/lib/skills/token-inject.sh"
 
     # Method A: Manifest
     local metrics_a

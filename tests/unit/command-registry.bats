@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# command-registry.bats - Unit tests for lib/command-registry.sh
+# command-registry.bats - Unit tests for lib/ui/command-registry.sh
 # =============================================================================
 # Tests ###CLEO header parsing, registry scanning, validation, and rebuild.
 # =============================================================================
@@ -16,7 +16,7 @@ setup() {
     common_setup_per_test
 
     # Source the library under test
-    source "${LIB_DIR}/command-registry.sh"
+    source "${LIB_DIR}/ui/command-registry.sh"
 
     # Create a temp scripts directory with test scripts
     TEST_SCRIPTS_DIR="${TEST_TEMP_DIR}/scripts"

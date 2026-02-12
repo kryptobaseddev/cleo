@@ -168,7 +168,7 @@ EOF
 # as the session list command may not yet have --limit/--offset wired up.
 
 @test "apply_pagination works with session JSON data" {
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
 
     local sessions='[
         {"id":"s1","name":"Session 1","status":"ended"},
@@ -189,7 +189,7 @@ EOF
 }
 
 @test "apply_pagination with offset skips correct sessions" {
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
 
     local sessions='[
         {"id":"s1","name":"Session 1","status":"ended"},
@@ -211,7 +211,7 @@ EOF
 }
 
 @test "output_paginated produces correct envelope for sessions" {
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
     export CLEO_VERSION="1.0.0-test"
 
     local page='[{"id":"s1"},{"id":"s2"}]'
@@ -233,7 +233,7 @@ EOF
 }
 
 @test "compact_session reduces session size for pagination" {
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
 
     local full_session='{"id":"s1","name":"Work","status":"active","scope":{"type":"epic","taskId":"T001"},"focus":{"currentTask":"T002","history":["T001","T002"]},"startedAt":"2025-01-01T00:00:00Z","endedAt":null,"focusHistory":[{"task":"T001","at":"2025-01-01T00:00:00Z"},{"task":"T002","at":"2025-01-01T01:00:00Z"}],"stats":{"tasksCompleted":5,"focusSwitches":3},"taskSnapshots":[{"id":"T001","status":"pending"}],"notes":["did some work"],"events":[{"type":"focus_switch","at":"2025-01-01T01:00:00Z"}]}'
 
@@ -257,7 +257,7 @@ EOF
 }
 
 @test "get_default_limit returns 10 for session commands" {
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
 
     run get_default_limit "session list"
     assert_success
@@ -273,7 +273,7 @@ EOF
 # =============================================================================
 
 @test "full pagination flow: collect, paginate, envelope" {
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
     export CLEO_VERSION="1.0.0-test"
 
     # Simulate what session list would do internally

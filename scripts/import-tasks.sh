@@ -34,8 +34,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source paths.sh for path resolution functions
-if [[ -f "$LIB_DIR/paths.sh" ]]; then
-    source "$LIB_DIR/paths.sh"
+if [[ -f "$LIB_DIR/core/paths.sh" ]]; then
+    source "$LIB_DIR/core/paths.sh"
 fi
 
 # Default file paths
@@ -44,47 +44,47 @@ CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Source required libraries
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-    # shellcheck source=../lib/version.sh
-    source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+    # shellcheck source=../lib/core/version.sh
+    source "$LIB_DIR/core/version.sh"
 fi
 
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-    # shellcheck source=../lib/logging.sh
-    source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+    # shellcheck source=../lib/core/logging.sh
+    source "$LIB_DIR/core/logging.sh"
 fi
 
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-    # shellcheck source=../lib/validation.sh
-    source "$LIB_DIR/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+    # shellcheck source=../lib/validation/validation.sh
+    source "$LIB_DIR/validation/validation.sh"
 fi
 
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-    # shellcheck source=../lib/file-ops.sh
-    source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+    # shellcheck source=../lib/data/file-ops.sh
+    source "$LIB_DIR/data/file-ops.sh"
 fi
 
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    # shellcheck source=../lib/output-format.sh
-    source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    # shellcheck source=../lib/core/output-format.sh
+    source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source exit codes first
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-    # shellcheck source=../lib/exit-codes.sh
-    source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+    # shellcheck source=../lib/core/exit-codes.sh
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source error JSON library for structured error output
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-    # shellcheck source=../lib/flags.sh
-    source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+    # shellcheck source=../lib/ui/flags.sh
+    source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables)
@@ -418,15 +418,15 @@ validate_on_missing_dep() {
 # -----------------------------------------------------------------------------
 
 # Source import-remap library
-if [[ -f "$LIB_DIR/import-remap.sh" ]]; then
-    # shellcheck source=../lib/import-remap.sh
-    source "$LIB_DIR/import-remap.sh"
+if [[ -f "$LIB_DIR/data/import-remap.sh" ]]; then
+    # shellcheck source=../lib/data/import-remap.sh
+    source "$LIB_DIR/data/import-remap.sh"
 fi
 
 # Source import-sort library
-if [[ -f "$LIB_DIR/import-sort.sh" ]]; then
-    # shellcheck source=../lib/import-sort.sh
-    source "$LIB_DIR/import-sort.sh"
+if [[ -f "$LIB_DIR/data/import-sort.sh" ]]; then
+    # shellcheck source=../lib/data/import-sort.sh
+    source "$LIB_DIR/data/import-sort.sh"
 fi
 
 # -----------------------------------------------------------------------------
@@ -442,12 +442,12 @@ fi
 # Returns:
 #   JSON object mapping source IDs to new IDs: {"T001": "T031", "T002": "T032"}
 #
-# Implementation: lib/import-remap.sh (T1280)
+# Implementation: lib/data/import-remap.sh (T1280)
 generate_import_remap_table() {
     local export_file="$1"
     local target_file="$2"
 
-    # Use lib/import-remap.sh functions
+    # Use lib/data/import-remap.sh functions
     if declare -f generate_remap_table >/dev/null 2>&1; then
         # Generate global ID_REMAP and REVERSE_REMAP arrays
         generate_remap_table "$export_file" "$target_file" || return $?
@@ -478,12 +478,12 @@ generate_import_remap_table() {
 # Returns:
 #   JSON array of task objects in import-safe order (parents before children)
 #
-# Implementation: lib/import-sort.sh (T1282)
+# Implementation: lib/data/import-sort.sh (T1282)
 calculate_import_order() {
     local export_package="$1"
     # $2 is remap_table, not needed for sort (operates on source IDs)
 
-    # Use lib/import-sort.sh functions
+    # Use lib/data/import-sort.sh functions
     if declare -f topological_sort_tasks >/dev/null 2>&1; then
         # Extract tasks array
         local tasks_json

@@ -25,7 +25,7 @@ setup() {
     common_setup_per_test
 
     # Source the migration library
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Create project structure for migration tests
     mkdir -p "${TEST_TEMP_DIR}/claudedocs"

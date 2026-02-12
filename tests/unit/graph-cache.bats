@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# graph-cache.bats - Unit tests for lib/graph-cache.sh
+# graph-cache.bats - Unit tests for lib/tasks/graph-cache.sh
 # =============================================================================
 # Tests cache building, validation, invalidation, and lookup functions
 # for the graph-based dependency cache system.
@@ -45,7 +45,7 @@ setup() {
     unset _GRAPH_CACHE_VALID _GRAPH_CACHE_INITIALIZED
     
     # Source the library under test (will set up paths using CLAUDE_DIR)
-    source "${LIB_DIR}/graph-cache.sh"
+    source "${LIB_DIR}/tasks/graph-cache.sh"
 }
 
 teardown() {

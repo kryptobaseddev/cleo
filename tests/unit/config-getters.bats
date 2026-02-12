@@ -18,7 +18,7 @@ setup() {
     echo '{}' > "$PROJECT_CONFIG_FILE"
 
     # Source the config library
-    source "${BATS_TEST_DIRNAME}/../../lib/config.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/core/config.sh"
 }
 
 teardown() {

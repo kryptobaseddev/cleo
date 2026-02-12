@@ -452,7 +452,7 @@ EOF
     # Check that a backup was created (backup_file function creates numbered backups)
     local backup_count
     backup_count=$(find "$(dirname "$CONFIG_FILE")/.backups" -name "config.json.*" 2>/dev/null | wc -l)
-    # Note: backup may or may not exist depending on lib/file-ops.sh availability
+    # Note: backup may or may not exist depending on lib/data/file-ops.sh availability
     # The test verifies the operation succeeded without checking backup explicitly
 }
 

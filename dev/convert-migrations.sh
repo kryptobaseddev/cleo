@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # Migration function name converter: semver → timestamp format
-# Scans lib/migrate.sh for semver migration functions and generates
+# Scans lib/data/migrate.sh for semver migration functions and generates
 # timestamp equivalents. Output is conversion commands (not auto-applied).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MIGRATE_LIB="$PROJECT_ROOT/lib/migrate.sh"
+MIGRATE_LIB="$PROJECT_ROOT/lib/data/migrate.sh"
 
 # Load the migrate library to get access to parse_migration_identifier
 source "$MIGRATE_LIB"
 
 echo "=== Migration Function Converter (Semver → Timestamp) ==="
 echo ""
-echo "Scanning lib/migrate.sh for semver migration functions..."
+echo "Scanning lib/data/migrate.sh for semver migration functions..."
 echo ""
 
 # Find all semver migration functions
@@ -55,11 +55,11 @@ while IFS= read -r func_name; do
     echo "# Convert: $func_name → $new_func_name"
     echo "# Version: $version (type: $type)"
     echo ""
-    echo "# Step 1: Rename function in lib/migrate.sh"
-    echo "sed -i 's/^${func_name}()/${new_func_name}()/' lib/migrate.sh"
+    echo "# Step 1: Rename function in lib/data/migrate.sh"
+    echo "sed -i 's/^${func_name}()/${new_func_name}()/' lib/data/migrate.sh"
     echo ""
     echo "# Step 2: Update function comment"
-    echo "sed -i 's/# Migration from .* to ${version//./\\.}/# Migration: ${description} (${version})/' lib/migrate.sh"
+    echo "sed -i 's/# Migration from .* to ${version//./\\.}/# Migration: ${description} (${version})/' lib/data/migrate.sh"
     echo ""
     echo "---"
     echo ""

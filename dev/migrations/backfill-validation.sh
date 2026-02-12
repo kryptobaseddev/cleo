@@ -25,11 +25,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source dependencies
-# shellcheck source=lib/manifest-validation.sh
-source "$PROJECT_ROOT/lib/manifest-validation.sh"
+# shellcheck source=lib/validation/manifest-validation.sh
+source "$PROJECT_ROOT/lib/validation/manifest-validation.sh"
 
-# shellcheck source=lib/exit-codes.sh
-source "$PROJECT_ROOT/lib/exit-codes.sh"
+# shellcheck source=lib/core/exit-codes.sh
+source "$PROJECT_ROOT/lib/core/exit-codes.sh"
 
 # Paths
 COMPLIANCE_PATH="${COMPLIANCE_PATH:-.cleo/metrics/COMPLIANCE.jsonl}"

@@ -503,10 +503,10 @@ check_header_sync() {
 check_generated_index() {
     log_header "GENERATED" "Checking INDEX matches script headers (zero-drift)"
 
-    local registry_lib="$PROJECT_ROOT/lib/command-registry.sh"
+    local registry_lib="$PROJECT_ROOT/lib/ui/command-registry.sh"
 
     if ! file_exists "$registry_lib"; then
-        log_warn "lib/command-registry.sh not found, skipping generated index check"
+        log_warn "lib/ui/command-registry.sh not found, skipping generated index check"
         return
     fi
 

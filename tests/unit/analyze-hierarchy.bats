@@ -32,7 +32,7 @@ setup() {
     assert_success
 
     # Source hierarchy library and test function
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     # Test get_epic_ancestor
     result=$(get_epic_ancestor "T002" "$TODO_FILE")
@@ -45,7 +45,7 @@ setup() {
     run bash "$ADD_SCRIPT" "Root task"
     assert_success
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     result=$(get_epic_ancestor "T001" "$TODO_FILE")
     [[ "$result" == "null" ]]

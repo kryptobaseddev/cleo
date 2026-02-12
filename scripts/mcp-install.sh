@@ -16,7 +16,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LIB_DIR="$PROJECT_ROOT/lib"
 
 # Source libraries
-source "$LIB_DIR/mcp-config.sh"
+source "$LIB_DIR/ui/mcp-config.sh"
 
 # ============================================================================
 # DEFAULTS

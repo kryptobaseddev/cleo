@@ -25,7 +25,7 @@ setup() {
     # Set CLI_VERSION for deterministic version checking (must be before sourcing)
     export CLI_VERSION="0.50.2"
 
-    source "$PROJECT_ROOT/lib/injection.sh"
+    source "$PROJECT_ROOT/lib/ui/injection.sh"
 
     # Template version for testing (should match CLI_VERSION for "current" status)
     export TEMPLATE_VERSION="0.50.2"

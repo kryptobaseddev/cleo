@@ -14,21 +14,21 @@
 # Monitor and report compliance metrics for orchestrator and agent outputs
 #
 # LAYER: CLI Entry Point
-# DEPENDS: lib/metrics-aggregation.sh, lib/compliance-check.sh
+# DEPENDS: lib/metrics/metrics-aggregation.sh, lib/validation/compliance-check.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source core libraries
-source "$LIB_DIR/exit-codes.sh"
-[[ -f "$LIB_DIR/output-format.sh" ]] && source "$LIB_DIR/output-format.sh"
-[[ -f "$LIB_DIR/error-json.sh" ]] && source "$LIB_DIR/error-json.sh"
-[[ -f "$LIB_DIR/flags.sh" ]] && source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/core/exit-codes.sh"
+[[ -f "$LIB_DIR/core/output-format.sh" ]] && source "$LIB_DIR/core/output-format.sh"
+[[ -f "$LIB_DIR/core/error-json.sh" ]] && source "$LIB_DIR/core/error-json.sh"
+[[ -f "$LIB_DIR/ui/flags.sh" ]] && source "$LIB_DIR/ui/flags.sh"
 
 # Source compliance and metrics libraries
-source "$LIB_DIR/metrics-aggregation.sh"
-source "$LIB_DIR/compliance-check.sh"
+source "$LIB_DIR/metrics/metrics-aggregation.sh"
+source "$LIB_DIR/validation/compliance-check.sh"
 
 TODO_DIR="${TODO_DIR:-.cleo}"
 COMMAND_NAME="compliance"

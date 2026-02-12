@@ -18,47 +18,47 @@ CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 # Source version from central location
 # Source version library for proper version management
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  # shellcheck source=../lib/version.sh
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  # shellcheck source=../lib/core/version.sh
+  source "$LIB_DIR/core/version.sh"
 fi
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source output-format library for format resolution
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source exit codes and error-json libraries
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source file-ops library for save_json function
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-  # shellcheck source=../lib/file-ops.sh
-  source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+  # shellcheck source=../lib/data/file-ops.sh
+  source "$LIB_DIR/data/file-ops.sh"
 fi
 
-# shellcheck source=../lib/flags.sh
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  source "$LIB_DIR/flags.sh"
+# shellcheck source=../lib/ui/flags.sh
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Source JSON output library for pagination support
 # @task T1446
-if [[ -f "$LIB_DIR/json-output.sh" ]]; then
-  # shellcheck source=../lib/json-output.sh
-  source "$LIB_DIR/json-output.sh"
+if [[ -f "$LIB_DIR/core/json-output.sh" ]]; then
+  # shellcheck source=../lib/core/json-output.sh
+  source "$LIB_DIR/core/json-output.sh"
 fi
 
 # Set TODO_FILE after sourcing logging.sh (LOG_FILE is set by logging.sh)

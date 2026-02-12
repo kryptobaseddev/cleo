@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# validation.bats - Unit tests for lib/validation.sh pure functions
+# validation.bats - Unit tests for lib/validation/validation.sh pure functions
 # =============================================================================
 # Tests pure validation functions that operate on input parameters without
 # requiring file I/O. These functions are deterministic and testable in
@@ -38,11 +38,11 @@ setup() {
     load '../../libs/bats-assert/load'
 
     # Source Layer 0 dependencies first (exit-codes.sh, platform-compat.sh)
-    source "${LIB_DIR}/exit-codes.sh"
-    source "${LIB_DIR}/platform-compat.sh"
+    source "${LIB_DIR}/core/exit-codes.sh"
+    source "${LIB_DIR}/core/platform-compat.sh"
 
     # Source validation.sh (Layer 2)
-    source "${LIB_DIR}/validation.sh"
+    source "${LIB_DIR}/validation/validation.sh"
 }
 
 # =============================================================================

@@ -20,7 +20,7 @@ setup() {
     load '../test_helper/common_setup'
     load '../test_helper/fixtures'
     common_setup_per_test
-    source "$LIB_DIR/cache.sh"
+    source "$LIB_DIR/data/cache.sh"
     export CLAUDE_DIR="${BATS_TEST_TMPDIR}/.claude"
 }
 

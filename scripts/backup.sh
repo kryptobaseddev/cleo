@@ -22,35 +22,35 @@ BACKUP_DIR="${BACKUP_DIR:-.cleo/backups}"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source output formatting and error libraries
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source config library for unified config access (v0.24.0)
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "$LIB_DIR/core/config.sh"
 fi
 
 # Source centralized flag parsing library
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
@@ -1552,9 +1552,9 @@ fi
 # Handle --auto mode (scheduled/interval-based backups)
 if [[ "$AUTO_MODE" == true ]]; then
   # Source the backup library for scheduled backup functions
-  if [[ -f "$LIB_DIR/backup.sh" ]]; then
-    # shellcheck source=../lib/backup.sh
-    source "$LIB_DIR/backup.sh"
+  if [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+    # shellcheck source=../lib/data/backup.sh
+    source "$LIB_DIR/data/backup.sh"
   else
     log_error "Cannot find backup library"
     exit "${EXIT_FILE_ERROR:-4}"
@@ -1642,9 +1642,9 @@ fi
 # Handle find/search subcommand
 if [[ "$FIND_MODE" == true ]]; then
   # Source the backup library for find_backups function
-  if [[ -f "$LIB_DIR/backup.sh" ]]; then
-    # shellcheck source=../lib/backup.sh
-    source "$LIB_DIR/backup.sh"
+  if [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+    # shellcheck source=../lib/data/backup.sh
+    source "$LIB_DIR/data/backup.sh"
   else
     log_error "Cannot find backup library"
     exit "${EXIT_FILE_ERROR:-4}"

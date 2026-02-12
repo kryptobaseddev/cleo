@@ -335,7 +335,7 @@ EOF
 # =============================================================================
 
 # NOTE: JSON output tests are skipped due to a pre-existing bug in
-# lib/metrics-aggregation.sh line 790 where ${2:-{}} causes malformed JSON.
+# lib/metrics/metrics-aggregation.sh line 790 where ${2:-{}} causes malformed JSON.
 # The positional argument feature itself works correctly - only the JSON
 # output formatting path is affected by the metrics bug.
 # See: T2340 test notes - metrics JSON serialization issue

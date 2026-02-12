@@ -58,44 +58,44 @@ else
 fi
 
 # Source library functions
-if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
-  source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLEO_HOME/lib/file-ops.sh"
+if [[ -f "${LIB_DIR}/data/file-ops.sh" ]]; then
+  source "${LIB_DIR}/data/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/data/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/data/file-ops.sh"
 fi
 
-if [[ -f "${LIB_DIR}/logging.sh" ]]; then
-  source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
-  source "$CLEO_HOME/lib/logging.sh"
+if [[ -f "${LIB_DIR}/core/logging.sh" ]]; then
+  source "${LIB_DIR}/core/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/core/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/core/logging.sh"
 fi
 
-if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
-  source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
-  source "$CLEO_HOME/lib/output-format.sh"
+if [[ -f "${LIB_DIR}/core/output-format.sh" ]]; then
+  source "${LIB_DIR}/core/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/core/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source validation library for input validation
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-  # shellcheck source=../lib/validation.sh
-  source "$LIB_DIR/validation.sh"
-elif [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
-  source "$CLEO_HOME/lib/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+  # shellcheck source=../lib/validation/validation.sh
+  source "$LIB_DIR/validation/validation.sh"
+elif [[ -f "$CLEO_HOME/lib/validation/validation.sh" ]]; then
+  source "$CLEO_HOME/lib/validation/validation.sh"
 fi
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # Default configuration
 FORMAT=""
