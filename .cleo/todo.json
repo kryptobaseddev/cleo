@@ -738,9 +738,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T21:03:43Z",
+  "lastUpdated": "2026-02-12T21:04:41Z",
   "_meta": {
-    "checksum": "c5b82e974745edfa",
+    "checksum": "fe63c874860be460",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -749,7 +749,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2822
+    "generation": 2823
   },
   "focus": {
     "currentTask": null,
@@ -12911,7 +12911,7 @@
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-12T20:38:48Z",
-      "updatedAt": "2026-02-12T21:03:43Z",
+      "updatedAt": "2026-02-12T21:04:41Z",
       "size": "medium",
       "position": 859,
       "positionVersion": 0,
@@ -12927,7 +12927,11 @@
         "changelog generation includes task-derived entries when tasks are planned"
       ],
       "notes": [
-        "2026-02-12 21:03:43 UTC: RCSD research started: multi-agent investigation launched (ses_3ac59f946ffeSWdF1en9L0jUrc, ses_3ac59f925ffeYwdhxd9ekYP3Pd)."
+        "2026-02-12 21:03:43 UTC: RCSD research started: multi-agent investigation launched (ses_3ac59f946ffeSWdF1en9L0jUrc, ses_3ac59f925ffeYwdhxd9ekYP3Pd).",
+        "2026-02-12 21:04:41 UTC: Implementation complete: release task merge fix in lib/ui/changelog.sh plus unit/integration regression tests for release ship task-link preservation."
+      ],
+      "files": [
+        "lib/ui/changelog.sh"
       ]
     }
   ],

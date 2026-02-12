@@ -643,6 +643,51 @@ EOF
     [[ "$custom" == "should be preserved" ]]
 }
 
+@test "populate_release_tasks should preserve planned tasks and add discovered tasks" {
+    create_test_todo
+
+    # Add a manually planned task link that would not be auto-discovered,
+    # and add one additional discoverable task.
+    jq '.tasks += [{
+          "id": "T999",
+          "title": "Manual planning task",
+          "type": "task",
+          "status": "pending",
+          "labels": []
+        }, {
+          "id": "T010",
+          "title": "Additional discoverable task",
+          "type": "task",
+          "status": "done",
+          "completedAt": "2026-01-15T15:00:00Z",
+          "labels": ["v0.65.0"]
+        }] |
+        .project.releases = (.project.releases | map(
+          if .version == "v0.65.0" then
+            .tasks = ["T999", "T001"]
+          else
+            .
+          end
+        ))' "$TODO_FILE" > "$TODO_FILE.tmp"
+    mv "$TODO_FILE.tmp" "$TODO_FILE"
+
+    run populate_release_tasks "v0.65.0" "$TODO_FILE"
+    assert_success
+
+    local has_t999 has_t001 has_t010
+    has_t999=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | .tasks | index("T999")' "$TODO_FILE")
+    has_t001=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | .tasks | index("T001")' "$TODO_FILE")
+    has_t010=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | .tasks | index("T010")' "$TODO_FILE")
+    [[ "$has_t999" != "null" ]]
+    [[ "$has_t001" != "null" ]]
+    [[ "$has_t010" != "null" ]]
+
+    # Ensure dedupe (T001 was pre-planned and also auto-discovered)
+    local t001_count
+    t001_count=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | [.tasks[] | select(. == "T001")] | length' "$TODO_FILE")
+    [[ "$t001_count" -eq 1 ]]
+}
+
 @test "populate_release_tasks should not modify tasks array" {
     create_test_todo
 
