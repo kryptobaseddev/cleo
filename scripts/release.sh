@@ -72,11 +72,24 @@ fi
 # Source library functions
 source_lib() {
     local lib_name="$1"
-    if [[ -f "${LIB_DIR}/${lib_name}" ]]; then
-        source "${LIB_DIR}/${lib_name}"
-    elif [[ -f "$CLEO_HOME/lib/${lib_name}" ]]; then
-        source "$CLEO_HOME/lib/${lib_name}"
+    local base_dir="${LIB_DIR:-$CLEO_HOME/lib}"
+
+    # Direct path (new hierarchy - file includes subdir)
+    if [[ -f "${base_dir}/${lib_name}" ]]; then
+        source "${base_dir}/${lib_name}"
+        return 0
     fi
+
+    # Search subdirectories (backward compat - just filename)
+    local found
+    found=$(find "${base_dir}" -maxdepth 2 -name "${lib_name}" -type f 2>/dev/null | head -1)
+    if [[ -n "$found" ]]; then
+        source "$found"
+        return 0
+    fi
+
+    echo "ERROR: Library not found: ${lib_name}" >&2
+    return 1
 }
 
 source_lib "file-ops.sh"
