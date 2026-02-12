@@ -93,6 +93,29 @@ export {
   getVersion,
 } from './init-engine.js';
 
+// CAAMP adapter (provider registry, MCP config, injection)
+export {
+  providerList,
+  providerGet,
+  providerDetect,
+  providerInstalled,
+  providerCount,
+  registryVersion,
+  mcpList,
+  mcpListAll,
+  mcpInstall,
+  mcpRemove,
+  mcpConfigPath,
+  injectionCheck,
+  injectionCheckAll,
+  injectionUpdate,
+  injectionUpdateAll,
+  caampResolveAlias,
+  caampBuildServerConfig,
+  caampGenerateInjectionContent,
+  caampGetInstructionFiles,
+} from './caamp-adapter.js';
+
 // Capability matrix
 export {
   getOperationMode,
