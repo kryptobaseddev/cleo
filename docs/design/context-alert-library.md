@@ -58,7 +58,7 @@ check_and_alert_context  # Silently returns if no alert needed
 
 ### Context State File Resolution
 
-**Session-Specific**: `.cleo/.context-state-<session-id>.json`
+**Session-Specific**: `.cleo/context-states/context-state-<session-id>.json`
 **Global Fallback**: `.cleo/.context-state.json`
 
 **Logic**:
@@ -109,7 +109,7 @@ From `lib/exit-codes.sh`:
 **Format**: Plain text containing last alerted status (`ok`, `warning`, `caution`, etc.)
 
 **Logic**:
-1. Read current status from `.context-state-<session-id>.json`
+1. Read current status from `.cleo/context-states/context-state-<session-id>.json`
 2. Read last-alerted status from `.context-last-alert-<session-id>`
 3. If last-alerted file missing → treat as `ok` (never alerted before)
 4. Compare statuses using ordinal ranking:
@@ -219,7 +219,7 @@ is_stale() {
 
 ### Missing State File
 
-**Condition**: `.context-state-<session-id>.json` doesn't exist
+**Condition**: `.cleo/context-states/context-state-<session-id>.json` doesn't exist
 
 **Behavior**: Return 0 (silent). No alert is better than false alarm.
 

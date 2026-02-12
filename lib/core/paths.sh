@@ -67,6 +67,203 @@ get_cleo_dir() {
     echo "${CLEO_DIR:-.cleo}"
 }
 
+# Check whether a path is absolute (POSIX, Windows drive, UNC)
+# Args:
+#   $1 - path to evaluate
+# Returns: 0 if absolute, 1 otherwise
+_is_absolute_path() {
+    local path="$1"
+    [[ "$path" == /* || "$path" =~ ^[A-Za-z]:[\\/].* || "$path" == \\\\* ]]
+}
+
+# Expand a leading tilde to $HOME
+# Args:
+#   $1 - path
+# Returns: expanded path
+_expand_tilde_path() {
+    local path="$1"
+    echo "${path/#\~/$HOME}"
+}
+
+# Get an absolute path to the project CLEO directory
+# Args:
+#   $1 - optional cleo directory override
+# Returns: absolute path to CLEO project directory
+get_cleo_dir_absolute() {
+    local cleo_dir="${1:-$(get_cleo_dir)}"
+    cleo_dir=$(_expand_tilde_path "$cleo_dir")
+
+    if _is_absolute_path "$cleo_dir"; then
+        echo "${cleo_dir%/}"
+        return 0
+    fi
+
+    if [[ "$cleo_dir" == ./* ]]; then
+        cleo_dir="${cleo_dir#./}"
+    fi
+
+    echo "$(pwd -P)/${cleo_dir}"
+}
+
+# Resolve project root from CLEO project directory
+# Args:
+#   $1 - optional cleo directory override
+# Returns: absolute path to project root
+get_cleo_project_root() {
+    local input_cleo_dir="${1:-$(get_cleo_dir)}"
+    local cleo_dir_abs
+    cleo_dir_abs=$(get_cleo_dir_absolute "$input_cleo_dir")
+
+    if [[ "$cleo_dir_abs" == */.cleo ]]; then
+        dirname "$cleo_dir_abs"
+        return 0
+    fi
+
+    if _is_absolute_path "$input_cleo_dir"; then
+        dirname "$cleo_dir_abs"
+    else
+        pwd -P
+    fi
+}
+
+# Resolve a project-relative path against CLEO project root
+# Args:
+#   $1 - path (absolute or project-relative)
+#   $2 - optional cleo directory override
+# Returns: absolute path
+resolve_cleo_project_path() {
+    local target_path="$1"
+    local cleo_dir="${2:-$(get_cleo_dir)}"
+
+    target_path=$(_expand_tilde_path "$target_path")
+    if _is_absolute_path "$target_path"; then
+        echo "$target_path"
+        return 0
+    fi
+
+    if [[ "$target_path" == ./* ]]; then
+        target_path="${target_path#./}"
+    fi
+
+    local project_root
+    project_root=$(get_cleo_project_root "$cleo_dir")
+    echo "${project_root}/${target_path}"
+}
+
+# Resolve context states directory from config/defaults
+# Args:
+#   $1 - optional cleo directory override
+#   $2 - optional contextStates.directory override
+# Returns: absolute context states directory path
+get_context_states_directory() {
+    local cleo_dir="${1:-$(get_cleo_dir)}"
+    local context_dir="${2:-}"
+
+    if [[ -z "$context_dir" ]]; then
+        if declare -f get_config_value >/dev/null 2>&1; then
+            context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
+        else
+            context_dir=".cleo/context-states"
+        fi
+    fi
+
+    resolve_cleo_project_path "$context_dir" "$cleo_dir"
+}
+
+# Build full context state file path for a session
+# Args:
+#   $1 - session ID (optional; empty -> singleton path)
+#   $2 - optional cleo directory override
+#   $3 - optional filename pattern override
+#   $4 - optional contextStates.directory override
+# Returns: absolute context state file path
+get_context_state_file_path() {
+    local session_id="${1:-}"
+    local cleo_dir="${2:-$(get_cleo_dir)}"
+    local filename_pattern="${3:-}"
+    local context_dir_override="${4:-}"
+
+    if [[ -z "$filename_pattern" ]]; then
+        if declare -f get_config_value >/dev/null 2>&1; then
+            filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
+        else
+            filename_pattern="context-state-{sessionId}.json"
+        fi
+    fi
+
+    if [[ -n "$session_id" ]]; then
+        local context_states_dir filename
+        context_states_dir=$(get_context_states_directory "$cleo_dir" "$context_dir_override")
+        filename="${filename_pattern//\{sessionId\}/$session_id}"
+        echo "${context_states_dir}/${filename}"
+    else
+        echo "$(get_cleo_dir_absolute "$cleo_dir")/.context-state.json"
+    fi
+}
+
+# Repair legacy nested context state directory (.cleo/.cleo/context-states)
+# Args:
+#   $1 - optional cleo directory override
+# Returns: 0 always (best-effort, silent)
+repair_errant_context_state_paths() {
+    local cleo_dir="${1:-$(get_cleo_dir)}"
+    local cleo_dir_abs
+    cleo_dir_abs=$(get_cleo_dir_absolute "$cleo_dir")
+
+    local nested_dir="${cleo_dir_abs}/.cleo/context-states"
+    local canonical_dir
+    canonical_dir=$(get_context_states_directory "$cleo_dir")
+
+    if [[ "$nested_dir" == "$canonical_dir" ]]; then
+        return 0
+    fi
+
+    if [[ -d "$nested_dir" ]]; then
+        mkdir -p "$canonical_dir" 2>/dev/null || true
+
+        local state_file
+        shopt -s nullglob
+        for state_file in "$nested_dir"/context-state-*.json; do
+            [[ -f "$state_file" ]] || continue
+            local target_file="${canonical_dir}/$(basename "$state_file")"
+
+            if [[ ! -f "$target_file" ]] || [[ "$state_file" -nt "$target_file" ]]; then
+                mv -f "$state_file" "$target_file" 2>/dev/null || {
+                    cp "$state_file" "$target_file" 2>/dev/null && rm -f "$state_file" 2>/dev/null || true
+                }
+            fi
+        done
+        shopt -u nullglob
+
+        rmdir "$nested_dir" 2>/dev/null || true
+        rmdir "${cleo_dir_abs}/.cleo" 2>/dev/null || true
+    fi
+
+    # Migrate legacy flat per-session files in .cleo root
+    local legacy_file
+    shopt -s nullglob
+    for legacy_file in "$cleo_dir_abs"/.context-state-*.json; do
+        [[ -f "$legacy_file" ]] || continue
+
+        local legacy_name session_id target_file
+        legacy_name=$(basename "$legacy_file")
+        session_id=$(echo "$legacy_name" | sed -n 's/^\.context-state-\(.*\)\.json$/\1/p')
+        [[ -n "$session_id" ]] || continue
+
+        target_file=$(get_context_state_file_path "$session_id" "$cleo_dir")
+        mkdir -p "$(dirname "$target_file")" 2>/dev/null || true
+
+        if [[ ! -f "$target_file" ]] || [[ "$legacy_file" -nt "$target_file" ]]; then
+            mv -f "$legacy_file" "$target_file" 2>/dev/null || {
+                cp "$legacy_file" "$target_file" 2>/dev/null && rm -f "$legacy_file" 2>/dev/null || true
+            }
+        fi
+    done
+    shopt -u nullglob
+
+    return 0
+}
+
 # Get the project todo.json file path
 # Returns: Path to todo.json
 get_todo_file() {

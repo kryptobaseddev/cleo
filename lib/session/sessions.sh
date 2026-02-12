@@ -1100,7 +1100,12 @@ end_session() {
     # Finalize token tracking (T2901)
     if type -t _te_tracking_enabled &>/dev/null && _te_tracking_enabled; then
         local context_file
-        context_file="$(get_cleo_dir)/.context-state-${session_id}.json"
+        context_file="$(get_context_state_file_path "$session_id" "${CLEO_PROJECT_DIR:-$(get_cleo_dir)}")"
+
+        # Legacy fallback for older projects still carrying flat files
+        if [[ ! -f "$context_file" ]]; then
+            context_file="$(get_cleo_dir)/.context-state-${session_id}.json"
+        fi
 
         local end_tokens=0
         if [[ -f "$context_file" ]]; then
@@ -1577,23 +1582,8 @@ session_auto_archive() {
 get_context_state_path_for_session() {
     local session_id="$1"
     local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
-    local project_root="${cleo_dir%/.cleo}"
 
-    # Get config values with defaults
-    local context_dir filename_pattern
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
-    filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
-
-    local full_dir="${project_root}/${context_dir}"
-
-    if [[ -n "$session_id" ]]; then
-        # Replace {sessionId} placeholder with actual session ID
-        local filename="${filename_pattern//\{sessionId\}/$session_id}"
-        echo "${full_dir}/${filename}"
-    else
-        # Fallback to singleton in .cleo directory (legacy behavior)
-        echo "${cleo_dir}/.context-state.json"
-    fi
+    get_context_state_file_path "$session_id" "$cleo_dir"
 }
 
 # Cleanup context state file for a session based on config and lifecycle event
@@ -1651,14 +1641,11 @@ cleanup_context_state_for_session() {
 cleanup_orphaned_context_states() {
     local dry_run="${1:-false}"
     local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
-    local project_root="${cleo_dir%/.cleo}"
     local sessions_file
     sessions_file=$(get_sessions_file)
 
-    # Get config for context state directory
-    local context_dir
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
-    local full_dir="${project_root}/${context_dir}"
+    local full_dir
+    full_dir=$(get_context_states_directory "$cleo_dir")
 
     # Get max orphaned files to retain
     local max_orphaned
@@ -1811,11 +1798,9 @@ cleanup_stale_context_states() {
         fi
     done < <(find "$cleo_dir" -maxdepth 1 -name ".context-state-*.json" -type f -print0 2>/dev/null)
 
-    # Also check new location (.cleo/context-states/)
-    local context_dir
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
-    local project_root="${cleo_dir%/.cleo}"
-    local full_dir="${project_root}/${context_dir}"
+    # Also check configured context states location
+    local full_dir
+    full_dir=$(get_context_states_directory "$cleo_dir")
 
     if [[ -d "$full_dir" ]]; then
         while IFS= read -r -d '' file; do
@@ -1933,12 +1918,8 @@ validate_context_state_owner() {
 migrate_context_state_singleton() {
     local dry_run="${1:-false}"
     local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
-    local project_root="${cleo_dir%/.cleo}"
-
-    # Get config for context state directory
-    local context_dir
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
-    local full_dir="${project_root}/${context_dir}"
+    local full_dir
+    full_dir=$(get_context_states_directory "$cleo_dir")
 
     # Check for singleton file
     local singleton_file="${cleo_dir}/.context-state.json"
@@ -2009,12 +1990,11 @@ migrate_context_state_singleton() {
 # Returns: 0 on success
 init_context_states_dir() {
     local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir)}"
-    local project_root="${cleo_dir%/.cleo}"
+    local full_dir
+    full_dir=$(get_context_states_directory "$cleo_dir")
 
-    # Get config for context state directory
-    local context_dir
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
-    local full_dir="${project_root}/${context_dir}"
+    # Repair errant nested paths from older versions (silent best-effort)
+    repair_errant_context_state_paths "$cleo_dir" >/dev/null 2>&1 || true
 
     # Create directory if needed
     if [[ ! -d "$full_dir" ]]; then
@@ -2858,10 +2838,8 @@ session_validate_consistency() {
     fi
 
     # 4. Check context state files consistency
-    local context_dir
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states" 2>/dev/null)
-    local project_root="${cleo_dir%/.cleo}"
-    local full_context_dir="${project_root}/${context_dir}"
+    local full_context_dir
+    full_context_dir=$(get_context_states_directory "$cleo_dir")
 
     # Check new location
     if [[ -d "$full_context_dir" ]]; then

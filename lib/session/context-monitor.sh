@@ -10,6 +10,12 @@
 
 set -euo pipefail
 
+_CM_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "${_CM_LIB_DIR}/core/paths.sh" ]]; then
+    # shellcheck source=lib/core/paths.sh
+    source "${_CM_LIB_DIR}/core/paths.sh"
+fi
+
 # Source guard pattern
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     # Script is being executed directly
@@ -76,9 +82,10 @@ get_context_state_path() {
     context_dir=$(get_config_value_simple "contextStates.directory" ".cleo/context-states")
     filename_pattern=$(get_config_value_simple "contextStates.filenamePattern" "context-state-{sessionId}.json")
 
-    # Resolve relative directory to project root
-    local project_root="${CLEO_DIR%/.cleo}"
-    local full_dir="${project_root}/${context_dir}"
+    # Resolve configured context states directory via shared path helpers
+    local full_dir
+    full_dir=$(get_context_states_directory "$CLEO_DIR" "$context_dir")
+    repair_errant_context_state_paths "$CLEO_DIR" >/dev/null 2>&1 || true
 
     # Create directory if needed
     if [[ ! -d "$full_dir" ]]; then
@@ -91,7 +98,7 @@ get_context_state_path() {
         echo "${full_dir}/${filename}"
     else
         # Fallback to singleton in .cleo directory (legacy behavior)
-        echo "${CLEO_DIR}/.context-state.json"
+        echo "$(get_context_state_file_path "" "$CLEO_DIR")"
     fi
 }
 

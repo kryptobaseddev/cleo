@@ -4,7 +4,7 @@
 # category: write
 # synopsis: Work session lifecycle (start, end, status, gc for garbage collection)
 # relevance: high
-# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale,--no-focus,--limit,--offset
+# flags: --format,--quiet,--dry-run,--force,--verbose,--orphans,--stale,--repair,--no-focus,--limit,--offset
 # exits: 0,4,101
 # json-output: true
 # subcommands: start,end,status,suspend,resume,close,list,show,switch,gc
@@ -195,7 +195,8 @@ Commands:
   cleanup       Remove stale sessions (empty scope, old ended)
   gc            Garbage collect session artifacts (multi-session)
                 Options: --dry-run, --orphans, --stale, --verbose
-  doctor        Diagnose session binding and state issues
+  doctor        Diagnose session binding/path drift and state issues
+                Options: --repair (auto-heal + consistency repair)
 
 Single-Session Options:
   --note TEXT       Add a note when ending session
@@ -258,6 +259,7 @@ Examples (Multi-Session):
   cleo session gc --orphans              # Clean orphaned context files only
   cleo session gc --stale                # Archive old sessions only
   cleo session doctor                    # Diagnose session issues
+  cleo session doctor --repair           # Diagnose + auto-heal actionable issues
 EOF
   exit "$EXIT_SUCCESS"
 }
@@ -2523,6 +2525,7 @@ cmd_gc() {
 cmd_doctor() {
   local format_arg=""
   local verbose=false
+  local repair_mode=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -2530,6 +2533,7 @@ cmd_doctor() {
       --json) format_arg="json"; shift ;;
       --human) format_arg="human"; shift ;;
       --verbose|-v) verbose=true; shift ;;
+      --repair|--auto-heal) repair_mode=true; shift ;;
       -q|--quiet) QUIET=true; shift ;;
       *) shift ;;
     esac
@@ -2546,6 +2550,24 @@ cmd_doctor() {
 
   local timestamp
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Detect pre-repair path drift
+  local nested_context_pre=0
+  local legacy_flat_pre=0
+  local legacy_flat_post=0
+  local auto_healed_path_files=0
+
+  if [[ -d "${cleo_dir}/.cleo/context-states" ]]; then
+    nested_context_pre=$(find "${cleo_dir}/.cleo/context-states" -name "context-state-*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+  fi
+  legacy_flat_pre=$(find "$cleo_dir" -maxdepth 1 -name ".context-state-*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+
+  # Always run safe auto-heal for legacy/nested context paths
+  repair_errant_context_state_paths "$cleo_dir" >/dev/null 2>&1 || true
+  legacy_flat_post=$(find "$cleo_dir" -maxdepth 1 -name ".context-state-*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$legacy_flat_pre" -gt "$legacy_flat_post" ]]; then
+    auto_healed_path_files=$((legacy_flat_pre - legacy_flat_post))
+  fi
 
   # Gather diagnostic data
   local multi_session_enabled=false
@@ -2602,8 +2624,8 @@ cmd_doctor() {
   # Context state files
   local context_states_dir
   context_states_dir=$(get_config_value "contextStates.directory" ".cleo/context-states" 2>/dev/null || echo ".cleo/context-states")
-  local project_root="${cleo_dir%/.cleo}"
-  local full_context_dir="${project_root}/${context_states_dir}"
+  local full_context_dir
+  full_context_dir=$(get_context_states_directory "$cleo_dir" "$context_states_dir")
 
   local context_state_count=0
   local orphaned_context_count=0
@@ -2694,7 +2716,49 @@ cmd_doctor() {
 
   # Check for conflicts
   local warnings=()
+  local findings=()
   local conflict_detected=false
+
+  # Gather consistency diagnostics from canonical validator
+  local consistency_mode="check"
+  [[ "$repair_mode" == "true" ]] && consistency_mode="repair"
+  local consistency_json='{}'
+  local consistency_issue_count=0
+  local consistency_repair_count=0
+
+  if declare -f session_validate_consistency >/dev/null 2>&1; then
+    consistency_json=$(session_validate_consistency "$consistency_mode" 2>/dev/null || echo '{}')
+    consistency_issue_count=$(echo "$consistency_json" | jq -r '.issueCount // 0' 2>/dev/null || echo 0)
+    consistency_repair_count=$(echo "$consistency_json" | jq -r '.repairCount // 0' 2>/dev/null || echo 0)
+  fi
+
+  # Refresh context counts after repair so report reflects post-heal state
+  if [[ "$repair_mode" == "true" ]]; then
+    context_state_count=0
+    orphaned_context_count=0
+
+    if [[ -d "$full_context_dir" ]]; then
+      context_state_count=$(find "$full_context_dir" -name "context-state-*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
+
+    if [[ -f "$sessions_file" ]] && [[ -d "$full_context_dir" ]]; then
+      local all_session_ids_post
+      all_session_ids_post=$(jq -r '([.sessions[].id] + [.sessionHistory[].id]) | unique | .[]' "$sessions_file" 2>/dev/null)
+      for ctx_file in "$full_context_dir"/context-state-*.json; do
+        [[ -f "$ctx_file" ]] || continue
+        local ctx_session_id_post
+        ctx_session_id_post=$(basename "$ctx_file" | sed 's/^context-state-//; s/\.json$//')
+        if ! echo "$all_session_ids_post" | grep -qF "$ctx_session_id_post"; then
+          orphaned_context_count=$((orphaned_context_count + 1))
+        fi
+      done
+    fi
+  fi
+
+  add_finding() {
+    local code="$1" severity="$2" message="$3" action="$4" auto_heal="$5" healed="$6"
+    findings+=("{\"code\":\"$code\",\"severity\":\"$severity\",\"message\":\"$message\",\"action\":\"$action\",\"autoHealAvailable\":$auto_heal,\"autoHealed\":$healed}")
+  }
 
   # Conflict: CLEO_SESSION vs TTY binding
   if [[ -n "$cleo_session_env" ]] && [[ -n "$tty_binding" ]] && [[ "$cleo_session_env" != "$tty_binding" ]]; then
@@ -2722,17 +2786,81 @@ cmd_doctor() {
 
   # Orphaned context files warning
   if [[ "$orphaned_context_count" -gt 0 ]]; then
-    warnings+=("$orphaned_context_count orphaned context state file(s) found")
+    warnings+=("$orphaned_context_count orphaned context state file(s) found - run: cleo session doctor --repair")
+    add_finding "CONTEXT_ORPHANED" "warning" \
+      "$orphaned_context_count orphaned context state file(s) detected" \
+      "Run 'cleo session doctor --repair' to clean orphaned state files" \
+      "true" "false"
   fi
 
   # Stale bindings warning
   if [[ "$stale_binding_count" -gt 0 ]]; then
-    warnings+=("$stale_binding_count stale TTY binding(s) found")
+    warnings+=("$stale_binding_count stale TTY binding(s) found - run: cleo session gc --orphans")
+    add_finding "TTY_STALE_BINDINGS" "warning" \
+      "$stale_binding_count stale TTY binding(s) detected" \
+      "Run 'cleo session gc --orphans' to prune stale bindings" \
+      "true" "false"
   fi
 
   # Stale active sessions warning
   if [[ "$stale_active_count" -gt 0 ]]; then
-    warnings+=("$stale_active_count stale active session(s) (inactive > $auto_end_days days)")
+    warnings+=("$stale_active_count stale active session(s) (inactive > $auto_end_days days) - run: cleo session gc --include-active")
+    add_finding "SESSIONS_STALE_ACTIVE" "warning" \
+      "$stale_active_count active session(s) stale beyond retention threshold" \
+      "Run 'cleo session gc --include-active' to auto-end stale active sessions" \
+      "true" "false"
+  fi
+
+  # Normalize numeric fields for JSON emission safety
+  [[ "$active_count" =~ ^[0-9]+$ ]] || active_count=0
+  [[ "$suspended_count" =~ ^[0-9]+$ ]] || suspended_count=0
+  [[ "$ended_count" =~ ^[0-9]+$ ]] || ended_count=0
+  [[ "$archived_count" =~ ^[0-9]+$ ]] || archived_count=0
+  [[ "$total_sessions" =~ ^[0-9]+$ ]] || total_sessions=0
+  [[ "$context_state_count" =~ ^[0-9]+$ ]] || context_state_count=0
+  [[ "$orphaned_context_count" =~ ^[0-9]+$ ]] || orphaned_context_count=0
+  [[ "$tty_binding_count" =~ ^[0-9]+$ ]] || tty_binding_count=0
+  [[ "$stale_binding_count" =~ ^[0-9]+$ ]] || stale_binding_count=0
+  [[ "$stale_active_count" =~ ^[0-9]+$ ]] || stale_active_count=0
+  [[ "$auto_end_days" =~ ^[0-9]+$ ]] || auto_end_days=7
+  [[ "$consistency_issue_count" =~ ^[0-9]+$ ]] || consistency_issue_count=0
+  [[ "$consistency_repair_count" =~ ^[0-9]+$ ]] || consistency_repair_count=0
+  [[ "$nested_context_pre" =~ ^[0-9]+$ ]] || nested_context_pre=0
+  [[ "$legacy_flat_pre" =~ ^[0-9]+$ ]] || legacy_flat_pre=0
+  [[ "$legacy_flat_post" =~ ^[0-9]+$ ]] || legacy_flat_post=0
+  [[ "$auto_healed_path_files" =~ ^[0-9]+$ ]] || auto_healed_path_files=0
+
+  # Path-specific diagnostics
+  if [[ "$nested_context_pre" -gt 0 ]]; then
+    local nested_after=0
+    if [[ -d "${cleo_dir}/.cleo/context-states" ]]; then
+      nested_after=$(find "${cleo_dir}/.cleo/context-states" -name "context-state-*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    add_finding "PATH_NESTED_CONTEXT_DIR" "critical" \
+      "Detected nested context directory drift (.cleo/.cleo/context-states)" \
+      "Doctor auto-heals by moving files to canonical contextStates.directory" \
+      "true" "$([[ "$nested_after" -eq 0 ]] && echo true || echo false)"
+  fi
+
+  if [[ "$legacy_flat_pre" -gt 0 ]]; then
+    add_finding "PATH_LEGACY_FLAT_CONTEXT" "warning" \
+      "Detected legacy flat context files in .cleo root" \
+      "Doctor auto-heals by migrating to canonical contextStates.directory" \
+      "true" "$([[ "$legacy_flat_post" -lt "$legacy_flat_pre" ]] && echo true || echo false)"
+  fi
+
+  if [[ "$conflict_detected" == "true" ]]; then
+    add_finding "RESOLUTION_CONFLICT" "critical" \
+      "Session resolution sources conflict (env vs tty vs .current-session)" \
+      "Unset CLEO_SESSION or run 'cleo session switch <id>' to normalize bindings" \
+      "false" "false"
+  fi
+
+  if [[ "$repair_mode" == "true" ]] && [[ "$consistency_repair_count" -gt 0 ]]; then
+    add_finding "CONSISTENCY_REPAIRED" "info" \
+      "Applied $consistency_repair_count consistency repair(s)" \
+      "No further action required unless warnings persist" \
+      "true" "true"
   fi
 
   if [[ "$output_format" == "json" ]]; then
@@ -2740,7 +2868,18 @@ cmd_doctor() {
     version="${CLEO_VERSION:-$(get_version 2>/dev/null || echo 'unknown')}"
 
     local warnings_json
-    warnings_json=$(printf '%s\n' "${warnings[@]}" 2>/dev/null | jq -R . | jq -s . 2>/dev/null || echo '[]')
+    if [[ ${#warnings[@]} -gt 0 ]]; then
+      warnings_json=$(printf '%s\n' "${warnings[@]}" 2>/dev/null | jq -R . | jq -s . 2>/dev/null || echo '[]')
+    else
+      warnings_json='[]'
+    fi
+
+    local findings_json
+    if [[ ${#findings[@]} -gt 0 ]]; then
+      findings_json=$(printf '%s\n' "${findings[@]}" 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
+    else
+      findings_json='[]'
+    fi
 
     # Build stale active sessions JSON array
     local stale_sessions_json="[]"
@@ -2775,6 +2914,14 @@ cmd_doctor() {
       --argjson autoEndDays "$auto_end_days" \
       --argjson conflict "$conflict_detected" \
       --argjson warnings "$warnings_json" \
+      --argjson findings "$findings_json" \
+      --argjson repairMode "$repair_mode" \
+      --argjson consistencyIssueCount "$consistency_issue_count" \
+      --argjson consistencyRepairCount "$consistency_repair_count" \
+      --argjson nestedPre "$nested_context_pre" \
+      --argjson legacyFlatPre "$legacy_flat_pre" \
+      --argjson legacyFlatPost "$legacy_flat_post" \
+      --argjson autoHealedPathFiles "$auto_healed_path_files" \
       '{
         "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
         "_meta": {
@@ -2812,8 +2959,17 @@ cmd_doctor() {
           "thresholdDays": $autoEndDays,
           "sessions": $staleActiveSessions
         },
+        "autoHeal": {
+          "repairMode": $repairMode,
+          "pathFilesMigrated": $autoHealedPathFiles,
+          "nestedContextFilesDetected": $nestedPre,
+          "legacyFlatFilesBefore": $legacyFlatPre,
+          "legacyFlatFilesAfter": $legacyFlatPost,
+          "consistencyRepairs": $consistencyRepairCount
+        },
         "conflict": $conflict,
-        "warnings": $warnings
+        "warnings": $warnings,
+        "findings": $findings
       }'
   else
     echo ""
@@ -2900,6 +3056,19 @@ cmd_doctor() {
       echo ""
     else
       echo "No warnings detected."
+      echo ""
+    fi
+
+    if [[ ${#findings[@]} -gt 0 ]]; then
+      echo "Findings:"
+      printf '%s\n' "${findings[@]}" | jq -r '. | "  - [\(.severity | ascii_upcase)] \(.code): \(.message)\n    Action: \(.action)\n    Auto-heal: " + (if .autoHealAvailable then (if .autoHealed then "available (applied)" else "available" end) else "not available" end)' 2>/dev/null || true
+      echo ""
+    fi
+
+    if [[ "$repair_mode" == "true" ]]; then
+      echo "Auto-heal mode: ENABLED"
+      echo "  Path files migrated: $auto_healed_path_files"
+      echo "  Consistency repairs: $consistency_repair_count"
       echo ""
     fi
   fi

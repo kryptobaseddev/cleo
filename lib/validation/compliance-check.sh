@@ -31,6 +31,8 @@ source "${_CC_LIB_DIR}/skills/research-manifest.sh"
 source "${_CC_LIB_DIR}/metrics/metrics-common.sh"
 # shellcheck source=lib/data/file-ops.sh
 source "${_CC_LIB_DIR}/data/file-ops.sh"
+# shellcheck source=lib/core/paths.sh
+source "${_CC_LIB_DIR}/core/paths.sh"
 
 # ============================================================================
 # CONFIGURATION
@@ -604,23 +606,23 @@ get_context_state() {
     local cleo_dir="${CLEO_DIR:-.cleo}"
     local state_file
 
+    repair_errant_context_state_paths "$cleo_dir" >/dev/null 2>&1 || true
+
     # Determine state file path
     if [[ -n "$session_id" ]]; then
         # Per-session state file
-        local context_dir="${cleo_dir}/context-states"
-        state_file="${context_dir}/context-state-${session_id}.json"
+        state_file=$(get_context_state_file_path "$session_id" "$cleo_dir" "context-state-{sessionId}.json")
     else
         # Try to get current session
         if [[ -f "${cleo_dir}/.current-session" ]]; then
             local current_session
             current_session=$(cat "${cleo_dir}/.current-session" 2>/dev/null | tr -d '\n')
             if [[ -n "$current_session" ]]; then
-                local context_dir="${cleo_dir}/context-states"
-                state_file="${context_dir}/context-state-${current_session}.json"
+                state_file=$(get_context_state_file_path "$current_session" "$cleo_dir" "context-state-{sessionId}.json")
             fi
         fi
         # Fallback to singleton
-        [[ -z "$state_file" ]] && state_file="${cleo_dir}/.context-state.json"
+        [[ -z "$state_file" ]] && state_file="$(get_context_state_file_path "" "$cleo_dir")"
     fi
 
     # Read state file if it exists

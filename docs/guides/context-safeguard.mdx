@@ -22,7 +22,7 @@ The Context Safeguard System prevents context window overflows during extended a
 ┌─────────────────────────────────────────────────────────────┐
 │ Claude Code Statusline (lib/context-monitor.sh)            │
 │ - Runs every ~300ms                                         │
-│ - Writes .context-state-{sessionId}.json                    │
+│ - Writes context-state-{sessionId}.json to .cleo/context-states/ │
 │ - Provides real-time token count                            │
 └─────────────────────┬───────────────────────────────────────┘
                       │
@@ -253,11 +253,11 @@ Each session has **isolated context tracking**:
 ```bash
 # Agent 1: Working on auth epic
 cleo session start --scope epic:T001 --auto-focus
-# → Context tracked in .context-state-session_abc123.json
+# → Context tracked in .cleo/context-states/context-state-session_abc123.json
 
 # Agent 2: Working on UI epic
 cleo session start --scope epic:T050 --auto-focus
-# → Context tracked in .context-state-session_xyz789.json
+# → Context tracked in .cleo/context-states/context-state-session_xyz789.json
 ```
 
 Alerts are **session-specific**:
@@ -284,10 +284,10 @@ Should return `true`.
 **Check context state file:**
 ```bash
 # Current session
-ls -la .cleo/.context-state-*.json
+ls -la .cleo/context-states/context-state-*.json
 
 # View content
-cat .cleo/.context-state-session_*.json | jq .
+cat .cleo/context-states/context-state-session_*.json | jq .
 ```
 
 **Verify statusline:**
@@ -353,9 +353,25 @@ fi
 
 ## State Files
 
+### Canonical Layout
+
+| Purpose | Canonical Path | Notes |
+|---------|----------------|-------|
+| Per-session context state | `.cleo/context-states/context-state-{sessionId}.json` | Primary source for session-aware context metrics |
+| Singleton fallback state | `.cleo/.context-state.json` | Used when no session-specific state exists |
+| Alert threshold memory | `.cleo/.context-alert-state.json` | Tracks last alerted threshold to prevent repeated alerts |
+
+To repair drifted/legacy files, run:
+
+```bash
+cleo session doctor --repair
+```
+
 ### Context State (Per-Session)
 
-**Location**: `.cleo/.context-state-{sessionId}.json`
+**Location**: `.cleo/context-states/context-state-{sessionId}.json`
+
+Legacy compatibility: older `.cleo/.context-state-{sessionId}.json` files are auto-migrated to canonical location by `cleo session doctor` and runtime path healing.
 
 **Content**:
 ```json
