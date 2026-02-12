@@ -105882,11 +105882,26 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_778f9c5af2ce",
+      "timestamp": "2026-02-12T01:19:48Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4345"
+      },
+      "after": {
+        "currentTask": "T4346"
+      },
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 5503,
-    "lastEntry": "2026-02-12T01:17:37Z",
+    "totalEntries": 5504,
+    "lastEntry": "2026-02-12T01:19:48Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
