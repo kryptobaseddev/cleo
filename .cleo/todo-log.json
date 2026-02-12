@@ -107225,11 +107225,49 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log_666dc1d92847",
+      "timestamp": "2026-02-12T21:06:16Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4386",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T21:06:15Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770930384-fbb146",
+      "timestamp": "2026-02-12T21:06:24Z",
+      "action": "task_created",
+      "taskId": "T4387",
+      "actor": "system",
+      "details": {
+        "title": "Fix complete command arithmetic parsing warnings on auto-complete metadata",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix complete command arithmetic parsing warnings on auto-complete metadata",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5592,
-    "lastEntry": "2026-02-12T21:04:42Z",
+    "totalEntries": 5593,
+    "lastEntry": "2026-02-12T21:06:16Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

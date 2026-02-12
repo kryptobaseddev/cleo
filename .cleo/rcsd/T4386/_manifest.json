@@ -28,6 +28,10 @@
     "testing": {
       "state": "completed",
       "completedAt": "2026-02-12T21:04:50Z"
+    },
+    "release": {
+      "state": "completed",
+      "completedAt": "2026-02-12T21:06:14Z"
     }
   }
 }

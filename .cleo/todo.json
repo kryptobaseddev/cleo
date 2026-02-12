@@ -751,9 +751,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T21:05:50Z",
+  "lastUpdated": "2026-02-12T21:06:24Z",
   "_meta": {
-    "checksum": "fe63c874860be460",
+    "checksum": "05ec9ca89b4bf8f5",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -762,7 +762,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2826
+    "generation": 2828
   },
   "focus": {
     "currentTask": null,
@@ -12919,12 +12919,12 @@
     {
       "id": "T4386",
       "title": "Fix release ship wiping planned release task links",
-      "status": "active",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-12T20:38:48Z",
-      "updatedAt": "2026-02-12T21:04:41Z",
+      "updatedAt": "2026-02-12T21:06:15Z",
       "size": "medium",
       "position": 859,
       "positionVersion": 0,
@@ -12941,10 +12941,51 @@
       ],
       "notes": [
         "2026-02-12 21:03:43 UTC: RCSD research started: multi-agent investigation launched (ses_3ac59f946ffeSWdF1en9L0jUrc, ses_3ac59f925ffeYwdhxd9ekYP3Pd).",
-        "2026-02-12 21:04:41 UTC: Implementation complete: release task merge fix in lib/ui/changelog.sh plus unit/integration regression tests for release ship task-link preservation."
+        "2026-02-12 21:04:41 UTC: Implementation complete: release task merge fix in lib/ui/changelog.sh plus unit/integration regression tests for release ship task-link preservation.",
+        "[COMPLETED 2026-02-12T21:06:15Z] Completed full RCSD-IVTR lifecycle for T4386. Implemented merge-preserve fix for release.tasks in ship flow, added regression tests (unit+integration), validated passing suites, shipped v0.93.4, pushed tag, and published GitHub release."
       ],
       "files": [
         "lib/ui/changelog.sh"
+      ],
+      "completedAt": "2026-02-12T21:06:15Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:06:15Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4387",
+      "title": "Fix complete command arithmetic parsing warnings on auto-complete metadata",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-12T21:06:24Z",
+      "updatedAt": "2026-02-12T21:06:24Z",
+      "size": "medium",
+      "position": 860,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "cleo complete emits arithmetic syntax warnings (e.g., '[[: 1\\n0') while still succeeding, indicating numeric parsing bug in scripts/complete.sh around auto-completed parent counts.",
+      "labels": [
+        "bug",
+        "task-system"
+      ],
+      "acceptance": [
+        "cleo complete runs without arithmetic syntax warnings",
+        "auto-complete parent count parsing is robust against multiline values",
+        "existing completion behavior remains unchanged"
       ]
     }
   ],
