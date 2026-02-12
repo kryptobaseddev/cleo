@@ -17,6 +17,29 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.93.0" tags={["Feature", "Installer", "Skills"]}>
+## v0.93.0 Release
+
+
+**Features**
+- feat(mcp): Install @cleocode/caamp@^0.3.0 - 88 typed API exports for provider/skills/injection (T4332)
+- feat(mcp): P0 CAAMP adapter - provider registry, MCP config, injection operations (T4332)
+
+**Refactoring (T4344)**
+- refactor: Reorganize lib/ into 10 semantic subdirectories (Track A complete)
+  - core/ (11), validation/ (11), session/ (8), tasks/ (17), skills/ (17), data/ (17), ui/ (9), metrics/ (6), release/ (5)
+  - All source references updated across 296 files
+  - lib/README.md navigation guide created
+  - Installer updated for new hierarchy paths
+
+**Dependencies**
+- Added: @cleocode/caamp ^0.3.0 (provider registry, MCP config, skills, injection)
+- Node.js engine bumped to >=20
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.93.0)
+</Update>
+
 <Update label="February 2026" description="v0.92.1" tags={["Fix", "Sessions", "CLI"]}>
 ## v0.92.1 Release
 
@@ -405,29 +428,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.81.2)
-</Update>
-
-<Update label="February 2026" description="v0.82.0" tags={["Fix", "Feature", "Skills"]}>
-## v0.82.0 Release
-
-
-**Features**
-- Add `atomic_jsonl_append()` unified abstraction with flock locking in lib/file-ops.sh (T3148)
-- Add `cleo research add` CLI subcommand for agent manifest entry creation (T3149)
-- Add `cleo research update` CLI subcommand for manifest entry modification (T3150)
-- Create `skills/_shared/manifest-operations.md` single-source protocol reference (T3154)
-
-**Bug Fixes**
-- Fix TOKEN_USAGE.jsonl silent failure - remove `|| true` suppression, use atomic append (T3151)
-- Apply flock pattern to 5 JSONL files (COMPLIANCE, SESSIONS, TOKEN_USAGE, BENCHMARK, AB_TESTS) via atomic_jsonl_append (T3152)
-- Fix checksum recalculation in release/changelog writes to todo.json (T3130)
-
-**Documentation**
-- Update 9 protocol files to @include manifest-operations.md instead of inline JSONL instructions (T3155)
-- Update subagent-protocol-base.md to reference `cleo research add` as canonical method (T3155)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.82.0)
 </Update>
 
 ## Earlier Releases
