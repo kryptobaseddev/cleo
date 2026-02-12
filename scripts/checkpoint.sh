@@ -17,39 +17,39 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source libraries
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "$LIB_DIR/core/config.sh"
 fi
 
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
-if [[ -f "$LIB_DIR/git-checkpoint.sh" ]]; then
-  # shellcheck source=../lib/git-checkpoint.sh
-  source "$LIB_DIR/git-checkpoint.sh"
+if [[ -f "$LIB_DIR/data/git-checkpoint.sh" ]]; then
+  # shellcheck source=../lib/data/git-checkpoint.sh
+  source "$LIB_DIR/data/git-checkpoint.sh"
 fi
 
 # Options

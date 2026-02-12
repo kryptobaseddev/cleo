@@ -2,7 +2,7 @@
 
 # @task T2720
 # Lifecycle Gate Enforcement Tests
-# Tests for lib/lifecycle.sh RCSD state tracking and gate enforcement
+# Tests for lib/tasks/lifecycle.sh RCSD state tracking and gate enforcement
 
 load '../libs/bats-support/load'
 load '../libs/bats-assert/load'
@@ -17,8 +17,8 @@ setup() {
     mkdir -p "$TEST_DIR/.cleo"
 
     # Copy required libraries
-    cp "$BATS_TEST_DIRNAME/../../lib/lifecycle.sh" "$TEST_DIR/"
-    cp "$BATS_TEST_DIRNAME/../../lib/exit-codes.sh" "$TEST_DIR/"
+    cp "$BATS_TEST_DIRNAME/../../lib/tasks/lifecycle.sh" "$TEST_DIR/"
+    cp "$BATS_TEST_DIRNAME/../../lib/core/exit-codes.sh" "$TEST_DIR/"
 
     # Source the library
     cd "$TEST_DIR"

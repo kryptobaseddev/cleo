@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# jq-helpers.bats - Unit tests for lib/jq-helpers.sh
+# jq-helpers.bats - Unit tests for lib/core/jq-helpers.sh
 # =============================================================================
 # Tests all 14 jq helper functions for task JSON manipulation.
 # Covers success cases, error handling, edge cases, and return codes.
@@ -18,7 +18,7 @@ setup() {
     common_setup_per_test
 
     # Source the library under test
-    source "$LIB_DIR/jq-helpers.sh"
+    source "$LIB_DIR/core/jq-helpers.sh"
 
     # Create test fixture with comprehensive task data
     TEST_TODO_FILE="$BATS_TEST_TMPDIR/test-todo.json"
@@ -50,11 +50,11 @@ teardown_file() {
 # =============================================================================
 
 @test "jq-helpers.sh exists" {
-    [ -f "$LIB_DIR/jq-helpers.sh" ]
+    [ -f "$LIB_DIR/core/jq-helpers.sh" ]
 }
 
 @test "jq-helpers.sh can be sourced" {
-    run bash -c "source '$LIB_DIR/jq-helpers.sh'"
+    run bash -c "source '$LIB_DIR/core/jq-helpers.sh'"
     assert_success
 }
 
@@ -904,7 +904,7 @@ EOF
 
 @test "source guard prevents double loading" {
     # Source twice and verify no errors
-    run bash -c "source '$LIB_DIR/jq-helpers.sh'; source '$LIB_DIR/jq-helpers.sh'"
+    run bash -c "source '$LIB_DIR/core/jq-helpers.sh'; source '$LIB_DIR/core/jq-helpers.sh'"
     assert_success
 }
 

@@ -113,7 +113,7 @@ teardown_file() {
     # Verify existing semver-style migrations are still discovered
     # This ensures backward compatibility
 
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Get discovered versions
     run discover_migration_versions
@@ -136,7 +136,7 @@ teardown_file() {
     # 3. Verify timestamp version appears in output
     # 4. Cleanup test migration
 
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Create test timestamp migration
     local test_migration="${PROJECT_ROOT}/lib/migrations/20250103120000_test.sh"
@@ -196,7 +196,7 @@ teardown_file() {
     # Verify that existing semver-style migrations are not broken
     # by the addition of timestamp support
 
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Get list of semver migrations
     local semver_functions
@@ -217,7 +217,7 @@ teardown_file() {
     # Verify semver migrations use the old naming pattern:
     # migrate_<type>_to_X_Y_Z
 
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Get semver migration functions
     local semver_functions
@@ -313,7 +313,7 @@ teardown_file() {
     export MIGRATIONS_DIR="$test_migrations_dir"
 
     # Source migrate.sh
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Should succeed with empty output
     run discover_migration_versions

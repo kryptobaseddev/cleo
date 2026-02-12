@@ -74,50 +74,50 @@ else
 fi
 
 # Source library functions
-if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
-  source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLEO_HOME/lib/file-ops.sh"
+if [[ -f "${LIB_DIR}/data/file-ops.sh" ]]; then
+  source "${LIB_DIR}/data/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/data/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/data/file-ops.sh"
 fi
 
-if [[ -f "${LIB_DIR}/logging.sh" ]]; then
-  source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
-  source "$CLEO_HOME/lib/logging.sh"
+if [[ -f "${LIB_DIR}/core/logging.sh" ]]; then
+  source "${LIB_DIR}/core/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/core/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/core/logging.sh"
 fi
 
-if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
-  source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
-  source "$CLEO_HOME/lib/output-format.sh"
+if [[ -f "${LIB_DIR}/core/output-format.sh" ]]; then
+  source "${LIB_DIR}/core/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/core/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/core/output-format.sh"
 fi
 
-if [[ -f "${LIB_DIR}/exit-codes.sh" ]]; then
-  source "${LIB_DIR}/exit-codes.sh"
-elif [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
-  source "$CLEO_HOME/lib/exit-codes.sh"
+if [[ -f "${LIB_DIR}/core/exit-codes.sh" ]]; then
+  source "${LIB_DIR}/core/exit-codes.sh"
+elif [[ -f "$CLEO_HOME/lib/core/exit-codes.sh" ]]; then
+  source "$CLEO_HOME/lib/core/exit-codes.sh"
 fi
 
 # Source error JSON library
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source config library for display settings
-if [[ -f "${LIB_DIR}/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "${LIB_DIR}/config.sh"
-elif [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
-  source "$CLEO_HOME/lib/config.sh"
+if [[ -f "${LIB_DIR}/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "${LIB_DIR}/core/config.sh"
+elif [[ -f "$CLEO_HOME/lib/core/config.sh" ]]; then
+  source "$CLEO_HOME/lib/core/config.sh"
 fi
 
 # Source flags library
-if [[ -f "${LIB_DIR}/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "${LIB_DIR}/flags.sh"
-elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
-  source "$CLEO_HOME/lib/flags.sh"
+if [[ -f "${LIB_DIR}/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "${LIB_DIR}/ui/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/ui/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/ui/flags.sh"
 fi
 
 # Local log_error wrapper for simple error messages

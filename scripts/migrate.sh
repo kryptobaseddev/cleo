@@ -29,32 +29,32 @@ else
 fi
 
 # Source required libraries
-# shellcheck source=lib/backup.sh
-if [[ -f "$LIB_DIR/backup.sh" ]]; then
-  source "$LIB_DIR/backup.sh"
+# shellcheck source=lib/data/backup.sh
+if [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+  source "$LIB_DIR/data/backup.sh"
 fi
 
-# shellcheck source=lib/migrate.sh
-source "$LIB_DIR/migrate.sh"
+# shellcheck source=lib/data/migrate.sh
+source "$LIB_DIR/data/migrate.sh"
 
 # Source output formatting and error libraries
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Global variables
@@ -519,7 +519,7 @@ cmd_repair() {
 
     # For dry-run mode with JSON format, provide structured output
     if [[ "$mode" == "dry-run" && "$FORMAT" == "json" ]]; then
-        # Get repair actions from lib/migrate.sh
+        # Get repair actions from lib/data/migrate.sh
         local actions
         if declare -f get_repair_actions &>/dev/null; then
             actions=$(get_repair_actions "$todo_file" 2>/dev/null || echo '{"needs_repair":false}')
@@ -561,7 +561,7 @@ cmd_repair() {
     echo "File: $todo_file"
     echo ""
 
-    # Call the repair function from lib/migrate.sh
+    # Call the repair function from lib/data/migrate.sh
     if ! repair_todo_schema "$todo_file" "$mode"; then
         exit "$EXIT_GENERAL_ERROR"
     fi

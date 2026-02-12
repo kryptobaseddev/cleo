@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# config-lib.bats - Unit tests for lib/config.sh functions
+# config-lib.bats - Unit tests for lib/core/config.sh functions
 # =============================================================================
 # Tests for:
 # - get_config_value() priority resolution (env > project > global > default)
@@ -17,7 +17,7 @@ setup_file() {
     common_setup_file
 
     # Export paths
-    export CONFIG_LIB="${LIB_DIR}/config.sh"
+    export CONFIG_LIB="${LIB_DIR}/core/config.sh"
 }
 
 setup() {
@@ -597,7 +597,7 @@ EOF
     set +u; source "$CONFIG_LIB"
     local result
     result=$(get_phase_boost_current)
-    # Default is 1.5 (from lib/config.sh)
+    # Default is 1.5 (from lib/core/config.sh)
     [[ "$result" == "1.5" ]]
 }
 

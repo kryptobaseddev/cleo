@@ -172,7 +172,7 @@ teardown_file() {
 }
 
 @test "exit-codes.sh: checks for EXIT_NO_CHANGE constant" {
-    run "$COMPLIANCE_DIR/exit-codes.sh" "$LIB_DIR/exit-codes.sh" "$SCHEMA_FILE"
+    run "$COMPLIANCE_DIR/exit-codes.sh" "$LIB_DIR/core/exit-codes.sh" "$SCHEMA_FILE"
     assert_success
 
     # Should validate EXIT_NO_CHANGE (102) is defined

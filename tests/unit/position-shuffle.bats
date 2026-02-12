@@ -29,7 +29,7 @@ setup() {
 EOF
 
     # Source hierarchy functions for position helpers
-    source "${BATS_TEST_DIRNAME}/../../lib/hierarchy.sh"
+    source "${BATS_TEST_DIRNAME}/../../lib/tasks/hierarchy.sh"
 }
 
 teardown() {

@@ -55,94 +55,94 @@ else
 fi
 
 # Source library functions
-if [[ -f "${LIB_DIR}/file-ops.sh" ]]; then
-  source "${LIB_DIR}/file-ops.sh"
-elif [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
-  source "$CLEO_HOME/lib/file-ops.sh"
+if [[ -f "${LIB_DIR}/data/file-ops.sh" ]]; then
+  source "${LIB_DIR}/data/file-ops.sh"
+elif [[ -f "$CLEO_HOME/lib/data/file-ops.sh" ]]; then
+  source "$CLEO_HOME/lib/data/file-ops.sh"
 fi
 
-if [[ -f "${LIB_DIR}/logging.sh" ]]; then
-  source "${LIB_DIR}/logging.sh"
-elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
-  source "$CLEO_HOME/lib/logging.sh"
+if [[ -f "${LIB_DIR}/core/logging.sh" ]]; then
+  source "${LIB_DIR}/core/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/core/logging.sh" ]]; then
+  source "$CLEO_HOME/lib/core/logging.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
-if [[ -f "${LIB_DIR}/output-format.sh" ]]; then
-  source "${LIB_DIR}/output-format.sh"
-elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
-  source "$CLEO_HOME/lib/output-format.sh"
+if [[ -f "${LIB_DIR}/core/output-format.sh" ]]; then
+  source "${LIB_DIR}/core/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/core/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/core/output-format.sh"
 fi
 
-if [[ -f "${LIB_DIR}/analysis.sh" ]]; then
-  source "${LIB_DIR}/analysis.sh"
-elif [[ -f "$CLEO_HOME/lib/analysis.sh" ]]; then
-  source "$CLEO_HOME/lib/analysis.sh"
+if [[ -f "${LIB_DIR}/tasks/analysis.sh" ]]; then
+  source "${LIB_DIR}/tasks/analysis.sh"
+elif [[ -f "$CLEO_HOME/lib/tasks/analysis.sh" ]]; then
+  source "$CLEO_HOME/lib/tasks/analysis.sh"
 fi
 
 # Source config library for hierarchy weights
-if [[ -f "${LIB_DIR}/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "${LIB_DIR}/config.sh"
-elif [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
-  source "$CLEO_HOME/lib/config.sh"
+if [[ -f "${LIB_DIR}/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "${LIB_DIR}/core/config.sh"
+elif [[ -f "$CLEO_HOME/lib/core/config.sh" ]]; then
+  source "$CLEO_HOME/lib/core/config.sh"
 fi
 
 # Source phase-tracking library for phase boost calculations
-if [[ -f "${LIB_DIR}/phase-tracking.sh" ]]; then
-  # shellcheck source=../lib/phase-tracking.sh
-  source "${LIB_DIR}/phase-tracking.sh"
-elif [[ -f "$CLEO_HOME/lib/phase-tracking.sh" ]]; then
-  source "$CLEO_HOME/lib/phase-tracking.sh"
+if [[ -f "${LIB_DIR}/tasks/phase-tracking.sh" ]]; then
+  # shellcheck source=../lib/tasks/phase-tracking.sh
+  source "${LIB_DIR}/tasks/phase-tracking.sh"
+elif [[ -f "$CLEO_HOME/lib/tasks/phase-tracking.sh" ]]; then
+  source "$CLEO_HOME/lib/tasks/phase-tracking.sh"
 fi
 
 # Source staleness library for stale task detection
-if [[ -f "${LIB_DIR}/staleness.sh" ]]; then
-  # shellcheck source=../lib/staleness.sh
-  source "${LIB_DIR}/staleness.sh"
-elif [[ -f "$CLEO_HOME/lib/staleness.sh" ]]; then
-  source "$CLEO_HOME/lib/staleness.sh"
+if [[ -f "${LIB_DIR}/tasks/staleness.sh" ]]; then
+  # shellcheck source=../lib/tasks/staleness.sh
+  source "${LIB_DIR}/tasks/staleness.sh"
+elif [[ -f "$CLEO_HOME/lib/tasks/staleness.sh" ]]; then
+  source "$CLEO_HOME/lib/tasks/staleness.sh"
 fi
 
 # Source size-weighting library for size-based leverage scoring
-if [[ -f "${LIB_DIR}/size-weighting.sh" ]]; then
-  # shellcheck source=../lib/size-weighting.sh
-  source "${LIB_DIR}/size-weighting.sh"
-elif [[ -f "$CLEO_HOME/lib/size-weighting.sh" ]]; then
-  source "$CLEO_HOME/lib/size-weighting.sh"
+if [[ -f "${LIB_DIR}/tasks/size-weighting.sh" ]]; then
+  # shellcheck source=../lib/tasks/size-weighting.sh
+  source "${LIB_DIR}/tasks/size-weighting.sh"
+elif [[ -f "$CLEO_HOME/lib/tasks/size-weighting.sh" ]]; then
+  source "$CLEO_HOME/lib/tasks/size-weighting.sh"
 fi
 
 # Source lock-detection library for concurrent operation awareness
-if [[ -f "${LIB_DIR}/lock-detection.sh" ]]; then
-  # shellcheck source=../lib/lock-detection.sh
-  source "${LIB_DIR}/lock-detection.sh"
-elif [[ -f "$CLEO_HOME/lib/lock-detection.sh" ]]; then
-  source "$CLEO_HOME/lib/lock-detection.sh"
+if [[ -f "${LIB_DIR}/session/lock-detection.sh" ]]; then
+  # shellcheck source=../lib/session/lock-detection.sh
+  source "${LIB_DIR}/session/lock-detection.sh"
+elif [[ -f "$CLEO_HOME/lib/session/lock-detection.sh" ]]; then
+  source "$CLEO_HOME/lib/session/lock-detection.sh"
 fi
 
 # Source HITL warnings library for human-in-the-loop warnings
-if [[ -f "${LIB_DIR}/hitl-warnings.sh" ]]; then
-  # shellcheck source=../lib/hitl-warnings.sh
-  source "${LIB_DIR}/hitl-warnings.sh"
-elif [[ -f "$CLEO_HOME/lib/hitl-warnings.sh" ]]; then
-  source "$CLEO_HOME/lib/hitl-warnings.sh"
+if [[ -f "${LIB_DIR}/session/hitl-warnings.sh" ]]; then
+  # shellcheck source=../lib/session/hitl-warnings.sh
+  source "${LIB_DIR}/session/hitl-warnings.sh"
+elif [[ -f "$CLEO_HOME/lib/session/hitl-warnings.sh" ]]; then
+  source "$CLEO_HOME/lib/session/hitl-warnings.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "${LIB_DIR}/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "${LIB_DIR}/flags.sh"
-elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
-  source "$CLEO_HOME/lib/flags.sh"
+if [[ -f "${LIB_DIR}/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "${LIB_DIR}/ui/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/ui/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/ui/flags.sh"
 fi
 
 # Default configuration - JSON output for LLM agents

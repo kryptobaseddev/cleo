@@ -50,14 +50,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(cd "$SCRIPT_DIR/../lib" && pwd)"
 
 # Source required libraries
-# shellcheck source=lib/exit-codes.sh
-source "$LIB_DIR/exit-codes.sh"
-# shellcheck source=lib/paths.sh
-source "$LIB_DIR/paths.sh"
-# shellcheck source=lib/orchestrator-startup.sh
-source "$LIB_DIR/orchestrator-startup.sh"
-# shellcheck source=lib/orchestrator-validator.sh
-source "$LIB_DIR/orchestrator-validator.sh"
+# shellcheck source=lib/core/exit-codes.sh
+source "$LIB_DIR/core/exit-codes.sh"
+# shellcheck source=lib/core/paths.sh
+source "$LIB_DIR/core/paths.sh"
+# shellcheck source=lib/skills/orchestrator-startup.sh
+source "$LIB_DIR/skills/orchestrator-startup.sh"
+# shellcheck source=lib/skills/orchestrator-validator.sh
+source "$LIB_DIR/skills/orchestrator-validator.sh"
 
 # ============================================================================
 # COMMAND HANDLERS

@@ -2,7 +2,7 @@
 # dev-exit-codes.sh - Standardized exit codes for development scripts
 # Part of claude-todo development tooling
 #
-# Mirrors lib/exit-codes.sh patterns for consistency, but uses DEV_EXIT_ prefix
+# Mirrors lib/core/exit-codes.sh patterns for consistency, but uses DEV_EXIT_ prefix
 # to distinguish from runtime application exit codes.
 #
 # This is a foundation layer - no dependencies on other dev/lib modules.

@@ -2,7 +2,7 @@
 # =============================================================================
 # hybrid-registry.bats - Unit tests for hybrid registry functions
 # =============================================================================
-# Tests for lib/project-registry.sh functions that implement the hybrid
+# Tests for lib/data/project-registry.sh functions that implement the hybrid
 # registry architecture (global registry + per-project info files).
 #
 # HYBRID MODEL:
@@ -30,7 +30,7 @@ setup() {
     common_setup_per_test
 
     # Source the library under test
-    source "$LIB_DIR/project-registry.sh"
+    source "$LIB_DIR/data/project-registry.sh"
 
     # Create mock CLEO_HOME for global registry tests
     export MOCK_CLEO_HOME="${TEST_TEMP_DIR}/mock-cleo-home"
@@ -227,8 +227,8 @@ EOF
     # Create a subshell script that properly sources dependencies and tests
     run bash -c "
         set +u  # Disable unbound variable errors for sourcing
-        source '$LIB_DIR/file-ops.sh' 2>/dev/null || true
-        source '$LIB_DIR/project-registry.sh'
+        source '$LIB_DIR/data/file-ops.sh' 2>/dev/null || true
+        source '$LIB_DIR/data/project-registry.sh'
         echo 'not valid json' | save_project_info '$TEST_TEMP_DIR'
     "
     assert_failure
@@ -709,7 +709,7 @@ EOF
     # Run with set +u to avoid unbound variable issues in library
     run bash -c "
         set +u
-        source '$LIB_DIR/project-registry.sh'
+        source '$LIB_DIR/data/project-registry.sh'
         create_empty_registry '$registry_path'
     "
     assert_success
@@ -730,7 +730,7 @@ EOF
     # Run with set +u to avoid unbound variable issues
     bash -c "
         set +u
-        source '$LIB_DIR/project-registry.sh'
+        source '$LIB_DIR/data/project-registry.sh'
         create_empty_registry '$registry_path'
     "
 
@@ -754,7 +754,7 @@ EOF
 @test "create_empty_registry fails without path" {
     run bash -c "
         set +u
-        source '$LIB_DIR/project-registry.sh'
+        source '$LIB_DIR/data/project-registry.sh'
         create_empty_registry
     "
     assert_failure
@@ -784,7 +784,7 @@ EOF
     run bash -c "
         set +u
         export MOCK_CLEO_HOME='$MOCK_CLEO_HOME'
-        source '$LIB_DIR/project-registry.sh'
+        source '$LIB_DIR/data/project-registry.sh'
         get_cleo_home() { echo \"\$MOCK_CLEO_HOME\"; }
         prune_registry
     "

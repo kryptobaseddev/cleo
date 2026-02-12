@@ -17,9 +17,9 @@ CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source version library for proper version management
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-    # shellcheck source=../lib/version.sh
-    source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+    # shellcheck source=../lib/core/version.sh
+    source "$LIB_DIR/core/version.sh"
 fi
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
@@ -28,47 +28,47 @@ CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 LOG_FILE="${LOG_FILE:-.cleo/todo-log.json}"
 
 # Source logging library for should_use_color function
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-    # shellcheck source=../lib/logging.sh
-    source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+    # shellcheck source=../lib/core/logging.sh
+    source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source backup library for unified backup management
-if [[ -f "$LIB_DIR/backup.sh" ]]; then
-    # shellcheck source=../lib/backup.sh
-    source "$LIB_DIR/backup.sh"
+if [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+    # shellcheck source=../lib/data/backup.sh
+    source "$LIB_DIR/data/backup.sh"
 fi
 
 # Source file-ops library for atomic writes with file locking
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-    # shellcheck source=../lib/file-ops.sh
-    source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+    # shellcheck source=../lib/data/file-ops.sh
+    source "$LIB_DIR/data/file-ops.sh"
 fi
 
 # Source output formatting library
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    # shellcheck source=../lib/output-format.sh
-    source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    # shellcheck source=../lib/core/output-format.sh
+    source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
     # Fallback: source exit codes directly if error-json.sh not available
-    # shellcheck source=../lib/exit-codes.sh
-    source "$LIB_DIR/exit-codes.sh"
+    # shellcheck source=../lib/core/exit-codes.sh
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source config library for unified config access (v0.24.0)
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-    # shellcheck source=../lib/config.sh
-    source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+    # shellcheck source=../lib/core/config.sh
+    source "$LIB_DIR/core/config.sh"
 fi
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# staleness.bats - Unit tests for lib/staleness.sh
+# staleness.bats - Unit tests for lib/tasks/staleness.sh
 # =============================================================================
 # Tests for:
 # - is_task_stale() - Check if task is stale (returns exit code)
@@ -16,7 +16,7 @@ setup_file() {
     common_setup_file
 
     # Source staleness library
-    export STALENESS_LIB="${LIB_DIR}/staleness.sh"
+    export STALENESS_LIB="${LIB_DIR}/tasks/staleness.sh"
 
     # Pre-calculate date values for fixtures
     # These will be used to generate dynamic test data

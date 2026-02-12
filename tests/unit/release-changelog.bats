@@ -11,8 +11,8 @@ setup() {
     # Create test changelog
     TEST_CHANGELOG="${TEST_TEMP_DIR}/CHANGELOG.md"
 
-    # Source lib/release.sh which contains prepare_changelog_header
-    source "$BATS_TEST_DIRNAME/../../lib/release.sh"
+    # Source lib/release/release.sh which contains prepare_changelog_header
+    source "$BATS_TEST_DIRNAME/../../lib/release/release.sh"
 }
 
 # Teardown

@@ -17,7 +17,7 @@ setup() {
     installer_setup_per_test
 
     # Load platform-compat.sh for cross-platform testing
-    source "${PROJECT_ROOT}/lib/platform-compat.sh"
+    source "${PROJECT_ROOT}/lib/core/platform-compat.sh"
 }
 
 teardown() {

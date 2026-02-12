@@ -309,7 +309,7 @@ teardown_file() {
     assert_success
 
     # Source validation library
-    source "${LIB_DIR}/validation.sh"
+    source "${LIB_DIR}/validation/validation.sh"
 
     # Validate migrations.json against schema
     run validate_file .cleo/migrations.json "${PROJECT_ROOT}/schemas/migrations.schema.json"

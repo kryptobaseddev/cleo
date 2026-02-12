@@ -357,14 +357,14 @@ EOF
     assert_output "0.55.0"
 }
 
-@test "version: validate_get_installed_version reads from lib/version.sh fallback" {
+@test "version: validate_get_installed_version reads from lib/core/version.sh fallback" {
     load_installer_lib "core"
     load_installer_lib "validate"
 
     local install_dir="${BATS_TEST_TMPDIR}/lib_version"
     mkdir -p "$install_dir/lib"
 
-    cat > "$install_dir/lib/version.sh" << 'EOF'
+    cat > "$install_dir/lib/core/version.sh" << 'EOF'
 #!/usr/bin/env bash
 CLEO_VERSION="0.55.0"
 EOF

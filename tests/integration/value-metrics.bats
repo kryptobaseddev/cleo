@@ -267,7 +267,7 @@ EOF
 # TESTS: cleo compliance value --human (human-readable output)
 # =============================================================================
 # NOTE: These tests are currently skipped due to a bug in compliance.sh line 758
-# The format check uses "human" but resolve_format normalizes to "text" (line 32-35 of lib/output-format.sh)
+# The format check uses "human" but resolve_format normalizes to "text" (line 32-35 of lib/core/output-format.sh)
 # This causes format_value_human to never be called. Bug should be fixed by changing line 758 to:
 #   if [[ "$format" == "text" ]]; then
 # =============================================================================
@@ -637,7 +637,7 @@ EOF
 
 @test "session: capture_session_start_metrics reads context state" {
     # Source the library
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_20260131_100000_abc123"
     create_mock_context_state "$session_id" 5000 200000
@@ -672,7 +672,7 @@ EOF
 }
 
 @test "session: capture_session_start_metrics handles missing context state" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_nonexistent"
     # No context file created
@@ -696,7 +696,7 @@ EOF
 }
 
 @test "session: capture_session_end_metrics calculates delta correctly" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_20260131_100000_abc123"
 
@@ -731,7 +731,7 @@ EOF
 }
 
 @test "session: capture_session_end_metrics handles context window reset" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_20260131_100000_abc123"
 
@@ -753,7 +753,7 @@ EOF
 }
 
 @test "session: log_session_metrics appends to SESSIONS.jsonl" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local sessions_path="${METRICS_DIR}/SESSIONS.jsonl"
 
@@ -798,7 +798,7 @@ EOF
 }
 
 @test "session: log_session_metrics validates JSON input" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     # Try to log invalid JSON - function will exit with code 6, we need to capture output
     local result
@@ -816,7 +816,7 @@ EOF
 }
 
 @test "session: log_session_metrics creates metrics directory" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     # Remove metrics directory
     rm -rf "$METRICS_DIR"
@@ -844,7 +844,7 @@ EOF
 }
 
 @test "session: end-to-end session token tracking workflow" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_20260131_100000_e2e"
 
@@ -889,7 +889,7 @@ EOF
 }
 
 @test "session: SESSIONS.jsonl accumulates multiple session entries" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local sessions_path="${METRICS_DIR}/SESSIONS.jsonl"
     rm -f "$sessions_path"
@@ -926,7 +926,7 @@ EOF
 }
 
 @test "session: integration with TOKEN_USAGE.jsonl" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local session_id="session_20260131_integrated"
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
@@ -968,7 +968,7 @@ EOF
 # =============================================================================
 
 @test "session: handles zero token consumption" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_zero_tokens"
 
@@ -988,7 +988,7 @@ EOF
 }
 
 @test "session: handles large token consumption (near limit)" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_high_tokens"
 
@@ -1014,7 +1014,7 @@ EOF
 }
 
 @test "session: SESSIONS.jsonl preserves all required fields" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     # Create comprehensive metrics
     local metrics
@@ -1087,7 +1087,7 @@ EOF
 # =============================================================================
 
 @test "spawn: track_spawn_output logs spawn output event" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1124,7 +1124,7 @@ EOF
 }
 
 @test "spawn: track_spawn_complete logs full spawn cycle" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1162,7 +1162,7 @@ EOF
 }
 
 @test "spawn: track_spawn_complete calculates baseline and savings" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1190,7 +1190,7 @@ EOF
 }
 
 @test "spawn: track_spawn_output handles empty output" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1214,7 +1214,7 @@ EOF
 }
 
 @test "spawn: track_spawn_output works without session_id" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1237,7 +1237,7 @@ EOF
 }
 
 @test "spawn: TOKEN_USAGE.jsonl accumulates spawn events" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1274,7 +1274,7 @@ EOF
 }
 
 @test "spawn: track_prompt_build estimates prompt tokens" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1307,7 +1307,7 @@ EOF
 }
 
 @test "spawn: end-to-end spawn tracking workflow" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1376,7 +1376,7 @@ EOF
 }
 
 @test "spawn: respects CLEO_TRACK_TOKENS=0" {
-    source "${LIB_DIR}/token-estimation.sh"
+    source "${LIB_DIR}/metrics/token-estimation.sh"
 
     local token_usage_path="${METRICS_DIR}/TOKEN_USAGE.jsonl"
     rm -f "$token_usage_path"
@@ -1396,7 +1396,7 @@ EOF
 }
 
 @test "session: handles missing OTel data gracefully" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_no_otel"
 
@@ -1429,7 +1429,7 @@ EOF
 }
 
 @test "session: multiple rapid start/end cycles" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local sessions_path="${METRICS_DIR}/SESSIONS.jsonl"
     rm -f "$sessions_path"
@@ -1471,7 +1471,7 @@ EOF
 }
 
 @test "session: context state fallback to generic file" {
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     local session_id="session_fallback"
 

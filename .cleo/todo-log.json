@@ -105897,11 +105897,116 @@
         "currentTask": "T4346"
       },
       "details": null
+    },
+    {
+      "id": "log_ced2eb3609d3",
+      "timestamp": "2026-02-12T01:31:03Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4346",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T01:31:02Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ba056a192ea6",
+      "timestamp": "2026-02-12T01:31:06Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4346"
+      },
+      "after": {
+        "currentTask": "T4347"
+      },
+      "details": null
+    },
+    {
+      "id": "log_83aba73afb0d",
+      "timestamp": "2026-02-12T01:31:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4347",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T01:31:12Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_1c3866a5ef1b",
+      "timestamp": "2026-02-12T01:31:19Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4347"
+      },
+      "after": {
+        "currentTask": "T4348"
+      },
+      "details": null
+    },
+    {
+      "id": "log_f470fbd7a267",
+      "timestamp": "2026-02-12T01:31:47Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4348",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-12T01:31:46Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_be836ef76576",
+      "timestamp": "2026-02-12T01:31:56Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4348"
+      },
+      "after": {
+        "currentTask": "T4349"
+      },
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 5504,
-    "lastEntry": "2026-02-12T01:19:48Z",
+    "totalEntries": 5510,
+    "lastEntry": "2026-02-12T01:31:56Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

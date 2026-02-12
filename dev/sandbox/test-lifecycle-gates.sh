@@ -8,9 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-source "$PROJECT_ROOT/lib/lifecycle.sh"
-source "$PROJECT_ROOT/lib/config.sh"
-source "$PROJECT_ROOT/lib/file-ops.sh"
+source "$PROJECT_ROOT/lib/tasks/lifecycle.sh"
+source "$PROJECT_ROOT/lib/core/config.sh"
+source "$PROJECT_ROOT/lib/data/file-ops.sh"
 
 echo "=== Test 1: Lifecycle Gate Enforcement ==="
 echo ""

@@ -31,7 +31,7 @@ setup() {
     mkdir -p "$_MA_GLOBAL_METRICS_DIR"
 
     # Source the library
-    source "${LIB_DIR}/metrics-aggregation.sh"
+    source "${LIB_DIR}/metrics/metrics-aggregation.sh"
 
     # Override global metrics directory for test isolation
     _MA_GLOBAL_METRICS_DIR="${TEST_TEMP_DIR}/global-metrics"

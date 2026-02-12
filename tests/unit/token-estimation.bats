@@ -30,7 +30,7 @@
 # - start_token_session (line 248-249)
 #
 # This bug is hidden in production code via `2>/dev/null || true` pattern in
-# lib/orchestrator-spawn.sh and lib/skill-dispatch.sh.
+# lib/skills/orchestrator-spawn.sh and lib/skills/skill-dispatch.sh.
 #
 # REMEDIATION: Functions should build context JSON using jq -nc before calling
 # log_token_event, or log_token_event should use --arg + fromjson instead of
@@ -56,7 +56,7 @@ setup() {
     export TOKEN_METRICS_PATH="$TEST_DIR/TOKEN_USAGE.jsonl"
 
     # Source the library (use absolute path from PROJECT_ROOT)
-    source "${PROJECT_ROOT}/lib/token-estimation.sh"
+    source "${PROJECT_ROOT}/lib/metrics/token-estimation.sh"
 }
 
 teardown() {

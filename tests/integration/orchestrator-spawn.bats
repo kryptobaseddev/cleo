@@ -38,7 +38,7 @@ setup() {
     touch "$RESEARCH_OUTPUT_DIR/MANIFEST.jsonl"
 
     # Source the library under test within test context
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 }
 
 teardown() {

@@ -26,84 +26,84 @@ COMMAND_NAME="validate"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source flags library for standardized flag parsing (LLM-Agent-First)
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Source sequence library for ID generation
-if [[ -f "$LIB_DIR/sequence.sh" ]]; then
-  # shellcheck source=../lib/sequence.sh
-  source "$LIB_DIR/sequence.sh"
+if [[ -f "$LIB_DIR/core/sequence.sh" ]]; then
+  # shellcheck source=../lib/core/sequence.sh
+  source "$LIB_DIR/core/sequence.sh"
 fi
 
 # Source validation library for circular dependency check
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-  # shellcheck source=../lib/validation.sh
-  source "$LIB_DIR/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+  # shellcheck source=../lib/validation/validation.sh
+  source "$LIB_DIR/validation/validation.sh"
 fi
 
 # Source backup library for creating safety backups
-if [[ -f "$LIB_DIR/backup.sh" ]]; then
-  # shellcheck source=../lib/backup.sh
-  source "$LIB_DIR/backup.sh"
+if [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+  # shellcheck source=../lib/data/backup.sh
+  source "$LIB_DIR/data/backup.sh"
 fi
 
 # Source file-ops library for atomic writes with locking
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-  # shellcheck source=../lib/file-ops.sh
-  source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+  # shellcheck source=../lib/data/file-ops.sh
+  source "$LIB_DIR/data/file-ops.sh"
 fi
 
 # Source output formatting library
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source injection libraries for agent documentation validation
-if [[ -f "$LIB_DIR/injection-config.sh" ]]; then
-  # shellcheck source=../lib/injection-config.sh
-  source "$LIB_DIR/injection-config.sh"
+if [[ -f "$LIB_DIR/ui/injection-config.sh" ]]; then
+  # shellcheck source=../lib/ui/injection-config.sh
+  source "$LIB_DIR/ui/injection-config.sh"
 fi
 
-if [[ -f "$LIB_DIR/injection.sh" ]]; then
-  # shellcheck source=../lib/injection.sh
-  source "$LIB_DIR/injection.sh"
+if [[ -f "$LIB_DIR/ui/injection.sh" ]]; then
+  # shellcheck source=../lib/ui/injection.sh
+  source "$LIB_DIR/ui/injection.sh"
 fi
 
 # Source config library for validation settings
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "$LIB_DIR/core/config.sh"
 fi
 
 # Source hierarchy library for orphan detection (T341)
-if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
-  # shellcheck source=../lib/hierarchy.sh
-  source "$LIB_DIR/hierarchy.sh"
+if [[ -f "$LIB_DIR/tasks/hierarchy.sh" ]]; then
+  # shellcheck source=../lib/tasks/hierarchy.sh
+  source "$LIB_DIR/tasks/hierarchy.sh"
 fi
 
 # Source research-manifest library for agent-outputs validation (T1947, T2370)
-if [[ -f "$LIB_DIR/research-manifest.sh" ]]; then
-  # shellcheck source=../lib/research-manifest.sh
-  source "$LIB_DIR/research-manifest.sh"
+if [[ -f "$LIB_DIR/skills/research-manifest.sh" ]]; then
+  # shellcheck source=../lib/skills/research-manifest.sh
+  source "$LIB_DIR/skills/research-manifest.sh"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
@@ -117,9 +117,9 @@ else
 fi
 
 # Source version library for app version
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  # shellcheck source=../lib/version.sh
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  # shellcheck source=../lib/core/version.sh
+  source "$LIB_DIR/core/version.sh"
 fi
 # VERSION from central location (compliant pattern)
 if [[ -f "$CLEO_HOME/VERSION" ]]; then
@@ -655,9 +655,9 @@ create_duplicate_fix_backups() {
 #######################################
 repair_sequence_after_fix() {
   # Source sequence library if not already loaded
-  if [[ -f "$LIB_DIR/sequence.sh" ]]; then
-    # shellcheck source=../lib/sequence.sh
-    source "$LIB_DIR/sequence.sh"
+  if [[ -f "$LIB_DIR/core/sequence.sh" ]]; then
+    # shellcheck source=../lib/core/sequence.sh
+    source "$LIB_DIR/core/sequence.sh"
   fi
 
   if declare -f recover_sequence >/dev/null 2>&1; then
@@ -676,7 +676,7 @@ check_deps() {
   fi
 }
 
-# Parse arguments using lib/flags.sh (LLM-Agent-First: JSON default)
+# Parse arguments using lib/ui/flags.sh (LLM-Agent-First: JSON default)
 # This handles common flags: --format, --json, --human, --quiet, --dry-run, --verbose, --help
 if declare -f init_flag_defaults >/dev/null 2>&1; then
   init_flag_defaults

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# delete-preview.bats - Unit tests for lib/delete-preview.sh
+# delete-preview.bats - Unit tests for lib/tasks/delete-preview.sh
 # =============================================================================
 # Tests for dry-run preview functions in the task deletion system.
 # Covers calculate_affected_tasks, calculate_impact, generate_warnings,
@@ -21,9 +21,9 @@ setup() {
     common_setup_per_test
 
     # Source required libraries for delete-preview
-    source "$PROJECT_ROOT/lib/exit-codes.sh"
-    source "$PROJECT_ROOT/lib/hierarchy.sh"
-    source "$PROJECT_ROOT/lib/delete-preview.sh"
+    source "$PROJECT_ROOT/lib/core/exit-codes.sh"
+    source "$PROJECT_ROOT/lib/tasks/hierarchy.sh"
+    source "$PROJECT_ROOT/lib/tasks/delete-preview.sh"
 }
 
 teardown() {

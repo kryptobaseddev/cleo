@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# token-inject.bats - Unit tests for lib/token-inject.sh
+# token-inject.bats - Unit tests for lib/skills/token-inject.sh
 # =============================================================================
 # Tests for:
 # - ti_set_defaults() - Set CLEO defaults for unset optional tokens
@@ -19,7 +19,7 @@ setup_file() {
     common_setup_file
 
     # Export paths
-    export TOKEN_INJECT_LIB="${LIB_DIR}/token-inject.sh"
+    export TOKEN_INJECT_LIB="${LIB_DIR}/skills/token-inject.sh"
 }
 
 setup() {

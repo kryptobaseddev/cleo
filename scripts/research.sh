@@ -40,12 +40,12 @@ fi
 VERSION="$(cat "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.0.0")"
 
 # Source libraries
-source "$LIB_DIR/logging.sh" 2>/dev/null || true
-source "$LIB_DIR/output-format.sh" 2>/dev/null || true
-source "$LIB_DIR/exit-codes.sh" 2>/dev/null || true
-source "$LIB_DIR/flags.sh" 2>/dev/null || true
-source "$LIB_DIR/config.sh" 2>/dev/null || true
-source "$LIB_DIR/research-manifest.sh" 2>/dev/null || true
+source "$LIB_DIR/core/logging.sh" 2>/dev/null || true
+source "$LIB_DIR/core/output-format.sh" 2>/dev/null || true
+source "$LIB_DIR/core/exit-codes.sh" 2>/dev/null || true
+source "$LIB_DIR/ui/flags.sh" 2>/dev/null || true
+source "$LIB_DIR/core/config.sh" 2>/dev/null || true
+source "$LIB_DIR/skills/research-manifest.sh" 2>/dev/null || true
 
 # Command metadata
 COMMAND_NAME="research"
@@ -2971,7 +2971,7 @@ run_validate() {
     fi
 
     # Source protocol validation library
-    source "$LIB_DIR/protocol-validation.sh" 2>/dev/null || {
+    source "$LIB_DIR/validation/protocol-validation.sh" 2>/dev/null || {
       echo '{"success": false, "error": {"message": "Failed to load protocol-validation.sh"}}' >&2
       exit 1
     }

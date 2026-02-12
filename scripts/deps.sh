@@ -60,30 +60,30 @@ else
   VERSION="unknown"
 fi
 
-# shellcheck source=../lib/file-ops.sh
-source "${LIB_DIR}/file-ops.sh"
+# shellcheck source=../lib/data/file-ops.sh
+source "${LIB_DIR}/data/file-ops.sh"
 
-# shellcheck source=../lib/output-format.sh
-source "${LIB_DIR}/output-format.sh"
+# shellcheck source=../lib/core/output-format.sh
+source "${LIB_DIR}/core/output-format.sh"
 
-# shellcheck source=../lib/logging.sh
-source "${LIB_DIR}/logging.sh"
+# shellcheck source=../lib/core/logging.sh
+source "${LIB_DIR}/core/logging.sh"
 
 # Source exit codes and error-json libraries if available
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  source "$LIB_DIR/core/error-json.sh"
 fi
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Source graph-cache for O(1) dependency lookups (90x performance improvement)
-# shellcheck source=../lib/graph-cache.sh
-if [[ -f "$LIB_DIR/graph-cache.sh" ]]; then
-  source "$LIB_DIR/graph-cache.sh"
+# shellcheck source=../lib/tasks/graph-cache.sh
+if [[ -f "$LIB_DIR/tasks/graph-cache.sh" ]]; then
+  source "$LIB_DIR/tasks/graph-cache.sh"
 fi
 
 # Default configuration
@@ -785,7 +785,7 @@ output_critical_path() {
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
     # Source graph-ops library
-    source "${LIB_DIR}/graph-ops.sh"
+    source "${LIB_DIR}/tasks/graph-ops.sh"
     
     local result
     result=$(find_critical_path "$task_id" "$TODO_FILE")
@@ -851,7 +851,7 @@ output_impact() {
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
     # Source graph-ops library
-    source "${LIB_DIR}/graph-ops.sh"
+    source "${LIB_DIR}/tasks/graph-ops.sh"
     
     local result
     result=$(calculate_impact_radius "$task_id" "$depth" "$TODO_FILE")
@@ -923,7 +923,7 @@ output_waves() {
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
     # Source graph-ops library
-    source "${LIB_DIR}/graph-ops.sh"
+    source "${LIB_DIR}/tasks/graph-ops.sh"
     
     local result
     result=$(calculate_dependency_waves "$root_id" "$TODO_FILE")
@@ -1003,7 +1003,7 @@ output_cycles() {
     current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
     # Source graph-ops library
-    source "${LIB_DIR}/graph-ops.sh"
+    source "${LIB_DIR}/tasks/graph-ops.sh"
     
     local result
     result=$(detect_dependency_cycles "$TODO_FILE")

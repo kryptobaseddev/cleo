@@ -428,8 +428,8 @@ teardown_file() {
 
 @test "init/upgrade: injection library exists" {
     # Check for injection-related library
-    [[ -f "${PROJECT_ROOT}/lib/injection-registry.sh" ]] || \
-    [[ -f "${PROJECT_ROOT}/lib/injection.sh" ]]
+    [[ -f "${PROJECT_ROOT}/lib/ui/injection-registry.sh" ]] || \
+    [[ -f "${PROJECT_ROOT}/lib/ui/injection.sh" ]]
 }
 
 @test "init/upgrade: AGENT-INJECTION.md template accessible" {

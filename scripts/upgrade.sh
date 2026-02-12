@@ -35,17 +35,17 @@ LIB_DIR="${UPG_SCRIPT_DIR}/../lib"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source required libraries (note: some may redefine SCRIPT_DIR)
-source "$LIB_DIR/config.sh"
-source "$LIB_DIR/output-format.sh" 2>/dev/null || true
-source "$LIB_DIR/migrate.sh" 2>/dev/null || true
-source "$LIB_DIR/validation.sh" 2>/dev/null || true
-source "$LIB_DIR/injection.sh" 2>/dev/null || true
-source "$LIB_DIR/agent-registry.sh" 2>/dev/null || true
-source "$LIB_DIR/project-registry.sh" 2>/dev/null || true
-source "$LIB_DIR/skills-version.sh" 2>/dev/null || true
+source "$LIB_DIR/core/config.sh"
+source "$LIB_DIR/core/output-format.sh" 2>/dev/null || true
+source "$LIB_DIR/data/migrate.sh" 2>/dev/null || true
+source "$LIB_DIR/validation/validation.sh" 2>/dev/null || true
+source "$LIB_DIR/ui/injection.sh" 2>/dev/null || true
+source "$LIB_DIR/skills/agent-registry.sh" 2>/dev/null || true
+source "$LIB_DIR/data/project-registry.sh" 2>/dev/null || true
+source "$LIB_DIR/skills/skills-version.sh" 2>/dev/null || true
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # is_json_output - Check if output should be JSON
 # Uses FORMAT variable set by argument parsing
@@ -177,7 +177,7 @@ UPG_CONFIG_FILE="./.cleo/config.json"
 UPG_ARCHIVE_FILE="./.cleo/todo-archive.json"
 UPG_LOG_FILE="./.cleo/todo-log.json"
 # Multi-agent documentation files (managed by injection system)
-# Deprecated: UPG_CLAUDE_MD - now handled by lib/injection.sh registry
+# Deprecated: UPG_CLAUDE_MD - now handled by lib/ui/injection.sh registry
 
 if [[ ! -f "$UPG_TODO_FILE" ]]; then
     output_error "E_NOT_PROJECT" "Not a cleo project" 3 \
@@ -819,8 +819,8 @@ if [[ ! -f "$SEQUENCE_FILE" ]]; then
     fi
 
     # Source sequence library if available
-    if [[ -f "$LIB_DIR/sequence.sh" ]]; then
-        source "$LIB_DIR/sequence.sh"
+    if [[ -f "$LIB_DIR/core/sequence.sh" ]]; then
+        source "$LIB_DIR/core/sequence.sh"
 
         # recover_sequence scans todo + archive and creates .sequence
         if recover_sequence 2>/dev/null; then
@@ -1091,8 +1091,8 @@ fi
 # ============================================================================
 # STATUSLINE INTEGRATION CHECK
 # ============================================================================
-if [[ -f "$LIB_DIR/statusline-setup.sh" ]]; then
-    source "$LIB_DIR/statusline-setup.sh"
+if [[ -f "$LIB_DIR/session/statusline-setup.sh" ]]; then
+    source "$LIB_DIR/session/statusline-setup.sh"
 
     if ! is_json_output; then
         echo "Checking statusline integration..."

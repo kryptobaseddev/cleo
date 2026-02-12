@@ -34,44 +34,44 @@ CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source output-format library for Unicode detection
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source config library for display settings
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "$LIB_DIR/core/config.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Source JSON output library for pagination support
 # @task T1446
-if [[ -f "$LIB_DIR/json-output.sh" ]]; then
-  # shellcheck source=../lib/json-output.sh
-  source "$LIB_DIR/json-output.sh"
+if [[ -f "$LIB_DIR/core/json-output.sh" ]]; then
+  # shellcheck source=../lib/core/json-output.sh
+  source "$LIB_DIR/core/json-output.sh"
 fi
 
 # Detect Unicode support (respects NO_COLOR, LANG=C, config)

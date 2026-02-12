@@ -248,12 +248,12 @@ EOF
 # ============================================================================
 
 @test "EXIT_NO_CHANGE constant is defined as 102" {
-    source "${LIB_DIR}/exit-codes.sh"
+    source "${LIB_DIR}/core/exit-codes.sh"
     [ "$EXIT_NO_CHANGE" -eq 102 ]
 }
 
 @test "EXIT_NO_CHANGE is not classified as error" {
-    source "${LIB_DIR}/exit-codes.sh"
+    source "${LIB_DIR}/core/exit-codes.sh"
 
     # If is_error_code function exists, verify 102 is not an error
     if declare -f is_error_code >/dev/null 2>&1; then

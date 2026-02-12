@@ -6,10 +6,10 @@
 # handlers, provenance tracking. Uses mock projects for safe testing.
 #
 # Components tested:
-# - T2669: lib/release-config.sh - Configuration loading and validation
-# - T2670: lib/release-ci.sh - CI template generation
-# - T2671: lib/release-artifacts.sh - Pluggable artifact handlers
-# - T2672: lib/release-provenance.sh - Provenance tracking
+# - T2669: lib/release/release-config.sh - Configuration loading and validation
+# - T2670: lib/release/release-ci.sh - CI template generation
+# - T2671: lib/release/release-artifacts.sh - Pluggable artifact handlers
+# - T2672: lib/release/release-provenance.sh - Provenance tracking
 # - T2845: cleo release ship - Unified ship command
 #
 # Task: T2674
@@ -42,12 +42,12 @@ setup() {
     export CHANGELOG_FILE="$TEST_DIR/CHANGELOG.md"
 
     # Source libraries for direct testing
-    source "$PROJECT_ROOT/lib/exit-codes.sh"
-    source "$PROJECT_ROOT/lib/file-ops.sh"
-    source "$PROJECT_ROOT/lib/config.sh"
-    source "$PROJECT_ROOT/lib/release-config.sh"
-    source "$PROJECT_ROOT/lib/release-artifacts.sh"
-    source "$PROJECT_ROOT/lib/release-provenance.sh"
+    source "$PROJECT_ROOT/lib/core/exit-codes.sh"
+    source "$PROJECT_ROOT/lib/data/file-ops.sh"
+    source "$PROJECT_ROOT/lib/core/config.sh"
+    source "$PROJECT_ROOT/lib/release/release-config.sh"
+    source "$PROJECT_ROOT/lib/release/release-artifacts.sh"
+    source "$PROJECT_ROOT/lib/release/release-provenance.sh"
 
     # Create minimal todo.json
     cat > "$TODO_FILE" << 'EOF'

@@ -25,10 +25,10 @@ setup() {
     export CLEO_LIB_DIR="${PROJECT_ROOT}/lib"
 
     # Source injection libraries
-    source "${PROJECT_ROOT}/lib/injection-registry.sh"
-    source "${PROJECT_ROOT}/lib/injection-config.sh"
-    source "${PROJECT_ROOT}/lib/injection.sh"
-    source "${PROJECT_ROOT}/lib/agent-registry.sh"
+    source "${PROJECT_ROOT}/lib/ui/injection-registry.sh"
+    source "${PROJECT_ROOT}/lib/ui/injection-config.sh"
+    source "${PROJECT_ROOT}/lib/ui/injection.sh"
+    source "${PROJECT_ROOT}/lib/skills/agent-registry.sh"
 
     # Create test project structure
     mkdir -p "$TEST_TEMP_DIR/.cleo/templates"

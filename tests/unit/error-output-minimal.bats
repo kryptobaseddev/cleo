@@ -37,19 +37,19 @@ teardown_file() {
 # =============================================================================
 
 @test "minimize_error_context function exists" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     run type minimize_error_context
     [ "$status" -eq 0 ]
 }
 
 @test "is_verbose_mode function exists" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     run type is_verbose_mode
     [ "$status" -eq 0 ]
 }
 
 @test "minimize_error_context handles null input" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
 
     result=$(minimize_error_context "null")
     [ "$result" = "null" ]
@@ -59,7 +59,7 @@ teardown_file() {
 }
 
 @test "minimize_error_context creates smart session summaries" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
 
     # Full session object with verbose fields
     input='{"activeSessions":2,"sessions":[{"id":"sess1","name":"Auth-Work","scope":{"type":"epic","rootTaskId":"T001"},"focus":{"currentTask":"T005"},"stats":{"tasksCompleted":3},"startMetrics":{"tokens":1000}},{"id":"sess2","name":"UI-Fix","scope":{"type":"task","rootTaskId":"T050"},"focus":{"currentTask":"T050"},"stats":{"tasksCompleted":0}}],"name":"test"}'
@@ -94,7 +94,7 @@ teardown_file() {
 }
 
 @test "minimize_error_context adds verbose hint" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
 
     input='{"count":1}'
     result=$(minimize_error_context "$input")
@@ -105,7 +105,7 @@ teardown_file() {
 }
 
 @test "is_verbose_mode returns false when not set" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     unset CLEO_VERBOSE
     unset VERBOSE
 
@@ -114,7 +114,7 @@ teardown_file() {
 }
 
 @test "is_verbose_mode returns true when CLEO_VERBOSE=1" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     export CLEO_VERBOSE=1
 
     run is_verbose_mode
@@ -124,7 +124,7 @@ teardown_file() {
 }
 
 @test "is_verbose_mode returns true when CLEO_VERBOSE=true" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     export CLEO_VERBOSE=true
 
     run is_verbose_mode
@@ -138,7 +138,7 @@ teardown_file() {
 # =============================================================================
 
 @test "output_error_actionable uses minimal context by default" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     unset CLEO_VERBOSE
     export FORMAT=json
     export COMMAND_NAME="test"
@@ -175,7 +175,7 @@ teardown_file() {
 }
 
 @test "output_error_actionable includes full context when CLEO_VERBOSE=1" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     export CLEO_VERBOSE=1
     export FORMAT=json
     export COMMAND_NAME="test"
@@ -211,7 +211,7 @@ teardown_file() {
 # =============================================================================
 
 @test "Minimal output still includes fix command" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     unset CLEO_VERBOSE
     export FORMAT=json
     export COMMAND_NAME="test"
@@ -233,7 +233,7 @@ teardown_file() {
 }
 
 @test "Minimal output still includes error code" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     unset CLEO_VERBOSE
     export FORMAT=json
     export COMMAND_NAME="test"
@@ -256,7 +256,7 @@ teardown_file() {
 }
 
 @test "Minimal output still includes alternatives" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     unset CLEO_VERBOSE
     export FORMAT=json
     export COMMAND_NAME="test"
@@ -278,7 +278,7 @@ teardown_file() {
 }
 
 @test "Error output preserves success=false" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     export FORMAT=json
     export COMMAND_NAME="test"
 
@@ -293,7 +293,7 @@ teardown_file() {
 # =============================================================================
 
 @test "Empty context handled correctly" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
     export FORMAT=json
     export COMMAND_NAME="test"
 
@@ -304,7 +304,7 @@ teardown_file() {
 }
 
 @test "Nested objects get keyCount" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
 
     input='{"config":{"a":1,"b":2,"c":3}}'
     result=$(minimize_error_context "$input")
@@ -314,7 +314,7 @@ teardown_file() {
 }
 
 @test "minimize_error_context creates smart epic summaries" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
 
     # Full epic object with verbose fields
     input='{"epics":[{"id":"T001","title":"EPIC: Authentication System Implementation","status":"pending","priority":"critical","childCount":15,"pendingCount":10,"notes":["long note 1","long note 2"]}]}'
@@ -342,7 +342,7 @@ teardown_file() {
 }
 
 @test "Progressive disclosure: smart summary enables agent decision-making" {
-    source "$LIB_DIR/error-json.sh"
+    source "$LIB_DIR/core/error-json.sh"
 
     # Simulate real E_SESSION_DISCOVERY_MODE context
     input='{"activeSessions":3,"availableEpics":5,"sessions":[{"id":"sess1","name":"Auth-Epic","scope":{"type":"epic","rootTaskId":"T100"},"focus":{"currentTask":"T105"},"stats":{"completed":2}},{"id":"sess2","name":"UI-Work","scope":{"type":"epic","rootTaskId":"T200"},"focus":{"currentTask":"T210"},"stats":{"completed":0}}],"epics":[{"id":"T100","title":"Authentication Epic","status":"pending","pendingCount":5},{"id":"T200","title":"UI Refactor Epic","status":"pending","pendingCount":3}]}'

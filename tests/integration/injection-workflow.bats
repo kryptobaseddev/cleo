@@ -510,7 +510,7 @@ EOF
 
 @test "injection targets are consistent across commands" {
     # Source injection registry
-    source "${PROJECT_ROOT}/lib/injection-registry.sh"
+    source "${PROJECT_ROOT}/lib/ui/injection-registry.sh"
 
     # Verify INJECTION_TARGETS matches expected files
     [[ "$INJECTION_TARGETS" == *"CLAUDE.md"* ]]

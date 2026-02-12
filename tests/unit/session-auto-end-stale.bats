@@ -3,7 +3,7 @@
 # session-auto-end-stale.bats - Unit tests for session_auto_end_stale()
 # =============================================================================
 # Tests the automatic ending of stale active sessions based on retention config.
-# Function: lib/sessions.sh::session_auto_end_stale()
+# Function: lib/session/sessions.sh::session_auto_end_stale()
 # Task: T2338
 # =============================================================================
 
@@ -19,7 +19,7 @@ setup() {
     common_setup_per_test
 
     # Source the sessions library for direct function access
-    source "$LIB_DIR/sessions.sh"
+    source "$LIB_DIR/session/sessions.sh"
 
     # Create sessions.json file location
     SESSIONS_FILE="${TEST_TEMP_DIR}/.cleo/sessions.json"

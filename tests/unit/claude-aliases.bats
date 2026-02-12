@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# claude-aliases.bats - Unit tests for lib/claude-aliases.sh
+# claude-aliases.bats - Unit tests for lib/ui/claude-aliases.sh
 # =============================================================================
 # Tests the Claude Code CLI alias library functions:
 #   - Shell detection and RC file path resolution
@@ -28,9 +28,9 @@ setup() {
     mkdir -p "$TEST_DIR"
 
     # Source the library (with dependencies)
-    source "$LIB_DIR/platform-compat.sh"
-    source "$LIB_DIR/exit-codes.sh"
-    source "$LIB_DIR/claude-aliases.sh"
+    source "$LIB_DIR/core/platform-compat.sh"
+    source "$LIB_DIR/core/exit-codes.sh"
+    source "$LIB_DIR/ui/claude-aliases.sh"
 }
 
 teardown() {

@@ -18,12 +18,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source libraries
-source "$LIB_DIR/exit-codes.sh"
-[[ -f "$LIB_DIR/output-format.sh" ]] && source "$LIB_DIR/output-format.sh"
-[[ -f "$LIB_DIR/error-json.sh" ]] && source "$LIB_DIR/error-json.sh"
+source "$LIB_DIR/core/exit-codes.sh"
+[[ -f "$LIB_DIR/core/output-format.sh" ]] && source "$LIB_DIR/core/output-format.sh"
+[[ -f "$LIB_DIR/core/error-json.sh" ]] && source "$LIB_DIR/core/error-json.sh"
 
 # Source centralized flag parsing
-[[ -f "$LIB_DIR/flags.sh" ]] && source "$LIB_DIR/flags.sh"
+[[ -f "$LIB_DIR/ui/flags.sh" ]] && source "$LIB_DIR/ui/flags.sh"
 
 TODO_DIR="${TODO_DIR:-.cleo}"
 COMMAND_NAME="context"
@@ -53,7 +53,7 @@ get_state_file() {
 
 STATE_FILE=""  # Set dynamically based on session
 
-# Exit codes are defined in lib/exit-codes.sh:
+# Exit codes are defined in lib/core/exit-codes.sh:
 # EXIT_CONTEXT_OK (0), EXIT_CONTEXT_WARNING (50), EXIT_CONTEXT_CAUTION (51),
 # EXIT_CONTEXT_CRITICAL (52), EXIT_CONTEXT_EMERGENCY (53), EXIT_CONTEXT_STALE (54)
 

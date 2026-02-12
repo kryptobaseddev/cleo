@@ -2,7 +2,7 @@
 # =============================================================================
 # verification.bats - Verification gates system unit tests
 # =============================================================================
-# Tests for lib/verification.sh:
+# Tests for lib/validation/verification.sh:
 # - Gate validation (validate_gate_name, validate_agent_name)
 # - Gate ordering (get_gate_order, get_gate_index, get_downstream_gates)
 # - Verification object management (init_verification, update_gate)
@@ -20,7 +20,7 @@ setup_file() {
     common_setup_file
 
     # Export library path
-    export VERIFICATION_LIB="${LIB_DIR}/verification.sh"
+    export VERIFICATION_LIB="${LIB_DIR}/validation/verification.sh"
 }
 
 setup() {

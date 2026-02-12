@@ -30,7 +30,7 @@ setup() {
     export ORCH_FIXTURES="${FIXTURES_DIR}/orchestrator"
 
     # Source libraries for orchestrator functions
-    source "${LIB_DIR}/orchestrator-startup.sh"
+    source "${LIB_DIR}/skills/orchestrator-startup.sh"
 }
 
 teardown() {

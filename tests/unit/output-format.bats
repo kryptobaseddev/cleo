@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# output-format.bats - Unit tests for lib/output-format.sh
+# output-format.bats - Unit tests for lib/core/output-format.sh
 # =============================================================================
 # Tests output formatting utilities including:
 # - Color and Unicode feature detection
@@ -27,7 +27,7 @@ setup() {
     common_setup_per_test
 
     # Source the library under test
-    source "$PROJECT_ROOT/lib/output-format.sh"
+    source "$PROJECT_ROOT/lib/core/output-format.sh"
 
     # Save original environment
     export SAVED_NO_COLOR="${NO_COLOR:-}"

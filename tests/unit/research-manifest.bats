@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# research-manifest.bats - Unit tests for lib/research-manifest.sh
+# research-manifest.bats - Unit tests for lib/skills/research-manifest.sh
 # =============================================================================
 # Tests MANIFEST.jsonl CRUD operations for research outputs.
 #
@@ -29,7 +29,7 @@ setup() {
     common_setup_per_test
 
     # Source the library under test
-    source "${LIB_DIR}/research-manifest.sh"
+    source "${LIB_DIR}/skills/research-manifest.sh"
 
     # Create agent output directory (new default path, replacing research-outputs)
     export RESEARCH_OUTPUT_DIR="${TEST_TEMP_DIR}/claudedocs/agent-outputs"

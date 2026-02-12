@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Unit tests for lib/skills-install.sh
+# Unit tests for lib/skills/skills-install.sh
 # Tests skill discovery, installation, and uninstallation functions
 
 load '../libs/bats-support/load'
@@ -59,10 +59,10 @@ EOF
 
     # Copy the skills-install.sh to test location
     # BATS_TEST_DIRNAME is tests/unit, so we need to go up twice to repo root
-    cp "$BATS_TEST_DIRNAME/../../lib/skills-install.sh" "$CLEO_REPO_ROOT/lib/"
+    cp "$BATS_TEST_DIRNAME/../../lib/skills/skills-install.sh" "$CLEO_REPO_ROOT/lib/"
 
     # Source the library
-    source "$CLEO_REPO_ROOT/lib/skills-install.sh"
+    source "$CLEO_REPO_ROOT/lib/skills/skills-install.sh"
 }
 
 teardown() {

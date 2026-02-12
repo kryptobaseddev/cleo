@@ -17,115 +17,115 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source paths.sh for path resolution functions
-if [[ -f "$CLEO_HOME/lib/paths.sh" ]]; then
-    source "$CLEO_HOME/lib/paths.sh"
-elif [[ -f "$SCRIPT_DIR/../lib/paths.sh" ]]; then
-    source "$SCRIPT_DIR/../lib/paths.sh"
+if [[ -f "$CLEO_HOME/lib/core/paths.sh" ]]; then
+    source "$CLEO_HOME/lib/core/paths.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/core/paths.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/core/paths.sh"
 fi
 
 # Source version - use central VERSION file
 VERSION=$(head -n 1 "$CLEO_HOME/VERSION" 2>/dev/null | tr -d '[:space:]' || head -n 1 "$SCRIPT_DIR/../VERSION" 2>/dev/null | tr -d '[:space:]' || echo "0.36.0")
 
 # Source version library for proper version management
-if [[ -f "$CLEO_HOME/lib/version.sh" ]]; then
-  source "$CLEO_HOME/lib/version.sh"
-elif [[ -f "$SCRIPT_DIR/../lib/version.sh" ]]; then
-  source "$SCRIPT_DIR/../lib/version.sh"
+if [[ -f "$CLEO_HOME/lib/core/version.sh" ]]; then
+  source "$CLEO_HOME/lib/core/version.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/core/version.sh" ]]; then
+  source "$SCRIPT_DIR/../lib/core/version.sh"
 fi
 
 # Source libraries
-[[ -f "$CLEO_HOME/lib/logging.sh" ]] && source "$CLEO_HOME/lib/logging.sh"
-[[ -f "$CLEO_HOME/lib/file-ops.sh" ]] && source "$CLEO_HOME/lib/file-ops.sh"
+[[ -f "$CLEO_HOME/lib/core/logging.sh" ]] && source "$CLEO_HOME/lib/core/logging.sh"
+[[ -f "$CLEO_HOME/lib/data/file-ops.sh" ]] && source "$CLEO_HOME/lib/data/file-ops.sh"
 
 # Also try local lib directory if home installation not found
 LIB_DIR="${SCRIPT_DIR}/../lib"
-[[ ! -f "$CLEO_HOME/lib/file-ops.sh" && -f "$LIB_DIR/file-ops.sh" ]] && source "$LIB_DIR/file-ops.sh"
+[[ ! -f "$CLEO_HOME/lib/data/file-ops.sh" && -f "$LIB_DIR/data/file-ops.sh" ]] && source "$LIB_DIR/data/file-ops.sh"
 
 # Source output-format library for format resolution
-if [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
-  source "$CLEO_HOME/lib/output-format.sh"
-elif [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$CLEO_HOME/lib/core/output-format.sh" ]]; then
+  source "$CLEO_HOME/lib/core/output-format.sh"
+elif [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source exit codes and error-json libraries
-if [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
-  source "$CLEO_HOME/lib/exit-codes.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$CLEO_HOME/lib/core/exit-codes.sh" ]]; then
+  source "$CLEO_HOME/lib/core/exit-codes.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$CLEO_HOME/lib/error-json.sh" ]]; then
-  source "$CLEO_HOME/lib/error-json.sh"
-elif [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$CLEO_HOME/lib/core/error-json.sh" ]]; then
+  source "$CLEO_HOME/lib/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source config library for session settings
-if [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
-  source "$CLEO_HOME/lib/config.sh"
-elif [[ -f "$LIB_DIR/config.sh" ]]; then
-  source "$LIB_DIR/config.sh"
+if [[ -f "$CLEO_HOME/lib/core/config.sh" ]]; then
+  source "$CLEO_HOME/lib/core/config.sh"
+elif [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  source "$LIB_DIR/core/config.sh"
 fi
 
 # Source phase tracking library for phase capture (v2.2.0)
-if [[ -f "$CLEO_HOME/lib/phase-tracking.sh" ]]; then
-  source "$CLEO_HOME/lib/phase-tracking.sh"
-elif [[ -f "$LIB_DIR/phase-tracking.sh" ]]; then
-  source "$LIB_DIR/phase-tracking.sh"
+if [[ -f "$CLEO_HOME/lib/tasks/phase-tracking.sh" ]]; then
+  source "$CLEO_HOME/lib/tasks/phase-tracking.sh"
+elif [[ -f "$LIB_DIR/tasks/phase-tracking.sh" ]]; then
+  source "$LIB_DIR/tasks/phase-tracking.sh"
 fi
 
 # Source backup library for scheduled backup support (T632)
-if [[ -f "$CLEO_HOME/lib/backup.sh" ]]; then
-  source "$CLEO_HOME/lib/backup.sh"
-elif [[ -f "$LIB_DIR/backup.sh" ]]; then
-  source "$LIB_DIR/backup.sh"
+if [[ -f "$CLEO_HOME/lib/data/backup.sh" ]]; then
+  source "$CLEO_HOME/lib/data/backup.sh"
+elif [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+  source "$LIB_DIR/data/backup.sh"
 fi
 
 # Source validation library for input validation (Part 5.3 compliance)
-if [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
-  source "$CLEO_HOME/lib/validation.sh"
-elif [[ -f "$LIB_DIR/validation.sh" ]]; then
-  source "$LIB_DIR/validation.sh"
+if [[ -f "$CLEO_HOME/lib/validation/validation.sh" ]]; then
+  source "$CLEO_HOME/lib/validation/validation.sh"
+elif [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+  source "$LIB_DIR/validation/validation.sh"
 fi
 
 # Source sessions library for multi-session support (v0.38.0+)
-if [[ -f "$CLEO_HOME/lib/sessions.sh" ]]; then
-  source "$CLEO_HOME/lib/sessions.sh"
-elif [[ -f "$LIB_DIR/sessions.sh" ]]; then
-  source "$LIB_DIR/sessions.sh"
+if [[ -f "$CLEO_HOME/lib/session/sessions.sh" ]]; then
+  source "$CLEO_HOME/lib/session/sessions.sh"
+elif [[ -f "$LIB_DIR/session/sessions.sh" ]]; then
+  source "$LIB_DIR/session/sessions.sh"
 fi
 
 # Source session migration library for automatic migration (v0.39.3+)
-if [[ -f "$CLEO_HOME/lib/session-migration.sh" ]]; then
-  source "$CLEO_HOME/lib/session-migration.sh"
-elif [[ -f "$LIB_DIR/session-migration.sh" ]]; then
-  source "$LIB_DIR/session-migration.sh"
+if [[ -f "$CLEO_HOME/lib/session/session-migration.sh" ]]; then
+  source "$CLEO_HOME/lib/session/session-migration.sh"
+elif [[ -f "$LIB_DIR/session/session-migration.sh" ]]; then
+  source "$LIB_DIR/session/session-migration.sh"
 fi
 
 # Source context alert library for context monitoring (T1323)
-if [[ -f "$CLEO_HOME/lib/context-alert.sh" ]]; then
-  source "$CLEO_HOME/lib/context-alert.sh"
-elif [[ -f "$LIB_DIR/context-alert.sh" ]]; then
-  source "$LIB_DIR/context-alert.sh"
+if [[ -f "$CLEO_HOME/lib/session/context-alert.sh" ]]; then
+  source "$CLEO_HOME/lib/session/context-alert.sh"
+elif [[ -f "$LIB_DIR/session/context-alert.sh" ]]; then
+  source "$LIB_DIR/session/context-alert.sh"
 fi
 
 # Source flags library for standardized flag parsing
-if [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
-  source "$CLEO_HOME/lib/flags.sh"
-elif [[ -f "$LIB_DIR/flags.sh" ]]; then
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$CLEO_HOME/lib/ui/flags.sh" ]]; then
+  source "$CLEO_HOME/lib/ui/flags.sh"
+elif [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Source json-output library for pagination support (T1436)
-if [[ -f "$CLEO_HOME/lib/json-output.sh" ]]; then
-  source "$CLEO_HOME/lib/json-output.sh"
-elif [[ -f "$LIB_DIR/json-output.sh" ]]; then
-  source "$LIB_DIR/json-output.sh"
+if [[ -f "$CLEO_HOME/lib/core/json-output.sh" ]]; then
+  source "$CLEO_HOME/lib/core/json-output.sh"
+elif [[ -f "$LIB_DIR/core/json-output.sh" ]]; then
+  source "$LIB_DIR/core/json-output.sh"
 fi
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
-# Note: LOG_FILE is set by lib/logging.sh (readonly) - don't reassign here
+# Note: LOG_FILE is set by lib/core/logging.sh (readonly) - don't reassign here
 # If library wasn't sourced, set a fallback
 if [[ -z "${LOG_FILE:-}" ]]; then
   LOG_FILE=".cleo/todo-log.json"
@@ -1000,7 +1000,7 @@ cmd_end() {
     exit "$EXIT_SUCCESS"
   fi
 
-  # Multi-session mode: use end_session() from lib/sessions.sh
+  # Multi-session mode: use end_session() from lib/session/sessions.sh
   if is_multi_session_enabled && declare -f end_session >/dev/null 2>&1; then
     if ! end_session "$current_session" "$note"; then
       local end_exit=$?
@@ -1321,7 +1321,7 @@ cmd_info() {
   fi
 }
 
-# Parse global options before command using lib/flags.sh
+# Parse global options before command using lib/ui/flags.sh
 # Initialize and parse common flags (--format, --json, --human, --quiet, --dry-run, --help)
 init_flag_defaults
 parse_flags_strict "$@"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# validation.bats - Unit tests for validate.sh and lib/validation.sh
+# validation.bats - Unit tests for validate.sh and lib/validation/validation.sh
 # =============================================================================
 # Tests schema validation and anti-hallucination checks.
 # =============================================================================
@@ -38,7 +38,7 @@ teardown_file() {
 }
 
 @test "validation library exists" {
-    [ -f "$PROJECT_ROOT/lib/validation.sh" ]
+    [ -f "$PROJECT_ROOT/lib/validation/validation.sh" ]
 }
 
 # =============================================================================

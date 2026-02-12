@@ -62,7 +62,7 @@ setup() {
 
 @test "Layer 0: exit-codes.sh sources in complete isolation" {
     run bash -c "
-        source '${LIB_DIR}/exit-codes.sh'
+        source '${LIB_DIR}/core/exit-codes.sh'
         echo \"guard=\${_EXIT_CODES_SH_LOADED:-unset}\"
         echo \"EXIT_SUCCESS=\${EXIT_SUCCESS:-unset}\"
     "
@@ -73,7 +73,7 @@ setup() {
 
 @test "Layer 0: platform-compat.sh sources in complete isolation" {
     run bash -c "
-        source '${LIB_DIR}/platform-compat.sh'
+        source '${LIB_DIR}/core/platform-compat.sh'
         echo \"guard=\${_PLATFORM_COMPAT_LOADED:-unset}\"
         echo \"PLATFORM=\${PLATFORM:-unset}\"
     "
@@ -85,7 +85,7 @@ setup() {
 
 @test "Layer 0: version.sh sources in complete isolation" {
     run bash -c "
-        source '${LIB_DIR}/version.sh'
+        source '${LIB_DIR}/core/version.sh'
         echo \"guard=\${_VERSION_LOADED:-unset}\"
         # Version should be set (may be 'unknown' if VERSION file not found)
         echo \"version_defined=yes\"
@@ -102,7 +102,7 @@ setup() {
 
 @test "Layer 1: config.sh sources with Layer 0 deps" {
     run bash -c "
-        source '${LIB_DIR}/config.sh'
+        source '${LIB_DIR}/core/config.sh'
         echo \"guard=\${_CONFIG_SH_LOADED:-unset}\"
         # Verify get_config_value function is defined
         if declare -f get_config_value > /dev/null 2>&1; then
@@ -118,7 +118,7 @@ setup() {
 
 @test "Layer 1: output-format.sh sources in isolation (no Layer 0 deps)" {
     run bash -c "
-        source '${LIB_DIR}/output-format.sh'
+        source '${LIB_DIR}/core/output-format.sh'
         echo \"guard=\${_OUTPUT_FORMAT_LOADED:-unset}\"
         # Verify key functions are defined (load_output_config is the main entry point)
         if declare -f load_output_config > /dev/null 2>&1; then
@@ -134,7 +134,7 @@ setup() {
 
 @test "Layer 1: error-json.sh sources with Layer 0 deps" {
     run bash -c "
-        source '${LIB_DIR}/error-json.sh'
+        source '${LIB_DIR}/core/error-json.sh'
         echo \"guard=\${_ERROR_JSON_SH_LOADED:-unset}\"
         # Verify output_error function is defined
         if declare -f output_error > /dev/null 2>&1; then
@@ -150,7 +150,7 @@ setup() {
 
 @test "Layer 1: atomic-write.sh sources with Layer 0 deps" {
     run bash -c "
-        source '${LIB_DIR}/atomic-write.sh'
+        source '${LIB_DIR}/data/atomic-write.sh'
         echo \"guard=\${_ATOMIC_WRITE_LOADED:-unset}\"
         # Verify aw_atomic_write function is defined
         if declare -f aw_atomic_write > /dev/null 2>&1; then
@@ -166,7 +166,7 @@ setup() {
 
 @test "Layer 1: dependency-check.sh sources with optional Layer 0 deps" {
     run bash -c "
-        source '${LIB_DIR}/dependency-check.sh'
+        source '${LIB_DIR}/tasks/dependency-check.sh'
         echo \"guard=\${_DEPENDENCY_CHECK_LOADED:-unset}\"
         # Verify check_jq function is defined (main entry point for dependency checking)
         if declare -f check_jq > /dev/null 2>&1; then
@@ -182,7 +182,7 @@ setup() {
 
 @test "Layer 1: jq-helpers.sh sources in isolation (no deps)" {
     run bash -c "
-        source '${LIB_DIR}/jq-helpers.sh'
+        source '${LIB_DIR}/core/jq-helpers.sh'
         echo \"guard=\${_JQ_HELPERS_LOADED:-unset}\"
         # Verify get_task_field function is defined
         if declare -f get_task_field > /dev/null 2>&1; then
@@ -203,7 +203,7 @@ setup() {
 
 @test "Layer 2: file-ops.sh sources with required deps" {
     run bash -c "
-        source '${LIB_DIR}/file-ops.sh'
+        source '${LIB_DIR}/data/file-ops.sh'
         echo \"guard=\${_FILE_OPS_LOADED:-unset}\"
         # Verify atomic_write function is defined
         if declare -f atomic_write > /dev/null 2>&1; then
@@ -220,7 +220,7 @@ setup() {
 @test "Layer 2: validation.sh sources with required deps" {
     run bash -c "
         export CLAUDE_TODO_HOME='${PROJECT_ROOT}'
-        source '${LIB_DIR}/validation.sh'
+        source '${LIB_DIR}/validation/validation.sh'
         echo \"guard=\${_VALIDATION_SH_LOADED:-unset}\"
         # Verify is_strict_mode function is defined (a config validation function)
         if declare -f is_strict_mode > /dev/null 2>&1; then
@@ -237,7 +237,7 @@ setup() {
 @test "Layer 2: logging.sh sources with required deps" {
     run bash -c "
         export CLAUDE_TODO_DIR='${CLAUDE_TODO_DIR}'
-        source '${LIB_DIR}/logging.sh'
+        source '${LIB_DIR}/core/logging.sh'
         echo \"guard=\${_LOGGING_LOADED:-unset}\"
         # Verify log_operation function is defined
         if declare -f log_operation > /dev/null 2>&1; then
@@ -253,7 +253,7 @@ setup() {
 
 @test "Layer 2: hierarchy.sh sources with required deps" {
     run bash -c "
-        source '${LIB_DIR}/hierarchy.sh'
+        source '${LIB_DIR}/tasks/hierarchy.sh'
         echo \"guard=\${_HIERARCHY_LOADED:-unset}\"
         # Verify get_children function is defined
         if declare -f get_children > /dev/null 2>&1; then
@@ -270,7 +270,7 @@ setup() {
 @test "Layer 2: cache.sh sources with required deps" {
     run bash -c "
         export CLAUDE_DIR='${CLAUDE_TODO_DIR}'
-        source '${LIB_DIR}/cache.sh'
+        source '${LIB_DIR}/data/cache.sh'
         echo \"guard=\${_CACHE_LOADED:-unset}\"
         # Verify cache_init function is defined
         if declare -f cache_init > /dev/null 2>&1; then
@@ -288,7 +288,7 @@ setup() {
     run bash -c "
         export CLAUDE_TODO_DIR='${CLAUDE_TODO_DIR}'
         cd '${TEST_DIR}'
-        source '${LIB_DIR}/backup.sh'
+        source '${LIB_DIR}/data/backup.sh'
         echo \"guard=\${_BACKUP_LOADED:-unset}\"
         # Verify create_snapshot_backup function is defined
         if declare -f create_snapshot_backup > /dev/null 2>&1; then
@@ -306,7 +306,7 @@ setup() {
     run bash -c "
         export CLAUDE_TODO_DIR='${CLAUDE_TODO_DIR}'
         export CLAUDE_TODO_HOME='${PROJECT_ROOT}'
-        source '${LIB_DIR}/migrate.sh'
+        source '${LIB_DIR}/data/migrate.sh'
         echo \"guard=\${_MIGRATE_SH_LOADED:-unset}\"
         # Verify needs_migration function is defined (core migration check function)
         if declare -f needs_migration > /dev/null 2>&1; then
@@ -328,7 +328,7 @@ setup() {
 @test "Layer 3: phase-tracking.sh sources with required deps" {
     run bash -c "
         export TODO_FILE='${TODO_FILE}'
-        source '${LIB_DIR}/phase-tracking.sh'
+        source '${LIB_DIR}/tasks/phase-tracking.sh'
         echo \"guard=\${_PHASE_TRACKING_LOADED:-unset}\"
         # Verify get_current_phase function is defined
         if declare -f get_current_phase > /dev/null 2>&1; then
@@ -345,7 +345,7 @@ setup() {
 @test "Layer 3: analysis.sh sources with required deps" {
     run bash -c "
         export CLAUDE_TODO_HOME='${PROJECT_ROOT}'
-        source '${LIB_DIR}/analysis.sh'
+        source '${LIB_DIR}/tasks/analysis.sh'
         echo \"guard=\${_ANALYSIS_LOADED:-unset}\"
         # Verify calculate_leverage_scores function is defined
         if declare -f calculate_leverage_scores > /dev/null 2>&1; then
@@ -362,7 +362,7 @@ setup() {
 @test "Layer 3: cancel-ops.sh sources with required deps" {
     run bash -c "
         export CLAUDE_TODO_DIR='${CLAUDE_TODO_DIR}'
-        source '${LIB_DIR}/cancel-ops.sh'
+        source '${LIB_DIR}/tasks/cancel-ops.sh'
         echo \"guard=\${_CANCEL_OPS_LOADED:-unset}\"
         # Verify preflight_delete_check function is defined
         if declare -f preflight_delete_check > /dev/null 2>&1; then
@@ -379,7 +379,7 @@ setup() {
 @test "Layer 3: archive-cancel.sh sources with required deps" {
     run bash -c "
         export CLAUDE_TODO_DIR='${CLAUDE_TODO_DIR}'
-        source '${LIB_DIR}/archive-cancel.sh'
+        source '${LIB_DIR}/tasks/archive-cancel.sh'
         echo \"guard=\${_ARCHIVE_CANCEL_LOADED:-unset}\"
         # Verify archive_cancelled_task function is defined
         if declare -f archive_cancelled_task > /dev/null 2>&1; then
@@ -395,7 +395,7 @@ setup() {
 
 @test "Layer 3: delete-preview.sh sources with required deps" {
     run bash -c "
-        source '${LIB_DIR}/delete-preview.sh'
+        source '${LIB_DIR}/tasks/delete-preview.sh'
         echo \"guard=\${_DELETE_PREVIEW_SH_LOADED:-unset}\"
         # Verify calculate_affected_tasks function is defined
         if declare -f calculate_affected_tasks > /dev/null 2>&1; then
@@ -412,7 +412,7 @@ setup() {
 @test "Layer 3: deletion-strategy.sh sources with required deps" {
     run bash -c "
         export CLAUDE_TODO_DIR='${CLAUDE_TODO_DIR}'
-        source '${LIB_DIR}/deletion-strategy.sh'
+        source '${LIB_DIR}/tasks/deletion-strategy.sh'
         echo \"guard=\${_DELETION_STRATEGY_SH_LOADED:-unset}\"
         # Verify handle_children function is defined
         if declare -f handle_children > /dev/null 2>&1; then
@@ -428,7 +428,7 @@ setup() {
 
 @test "Layer 3: todowrite-integration.sh sources in isolation (no deps)" {
     run bash -c "
-        source '${LIB_DIR}/todowrite-integration.sh'
+        source '${LIB_DIR}/tasks/todowrite-integration.sh'
         echo \"guard=\${_TODOWRITE_INTEGRATION_LOADED:-unset}\"
         # Verify convert_to_active_form function is defined
         if declare -f convert_to_active_form > /dev/null 2>&1; then
@@ -449,9 +449,9 @@ setup() {
 
 @test "Source guard: exit-codes.sh prevents double sourcing" {
     run bash -c "
-        source '${LIB_DIR}/exit-codes.sh'
+        source '${LIB_DIR}/core/exit-codes.sh'
         first_load=\$_EXIT_CODES_SH_LOADED
-        source '${LIB_DIR}/exit-codes.sh'
+        source '${LIB_DIR}/core/exit-codes.sh'
         second_load=\$_EXIT_CODES_SH_LOADED
         # Both should be 1, proving guard worked
         [[ \$first_load == '1' && \$second_load == '1' ]] && echo 'guard_works'
@@ -462,9 +462,9 @@ setup() {
 
 @test "Source guard: platform-compat.sh prevents double sourcing" {
     run bash -c "
-        source '${LIB_DIR}/platform-compat.sh'
+        source '${LIB_DIR}/core/platform-compat.sh'
         first_load=\$_PLATFORM_COMPAT_LOADED
-        source '${LIB_DIR}/platform-compat.sh'
+        source '${LIB_DIR}/core/platform-compat.sh'
         second_load=\$_PLATFORM_COMPAT_LOADED
         [[ \$first_load == '1' && \$second_load == '1' ]] && echo 'guard_works'
     "
@@ -474,9 +474,9 @@ setup() {
 
 @test "Source guard: config.sh prevents double sourcing" {
     run bash -c "
-        source '${LIB_DIR}/config.sh'
+        source '${LIB_DIR}/core/config.sh'
         first_load=\$_CONFIG_SH_LOADED
-        source '${LIB_DIR}/config.sh'
+        source '${LIB_DIR}/core/config.sh'
         second_load=\$_CONFIG_SH_LOADED
         [[ \$first_load == '1' && \$second_load == '1' ]] && echo 'guard_works'
     "
@@ -486,9 +486,9 @@ setup() {
 
 @test "Source guard: file-ops.sh prevents double sourcing" {
     run bash -c "
-        source '${LIB_DIR}/file-ops.sh'
+        source '${LIB_DIR}/data/file-ops.sh'
         first_load=\$_FILE_OPS_LOADED
-        source '${LIB_DIR}/file-ops.sh'
+        source '${LIB_DIR}/data/file-ops.sh'
         second_load=\$_FILE_OPS_LOADED
         [[ \$first_load == '1' && \$second_load == '1' ]] && echo 'guard_works'
     "
@@ -511,35 +511,35 @@ setup() {
 
         # Source in layer order (0 -> 1 -> 2 -> 3)
         # Layer 0
-        source '${LIB_DIR}/exit-codes.sh'
-        source '${LIB_DIR}/platform-compat.sh'
-        source '${LIB_DIR}/version.sh'
+        source '${LIB_DIR}/core/exit-codes.sh'
+        source '${LIB_DIR}/core/platform-compat.sh'
+        source '${LIB_DIR}/core/version.sh'
 
         # Layer 1
-        source '${LIB_DIR}/config.sh'
-        source '${LIB_DIR}/output-format.sh'
-        source '${LIB_DIR}/error-json.sh'
-        source '${LIB_DIR}/atomic-write.sh'
-        source '${LIB_DIR}/dependency-check.sh'
-        source '${LIB_DIR}/jq-helpers.sh'
+        source '${LIB_DIR}/core/config.sh'
+        source '${LIB_DIR}/core/output-format.sh'
+        source '${LIB_DIR}/core/error-json.sh'
+        source '${LIB_DIR}/data/atomic-write.sh'
+        source '${LIB_DIR}/tasks/dependency-check.sh'
+        source '${LIB_DIR}/core/jq-helpers.sh'
 
         # Layer 2
-        source '${LIB_DIR}/file-ops.sh'
-        source '${LIB_DIR}/validation.sh'
-        source '${LIB_DIR}/logging.sh'
-        source '${LIB_DIR}/hierarchy.sh'
-        source '${LIB_DIR}/cache.sh'
-        source '${LIB_DIR}/backup.sh'
-        source '${LIB_DIR}/migrate.sh'
+        source '${LIB_DIR}/data/file-ops.sh'
+        source '${LIB_DIR}/validation/validation.sh'
+        source '${LIB_DIR}/core/logging.sh'
+        source '${LIB_DIR}/tasks/hierarchy.sh'
+        source '${LIB_DIR}/data/cache.sh'
+        source '${LIB_DIR}/data/backup.sh'
+        source '${LIB_DIR}/data/migrate.sh'
 
         # Layer 3
-        source '${LIB_DIR}/phase-tracking.sh'
-        source '${LIB_DIR}/analysis.sh'
-        source '${LIB_DIR}/cancel-ops.sh'
-        source '${LIB_DIR}/archive-cancel.sh'
-        source '${LIB_DIR}/delete-preview.sh'
-        source '${LIB_DIR}/deletion-strategy.sh'
-        source '${LIB_DIR}/todowrite-integration.sh'
+        source '${LIB_DIR}/tasks/phase-tracking.sh'
+        source '${LIB_DIR}/tasks/analysis.sh'
+        source '${LIB_DIR}/tasks/cancel-ops.sh'
+        source '${LIB_DIR}/tasks/archive-cancel.sh'
+        source '${LIB_DIR}/tasks/delete-preview.sh'
+        source '${LIB_DIR}/tasks/deletion-strategy.sh'
+        source '${LIB_DIR}/tasks/todowrite-integration.sh'
 
         echo 'All libraries loaded successfully'
     "
@@ -557,7 +557,7 @@ setup() {
         cd '${TEST_DIR}'
 
         # Source a Layer 3 library first - it should pull in its deps
-        source '${LIB_DIR}/phase-tracking.sh'
+        source '${LIB_DIR}/tasks/phase-tracking.sh'
 
         # Verify lower layer guards are set (deps were pulled in)
         [[ -n \"\${_PLATFORM_COMPAT_LOADED:-}\" ]] || { echo 'platform-compat not loaded'; exit 1; }
@@ -653,9 +653,9 @@ setup() {
 
 @test "Readonly variables: exit-codes.sh constants are readonly-safe" {
     run bash -c "
-        source '${LIB_DIR}/exit-codes.sh'
+        source '${LIB_DIR}/core/exit-codes.sh'
         # Attempt to re-source (should not error due to readonly collision)
-        source '${LIB_DIR}/exit-codes.sh'
+        source '${LIB_DIR}/core/exit-codes.sh'
         echo 'readonly_safe'
     "
     assert_success
@@ -664,8 +664,8 @@ setup() {
 
 @test "Readonly variables: platform-compat.sh PLATFORM is readonly-safe" {
     run bash -c "
-        source '${LIB_DIR}/platform-compat.sh'
-        source '${LIB_DIR}/platform-compat.sh'
+        source '${LIB_DIR}/core/platform-compat.sh'
+        source '${LIB_DIR}/core/platform-compat.sh'
         echo 'readonly_safe'
     "
     assert_success

@@ -37,9 +37,9 @@ START_TIME_NS=$(date +%s%N 2>/dev/null || echo "0")
 
 # Source version library for proper version management
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  # shellcheck source=../lib/version.sh
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  # shellcheck source=../lib/core/version.sh
+  source "$LIB_DIR/core/version.sh"
 fi
 
 # File paths
@@ -56,11 +56,11 @@ COMMAND_NAME="find"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source exit codes (required)
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-    # shellcheck source=../lib/exit-codes.sh
-    source "$LIB_DIR/exit-codes.sh"
-elif [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
-    source "$CLEO_HOME/lib/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+    # shellcheck source=../lib/core/exit-codes.sh
+    source "$LIB_DIR/core/exit-codes.sh"
+elif [[ -f "$CLEO_HOME/lib/core/exit-codes.sh" ]]; then
+    source "$CLEO_HOME/lib/core/exit-codes.sh"
 else
     # Fallback exit codes
     EXIT_SUCCESS=0
@@ -71,44 +71,44 @@ else
 fi
 
 # Source error JSON library
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
-elif [[ -f "$CLEO_HOME/lib/error-json.sh" ]]; then
-    source "$CLEO_HOME/lib/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$CLEO_HOME/lib/core/error-json.sh" ]]; then
+    source "$CLEO_HOME/lib/core/error-json.sh"
 fi
 
 # Source output format library
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    # shellcheck source=../lib/output-format.sh
-    source "$LIB_DIR/output-format.sh"
-elif [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
-    source "$CLEO_HOME/lib/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    # shellcheck source=../lib/core/output-format.sh
+    source "$LIB_DIR/core/output-format.sh"
+elif [[ -f "$CLEO_HOME/lib/core/output-format.sh" ]]; then
+    source "$CLEO_HOME/lib/core/output-format.sh"
 fi
 
 # Source logging library for color support
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-    # shellcheck source=../lib/logging.sh
-    source "$LIB_DIR/logging.sh"
-elif [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
-    source "$CLEO_HOME/lib/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+    # shellcheck source=../lib/core/logging.sh
+    source "$LIB_DIR/core/logging.sh"
+elif [[ -f "$CLEO_HOME/lib/core/logging.sh" ]]; then
+    source "$CLEO_HOME/lib/core/logging.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-    # shellcheck source=../lib/flags.sh
-    source "$LIB_DIR/flags.sh"
-elif [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
-    source "$CLEO_HOME/lib/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+    # shellcheck source=../lib/ui/flags.sh
+    source "$LIB_DIR/ui/flags.sh"
+elif [[ -f "$CLEO_HOME/lib/ui/flags.sh" ]]; then
+    source "$CLEO_HOME/lib/ui/flags.sh"
 fi
 
 # Source JSON output library for pagination support
 # @task T1446
-if [[ -f "$LIB_DIR/json-output.sh" ]]; then
-    # shellcheck source=../lib/json-output.sh
-    source "$LIB_DIR/json-output.sh"
-elif [[ -f "$CLEO_HOME/lib/json-output.sh" ]]; then
-    source "$CLEO_HOME/lib/json-output.sh"
+if [[ -f "$LIB_DIR/core/json-output.sh" ]]; then
+    # shellcheck source=../lib/core/json-output.sh
+    source "$LIB_DIR/core/json-output.sh"
+elif [[ -f "$CLEO_HOME/lib/core/json-output.sh" ]]; then
+    source "$CLEO_HOME/lib/core/json-output.sh"
 fi
 
 # ============================================================================

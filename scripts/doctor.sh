@@ -40,17 +40,17 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source required libraries
-source "$LIB_DIR/exit-codes.sh"
-source "$LIB_DIR/paths.sh"
-source "$LIB_DIR/output-format.sh" 2>/dev/null || true
-source "$LIB_DIR/flags.sh"
-source "$LIB_DIR/agent-config.sh"
-source "$LIB_DIR/validation.sh"
-source "$LIB_DIR/doctor-checks.sh"  # Global health check functions
-source "$LIB_DIR/doctor-utils.sh"   # Doctor utility functions
-source "$LIB_DIR/project-registry.sh"
-source "$LIB_DIR/migrate.sh"  # For get_schema_version_from_file()
-source "$LIB_DIR/backup.sh"  # For create_safety_backup() in --fix mode
+source "$LIB_DIR/core/exit-codes.sh"
+source "$LIB_DIR/core/paths.sh"
+source "$LIB_DIR/core/output-format.sh" 2>/dev/null || true
+source "$LIB_DIR/ui/flags.sh"
+source "$LIB_DIR/skills/agent-config.sh"
+source "$LIB_DIR/validation/validation.sh"
+source "$LIB_DIR/validation/doctor-checks.sh"  # Global health check functions
+source "$LIB_DIR/validation/doctor-utils.sh"   # Doctor utility functions
+source "$LIB_DIR/data/project-registry.sh"
+source "$LIB_DIR/data/migrate.sh"  # For get_schema_version_from_file()
+source "$LIB_DIR/data/backup.sh"  # For create_safety_backup() in --fix mode
 
 # Command name for error reporting
 COMMAND_NAME="doctor"
@@ -283,11 +283,11 @@ EOF
 # GLOBAL HEALTH CHECKS (T1507)
 # ============================================================================
 # These checks validate the CLEO CLI installation and agent configuration.
-# Implemented in lib/doctor-checks.sh
+# Implemented in lib/validation/doctor-checks.sh
 # Returns: JSON array of check results
 
 run_global_health_checks() {
-    # Use the function from lib/doctor-checks.sh
+    # Use the function from lib/validation/doctor-checks.sh
     run_all_global_checks
 }
 

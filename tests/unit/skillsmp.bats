@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# skillsmp.bats - Unit tests for lib/skillsmp.sh
+# skillsmp.bats - Unit tests for lib/skills/skillsmp.sh
 # =============================================================================
 # Tests SkillsMP API client functions including:
 # - Config loading and validation
@@ -21,7 +21,7 @@ setup() {
     common_setup_per_test
 
     # Source the skillsmp library
-    source "$PROJECT_ROOT/lib/skillsmp.sh"
+    source "$PROJECT_ROOT/lib/skills/skillsmp.sh"
 
     # Create test cache directory
     export SKILLSMP_CACHE_DIR="${TEST_TEMP_DIR}/.skills-cache"
@@ -65,11 +65,11 @@ teardown_file() {
 # =============================================================================
 
 @test "skillsmp library exists" {
-    [ -f "$PROJECT_ROOT/lib/skillsmp.sh" ]
+    [ -f "$PROJECT_ROOT/lib/skills/skillsmp.sh" ]
 }
 
 @test "skillsmp library is sourceable" {
-    run bash -c "source '$PROJECT_ROOT/lib/skillsmp.sh'"
+    run bash -c "source '$PROJECT_ROOT/lib/skills/skillsmp.sh'"
     assert_success
 }
 

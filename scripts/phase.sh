@@ -20,75 +20,75 @@ CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source libraries with dual-path fallback (Layer 0: Foundation)
-# shellcheck source=../lib/exit-codes.sh
-if [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
-    source "$CLEO_HOME/lib/exit-codes.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-    source "$LIB_DIR/exit-codes.sh"
+# shellcheck source=../lib/core/exit-codes.sh
+if [[ -f "$CLEO_HOME/lib/core/exit-codes.sh" ]]; then
+    source "$CLEO_HOME/lib/core/exit-codes.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
 
-if [[ -f "$CLEO_HOME/lib/platform-compat.sh" ]]; then
-    source "$CLEO_HOME/lib/platform-compat.sh"
-elif [[ -f "$LIB_DIR/platform-compat.sh" ]]; then
-    source "$LIB_DIR/platform-compat.sh"
+if [[ -f "$CLEO_HOME/lib/core/platform-compat.sh" ]]; then
+    source "$CLEO_HOME/lib/core/platform-compat.sh"
+elif [[ -f "$LIB_DIR/core/platform-compat.sh" ]]; then
+    source "$LIB_DIR/core/platform-compat.sh"
 fi
 
 # Source libraries (Layer 1: Core Infrastructure)
-if [[ -f "$CLEO_HOME/lib/error-json.sh" ]]; then
-    source "$CLEO_HOME/lib/error-json.sh"
-elif [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    source "$LIB_DIR/error-json.sh"
+if [[ -f "$CLEO_HOME/lib/core/error-json.sh" ]]; then
+    source "$CLEO_HOME/lib/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    source "$LIB_DIR/core/error-json.sh"
 fi
 
-if [[ -f "$CLEO_HOME/lib/output-format.sh" ]]; then
-    source "$CLEO_HOME/lib/output-format.sh"
-elif [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    source "$LIB_DIR/output-format.sh"
+if [[ -f "$CLEO_HOME/lib/core/output-format.sh" ]]; then
+    source "$CLEO_HOME/lib/core/output-format.sh"
+elif [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source libraries (Layer 2: Core Services)
-if [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
-    source "$CLEO_HOME/lib/validation.sh"
-elif [[ -f "$LIB_DIR/validation.sh" ]]; then
-    source "$LIB_DIR/validation.sh"
+if [[ -f "$CLEO_HOME/lib/validation/validation.sh" ]]; then
+    source "$CLEO_HOME/lib/validation/validation.sh"
+elif [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+    source "$LIB_DIR/validation/validation.sh"
 fi
 
-if [[ -f "$CLEO_HOME/lib/file-ops.sh" ]]; then
-    source "$CLEO_HOME/lib/file-ops.sh"
-elif [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-    source "$LIB_DIR/file-ops.sh"
+if [[ -f "$CLEO_HOME/lib/data/file-ops.sh" ]]; then
+    source "$CLEO_HOME/lib/data/file-ops.sh"
+elif [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+    source "$LIB_DIR/data/file-ops.sh"
 fi
 
-if [[ -f "$CLEO_HOME/lib/phase-tracking.sh" ]]; then
-    source "$CLEO_HOME/lib/phase-tracking.sh"
-elif [[ -f "$LIB_DIR/phase-tracking.sh" ]]; then
-    source "$LIB_DIR/phase-tracking.sh"
+if [[ -f "$CLEO_HOME/lib/tasks/phase-tracking.sh" ]]; then
+    source "$CLEO_HOME/lib/tasks/phase-tracking.sh"
+elif [[ -f "$LIB_DIR/tasks/phase-tracking.sh" ]]; then
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 fi
 
-if [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
-    source "$CLEO_HOME/lib/logging.sh"
-elif [[ -f "$LIB_DIR/logging.sh" ]]; then
-    source "$LIB_DIR/logging.sh"
+if [[ -f "$CLEO_HOME/lib/core/logging.sh" ]]; then
+    source "$CLEO_HOME/lib/core/logging.sh"
+elif [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+    source "$LIB_DIR/core/logging.sh"
 fi
 
-if [[ -f "$CLEO_HOME/lib/config.sh" ]]; then
-    source "$CLEO_HOME/lib/config.sh"
-elif [[ -f "$LIB_DIR/config.sh" ]]; then
-    source "$LIB_DIR/config.sh"
+if [[ -f "$CLEO_HOME/lib/core/config.sh" ]]; then
+    source "$CLEO_HOME/lib/core/config.sh"
+elif [[ -f "$LIB_DIR/core/config.sh" ]]; then
+    source "$LIB_DIR/core/config.sh"
 fi
 
 # Source version library for proper version management
-if [[ -f "$CLEO_HOME/lib/version.sh" ]]; then
-    source "$CLEO_HOME/lib/version.sh"
-elif [[ -f "$LIB_DIR/version.sh" ]]; then
-    source "$LIB_DIR/version.sh"
+if [[ -f "$CLEO_HOME/lib/core/version.sh" ]]; then
+    source "$CLEO_HOME/lib/core/version.sh"
+elif [[ -f "$LIB_DIR/core/version.sh" ]]; then
+    source "$LIB_DIR/core/version.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$CLEO_HOME/lib/flags.sh" ]]; then
-    source "$CLEO_HOME/lib/flags.sh"
-elif [[ -f "$LIB_DIR/flags.sh" ]]; then
-    source "$LIB_DIR/flags.sh"
+if [[ -f "$CLEO_HOME/lib/ui/flags.sh" ]]; then
+    source "$CLEO_HOME/lib/ui/flags.sh"
+elif [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+    source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Globals

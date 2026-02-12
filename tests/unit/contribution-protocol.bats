@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# contribution-protocol.bats - Unit tests for lib/contribution-protocol.sh
+# contribution-protocol.bats - Unit tests for lib/skills/contribution-protocol.sh
 # =============================================================================
 # Tests the contribution protocol library functions:
 # - contribution_protocol_instantiate: Template token replacement
@@ -25,7 +25,7 @@ setup() {
     export CLEO_LIB_DIR="${PROJECT_ROOT}/lib"
 
     # Source the contribution protocol library
-    source "${PROJECT_ROOT}/lib/contribution-protocol.sh"
+    source "${PROJECT_ROOT}/lib/skills/contribution-protocol.sh"
 }
 
 teardown() {

@@ -9,10 +9,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Determine library directory (local dev vs global install)
-if [[ -f "$SCRIPT_DIR/../lib/exit-codes.sh" ]]; then
+if [[ -f "$SCRIPT_DIR/../lib/core/exit-codes.sh" ]]; then
     # Local development (running from scripts/ directory)
     LIB_DIR="$SCRIPT_DIR/../lib"
-elif [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
+elif [[ -f "$CLEO_HOME/lib/core/exit-codes.sh" ]]; then
     # Global installation
     LIB_DIR="$CLEO_HOME/lib"
 else
@@ -21,18 +21,18 @@ else
 fi
 
 # Source dependencies
-source "$LIB_DIR/exit-codes.sh"
-source "$LIB_DIR/injection.sh"
-source "$LIB_DIR/agent-config.sh"
+source "$LIB_DIR/core/exit-codes.sh"
+source "$LIB_DIR/ui/injection.sh"
+source "$LIB_DIR/skills/agent-config.sh"
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
 
-# Note: AGENT_CONFIG_REGISTRY is defined in lib/agent-config.sh (sourced above)
+# Note: AGENT_CONFIG_REGISTRY is defined in lib/skills/agent-config.sh (sourced above)
 
 # Parse command-line flags
 DRY_RUN=false

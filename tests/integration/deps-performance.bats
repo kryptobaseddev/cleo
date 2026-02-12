@@ -22,7 +22,7 @@ teardown_file() {
 }
 
 source_graph_cache() {
-    source "${LIB_DIR}/graph-cache.sh" 2>/dev/null || true
+    source "${LIB_DIR}/tasks/graph-cache.sh" 2>/dev/null || true
 }
 
 measure_ms() {

@@ -19,7 +19,7 @@ setup() {
     mkdir -p "$TEST_CLEO_DIR"
 
     # Source required libraries
-    source "$LIB_DIR/migrate.sh"
+    source "$LIB_DIR/data/migrate.sh"
 
     # Define a test migration function for checksum testing
     migrate_test_to_1_0_0() {

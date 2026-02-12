@@ -44,7 +44,7 @@ teardown_file() {
 }
 
 @test "todowrite integration library exists" {
-    [ -f "$PROJECT_ROOT/lib/todowrite-integration.sh" ]
+    [ -f "$PROJECT_ROOT/lib/tasks/todowrite-integration.sh" ]
 }
 
 # =============================================================================

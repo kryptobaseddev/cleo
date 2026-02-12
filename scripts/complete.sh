@@ -18,8 +18,8 @@ LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
 ARCHIVE_SCRIPT="${SCRIPT_DIR}/archive.sh"
 
 # Source paths.sh for path resolution functions
-if [[ -f "$LIB_DIR/paths.sh" ]]; then
-    source "$LIB_DIR/paths.sh"
+if [[ -f "$LIB_DIR/core/paths.sh" ]]; then
+    source "$LIB_DIR/core/paths.sh"
 fi
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
@@ -29,108 +29,108 @@ CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 COMMAND_NAME="complete"
 
 # Source logging library for should_use_color function
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-  # shellcheck source=../lib/version.sh
-  source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  # shellcheck source=../lib/core/version.sh
+  source "$LIB_DIR/core/version.sh"
 fi
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source file operations library for atomic writes with locking
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-  # shellcheck source=../lib/file-ops.sh
-  source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+  # shellcheck source=../lib/data/file-ops.sh
+  source "$LIB_DIR/data/file-ops.sh"
 fi
 
 # Source backup library for unified backup management
-if [[ -f "$LIB_DIR/backup.sh" ]]; then
-  # shellcheck source=../lib/backup.sh
-  source "$LIB_DIR/backup.sh"
+if [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+  # shellcheck source=../lib/data/backup.sh
+  source "$LIB_DIR/data/backup.sh"
 fi
 
 # Source output formatting library for format resolution
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
 # Note: error-json.sh sources exit-codes.sh, so we don't source it separately
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source config library for unified config access (v0.24.0)
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "$LIB_DIR/core/config.sh"
 fi
 
 # Source phase tracking library for phase context validation (v2.2.0)
-if [[ -f "$LIB_DIR/phase-tracking.sh" ]]; then
-  # shellcheck source=../lib/phase-tracking.sh
-  source "$LIB_DIR/phase-tracking.sh"
+if [[ -f "$LIB_DIR/tasks/phase-tracking.sh" ]]; then
+  # shellcheck source=../lib/tasks/phase-tracking.sh
+  source "$LIB_DIR/tasks/phase-tracking.sh"
 fi
 
 # Source validation library for input validation (Part 5.3 compliance)
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-  # shellcheck source=../lib/validation.sh
-  source "$LIB_DIR/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+  # shellcheck source=../lib/validation/validation.sh
+  source "$LIB_DIR/validation/validation.sh"
 fi
 
 # Source session enforcement for Epic-Bound Sessions (v0.40.0)
-if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
-  # shellcheck source=../lib/session-enforcement.sh
-  source "$LIB_DIR/session-enforcement.sh"
+if [[ -f "$LIB_DIR/session/session-enforcement.sh" ]]; then
+  # shellcheck source=../lib/session/session-enforcement.sh
+  source "$LIB_DIR/session/session-enforcement.sh"
 fi
 
 # Source verification library for gate management (v0.44.0)
-if [[ -f "$LIB_DIR/verification.sh" ]]; then
-  # shellcheck source=../lib/verification.sh
-  source "$LIB_DIR/verification.sh"
+if [[ -f "$LIB_DIR/validation/verification.sh" ]]; then
+  # shellcheck source=../lib/validation/verification.sh
+  source "$LIB_DIR/validation/verification.sh"
 fi
 
 # Source lifecycle library for gate enforcement (T2579)
-if [[ -f "$LIB_DIR/lifecycle.sh" ]]; then
-  # shellcheck source=../lib/lifecycle.sh
-  source "$LIB_DIR/lifecycle.sh"
+if [[ -f "$LIB_DIR/tasks/lifecycle.sh" ]]; then
+  # shellcheck source=../lib/tasks/lifecycle.sh
+  source "$LIB_DIR/tasks/lifecycle.sh"
 fi
 
 # Source context alert library for context monitoring (T1323)
-if [[ -f "$LIB_DIR/context-alert.sh" ]]; then
-  # shellcheck source=../lib/context-alert.sh
-  source "$LIB_DIR/context-alert.sh"
+if [[ -f "$LIB_DIR/session/context-alert.sh" ]]; then
+  # shellcheck source=../lib/session/context-alert.sh
+  source "$LIB_DIR/session/context-alert.sh"
 fi
 
 # Source protocol validation library for protocol enforcement (T2695)
-if [[ -f "$LIB_DIR/protocol-validation.sh" ]]; then
-  # shellcheck source=../lib/protocol-validation.sh
-  source "$LIB_DIR/protocol-validation.sh"
+if [[ -f "$LIB_DIR/validation/protocol-validation.sh" ]]; then
+  # shellcheck source=../lib/validation/protocol-validation.sh
+  source "$LIB_DIR/validation/protocol-validation.sh"
 fi
 
 # Source manifest validation library for REAL validation (T2832)
-if [[ -f "$LIB_DIR/manifest-validation.sh" ]]; then
-  # shellcheck source=../lib/manifest-validation.sh
-  source "$LIB_DIR/manifest-validation.sh"
+if [[ -f "$LIB_DIR/validation/manifest-validation.sh" ]]; then
+  # shellcheck source=../lib/validation/manifest-validation.sh
+  source "$LIB_DIR/validation/manifest-validation.sh"
 fi
 
 # Source task-mutate library for centralized mutations with updatedAt (T2067)
-if [[ -f "$LIB_DIR/task-mutate.sh" ]]; then
-  # shellcheck source=../lib/task-mutate.sh
-  source "$LIB_DIR/task-mutate.sh"
+if [[ -f "$LIB_DIR/tasks/task-mutate.sh" ]]; then
+  # shellcheck source=../lib/tasks/task-mutate.sh
+  source "$LIB_DIR/tasks/task-mutate.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables per https://no-color.org)
@@ -678,7 +678,7 @@ FINAL_JSON=$(echo "$UPDATED_TASKS" | jq --arg checksum "$NEW_CHECKSUM" --arg ts 
 ')
 
 # Atomic write with file locking (prevents race conditions)
-# Using save_json from lib/file-ops.sh which includes:
+# Using save_json from lib/data/file-ops.sh which includes:
 # - File locking to prevent concurrent writes
 # - Atomic write with backup
 # - JSON validation

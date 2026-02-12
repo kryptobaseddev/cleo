@@ -34,7 +34,7 @@ setup() {
 
     # Export paths for upgrade script
     export UPGRADE_SCRIPT="${SCRIPTS_DIR}/upgrade.sh"
-    export MIGRATE_SCRIPT="${LIB_DIR}/migrate.sh"
+    export MIGRATE_SCRIPT="${LIB_DIR}/data/migrate.sh"
     export CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
     export SCHEMA_DIR="$CLEO_HOME/schemas"
 }

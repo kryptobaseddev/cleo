@@ -128,7 +128,7 @@ teardown_file() {
     # This is the canonical location as of Phase 3
 
     # Source migrate.sh to get detect_file_version function
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Create test file with both fields
     local test_file
@@ -161,7 +161,7 @@ EOF
     # (for backward compatibility with legacy files)
 
     # Source migrate.sh
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Create test file with only legacy .version
     local test_file
@@ -189,7 +189,7 @@ EOF
     # When neither ._meta.schemaVersion nor .version exist, should fall back to schema
 
     # Source migrate.sh
-    source "${LIB_DIR}/migrate.sh"
+    source "${LIB_DIR}/data/migrate.sh"
 
     # Create test file with no version fields
     local test_file
@@ -237,7 +237,7 @@ EOF
         'if . then true else false end' "$test_file"
 
     # Note: jq doesn't have built-in JSON Schema validation
-    # This test verifies the structure, actual validation happens in lib/validation.sh
+    # This test verifies the structure, actual validation happens in lib/validation/validation.sh
     # We'll validate using the schema's required fields
 
     # Check if _meta is required in schema

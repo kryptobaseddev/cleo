@@ -19,7 +19,7 @@ setup() {
     export RELEASES_FILE="$CLEO_DIR/releases.json"
 
     # Source the library (from project root)
-    source "$BATS_TEST_DIRNAME/../../lib/release-provenance.sh"
+    source "$BATS_TEST_DIRNAME/../../lib/release/release-provenance.sh"
 }
 
 teardown() {

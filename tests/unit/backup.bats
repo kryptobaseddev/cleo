@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# backup.bats - Unit tests for backup system (lib/backup.sh)
+# backup.bats - Unit tests for backup system (lib/data/backup.sh)
 # =============================================================================
 # Tests backup creation, rotation, restoration, and error handling for
 # the Tier 2 backup system. Covers all backup types and retention policies.
@@ -22,8 +22,8 @@ setup() {
     PROJECT_ROOT="$(cd "$TEST_FILE_DIR/../.." && pwd)"
 
     # Source required libraries (order matters - exit-codes first)
-    source "$PROJECT_ROOT/lib/exit-codes.sh"
-    source "$PROJECT_ROOT/lib/platform-compat.sh"
+    source "$PROJECT_ROOT/lib/core/exit-codes.sh"
+    source "$PROJECT_ROOT/lib/core/platform-compat.sh"
 
     # Use BATS-managed temp directory (auto-cleaned)
     TEST_DIR="${BATS_TEST_TMPDIR}"
@@ -62,7 +62,7 @@ EOF
     cd "$TEST_DIR"
 
     # Source the backup library (this will load config and set BACKUP_DIR)
-    source "$PROJECT_ROOT/lib/backup.sh"
+    source "$PROJECT_ROOT/lib/data/backup.sh"
 
     # Store the actual backup dir path for test assertions
     BACKUP_DIR_ABS="$TEST_DIR/$BACKUP_DIR_REL"

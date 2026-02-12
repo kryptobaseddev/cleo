@@ -24,33 +24,33 @@ COMMAND_NAME="docs"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source error-json library for standardized output
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source flags library for standardized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-    # shellcheck source=../lib/flags.sh
-    source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+    # shellcheck source=../lib/ui/flags.sh
+    source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Source docs-sync library
-if [[ -f "$LIB_DIR/docs-sync.sh" ]]; then
-    # shellcheck source=../lib/docs-sync.sh
-    source "$LIB_DIR/docs-sync.sh"
+if [[ -f "$LIB_DIR/validation/docs-sync.sh" ]]; then
+    # shellcheck source=../lib/validation/docs-sync.sh
+    source "$LIB_DIR/validation/docs-sync.sh"
 fi
 
 # Source gap-check library
-if [[ -f "$LIB_DIR/gap-check.sh" ]]; then
-    # shellcheck source=../lib/gap-check.sh
-    source "$LIB_DIR/gap-check.sh"
+if [[ -f "$LIB_DIR/validation/gap-check.sh" ]]; then
+    # shellcheck source=../lib/validation/gap-check.sh
+    source "$LIB_DIR/validation/gap-check.sh"
 fi
 
 # Source output-format library for JSON output
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    # shellcheck source=../lib/output-format.sh
-    source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    # shellcheck source=../lib/core/output-format.sh
+    source "$LIB_DIR/core/output-format.sh"
 fi
 
 # ============================================================================

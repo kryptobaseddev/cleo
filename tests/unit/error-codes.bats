@@ -2,7 +2,7 @@
 # =============================================================================
 # error-codes.bats - Unit tests for error code constants and JSON error output
 # =============================================================================
-# Tests all 29 E_* error codes defined in lib/error-json.sh and validates
+# Tests all 29 E_* error codes defined in lib/core/error-json.sh and validates
 # that commands produce proper JSON error envelopes when errors occur.
 #
 # Reference: LLM-AGENT-FIRST-SPEC.md Part 3.2 (Error Code Standard)
@@ -26,8 +26,8 @@ setup() {
     common_setup_per_test
 
     # Source error-json.sh for direct testing
-    source "${LIB_DIR}/error-json.sh"
-    source "${LIB_DIR}/exit-codes.sh"
+    source "${LIB_DIR}/core/error-json.sh"
+    source "${LIB_DIR}/core/exit-codes.sh"
 }
 
 teardown() {
@@ -205,7 +205,7 @@ teardown_file() {
 @test "exactly 49 E_* error codes are defined" {
     # Count all E_* exports (29 base + 8 hierarchy/cancel/checksum + 12 session codes)
     local count
-    count=$(grep -c '^readonly E_' "${LIB_DIR}/error-json.sh")
+    count=$(grep -c '^readonly E_' "${LIB_DIR}/core/error-json.sh")
     [[ "$count" -eq 49 ]]
 }
 

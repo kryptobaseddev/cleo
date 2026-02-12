@@ -21,7 +21,7 @@ LIB_DIR="$SCRIPT_DIR/../lib"
 PROJECT_ROOT="$PWD"
 
 # Source config library
-source "$LIB_DIR/config.sh"
+source "$LIB_DIR/core/config.sh"
 
 LIMIT="${1:-15}"
 TARGET_PLATFORM="${2:-}"
@@ -141,7 +141,7 @@ LINKS
 
     # Use awk to parse and convert CHANGELOG.md to Mintlify format
     # IMPORTANT: All version regex patterns use v? (optional v prefix) because:
-    # - lib/changelog.sh writes headers WITHOUT v prefix: ## [0.83.0]
+    # - lib/ui/changelog.sh writes headers WITHOUT v prefix: ## [0.83.0]
     # - Manual edits or external tools may use WITH v prefix: ## [v0.83.0]
     # - Both formats must be matched to prevent silent skipping of entries
     awk -v limit="$LIMIT" -v repo_slug="$GITHUB_REPO_SLUG" '

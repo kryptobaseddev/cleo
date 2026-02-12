@@ -3,7 +3,7 @@
 # critical-path.bats - Unit tests for critical path analysis (T073)
 # =============================================================================
 # Tests critical path functionality via blockers analyze command.
-# Critical path is implemented in lib/analysis.sh and accessed through
+# Critical path is implemented in lib/tasks/analysis.sh and accessed through
 # blockers.sh analyze subcommand.
 # =============================================================================
 
@@ -211,7 +211,7 @@ EOF
 }
 
 # =============================================================================
-# lib/analysis.sh Function Tests (via blockers analyze)
+# lib/tasks/analysis.sh Function Tests (via blockers analyze)
 # =============================================================================
 
 @test "critical path calculation handles single task" {

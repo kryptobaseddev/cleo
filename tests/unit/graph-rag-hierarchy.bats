@@ -2,7 +2,7 @@
 # =============================================================================
 # graph-rag-hierarchy.bats - Tests for hierarchy-based task discovery (T2190)
 # =============================================================================
-# Tests the hierarchical discovery functions in lib/graph-rag.sh:
+# Tests the hierarchical discovery functions in lib/tasks/graph-rag.sh:
 # - _find_lca(): Lowest common ancestor calculation
 # - _tree_distance(): Tree distance between tasks
 # - _get_hierarchical_context(): Parent context with decay
@@ -22,7 +22,7 @@ setup() {
     common_setup_per_test
 
     # Source graph-rag library
-    source "$LIB_DIR/graph-rag.sh"
+    source "$LIB_DIR/tasks/graph-rag.sh"
 }
 
 # =============================================================================

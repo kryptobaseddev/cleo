@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# injection-side-effects.bats - Unit tests for lib/injection.sh side-effects
+# injection-side-effects.bats - Unit tests for lib/ui/injection.sh side-effects
 # =============================================================================
 # Tests side-effect functions that modify files: injection_update,
 # injection_apply, and injection_update_all.
@@ -23,9 +23,9 @@ setup() {
     # Set CLI_VERSION for deterministic test output
     export CLI_VERSION="0.50.2"
 
-    source "$LIB_DIR/injection-registry.sh"
-    source "$LIB_DIR/injection-config.sh"
-    source "$LIB_DIR/injection.sh"
+    source "$LIB_DIR/ui/injection-registry.sh"
+    source "$LIB_DIR/ui/injection-config.sh"
+    source "$LIB_DIR/ui/injection.sh"
 
     # Create test project structure
     mkdir -p "$TEST_TEMP_DIR"

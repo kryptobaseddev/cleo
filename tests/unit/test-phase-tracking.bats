@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# test-phase-tracking.bats - Unit tests for lib/phase-tracking.sh
+# test-phase-tracking.bats - Unit tests for lib/tasks/phase-tracking.sh
 # =============================================================================
 # Tests project-level phase tracking including status transitions, validation,
 # and phase advancement logic.
@@ -18,7 +18,7 @@ setup() {
     common_setup_per_test
 
     # Source the phase tracking library
-    source "$LIB_DIR/phase-tracking.sh"
+    source "$LIB_DIR/tasks/phase-tracking.sh"
 }
 
 teardown() {
@@ -34,7 +34,7 @@ teardown_file() {
 # =============================================================================
 
 @test "phase tracking library exists" {
-    [ -f "$LIB_DIR/phase-tracking.sh" ]
+    [ -f "$LIB_DIR/tasks/phase-tracking.sh" ]
 }
 
 @test "phase tracking library is sourceable" {

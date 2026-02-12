@@ -33,7 +33,7 @@ setup() {
     export PROJECT_CONFIG_FILE="$CONFIG_FILE"
 
     # Source the library (use absolute path from PROJECT_ROOT)
-    source "${PROJECT_ROOT}/lib/release-config.sh"
+    source "${PROJECT_ROOT}/lib/release/release-config.sh"
 }
 
 teardown() {

@@ -26,8 +26,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../../lib"
 
-# shellcheck source=lib/paths.sh
-source "$LIB_DIR/paths.sh"
+# shellcheck source=lib/core/paths.sh
+source "$LIB_DIR/core/paths.sh"
 
 #=== HELPERS =====================================================
 

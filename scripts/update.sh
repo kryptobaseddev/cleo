@@ -18,18 +18,18 @@ LOG_SCRIPT="${SCRIPT_DIR}/log.sh"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source paths.sh for path resolution functions
-if [[ -f "$LIB_DIR/paths.sh" ]]; then
-    source "$LIB_DIR/paths.sh"
+if [[ -f "$LIB_DIR/core/paths.sh" ]]; then
+    source "$LIB_DIR/core/paths.sh"
 fi
 
 TODO_FILE="${TODO_FILE:-.cleo/todo.json}"
 CONFIG_FILE="${CONFIG_FILE:-.cleo/config.json}"
 
 # Source version library for proper version management
-if [[ -f "$CLEO_HOME/lib/version.sh" ]]; then
-  source "$CLEO_HOME/lib/version.sh"
-elif [[ -f "$LIB_DIR/version.sh" ]]; then
-  source "$LIB_DIR/version.sh"
+if [[ -f "$CLEO_HOME/lib/core/version.sh" ]]; then
+  source "$CLEO_HOME/lib/core/version.sh"
+elif [[ -f "$LIB_DIR/core/version.sh" ]]; then
+  source "$LIB_DIR/core/version.sh"
 fi
 
 # Command name for JSON output
@@ -37,92 +37,92 @@ COMMAND_NAME="update"
 
 # Source logging library for should_use_color function
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  # shellcheck source=../lib/logging.sh
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  # shellcheck source=../lib/core/logging.sh
+  source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source validation library for circular dependency check
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-  # shellcheck source=../lib/validation.sh
-  source "$LIB_DIR/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+  # shellcheck source=../lib/validation/validation.sh
+  source "$LIB_DIR/validation/validation.sh"
 fi
 
 # Source file operations library for atomic writes with locking
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-  # shellcheck source=../lib/file-ops.sh
-  source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+  # shellcheck source=../lib/data/file-ops.sh
+  source "$LIB_DIR/data/file-ops.sh"
 fi
 
 # Source output formatting library
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source exit codes library (after validation.sh due to shared EXIT_SUCCESS)
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source error JSON library
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source config library for validation settings
 # IMPORTANT: Must be sourced BEFORE hierarchy.sh so config functions are available
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-  # shellcheck source=../lib/config.sh
-  source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+  # shellcheck source=../lib/core/config.sh
+  source "$LIB_DIR/core/config.sh"
 fi
 
 # Source hierarchy library for type/parent/size validation
-if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
-  # shellcheck source=../lib/hierarchy.sh
-  source "$LIB_DIR/hierarchy.sh"
+if [[ -f "$LIB_DIR/tasks/hierarchy.sh" ]]; then
+  # shellcheck source=../lib/tasks/hierarchy.sh
+  source "$LIB_DIR/tasks/hierarchy.sh"
 fi
 
 # Source session enforcement for Epic-Bound Sessions (v0.40.0)
-if [[ -f "$LIB_DIR/session-enforcement.sh" ]]; then
-  # shellcheck source=../lib/session-enforcement.sh
-  source "$LIB_DIR/session-enforcement.sh"
+if [[ -f "$LIB_DIR/session/session-enforcement.sh" ]]; then
+  # shellcheck source=../lib/session/session-enforcement.sh
+  source "$LIB_DIR/session/session-enforcement.sh"
 fi
 
 # Source jq-helpers library for reusable jq wrapper functions
-if [[ -f "$LIB_DIR/jq-helpers.sh" ]]; then
-  # shellcheck source=../lib/jq-helpers.sh
-  source "$LIB_DIR/jq-helpers.sh"
+if [[ -f "$LIB_DIR/core/jq-helpers.sh" ]]; then
+  # shellcheck source=../lib/core/jq-helpers.sh
+  source "$LIB_DIR/core/jq-helpers.sh"
 fi
 
 # Source files-detect library for auto-detecting files from notes (v0.64.0+)
-if [[ -f "$LIB_DIR/files-detect.sh" ]]; then
-  # shellcheck source=../lib/files-detect.sh
-  source "$LIB_DIR/files-detect.sh"
+if [[ -f "$LIB_DIR/data/files-detect.sh" ]]; then
+  # shellcheck source=../lib/data/files-detect.sh
+  source "$LIB_DIR/data/files-detect.sh"
 fi
 
 # Source crossref-extract library for auto-detecting task references from notes (v0.65.0+)
-if [[ -f "$LIB_DIR/crossref-extract.sh" ]]; then
-  # shellcheck source=../lib/crossref-extract.sh
-  source "$LIB_DIR/crossref-extract.sh"
+if [[ -f "$LIB_DIR/tasks/crossref-extract.sh" ]]; then
+  # shellcheck source=../lib/tasks/crossref-extract.sh
+  source "$LIB_DIR/tasks/crossref-extract.sh"
 fi
 
 # Source task-mutate library for centralized mutations with updatedAt (T2067)
-if [[ -f "$LIB_DIR/task-mutate.sh" ]]; then
-  # shellcheck source=../lib/task-mutate.sh
-  source "$LIB_DIR/task-mutate.sh"
+if [[ -f "$LIB_DIR/tasks/task-mutate.sh" ]]; then
+  # shellcheck source=../lib/tasks/task-mutate.sh
+  source "$LIB_DIR/tasks/task-mutate.sh"
 fi
 
 # Source protocol validation library for protocol enforcement (T2695)
-if [[ -f "$LIB_DIR/protocol-validation.sh" ]]; then
-  # shellcheck source=../lib/protocol-validation.sh
-  source "$LIB_DIR/protocol-validation.sh"
+if [[ -f "$LIB_DIR/validation/protocol-validation.sh" ]]; then
+  # shellcheck source=../lib/validation/protocol-validation.sh
+  source "$LIB_DIR/validation/protocol-validation.sh"
 fi
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # Fallback exit codes if libraries not loaded (for robustness)
 : "${EXIT_SUCCESS:=0}"
@@ -342,11 +342,11 @@ validate_priority() {
   esac
 }
 
-# Validate title (local wrapper - calls lib/validation.sh function)
+# Validate title (local wrapper - calls lib/validation/validation.sh function)
 validate_title_local() {
   local title="$1"
 
-  # Call the shared validation function from lib/validation.sh
+  # Call the shared validation function from lib/validation/validation.sh
   if ! validate_title "$title"; then
     return 1
   fi

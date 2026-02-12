@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# json-output.bats - Unit tests for lib/json-output.sh
+# json-output.bats - Unit tests for lib/core/json-output.sh
 # =============================================================================
 # Tests all exported functions: output_success, output_error_envelope,
 # output_paginated, apply_pagination, get_pagination_meta, get_default_limit,
@@ -21,7 +21,7 @@ setup() {
     common_setup_per_test
 
     # Source the library under test
-    source "$LIB_DIR/json-output.sh"
+    source "$LIB_DIR/core/json-output.sh"
 
     # Set a predictable version for tests
     export CLEO_VERSION="1.0.0-test"
@@ -40,11 +40,11 @@ teardown_file() {
 # =============================================================================
 
 @test "json-output.sh exists" {
-    [ -f "$LIB_DIR/json-output.sh" ]
+    [ -f "$LIB_DIR/core/json-output.sh" ]
 }
 
 @test "json-output.sh can be sourced" {
-    run bash -c "source '$LIB_DIR/json-output.sh'"
+    run bash -c "source '$LIB_DIR/core/json-output.sh'"
     assert_success
 }
 
@@ -60,7 +60,7 @@ teardown_file() {
 }
 
 @test "source guard prevents double loading" {
-    run bash -c "source '$LIB_DIR/json-output.sh'; source '$LIB_DIR/json-output.sh'"
+    run bash -c "source '$LIB_DIR/core/json-output.sh'; source '$LIB_DIR/core/json-output.sh'"
     assert_success
 }
 

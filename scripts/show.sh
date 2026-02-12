@@ -20,30 +20,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source libraries
 LIB_DIR="${SCRIPT_DIR}/../lib"
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-  source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+  source "$LIB_DIR/core/logging.sh"
 fi
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  source "$LIB_DIR/core/output-format.sh"
 fi
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source error JSON library
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source hierarchy library
-if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
-  # shellcheck source=../lib/hierarchy.sh
-  source "$LIB_DIR/hierarchy.sh"
+if [[ -f "$LIB_DIR/tasks/hierarchy.sh" ]]; then
+  # shellcheck source=../lib/tasks/hierarchy.sh
+  source "$LIB_DIR/tasks/hierarchy.sh"
 fi
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # Colors (respects NO_COLOR and FORCE_COLOR environment variables)
 if declare -f should_use_color >/dev/null 2>&1 && should_use_color; then
@@ -545,8 +545,8 @@ display_text() {
       v_round=$(echo "$verification" | jq -r '.round // 0')
 
       # Source verification.sh if available
-      if [[ -f "$LIB_DIR/verification.sh" ]]; then
-        source "$LIB_DIR/verification.sh"
+      if [[ -f "$LIB_DIR/validation/verification.sh" ]]; then
+        source "$LIB_DIR/validation/verification.sh"
         v_status=$(get_verification_status "$verification")
       else
         v_status="unknown"
@@ -671,8 +671,8 @@ display_json() {
     verification=$(echo "$task" | jq '.verification // null')
     if [[ "$verification" != "null" ]]; then
       # Source verification.sh for helper functions
-      if [[ -f "$LIB_DIR/verification.sh" ]]; then
-        source "$LIB_DIR/verification.sh"
+      if [[ -f "$LIB_DIR/validation/verification.sh" ]]; then
+        source "$LIB_DIR/validation/verification.sh"
         local verif_status
         verif_status=$(get_verification_status "$verification")
         local required_gates

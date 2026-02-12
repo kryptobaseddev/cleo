@@ -13,8 +13,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$SCRIPT_DIR/lib/logging.sh" 2>/dev/null || true
-source "$SCRIPT_DIR/lib/token-estimation.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/lib/core/logging.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/lib/metrics/token-estimation.sh" 2>/dev/null || true
 
 # Find project root (where .cleo/config.json exists)
 find_project_root() {

@@ -12,10 +12,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Determine library directory (local dev vs global install)
-if [[ -f "$SCRIPT_DIR/../lib/exit-codes.sh" ]]; then
+if [[ -f "$SCRIPT_DIR/../lib/core/exit-codes.sh" ]]; then
     # Local development (running from scripts/ directory)
     LIB_DIR="$SCRIPT_DIR/../lib"
-elif [[ -f "$CLEO_HOME/lib/exit-codes.sh" ]]; then
+elif [[ -f "$CLEO_HOME/lib/core/exit-codes.sh" ]]; then
     # Global installation
     LIB_DIR="$CLEO_HOME/lib"
 else
@@ -27,10 +27,10 @@ fi
 # DEPENDENCIES
 # ==============================================================================
 
-source "$LIB_DIR/exit-codes.sh"
-source "$LIB_DIR/platform-compat.sh"
-source "$LIB_DIR/flags.sh"
-source "$LIB_DIR/claude-aliases.sh"
+source "$LIB_DIR/core/exit-codes.sh"
+source "$LIB_DIR/core/platform-compat.sh"
+source "$LIB_DIR/ui/flags.sh"
+source "$LIB_DIR/ui/claude-aliases.sh"
 
 # ==============================================================================
 # COMMAND CONFIGURATION

@@ -49,36 +49,36 @@ else
 fi
 
 # Source required libraries
-source "$LIB_DIR/todowrite-integration.sh"
+source "$LIB_DIR/tasks/todowrite-integration.sh"
 
 # Source output formatting library
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  # shellcheck source=../lib/output-format.sh
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  # shellcheck source=../lib/core/output-format.sh
+  source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  # shellcheck source=../lib/error-json.sh
-  source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  # shellcheck source=../lib/core/error-json.sh
+  source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
   # Fallback: source exit codes directly if error-json.sh not available
-  # shellcheck source=../lib/exit-codes.sh
-  source "$LIB_DIR/exit-codes.sh"
+  # shellcheck source=../lib/core/exit-codes.sh
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source validation library for input validation
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-  # shellcheck source=../lib/validation.sh
-  source "$LIB_DIR/validation.sh"
-elif [[ -f "$CLEO_HOME/lib/validation.sh" ]]; then
-  source "$CLEO_HOME/lib/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+  # shellcheck source=../lib/validation/validation.sh
+  source "$LIB_DIR/validation/validation.sh"
+elif [[ -f "$CLEO_HOME/lib/validation/validation.sh" ]]; then
+  source "$CLEO_HOME/lib/validation/validation.sh"
 fi
 
 # Source flags library for standardized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  # shellcheck source=../lib/flags.sh
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  # shellcheck source=../lib/ui/flags.sh
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 # =============================================================================
@@ -170,7 +170,7 @@ EOF
 # Argument Parsing
 # =============================================================================
 parse_args() {
-    # Parse common flags first using lib/flags.sh
+    # Parse common flags first using lib/ui/flags.sh
     init_flag_defaults
     parse_common_flags "$@"
     set -- "${REMAINING_ARGS[@]}"

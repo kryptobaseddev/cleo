@@ -18,8 +18,8 @@ setup() {
     common_setup_per_test
 
     # Source required libraries for file-locking specific tests
-    source "$PROJECT_ROOT/lib/exit-codes.sh"
-    source "$PROJECT_ROOT/lib/file-ops.sh"
+    source "$PROJECT_ROOT/lib/core/exit-codes.sh"
+    source "$PROJECT_ROOT/lib/data/file-ops.sh"
 
     # Create test directory (use BATS temp for isolation)
     TEST_DIR="${BATS_TEST_TMPDIR}/claude-todo-test"
@@ -102,7 +102,7 @@ teardown_file() {
 
     # Second process attempts lock with 1-second timeout
     # This should fail because first lock is still held
-    run timeout 2 bash -c "source '$PROJECT_ROOT/lib/file-ops.sh'; lock_file '$TEST_FILE' lock_fd 1"
+    run timeout 2 bash -c "source '$PROJECT_ROOT/lib/data/file-ops.sh'; lock_file '$TEST_FILE' lock_fd 1"
 
     [ "$status" -ne 0 ]
     [[ "$output" =~ "Failed to acquire lock" ]]
@@ -152,7 +152,7 @@ teardown_file() {
     # Start 5 concurrent writes
     for i in {1..5}; do
         (
-            source "$PROJECT_ROOT/lib/file-ops.sh"
+            source "$PROJECT_ROOT/lib/data/file-ops.sh"
             echo "{\"write\": $i}" | atomic_write "$TEST_FILE"
             echo "Write $i completed" >> "$output_file"
         ) &
@@ -178,13 +178,13 @@ teardown_file() {
 
     # Start concurrent writes to different files
     (
-        source "$PROJECT_ROOT/lib/file-ops.sh"
+        source "$PROJECT_ROOT/lib/data/file-ops.sh"
         echo '{"file": 1}' | atomic_write "$file1"
         echo "File1 completed" >> "$output_file"
     ) &
 
     (
-        source "$PROJECT_ROOT/lib/file-ops.sh"
+        source "$PROJECT_ROOT/lib/data/file-ops.sh"
         echo '{"file": 2}' | atomic_write "$file2"
         echo "File2 completed" >> "$output_file"
     ) &
@@ -209,7 +209,7 @@ teardown_file() {
     # Create a scenario that will fail validation
     # (empty content triggers validation failure)
     # Note: Use printf '' (not echo '') to generate truly empty content (no newline)
-    run bash -c "source '$PROJECT_ROOT/lib/file-ops.sh'; printf '' | atomic_write '$TEST_FILE'"
+    run bash -c "source '$PROJECT_ROOT/lib/data/file-ops.sh'; printf '' | atomic_write '$TEST_FILE'"
 
     [ "$status" -ne 0 ]
 
@@ -231,7 +231,7 @@ teardown_file() {
     # Try to acquire with 2-second timeout (should fail)
     start_time=$(date +%s)
 
-    run bash -c "source '$PROJECT_ROOT/lib/file-ops.sh'; lock_file '$TEST_FILE' lock_fd2 2"
+    run bash -c "source '$PROJECT_ROOT/lib/data/file-ops.sh'; lock_file '$TEST_FILE' lock_fd2 2"
 
     end_time=$(date +%s)
     elapsed=$((end_time - start_time))
@@ -268,7 +268,7 @@ teardown_file() {
     sleep 0.1
 
     # Try to acquire lock (should fail if save_json is using locking)
-    run bash -c "source '$PROJECT_ROOT/lib/file-ops.sh'; lock_file '$TEST_FILE' 1"
+    run bash -c "source '$PROJECT_ROOT/lib/data/file-ops.sh'; lock_file '$TEST_FILE' 1"
 
     # Should fail because save_json has lock
     # Note: This test may pass if save_json completes very quickly
@@ -299,7 +299,7 @@ teardown_file() {
     # Without transaction locking, lost updates may occur
     for i in {1..3}; do
         (
-            source "$PROJECT_ROOT/lib/file-ops.sh"
+            source "$PROJECT_ROOT/lib/data/file-ops.sh"
 
             # Read current file
             current=$(load_json "$todo_file")

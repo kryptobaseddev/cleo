@@ -31,14 +31,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source required libraries
-source "$LIB_DIR/exit-codes.sh"
-source "$LIB_DIR/output-format.sh"
-source "$LIB_DIR/error-json.sh"
-source "$LIB_DIR/sequence.sh"
-source "$LIB_DIR/paths.sh"
+source "$LIB_DIR/core/exit-codes.sh"
+source "$LIB_DIR/core/output-format.sh"
+source "$LIB_DIR/core/error-json.sh"
+source "$LIB_DIR/core/sequence.sh"
+source "$LIB_DIR/core/paths.sh"
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # Get version
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"

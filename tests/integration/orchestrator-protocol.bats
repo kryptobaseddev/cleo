@@ -33,9 +33,9 @@ setup() {
     export ORCH_FIXTURES="${FIXTURES_DIR}/orchestrator"
 
     # Source libraries within test context (they need config.sh which needs TEST_TEMP_DIR)
-    source "${LIB_DIR}/research-manifest.sh"
-    source "${LIB_DIR}/orchestrator-startup.sh"
-    source "${LIB_DIR}/orchestrator-validator.sh"
+    source "${LIB_DIR}/skills/research-manifest.sh"
+    source "${LIB_DIR}/skills/orchestrator-startup.sh"
+    source "${LIB_DIR}/skills/orchestrator-validator.sh"
 }
 
 teardown() {
@@ -870,7 +870,7 @@ EOF
 # =============================================================================
 
 @test "protocol validation: passes for prompt with SUBAGENT PROTOCOL marker" {
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 
     local prompt='You are a research subagent.
 
@@ -889,7 +889,7 @@ Your task: Research authentication patterns.'
 }
 
 @test "protocol validation: passes for prompt with lowercase marker" {
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 
     local prompt='You are a task executor.
 
@@ -905,7 +905,7 @@ Your task: Implement feature X.'
 }
 
 @test "protocol validation: fails for prompt without marker" {
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 
     local prompt='You are a research subagent.
 
@@ -919,7 +919,7 @@ Please write your findings to a file.'
 }
 
 @test "protocol validation: fails for empty prompt" {
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 
     # Should fail validation (exit 2 = EXIT_INVALID_INPUT)
     run orchestrator_verify_protocol_injection ""
@@ -927,7 +927,7 @@ Please write your findings to a file.'
 }
 
 @test "protocol validation: JSON output contains fix instructions on failure" {
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 
     local prompt='No protocol block here.'
 
@@ -951,7 +951,7 @@ Please write your findings to a file.'
 }
 
 @test "protocol validation: JSON output indicates success on valid prompt" {
-    source "${LIB_DIR}/orchestrator-spawn.sh"
+    source "${LIB_DIR}/skills/orchestrator-spawn.sh"
 
     local prompt='## SUBAGENT PROTOCOL
 Some content.'

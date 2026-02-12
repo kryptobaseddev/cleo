@@ -41,60 +41,60 @@ COMMAND_NAME="reopen"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source version library for proper version management
-if [[ -f "$LIB_DIR/version.sh" ]]; then
-    # shellcheck source=../lib/version.sh
-    source "$LIB_DIR/version.sh"
+if [[ -f "$LIB_DIR/core/version.sh" ]]; then
+    # shellcheck source=../lib/core/version.sh
+    source "$LIB_DIR/core/version.sh"
 fi
 
 # Source logging library for should_use_color function
-if [[ -f "$LIB_DIR/logging.sh" ]]; then
-    # shellcheck source=../lib/logging.sh
-    source "$LIB_DIR/logging.sh"
+if [[ -f "$LIB_DIR/core/logging.sh" ]]; then
+    # shellcheck source=../lib/core/logging.sh
+    source "$LIB_DIR/core/logging.sh"
 fi
 
 # Source file operations library for atomic writes with locking
-if [[ -f "$LIB_DIR/file-ops.sh" ]]; then
-    # shellcheck source=../lib/file-ops.sh
-    source "$LIB_DIR/file-ops.sh"
+if [[ -f "$LIB_DIR/data/file-ops.sh" ]]; then
+    # shellcheck source=../lib/data/file-ops.sh
+    source "$LIB_DIR/data/file-ops.sh"
 fi
 
 # Source backup library for unified backup management
-if [[ -f "$LIB_DIR/backup.sh" ]]; then
-    # shellcheck source=../lib/backup.sh
-    source "$LIB_DIR/backup.sh"
+if [[ -f "$LIB_DIR/data/backup.sh" ]]; then
+    # shellcheck source=../lib/data/backup.sh
+    source "$LIB_DIR/data/backup.sh"
 fi
 
 # Source output formatting library for format resolution
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    # shellcheck source=../lib/output-format.sh
-    source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    # shellcheck source=../lib/core/output-format.sh
+    source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library (includes exit-codes.sh)
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
-elif [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
+elif [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
     # Fallback: source exit codes directly
-    # shellcheck source=../lib/exit-codes.sh
-    source "$LIB_DIR/exit-codes.sh"
+    # shellcheck source=../lib/core/exit-codes.sh
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source config library for unified config access
 # IMPORTANT: Must be sourced BEFORE hierarchy.sh so config functions are available
-if [[ -f "$LIB_DIR/config.sh" ]]; then
-    # shellcheck source=../lib/config.sh
-    source "$LIB_DIR/config.sh"
+if [[ -f "$LIB_DIR/core/config.sh" ]]; then
+    # shellcheck source=../lib/core/config.sh
+    source "$LIB_DIR/core/config.sh"
 fi
 
 # Source hierarchy library for child operations
-if [[ -f "$LIB_DIR/hierarchy.sh" ]]; then
-    # shellcheck source=../lib/hierarchy.sh
-    source "$LIB_DIR/hierarchy.sh"
+if [[ -f "$LIB_DIR/tasks/hierarchy.sh" ]]; then
+    # shellcheck source=../lib/tasks/hierarchy.sh
+    source "$LIB_DIR/tasks/hierarchy.sh"
 fi
 
 # Source centralized flag parsing
-source "$LIB_DIR/flags.sh"
+source "$LIB_DIR/ui/flags.sh"
 
 # Fallback exit codes if libraries not loaded
 : "${EXIT_SUCCESS:=0}"

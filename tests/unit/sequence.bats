@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# sequence.bats - Unit tests for task ID sequence system (lib/sequence.sh)
+# sequence.bats - Unit tests for task ID sequence system (lib/core/sequence.sh)
 # =============================================================================
 # Tests the robust task ID generation system that provides O(1) ID generation
 # and prevents ID reuse after archiving.
@@ -27,8 +27,8 @@ setup() {
     PROJECT_ROOT="$(cd "$TEST_FILE_DIR/../.." && pwd)"
 
     # Source required libraries (order matters)
-    source "$PROJECT_ROOT/lib/exit-codes.sh"
-    source "$PROJECT_ROOT/lib/platform-compat.sh"
+    source "$PROJECT_ROOT/lib/core/exit-codes.sh"
+    source "$PROJECT_ROOT/lib/core/platform-compat.sh"
 
     # Use BATS-managed temp directory (auto-cleaned)
     TEST_DIR="${BATS_TEST_TMPDIR}"
@@ -65,7 +65,7 @@ EOF
     cd "$TEST_DIR"
 
     # Source sequence library
-    source "$PROJECT_ROOT/lib/sequence.sh"
+    source "$PROJECT_ROOT/lib/core/sequence.sh"
 }
 
 teardown() {

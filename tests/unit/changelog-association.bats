@@ -2,7 +2,7 @@
 # =============================================================================
 # changelog-association.bats - Unit tests for task association logic
 # =============================================================================
-# Tests populate_release_tasks() function from lib/changelog.sh
+# Tests populate_release_tasks() function from lib/ui/changelog.sh
 # Validates hybrid date+label discovery, epic exclusion, edge cases
 #
 # Task: T2622
@@ -22,9 +22,9 @@ setup() {
     PROJECT_ROOT="$(cd "$TEST_FILE_DIR/../.." && pwd)"
 
     # Source required libraries
-    source "$PROJECT_ROOT/lib/exit-codes.sh"
-    source "$PROJECT_ROOT/lib/platform-compat.sh"
-    source "$PROJECT_ROOT/lib/changelog.sh"
+    source "$PROJECT_ROOT/lib/core/exit-codes.sh"
+    source "$PROJECT_ROOT/lib/core/platform-compat.sh"
+    source "$PROJECT_ROOT/lib/ui/changelog.sh"
 
     # Use BATS-managed temp directory (auto-cleaned)
     TEST_DIR="${BATS_TEST_TMPDIR}"

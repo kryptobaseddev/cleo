@@ -34,7 +34,7 @@ setup() {
     export DELETE_SCRIPT="${SCRIPTS_DIR}/delete.sh"
 
     # Source exit codes for test assertions
-    source "$LIB_DIR/exit-codes.sh"
+    source "$LIB_DIR/core/exit-codes.sh"
 }
 
 teardown() {

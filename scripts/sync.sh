@@ -45,33 +45,33 @@ fi
 # ============================================================================
 
 # Source exit codes library (Layer 0 - Foundation)
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-    # shellcheck source=../lib/exit-codes.sh
-    source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+    # shellcheck source=../lib/core/exit-codes.sh
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
 
 # Source output formatting library
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-    # shellcheck source=../lib/output-format.sh
-    source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+    # shellcheck source=../lib/core/output-format.sh
+    source "$LIB_DIR/core/output-format.sh"
 fi
 
 # Source error JSON library
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    # shellcheck source=../lib/error-json.sh
-    source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    # shellcheck source=../lib/core/error-json.sh
+    source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source validation library for input validation
-if [[ -f "$LIB_DIR/validation.sh" ]]; then
-    # shellcheck source=../lib/validation.sh
-    source "$LIB_DIR/validation.sh"
+if [[ -f "$LIB_DIR/validation/validation.sh" ]]; then
+    # shellcheck source=../lib/validation/validation.sh
+    source "$LIB_DIR/validation/validation.sh"
 fi
 
 # Source flags library for standardized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-    # shellcheck source=../lib/flags.sh
-    source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+    # shellcheck source=../lib/ui/flags.sh
+    source "$LIB_DIR/ui/flags.sh"
 fi
 
 # Fallback exit codes if library not loaded
@@ -398,7 +398,7 @@ main() {
         show_help
     fi
 
-    # Parse global options first using lib/flags.sh
+    # Parse global options first using lib/ui/flags.sh
     init_flag_defaults
     parse_common_flags "$@"
     set -- "${REMAINING_ARGS[@]}"

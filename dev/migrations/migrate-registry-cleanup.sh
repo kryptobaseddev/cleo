@@ -24,10 +24,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source required libraries
-# shellcheck source=lib/paths.sh
-source "$LIB_DIR/paths.sh"
-# shellcheck source=lib/file-ops.sh
-source "$LIB_DIR/file-ops.sh"
+# shellcheck source=lib/core/paths.sh
+source "$LIB_DIR/core/paths.sh"
+# shellcheck source=lib/data/file-ops.sh
+source "$LIB_DIR/data/file-ops.sh"
 
 #=== ARGUMENTS ===================================================
 DRY_RUN=false

@@ -12,7 +12,7 @@
 # - Tree view output
 # - Hierarchy filters (--type, --parent, --children)
 #
-# Reference: lib/hierarchy.sh, HIERARCHY-ENHANCEMENT-SPEC.md
+# Reference: lib/tasks/hierarchy.sh, HIERARCHY-ENHANCEMENT-SPEC.md
 # =============================================================================
 
 setup_file() {
@@ -848,12 +848,12 @@ create_hierarchy_fixture() {
 }
 
 # =============================================================================
-# Hierarchy Validation in lib/hierarchy.sh Tests
+# Hierarchy Validation in lib/tasks/hierarchy.sh Tests
 # =============================================================================
 
 @test "validate_task_type accepts valid types" {
     # Source the library directly for function tests
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_task_type "epic"
     assert_success
@@ -866,7 +866,7 @@ create_hierarchy_fixture() {
 }
 
 @test "validate_task_type rejects invalid types" {
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_task_type "invalid"
     assert_failure
@@ -879,7 +879,7 @@ create_hierarchy_fixture() {
 }
 
 @test "validate_task_size accepts valid sizes" {
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_task_size "small"
     assert_success
@@ -896,7 +896,7 @@ create_hierarchy_fixture() {
 }
 
 @test "validate_task_size rejects invalid sizes" {
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_task_size "huge"
     assert_failure
@@ -914,7 +914,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Task" --parent T001 --type task > /dev/null
     bash "$ADD_SCRIPT" "Subtask" --parent T002 --type subtask > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     # Epic at root = depth 0
     local epic_depth=$(get_task_depth "T001" "$TODO_FILE")
@@ -936,7 +936,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Child 2" --parent T001 > /dev/null
     bash "$ADD_SCRIPT" "Grandchild" --parent T002 > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local children=$(get_children "T001" "$TODO_FILE")
     # Should contain T002 and T003, not T004
@@ -952,7 +952,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Child 2" --parent T001 > /dev/null
     bash "$ADD_SCRIPT" "Child 3" --parent T001 > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local count=$(count_siblings "T001" "$TODO_FILE")
     [[ "$count" -eq 3 ]]
@@ -962,7 +962,7 @@ create_hierarchy_fixture() {
     create_empty_todo
     bash "$ADD_SCRIPT" "Parent" > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_parent_exists "T001" "$TODO_FILE"
     assert_success
@@ -971,7 +971,7 @@ create_hierarchy_fixture() {
 @test "validate_parent_exists fails for non-existent parent" {
     create_empty_todo
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_parent_exists "T999" "$TODO_FILE"
     assert_failure
@@ -982,7 +982,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Epic" --type epic > /dev/null
     bash "$ADD_SCRIPT" "Task" --parent T001 --type task > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_parent_type "T001" "$TODO_FILE"
     assert_success
@@ -997,7 +997,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Task" --parent T001 --type task > /dev/null
     bash "$ADD_SCRIPT" "Subtask" --parent T002 --type subtask > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     run validate_parent_type "T003" "$TODO_FILE"
     assert_failure
@@ -1007,7 +1007,7 @@ create_hierarchy_fixture() {
     create_empty_todo
     bash "$ADD_SCRIPT" "Epic" --type epic > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local inferred=$(infer_task_type "T001" "$TODO_FILE")
     [[ "$inferred" == "task" ]]
@@ -1018,7 +1018,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Epic" --type epic > /dev/null
     bash "$ADD_SCRIPT" "Task" --parent T001 --type task > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local inferred=$(infer_task_type "T002" "$TODO_FILE")
     [[ "$inferred" == "subtask" ]]
@@ -1037,14 +1037,14 @@ create_hierarchy_fixture() {
     jq '.tasks += [{"id": "T002", "title": "Orphan", "description": "orphan desc", "status": "pending", "priority": "medium", "parentId": "T999", "createdAt": "2025-12-01T10:00:00Z"}]' "$TODO_FILE" > "${TODO_FILE}.tmp"
     mv "${TODO_FILE}.tmp" "$TODO_FILE"
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local orphans=$(detect_orphans "$TODO_FILE")
     [[ "$orphans" == *"T002"* ]]
 }
 
 @test "circular reference detection prevents self-reference" {
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     create_empty_todo
     bash "$ADD_SCRIPT" "Task" > /dev/null
@@ -1061,7 +1061,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Task 2" --parent T001 --type task > /dev/null
     bash "$ADD_SCRIPT" "Subtask" --parent T002 --type subtask > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local descendants=$(get_descendants "T001" "$TODO_FILE")
     # Should include T002, T003, T004
@@ -1076,7 +1076,7 @@ create_hierarchy_fixture() {
     bash "$ADD_SCRIPT" "Task" --parent T001 --type task > /dev/null
     bash "$ADD_SCRIPT" "Subtask" --parent T002 --type subtask > /dev/null
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local chain=$(get_parent_chain "T003" "$TODO_FILE")
     # T003's parent is T002, T002's parent is T001
@@ -1097,7 +1097,7 @@ create_hierarchy_fixture() {
     jq '.tasks += [{"id": "T002", "title": "Orphan", "description": "orphan desc", "status": "pending", "priority": "medium", "parentId": "T999", "createdAt": "2025-12-01T10:00:00Z"}]' "$TODO_FILE" > "${TODO_FILE}.tmp"
     mv "${TODO_FILE}.tmp" "$TODO_FILE"
 
-    source "$LIB_DIR/hierarchy.sh"
+    source "$LIB_DIR/tasks/hierarchy.sh"
 
     local orphans=$(detect_orphans "$TODO_FILE")
     [[ "$orphans" == *"T002"* ]]

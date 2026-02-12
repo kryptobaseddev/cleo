@@ -35,10 +35,10 @@ setup() {
     mkdir -p "$TEST_DIR/project-c/.cleo"
 
     # Source Nexus libraries
-    source "$LIB_DIR/nexus-registry.sh"
-    source "$LIB_DIR/nexus-query.sh"
-    source "$LIB_DIR/nexus-permissions.sh"
-    source "$LIB_DIR/nexus-deps.sh"
+    source "$LIB_DIR/data/nexus-registry.sh"
+    source "$LIB_DIR/data/nexus-query.sh"
+    source "$LIB_DIR/data/nexus-permissions.sh"
+    source "$LIB_DIR/data/nexus-deps.sh"
 
     # Load multi-project fixture helper
     source "$BATS_TEST_DIRNAME/../fixtures/nexus/setup-multi-project.sh"

@@ -16,10 +16,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEO_HOME="${CLEO_HOME:-$HOME/.cleo}"
 
 # Source paths.sh for path resolution functions
-if [[ -f "$CLEO_HOME/lib/paths.sh" ]]; then
-    source "$CLEO_HOME/lib/paths.sh"
-elif [[ -f "$SCRIPT_DIR/../lib/paths.sh" ]]; then
-    source "$SCRIPT_DIR/../lib/paths.sh"
+if [[ -f "$CLEO_HOME/lib/core/paths.sh" ]]; then
+    source "$CLEO_HOME/lib/core/paths.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/core/paths.sh" ]]; then
+    source "$SCRIPT_DIR/../lib/core/paths.sh"
 fi
 
 # Source version from central location
@@ -40,13 +40,13 @@ if [[ -n "${_INIT_LOGGING_SOURCED:-}" ]]; then
     :
 else
     # Source library functions
-    if [[ -f "$CLEO_HOME/lib/logging.sh" ]]; then
-        source "$CLEO_HOME/lib/logging.sh"
+    if [[ -f "$CLEO_HOME/lib/core/logging.sh" ]]; then
+        source "$CLEO_HOME/lib/core/logging.sh"
         _INIT_LOGGING_SOURCED=true
     fi
 fi
 
-# Always define console logging functions (lib/logging.sh provides task logging, not console output)
+# Always define console logging functions (lib/core/logging.sh provides task logging, not console output)
 log_info()    { echo "[INFO] $1"; }
 log_warn()    { echo "[WARN] $1" >&2; }
 log_success() { echo "[SUCCESS] $1"; }
@@ -55,16 +55,16 @@ type -t log_error &>/dev/null || log_error() { echo "[ERROR] $1" >&2; }
 
 # Optional: source other libraries if needed (with guards)
 if [[ -z "${_INIT_FILE_OPS_SOURCED:-}" ]]; then
-    [[ -f "$CLEO_HOME/lib/file-ops.sh" ]] && source "$CLEO_HOME/lib/file-ops.sh" && _INIT_FILE_OPS_SOURCED=true || true
+    [[ -f "$CLEO_HOME/lib/data/file-ops.sh" ]] && source "$CLEO_HOME/lib/data/file-ops.sh" && _INIT_FILE_OPS_SOURCED=true || true
 fi
 if [[ -z "${_INIT_VALIDATION_SOURCED:-}" ]]; then
-    [[ -f "$CLEO_HOME/lib/validation.sh" ]] && source "$CLEO_HOME/lib/validation.sh" && _INIT_VALIDATION_SOURCED=true || true
+    [[ -f "$CLEO_HOME/lib/validation/validation.sh" ]] && source "$CLEO_HOME/lib/validation/validation.sh" && _INIT_VALIDATION_SOURCED=true || true
 fi
 if [[ -z "${_INIT_BACKUP_SOURCED:-}" ]]; then
-    [[ -f "$CLEO_HOME/lib/backup.sh" ]] && source "$CLEO_HOME/lib/backup.sh" && _INIT_BACKUP_SOURCED=true || true
+    [[ -f "$CLEO_HOME/lib/data/backup.sh" ]] && source "$CLEO_HOME/lib/data/backup.sh" && _INIT_BACKUP_SOURCED=true || true
 fi
 if [[ -z "${_INIT_AGENTS_INSTALL_SOURCED:-}" ]]; then
-    [[ -f "$CLEO_HOME/lib/agents-install.sh" ]] && source "$CLEO_HOME/lib/agents-install.sh" && _INIT_AGENTS_INSTALL_SOURCED=true || true
+    [[ -f "$CLEO_HOME/lib/skills/agents-install.sh" ]] && source "$CLEO_HOME/lib/skills/agents-install.sh" && _INIT_AGENTS_INSTALL_SOURCED=true || true
 fi
 
 # Defaults
@@ -81,28 +81,28 @@ DETECT_MODE=false
 
 # Source required libraries for LLM-Agent-First compliance
 LIB_DIR="$CLEO_HOME/lib"
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-    source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+    source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-    source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+    source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source output formatting and error libraries
 LIB_DIR="$CLEO_HOME/lib"
-if [[ -f "$LIB_DIR/output-format.sh" ]]; then
-  source "$LIB_DIR/output-format.sh"
+if [[ -f "$LIB_DIR/core/output-format.sh" ]]; then
+  source "$LIB_DIR/core/output-format.sh"
 fi
-if [[ -f "$LIB_DIR/exit-codes.sh" ]]; then
-  source "$LIB_DIR/exit-codes.sh"
+if [[ -f "$LIB_DIR/core/exit-codes.sh" ]]; then
+  source "$LIB_DIR/core/exit-codes.sh"
 fi
-if [[ -f "$LIB_DIR/error-json.sh" ]]; then
-  source "$LIB_DIR/error-json.sh"
+if [[ -f "$LIB_DIR/core/error-json.sh" ]]; then
+  source "$LIB_DIR/core/error-json.sh"
 fi
 
 # Source centralized flag parsing
-if [[ -f "$LIB_DIR/flags.sh" ]]; then
-  source "$LIB_DIR/flags.sh"
+if [[ -f "$LIB_DIR/ui/flags.sh" ]]; then
+  source "$LIB_DIR/ui/flags.sh"
 fi
 
 usage() {
@@ -368,15 +368,15 @@ fi
 # Run detection mode if requested
 if [[ "$DETECT_MODE" == true ]]; then
     # Source project detection library
-    if [[ -f "$CLEO_HOME/lib/project-detect.sh" ]]; then
-        source "$CLEO_HOME/lib/project-detect.sh"
-    elif [[ -f "$SCRIPT_DIR/../lib/project-detect.sh" ]]; then
-        source "$SCRIPT_DIR/../lib/project-detect.sh"
+    if [[ -f "$CLEO_HOME/lib/data/project-detect.sh" ]]; then
+        source "$CLEO_HOME/lib/data/project-detect.sh"
+    elif [[ -f "$SCRIPT_DIR/../lib/data/project-detect.sh" ]]; then
+        source "$SCRIPT_DIR/../lib/data/project-detect.sh"
     else
         if [[ "$FORMAT" == "json" ]] && declare -f output_error &>/dev/null; then
             output_error "$E_FILE_NOT_FOUND" "Project detection library not found" "${EXIT_FILE_ERROR:-4}" true "Ensure CLEO is properly installed"
         else
-            log_error "Project detection library not found at $CLEO_HOME/lib/project-detect.sh"
+            log_error "Project detection library not found at $CLEO_HOME/lib/data/project-detect.sh"
         fi
         exit "${EXIT_FILE_ERROR:-4}"
     fi
@@ -559,8 +559,8 @@ if _project_initialized; then
         fi
 
         # Source injection library
-        if [[ -f "$CLEO_HOME/lib/injection.sh" ]]; then
-            source "$CLEO_HOME/lib/injection.sh"
+        if [[ -f "$CLEO_HOME/lib/ui/injection.sh" ]]; then
+            source "$CLEO_HOME/lib/ui/injection.sh"
 
             result=$(injection_update_all ".")
             updated=$(echo "$result" | jq -r '.updated')
@@ -609,7 +609,7 @@ if _project_initialized; then
                 exit 0
             fi
         else
-            log_error "Injection library not found at $CLEO_HOME/lib/injection.sh"
+            log_error "Injection library not found at $CLEO_HOME/lib/ui/injection.sh"
             exit 1
         fi
     fi
@@ -861,10 +861,10 @@ fi
 export SCHEMA_DIR="$SCHEMAS_DIR"
 
 # Source migrate.sh for get_schema_version_from_file() function
-if [[ -f "$CLEO_HOME/lib/migrate.sh" ]]; then
-  source "$CLEO_HOME/lib/migrate.sh"
-elif [[ -f "$SCRIPT_DIR/../lib/migrate.sh" ]]; then
-  source "$SCRIPT_DIR/../lib/migrate.sh"
+if [[ -f "$CLEO_HOME/lib/data/migrate.sh" ]]; then
+  source "$CLEO_HOME/lib/data/migrate.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/data/migrate.sh" ]]; then
+  source "$SCRIPT_DIR/../lib/data/migrate.sh"
 else
   log_error "migrate.sh not found - cannot extract schema versions"
   exit 1
@@ -1049,7 +1049,7 @@ if declare -f init_migrations_journal &>/dev/null; then
     log_warn "Failed to create migrations.json (migration tracking will be unavailable)"
   fi
 else
-  log_warn "init_migrations_journal function not available (ensure lib/migrate.sh is sourced)"
+  log_warn "init_migrations_journal function not available (ensure lib/data/migrate.sh is sourced)"
 fi
 
 # Generate project-context.json if detection mode was used
@@ -1126,15 +1126,15 @@ fi
 # Initialize task ID sequence file (v0.52.0)
 # Provides O(1) ID generation and prevents ID reuse after archive
 log_info "Initializing task ID sequence..."
-if [[ -f "$CLEO_HOME/lib/sequence.sh" ]]; then
-  source "$CLEO_HOME/lib/sequence.sh"
+if [[ -f "$CLEO_HOME/lib/core/sequence.sh" ]]; then
+  source "$CLEO_HOME/lib/core/sequence.sh"
   if init_sequence; then
     log_info "✓ Sequence file initialized"
   else
     log_warn "Failed to initialize sequence file (ID generation will use legacy scanning)"
   fi
-elif [[ -f "$SCRIPT_DIR/../lib/sequence.sh" ]]; then
-  source "$SCRIPT_DIR/../lib/sequence.sh"
+elif [[ -f "$SCRIPT_DIR/../lib/core/sequence.sh" ]]; then
+  source "$SCRIPT_DIR/../lib/core/sequence.sh"
   if init_sequence; then
     log_info "✓ Sequence file initialized"
   else
@@ -1151,8 +1151,8 @@ fi
 # - GLOBAL: ~/.claude/CLAUDE.md, ~/.gemini/GEMINI.md (via templates/CLEO-INJECTION.md)
 # - PROJECT: CLAUDE.md, AGENTS.md, GEMINI.md (via templates/AGENT-INJECTION.md)
 
-if [[ -f "$CLEO_HOME/lib/agent-registry.sh" ]]; then
-  source "$CLEO_HOME/lib/agent-registry.sh"
+if [[ -f "$CLEO_HOME/lib/skills/agent-registry.sh" ]]; then
+  source "$CLEO_HOME/lib/skills/agent-registry.sh"
 
   # Initialize counters
   global_updated=0
@@ -1293,7 +1293,7 @@ ${project_reference}
     log_warn "Failed to load agent registry - agent docs not updated"
   fi
 else
-  log_warn "lib/agent-registry.sh not found - agent docs not updated"
+  log_warn "lib/skills/agent-registry.sh not found - agent docs not updated"
 fi
 
 # ==============================================================================
@@ -1320,15 +1320,15 @@ if declare -f install_agents &>/dev/null; then
     log_warn "Agent installation failed (agents may not be available)"
   fi
 else
-  log_warn "lib/agents-install.sh not found - agents not installed"
+  log_warn "lib/skills/agents-install.sh not found - agents not installed"
 fi
 
 # Register project in global registry using HYBRID MODEL
 # Creates: 1) Minimal entry in global registry, 2) Detailed per-project file
 register_project() {
     # Source required libraries
-    [[ -f "$CLEO_HOME/lib/project-registry.sh" ]] && source "$CLEO_HOME/lib/project-registry.sh"
-    [[ -f "$CLEO_HOME/lib/migrate.sh" ]] && source "$CLEO_HOME/lib/migrate.sh"
+    [[ -f "$CLEO_HOME/lib/data/project-registry.sh" ]] && source "$CLEO_HOME/lib/data/project-registry.sh"
+    [[ -f "$CLEO_HOME/lib/data/migrate.sh" ]] && source "$CLEO_HOME/lib/data/migrate.sh"
 
     local project_hash project_path project_name registry timestamp
     local todo_version config_version archive_version log_version
@@ -1489,11 +1489,11 @@ else
 fi
 
 # Check/setup Claude Code statusline integration for context monitoring
-if [[ -f "$LIB_DIR/statusline-setup.sh" ]] || [[ -f "$CLEO_HOME/lib/statusline-setup.sh" ]]; then
-    if [[ -f "$LIB_DIR/statusline-setup.sh" ]]; then
-        source "$LIB_DIR/statusline-setup.sh"
+if [[ -f "$LIB_DIR/session/statusline-setup.sh" ]] || [[ -f "$CLEO_HOME/lib/session/statusline-setup.sh" ]]; then
+    if [[ -f "$LIB_DIR/session/statusline-setup.sh" ]]; then
+        source "$LIB_DIR/session/statusline-setup.sh"
     else
-        source "$CLEO_HOME/lib/statusline-setup.sh"
+        source "$CLEO_HOME/lib/session/statusline-setup.sh"
     fi
 
     echo ""

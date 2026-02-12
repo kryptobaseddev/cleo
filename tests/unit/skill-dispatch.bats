@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# skill-dispatch.bats - Unit tests for lib/skill-dispatch.sh
+# skill-dispatch.bats - Unit tests for lib/skills/skill-dispatch.sh
 # =============================================================================
 # Tests skill dispatch, selection, matching, and injection functions.
 # =============================================================================
@@ -213,7 +213,7 @@ MOCK
 
     # Source the library from test location (sets correct paths)
     cd "$CLEO_REPO_ROOT"
-    source "$CLEO_REPO_ROOT/lib/skill-dispatch.sh"
+    source "$CLEO_REPO_ROOT/lib/skills/skill-dispatch.sh"
 
     # Create a wrapper script for skill_prepare_spawn that re-sources the library
     # in the subshell (needed because bash associative arrays like _TI_CLEO_DEFAULTS
@@ -221,7 +221,7 @@ MOCK
     cat > "$CLEO_REPO_ROOT/bin/skill_prepare_spawn_wrapper" << 'WRAPPER'
 #!/usr/bin/env bash
 cd "$CLEO_REPO_ROOT"
-source "$CLEO_REPO_ROOT/lib/skill-dispatch.sh" 2>/dev/null
+source "$CLEO_REPO_ROOT/lib/skills/skill-dispatch.sh" 2>/dev/null
 # Disable set -e inherited from sourced library so we can capture failures
 set +e
 # Capture stdout and stderr separately
