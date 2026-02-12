@@ -24,6 +24,19 @@ import {
   getVersion as nativeGetVersion,
   resolveProjectRoot,
   isProjectInitialized,
+  // CAAMP adapter
+  providerList,
+  providerGet,
+  providerDetect,
+  providerInstalled,
+  mcpList as caampMcpList,
+  mcpListAll as caampMcpListAll,
+  mcpInstall as caampMcpInstall,
+  mcpRemove as caampMcpRemove,
+  injectionCheck as caampInjectionCheck,
+  injectionCheckAll as caampInjectionCheckAll,
+  injectionUpdate as caampInjectionUpdate,
+  injectionUpdateAll as caampInjectionUpdateAll,
 } from '../engine/index.js';
 import { createCLIRequiredError, createNotInitializedError } from '../lib/mode-detector.js';
 
@@ -299,6 +312,54 @@ interface SystemUncancelParams {
   dryRun?: boolean;
 }
 
+// CAAMP operation parameter interfaces
+interface ProviderGetParams {
+  idOrAlias: string;
+}
+
+interface McpListParams {
+  providerId: string;
+  scope: 'project' | 'global';
+  projectDir?: string;
+}
+
+interface McpInstallParams {
+  providerId: string;
+  serverName: string;
+  config: Record<string, unknown>;
+  scope?: 'project' | 'global';
+  projectDir?: string;
+}
+
+interface McpRemoveParams {
+  providerId: string;
+  serverName: string;
+  scope: 'project' | 'global';
+  projectDir?: string;
+}
+
+interface InjectionCheckParams {
+  filePath: string;
+  expectedContent?: string;
+}
+
+interface InjectionUpdateParams {
+  filePath: string;
+  content: string;
+}
+
+interface InjectionCheckAllParams {
+  projectDir: string;
+  scope: 'project' | 'global';
+  expectedContent?: string;
+}
+
+interface InjectionUpdateAllParams {
+  projectDir: string;
+  scope: 'project' | 'global';
+  content: string;
+}
+
 export class SystemHandler implements DomainHandler {
   private jobManager?: BackgroundJobManager;
   private executionMode: ResolvedMode;
@@ -415,6 +476,20 @@ export class SystemHandler implements DomainHandler {
           return this.getArchiveStats(params as SystemArchiveStatsParams, startTime);
         case 'sequence':
           return this.getSequence(params as SystemSequenceParams, startTime);
+        // CAAMP provider operations
+        case 'provider.list':
+          return this.wrapNativeResult(providerList(), 'query', operation, startTime);
+        case 'provider.get': {
+          const p = params as unknown as ProviderGetParams;
+          if (!p?.idOrAlias) {
+            return this.createErrorResponse('query', 'system', operation, 'E_INVALID_INPUT', 'idOrAlias parameter is required', startTime);
+          }
+          return this.wrapNativeResult(providerGet(p.idOrAlias), 'query', operation, startTime);
+        }
+        case 'provider.detect':
+          return this.wrapNativeResult(providerDetect(), 'query', operation, startTime);
+        case 'provider.installed':
+          return this.wrapNativeResult(providerInstalled(), 'query', operation, startTime);
         default:
           return this.createErrorResponse(
             'query',
@@ -471,6 +546,64 @@ export class SystemHandler implements DomainHandler {
           return this.mutateSafestop(params as SystemSafestopParams, startTime);
         case 'uncancel':
           return this.mutateUncancel(params as unknown as SystemUncancelParams, startTime);
+        // CAAMP MCP config operations
+        case 'mcp.list': {
+          const p = params as unknown as McpListParams;
+          if (!p?.providerId || !p?.scope) {
+            return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'providerId and scope are required', startTime);
+          }
+          const result = await caampMcpList(p.providerId, p.scope, p.projectDir);
+          return this.wrapNativeResult(result, 'mutate', operation, startTime);
+        }
+        case 'mcp.install': {
+          const p = params as unknown as McpInstallParams;
+          if (!p?.providerId || !p?.serverName || !p?.config) {
+            return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'providerId, serverName, and config are required', startTime);
+          }
+          const result = await caampMcpInstall(p.providerId, p.serverName, p.config as any, p.scope, p.projectDir);
+          return this.wrapNativeResult(result, 'mutate', operation, startTime);
+        }
+        case 'mcp.remove': {
+          const p = params as unknown as McpRemoveParams;
+          if (!p?.providerId || !p?.serverName || !p?.scope) {
+            return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'providerId, serverName, and scope are required', startTime);
+          }
+          const result = await caampMcpRemove(p.providerId, p.serverName, p.scope, p.projectDir);
+          return this.wrapNativeResult(result, 'mutate', operation, startTime);
+        }
+        // CAAMP injection operations
+        case 'injection.check': {
+          const p = params as unknown as InjectionCheckParams;
+          if (!p?.filePath) {
+            return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'filePath is required', startTime);
+          }
+          const result = await caampInjectionCheck(p.filePath, p.expectedContent);
+          return this.wrapNativeResult(result, 'mutate', operation, startTime);
+        }
+        case 'injection.checkAll': {
+          const p = params as unknown as InjectionCheckAllParams;
+          if (!p?.projectDir || !p?.scope) {
+            return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'projectDir and scope are required', startTime);
+          }
+          const result = await caampInjectionCheckAll(p.projectDir, p.scope, p.expectedContent);
+          return this.wrapNativeResult(result, 'mutate', operation, startTime);
+        }
+        case 'injection.update': {
+          const p = params as unknown as InjectionUpdateParams;
+          if (!p?.filePath || !p?.content) {
+            return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'filePath and content are required', startTime);
+          }
+          const result = await caampInjectionUpdate(p.filePath, p.content);
+          return this.wrapNativeResult(result, 'mutate', operation, startTime);
+        }
+        case 'injection.updateAll': {
+          const p = params as unknown as InjectionUpdateAllParams;
+          if (!p?.projectDir || !p?.scope || !p?.content) {
+            return this.createErrorResponse('mutate', 'system', operation, 'E_INVALID_INPUT', 'projectDir, scope, and content are required', startTime);
+          }
+          const result = await caampInjectionUpdateAll(p.projectDir, p.scope, p.content);
+          return this.wrapNativeResult(result, 'mutate', operation, startTime);
+        }
         default:
           return this.createErrorResponse(
             'mutate',
@@ -488,8 +621,21 @@ export class SystemHandler implements DomainHandler {
 
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['context', 'metrics', 'health', 'config', 'diagnostics', 'version', 'help', 'doctor', 'config.get', 'stats', 'job.status', 'job.list', 'dash', 'roadmap', 'labels', 'compliance', 'log', 'archive-stats', 'sequence'],
-      mutate: ['backup', 'restore', 'migrate', 'cleanup', 'audit', 'init', 'config.set', 'sync', 'job.cancel', 'safestop', 'uncancel'],
+      query: [
+        'context', 'metrics', 'health', 'config', 'diagnostics', 'version', 'help', 'doctor',
+        'config.get', 'stats', 'job.status', 'job.list', 'dash', 'roadmap', 'labels',
+        'compliance', 'log', 'archive-stats', 'sequence',
+        // CAAMP provider queries
+        'provider.list', 'provider.get', 'provider.detect', 'provider.installed',
+      ],
+      mutate: [
+        'backup', 'restore', 'migrate', 'cleanup', 'audit', 'init', 'config.set', 'sync',
+        'job.cancel', 'safestop', 'uncancel',
+        // CAAMP MCP config
+        'mcp.list', 'mcp.install', 'mcp.remove',
+        // CAAMP injection
+        'injection.check', 'injection.checkAll', 'injection.update', 'injection.updateAll',
+      ],
     };
   }
 
