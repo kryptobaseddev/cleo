@@ -4,6 +4,23 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.93.0] - 2026-02-12
+
+### Features
+- feat(mcp): Install @cleocode/caamp@^0.3.0 - 88 typed API exports for provider/skills/injection (T4332)
+- feat(mcp): P0 CAAMP adapter - provider registry, MCP config, injection operations (T4332)
+
+### Refactoring (T4344)
+- refactor: Reorganize lib/ into 10 semantic subdirectories (Track A complete)
+  - core/ (11), validation/ (11), session/ (8), tasks/ (17), skills/ (17), data/ (17), ui/ (9), metrics/ (6), release/ (5)
+  - All source references updated across 296 files
+  - lib/README.md navigation guide created
+  - Installer updated for new hierarchy paths
+
+### Dependencies
+- Added: @cleocode/caamp ^0.3.0 (provider registry, MCP config, skills, injection)
+- Node.js engine bumped to >=20
+
 ## [0.92.1] - 2026-02-12
 
 ### Fixes (T4334)
