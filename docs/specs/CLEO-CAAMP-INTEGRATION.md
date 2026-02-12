@@ -12,12 +12,13 @@ CAAMP (Common Agent/AI Management Protocol) provides CLEO with a TypeScript foun
 
 ## Current State
 
-- **Package**: @cleocode/caamp@0.1.0
+- **Package**: @cleocode/caamp@^0.3.0
 - **GitHub**: https://github.com/kryptobaseddev/caamp
 - **npm**: https://www.npmjs.com/package/@cleocode/caamp
 - **Integration status**: Not yet started (0/102 functions migrated)
-- **CAAMP exported symbols**: 75 (22 types + 49 functions + 1 class + 3 class methods)
+- **CAAMP exported symbols**: 88 (22+ types + 61 functions + 1 class + 3 class methods)
 - **CLEO functions cataloged**: 150 total (102 CAAMP-replaceable + 48 CLEO-only)
+- **Node engine**: >=20 (required by CAAMP v0.3.0)
 
 ---
 

@@ -13,7 +13,7 @@ task: "T4332"
 **Task**: T4332
 **Date**: 2026-02-11
 **Status**: Complete
-**Context**: Post-v0.91.0 (MCP Native Engine shipped), CAAMP v0.2.0 unreleased on npm
+**Context**: Post-v0.91.0 (MCP Native Engine shipped), CAAMP v0.3.0 live on npm
 
 ---
 
@@ -25,7 +25,7 @@ The CLEO-CAAMP Integration spec catalogs 191 functions across CLEO's Bash codeba
 
 - The MCP native engine and CAAMP are **complementary, not competing**. They cover entirely different domains with zero functional overlap.
 - **0 of the 131 pending functions are addressed by the native engine.** The engine covers task CRUD, sessions, config, and validation -- domains that were always CLEO-only. CAAMP covers provider registry, MCP config management, skills lifecycle, and instruction injection -- domains the engine does not touch.
-- **All 131 pending CAAMP functions are blocked** on T4341 (CAAMP v0.2.0 npm publish).
+- **All 131 pending CAAMP functions are now UNBLOCKED** -- T4341 resolved, CAAMP v0.3.0 published to npm (88 exports, Node >=20).
 - Only **~20 functions are P0** for MCP-first agent workflow. The rest support the Bash-to-TypeScript migration (Track A/B) or are nice-to-have.
 
 ---
@@ -34,7 +34,7 @@ The CLEO-CAAMP Integration spec catalogs 191 functions across CLEO's Bash codeba
 
 ### 2.1 Domain Mapping
 
-| Domain | MCP Native Engine (T4334) | CAAMP v0.2.0 | Overlap |
+| Domain | MCP Native Engine (T4334) | CAAMP v0.3.0 | Overlap |
 |--------|--------------------------|--------------|---------|
 | **Task CRUD** | taskShow, taskList, taskFind, taskCreate, taskUpdate, taskComplete, taskDelete, taskArchive | -- | None |
 | **Sessions** | sessionStart, sessionEnd, sessionStatus, sessionList, focusGet, focusSet, focusClear | -- | None |
@@ -186,10 +186,10 @@ These 60 functions are CLEO-only orchestration logic (skill dispatch, token inje
 
 | Priority | Count | Description | Blocked on CAAMP? |
 |----------|-------|-------------|--------------------|
-| **P0** | 20 | MCP-first agent workflow (provider detection, injection, MCP config) | Yes (T4341) |
+| **P0** | 20 | MCP-first agent workflow (provider detection, injection, MCP config) | **UNBLOCKED** (T4341 resolved, v0.3.0 on npm) |
 | **P1** | 50 | Track A lib/ refactor property accessors | No (Track A proceeds without CAAMP) |
 | **P2** | 0 | Track B manifest hierarchy | No |
-| **P3** | 61 | Full V2 conversion (skills, marketplace, format merges) | Yes (T4341) |
+| **P3** | 61 | Full V2 conversion (skills, marketplace, format merges) | **UNBLOCKED** (T4341 resolved, v0.3.0 on npm) |
 | **N/A** | 60 | CLEO-only orchestration (stays in Bash) | No |
 | **Total** | 191 | | |
 
@@ -197,12 +197,12 @@ These 60 functions are CLEO-only orchestration logic (skill dispatch, token inje
 
 ## 5. Blocker Status
 
-### 5.1 CAAMP v0.2.0 npm Publish (T4341) -- HARD BLOCKER
+### 5.1 CAAMP npm Publish (T4341) -- RESOLVED
 
-- **Status**: v0.2.0 tagged on GitHub (2026-02-11), NOT on npm (only v0.1.0)
-- **Impact**: Blocks ALL 131 CAAMP-dependent functions (P0 + P1 + P3)
-- **Resolution**: Run `npm publish` from the CAAMP repo
-- **Owner**: CAAMP maintainer (same developer)
+- **Status**: RESOLVED. CAAMP v0.3.0 published to npm (2026-02-11). 88 exports, Node >=20.
+- **Impact**: All 131 CAAMP-dependent functions are now UNBLOCKED.
+- **Resolution**: `npm info @cleocode/caamp versions` confirms v0.1.0 and v0.3.0 available.
+- **Next step**: Proceed to T4342 (add `@cleocode/caamp ^0.3.0` to mcp-server/package.json).
 
 ### 5.2 What Can Proceed Without CAAMP
 
@@ -215,28 +215,19 @@ These 60 functions are CLEO-only orchestration logic (skill dispatch, token inje
 | MCP-first injection doc updates | No | Queued |
 | CLEO-only orchestration (dispatch, tokens, protocols) | No | Active in Bash |
 
-### 5.3 What Is Blocked
+### 5.3 What Is Now Unblocked
 
-| Work Item | Blocker | Unblocks |
-|-----------|---------|----------|
-| T4341 (npm publish) | Human action in CAAMP repo | T4342 |
-| T4342 (add caamp dependency) | T4341 | P0 integration, T4343 |
-| T4343 (shared module extraction) | T4342 + T4334 | Reduced duplication |
-| P0 integration (20 functions) | T4342 | Multi-provider MCP workflows |
-| P3 full V2 conversion (61 functions) | T4342 | Complete Bash elimination |
+| Work Item | Previous Blocker | Status |
+|-----------|------------------|--------|
+| T4341 (npm publish) | Human action in CAAMP repo | **RESOLVED** -- v0.3.0 published |
+| T4342 (add caamp dependency) | T4341 | **READY** -- can proceed immediately |
+| T4343 (shared module extraction) | T4342 + T4334 | Unblocked once T4342 completes |
+| P0 integration (20 functions) | T4342 | Unblocked once T4342 completes |
+| P3 full V2 conversion (61 functions) | T4342 | Unblocked once T4342 completes |
 
 ### 5.4 Git Dependency as Interim?
 
-**Question**: Should we use `github:kryptobaseddev/caamp#v0.2.0` as an interim dependency?
-
-**Recommendation: No.** Reasons:
-
-1. **Fragile**: Git dependencies do not benefit from npm's version resolution, lock file determinism, or registry mirroring.
-2. **Build step required**: CAAMP would need to be built from source on every `npm install` (or include dist/ in the git tag).
-3. **Same maintainer**: The CAAMP repo is maintained by the same developer. Publishing to npm is a single command (`npm publish`). The right fix is to unblock T4341, not to work around it.
-4. **Short path**: The npm publish is the fastest unblock. Adding git dependency complexity introduces tech debt for minimal time savings.
-
-**Exception**: If T4341 is blocked for non-technical reasons (e.g., npm account issues, two-factor recovery), then a git dependency with `prepare` script is an acceptable temporary workaround. Track this as a separate task if needed.
+**No longer applicable.** T4341 is resolved -- CAAMP v0.3.0 is published to npm. Use `@cleocode/caamp ^0.3.0` as a standard npm dependency.
 
 ---
 
@@ -295,14 +286,14 @@ Bumping `mcp-server` from `>=18` to `>=20` is recommended regardless of CAAMP:
 
 ## 7. Implementation Roadmap
 
-### 7.1 Phase 0: Unblock (T4341)
+### 7.1 Phase 0: Unblock (T4341) -- COMPLETE
 
-- Publish CAAMP v0.2.0 to npm
-- Verify package integrity: `npm info @cleocode/caamp versions`
+- ~~Publish CAAMP to npm~~ -- DONE: v0.3.0 published (88 exports, Node >=20)
+- ~~Verify package integrity~~ -- DONE: `npm info @cleocode/caamp versions` confirms v0.3.0
 
 ### 7.2 Phase 1: P0 Integration (T4342 + new tasks)
 
-- Add `@cleocode/caamp ^0.2.0` to `mcp-server/package.json`
+- Add `@cleocode/caamp ^0.3.0` to `mcp-server/package.json`
 - Bump engine to `>=20`
 - Create thin adapter: `mcp-server/src/providers/caamp-adapter.ts`
 - Implement P0 functions: provider detection, injection management, MCP config
@@ -343,6 +334,6 @@ The following tasks should be created to track the highest-priority gaps identif
 | CAAMP Dependency Analysis | `claudedocs/agent-outputs/caamp-dependency-analysis.md` |
 | Native Engine | `mcp-server/src/engine/index.ts` |
 | Epic | T4332 |
-| CAAMP npm publish blocker | T4341 |
+| CAAMP npm publish blocker | T4341 (RESOLVED) |
 | CAAMP dependency addition | T4342 |
 | Shared module extraction | T4343 |
