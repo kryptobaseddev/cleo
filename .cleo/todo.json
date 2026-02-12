@@ -751,9 +751,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T21:06:24Z",
+  "lastUpdated": "2026-02-12T21:21:22Z",
   "_meta": {
-    "checksum": "05ec9ca89b4bf8f5",
+    "checksum": "00545c3aed75742f",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -762,7 +762,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2828
+    "generation": 2829
   },
   "focus": {
     "currentTask": null,
@@ -12967,12 +12967,12 @@
     {
       "id": "T4387",
       "title": "Fix complete command arithmetic parsing warnings on auto-complete metadata",
-      "status": "pending",
+      "status": "active",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-12T21:06:24Z",
-      "updatedAt": "2026-02-12T21:06:24Z",
+      "updatedAt": "2026-02-12T21:21:22Z",
       "size": "medium",
       "position": 860,
       "positionVersion": 0,
@@ -12986,6 +12986,9 @@
         "cleo complete runs without arithmetic syntax warnings",
         "auto-complete parent count parsing is robust against multiline values",
         "existing completion behavior remains unchanged"
+      ],
+      "notes": [
+        "2026-02-12 21:21:22 UTC: Starting strict CLI-only RCSD-IVTR execution (no repo source reads)."
       ]
     }
   ],
