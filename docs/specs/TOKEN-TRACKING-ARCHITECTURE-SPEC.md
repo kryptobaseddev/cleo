@@ -66,7 +66,7 @@ File operations tracking was **explicitly rejected** because:
 
 ### 2.2 Data Source
 
-**Primary**: Claude Code context state files (`.cleo/.context-state-session_*.json`)
+**Primary**: Claude Code context state files (`.cleo/context-states/context-state-session_*.json`)
 
 **Schema**:
 ```json
@@ -102,7 +102,7 @@ File operations tracking was **explicitly rejected** because:
 
 # Capture starting token state from context
 local start_tokens=0
-local context_state_file="${CLEO_DIR}/.context-state-${session_id}.json"
+local context_state_file="${CLEO_DIR}/context-states/context-state-${session_id}.json"
 if [[ -f "$context_state_file" ]]; then
     start_tokens=$(jq -r '.contextWindow.currentTokens // 0' "$context_state_file" 2>/dev/null || echo 0)
 fi
@@ -133,7 +133,7 @@ start_metrics=$(jq -n \
 
 # Capture ending token state from context
 local end_tokens=0
-local context_state_file="${CLEO_DIR}/.context-state-${session_id}.json"
+local context_state_file="${CLEO_DIR}/context-states/context-state-${session_id}.json"
 if [[ -f "$context_state_file" ]]; then
     end_tokens=$(jq -r '.contextWindow.currentTokens // 0' "$context_state_file" 2>/dev/null || echo 0)
 fi
@@ -640,4 +640,3 @@ _te_ensure_metrics_dir() {
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-02-01 | Initial specification based on consensus decision |
-

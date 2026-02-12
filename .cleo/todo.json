@@ -727,9 +727,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T20:35:11Z",
+  "lastUpdated": "2026-02-12T20:35:20Z",
   "_meta": {
-    "checksum": "2032628867e28c92",
+    "checksum": "1b393a39170a9565",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -738,7 +738,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2810
+    "generation": 2816
   },
   "focus": {
     "currentTask": null,
@@ -12734,12 +12734,12 @@
     {
       "id": "T4382",
       "title": "Context State Path Unification and Drift Guardrails",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-12T20:32:22Z",
-      "updatedAt": "2026-02-12T20:32:22Z",
+      "updatedAt": "2026-02-12T20:35:20Z",
       "size": "large",
       "position": 858,
       "positionVersion": 0,
@@ -12755,6 +12755,10 @@
         "Doctor reports actionable categorized findings",
         "Legacy and nested context state files auto-migrate",
         "Docs/specs reflect canonical file layout"
+      ],
+      "completedAt": "2026-02-12T20:35:20Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T20:35:20Z] Delivered epic outcomes across path unification, diagnostics hardening, and documentation alignment"
       ]
     },
     {
@@ -12783,17 +12787,32 @@
       "completedAt": "2026-02-12T20:35:11Z",
       "notes": [
         "[COMPLETED 2026-02-12T20:35:11Z] Implemented centralized context path helpers and migrated runtime call sites"
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T20:35:12Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4384",
       "title": "Strengthen session doctor diagnostics and auto-heal",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4382",
       "createdAt": "2026-02-12T20:32:33Z",
-      "updatedAt": "2026-02-12T20:32:33Z",
+      "updatedAt": "2026-02-12T20:35:14Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -12807,17 +12826,36 @@
         "Doctor JSON includes actionable categorized findings",
         "Doctor supports explicit repair mode with repair summary",
         "Warnings include concrete next commands"
-      ]
+      ],
+      "completedAt": "2026-02-12T20:35:14Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T20:35:14Z] Added doctor repair mode findings, actionable warnings, and auto-heal summaries"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T20:35:15Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4385",
       "title": "Align context-related docs/specs with canonical file layout",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4382",
       "createdAt": "2026-02-12T20:32:33Z",
-      "updatedAt": "2026-02-12T20:32:33Z",
+      "updatedAt": "2026-02-12T20:35:17Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -12831,7 +12869,26 @@
         "No docs describe .cleo/.context-state-<sessionId>.json as primary path",
         "Context safeguard guide includes canonical layout table",
         "Docs mention doctor repair for drift remediation"
-      ]
+      ],
+      "completedAt": "2026-02-12T20:35:17Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T20:35:17Z] Updated guides and specs to canonical context-states layout and repair workflow"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T20:35:18Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}

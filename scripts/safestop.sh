@@ -18,15 +18,43 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source libraries
 source "$LIB_DIR/core/exit-codes.sh"
+[[ -f "$LIB_DIR/core/paths.sh" ]] && source "$LIB_DIR/core/paths.sh"
 [[ -f "$LIB_DIR/core/output-format.sh" ]] && source "$LIB_DIR/core/output-format.sh"
 [[ -f "$LIB_DIR/core/error-json.sh" ]] && source "$LIB_DIR/core/error-json.sh"
 [[ -f "$LIB_DIR/ui/flags.sh" ]] && source "$LIB_DIR/ui/flags.sh"
 
-TODO_DIR="${TODO_DIR:-.cleo}"
+TODO_DIR="${TODO_DIR:-$(get_cleo_dir 2>/dev/null || echo '.cleo')}"
 TODO_FILE="$TODO_DIR/todo.json"
-STATE_FILE="$TODO_DIR/.context-state.json"
 SESSION_FILE="$TODO_DIR/.current-session"
 COMMAND_NAME="safestop"
+
+resolve_state_file() {
+    local session_id=""
+    if [[ -f "$SESSION_FILE" ]]; then
+        session_id=$(cat "$SESSION_FILE" 2>/dev/null | tr -d '\n')
+    fi
+
+    repair_errant_context_state_paths "$TODO_DIR" >/dev/null 2>&1 || true
+
+    if [[ -n "$session_id" ]]; then
+        local session_file
+        session_file=$(get_context_state_file_path "$session_id" "$TODO_DIR")
+        if [[ -f "$session_file" ]]; then
+            echo "$session_file"
+            return 0
+        fi
+
+        local legacy_session_file="$TODO_DIR/.context-state-${session_id}.json"
+        if [[ -f "$legacy_session_file" ]]; then
+            echo "$legacy_session_file"
+            return 0
+        fi
+    fi
+
+    echo "$(get_context_state_file_path "" "$TODO_DIR")"
+}
+
+STATE_FILE="$(resolve_state_file)"
 
 # Initialize flag defaults
 init_flag_defaults 2>/dev/null || true

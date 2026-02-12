@@ -15,6 +15,10 @@ declare -r _CONTEXT_ALERT_LOADED=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/core/output-format.sh"
+# Source paths library for unified path resolution
+if [[ -f "${SCRIPT_DIR}/core/paths.sh" ]]; then
+    source "${SCRIPT_DIR}/core/paths.sh"
+fi
 # Source config library for get_config_value (unified config access)
 if [[ -f "${SCRIPT_DIR}/core/config.sh" ]]; then
     source "${SCRIPT_DIR}/core/config.sh"
@@ -25,10 +29,11 @@ fi
 # ============================================================================
 
 # Alert state file
-ALERT_STATE_FILE="${CLEO_PROJECT_DIR:-.cleo}/.context-alert-state.json"
+_CA_CLEO_DIR="${CLEO_PROJECT_DIR:-$(get_cleo_dir 2>/dev/null || echo '.cleo')}"
+ALERT_STATE_FILE="${_CA_CLEO_DIR}/.context-alert-state.json"
 
 # Config file (preserve existing value if set, for test environments)
-CONFIG_FILE="${CONFIG_FILE:-${CLEO_PROJECT_DIR:-.cleo}/config.json}"
+CONFIG_FILE="${CONFIG_FILE:-${_CA_CLEO_DIR}/config.json}"
 
 # Thresholds (percentage of context window)
 # Note: Using export + readonly for subshell access (BATS run, etc.)
@@ -57,7 +62,7 @@ get_current_session_id() {
     fi
 
     # Fall back to .current-session file
-    local session_file="${CLEO_PROJECT_DIR:-.cleo}/.current-session"
+    local session_file="${CLEO_PROJECT_DIR:-$(get_cleo_dir 2>/dev/null || echo '.cleo')}/.current-session"
     if [[ -f "$session_file" ]]; then
         cat "$session_file" 2>/dev/null | tr -d '\n'
         return 0
@@ -75,24 +80,10 @@ get_current_session_id() {
 # Returns: Path to the context state file (may not exist)
 get_context_state_path() {
     local session_id="${1:-$(get_current_session_id)}"
-    local cleo_dir="${CLEO_PROJECT_DIR:-.cleo}"
-    local project_root="${cleo_dir%/.cleo}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir 2>/dev/null || echo '.cleo')}"
 
-    # Get config values with defaults
-    local context_dir filename_pattern
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
-    filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
-
-    local full_dir="${project_root}/${context_dir}"
-
-    if [[ -n "$session_id" ]]; then
-        # Replace {sessionId} placeholder with actual session ID
-        local filename="${filename_pattern//\{sessionId\}/$session_id}"
-        echo "${full_dir}/${filename}"
-    else
-        # Fallback to singleton in .cleo directory (legacy behavior)
-        echo "${cleo_dir}/.context-state.json"
-    fi
+    repair_errant_context_state_paths "$cleo_dir" >/dev/null 2>&1 || true
+    get_context_state_file_path "$session_id" "$cleo_dir"
 }
 
 # read_context_state - Read the current context state file
@@ -104,7 +95,9 @@ get_context_state_path() {
 # Outputs: JSON content to stdout
 read_context_state() {
     local session_id="${1:-$(get_current_session_id)}"
-    local cleo_dir="${CLEO_PROJECT_DIR:-.cleo}"
+    local cleo_dir="${CLEO_PROJECT_DIR:-$(get_cleo_dir 2>/dev/null || echo '.cleo')}"
+    local cleo_dir_abs
+    cleo_dir_abs=$(get_cleo_dir_absolute "$cleo_dir")
 
     # Get the state file path from config-based location
     local state_file
@@ -114,7 +107,7 @@ read_context_state() {
     if [[ ! -f "$state_file" ]]; then
         # Try legacy flat file pattern (.cleo/.context-state-{sessionId}.json)
         if [[ -n "$session_id" ]]; then
-            local legacy_file="${cleo_dir}/.context-state-${session_id}.json"
+            local legacy_file="${cleo_dir_abs}/.context-state-${session_id}.json"
             if [[ -f "$legacy_file" ]]; then
                 state_file="$legacy_file"
             fi
@@ -123,7 +116,7 @@ read_context_state() {
 
     # Try singleton fallback
     if [[ ! -f "$state_file" ]]; then
-        state_file="${cleo_dir}/.context-state.json"
+        state_file="${cleo_dir_abs}/.context-state.json"
     fi
 
     if [[ ! -f "$state_file" ]]; then

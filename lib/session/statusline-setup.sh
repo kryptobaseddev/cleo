@@ -46,7 +46,8 @@ check_statusline_integration() {
     # Check if it's the CLEO statusline or includes CLEO integration
     if [[ "$statusline_cmd" == *"context-monitor.sh"* ]] || \
        [[ "$statusline_cmd" == *"cleo-statusline"* ]] || \
-       [[ "$statusline_cmd" == *".context-state.json"* ]]; then
+       [[ "$statusline_cmd" == *".context-state.json"* ]] || \
+       [[ "$statusline_cmd" == *"context-states"* ]]; then
         return 0  # CLEO integration configured
     fi
 
@@ -231,13 +232,43 @@ _write_cleo_state() {
         [[ $pct -ge 85 ]] && [[ $pct -lt 90 ]] && status="caution"
         [[ $pct -ge 70 ]] && [[ $pct -lt 85 ]] && status="warning"
 
-        # Determine state file: session-specific if CLEO session active, else global
+        # Determine canonical state location from config
+        local project_root="${cleo_dir%/.cleo}"
+        local context_dir_rel=".cleo/context-states"
+        local filename_pattern="context-state-{sessionId}.json"
+        if [[ -f "$cleo_dir/config.json" ]]; then
+            context_dir_rel=$(jq -r '.contextStates.directory // ".cleo/context-states"' "$cleo_dir/config.json" 2>/dev/null || echo ".cleo/context-states")
+            filename_pattern=$(jq -r '.contextStates.filenamePattern // "context-state-{sessionId}.json"' "$cleo_dir/config.json" 2>/dev/null || echo "context-state-{sessionId}.json")
+        fi
+
+        local context_dir=""
+        if [[ "$context_dir_rel" == /* ]]; then
+            context_dir="$context_dir_rel"
+        else
+            context_dir="$project_root/${context_dir_rel#./}"
+        fi
+
+        # Migrate errant nested path created by older patch logic
+        local nested_dir="$cleo_dir/.cleo/context-states"
+        if [[ -d "$nested_dir" ]]; then
+            mkdir -p "$context_dir" 2>/dev/null || true
+            local stale_file
+            for stale_file in "$nested_dir"/context-state-*.json; do
+                [[ -f "$stale_file" ]] || continue
+                mv -f "$stale_file" "$context_dir/$(basename "$stale_file")" 2>/dev/null || true
+            done
+            rmdir "$nested_dir" 2>/dev/null || true
+            rmdir "$cleo_dir/.cleo" 2>/dev/null || true
+        fi
+
         local state_file="$cleo_dir/.context-state.json"
         local session_id=""
         if [[ -f "$cleo_dir/.current-session" ]]; then
             session_id=$(cat "$cleo_dir/.current-session" 2>/dev/null | tr -d '"'"'"'\n')
             if [[ -n "$session_id" ]]; then
-                state_file="$cleo_dir/.context-state-${session_id}.json"
+                local filename="${filename_pattern//\{sessionId\}/$session_id}"
+                mkdir -p "$context_dir" 2>/dev/null || true
+                state_file="$context_dir/$filename"
             fi
         fi
 

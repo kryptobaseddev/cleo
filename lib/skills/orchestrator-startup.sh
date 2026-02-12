@@ -643,6 +643,8 @@ _os_get_context_state() {
     local session_id="${1:-}"
     local cleo_dir
     cleo_dir=$(get_cleo_dir)
+    local cleo_dir_abs
+    cleo_dir_abs=$(get_cleo_dir_absolute "$cleo_dir")
 
     # If no session specified, try to get current session
     if [[ -z "$session_id" ]]; then
@@ -652,28 +654,26 @@ _os_get_context_state() {
         fi
     fi
 
-    # Get context state path (uses config-based directory)
-    local context_dir filename_pattern state_file project_root
-    context_dir=$(get_config_value "contextStates.directory" ".cleo/context-states")
-    filename_pattern=$(get_config_value "contextStates.filenamePattern" "context-state-{sessionId}.json")
-    project_root="${cleo_dir%/.cleo}"
+    # Get context state path (uses unified path helpers)
+    local state_file
+
+    repair_errant_context_state_paths "$cleo_dir" >/dev/null 2>&1 || true
 
     # Initialize state_file to empty string (will be set below)
     state_file=""
 
     if [[ -n "$session_id" ]]; then
-        local filename="${filename_pattern//\{sessionId\}/$session_id}"
-        state_file="${project_root}/${context_dir}/${filename}"
+        state_file=$(get_context_state_file_path "$session_id" "$cleo_dir")
 
         # Fallback to legacy flat file pattern
         if [[ ! -f "$state_file" ]]; then
-            state_file="${cleo_dir}/.context-state-${session_id}.json"
+            state_file="${cleo_dir_abs}/.context-state-${session_id}.json"
         fi
     fi
 
     # Final fallback to singleton
     if [[ -z "$state_file" ]] || [[ ! -f "$state_file" ]]; then
-        state_file="${cleo_dir}/.context-state.json"
+        state_file="${cleo_dir_abs}/.context-state.json"
     fi
 
     if [[ ! -f "$state_file" ]]; then

@@ -32,13 +32,17 @@ source "${_MA_LIB_DIR}/metrics/metrics-enums.sh"
 source "${_MA_LIB_DIR}/metrics/metrics-common.sh"
 # shellcheck source=lib/data/file-ops.sh
 source "${_MA_LIB_DIR}/data/file-ops.sh"
+# shellcheck source=lib/core/paths.sh
+source "${_MA_LIB_DIR}/core/paths.sh"
+# shellcheck source=lib/core/config.sh
+source "${_MA_LIB_DIR}/core/config.sh"
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
 # Project-level metrics directory
-_MA_PROJECT_METRICS_DIR=".cleo/metrics"
+_MA_PROJECT_METRICS_DIR="$(get_cleo_dir)/metrics"
 
 # Global metrics directory
 _MA_GLOBAL_METRICS_DIR="${HOME}/.cleo/metrics"
@@ -765,8 +769,13 @@ capture_session_start_metrics() {
 
     # Get current context state
     local context_state=""
-    local context_file="${_MA_PROJECT_METRICS_DIR}/../context-states/context-state-${session_id}.json"
-    [[ ! -f "$context_file" ]] && context_file="${_MA_PROJECT_METRICS_DIR}/../.context-state.json"
+    local cleo_dir
+    cleo_dir=$(get_cleo_dir)
+    repair_errant_context_state_paths "$cleo_dir" >/dev/null 2>&1 || true
+
+    local context_file
+    context_file=$(get_context_state_file_path "$session_id" "$cleo_dir")
+    [[ ! -f "$context_file" ]] && context_file=$(get_context_state_file_path "" "$cleo_dir")
 
     local start_tokens=0 max_tokens=200000
     if [[ -f "$context_file" ]]; then
@@ -798,8 +807,13 @@ capture_session_end_metrics() {
     timestamp=$(_ma_iso_timestamp)
 
     # Get current context state
-    local context_file="${_MA_PROJECT_METRICS_DIR}/../context-states/context-state-${session_id}.json"
-    [[ ! -f "$context_file" ]] && context_file="${_MA_PROJECT_METRICS_DIR}/../.context-state.json"
+    local cleo_dir
+    cleo_dir=$(get_cleo_dir)
+    repair_errant_context_state_paths "$cleo_dir" >/dev/null 2>&1 || true
+
+    local context_file
+    context_file=$(get_context_state_file_path "$session_id" "$cleo_dir")
+    [[ ! -f "$context_file" ]] && context_file=$(get_context_state_file_path "" "$cleo_dir")
 
     local end_tokens=0
     if [[ -f "$context_file" ]]; then

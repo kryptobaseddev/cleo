@@ -408,9 +408,11 @@ validate_orchestrator_compliance() {
 
     # Context budget check (informational)
     local context_check
-    context_check=$(cat "$(get_cleo_dir)/.context-state.json" 2>/dev/null || echo '{}')
+    local context_file
+    context_file=$(get_context_state_file_path "" "$(get_cleo_dir)")
+    context_check=$(cat "$context_file" 2>/dev/null || echo '{}')
     local current_tokens
-    current_tokens=$(echo "$context_check" | jq -r '.usedTokens // 0')
+    current_tokens=$(echo "$context_check" | jq -r '.contextWindow.currentTokens // .usedTokens // 0')
 
     if [[ "$current_tokens" -gt "$_OV_CONTEXT_BUDGET" ]]; then
         violations+=("CTX_BUDGET_EXCEEDED: Using $current_tokens tokens (budget: $_OV_CONTEXT_BUDGET)")

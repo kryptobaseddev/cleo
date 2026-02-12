@@ -19,36 +19,50 @@ LIB_DIR="${SCRIPT_DIR}/../lib"
 
 # Source libraries
 source "$LIB_DIR/core/exit-codes.sh"
+[[ -f "$LIB_DIR/core/paths.sh" ]] && source "$LIB_DIR/core/paths.sh"
+[[ -f "$LIB_DIR/core/config.sh" ]] && source "$LIB_DIR/core/config.sh"
 [[ -f "$LIB_DIR/core/output-format.sh" ]] && source "$LIB_DIR/core/output-format.sh"
 [[ -f "$LIB_DIR/core/error-json.sh" ]] && source "$LIB_DIR/core/error-json.sh"
 
 # Source centralized flag parsing
 [[ -f "$LIB_DIR/ui/flags.sh" ]] && source "$LIB_DIR/ui/flags.sh"
 
-TODO_DIR="${TODO_DIR:-.cleo}"
+TODO_DIR="${TODO_DIR:-$(get_cleo_dir 2>/dev/null || echo '.cleo')}"
 COMMAND_NAME="context"
 
 # Determine which state file to use (session-specific or global)
 get_state_file() {
     local session_id="${1:-}"
+    local cleo_dir="$TODO_DIR"
 
     # If session specified, use that
     if [[ -n "$session_id" ]]; then
-        echo "$TODO_DIR/.context-state-${session_id}.json"
+        echo "$(get_context_state_file_path "$session_id" "$cleo_dir")"
         return
     fi
 
     # Check for current session binding
     if [[ -f "$TODO_DIR/.current-session" ]]; then
         local current_session=$(cat "$TODO_DIR/.current-session" 2>/dev/null | tr -d '\n')
-        if [[ -n "$current_session" ]] && [[ -f "$TODO_DIR/.context-state-${current_session}.json" ]]; then
-            echo "$TODO_DIR/.context-state-${current_session}.json"
-            return
+        if [[ -n "$current_session" ]]; then
+            local session_file
+            session_file=$(get_context_state_file_path "$current_session" "$cleo_dir")
+            if [[ -f "$session_file" ]]; then
+                echo "$session_file"
+                return
+            fi
+
+            # Legacy fallback for pre-migration files
+            local legacy_session_file="$TODO_DIR/.context-state-${current_session}.json"
+            if [[ -f "$legacy_session_file" ]]; then
+                echo "$legacy_session_file"
+                return
+            fi
         fi
     fi
 
     # Fall back to global state file
-    echo "$TODO_DIR/.context-state.json"
+    echo "$(get_context_state_file_path "" "$cleo_dir")"
 }
 
 STATE_FILE=""  # Set dynamically based on session
@@ -203,13 +217,28 @@ do_check() {
 list_sessions() {
     local format="$1"
     local files=()
-    local data=()
+    local cleo_dir="$TODO_DIR"
+    local canonical_dir
+    canonical_dir=$(get_context_states_directory "$cleo_dir")
 
-    # Find all context state files
-    for f in "$TODO_DIR"/.context-state*.json; do
+    # Find canonical context state files
+    for f in "$canonical_dir"/context-state-*.json; do
         [[ -f "$f" ]] || continue
         files+=("$f")
     done
+
+    # Include legacy context state files at .cleo root
+    for f in "$TODO_DIR"/.context-state-*.json; do
+        [[ -f "$f" ]] || continue
+        files+=("$f")
+    done
+
+    # Include singleton fallback if present
+    local singleton_file
+    singleton_file=$(get_context_state_file_path "" "$cleo_dir")
+    if [[ -f "$singleton_file" ]]; then
+        files+=("$singleton_file")
+    fi
 
     if [[ ${#files[@]} -eq 0 ]]; then
         if [[ "$format" == "json" ]]; then
@@ -287,6 +316,7 @@ main() {
     done
 
     # Set state file based on session
+    repair_errant_context_state_paths "$TODO_DIR" >/dev/null 2>&1 || true
     STATE_FILE=$(get_state_file "$session_id")
 
     # Resolve format with TTY-aware defaults
