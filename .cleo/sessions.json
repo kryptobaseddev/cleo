@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-12T01:51:24Z",
-    "totalSessionsCreated": 620
+    "lastModified": "2026-02-12T02:18:47Z",
+    "totalSessionsCreated": 621
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35873,6 +35873,53 @@
       "startMetrics": {
         "session_id": "session_20260211_171422_023d1a",
         "start_timestamp": "2026-02-12T01:14:22Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      }
+    },
+    {
+      "id": "session_20260211_181847_3feeee",
+      "status": "active",
+      "name": "P3-P4-Sprint-Planning",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4334",
+        "computedTaskIds": [
+          "T4334",
+          "T4335",
+          "T4336",
+          "T4337",
+          "T4338",
+          "T4339"
+        ]
+      },
+      "focus": {
+        "currentTask": "T4338",
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4338",
+            "timestamp": "2026-02-12T02:18:47Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-12T02:18:47Z",
+      "lastActivity": "2026-02-12T02:18:47Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260211_181847_3feeee",
+        "start_timestamp": "2026-02-12T02:18:47Z",
         "start_tokens": 0,
         "max_tokens": 200000
       }
