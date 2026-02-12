@@ -4,6 +4,12 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.93.4] - 2026-02-12
+
+### Bug Fixes
+- Fix release ship wiping planned release task links (T4386)
+
+
 ## [0.93.3] - 2026-02-12
 
 ### Fixes
