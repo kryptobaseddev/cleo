@@ -694,9 +694,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T01:15:13Z",
+  "lastUpdated": "2026-02-12T01:15:47Z",
   "_meta": {
-    "checksum": "a56080e897c374cf",
+    "checksum": "25934c077e0d03dd",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -705,7 +705,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2751
+    "generation": 2752
   },
   "focus": {
     "currentTask": "T4345",
@@ -11603,14 +11603,15 @@
       "type": "task",
       "parentId": "T4332",
       "createdAt": "2026-02-11T23:34:43Z",
-      "updatedAt": "2026-02-12T01:15:10Z",
+      "updatedAt": "2026-02-12T01:15:47Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
       "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers.",
       "notes": [
-        "2026-02-12 01:15:10 UTC: RESOLVED: @cleocode/caamp v0.3.0 published to npm. Installed in mcp-server."
+        "2026-02-12 01:15:10 UTC: RESOLVED: @cleocode/caamp v0.3.0 published to npm. Installed in mcp-server.",
+        "2026-02-12 01:15:47 UTC: RESOLVED: CAAMP v0.3.0 published to npm (was only v0.1.0). Blocker cleared. 88 exports, Node >=20."
       ]
     },
     {

@@ -105827,11 +105827,46 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log_5fef01923e10",
+      "timestamp": "2026-02-12T01:15:48Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4341",
+      "before": {
+        "title": "Publish @cleocode/caamp v0.2.0 to npm",
+        "status": "pending",
+        "priority": "medium",
+        "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Publish @cleocode/caamp v0.2.0 to npm",
+        "status": "pending",
+        "priority": "medium",
+        "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers.",
+        "phase": "core",
+        "labels": null,
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5501,
-    "lastEntry": "2026-02-12T01:15:13Z",
+    "totalEntries": 5502,
+    "lastEntry": "2026-02-12T01:15:48Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
