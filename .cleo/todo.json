@@ -694,21 +694,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T00:23:06Z",
+  "lastUpdated": "2026-02-12T01:15:13Z",
   "_meta": {
-    "checksum": "40d7e891a64a9577",
+    "checksum": "a56080e897c374cf",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-12T01:14:22Z",
+    "lastModified": "2026-02-12T01:14:28Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2749
+    "generation": 2751
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T4345",
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -11367,7 +11367,7 @@
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-11T22:06:11Z",
-      "updatedAt": "2026-02-11T23:46:31Z",
+      "updatedAt": "2026-02-12T01:15:13Z",
       "size": "medium",
       "position": 849,
       "positionVersion": 0,
@@ -11380,7 +11380,8 @@
         "npm"
       ],
       "notes": [
-        "2026-02-11 23:46:31 UTC: Gap analysis complete (2026-02-11). Key findings: (1) MCP native engine and CAAMP are COMPLEMENTARY with zero overlap - engine covers tasks/sessions/config, CAAMP covers providers/skills/injection. (2) 0 of 131 pending functions addressed by native engine. (3) Priority triage: P0=20 functions (provider detection, injection, MCP config), P1=50 (property accessors for Track A), P2=0 (Track B independent), P3=61 (skills/marketplace for full V2). (4) HARD BLOCKER: T4341 npm publish blocks all 131 functions. (5) Recommendation: Option A - CAAMP as direct mcp-server dependency. (6) Git dependency workaround NOT recommended. (7) New tasks created: T4367 (CAAMP adapter layer), T4368 (providers MCP domain), T4369 (Node >=20 bump). Full analysis: docs/specs/CAAMP-INTEGRATION-GAP-ANALYSIS.md"
+        "2026-02-11 23:46:31 UTC: Gap analysis complete (2026-02-11). Key findings: (1) MCP native engine and CAAMP are COMPLEMENTARY with zero overlap - engine covers tasks/sessions/config, CAAMP covers providers/skills/injection. (2) 0 of 131 pending functions addressed by native engine. (3) Priority triage: P0=20 functions (provider detection, injection, MCP config), P1=50 (property accessors for Track A), P2=0 (Track B independent), P3=61 (skills/marketplace for full V2). (4) HARD BLOCKER: T4341 npm publish blocks all 131 functions. (5) Recommendation: Option A - CAAMP as direct mcp-server dependency. (6) Git dependency workaround NOT recommended. (7) New tasks created: T4367 (CAAMP adapter layer), T4368 (providers MCP domain), T4369 (Node >=20 bump). Full analysis: docs/specs/CAAMP-INTEGRATION-GAP-ANALYSIS.md",
+        "2026-02-12 01:15:13 UTC: CAAMP v0.3.0 installed in mcp-server. 88 exports verified. Node engine bumped to >=20."
       ],
       "files": [
         "docs/specs/CAAMP-INTEGRATION-GAP-ANALYSIS.md"
@@ -11602,12 +11603,15 @@
       "type": "task",
       "parentId": "T4332",
       "createdAt": "2026-02-11T23:34:43Z",
-      "updatedAt": "2026-02-11T23:34:43Z",
+      "updatedAt": "2026-02-12T01:15:10Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
       "phase": "core",
-      "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers."
+      "description": "v0.2.0 is tagged and released on GitHub (2026-02-11) but NOT published to npm. Run npm publish from the caamp repo to make it installable. Blocker for all downstream consumers.",
+      "notes": [
+        "2026-02-12 01:15:10 UTC: RESOLVED: @cleocode/caamp v0.3.0 published to npm. Installed in mcp-server."
+      ]
     },
     {
       "id": "T4342",
@@ -11674,7 +11678,7 @@
       "type": "task",
       "parentId": "T4344",
       "createdAt": "2026-02-11T23:36:01Z",
-      "updatedAt": "2026-02-12T01:14:22Z",
+      "updatedAt": "2026-02-12T01:14:28Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
