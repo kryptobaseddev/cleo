@@ -1,0 +1,32 @@
+{
+  "epicId": "T4352",
+  "title": "Manifest Hierarchy + Path Query Engine",
+  "stages": {
+    "research": {
+      "status": "completed",
+      "completedAt": "2026-01-29T00:00:00Z",
+      "artifacts": [
+        "claudedocs/agent-outputs/T2748-unified-recommendations.md"
+      ],
+      "notes": "Research conducted under T2748 (archived). Recommendation: proceed with hierarchy fields in MANIFEST.jsonl."
+    },
+    "consensus": {
+      "status": "completed",
+      "completedAt": "2026-01-29T00:00:00Z",
+      "artifacts": [
+        "claudedocs/agent-outputs/T2746-folder-reorg-consensus.md"
+      ],
+      "notes": "Consensus reached in T2746: manifest hierarchy approach approved with 0.85 confidence."
+    },
+    "specification": {
+      "status": "pending",
+      "notes": "T4353 (Wave 0) will produce the manifest hierarchy schema extension specification."
+    },
+    "decomposition": {
+      "status": "completed",
+      "completedAt": "2026-02-11T00:00:00Z",
+      "artifacts": [],
+      "notes": "Decomposed into 9 tasks (T4353-T4365) across 6 execution waves."
+    }
+  }
+}

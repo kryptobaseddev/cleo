@@ -4,48 +4,48 @@
   "projectHash": "85f1cc25bb9f",
   "name": "claude-todo",
   "registeredAt": "2026-01-22T16:49:07Z",
-  "lastUpdated": "2026-02-11T04:22:45Z",
-  "cleoVersion": "0.77.4",
+  "lastUpdated": "2026-02-11T20:32:35Z",
+  "cleoVersion": "0.90.3",
   "schemas": {
     "todo": {
       "version": "2.10.0",
-      "lastMigrated": "2026-02-01T05:43:36Z"
+      "lastMigrated": "2026-02-11T20:32:35Z"
     },
     "config": {
       "version": "2.10.0",
-      "lastMigrated": "2026-02-01T05:43:36Z"
+      "lastMigrated": "2026-02-11T20:32:35Z"
     },
     "archive": {
       "version": "2.4.0",
-      "lastMigrated": "2026-02-01T05:43:36Z"
+      "lastMigrated": "2026-02-11T20:32:35Z"
     },
     "log": {
       "version": "2.4.0",
-      "lastMigrated": "2026-02-01T05:43:36Z"
+      "lastMigrated": "2026-02-11T20:32:35Z"
     }
   },
   "injection": {
     "CLAUDE.md": {
       "status": "current",
-      "lastUpdated": "2026-02-01T05:43:36Z"
+      "lastUpdated": "2026-02-11T20:32:35Z"
     },
     "AGENTS.md": {
       "status": "current",
-      "lastUpdated": "2026-02-01T05:43:36Z"
+      "lastUpdated": "2026-02-11T20:32:35Z"
     },
     "GEMINI.md": {
       "status": "current",
-      "lastUpdated": "2026-02-01T05:43:36Z"
+      "lastUpdated": "2026-02-11T20:32:35Z"
     }
   },
   "health": {
-    "status": "error",
-    "lastCheck": "2026-02-11T04:22:45Z",
+    "status": "healthy",
+    "lastCheck": "2026-02-11T20:32:35Z",
     "issues": [
       {
-        "severity": "error",
-        "code": "VALIDATION_FAILED",
-        "message": "Validation: [ERROR] Found 152 orphaned tasks (parentId references missing parent)"
+        "severity": "warning",
+        "code": "GENERAL_ISSUE",
+        "message": "Features out of sync (run 'cleo upgrade' to fix)"
       }
     ],
     "history": []
