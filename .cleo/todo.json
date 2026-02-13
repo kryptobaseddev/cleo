@@ -910,9 +910,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T06:05:13Z",
+  "lastUpdated": "2026-02-13T15:47:31Z",
   "_meta": {
-    "checksum": "0fa742309d149d6f",
+    "checksum": "699bbdae05f3a103",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -921,7 +921,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2960
+    "generation": 2961
   },
   "focus": {
     "currentTask": null,
@@ -12318,12 +12318,12 @@
     {
       "id": "T4353",
       "title": "Design manifest hierarchy schema extension",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:37:10Z",
-      "updatedAt": "2026-02-11T23:37:10Z",
+      "updatedAt": "2026-02-13T15:47:31Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -12332,6 +12332,10 @@
       "labels": [
         "manifest",
         "specification"
+      ],
+      "completedAt": "2026-02-13T15:47:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T15:47:31Z] Schema extension with 5 hierarchy fields (parentId, epicId, path, depth, childCount) added to research-manifest.schema.json. Spec written to docs/specs/MANIFEST-HIERARCHY-SCHEMA-SPEC.md with invariants, path format, query patterns, and migration strategy."
       ]
     },
     {
@@ -14931,6 +14935,276 @@
         "lastUpdated": "2026-02-13T06:05:13Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4454",
+      "title": "EPIC: CLEO V2 Full TypeScript System (LAFS-native)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T15:46:00Z",
+      "updatedAt": "2026-02-13T15:46:00Z",
+      "size": "medium",
+      "position": 877,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Master epic for the full CLEO V2 TypeScript rewrite with LAFS baked in from day one. Two parallel tracks: Track MCP (expand native engine 29→130 ops) and Track CLI (T2021 ungated, Commander.js full rewrite). CAAMP (@cleocode/caamp v0.3.0) as canonical package manager. Convergence plan merges both tracks into single TypeScript core."
+    },
+    {
+      "id": "T4455",
+      "title": "V2-P1: TypeScript project structure and build system (esbuild, Vitest)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:17Z",
+      "updatedAt": "2026-02-13T15:46:17Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Set up the foundational TypeScript project structure: src/commands/, src/core/, src/types/, src/schemas/. Configure esbuild for bundling, Vitest for testing, tsconfig strict mode. Package.json with Commander.js, Zod, Ajv dependencies."
+    },
+    {
+      "id": "T4456",
+      "title": "V2-P1: Core types, exit codes, LAFS output format",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:18Z",
+      "updatedAt": "2026-02-13T15:46:18Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Define core TypeScript types: ExitCode enum (72 codes), LAFS envelope type (success/result/error/_meta), TaskRecord, SessionRecord, ConfigRecord. Implement LAFS-compliant output formatter with JSON default, human-readable opt-in. Map CLEO exit codes to LAFS error taxonomy."
+    },
+    {
+      "id": "T4457",
+      "title": "V2-P1: Atomic file operations (write-file-atomic, proper-lockfile)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:20Z",
+      "updatedAt": "2026-02-13T15:46:20Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port atomic file operations to TypeScript using write-file-atomic and proper-lockfile. Implement temp-file→validate→backup→rename pattern. File locking, backup rotation, concurrent access safety. Must match Bash store.ts guarantees."
+    },
+    {
+      "id": "T4458",
+      "title": "V2-P1: Config engine and path resolution",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:22Z",
+      "updatedAt": "2026-02-13T15:46:22Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port config engine: .cleo/config.json read/write, path resolution (project root detection, data paths), schema version management. Support XDG paths on Linux, Application Support on macOS, AppData on Windows."
+    },
+    {
+      "id": "T4459",
+      "title": "LAFS Protocol conformance gap analysis and remediation plan",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4334",
+      "createdAt": "2026-02-13T15:46:23Z",
+      "updatedAt": "2026-02-13T15:46:23Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Research LAFS (LLM-Agent-First Specification) protocol requirements and produce a gap analysis comparing CLEO's current envelope format, error model, transport layer, and agent interaction patterns against LAFS L1/L2/L3 conformance levels. Output: conformance percentage per level, top gaps, remediation roadmap mapped to V2 phases."
+    },
+    {
+      "id": "T4460",
+      "title": "V2-P2: Port add/list/show/find commands to Commander.js",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:37Z",
+      "updatedAt": "2026-02-13T15:46:37Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implement core read/write task commands in Commander.js CLI: add (task creation with validation), list (filterable task listing), show (full task details), find (fuzzy search). All must return LAFS-compliant envelopes.",
+      "depends": [
+        "T4455",
+        "T4456",
+        "T4457",
+        "T4458"
+      ]
+    },
+    {
+      "id": "T4461",
+      "title": "V2-P2: Port complete/update/delete/archive commands",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:39Z",
+      "updatedAt": "2026-02-13T15:46:39Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implement task lifecycle mutation commands: complete (with hierarchy cascade), update (fields, notes, status transitions), delete (with dependent check), archive (done tasks cleanup). Anti-hallucination validation on all mutations.",
+      "depends": [
+        "T4455",
+        "T4456",
+        "T4457",
+        "T4458"
+      ]
+    },
+    {
+      "id": "T4462",
+      "title": "V2-P2: Port focus command group",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:42Z",
+      "updatedAt": "2026-02-13T15:46:42Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implement focus management: focus set (set active task), focus show (current focus), focus clear (remove focus), focus history. Session-aware focus tracking with proper lock management.",
+      "depends": [
+        "T4455",
+        "T4456",
+        "T4457",
+        "T4458"
+      ]
+    },
+    {
+      "id": "T4463",
+      "title": "V2-P2: Port session management (start/end/status/resume)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:46:45Z",
+      "updatedAt": "2026-02-13T15:46:45Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implement full session lifecycle: start (with scope and auto-focus), end (with notes), status (current session details), resume (reactivate ended session), list (all sessions with pagination). Session file locking and concurrent access safety.",
+      "depends": [
+        "T4455",
+        "T4456",
+        "T4457",
+        "T4458"
+      ]
+    },
+    {
+      "id": "T4464",
+      "title": "V2-P3: Port phase commands and dependency graph",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:03Z",
+      "updatedAt": "2026-02-13T15:47:03Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port phase management (set, show, advance, list) and dependency graph operations (deps, depends, blockers, tree). Implement single-pass dependency computation (no O(n) subprocess spawning). Graph visualization support.",
+      "depends": [
+        "T4460",
+        "T4461"
+      ]
+    },
+    {
+      "id": "T4465",
+      "title": "V2-P3: Port research commands and manifest operations",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:05Z",
+      "updatedAt": "2026-02-13T15:47:05Z",
+      "size": "medium",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port research subsystem: init, list, show, inject, link, manifest.append, manifest.read, compact, validate. Four-gate manifest validation (syntax, schema, business, atomicity). MANIFEST.jsonl management with proper locking.",
+      "depends": [
+        "T4460",
+        "T4461"
+      ]
+    },
+    {
+      "id": "T4466",
+      "title": "V2-P3: Port orchestration and skill dispatch",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:07Z",
+      "updatedAt": "2026-02-13T15:47:07Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port orchestrator commands: status, next, ready, analyze, waves, spawn, validate. Skill dispatch pipeline: auto-dispatch, prepare-spawn, token resolution. Agent registry for subagent tracking. Protocol stack (base + 9 conditional protocols).",
+      "depends": [
+        "T4460",
+        "T4461",
+        "T4463"
+      ]
+    },
+    {
+      "id": "T4467",
+      "title": "V2-P3: Port lifecycle and release commands",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:09Z",
+      "updatedAt": "2026-02-13T15:47:09Z",
+      "size": "medium",
+      "position": 12,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port RCSD-IVTR lifecycle: check, status, gates, prerequisites, progress, skip, reset. Release workflow: create, plan, ship, changelog, tag. Lifecycle gate enforcement (strict/advisory/off modes). Semver validation.",
+      "depends": [
+        "T4460",
+        "T4461"
+      ]
+    },
+    {
+      "id": "T4468",
+      "title": "V2-P3: Port migration system and schema versioning",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:11Z",
+      "updatedAt": "2026-02-13T15:47:11Z",
+      "size": "medium",
+      "position": 13,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port schema migration engine: version detection, migration discovery, sequential migration execution. Support semver-based migration functions. Schema version single source of truth from schema files. Backward compatibility with existing data.",
+      "depends": [
+        "T4457",
+        "T4458"
+      ]
     }
   ],
   "labels": {}
