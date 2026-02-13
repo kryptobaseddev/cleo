@@ -777,21 +777,12 @@
         "notes": "Hotfix: fix CI test failures from v0.94.0 issues domain addition",
         "gitTag": "v0.94.1",
         "changelog": "## [0.94.1] - 2026-02-12\n\n### Other Changes\n- Fix v0.94.0 CI test failures for issues domain (T4429)"
-      },
-      {
-        "version": "v0.99.0-test",
-        "status": "planned",
-        "targetDate": null,
-        "releasedAt": null,
-        "createdAt": "2026-02-13T03:10:29Z",
-        "tasks": [],
-        "notes": "test release"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T03:10:29Z",
+  "lastUpdated": "2026-02-13T03:30:22Z",
   "_meta": {
-    "checksum": "4d685e245a702b70",
+    "checksum": "e2ffea03b16cef19",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -800,7 +791,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2888
+    "generation": 2889
   },
   "focus": {
     "currentTask": null,
@@ -14163,6 +14154,25 @@
         "lastUpdated": "2026-02-13T02:52:43Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4430",
+      "title": "Fix MCP issues handler missing dryRun passthrough",
+      "status": "done",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4412",
+      "createdAt": "2026-02-13T03:30:01Z",
+      "updatedAt": "2026-02-13T03:30:22Z",
+      "size": "medium",
+      "position": 17,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "The issues domain handler in mcp-server/src/domains/issues.ts ignores the dryRun parameter, causing real GitHub issues to be created. Add dryRun to IssueCreateParams and pass --dry-run to CLI. Fixes GitHub #25.",
+      "completedAt": "2026-02-13T03:30:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T03:30:22Z] Added dryRun to IssueCreateParams interface and --dry-run flag passthrough in handleCreateIssue. Filed GitHub #25."
+      ]
     }
   ],
   "labels": {}
