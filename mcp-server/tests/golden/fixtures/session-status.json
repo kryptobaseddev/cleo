@@ -1,0 +1,19 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/response.schema.json",
+  "_meta": {
+    "format": "json",
+    "version": "__DYNAMIC__",
+    "command": "session",
+    "subcommand": "status",
+    "timestamp": "__DYNAMIC__"
+  },
+  "success": true,
+  "session": {
+    "id": "__DYNAMIC__",
+    "name": "golden-test-session",
+    "scope": "epic:T0001",
+    "started": "__DYNAMIC__",
+    "status": "active",
+    "focus": null
+  }
+}

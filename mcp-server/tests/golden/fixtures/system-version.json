@@ -1,0 +1,12 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/response.schema.json",
+  "_meta": {
+    "format": "json",
+    "version": "__DYNAMIC__",
+    "command": "version",
+    "timestamp": "__DYNAMIC__"
+  },
+  "success": true,
+  "version": "__DYNAMIC__",
+  "schemaVersion": "__DYNAMIC__"
+}

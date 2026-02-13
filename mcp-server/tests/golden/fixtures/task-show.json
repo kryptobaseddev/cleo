@@ -1,0 +1,19 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/response.schema.json",
+  "_meta": {
+    "format": "json",
+    "version": "__DYNAMIC__",
+    "command": "show",
+    "timestamp": "__DYNAMIC__"
+  },
+  "success": true,
+  "task": {
+    "id": "T0001",
+    "title": "Golden epic",
+    "description": "Epic for golden parity testing",
+    "status": "active",
+    "created": "__DYNAMIC__",
+    "updated": "__DYNAMIC__",
+    "children": ["T0002", "T0003"]
+  }
+}

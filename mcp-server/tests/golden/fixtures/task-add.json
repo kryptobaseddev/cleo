@@ -1,0 +1,18 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/response.schema.json",
+  "_meta": {
+    "format": "json",
+    "version": "__DYNAMIC__",
+    "command": "add",
+    "timestamp": "__DYNAMIC__"
+  },
+  "success": true,
+  "task": {
+    "id": "__DYNAMIC__",
+    "title": "Golden test task",
+    "description": "Task created for golden parity testing",
+    "status": "pending",
+    "created": "__DYNAMIC__",
+    "updated": "__DYNAMIC__"
+  }
+}
