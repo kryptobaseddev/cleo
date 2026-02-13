@@ -829,9 +829,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T04:15:58Z",
+  "lastUpdated": "2026-02-13T04:19:50Z",
   "_meta": {
-    "checksum": "5f93e19a5041b400",
+    "checksum": "39e7cc8e2103eedb",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -840,7 +840,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2915
+    "generation": 2916
   },
   "focus": {
     "currentTask": null,
@@ -14517,6 +14517,51 @@
         "lastUpdated": "2026-02-13T04:05:54Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4439",
+      "title": "Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T04:19:40Z",
+      "updatedAt": "2026-02-13T04:19:50Z",
+      "size": "medium",
+      "position": 873,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "GitHub Issue #20: lifecycle.sh uses EXIT_USAGE throughout (30 references) but the variable was never defined. Combined with set -euo pipefail (the u flag), any code path hitting EXIT_USAGE causes an unbound variable error. Fixed by defining EXIT_USAGE at top of script using the conventional fallback pattern. Maps to exit code 64 (EX_USAGE from sysexits.h).",
+      "labels": [
+        "bug",
+        "fix",
+        "lifecycle"
+      ],
+      "completedAt": "2026-02-13T04:19:50Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T04:19:50Z] Added EXIT_USAGE definition at top of lifecycle.sh. Maps to EXIT_USAGE_ERROR fallback (64). All 30 references now resolve. Syntax verified."
+      ]
+    },
+    {
+      "id": "T4440",
+      "title": "Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T04:19:43Z",
+      "updatedAt": "2026-02-13T04:19:43Z",
+      "size": "medium",
+      "position": 874,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "GitHub Issue #21: MCP server release.prepare and release.publish operations call ./dev/release-version.sh which is a CLEO-internal deprecated script. Users don't have this file in their projects. Fixed by routing prepare through cleo release create + ship --dry-run, and publish through cleo release ship --bump-version --create-tag.",
+      "labels": [
+        "bug",
+        "fix",
+        "mcp",
+        "release"
+      ]
     }
   ],
   "labels": {}
