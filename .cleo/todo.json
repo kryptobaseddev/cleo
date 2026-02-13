@@ -777,12 +777,25 @@
         "notes": "Hotfix: fix CI test failures from v0.94.0 issues domain addition",
         "gitTag": "v0.94.1",
         "changelog": "## [0.94.1] - 2026-02-12\n\n### Other Changes\n- Fix v0.94.0 CI test failures for issues domain (T4429)"
+      },
+      {
+        "version": "v0.94.2",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-13T03:30:44Z",
+        "createdAt": "2026-02-13T03:30:29Z",
+        "tasks": [
+          "T4430"
+        ],
+        "notes": "Fix MCP issues handler dryRun passthrough",
+        "gitTag": "v0.94.2",
+        "changelog": "## [0.94.2] - 2026-02-12\n\n### Other Changes\n- Fix MCP issues handler missing dryRun passthrough (T4430)"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T03:30:22Z",
+  "lastUpdated": "2026-02-13T03:30:44Z",
   "_meta": {
-    "checksum": "e2ffea03b16cef19",
+    "checksum": "5b45683a98e26dc7",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -791,7 +804,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2889
+    "generation": 2893
   },
   "focus": {
     "currentTask": null,
@@ -14172,7 +14185,22 @@
       "completedAt": "2026-02-13T03:30:22Z",
       "notes": [
         "[COMPLETED 2026-02-13T03:30:22Z] Added dryRun to IssueCreateParams interface and --dry-run flag passthrough in handleCreateIssue. Filed GitHub #25."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T03:30:23Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
