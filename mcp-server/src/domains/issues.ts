@@ -20,6 +20,7 @@ interface IssueCreateParams {
   body: string;
   severity?: 'low' | 'medium' | 'high' | 'critical';
   area?: 'cli' | 'mcp' | 'docs' | 'tests' | 'other';
+  dryRun?: boolean;
 }
 
 export class IssuesHandler implements DomainHandler {
@@ -139,6 +140,9 @@ export class IssuesHandler implements DomainHandler {
     }
     if (params.area) {
       args.push('--area', String(params.area));
+    }
+    if (params.dryRun) {
+      args.push('--dry-run');
     }
 
     const flagStr = args

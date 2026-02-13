@@ -108534,11 +108534,49 @@
         "childStrategy": "block",
         "affectedCount": 1
       }
+    },
+    {
+      "id": "log-1770951151-96e190",
+      "timestamp": "2026-02-13T02:52:31Z",
+      "action": "task_created",
+      "taskId": "T4429",
+      "actor": "system",
+      "details": {
+        "title": "Fix v0.94.0 CI test failures for issues domain",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix v0.94.0 CI test failures for issues domain",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_7e3408d11182",
+      "timestamp": "2026-02-13T02:52:44Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4429",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T02:52:43Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5618,
-    "lastEntry": "2026-02-13T02:23:50Z",
+    "totalEntries": 5619,
+    "lastEntry": "2026-02-13T02:52:44Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
