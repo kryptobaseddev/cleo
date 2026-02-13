@@ -108914,11 +108914,31 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_6fb5e111ad9d",
+      "timestamp": "2026-02-13T04:05:54Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4438",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T04:05:53Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5629,
-    "lastEntry": "2026-02-13T04:04:06Z",
+    "totalEntries": 5630,
+    "lastEntry": "2026-02-13T04:05:54Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
