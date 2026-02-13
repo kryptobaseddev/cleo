@@ -30,6 +30,11 @@ source "$LIB_DIR/core/exit-codes.sh"
 # Source lifecycle library
 source "$LIB_DIR/tasks/lifecycle.sh"
 
+# @fix GitHub Issue #20 - EXIT_USAGE was unbound, blocking all lifecycle progression
+# exit-codes.sh defines EXIT_INVALID_INPUT=2 but lifecycle.sh uses EXIT_USAGE throughout.
+# Define it here to match the conventional usage error code (64 = EX_USAGE from sysexits.h)
+EXIT_USAGE="${EXIT_USAGE_ERROR:-64}"
+
 TODO_DIR="${TODO_DIR:-.cleo}"
 COMMAND_NAME="lifecycle"
 

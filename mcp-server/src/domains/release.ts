@@ -331,7 +331,10 @@ export class ReleaseHandler implements DomainHandler {
 
   /**
    * publish - Publish release
-   * CLI: ./dev/release-version.sh <type> [--push]
+   * CLI: cleo release ship <version> --bump-version --create-tag [--push]
+   *
+   * @fix GitHub Issue #21 - was using deprecated ./dev/release-version.sh which
+   *      doesn't exist in user projects. Now routes through cleo release ship.
    */
   private async mutatePublish(params: ReleasePublishParams): Promise<DomainResponse> {
     const startTime = Date.now();
@@ -359,19 +362,63 @@ export class ReleaseHandler implements DomainHandler {
       );
     }
 
-    const args = [params.type];
-    const flags: Record<string, unknown> = { json: true };
+    // Determine version from type - read current VERSION and compute next
+    const versionResult = await this.executor!.execute<{ version: string }>({
+      domain: 'version',
+      operation: '',
+      flags: { json: true },
+    });
+
+    if (!versionResult.success || !versionResult.data?.version) {
+      return this.createErrorResponse(
+        'cleo_mutate',
+        'release',
+        'publish',
+        'E_VERSION_READ_FAILED',
+        'Could not read current version',
+        startTime
+      );
+    }
+
+    const currentParts = versionResult.data.version.replace(/^v/, '').split('.').map(Number);
+    let nextVersion: string;
+    switch (params.type) {
+      case 'major':
+        nextVersion = `v${currentParts[0] + 1}.0.0`;
+        break;
+      case 'minor':
+        nextVersion = `v${currentParts[0]}.${currentParts[1] + 1}.0`;
+        break;
+      case 'patch':
+      default:
+        nextVersion = `v${currentParts[0]}.${currentParts[1]}.${currentParts[2] + 1}`;
+        break;
+    }
+
+    // Create the release entry if it doesn't exist
+    await this.executor!.execute({
+      domain: 'release',
+      operation: 'create',
+      args: [nextVersion],
+      flags: { json: true },
+    });
+
+    // Ship the release
+    const flags: Record<string, unknown> = {
+      json: true,
+      'bump-version': true,
+      'create-tag': true,
+    };
 
     if (params?.push) {
       flags.push = true;
     }
 
     const result = await this.executor!.execute<ReleasePublishResult>({
-      domain: 'release-version',
-      operation: '',
-      args,
+      domain: 'release',
+      operation: 'ship',
+      args: [nextVersion],
       flags,
-      customCommand: './dev/release-version.sh',
     });
 
     return this.wrapExecutorResult(result, 'cleo_mutate', 'release', 'publish', startTime);
@@ -429,8 +476,11 @@ export class ReleaseHandler implements DomainHandler {
   // ===== New Mutate Operations =====
 
   /**
-   * prepare - Prepare release (dry-run validation)
-   * CLI: ./dev/release-version.sh <type> --dry-run
+   * prepare - Prepare release (create + dry-run validation)
+   * CLI: cleo release create <version> && cleo release ship <version> --dry-run
+   *
+   * @fix GitHub Issue #21 - was using deprecated ./dev/release-version.sh which
+   *      doesn't exist in user projects. Now routes through cleo release create + ship --dry-run.
    */
   private async mutatePrepare(params: ReleasePrepareParams): Promise<DomainResponse> {
     const startTime = Date.now();
@@ -446,14 +496,22 @@ export class ReleaseHandler implements DomainHandler {
       );
     }
 
-    const type = params.type || 'patch';
+    const version = params.version.startsWith('v') ? params.version : `v${params.version}`;
 
+    // Create the release entry (idempotent - will fail if exists, which is fine)
+    await this.executor!.execute({
+      domain: 'release',
+      operation: 'create',
+      args: [version],
+      flags: { json: true },
+    });
+
+    // Run ship in dry-run mode for validation
     const result = await this.executor!.execute<ReleasePrepareResult>({
-      domain: 'release-version',
-      operation: '',
-      args: [type],
-      flags: { json: true, 'dry-run': true },
-      customCommand: './dev/release-version.sh',
+      domain: 'release',
+      operation: 'ship',
+      args: [version],
+      flags: { json: true, 'dry-run': true, 'bump-version': true },
     });
 
     return this.wrapExecutorResult(result, 'cleo_mutate', 'release', 'prepare', startTime);
