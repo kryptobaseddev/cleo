@@ -108970,11 +108970,51 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_34706dea4f47",
+      "timestamp": "2026-02-13T04:19:51Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4439",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T04:19:50Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_130c20b7aa66",
+      "timestamp": "2026-02-13T04:19:53Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4440",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T04:19:51Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5630,
-    "lastEntry": "2026-02-13T04:05:54Z",
+    "totalEntries": 5632,
+    "lastEntry": "2026-02-13T04:19:53Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
