@@ -895,9 +895,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T05:09:06Z",
+  "lastUpdated": "2026-02-13T05:35:56Z",
   "_meta": {
-    "checksum": "43fd3ac816006772",
+    "checksum": "8bde30f557205d00",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -906,7 +906,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2935
+    "generation": 2936
   },
   "focus": {
     "currentTask": null,
@@ -14662,6 +14662,33 @@
         "lastUpdated": "2026-02-13T04:19:52Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4441",
+      "title": "Session Cleanup: workspace hygiene and outstanding change organization",
+      "status": "active",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T05:35:51Z",
+      "updatedAt": "2026-02-13T05:35:56Z",
+      "size": "medium",
+      "position": 875,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Organize and commit outstanding tracked worksets (skills relocation cleanup, Web UI WIP checkpoint, injection update, context-state migration cleanup) and add ignore rules for local/tool/runtime artifacts to restore clean working tree.",
+      "labels": [
+        "housekeeping",
+        "repo-hygiene"
+      ],
+      "acceptance": [
+        "Outstanding tracked change sets are committed with task-linked messages",
+        "Local/tool/runtime artifacts are ignored appropriately",
+        "Working tree is clean after cleanup"
+      ],
+      "notes": [
+        "2026-02-13 05:35:56 UTC: Started cleanup audit and organization of outstanding workspace changes."
+      ]
     }
   ],
   "labels": {}
