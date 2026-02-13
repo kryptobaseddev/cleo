@@ -543,31 +543,34 @@ Before returning, subagent verifies:
 
 ## Release Workflow
 
-When all tasks are complete, use `cleo release` for the full release lifecycle:
+**CRITICAL**: `release ship` only commits version metadata (VERSION, CHANGELOG, package.json). All code changes MUST be committed BEFORE running `release ship`.
 
 ```bash
-# 1. Create a release (registers version, assigns tasks)
-cleo release create v0.85.0 --tasks T4247,T4248
+# 1. Commit all code changes FIRST
+git add <files> && git commit -m "feat(T####): description"
 
-# 2. Plan/modify release (add/remove tasks, set notes)
-cleo release plan v0.85.0 --tasks T4249 --notes "Bug fix release"
+# 2. Create release (--tasks optional; ship auto-discovers completed tasks)
+cleo release create v1.0.0 --tasks T001,T002
 
-# 3. Ship release (bumps version, generates changelog, commits, tags, pushes)
-cleo release ship v0.85.0 --bump-version --create-tag --push
+# 3. (Optional) Add/remove tasks — appends, does not replace
+cleo release plan v1.0.0 --tasks T003 --notes "Bug fix release"
+cleo release plan v1.0.0 --remove T001
+
+# 4. Ship (bumps version, generates changelog, commits metadata, tags, pushes)
+cleo release ship v1.0.0 --bump-version --create-tag --push
 
 # Preview without changes:
-cleo release ship v0.85.0 --bump-version --dry-run
-
-# Other useful commands:
-cleo release list                    # List all releases
-cleo release show v0.85.0            # Show release details
-cleo release changelog v0.85.0       # Preview changelog
+cleo release ship v1.0.0 --bump-version --dry-run
 ```
 
-**IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0).
-Always use `cleo release create` → `cleo release plan` → `cleo release ship`.
+**Key behaviors:**
+- `ship` auto-populates tasks from completed work by date range — manual `--tasks` on `create`/`plan` is optional
+- Epic IDs are filtered out of changelogs (organizational only) — list child tasks, not the epic
+- `plan --tasks` appends and deduplicates (use `--remove` to drop tasks)
 
-See `protocols/release.md` for the full release protocol specification.
+**Other commands:** `release list`, `release show <ver>`, `release changelog <ver>`
+
+See `protocols/release.md` for full specification.
 
 ---
 
