@@ -17,6 +17,23 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.94.0" tags={["Fix", "Feature", "CLI"]}>
+## v0.94.0 Release
+
+
+**Bug Fixes**
+- Fix release ship wiping planned release task links (T4386)
+
+**Other Changes**
+- Implement cleo issue CLI command (T4409)
+- Add issues domain to MCP server (T4410)
+- Update AGENT-INJECTION.md with issue command (T4411)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.94.0)
+</Update>
+
 <Update label="February 2026" description="v0.93.4" tags={["Fix"]}>
 ## v0.93.4 Release
 
@@ -380,31 +397,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.85.0)
-</Update>
-
-<Update label="February 2026" description="v0.84.0" tags={["Fix", "Feature", "Documentation"]}>
-## v0.84.0 Release
-
-
-**Features**
-- feat: Add artifact-publish conditional protocol (9 MUST/4 SHOULD/3 MAY, error codes 85-89) (T3080)
-- feat: Add provenance conditional protocol with SLSA L1-L4 compliance (error codes 90-94) (T3080)
-- feat: Git checkpoint enabled by default as safety feature for .cleo/ state recovery (T3173)
-- feat: Git checkpoint now tracks metrics and sequence files (T3173)
-
-**Bug Fixes**
-- fix: Checkpoint ((count++)) arithmetic crash under set -e (T3173)
-- fix: Add checkpoint command to COMMANDS-INDEX.json (T3080)
-- fix: Duplicate task ID T3183 in todo.json and archive (data integrity)
-
-**Documentation**
-- docs: Sync strategic roadmap MDX with canonical v1.1.0 spec (T2973)
-- docs: Complete release protocol v2.1.0 consolidation with full CLI docs (T3155)
-- docs: Deprecate docs/developer/protocols/release.mdx in favor of canonical protocols/release.md (T3155)
-- docs: Update CLEO-INJECTION.md to 9 conditional protocols (T3080)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.84.0)
 </Update>
 
 ## Earlier Releases
