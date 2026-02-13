@@ -108934,6 +108934,42 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log-1770956381-4893dd",
+      "timestamp": "2026-02-13T04:19:41Z",
+      "action": "task_created",
+      "taskId": "T4439",
+      "actor": "system",
+      "details": {
+        "title": "Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770956384-c5b07b",
+      "timestamp": "2026-02-13T04:19:44Z",
+      "action": "task_created",
+      "taskId": "T4440",
+      "actor": "system",
+      "details": {
+        "title": "Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
