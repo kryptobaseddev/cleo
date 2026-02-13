@@ -4,6 +4,12 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.94.2] - 2026-02-12
+
+### Other Changes
+- Fix MCP issues handler missing dryRun passthrough (T4430)
+
+
 ## [0.94.1] - 2026-02-12
 
 ### Other Changes
