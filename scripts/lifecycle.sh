@@ -853,6 +853,62 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# @fix GitHub Issue #20 follow-up - Parse trailing flags after subcommand break
+# The MCP executor puts flags (--json, --format, --notes) after positional args:
+#   cleo lifecycle record T016 research done --json
+# But the parser breaks on 'record', leaving --json in $@ unprocessed.
+# Extract trailing flags from remaining args so they take effect.
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --json)
+            OUTPUT_JSON="true"
+            shift
+            ;;
+        --format)
+            if [[ "${SUBCOMMAND:-}" == "report" ]]; then
+                REPORT_FORMAT="$2"
+            else
+                EXPORT_FORMAT="$2"
+            fi
+            shift 2
+            ;;
+        --notes)
+            NOTES="$2"
+            shift 2
+            ;;
+        --strict)
+            STRICT="true"
+            shift
+            ;;
+        --reason)
+            SKIP_REASON="$2"
+            shift 2
+            ;;
+        --overwrite)
+            OVERWRITE="true"
+            shift
+            ;;
+        --history)
+            INCLUDE_HISTORY="true"
+            shift
+            ;;
+        --pipeline)
+            PIPELINE="$2"
+            shift 2
+            ;;
+        --epic)
+            EPIC_ID="$2"
+            shift 2
+            ;;
+        *)
+            POSITIONAL_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+set -- "${POSITIONAL_ARGS[@]}"
+
 # Execute subcommand
 case "${SUBCOMMAND:-}" in
     stages)
