@@ -103,6 +103,7 @@ source_lib "config.sh"  # @task T2823 - For get_release_gates()
 source_lib "release.sh" # @task T2845 - Release workflow functions
 source_lib "release-ci.sh" # @task T2670 - CI/CD template generation
 source_lib "release-guards.sh" # @task T4434 - Epic completeness & double-listing guards
+source_lib "version-bump.sh"  # Portable config-driven version bump
 
 # Exit codes (50-59 range for release operations per spec)
 EXIT_RELEASE_NOT_FOUND=50
@@ -175,7 +176,7 @@ Options:
     --tasks T001,T002    Tasks to include (comma-separated)
     --remove T003        Remove task from release (for plan)
     --notes "text"       Release notes or summary
-    --bump-version       Bump VERSION file via dev/bump-version.sh (for ship)
+    --bump-version       Bump version in all configured files (for ship)
     --create-tag         Create git tag for release (for ship)
     --force-tag          Overwrite existing git tag (requires --create-tag)
     --push               Push changes and tag to remote (for ship)
@@ -1042,19 +1043,42 @@ cmd_ship() {
         fi
     fi
 
-    # Step 1: Bump VERSION if requested
+    # Step 1: Bump VERSION if requested (portable config-driven system)
     if [[ "$BUMP_VERSION" == "true" ]]; then
         log_info "Bumping VERSION to $normalized..."
-        local bump_script="./dev/bump-version.sh"
-        if [[ ! -x "$bump_script" ]]; then
-            log_error "VERSION bump script not found" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" "Ensure dev/bump-version.sh exists and is executable"
-            exit "$EXIT_VERSION_BUMP_FAILED"
-        fi
 
-        # Strip v prefix for bump-version.sh (expects X.Y.Z format)
+        # Strip v prefix (version bump expects X.Y.Z format)
         local version_no_v="${normalized#v}"
-        if ! "$bump_script" "$version_no_v" --quiet; then
-            log_error "VERSION bump failed" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" "Check dev/bump-version.sh output"
+
+        # Check if config-driven version bump is configured
+        local config_file="${CONFIG_FILE:-.cleo/config.json}"
+        if check_version_bump_configured "$config_file" 2>/dev/null; then
+            # Use portable config-driven bump
+            local dry_run_flag="false"
+            [[ "${DRY_RUN:-false}" == "true" ]] && dry_run_flag="true"
+
+            local bump_result
+            if ! bump_result=$(bump_version_from_config "$version_no_v" "$dry_run_flag" "$config_file"); then
+                log_error "VERSION bump failed" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" \
+                    "Check release.versionBump config in $config_file"
+                exit "$EXIT_VERSION_BUMP_FAILED"
+            fi
+
+            # Log per-file results in verbose/text mode
+            if [[ "$FORMAT" != "json" ]]; then
+                local files_updated files_skipped files_failed
+                files_updated=$(echo "$bump_result" | jq -r '.filesUpdated')
+                files_skipped=$(echo "$bump_result" | jq -r '.filesSkipped')
+                files_failed=$(echo "$bump_result" | jq -r '.filesFailed')
+                log_info "VERSION bumped: ${files_updated} updated, ${files_skipped} skipped, ${files_failed} failed"
+            fi
+        else
+            # No version bump config — actionable error
+            check_version_bump_configured "$config_file" 2>&1 | while IFS= read -r line; do
+                echo "  $line" >&2
+            done
+            log_error "VERSION bump not configured" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" \
+                "Configure release.versionBump in $config_file (see error above)"
             exit "$EXIT_VERSION_BUMP_FAILED"
         fi
         log_info "VERSION bumped successfully"

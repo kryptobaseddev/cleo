@@ -27,6 +27,40 @@
   "version": "2.10.0",
   "release": {
     "gates": [],
+    "versionBump": {
+      "enabled": true,
+      "files": [
+        {
+          "path": "VERSION",
+          "strategy": "plain",
+          "description": "Source of truth version file"
+        },
+        {
+          "path": "README.md",
+          "strategy": "sed",
+          "sedPattern": "s|version-[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+-|version-{{VERSION}}-|g",
+          "sedMatch": "version-[0-9]",
+          "optional": true,
+          "description": "README version badge"
+        },
+
+        {
+          "path": "plugin/plugin.json",
+          "strategy": "json",
+          "jsonPath": ".version",
+          "optional": true,
+          "description": "Plugin manifest version"
+        },
+        {
+          "path": "mcp-server/package.json",
+          "strategy": "json",
+          "jsonPath": ".version",
+          "optional": true,
+          "description": "MCP server package version"
+        }
+      ],
+      "postValidate": "./dev/validate-version.sh"
+    },
     "changelog": {
       "enabled": true,
       "autoGenerate": false,

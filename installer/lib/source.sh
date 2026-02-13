@@ -67,7 +67,7 @@ readonly EXIT_EXTRACT_FAILED=73
 readonly SOURCE_DEV_MARKERS=(
     ".git"
     "tests/unit"
-    "dev/bump-version.sh"
+    "dev/validate-version.sh"
 )
 
 # Required directories for a valid CLEO repo

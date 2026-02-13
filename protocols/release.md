@@ -152,7 +152,7 @@ cleo release ship <version> [FLAGS]
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--bump-version` | boolean | false | Bump VERSION file via `dev/bump-version.sh` |
+| `--bump-version` | boolean | false | Bump version in all files configured in `release.versionBump` |
 | `--create-tag` | boolean | false | Create annotated git tag |
 | `--force-tag` | boolean | false | Overwrite existing git tag (requires `--create-tag`) |
 | `--push` | boolean | false | Push commits and tag to remote |
@@ -416,8 +416,8 @@ GitHub URLs in generated output are resolved dynamically from `git remote origin
 
 The MCP server npm package (`@cleocode/mcp-server`) is automatically published when a release is shipped:
 
-1. `cleo release ship` bumps VERSION file via `dev/bump-version.sh`
-2. `dev/sync-mcp-version.sh` is called automatically to sync `mcp-server/package.json` version
+1. `cleo release ship --bump-version` bumps all files configured in `release.versionBump` (VERSION, package.json, README badge, etc.)
+2. `mcp-server/package.json` is updated as part of the config-driven bump (configured in `.cleo/config.json`)
 3. Release commit includes the synced `mcp-server/package.json`
 4. Git tag push triggers `.github/workflows/npm-publish.yml`
 5. GitHub Action builds, tests, and publishes to npm
@@ -426,11 +426,11 @@ The MCP server npm package (`@cleocode/mcp-server`) is automatically published w
 
 - GitHub secret `NPM_TOKEN` must be configured with npm publish access
 - npm package `@cleocode/mcp-server` must exist on the registry
-- The `dev/sync-mcp-version.sh` script must be present in the repository
+- `release.versionBump.files` must include `mcp-server/package.json` with `json` strategy
 
-### Version Sync Details
+### Version Bump Configuration
 
-The version sync is integrated into `dev/bump-version.sh` as step 6. It runs after all other version updates (VERSION file, README badge, template tags, plugin.json). If the sync script is missing or fails, the bump continues with a warning -- it does not block the release.
+Version bumping is config-driven via `release.versionBump` in `.cleo/config.json`. The portable library (`lib/release/version-bump.sh`) supports four strategies: `plain` (VERSION files), `json` (package.json via jq), `toml` (Cargo.toml), and `sed` (custom patterns like README badges). Files marked `optional: true` are silently skipped if not present.
 
 ---
 
@@ -515,7 +515,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - [ ] All features complete and merged
 - [ ] Tests passing (recommended: ./tests/run-all-tests.sh)
-- [ ] Version bumped (./dev/bump-version.sh X.Y.Z)
+- [ ] Version bumped (cleo release ship vX.Y.Z --bump-version)
 - [ ] Version consistency verified (./dev/validate-version.sh)
 - [ ] Changelog updated
 - [ ] Documentation current

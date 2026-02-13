@@ -23,7 +23,7 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-<!-- VERSION_SYNC: This badge version should match VERSION file. Run ./dev/bump-version.sh to update. -->
+<!-- VERSION_SYNC: This badge version should match VERSION file. Run cleo release ship --bump-version to update. -->
 
 ---
 
