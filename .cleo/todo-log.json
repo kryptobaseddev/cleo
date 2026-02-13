@@ -110604,11 +110604,31 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_16111d3b4e52",
+      "timestamp": "2026-02-13T15:52:37Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4375",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T15:52:36Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5656,
-    "lastEntry": "2026-02-13T15:52:29Z",
+    "totalEntries": 5657,
+    "lastEntry": "2026-02-13T15:52:37Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
