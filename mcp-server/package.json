@@ -50,6 +50,8 @@
   "license": "MIT",
   "dependencies": {
     "@cleocode/caamp": "^0.3.0",
+    "@cleocode/ct-skills": "file:../../cleo-skills",
+    "@cleocode/lafs-protocol": "file:../../lafs-protocol",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
