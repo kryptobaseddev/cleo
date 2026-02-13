@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/kryptobaseddev/cleo/tree/main/docs
+    about: Read the CLEO documentation before opening an issue
+  - name: Discussions
+    url: https://github.com/kryptobaseddev/cleo/discussions
+    about: Ask questions and share ideas in GitHub Discussions

@@ -1,19 +1,21 @@
 # Contributing to CLEO
 
-Thank you for your interest in contributing to CLEO! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to CLEO! This guide is written for contributors of all experience levels, including those using AI coding agents (Claude Code, Cursor, etc.) to help with their contributions.
 
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
 - [License and Contributions](#license-and-contributions)
+- [Quick Start for AI Agent Users](#quick-start-for-ai-agent-users)
+- [Reporting Issues](#reporting-issues)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [Making Changes](#making-changes)
 - [Testing](#testing)
-- [Submitting Changes](#submitting-changes)
+- [Submitting a Pull Request](#submitting-a-pull-request)
 - [Code Style](#code-style)
-- [Documentation](#documentation)
-- [Issue Guidelines](#issue-guidelines)
+- [Architecture Guidelines](#architecture-guidelines)
+- [Getting Help](#getting-help)
 
 ## Code of Conduct
 
@@ -37,6 +39,68 @@ This means:
 
 If you do not agree to these terms, please do not submit a contribution.
 
+## Quick Start for AI Agent Users
+
+Many CLEO contributors use AI coding agents to help with their work. Here's how to work effectively:
+
+### Filing Issues with an AI Agent
+
+1. Use the [issue templates](https://github.com/kryptobaseddev/cleo/issues/new/choose) - they have structured fields your agent can fill in
+2. **Always include diagnostics** - have your agent run this command and paste the output:
+   ```bash
+   echo "--- CLEO Diagnostics ---" && \
+   echo "CLEO version: $(cleo version 2>/dev/null || echo 'not installed')" && \
+   echo "Install location: $(which cleo 2>/dev/null || echo 'not found')" && \
+   echo "Bash version: ${BASH_VERSION:-unknown}" && \
+   echo "jq version: $(jq --version 2>/dev/null || echo 'not installed')" && \
+   echo "OS: $(uname -srm 2>/dev/null || echo 'unknown')" && \
+   echo "Shell: $SHELL" && \
+   echo "CLEO_HOME: ${CLEO_HOME:-not set}" && \
+   echo "Initialized: $(test -f .cleo/todo.json && echo 'yes' || echo 'no')"
+   ```
+3. Include the **full error output** (JSON responses, stderr, exit codes)
+4. Mark the issue as agent-filed in the template dropdown
+
+### Submitting PRs with an AI Agent
+
+1. Make sure your agent reads `CLAUDE.md` and this file first
+2. Run all tests before submitting: `./tests/run-all-tests.sh`
+3. Run syntax checks: `bash -n scripts/*.sh lib/*.sh`
+4. Fill out the PR template completely - it has a section for AI agent disclosure
+5. Use conventional commit messages: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`
+
+### What Your Agent Should Know
+
+- CLEO is a **Bash CLI tool** - all scripts use `#!/usr/bin/env bash`
+- All writes must be **atomic** (temp file -> validate -> backup -> rename)
+- **Never estimate time** - use scope/complexity descriptions instead
+- Error responses are **structured JSON** with exit codes
+- Tests use the **BATS** framework (`tests/unit/*.bats`, `tests/integration/*.bats`)
+
+## Reporting Issues
+
+We use GitHub Issue templates to collect the right information. Choose the right template:
+
+| Template | Use when... |
+|----------|-------------|
+| [Bug Report](https://github.com/kryptobaseddev/cleo/issues/new?template=bug_report.yml) | Something is broken or behaving unexpectedly |
+| [Feature Request](https://github.com/kryptobaseddev/cleo/issues/new?template=feature_request.yml) | You want a new feature or improvement |
+| [Help / Question](https://github.com/kryptobaseddev/cleo/issues/new?template=help_question.yml) | You need help using CLEO |
+
+### What Makes a Good Bug Report
+
+1. **Diagnostic output** - Run the diagnostic command above and paste the result
+2. **Exact commands** - Copy-paste the commands you ran, in order
+3. **Full error output** - Include the complete JSON error response
+4. **Expected vs actual** - What you expected to happen vs what happened
+5. **Minimal reproduction** - The fewest steps needed to trigger the bug
+
+### What Makes a Good Feature Request
+
+1. **Problem first** - Describe the problem you're solving, not just the solution
+2. **Example commands** - Show how you'd use the proposed feature
+3. **Alternatives tried** - What workarounds you've attempted
+4. **Scope estimate** - Small (single flag) / Medium (multiple files) / Large (new subsystem)
 
 ## Getting Started
 
@@ -54,7 +118,7 @@ Before contributing, ensure you have:
 1. Fork the repository on GitHub
 2. Clone your fork:
    ```bash
-   git clone https://github.com/kryptobaseddev/cleo.git
+   git clone https://github.com/YOUR-USERNAME/cleo.git
    cd cleo
    ```
 3. Add upstream remote:
@@ -69,8 +133,8 @@ Before contributing, ensure you have:
 Install for development (uses symlinks so changes are reflected immediately):
 
 ```bash
-# Install globally
-./install.sh
+# Install in dev mode
+./install.sh --dev
 
 # Verify installation
 cleo version
@@ -81,16 +145,22 @@ cd /tmp/test-project
 cleo init
 ```
 
+### Initialize Test Dependencies
+
+```bash
+# Pull BATS helper libraries
+git submodule update --init --recursive
+```
+
 ### Running Tests
 
 ```bash
 # Run all tests
 ./tests/run-all-tests.sh
 
-# Run specific test suite
-./tests/test-validation.sh
-./tests/test-archive.sh
-./tests/test-add-task.sh
+# Run specific test types
+bats tests/unit/*.bats           # Unit tests
+bats tests/integration/*.bats    # Integration tests
 
 # Run with verbose output
 CLEO_LOG_LEVEL=debug ./tests/run-all-tests.sh
@@ -100,18 +170,27 @@ CLEO_LOG_LEVEL=debug ./tests/run-all-tests.sh
 
 ```
 cleo/
-├── scripts/           # Main CLI scripts (add, complete, list, etc.)
+├── scripts/           # CLI command entrypoints (user-facing commands ONLY)
 ├── lib/               # Shared library functions
-│   ├── validation.sh  # Schema and semantic validation
-│   ├── logging.sh     # Audit trail logging
-│   ├── file-ops.sh    # Atomic file operations
-│   └── grammar.sh     # Grammar transformation for TodoWrite
+│   ├── core/          #   Foundation: exit codes, error handling, logging
+│   ├── validation/    #   Schema validation, protocol enforcement
+│   ├── session/       #   Session lifecycle, context monitoring
+│   ├── tasks/         #   Task mutations, dependency graphs
+│   ├── skills/        #   Skill discovery, agent registry
+│   ├── data/          #   Atomic writes, file ops, backup, cache
+│   ├── ui/            #   CLI flags, command registry
+│   ├── metrics/       #   Token estimation, OpenTelemetry
+│   └── release/       #   Release lifecycle, artifacts
 ├── schemas/           # JSON Schema definitions
 ├── templates/         # Template files for new projects
-├── tests/             # Test suite
-│   └── fixtures/      # Test data files
-├── docs/              # Documentation
-└── archive/           # Development history (reference only)
+├── tests/             # BATS test suite
+│   ├── unit/          #   Unit tests
+│   ├── integration/   #   Integration tests
+│   ├── golden/        #   Output format tests
+│   └── fixtures/      #   Test data
+├── docs/              # User-facing documentation
+├── .github/           # Issue templates, PR template, CI workflows
+└── mcp-server/        # MCP server for AI agent integration
 ```
 
 ## Making Changes
@@ -135,7 +214,7 @@ Branch naming conventions:
 
 ### Commit Messages
 
-Write clear, descriptive commit messages:
+Use conventional commit format:
 
 ```
 <type>: <short summary>
@@ -155,74 +234,15 @@ Types:
 
 Example:
 ```
-feat: Add export command for TodoWrite format
+feat: Add multi-label filtering to list command
 
-Implements export.sh with support for TodoWrite, JSON, and Markdown formats.
-Includes grammar transformation for activeForm field generation.
+Supports comma-separated labels with AND logic:
+  cleo list --labels "bug,priority-high"
 
 Closes #42
 ```
 
 ## Testing
-
-### Writing Tests
-
-Tests go in `tests/` directory. Follow existing patterns:
-
-```bash
-#!/usr/bin/env bash
-# tests/test-your-feature.sh
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/validation.sh"
-
-# Setup
-setup_test_env() {
-    TEST_DIR=$(mktemp -d)
-    cd "$TEST_DIR"
-    # Initialize test environment
-}
-
-# Cleanup
-cleanup_test_env() {
-    cd /
-    rm -rf "$TEST_DIR"
-}
-
-# Test cases
-test_your_feature() {
-    echo "Testing your feature..."
-    # Test implementation
-    if [[ some_condition ]]; then
-        echo "  ✓ Test passed"
-        return 0
-    else
-        echo "  ✗ Test failed"
-        return 1
-    fi
-}
-
-# Run tests
-main() {
-    setup_test_env
-    trap cleanup_test_env EXIT
-
-    local failures=0
-
-    test_your_feature || ((failures++))
-
-    echo ""
-    if [[ $failures -eq 0 ]]; then
-        echo "All tests passed!"
-        exit 0
-    else
-        echo "$failures test(s) failed"
-        exit 1
-    fi
-}
-
-main "$@"
-```
 
 ### Test Requirements
 
@@ -231,49 +251,86 @@ main "$@"
 - Tests must pass before submitting PR
 - Use fixtures for test data (`tests/fixtures/`)
 
-### Running Validation
+### Writing Tests
 
-Before submitting, validate your changes:
+Tests use the [BATS](https://github.com/bats-core/bats-core) framework. Place tests in the appropriate directory:
+
+- `tests/unit/` - Test individual functions in isolation
+- `tests/integration/` - Test command workflows end-to-end
+- `tests/golden/` - Test output formatting
+
+Naming convention: `feature-name.bats`
+
+```bash
+#!/usr/bin/env bats
+
+setup() {
+    TEST_DIR=$(mktemp -d)
+    cd "$TEST_DIR"
+    # Initialize test environment
+}
+
+teardown() {
+    rm -rf "$TEST_DIR"
+}
+
+@test "feature should do expected thing" {
+    run cleo add "Test task"
+    [ "$status" -eq 0 ]
+    # Additional assertions
+}
+```
+
+### Running Validation Before Submitting
 
 ```bash
 # Run all tests
 ./tests/run-all-tests.sh
 
-# Validate JSON files
-cleo validate
+# Validate JSON schemas
+cleo --validate
 
 # Check scripts for syntax errors
 bash -n scripts/*.sh lib/*.sh
 ```
 
-## Submitting Changes
+## Submitting a Pull Request
 
-### Pull Request Process
+### Before Submitting
 
-1. Ensure all tests pass
-2. Update documentation if needed
-3. Push your branch:
+1. All tests pass: `./tests/run-all-tests.sh`
+2. No syntax errors: `bash -n scripts/*.sh lib/*.sh`
+3. Branch is up to date with `main`
+4. Commit messages follow conventions
+
+### Creating the PR
+
+1. Push your branch:
    ```bash
    git push origin feature/your-feature-name
    ```
-4. Create a Pull Request on GitHub
-5. Fill out the PR template
-6. Wait for review
+2. Open a Pull Request on GitHub
+3. **Fill out the PR template completely** - it includes:
+   - Summary of changes
+   - Change type classification
+   - Testing details
+   - CLEO-specific checklist (atomic operations, validation, etc.)
+   - AI agent disclosure
 
-### PR Requirements
+### PR Checklist
 
 - [ ] Tests pass (`./tests/run-all-tests.sh`)
-- [ ] Code follows style guidelines
+- [ ] Code follows style guidelines (see below)
 - [ ] Documentation updated (if applicable)
-- [ ] Commit messages are clear
+- [ ] Commit messages use conventional format
 - [ ] No merge conflicts with `main`
-- [ ] Contributor agrees to license their contribution under BSL 1.1 (see License and Contributions)
-
+- [ ] PR template filled out completely
+- [ ] Contributor agrees to BSL 1.1 license terms
 
 ### Review Process
 
 1. Maintainers will review your PR
-2. Address any feedback
+2. Address any feedback with new commits (don't force-push during review)
 3. Once approved, a maintainer will merge
 
 ## Code Style
@@ -289,125 +346,47 @@ set -euo pipefail
 
 # Constants in UPPER_SNAKE_CASE
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly DEFAULT_VALUE="something"
 
 # Functions in snake_case
 my_function() {
     local arg1="$1"
     local arg2="${2:-default}"
-
     # Implementation
 }
 
-# Variables in snake_case
-local_variable="value"
-
 # Quote all variable expansions
 echo "$variable"
-command "$arg"
 
-# Use [[ ]] for conditionals
+# Use [[ ]] for conditionals (not [ ])
 if [[ -f "$file" ]]; then
     # ...
 fi
 
-# Use $() instead of backticks
+# Use $() for command substitution (not backticks)
 result=$(command)
 ```
 
 ### JSON Conventions
 
-```json
-{
-  "camelCase": "for keys",
-  "arrays": [
-    "consistent indentation",
-    "trailing comma NOT allowed in JSON"
-  ],
-  "nested": {
-    "objects": "use 2-space indent"
-  }
-}
-```
+- Keys: `camelCase`
+- Indentation: 2 spaces
+- No trailing commas
+- Must pass JSON Schema validation
 
-### Documentation Style
+### Key Rules
 
-- Use Markdown for all documentation
-- Include code examples where helpful
-- Keep line length reasonable (~100 chars)
-- Use ATX-style headers (`#`, `##`, `###`)
-- Include table of contents for long documents
-
-## Documentation
-
-### When to Update Docs
-
-Update documentation when you:
-- Add new features
-- Change existing behavior
-- Add new configuration options
-- Fix bugs that affect usage
-
-### Documentation Files
-
-| File | Purpose |
-|------|---------|
-| `README.md` | Project overview and quick start |
-| `docs/usage.md` | Comprehensive usage guide |
-| `docs/configuration.md` | Configuration reference |
-| `docs/schema-reference.md` | JSON schema documentation |
-| `docs/troubleshooting.md` | Common issues and solutions |
-| `CHANGELOG.md` | Version history |
-
-### Adding to CHANGELOG
-
-When your PR is merged, add an entry:
-
-```markdown
-## [Unreleased]
-
-### Added
-- New feature description (#PR-number)
-
-### Changed
-- Changed behavior description (#PR-number)
-
-### Fixed
-- Bug fix description (#PR-number)
-```
-
-## Issue Guidelines
-
-### Reporting Bugs
-
-Include:
-1. **Description**: Clear description of the bug
-2. **Steps to Reproduce**: Minimal steps to trigger the bug
-3. **Expected Behavior**: What should happen
-4. **Actual Behavior**: What actually happens
-5. **Environment**: OS, Bash version, jq version
-6. **Logs/Output**: Relevant error messages
-
-### Feature Requests
-
-Include:
-1. **Problem**: What problem does this solve?
-2. **Solution**: Proposed solution
-3. **Alternatives**: Other approaches considered
-4. **Use Case**: Real-world scenario
-
-### Questions
-
-- Check documentation first
-- Search existing issues
-- Use clear, specific titles
+- **4 spaces** for indentation (no tabs)
+- **Always quote** variable expansions
+- **Atomic writes** for all file operations (temp -> validate -> backup -> rename)
+- **Error JSON** with proper exit codes for all failures
+- **No time estimates** anywhere in the codebase
 
 ## Architecture Guidelines
 
 ### Core Principles
 
 1. **Anti-Hallucination First**: All data modifications must be validated
-2. **Atomic Operations**: Use temp file → validate → backup → rename pattern
+2. **Atomic Operations**: Use temp file -> validate -> backup -> rename pattern
 3. **Single Source of Truth**: `todo.json` is authoritative
 4. **Immutable History**: Log entries are append-only
 5. **Fail-Safe**: Always provide rollback capability
@@ -432,9 +411,10 @@ Schema changes require:
 
 ## Getting Help
 
+- **Built-in help**: `cleo help`, `cleo help <command>`
 - **Documentation**: Check `docs/` directory
-- **Issues**: Search existing issues or create new one
-- **Discussions**: Use GitHub Discussions for questions
+- **Issues**: [Search existing issues](https://github.com/kryptobaseddev/cleo/issues) or create a new one
+- **Discussions**: Use [GitHub Discussions](https://github.com/kryptobaseddev/cleo/discussions) for questions
 
 ## Recognition
 

@@ -1,0 +1,146 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in CLEO
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Bug Report
+
+        Thanks for reporting a bug! Please fill out the sections below so we can reproduce and fix it.
+
+        **If you're using an AI agent** (Claude Code, Cursor, etc.) to file this issue, the agent should run the diagnostic commands below and paste the output directly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: |
+        Describe the bug clearly. What did you expect to happen vs what actually happened?
+      placeholder: |
+        When I ran `cleo add "My task"`, I expected a new task to be created, but instead I got an error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Provide the exact commands you ran, in order. Include the full command with all flags.
+      placeholder: |
+        1. `cleo init my-project`
+        2. `cleo session start --scope epic:T001 --auto-focus --name "test"`
+        3. `cleo add "Test task" --parent T001`
+        4. See error below
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Error output
+      description: |
+        Paste the full error output. If CLEO returned JSON, paste the complete JSON response.
+        Use `cleo <command> 2>&1` to capture both stdout and stderr.
+      render: shell
+      placeholder: |
+        $ cleo add "Test task" --parent T001
+        {
+          "success": false,
+          "error": {
+            "code": "E_PARENT_NOT_FOUND",
+            "message": "Parent task T001 does not exist",
+            "exit": 10
+          }
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+      placeholder: |
+        I expected the task to be created as a child of T001.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Environment diagnostics
+      description: |
+        Run this command and paste the output:
+        ```bash
+        echo "--- CLEO Diagnostics ---" && echo "CLEO version: $(cleo version 2>/dev/null || echo 'not installed')" && echo "Install location: $(which cleo 2>/dev/null || echo 'not found')" && echo "Bash version: ${BASH_VERSION:-unknown}" && echo "jq version: $(jq --version 2>/dev/null || echo 'not installed')" && echo "OS: $(uname -srm 2>/dev/null || echo 'unknown')" && echo "Shell: $SHELL" && echo "CLEO_HOME: ${CLEO_HOME:-not set}" && echo "Initialized: $(test -f .cleo/todo.json && echo 'yes' || echo 'no')"
+        ```
+      render: shell
+      placeholder: |
+        --- CLEO Diagnostics ---
+        CLEO version: 0.93.4
+        Install location: /home/user/.local/bin/cleo
+        Bash version: 5.2.21(1)-release
+        jq version: jq-1.7.1
+        OS: Linux 6.5.0-44-generic x86_64
+        Shell: /bin/bash
+        CLEO_HOME: not set
+        Initialized: yes
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation method
+      description: How did you install CLEO?
+      options:
+        - "curl installer (curl -fsSL https://cleo.sh/install | bash)"
+        - "Git clone + ./install.sh"
+        - "Git clone + ./install.sh --dev"
+        - "npm (MCP server only)"
+        - "Other (describe below)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How much does this impact your workflow?
+      options:
+        - "Blocker - Cannot use CLEO at all"
+        - "Major - Core feature broken, no workaround"
+        - "Moderate - Feature broken but workaround exists"
+        - "Minor - Cosmetic or edge case"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent-usage
+    attributes:
+      label: Are you using an AI agent?
+      description: Are you (or your AI agent) filing this issue?
+      options:
+        - "Yes - AI agent filed this issue"
+        - "Yes - Human filing with AI agent assistance"
+        - "No - Filing manually"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: |
+        Any other details that might help. Examples:
+        - Contents of `.cleo/config.json` (if relevant)
+        - Output of `cleo --validate` or `cleo doctor`
+        - Screenshots or screen recordings
+        - Related issues or PRs
+      placeholder: |
+        This started happening after I updated from v0.92.0 to v0.93.0...
+    validations:
+      required: false
