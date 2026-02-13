@@ -4,6 +4,12 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.94.1] - 2026-02-12
+
+### Other Changes
+- Fix v0.94.0 CI test failures for issues domain (T4429)
+
+
 ## [0.94.0] - 2026-02-12
 
 ### Bug Fixes

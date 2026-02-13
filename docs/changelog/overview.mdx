@@ -17,6 +17,18 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.94.1" tags={["Fix"]}>
+## v0.94.1 Release
+
+
+**Other Changes**
+- Fix v0.94.0 CI test failures for issues domain (T4429)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.94.1)
+</Update>
+
 <Update label="February 2026" description="v0.94.0" tags={["Fix", "Feature", "CLI"]}>
 ## v0.94.0 Release
 
@@ -378,25 +390,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.85.1)
-</Update>
-
-<Update label="February 2026" description="v0.85.0" tags={["Fix", "Feature", "Sessions"]}>
-## v0.85.0 Release
-
-
-**Bug Fixes**
-- fix: Eliminate checkpoint/release race condition — release commit now captures final state (T4248)
-- fix: Route release raw writes through save_json for generation counter and audit trail (T4249)
-- fix: Add checkpoint suppression mechanism to prevent mid-flow auto-commits (T4247)
-- fix: Prevent checkpoint side-effects during validation gates in release ship (T4250)
-- fix: Deduplicate checksum recalculation into shared recalculate_checksum() function (T4251)
-- fix: Session-end checkpoint respects GIT_CHECKPOINT_SUPPRESS env var (T4250)
-
-**Tests**
-- test: Integration tests for checkpoint suppression, checksum helper, and release flow (T4252)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.85.0)
 </Update>
 
 ## Earlier Releases
