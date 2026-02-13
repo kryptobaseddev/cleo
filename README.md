@@ -108,6 +108,24 @@ Supports: Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Wi
 - Implementation API index: [`mcp-server/docs/INDEX.md`](mcp-server/docs/INDEX.md)
 - Operation matrix source of truth: `mcp-server/src/gateways/query.ts` and `mcp-server/src/gateways/mutate.ts`
 
+#### Using the MCP Tools
+
+Your AI agent gets two tools: `cleo_query` (read) and `cleo_mutate` (write). Each takes a `domain`, `operation`, and optional `params`:
+
+```bash
+# Read operations (never changes anything)
+cleo_query  domain=tasks   operation=find   params={"query": "auth"}
+cleo_query  domain=system  operation=dash
+cleo_query  domain=tasks   operation=next
+
+# Write operations (creates or modifies data)
+cleo_mutate domain=tasks   operation=create   params={"title": "...", "description": "..."}
+cleo_mutate domain=tasks   operation=complete params={"taskId": "T1234", "notes": "Done."}
+cleo_mutate domain=issues  operation=create_bug params={"title": "...", "body": "...", "dryRun": true}
+```
+
+8 domains, 111 operations across tasks, sessions, issues, orchestration, lifecycle, validation, releases, and system management. See the [MCP Usage Guide](docs/guides/mcp-usage-guide.mdx) for beginner-friendly walkthroughs.
+
 ### Source of Truth Hierarchy
 
 1. [`docs/concepts/vision.mdx`](docs/concepts/vision.mdx) - immutable product vision
