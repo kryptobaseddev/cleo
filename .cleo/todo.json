@@ -910,9 +910,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T15:47:31Z",
+  "lastUpdated": "2026-02-13T15:52:36Z",
   "_meta": {
-    "checksum": "699bbdae05f3a103",
+    "checksum": "7a97881cbb7c889e",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -921,7 +921,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2961
+    "generation": 2969
   },
   "focus": {
     "currentTask": null,
@@ -12336,7 +12336,22 @@
       "completedAt": "2026-02-13T15:47:31Z",
       "notes": [
         "[COMPLETED 2026-02-13T15:47:31Z] Schema extension with 5 hierarchy fields (parentId, epicId, path, depth, childCount) added to research-manifest.schema.json. Spec written to docs/specs/MANIFEST-HIERARCHY-SCHEMA-SPEC.md with invariants, path format, query patterns, and migration strategy."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T15:47:32Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4354",
@@ -12696,12 +12711,12 @@
     {
       "id": "T4370",
       "title": "Create golden test fixtures for parity comparison",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4338",
       "createdAt": "2026-02-12T02:19:01Z",
-      "updatedAt": "2026-02-12T02:19:01Z",
+      "updatedAt": "2026-02-13T15:52:21Z",
       "size": "small",
       "position": 1,
       "positionVersion": 0,
@@ -12710,7 +12725,26 @@
       "labels": [
         "testing",
         "typescript"
-      ]
+      ],
+      "completedAt": "2026-02-13T15:52:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T15:52:21Z] Created golden test fixtures (7 fixture files), generator script, and comparison utility. All tests passing."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T15:52:21Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4371",
@@ -12759,12 +12793,12 @@
     {
       "id": "T4374",
       "title": "E_CLI_REQUIRED degradation path tests",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4338",
       "createdAt": "2026-02-12T02:19:37Z",
-      "updatedAt": "2026-02-12T02:19:37Z",
+      "updatedAt": "2026-02-13T15:52:28Z",
       "size": "small",
       "position": 4,
       "positionVersion": 0,
@@ -12773,17 +12807,36 @@
       "labels": [
         "testing",
         "typescript"
-      ]
+      ],
+      "completedAt": "2026-02-13T15:52:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T15:52:28Z] Created CLI-required degradation path tests (34 tests) and mode-detection tests (15 tests). All passing."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T15:52:29Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4375",
       "title": "Mixed-writer safety tests (lock contention, atomic writes)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T4338",
       "createdAt": "2026-02-12T02:19:45Z",
-      "updatedAt": "2026-02-12T02:19:45Z",
+      "updatedAt": "2026-02-13T15:52:36Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -12792,6 +12845,10 @@
       "labels": [
         "testing",
         "typescript"
+      ],
+      "completedAt": "2026-02-13T15:52:36Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T15:52:36Z] Created mixed-writer safety tests (17 tests) and atomic-write tests (27 tests). All passing including concurrent lock contention tests."
       ]
     },
     {
@@ -15014,17 +15071,36 @@
     {
       "id": "T4459",
       "title": "LAFS Protocol conformance gap analysis and remediation plan",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4334",
       "createdAt": "2026-02-13T15:46:23Z",
-      "updatedAt": "2026-02-13T15:46:23Z",
+      "updatedAt": "2026-02-13T15:47:57Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Research LAFS (LLM-Agent-First Specification) protocol requirements and produce a gap analysis comparing CLEO's current envelope format, error model, transport layer, and agent interaction patterns against LAFS L1/L2/L3 conformance levels. Output: conformance percentage per level, top gaps, remediation roadmap mapped to V2 phases."
+      "description": "Research LAFS (LLM-Agent-First Specification) protocol requirements and produce a gap analysis comparing CLEO's current envelope format, error model, transport layer, and agent interaction patterns against LAFS L1/L2/L3 conformance levels. Output: conformance percentage per level, top gaps, remediation roadmap mapped to V2 phases.",
+      "completedAt": "2026-02-13T15:47:57Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T15:47:57Z] LAFS conformance gap analysis complete. L1 ~65%, L2 ~35%, L3 ~15%. Top gaps: data/result naming, missing _meta fields, error model misalignment. 4-phase remediation roadmap mapped to V2 tracks."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T15:47:57Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4460",
@@ -15205,6 +15281,164 @@
         "T4457",
         "T4458"
       ]
+    },
+    {
+      "id": "T4469",
+      "title": "V2-P4: LAFS conformance testing and certification",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:36Z",
+      "updatedAt": "2026-02-13T15:47:36Z",
+      "size": "medium",
+      "position": 14,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Implement LAFS conformance test suite using @cleocode/lafs-protocol test runner. Validate all commands return compliant envelopes. Error code registry mapping verification. Flag resolution testing (--json, --human, conflict detection). Target L2 conformance.",
+      "depends": [
+        "T4464",
+        "T4465",
+        "T4466",
+        "T4467"
+      ]
+    },
+    {
+      "id": "T4470",
+      "title": "V2-P4: CAAMP full API integration (88 exports)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:38Z",
+      "updatedAt": "2026-02-13T15:47:38Z",
+      "size": "medium",
+      "position": 15,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Expand CAAMP adapter from current 17 exports to full 88-export API coverage. Provider registry (46 providers), MCP server management (install/remove/config), skill lifecycle (discovery/installation/versioning), instruction injection (CLAUDE.md, AGENTS.md, GEMINI.md).",
+      "depends": [
+        "T4464",
+        "T4465",
+        "T4466"
+      ]
+    },
+    {
+      "id": "T4471",
+      "title": "V2-P4: Cross-platform CI matrix (Ubuntu, macOS, Windows)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:40Z",
+      "updatedAt": "2026-02-13T15:47:40Z",
+      "size": "medium",
+      "position": 16,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Configure GitHub Actions CI with matrix strategy: Ubuntu latest, macOS latest, Windows latest. Vitest test suite, golden parity tests, LAFS conformance checks, esbuild bundle verification. Ensure all 72 exit codes work cross-platform.",
+      "depends": [
+        "T4464",
+        "T4465",
+        "T4466",
+        "T4467"
+      ]
+    },
+    {
+      "id": "T4472",
+      "title": "V2-P4: Documentation, migration guide, deprecation plan",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:47:42Z",
+      "updatedAt": "2026-02-13T15:47:42Z",
+      "size": "medium",
+      "position": 17,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Write comprehensive V2 documentation: migration guide (Bash CLI to TypeScript CLI), API reference, LAFS conformance documentation, CAAMP integration guide. Define Bash CLI deprecation timeline (60-day parallel, then maintenance mode). Update CLAUDE.md, README.",
+      "depends": [
+        "T4464",
+        "T4465",
+        "T4466",
+        "T4467"
+      ]
+    },
+    {
+      "id": "T4474",
+      "title": "MCP-EXP: Expand research domain to native engine",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:48:00Z",
+      "updatedAt": "2026-02-13T15:48:00Z",
+      "size": "medium",
+      "position": 18,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add native TypeScript implementations for research domain: show, list, query, pending, stats, manifest.read, inject, link, manifest.append, manifest.archive, compact, validate. Implement four-gate manifest validation natively."
+    },
+    {
+      "id": "T4475",
+      "title": "MCP-EXP: Expand lifecycle domain to native engine",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:48:02Z",
+      "updatedAt": "2026-02-13T15:48:02Z",
+      "size": "medium",
+      "position": 19,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add native TypeScript implementations for lifecycle domain: check, status, history, gates, prerequisites, progress, skip, reset, gate.pass, gate.fail. RCSD pipeline stage tracking and gate enforcement."
+    },
+    {
+      "id": "T4476",
+      "title": "MCP-EXP: Expand release domain to native engine",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:48:04Z",
+      "updatedAt": "2026-02-13T15:48:04Z",
+      "size": "medium",
+      "position": 20,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add native TypeScript implementations for release domain: prepare, changelog, commit, tag, push, gates.run, rollback. Semver validation, changelog generation from task data, git integration."
+    },
+    {
+      "id": "T4477",
+      "title": "MCP-EXP: Expand validate domain to native engine",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:48:06Z",
+      "updatedAt": "2026-02-13T15:48:06Z",
+      "size": "medium",
+      "position": 21,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add native TypeScript implementations for validate domain: protocol, task, manifest, output, compliance.summary, compliance.record, test.run, test.coverage, test.status, batch-validate. Extend existing schema validator to cover all validation types."
+    },
+    {
+      "id": "T4478",
+      "title": "MCP-EXP: Expand orchestrate domain to native engine",
+      "status": "pending",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4454",
+      "createdAt": "2026-02-13T15:48:13Z",
+      "updatedAt": "2026-02-13T15:48:13Z",
+      "size": "medium",
+      "position": 22,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add native TypeScript implementations for orchestrate domain operations: status, next, ready, analyze, context, waves, skill.list, startup, spawn, validate, parallel.start, parallel.end, check, skill.inject. Priority: high-frequency ops first."
     }
   ],
   "labels": {}

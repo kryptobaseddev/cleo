@@ -110344,11 +110344,271 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_2b0d710eae43",
+      "timestamp": "2026-02-13T15:47:33Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4353",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T15:47:31Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770997656-587f1a",
+      "timestamp": "2026-02-13T15:47:36Z",
+      "action": "task_created",
+      "taskId": "T4469",
+      "actor": "system",
+      "details": {
+        "title": "V2-P4: LAFS conformance testing and certification",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "V2-P4: LAFS conformance testing and certification",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997658-7864f7",
+      "timestamp": "2026-02-13T15:47:38Z",
+      "action": "task_created",
+      "taskId": "T4470",
+      "actor": "system",
+      "details": {
+        "title": "V2-P4: CAAMP full API integration (88 exports)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "V2-P4: CAAMP full API integration (88 exports)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997660-b12806",
+      "timestamp": "2026-02-13T15:47:40Z",
+      "action": "task_created",
+      "taskId": "T4471",
+      "actor": "system",
+      "details": {
+        "title": "V2-P4: Cross-platform CI matrix (Ubuntu, macOS, Windows)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "V2-P4: Cross-platform CI matrix (Ubuntu, macOS, Windows)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997663-cec6f8",
+      "timestamp": "2026-02-13T15:47:43Z",
+      "action": "task_created",
+      "taskId": "T4472",
+      "actor": "system",
+      "details": {
+        "title": "V2-P4: Documentation, migration guide, deprecation plan",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "V2-P4: Documentation, migration guide, deprecation plan",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997678-d49086",
+      "timestamp": "2026-02-13T15:47:58Z",
+      "action": "task_created",
+      "taskId": "T4473",
+      "actor": "system",
+      "details": {
+        "title": "MCP-EXP: Expand orchestrate domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "MCP-EXP: Expand orchestrate domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_f33f30725c5f",
+      "timestamp": "2026-02-13T15:47:58Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4459",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T15:47:57Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770997680-30b01a",
+      "timestamp": "2026-02-13T15:48:00Z",
+      "action": "task_created",
+      "taskId": "T4474",
+      "actor": "system",
+      "details": {
+        "title": "MCP-EXP: Expand research domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "MCP-EXP: Expand research domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997682-e962f4",
+      "timestamp": "2026-02-13T15:48:02Z",
+      "action": "task_created",
+      "taskId": "T4475",
+      "actor": "system",
+      "details": {
+        "title": "MCP-EXP: Expand lifecycle domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "MCP-EXP: Expand lifecycle domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997684-ec1d26",
+      "timestamp": "2026-02-13T15:48:04Z",
+      "action": "task_created",
+      "taskId": "T4476",
+      "actor": "system",
+      "details": {
+        "title": "MCP-EXP: Expand release domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "MCP-EXP: Expand release domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997686-2882df",
+      "timestamp": "2026-02-13T15:48:06Z",
+      "action": "task_created",
+      "taskId": "T4477",
+      "actor": "system",
+      "details": {
+        "title": "MCP-EXP: Expand validate domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "MCP-EXP: Expand validate domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770997693-be198e",
+      "timestamp": "2026-02-13T15:48:13Z",
+      "action": "task_created",
+      "taskId": "T4478",
+      "actor": "system",
+      "details": {
+        "title": "MCP-EXP: Expand orchestrate domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "MCP-EXP: Expand orchestrate domain to native engine",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_4c65accecc5c",
+      "timestamp": "2026-02-13T15:52:22Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4370",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T15:52:21Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_967a0b74fd75",
+      "timestamp": "2026-02-13T15:52:29Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4374",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T15:52:28Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5652,
-    "lastEntry": "2026-02-13T06:05:14Z",
+    "totalEntries": 5656,
+    "lastEntry": "2026-02-13T15:52:29Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
