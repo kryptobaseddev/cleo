@@ -9,13 +9,33 @@ authors: ["CLEO Development Team"]
 supersedes: ["CLEO-MIGRATION-DOCTRINE.md (partially)"]
 ---
 
+> **Note**: This document is a supporting reference under `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`. For canonical strategic direction, see the Canonical Plan. This document provides detailed V2 technical architecture and LAFS conformance requirements.
+
 # CLEO V2 Architecture Specification
 
 **Version**: 1.0.0
 **Status**: DRAFT
 **Date**: 2026-02-13
 **Epic**: T4454 - EPIC: CLEO V2 Full TypeScript System (LAFS-native)
-**Authority**: This document defines the end-to-end architecture for CLEO V2. It extends (not replaces) the Migration Doctrine by activating both tracks in parallel and making LAFS foundational.
+**Authority**: This document defines the end-to-end architecture for CLEO V2. Global canonical strategy and decision authority are maintained in `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`.
+
+## Canonical Docs Index (2026-02-13)
+
+Use this index to avoid split authority:
+
+| Document | Path | Canonical Role |
+|----------|------|----------------|
+| Canonical Plan and Decision Spec | `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md` | Single source of truth for strategy, decision state, and execution alignment |
+| V2 Architecture Spec (this document) | `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` | End-to-end V2 architecture and technical design |
+| Migration Doctrine | `docs/specs/CLEO-MIGRATION-DOCTRINE.md` | Migration detail, convergence criteria, engine inventory |
+| Strategic Roadmap | `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` | Phase model, evidence gates, metrics, risk/rollback governance |
+| Architecture Decisions (ADR D1-D6) | `claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md` | Decision rationale and historical tradeoff record |
+
+Conflict resolution order:
+
+1. `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`
+2. `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` and `docs/specs/CLEO-MIGRATION-DOCTRINE.md`
+3. `docs/specs/CLEO-STRATEGIC-ROADMAP-SPEC.md` and `claudedocs/CLEO-V2-ARCHITECTURE-DECISIONS.md`
 
 ---
 

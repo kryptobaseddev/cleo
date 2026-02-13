@@ -9,6 +9,8 @@ v2_epic: "T4454"
 authors: ["CLEO Development Team"]
 ---
 
+> **Note**: This document is a supporting reference under `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`. For canonical strategic direction, see the Canonical Plan. This document provides detailed migration authority, convergence criteria, and engine inventory.
+
 # CLEO TypeScript Migration Doctrine
 
 **Version**: 2.0.0
@@ -16,7 +18,13 @@ authors: ["CLEO Development Team"]
 **Date**: 2026-02-13
 **Task**: T4340
 **V2 Epic**: T4454
-**Authority**: This document is the single source of truth for CLEO's TypeScript migration strategy. It synthesizes and aligns all existing specs, ADRs, and path-forward documents into one canonical narrative.
+**Authority**: This document is the deep migration reference for CLEO's TypeScript transition. Global canonical strategy and decision authority are maintained in `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`.
+
+## Canonical Consolidation Notice (2026-02-13)
+
+This doctrine remains authoritative for migration detail, convergence criteria, and engine inventory. For cross-document conflict resolution and final strategic/decision status, use:
+
+- `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`
 
 ---
 
@@ -363,9 +371,13 @@ This doctrine is **fully consistent**. The MCP native engine preserves CLI autho
 
 ### 7.2 Alignment with Strategic Roadmap
 
-The roadmap spec defines Phase 0 as "Foundation" and Phase 1 as "Validation". The current MCP-first work falls within Phase 0. The roadmap's Phase 1 validation gates (Nexus adoption, MCP adoption, strategic direction decision) remain applicable. This doctrine does not alter phase definitions or gate criteria.
+The roadmap phase structure remains valid (Phase 0-3.5, evidence gates, risk governance). However, parts of roadmap migration ordering are historical after 2026-02-13.
 
-The roadmap's Section 5 (Migration Path) describes an incremental Bash-to-TypeScript strategy with gates. This doctrine specifies the concrete vehicle (MCP native engine) and the concrete criteria (golden parity, CI matrix, lock safety). No contradiction exists.
+Canonical reconciliation:
+
+- Keep roadmap for phase definitions, metrics, and governance details
+- Use canonical plan + doctrine for active migration ordering and authority state
+- Treat MCP-first sequencing language in older sections as historical context, superseded by both-tracks-parallel execution
 
 ### 7.3 Alignment with ADR D1-D6
 
@@ -379,9 +391,13 @@ ADR D1 recommended "CONDITIONAL GO for TypeScript port at 75% confidence." This 
 
 ADR D2-D6 are unchanged by this doctrine.
 
-### 7.4 No Contradictions Found
+### 7.4 Contradictions Reconciled by Authority Hierarchy
 
-After synthesis of all source documents, no contradictions were identified between this doctrine and the existing spec corpus.
+Legacy wording differences exist across source documents (especially around sequential vs parallel migration ordering). They are resolved by authority hierarchy and chronology:
+
+1. `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md` (active strategy and decision state)
+2. This doctrine + `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` (migration and architecture detail)
+3. Older roadmap/ADR phrasing retained for provenance
 
 ---
 

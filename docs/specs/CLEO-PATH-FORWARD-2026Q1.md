@@ -1,9 +1,11 @@
+> **SUPERSEDED**: This document has been superseded by `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md` (v1.1.0, 2026-02-13). It is retained as historical context. For current canonical direction, see the Canonical Plan.
+
 ---
 title: "CLEO Path Forward: Q1 2026"
 version: "1.0.0"
-status: "stable"
+status: "superseded"
 created: "2026-02-11"
-updated: "2026-02-11"
+updated: "2026-02-13"
 authors: ["CLEO Development Team"]
 task: "T4334"
 ---
