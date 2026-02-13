@@ -440,6 +440,13 @@ describe('E2E Workflow Tests (MCP Spec Section 11)', () => {
       expect((tagResult.data as any).tagName).toBe('v0.80.4');
 
       // Step 3: Publish release (cleo_mutate release publish)
+      // publish now routes through: version read → release create → release ship
+      mockExecutor.execute.mockResolvedValueOnce(
+        createSuccessResult({ version: '0.80.3' }) // version read
+      );
+      mockExecutor.execute.mockResolvedValueOnce(
+        createSuccessResult({}) // release create
+      );
       mockExecutor.execute.mockResolvedValueOnce(
         createSuccessResult({
           version: '0.80.4',
@@ -447,7 +454,7 @@ describe('E2E Workflow Tests (MCP Spec Section 11)', () => {
           commitHash: 'abc123def',
           tagName: 'v0.80.4',
           pushed: true,
-        })
+        }) // release ship
       );
 
       const publishResult = await router.routeOperation({
