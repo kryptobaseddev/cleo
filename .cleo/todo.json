@@ -793,21 +793,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T03:54:21Z",
+  "lastUpdated": "2026-02-13T03:59:07Z",
   "_meta": {
-    "checksum": "0bdbf96895f35fe2",
+    "checksum": "d8529c03dfc7772e",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-13T03:48:04Z",
+    "lastModified": "2026-02-13T03:59:22Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2897
+    "generation": 2903
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T4436",
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -14287,17 +14287,32 @@
       "completedAt": "2026-02-13T03:54:21Z",
       "notes": [
         "[COMPLETED 2026-02-13T03:54:21Z] Created lib/release/release-guards.sh with 4 functions: check_epic_completeness (line 34), check_double_listing (line 143), render_epic_completeness (line 196), render_double_listing (line 284). Added get_epic_completeness_mode() config getter at line 419 in release-config.sh. All syntax verified."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T03:54:22Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4434",
       "title": "Add --preview flag and enhance --dry-run in release ship command",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4431",
       "createdAt": "2026-02-13T03:47:19Z",
-      "updatedAt": "2026-02-13T03:47:19Z",
+      "updatedAt": "2026-02-13T03:59:07Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -14311,17 +14326,36 @@
       "depends": [
         "T4432",
         "T4433"
-      ]
+      ],
+      "completedAt": "2026-02-13T03:59:07Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T03:59:07Z] Added --preview flag, enhanced --dry-run with task discovery, and integrated epic-completeness + double-listing guards into ship flow. Exit code 59 implemented. --force overrides block mode. All syntax verified."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T03:59:07Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4435",
       "title": "Enhance release show with task details and discovery preview",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4431",
       "createdAt": "2026-02-13T03:47:27Z",
-      "updatedAt": "2026-02-13T03:47:27Z",
+      "updatedAt": "2026-02-13T03:54:23Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -14334,17 +14368,36 @@
       ],
       "depends": [
         "T4432"
-      ]
+      ],
+      "completedAt": "2026-02-13T03:54:23Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T03:54:23Z] Enhanced cmd_show (lines 1327-1538) with task title/label display, auto-discovery preview for planned/active releases, source annotation (manual/auto/both), and JSON taskDetails + autoDiscoveryPreview fields. Syntax verified."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T03:54:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4436",
       "title": "Update protocols/release.md and add tests for release guardrails",
-      "status": "pending",
+      "status": "active",
       "priority": "medium",
       "type": "task",
       "parentId": "T4431",
       "createdAt": "2026-02-13T03:47:36Z",
-      "updatedAt": "2026-02-13T03:47:36Z",
+      "updatedAt": "2026-02-13T03:59:22Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,

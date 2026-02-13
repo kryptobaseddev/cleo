@@ -108768,11 +108768,101 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_80e2a2a8a9de",
+      "timestamp": "2026-02-13T03:54:23Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4433",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T03:54:21Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_336003307e54",
+      "timestamp": "2026-02-13T03:54:24Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4435",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T03:54:23Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_b0d9f0946656",
+      "timestamp": "2026-02-13T03:54:39Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4432"
+      },
+      "after": {
+        "currentTask": "T4434"
+      },
+      "details": null
+    },
+    {
+      "id": "log_cd93751bd62f",
+      "timestamp": "2026-02-13T03:59:08Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4434",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T03:59:07Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_3e36340e0caa",
+      "timestamp": "2026-02-13T03:59:22Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4434"
+      },
+      "after": {
+        "currentTask": "T4436"
+      },
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 5623,
-    "lastEntry": "2026-02-13T03:50:20Z",
+    "totalEntries": 5628,
+    "lastEntry": "2026-02-13T03:59:22Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
