@@ -1,35 +1,41 @@
 ---
 title: "CLEO TypeScript Migration Doctrine"
-version: "1.0.0"
+version: "2.0.0"
 status: "stable"
 created: "2026-02-12"
-updated: "2026-02-12"
+updated: "2026-02-13"
 task: "T4340"
+v2_epic: "T4454"
 authors: ["CLEO Development Team"]
 ---
 
 # CLEO TypeScript Migration Doctrine
 
-**Version**: 1.0.0
+**Version**: 2.0.0
 **Status**: STABLE
-**Date**: 2026-02-12
+**Date**: 2026-02-13
 **Task**: T4340
+**V2 Epic**: T4454
 **Authority**: This document is the single source of truth for CLEO's TypeScript migration strategy. It synthesizes and aligns all existing specs, ADRs, and path-forward documents into one canonical narrative.
 
 ---
 
 ## 1. Migration Philosophy
 
-### 1.1 Canonical Approach: MCP-First Then Hotspots
+### 1.1 Canonical Approach: Both Tracks Parallel (v2.0.0)
 
-The canonical migration doctrine is **MCP-first, then hotspots**. This is NOT a broad rewrite of 133K LOC Bash into TypeScript. It is an incremental, evidence-gated strategy that delivers TypeScript value through the MCP server's native engine and expands scope only when parity is proven.
+**UPDATE (2026-02-13)**: The canonical migration doctrine has evolved from "MCP-first then hotspots" to **both tracks parallel**. The MCP-first approach validated TypeScript viability (29 native ops, cross-platform standalone). This success, combined with LAFS adoption requirements, justifies activating the full CLI rewrite (T2021) in parallel.
 
-**Core tenets:**
+**Core tenets (v2.0.0):**
 
-1. **MCP server is the vehicle for TypeScript expansion.** New TypeScript capabilities are added as native operations inside the MCP engine, not as parallel CLI commands.
-2. **CLI Bash is the authoritative behavior baseline.** Any native engine operation MUST produce output identical to the CLI for the same input. The CLI defines correctness.
-3. **MCP native engine provides cross-platform standalone capability.** The engine runs anywhere Node.js runs (Linux, macOS, Windows) without requiring Bash or jq.
-4. **Full CLI rewrite (T2021) is gated and separate scope.** T2021 remains an aspirational long-term target, blocked on T2112 (Bash stabilization). It is neither cancelled nor active. The MCP-first track operates independently.
+1. **Two parallel tracks converge to one system.** Track MCP expands the native engine (29 to ~130 ops). Track CLI (T2021, now ungated) builds a full Commander.js CLI. Both share a common TypeScript core.
+2. **LAFS is foundational.** Every command across both tracks MUST return LAFS-compliant envelopes. Machine-readable by default, human-readable opt-in.
+3. **CAAMP is the canonical package manager.** Skills, MCP servers, and agent instructions are managed through @cleocode/caamp v0.3.0 (88 exports).
+4. **CLI Bash remains the behavior baseline during transition.** Golden parity tests validate TypeScript output matches Bash output. Authority transfers to TypeScript after convergence.
+5. **T2021 gate (T2112) is removed.** The MCP-first track proved TypeScript works. The shared core strategy means CLI work directly benefits MCP and vice versa.
+6. **Convergence merges both tracks.** When both tracks reach feature parity, CLI and MCP become thin wrappers over the shared TypeScript core. Bash CLI enters maintenance then deprecation.
+
+**Full V2 architecture**: See `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` (T4454).
 
 ### 1.2 Why MCP-First
 
@@ -47,11 +53,11 @@ This doctrine fulfills ADR decision D1 (Conditional GO for TypeScript, 75% confi
 
 | ADR | Status Under This Doctrine |
 |-----|---------------------------|
-| D1: TypeScript Port | Fulfilled incrementally via MCP native engine |
+| D1: TypeScript Port | **FULL GO** -- both tracks active (MCP engine + CLI rewrite) |
 | D2: JSON/JSONL Storage | Unchanged -- JSON remains data format |
 | D3: Manifest Validation | Unchanged -- four-gate architecture preserved |
 | D4: Technical Debt Tracking | Unchanged -- independent of migration path |
-| D5: Commander.js CLI | Deferred -- only relevant if T2021 activates |
+| D5: Commander.js CLI | **ACTIVATED** -- T2021 ungated, Commander.js CLI proceeding |
 | D6: Multi-Agent Consensus | Unchanged -- protocol layer, not runtime |
 
 ---
@@ -139,24 +145,27 @@ The native TypeScript engine covers 29 operations across 4 domains:
 
 **Note**: CAAMP v0.3.0 is already installed and operational in the MCP server via direct dependency. T4341 (npm publish) is a formal registry blocker, not a functional blocker.
 
-### 3.4 Full CLI TypeScript Rewrite (T2021)
+### 3.4 Full CLI TypeScript Rewrite (T2021 -- NOW UNGATED)
 
-**Status**: Pending. Gated on T2112 (Bash stabilization, not passed).
+**Status**: **ACTIVE**. Gate T2112 removed (2026-02-13). Superseded by T4454.
 
-T2021 is the broad epic for converting all 133K LOC Bash to TypeScript. It has 6 child tasks and covers the complete port including Commander.js CLI framework, all 65+ commands, and full test suite migration from BATS to Jest/Vitest. This is independent scope from the MCP-first track and remains deferred indefinitely.
+T2021 is now superseded by T4454 (EPIC: CLEO V2 Full TypeScript System, LAFS-native). The original T2021 scope (133K LOC Bash to TypeScript) is being executed through T4454's phased approach with 22 child tasks across 4 CLI phases and 5 MCP expansion tasks. LAFS conformance is a foundational requirement. CAAMP is the canonical package manager. Both tracks (MCP engine expansion + CLI rewrite) run in parallel and converge when parity is achieved.
+
+**Full architecture**: `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md`
 
 ---
 
 ## 4. Decision Authority
 
-### 4.1 Independence of MCP-First Track
+### 4.1 Both Tracks Parallel (Updated 2026-02-13)
 
-The MCP-first track operates **independently** of the T2021 gate (T2112). This is a final decision made on 2026-02-11. The rationale:
+Both tracks now operate in parallel. The T2112 gate on T2021 is removed. This is a final decision made on 2026-02-13. The rationale:
 
-- T2112 (Bash stabilization) is a prerequisite for replacing Bash with TypeScript at the CLI layer
-- The MCP native engine does NOT replace the Bash CLI -- it provides an alternative execution path for MCP consumers
-- Adding native TypeScript operations to the MCP engine is additive and non-breaking
-- CLI consumers are unaffected by any MCP engine changes
+- The MCP-first track proved TypeScript viability with 29 native operations running cross-platform
+- LAFS adoption requires consistent output format across all transports -- most efficiently achieved with a shared TypeScript core
+- The shared core strategy means CLI work directly benefits MCP and vice versa
+- CAAMP v0.3.0 is already operational in the MCP server, providing the package management foundation
+- T4454 supersedes T2021 with a structured 4-phase CLI approach and 5 parallel MCP expansion tasks
 
 ### 4.2 Hotspot Expansion Criteria
 
@@ -169,16 +178,16 @@ When the native engine achieves proven parity for a domain (validated by golden 
 
 Only domains that pass ALL four criteria are eligible for expanded native coverage.
 
-### 4.3 CLI Remains Authoritative
+### 4.3 CLI Authority (Transitional)
 
-Regardless of native engine expansion, the Bash CLI remains the authoritative behavior baseline:
+**During migration**: The Bash CLI remains the authoritative behavior baseline:
 
 - **Bug in native engine**: Fix the native engine to match CLI behavior
 - **Bug in CLI**: Fix the CLI first, then update native engine to match
 - **New feature**: Implement in CLI first (or simultaneously), then add native support
 - **Behavioral disagreement**: CLI wins. Native engine MUST conform.
 
-This authority hierarchy is unconditional and does not change even after P3/P4 completion.
+**After convergence**: Authority transfers to the TypeScript system. The shared TypeScript core becomes the single source of truth. The Bash CLI enters maintenance mode (critical fixes only) then deprecation. This authority transfer occurs only after all convergence criteria in CLEO-V2-ARCHITECTURE-SPEC.md section 7.2 are met.
 
 ---
 
@@ -215,17 +224,20 @@ This authority hierarchy is unconditional and does not change even after P3/P4 c
 
 **Gate**: T4339 completion
 
-### 5.4 Full CLI Migration (Future, Gated)
+### 5.4 Full CLI Migration (ACTIVE -- T4454)
 
-- [ ] T2112 (Bash stabilization) passed
-- [ ] T2021 epic activated and decomposed
-- [ ] Commander.js CLI framework operational (ADR D5)
-- [ ] All 65+ CLI commands ported with 100% exit code parity
-- [ ] Full BATS test suite passing against TypeScript CLI
+- [x] T2112 gate removed (2026-02-13)
+- [x] T4454 epic created and decomposed (22 tasks, 4 CLI phases + 5 MCP expansion)
+- [ ] Commander.js CLI framework operational (ADR D5, T4455)
+- [ ] LAFS-compliant output format across all commands (T4456)
+- [ ] All 65+ CLI commands ported with 100% exit code parity (T4460-T4468)
+- [ ] LAFS conformance certification passing (T4469)
+- [ ] CAAMP full API integration (T4470)
+- [ ] Cross-platform CI green on Ubuntu, macOS, Windows (T4471)
 - [ ] 60-day parallel release period (both Bash and TypeScript CLIs available)
 - [ ] Developer preference survey: >50% prefer TypeScript CLI
 
-**Gate**: T2112 must pass. Separate epic, separate evaluation.
+**Gate**: T2112 gate REMOVED. T4454 is the active epic. See `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` for full architecture.
 
 ---
 
@@ -265,8 +277,15 @@ T4332 (CAAMP Integration)  ............................. P0 adapter DONE, 6 task
   ├── T4368 (providers MCP domain) .................... PENDING
   └── T4369 (Node >=20 bump) ......................... PENDING
 
-T2021 (Full TS Conversion)  ............................ GATED on T2112
-  └── T2112 (Bash Stabilization) ...................... NOT PASSED
+T4454 (CLEO V2 Full TypeScript System, LAFS-native) .... ACTIVE (22 tasks)
+  ├── Phase 1: T4455-T4458 (Foundation) .............. PENDING
+  ├── Phase 2: T4460-T4463 (Core Commands) ........... PENDING (depends P1)
+  ├── Phase 3: T4464-T4468 (Feature Parity) .......... PENDING (depends P2)
+  ├── Phase 4: T4469-T4472 (Integration) ............. PENDING (depends P3)
+  └── MCP Track: T4474-T4478 (Engine Expansion) ...... PENDING (parallel)
+
+T2021 (Full TS Conversion)  ............................ SUPERSEDED by T4454
+  └── T2112 (Bash Stabilization) ...................... GATE REMOVED
 
 T4340 (This Document: Migration Doctrine)
 ```
@@ -290,15 +309,17 @@ T4340 (This Document: Migration Doctrine)
   (9 pending)       │                                             │
                     └─────────────────────────────────────────────┘
                                         │
-                                        │ (no dependency)
+                                        │ (feeds into)
                                         │
                     ┌───────────────────────────────────────────┐
-                    │         GATED (SEPARATE SCOPE)            │
+                    │    V2: BOTH TRACKS PARALLEL (T4454)       │
                     │                                           │
-                    │   T2112 (Bash Stabilization) ─── gate ──► │
-                    │                                           │
-                    │   T2021 (Full CLI TS Rewrite) ── blocked  │
-                    │                                           │
+                    │  Track CLI    │    Track MCP Expansion    │
+                    │  T4455-T4472  │    T4474-T4478            │
+                    │  (17 tasks)   │    (5 tasks, parallel)    │
+                    │               │                           │
+                    │  T2021 ────── SUPERSEDED ──► T4454        │
+                    │  T2112 ────── GATE REMOVED                │
                     └───────────────────────────────────────────┘
 ```
 
@@ -390,6 +411,7 @@ After synthesis of all source documents, no contradictions were identified betwe
 
 | Task | Title | Status |
 |------|-------|--------|
+| T4454 | EPIC: CLEO V2 Full TypeScript System (LAFS-native) | **ACTIVE** (22 tasks) |
 | T4334 | EPIC: MCP Server Native TypeScript Engine | P0-P2 done, P3-P4 pending |
 | T4333 | EPIC: Cross-Platform Standalone Mode | Done (v0.91.0) |
 | T4344 | EPIC: lib/ Hierarchy Refactor (Track A) | Done (v0.93.0) |
@@ -397,12 +419,22 @@ After synthesis of all source documents, no contradictions were identified betwe
 | T4332 | EPIC: CAAMP Integration | P0 done, 6 tasks pending |
 | T4338 | P3: Golden Parity Tests | Pending |
 | T4339 | P4: Feature-Flagged Rollout | Pending |
-| T4340 | Migration Doctrine (this document) | Complete |
-| T2021 | EPIC: Full TS Conversion | Gated on T2112 |
-| T2112 | Bash Stabilization Gate | Not passed |
+| T4340 | Migration Doctrine (this document) | Updated v2.0.0 |
+| T2021 | EPIC: Full TS Conversion | Superseded by T4454 |
+| T2112 | Bash Stabilization Gate | Gate removed |
 
 ---
 
-**Document Status**: STABLE
+**Document Status**: STABLE (v2.0.0)
 **Authority**: Canonical migration doctrine. Defers to `docs/concepts/vision.mdx` (immutable identity) and `docs/specs/PORTABLE-BRAIN-SPEC.md` (product contract) for product definition.
-**Next Review**: After T4338 (P3 golden parity tests) completion.
+**V2 Architecture**: `docs/specs/CLEO-V2-ARCHITECTURE-SPEC.md` (T4454)
+**Changes from v1.0.0**:
+1. Migration strategy evolved from "MCP-first then hotspots" to "both tracks parallel"
+2. T2021 ungated -- T2112 gate removed, T4454 supersedes T2021
+3. LAFS (LLM-Agent-First Specification) made foundational constraint
+4. CAAMP (@cleocode/caamp v0.3.0) designated canonical package manager
+5. Convergence plan added: CLI + MCP merge into shared TypeScript core
+6. ADR D1 upgraded from "fulfilled incrementally" to "FULL GO"
+7. ADR D5 upgraded from "deferred" to "ACTIVATED"
+8. CLI authority made transitional (transfers to TypeScript after convergence)
+**Next Review**: After T4454 Phase 1 foundation tasks complete.
