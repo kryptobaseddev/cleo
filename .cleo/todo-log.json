@@ -110054,11 +110054,31 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log_11da31fcbf56",
+      "timestamp": "2026-02-13T06:05:14Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4453",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T06:05:13Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5651,
-    "lastEntry": "2026-02-13T06:04:01Z",
+    "totalEntries": 5652,
+    "lastEntry": "2026-02-13T06:05:14Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

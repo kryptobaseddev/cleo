@@ -910,9 +910,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T06:04:01Z",
+  "lastUpdated": "2026-02-13T06:05:13Z",
   "_meta": {
-    "checksum": "915a2df0af83bbec",
+    "checksum": "0fa742309d149d6f",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -921,7 +921,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2958
+    "generation": 2960
   },
   "focus": {
     "currentTask": null,
@@ -14890,12 +14890,12 @@
     {
       "id": "T4453",
       "title": "Checkpoint skills domain implementation stream",
-      "status": "active",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-13T06:03:54Z",
-      "updatedAt": "2026-02-13T06:04:01Z",
+      "updatedAt": "2026-02-13T06:05:13Z",
       "size": "medium",
       "position": 876,
       "positionVersion": 0,
@@ -14912,8 +14912,25 @@
         "No residual working-tree drift remains"
       ],
       "notes": [
-        "2026-02-13 06:04:01 UTC: Applying and committing stash@{0} skills-domain stream as isolated checkpoint."
-      ]
+        "2026-02-13 06:04:01 UTC: Applying and committing stash@{0} skills-domain stream as isolated checkpoint.",
+        "[COMPLETED 2026-02-13T06:05:13Z] Applied previously stashed skills-domain stream, committed MCP gateway/domain/router/type integrations plus manifest resolver and integration tests, validated with bats tests/integration/skill-paths-caamp.bats, and prepared for push to origin/main."
+      ],
+      "completedAt": "2026-02-13T06:05:13Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T06:05:13Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
