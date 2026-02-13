@@ -751,9 +751,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-12T21:21:22Z",
+  "lastUpdated": "2026-02-13T02:09:11Z",
   "_meta": {
-    "checksum": "00545c3aed75742f",
+    "checksum": "c708fe9cba7944b3",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -762,7 +762,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2829
+    "generation": 2864
   },
   "focus": {
     "currentTask": null,
@@ -12967,12 +12967,12 @@
     {
       "id": "T4387",
       "title": "Fix complete command arithmetic parsing warnings on auto-complete metadata",
-      "status": "active",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-12T21:06:24Z",
-      "updatedAt": "2026-02-12T21:21:22Z",
+      "updatedAt": "2026-02-12T21:24:00Z",
       "size": "medium",
       "position": 860,
       "positionVersion": 0,
@@ -12988,8 +12988,861 @@
         "existing completion behavior remains unchanged"
       ],
       "notes": [
-        "2026-02-12 21:21:22 UTC: Starting strict CLI-only RCSD-IVTR execution (no repo source reads)."
+        "2026-02-12 21:21:22 UTC: Starting strict CLI-only RCSD-IVTR execution (no repo source reads).",
+        "[COMPLETED 2026-02-12T21:24:00Z] Reviewed and validated via strict CLI-only process (no repository file reads). Repro attempts on temporary hierarchies (T4388-T4396 descendants) and stress run showed zero arithmetic syntax warnings from 'cleo complete'. Concluded issue not reproducible on v0.93.4 in black-box testing; lifecycle closed as investigation-only with release skipped by policy."
+      ],
+      "completedAt": "2026-02-12T21:24:00Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:24:00Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4388",
+      "title": "T4387 CLI Repro Epic",
+      "status": "pending",
+      "priority": "low",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-12T21:21:34Z",
+      "updatedAt": "2026-02-12T21:21:34Z",
+      "size": "medium",
+      "position": 861,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Temporary CLI-only reproduction epic for T4387",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Repro hierarchy exists"
       ]
+    },
+    {
+      "id": "T4389",
+      "title": "T4387 CLI Repro Child 1",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4388",
+      "createdAt": "2026-02-12T21:21:35Z",
+      "updatedAt": "2026-02-12T21:21:36Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Temp child 1",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Temp"
+      ],
+      "completedAt": "2026-02-12T21:21:36Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:21:36Z] CLI repro child 1"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:21:37Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4390",
+      "title": "T4387 CLI Repro Child 2",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4388",
+      "createdAt": "2026-02-12T21:21:36Z",
+      "updatedAt": "2026-02-12T21:21:39Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Temp child 2",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Temp"
+      ],
+      "completedAt": "2026-02-12T21:21:39Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:21:39Z] CLI repro child 2"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:21:40Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4391",
+      "title": "T4387 CLI Repro Parent Task",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-12T21:21:53Z",
+      "updatedAt": "2026-02-12T21:21:53Z",
+      "size": "medium",
+      "position": 862,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Temp parent task for auto-complete repro",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Temp"
+      ]
+    },
+    {
+      "id": "T4392",
+      "title": "T4387 CLI Subtask 1",
+      "status": "done",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T4391",
+      "createdAt": "2026-02-12T21:21:53Z",
+      "updatedAt": "2026-02-12T21:21:55Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Temp subtask 1",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Temp"
+      ],
+      "completedAt": "2026-02-12T21:21:55Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:21:55Z] CLI repro subtask 1"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:21:56Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4393",
+      "title": "T4387 CLI Subtask 2",
+      "status": "done",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T4391",
+      "createdAt": "2026-02-12T21:21:54Z",
+      "updatedAt": "2026-02-12T21:21:58Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Temp subtask 2",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Temp"
+      ],
+      "completedAt": "2026-02-12T21:21:58Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:21:58Z] CLI repro subtask 2"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:21:58Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4394",
+      "title": "T4387 AutoComplete Grandparent",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-12T21:22:17Z",
+      "updatedAt": "2026-02-12T21:22:17Z",
+      "size": "medium",
+      "position": 863,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Auto-complete repro grandparent",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Temp"
+      ]
+    },
+    {
+      "id": "T4395",
+      "title": "T4387 AutoComplete Parent",
+      "status": "pending",
+      "priority": "low",
+      "type": "subtask",
+      "parentId": "T4394",
+      "createdAt": "2026-02-12T21:22:18Z",
+      "updatedAt": "2026-02-12T21:22:18Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Auto-complete repro parent",
+      "labels": [
+        "repro",
+        "t4387",
+        "temp"
+      ],
+      "acceptance": [
+        "Temp"
+      ]
+    },
+    {
+      "id": "T4396",
+      "title": "T4387 Stress Epic",
+      "status": "pending",
+      "priority": "low",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-12T21:22:36Z",
+      "updatedAt": "2026-02-12T21:22:36Z",
+      "size": "medium",
+      "position": 864,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Stress reproduction for complete arithmetic warnings",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "Stress tasks created"
+      ]
+    },
+    {
+      "id": "T4397",
+      "title": "T4387 Stress Child 1",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:22:37Z",
+      "updatedAt": "2026-02-12T21:22:38Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:22:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:22:38Z] stress completion 1"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:22:38Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4398",
+      "title": "T4387 Stress Child 2",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:22:40Z",
+      "updatedAt": "2026-02-12T21:22:41Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:22:41Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:22:41Z] stress completion 2"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:22:42Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4399",
+      "title": "T4387 Stress Child 3",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:22:44Z",
+      "updatedAt": "2026-02-12T21:22:45Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:22:45Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:22:45Z] stress completion 3"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:22:45Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4400",
+      "title": "T4387 Stress Child 4",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:22:48Z",
+      "updatedAt": "2026-02-12T21:22:48Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:22:48Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:22:48Z] stress completion 4"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:22:49Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4401",
+      "title": "T4387 Stress Child 5",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:22:51Z",
+      "updatedAt": "2026-02-12T21:22:52Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:22:52Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:22:52Z] stress completion 5"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:22:53Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4402",
+      "title": "T4387 Stress Child 6",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:22:55Z",
+      "updatedAt": "2026-02-12T21:22:56Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:22:56Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:22:56Z] stress completion 6"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:22:56Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4403",
+      "title": "T4387 Stress Child 7",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:22:58Z",
+      "updatedAt": "2026-02-12T21:22:59Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:22:59Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:22:59Z] stress completion 7"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:23:00Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4404",
+      "title": "T4387 Stress Child 8",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:23:02Z",
+      "updatedAt": "2026-02-12T21:23:03Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:23:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:23:03Z] stress completion 8"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:23:03Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4405",
+      "title": "T4387 Stress Child 9",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:23:06Z",
+      "updatedAt": "2026-02-12T21:23:06Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:23:06Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:23:06Z] stress completion 9"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:23:07Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4406",
+      "title": "T4387 Stress Child 10",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:23:09Z",
+      "updatedAt": "2026-02-12T21:23:10Z",
+      "size": "medium",
+      "position": 10,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:23:10Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:23:10Z] stress completion 10"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:23:11Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4407",
+      "title": "T4387 Stress Child 11",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:23:13Z",
+      "updatedAt": "2026-02-12T21:23:14Z",
+      "size": "medium",
+      "position": 11,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:23:14Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:23:14Z] stress completion 11"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:23:14Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4408",
+      "title": "T4387 Stress Child 12",
+      "status": "done",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4396",
+      "createdAt": "2026-02-12T21:23:17Z",
+      "updatedAt": "2026-02-12T21:23:17Z",
+      "size": "medium",
+      "position": 12,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "stress child",
+      "labels": [
+        "repro",
+        "t4387stress",
+        "temp"
+      ],
+      "acceptance": [
+        "temp"
+      ],
+      "completedAt": "2026-02-12T21:23:17Z",
+      "notes": [
+        "[COMPLETED 2026-02-12T21:23:17Z] stress completion 12"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-12T21:23:18Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4409",
+      "title": "Implement cleo issue CLI command",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T02:08:42Z",
+      "updatedAt": "2026-02-13T02:09:11Z",
+      "size": "medium",
+      "position": 865,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create scripts/issue.sh with bug, feature, help, and diagnostics subcommands. LAFS-compliant JSON output, gh CLI integration, interactive TTY prompts, and dry-run support.",
+      "completedAt": "2026-02-13T02:09:11Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T02:09:11Z] Implemented scripts/issue.sh with bug, feature, help, diagnostics subcommands. LAFS-compliant JSON/human output, gh CLI integration, dry-run mode."
+      ]
+    },
+    {
+      "id": "T4410",
+      "title": "Add issues domain to MCP server",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T02:08:48Z",
+      "updatedAt": "2026-02-13T02:08:48Z",
+      "size": "medium",
+      "position": 866,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create IssuesHandler domain, register in router, add to gateways, create JSON schemas for request/response."
+    },
+    {
+      "id": "T4411",
+      "title": "Update AGENT-INJECTION.md with issue command",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T02:08:57Z",
+      "updatedAt": "2026-02-13T02:08:57Z",
+      "size": "medium",
+      "position": 867,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add cleo issue command examples to the Essential Commands section and rebuild commands index."
     }
   ],
   "labels": {}
