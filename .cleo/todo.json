@@ -793,17 +793,17 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T03:30:44Z",
+  "lastUpdated": "2026-02-13T03:47:36Z",
   "_meta": {
-    "checksum": "5b45683a98e26dc7",
+    "checksum": "829f79d640752531",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-12T14:22:49Z",
+    "lastModified": "2026-02-13T03:47:42Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 28,
+    "activeSessionCount": 29,
     "generation": 2893
   },
   "focus": {
@@ -14201,6 +14201,142 @@
         "lastUpdated": "2026-02-13T03:30:23Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4431",
+      "title": "EPIC: Release Tooling Guardrails - Task Preview, Epic Completeness, Source Tracking",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-13T03:46:46Z",
+      "updatedAt": "2026-02-13T03:46:46Z",
+      "size": "medium",
+      "position": 870,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Add guardrails and visibility to the release tooling: (1) Extract pure discovery function from populate_release_tasks, (2) Add --preview flag showing task list with auto/manual distinction, (3) Epic-completeness guard warning about incomplete sibling tasks, (4) Double-listing warning for tasks in multiple releases, (5) Enhanced --dry-run with task preview. Config-driven with warn/block/off modes.",
+      "labels": [
+        "guardrails",
+        "implementation",
+        "release"
+      ]
+    },
+    {
+      "id": "T4432",
+      "title": "Extract discover_release_tasks() pure function from populate_release_tasks()",
+      "status": "active",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4431",
+      "createdAt": "2026-02-13T03:46:55Z",
+      "updatedAt": "2026-02-13T03:47:42Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Factor the 6-filter auto-discovery jq pipeline out of populate_release_tasks() in lib/ui/changelog.sh into a new pure function discover_release_tasks() that returns JSON array of task IDs without any side effects (no writes to todo.json). Then refactor populate_release_tasks() to call discover_release_tasks() internally. Zero behavior change for existing callers. This is the foundation that --preview, --dry-run enhancement, and epic guards all build on.",
+      "labels": [
+        "changelog",
+        "guardrails",
+        "implementation",
+        "release"
+      ]
+    },
+    {
+      "id": "T4433",
+      "title": "Create lib/release/release-guards.sh with epic-completeness and double-listing checks",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4431",
+      "createdAt": "2026-02-13T03:47:06Z",
+      "updatedAt": "2026-02-13T03:47:06Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "New file lib/release/release-guards.sh with two guard functions: (1) check_epic_completeness() - takes array of release task IDs + todo.json path, walks parentId to find epic ancestors via get_epic_ancestor(), groups by epic, diffs children against release list, categorizes missing children by status (active/pending/blocked). Returns structured JSON result. (2) check_double_listing() - takes release task IDs + version + todo.json, queries all prior released releases for overlapping task IDs, returns list of {taskId, priorVersion} overlaps. (3) render_epic_completeness() and render_double_listing() for text/JSON output. Uses existing hierarchy functions from lib/tasks/hierarchy.sh. Default epic-completeness mode: warn. Config key: release.guards.epicCompleteness (warn|block|off). Exit code 59 EXIT_TASKS_INCOMPLETE when in block mode.",
+      "labels": [
+        "guardrails",
+        "implementation",
+        "release"
+      ],
+      "depends": [
+        "T4432"
+      ]
+    },
+    {
+      "id": "T4434",
+      "title": "Add --preview flag and enhance --dry-run in release ship command",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4431",
+      "createdAt": "2026-02-13T03:47:19Z",
+      "updatedAt": "2026-02-13T03:47:19Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Modify scripts/release.sh cmd_ship(): (1) Add --preview flag to argument parser. (2) --preview block: after release existence check, calls discover_release_tasks() (pure, no writes), gets existing release.tasks[] for manual task identification, computes union and classifies each task as auto/manual, fetches task metadata (title, labels, status), calls check_epic_completeness() and check_double_listing() from release-guards.sh, renders structured output (text and JSON), then exits 0. (3) Enhanced --dry-run: move dry-run block AFTER release existence check, run same preview logic, then show step enumeration below the task preview. (4) In the actual ship flow (non-dry-run): between Step 0 (populate) and Step 1 (bump), call check_epic_completeness() - in warn mode log warnings and continue, in block mode exit 59 unless --force. Call check_double_listing() as warning-only. (5) Add EXIT_TASKS_INCOMPLETE=59 constant. (6) Add --force flag to override block mode. (7) Source lib/release/release-guards.sh. (8) Add get_epic_completeness_mode() to lib/release/release-config.sh reading release.guards.epicCompleteness from config.",
+      "labels": [
+        "guardrails",
+        "implementation",
+        "release"
+      ],
+      "depends": [
+        "T4432",
+        "T4433"
+      ]
+    },
+    {
+      "id": "T4435",
+      "title": "Enhance release show with task details and discovery preview",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4431",
+      "createdAt": "2026-02-13T03:47:27Z",
+      "updatedAt": "2026-02-13T03:47:27Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Enhance cmd_show in scripts/release.sh: when the release is in planned status, use discover_release_tasks() to show what auto-discovery WOULD find, show existing manual tasks, and show the union with source distinction. For released status, show the final task list with titles and categories. In text mode show task titles alongside IDs. In JSON mode add taskDetails array with id, title, labels, source fields.",
+      "labels": [
+        "guardrails",
+        "implementation",
+        "release"
+      ],
+      "depends": [
+        "T4432"
+      ]
+    },
+    {
+      "id": "T4436",
+      "title": "Update protocols/release.md and add tests for release guardrails",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4431",
+      "createdAt": "2026-02-13T03:47:36Z",
+      "updatedAt": "2026-02-13T03:47:36Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Two deliverables: (1) Update protocols/release.md v2.2.0: document --preview flag, epic-completeness guard, double-listing warning, release.guards.epicCompleteness config, EXIT_TASKS_INCOMPLETE exit code 59 implementation, updated ship workflow steps. (2) Create tests/unit/release-guards.bats: test check_epic_completeness with fully-complete epic (no warning), partially-complete epic (warning), block mode (exit 59), --force override. Test check_double_listing with overlapping and non-overlapping tasks. Test discover_release_tasks returns correct IDs without side effects. (3) Update tests/integration/release-ship.bats: test --preview flag, enhanced --dry-run, ship with incomplete epic in warn/block modes.",
+      "labels": [
+        "documentation",
+        "guardrails",
+        "release",
+        "testing"
+      ],
+      "depends": [
+        "T4433",
+        "T4434"
+      ]
     }
   ],
   "labels": {}
