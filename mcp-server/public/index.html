@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLEO Nexus - Command Center</title>
+  <link rel="icon" type="image/png" href="/logo.png">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+    body { font-family: 'JetBrains Mono', monospace; }
+    .pixel-border { box-shadow: 4px 4px 0px 0px rgba(0,0,0,0.3); }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .progress-bar { transition: width 0.3s ease; }
+    
+    /* Health colors */
+    .health-healthy { color: #10b981; border-color: #10b981; }
+    .health-warning { color: #f59e0b; border-color: #f59e0b; }
+    .health-error { color: #ef4444; border-color: #ef4444; }
+    .health-unknown { color: #6b7280; border-color: #6b7280; }
+    
+    /* Status badges */
+    .status-pending { background: rgba(234, 179, 8, 0.2); color: #fbbf24; border: 1px solid #fbbf24; }
+    .status-active { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #4ade80; }
+    .status-blocked { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #f87171; }
+    .status-completed { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid #c084fc; }
+    
+    /* Priority badges */
+    .priority-critical { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    .priority-high { background: rgba(249, 115, 22, 0.2); color: #fb923c; }
+    .priority-medium { background: rgba(234, 179, 8, 0.2); color: #fbbf24; }
+    .priority-low { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+  </style>
+</head>
+<body class="bg-gray-900 text-cyan-400 min-h-screen" x-data="nexusApp()" x-init="init()">
+  <div class="min-h-screen flex">
+    <!-- Sidebar -->
+    <nav class="w-64 bg-gray-800 border-r-2 border-cyan-600 flex flex-col">
+      <div class="p-4 border-b-2 border-cyan-600 flex items-center gap-3">
+        <img src="/logo.png" alt="CLEO" class="w-8 h-8">
+        <div>
+          <h1 class="text-lg font-bold text-cyan-400">CLEO NEXUS</h1>
+          <p class="text-xs text-cyan-600">Command Center</p>
+        </div>
+      </div>
+      
+      <div class="p-4 space-y-2 flex-1">
+        <button @click="navigateTo('nexus')" 
+           :class="currentView === 'nexus' ? 'bg-cyan-900 text-cyan-300 border-cyan-400' : 'text-cyan-600 border-transparent hover:border-cyan-600'"
+           class="w-full text-left px-4 py-2 border-2 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+          NEXUS
+        </button>
+        
+        <button @click="navigateTo('projects')"
+           :class="currentView === 'projects' ? 'bg-cyan-900 text-cyan-300 border-cyan-400' : 'text-cyan-600 border-transparent hover:border-cyan-600'"
+           class="w-full text-left px-4 py-2 border-2 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+          PROJECTS
+          <span x-show="projects.length > 0" x-text="projects.length" class="ml-auto text-xs bg-cyan-800 px-2 py-0.5 rounded"></span>
+        </button>
+        
+        <button @click="navigateTo('search')"
+           :class="currentView === 'search' ? 'bg-cyan-900 text-cyan-300 border-cyan-400' : 'text-cyan-600 border-transparent hover:border-cyan-600'"
+           class="w-full text-left px-4 py-2 border-2 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          SEARCH
+        </button>
+      </div>
+      
+      <div class="p-4 border-t-2 border-cyan-600">
+        <div class="flex items-center justify-between text-xs">
+          <span :class="connected ? 'text-green-400' : 'text-red-400'" x-text="connected ? '● Connected' : '○ Disconnected'"></span>
+          <span class="text-cyan-600" x-text="wsStatus"></span>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-auto">
+      
+      <!-- NEXUS VIEW -->
+      <div x-show="currentView === 'nexus'" x-transition.opacity.duration.300ms class="p-6">
+        <!-- Header -->
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold text-cyan-300 mb-2">NEXUS OVERVIEW</h2>
+          <div class="flex items-center gap-4 text-sm text-cyan-600">
+            <span>Registry v2.0.0</span>
+            <span>•</span>
+            <span x-text="nexusData.timestamp ? new Date(nexusData.timestamp).toLocaleString() : '-'"></span>
+            <span>•</span>
+            <span :class="{
+              'text-green-400': nexusData.status === 'operational',
+              'text-yellow-400': nexusData.status === 'warning',
+              'text-red-400': nexusData.status === 'degraded' || nexusData.status === 'error'
+            }" x-text="nexusData.status?.toUpperCase() || 'UNKNOWN'"></span>
+          </div>
+        </div>
+
+        <!-- Fleet Overview Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-gray-800 p-4 border-2 border-cyan-600">
+            <div class="text-cyan-600 text-xs mb-1">PROJECTS</div>
+            <div class="text-3xl font-bold" x-text="nexusData.projects?.total || 0">0</div>
+            <div class="text-xs mt-1 text-cyan-600">
+              <span class="text-green-400" x-text="nexusData.projects?.healthy || 0"></span> healthy • 
+              <span class="text-yellow-400" x-text="nexusData.projects?.warnings || 0"></span> warn • 
+              <span class="text-red-400" x-text="nexusData.projects?.errors || 0"></span> err
+            </div>
+          </div>
+          
+          <div class="bg-gray-800 p-4 border-2 border-yellow-600">
+            <div class="text-yellow-600 text-xs mb-1">PENDING</div>
+            <div class="text-3xl font-bold text-yellow-400" x-text="nexusData.stats?.pendingTasks || 0">0</div>
+            <div class="text-xs mt-1 text-cyan-600" x-text="((nexusData.stats?.pendingTasks / nexusData.stats?.totalTasks) * 100).toFixed(1) + '%'"></div>
+          </div>
+          
+          <div class="bg-gray-800 p-4 border-2 border-green-600">
+            <div class="text-green-600 text-xs mb-1">ACTIVE</div>
+            <div class="text-3xl font-bold text-green-400" x-text="nexusData.stats?.activeTasks || 0">0</div>
+            <div class="text-xs mt-1 text-cyan-600" x-text="((nexusData.stats?.activeTasks / nexusData.stats?.totalTasks) * 100).toFixed(1) + '%'"></div>
+          </div>
+          
+          <div class="bg-gray-800 p-4 border-2 border-purple-600">
+            <div class="text-purple-600 text-xs mb-1">COMPLETED</div>
+            <div class="text-3xl font-bold text-purple-400" x-text="nexusData.stats?.completedTasks || 0">0</div>
+            <div class="text-xs mt-1 text-cyan-600" x-text="((nexusData.stats?.completedTasks / nexusData.stats?.totalTasks) * 100).toFixed(1) + '%'"></div>
+          </div>
+        </div>
+
+        <!-- Top Active Projects -->
+        <div class="bg-gray-800 border-2 border-cyan-600 mb-6">
+          <div class="p-4 border-b-2 border-cyan-600 bg-cyan-900/30">
+            <h3 class="font-bold text-cyan-300 flex items-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+              TOP ACTIVE PROJECTS
+            </h3>
+          </div>
+          
+          <div x-show="loading" class="p-8 text-center text-cyan-600">Loading...</div>
+          
+          <div x-show="!loading && (!nexusData.projects?.topActive || nexusData.projects.topActive.length === 0)" 
+               class="p-8 text-center text-cyan-600">
+            No active projects found
+          </div>
+          
+          <div x-show="!loading && nexusData.projects?.topActive?.length > 0"
+               class="divide-y divide-cyan-800">
+            <template x-for="project in nexusData.projects?.topActive || []" :key="project.hash">
+              <div @click="openProject(project.hash)" 
+                   class="p-4 hover:bg-cyan-900/20 cursor-pointer transition flex items-center justify-between">
+                <div class="flex-1">
+                  <div class="flex items-center gap-3">
+                    <span class="font-semibold text-cyan-300" x-text="project.name"></span>
+                    <span class="text-xs px-2 py-0.5 rounded border"
+                          :class="{
+                            'border-green-600 text-green-400': project.healthStatus === 'healthy',
+                            'border-yellow-600 text-yellow-400': project.healthStatus === 'warning',
+                            'border-red-600 text-red-400': project.healthStatus === 'error',
+                            'border-gray-600 text-gray-400': !project.healthStatus || project.healthStatus === 'unknown'
+                          }"
+                          x-text="project.healthStatus || 'unknown'"></span>
+                  </div>
+                  <div class="text-xs text-cyan-600 mt-1" x-text="project.path"></div>
+                  
+                  <div class="flex items-center gap-4 mt-2 text-xs">
+                    <span class="text-cyan-500">
+                      <span x-text="project.taskCount"></span> tasks
+                    </span>
+                    <span x-show="project.stats?.pending" class="text-yellow-500">
+                      <span x-text="project.stats.pending"></span> pending
+                    </span>
+                    <span x-show="project.stats?.in_progress" class="text-green-500">
+                      <span x-text="project.stats.in_progress"></span> active
+                    </span>
+                    <span x-show="project.labels?.length" class="text-purple-400">
+                      <span x-text="project.labels.length"></span> labels
+                    </span>
+                  </div>
+                </div>
+                
+                <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                </svg>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROJECTS VIEW -->
+      <div x-show="currentView === 'projects'" x-transition.opacity.duration.300ms class="p-6">
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold text-cyan-300">PROJECT REGISTRY</h2>
+          <p class="text-sm text-cyan-600 mt-1">All registered CLEO projects</p>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-gray-800 border-2 border-cyan-600 p-4 mb-6">
+          <div class="flex flex-wrap gap-4">
+            <div class="flex-1 min-w-[200px]">
+              <label class="text-xs text-cyan-600 block mb-1">Filter by Health</label>
+              <select x-model="healthFilter" @change="applyFilters()"
+                      class="w-full bg-gray-900 border border-cyan-700 text-cyan-400 px-3 py-2 text-sm focus:outline-none focus:border-cyan-400">
+                <option value="all">All Health Statuses</option>
+                <option value="healthy">Healthy</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+                <option value="unknown">Unknown</option>
+              </select>
+            </div>
+            
+            <div class="flex-1 min-w-[200px]">
+              <label class="text-xs text-cyan-600 block mb-1">Search</label>
+              <input x-model="projectSearch" @input="applyFilters()" type="text" 
+                     placeholder="Project name or path..."
+                     class="w-full bg-gray-900 border border-cyan-700 text-cyan-400 px-3 py-2 text-sm focus:outline-none focus:border-cyan-400 placeholder-cyan-800">
+            </div>
+          </div>
+        </div>
+
+        <!-- Projects Table -->
+        <div x-show="loading" class="text-center py-12 text-cyan-600">Loading projects...</div>
+        
+        <div x-show="!loading && filteredProjects.length === 0" class="text-center py-12 text-cyan-600">
+          No projects match your filters
+        </div>
+        
+        <div x-show="!loading && filteredProjects.length > 0" class="bg-gray-800 border-2 border-cyan-600">
+          <div class="grid grid-cols-12 gap-4 p-4 border-b-2 border-cyan-600 bg-cyan-900/30 text-xs font-semibold text-cyan-500">
+            <div class="col-span-3">PROJECT</div>
+            <div class="col-span-2">HEALTH</div>
+            <div class="col-span-2">TASKS</div>
+            <div class="col-span-2">PERMISSIONS</div>
+            <div class="col-span-3">LAST SEEN</div>
+          </div>
+          
+          <div class="divide-y divide-cyan-800">
+            <template x-for="project in filteredProjects" :key="project.hash">
+              <div @click="openProject(project.hash)" 
+                   class="grid grid-cols-12 gap-4 p-4 hover:bg-cyan-900/20 cursor-pointer transition items-center">
+                <div class="col-span-3">
+                  <div class="font-semibold text-cyan-300 truncate" x-text="project.name"></div>
+                  <div class="text-xs text-cyan-600 truncate" x-text="project.path"></div>
+                </div>
+                
+                <div class="col-span-2">
+                  <span class="text-xs px-2 py-1 rounded border"
+                        :class="{
+                          'border-green-600 text-green-400': project.healthStatus === 'healthy',
+                          'border-yellow-600 text-yellow-400': project.healthStatus === 'warning',
+                          'border-red-600 text-red-400': project.healthStatus === 'error',
+                          'border-gray-600 text-gray-400': !project.healthStatus || project.healthStatus === 'unknown'
+                        }"
+                        x-text="project.healthStatus || 'unknown'"></span>
+                </div>
+                
+                <div class="col-span-2 text-cyan-400">
+                  <span x-text="project.taskCount || 0"></span>
+                  <span x-show="project.labels?.length" class="text-xs text-cyan-600 ml-2" x-text="'(' + project.labels.length + ' labels)'"></span>
+                </div>
+                
+                <div class="col-span-2 text-xs text-cyan-500" x-text="project.permissions || 'read'"></div>
+                
+                <div class="col-span-3 text-xs text-cyan-600" x-text="project.lastSeen ? new Date(project.lastSeen).toLocaleString() : 'Never'"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROJECT DETAIL VIEW -->
+      <div x-show="currentView === 'project'" x-transition.opacity.duration.300ms class="min-h-full">
+        <!-- Loading State -->
+        <div x-show="projectLoading" class="p-6">
+          <div class="text-center py-12 text-cyan-600">Loading project...</div>
+        </div>
+        
+        <!-- Project Content -->
+        <div x-show="!projectLoading && projectData.project" class="pb-6">
+          <!-- Project Header -->
+          <div class="bg-gray-800 border-b-2 border-cyan-600 p-6">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="flex items-center gap-3 mb-2">
+                  <button @click="navigateTo('projects')" class="text-cyan-600 hover:text-cyan-400 flex items-center gap-1 text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    Back to Projects
+                  </button>
+                </div>
+                <h2 class="text-3xl font-bold text-cyan-300" x-text="projectData.project?.name"></h2>
+                <div class="flex items-center gap-4 mt-2 text-sm">
+                  <span class="font-mono text-cyan-500" x-text="projectData.project?.hash"></span>
+                  <span class="text-cyan-600" x-text="projectData.project?.path"></span>
+                  <span class="px-2 py-0.5 rounded text-xs border"
+                        :class="{
+                          'border-green-600 text-green-400': projectData.project?.healthStatus === 'healthy',
+                          'border-yellow-600 text-yellow-400': projectData.project?.healthStatus === 'warning',
+                          'border-red-600 text-red-400': projectData.project?.healthStatus === 'error',
+                          'border-gray-600 text-gray-400': !projectData.project?.healthStatus || projectData.project?.healthStatus === 'unknown'
+                        }"
+                        x-text="projectData.project?.healthStatus || 'unknown'"></span>
+                </div>
+              </div>
+              
+              <div class="text-right text-sm text-cyan-600">
+                <div>Registered: <span x-text="projectData.project?.registeredAt ? new Date(projectData.project.registeredAt).toLocaleDateString() : '-'"></span></div>
+                <div>Last Seen: <span x-text="projectData.project?.lastSeen ? new Date(projectData.project.lastSeen).toLocaleString() : '-'"></span></div>
+                <div x-show="projectData.project?.permissions">Permissions: <span x-text="projectData.project?.permissions"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Task Breakdown -->
+          <div class="p-6 border-b-2 border-cyan-800">
+            <h3 class="text-xl font-bold text-cyan-300 mb-4">TASK BREAKDOWN</h3>
+            
+            <div class="grid grid-cols-4 gap-4 mb-6">
+              <div class="bg-gray-800 p-4 border border-cyan-700">
+                <div class="text-xs text-cyan-600 mb-1">TOTAL</div>
+                <div class="text-2xl font-bold text-cyan-300" x-text="projectData.stats?.total_active || 0"></div>
+              </div>
+              <div class="bg-gray-800 p-4 border border-cyan-700">
+                <div class="text-xs text-cyan-600 mb-1">EPICS</div>
+                <div class="text-2xl font-bold text-cyan-300" x-text="projectData.hierarchy?.stats?.epics || 0"></div>
+              </div>
+              <div class="bg-gray-800 p-4 border border-cyan-700">
+                <div class="text-xs text-cyan-600 mb-1">TASKS</div>
+                <div class="text-2xl font-bold text-cyan-300" x-text="projectData.hierarchy?.stats?.tasks || 0"></div>
+              </div>
+              <div class="bg-gray-800 p-4 border border-cyan-700">
+                <div class="text-xs text-cyan-600 mb-1">SUBTASKS</div>
+                <div class="text-2xl font-bold text-cyan-300" x-text="projectData.hierarchy?.stats?.subtasks || 0"></div>
+              </div>
+            </div>
+
+            <!-- Progress Bars -->
+            <div class="space-y-3">
+              <div class="flex items-center gap-4">
+                <span class="w-20 text-xs text-cyan-600">PENDING</span>
+                <div class="flex-1 bg-gray-800 h-6 rounded overflow-hidden">
+                  <div class="bg-yellow-500/60 h-full progress-bar flex items-center justify-end pr-2"
+                       :style="`width: ${(projectData.stats?.pending / projectData.stats?.total_active * 100) || 0}%`">
+                    <span class="text-xs text-white font-bold" x-text="projectData.stats?.pending || 0"></span>
+                  </div>
+                </div>
+                <span class="w-16 text-right text-xs text-cyan-600" x-text="((projectData.stats?.pending / projectData.stats?.total_active) * 100).toFixed(1) + '%'"></span>
+              </div>
+              
+              <div class="flex items-center gap-4">
+                <span class="w-20 text-xs text-cyan-600">ACTIVE</span>
+                <div class="flex-1 bg-gray-800 h-6 rounded overflow-hidden">
+                  <div class="bg-green-500/60 h-full progress-bar flex items-center justify-end pr-2"
+                       :style="`width: ${(projectData.stats?.in_progress / projectData.stats?.total_active * 100) || 0}%`">
+                    <span class="text-xs text-white font-bold" x-text="projectData.stats?.in_progress || 0"></span>
+                  </div>
+                </div>
+                <span class="w-16 text-right text-xs text-cyan-600" x-text="((projectData.stats?.in_progress / projectData.stats?.total_active) * 100).toFixed(1) + '%'"></span>
+              </div>
+              
+              <div class="flex items-center gap-4">
+                <span class="w-20 text-xs text-cyan-600">COMPLETED</span>
+                <div class="flex-1 bg-gray-800 h-6 rounded overflow-hidden">
+                  <div class="bg-purple-500/60 h-full progress-bar flex items-center justify-end pr-2"
+                       :style="`width: ${(projectData.stats?.completed / projectData.stats?.total_active * 100) || 0}%`">
+                    <span class="text-xs text-white font-bold" x-text="projectData.stats?.completed || 0"></span>
+                  </div>
+                </div>
+                <span class="w-16 text-right text-xs text-cyan-600" x-text="((projectData.stats?.completed / projectData.stats?.total_active) * 100).toFixed(1) + '%'"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Epics and Tasks -->
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-xl font-bold text-cyan-300">EPICS & TASKS</h3>
+              
+              <!-- Task Filters -->
+              <div class="flex gap-2">
+                <select x-model="taskFilter.status" @change="loadProjectTasks()"
+                        class="bg-gray-800 border border-cyan-700 text-cyan-400 px-3 py-1 text-sm">
+                  <option value="">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="active">Active</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="completed">Completed</option>
+                </select>
+                
+                <select x-model="taskFilter.priority" @change="loadProjectTasks()"
+                        class="bg-gray-800 border border-cyan-700 text-cyan-400 px-3 py-1 text-sm">
+                  <option value="">All Priority</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Loading -->
+            <div x-show="tasksLoading" class="text-center py-8 text-cyan-600">Loading tasks...</div>
+            
+            <!-- Epics List -->
+            <div x-show="!tasksLoading" class="space-y-4">
+              <template x-for="epic in projectData.hierarchy?.epics || []" :key="epic.id">
+                <div class="bg-gray-800 border border-cyan-700 rounded">
+                  <!-- Epic Header -->
+                  <div class="p-4 bg-cyan-900/20 border-b border-cyan-700 cursor-pointer"
+                       @click="epic.expanded = !epic.expanded">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-3">
+                        <svg x-show="!epic.expanded" class="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        <svg x-show="epic.expanded" class="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        <span class="font-mono text-xs text-cyan-500" x-text="epic.id"></span>
+                        <span class="font-semibold text-cyan-300" x-text="epic.title || epic.content"></span>
+                        <span class="text-xs px-2 py-0.5 rounded status-pending" x-text="epic.status || 'pending'"></span>
+                      </div>
+                      <span class="text-xs text-cyan-600" x-text="(epic.children?.length || 0) + ' tasks'"></span>
+                    </div>
+                  </div>
+                  
+                  <!-- Epic Children (Tasks) -->
+                  <div x-show="epic.expanded" class="divide-y divide-cyan-800/50">
+                    <template x-for="task in epic.children || []" :key="task.id">
+                      <div @click="openTask(task.id)" class="p-3 pl-12 hover:bg-cyan-900/10 cursor-pointer flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                          <span class="font-mono text-xs text-cyan-600" x-text="task.id"></span>
+                          <span class="text-sm text-cyan-400" x-text="task.title || task.content"></span>
+                          <span class="text-xs px-2 py-0.5 rounded" 
+                                :class="{
+                                  'status-pending': task.status === 'pending',
+                                  'status-active': task.status === 'active' || task.status === 'in_progress',
+                                  'status-blocked': task.status === 'blocked',
+                                  'status-completed': task.status === 'completed' || task.status === 'done'
+                                }"
+                                x-text="task.status || 'pending'"></span>
+                          <span x-show="task.priority" class="text-xs px-2 py-0.5 rounded priority-medium" x-text="task.priority"></span>
+                        </div>
+                        <svg class="w-4 h-4 text-cyan-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              
+              <!-- Orphaned Tasks -->
+              <div x-show="projectData.hierarchy?.orphaned?.length > 0" class="mt-6">
+                <h4 class="text-sm font-semibold text-cyan-600 mb-2">ORPHANED TASKS (No Parent Epic)</h4>
+                <div class="bg-gray-800 border border-cyan-700 rounded divide-y divide-cyan-800/50">
+                  <template x-for="task in projectData.hierarchy?.orphaned || []" :key="task.id">
+                    <div @click="openTask(task.id)" class="p-3 hover:bg-cyan-900/10 cursor-pointer flex items-center justify-between">
+                      <div class="flex items-center gap-3">
+                        <span class="font-mono text-xs text-cyan-600" x-text="task.id"></span>
+                        <span class="text-sm text-cyan-400" x-text="task.title || task.content"></span>
+                        <span class="text-xs px-2 py-0.5 rounded" 
+                              :class="{
+                                'status-pending': task.status === 'pending',
+                                'status-active': task.status === 'active',
+                                'status-blocked': task.status === 'blocked',
+                                'status-completed': task.status === 'completed'
+                              }"
+                              x-text="task.status || 'pending'"></span>
+                      </div>
+                      <svg class="w-4 h-4 text-cyan-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Pagination -->
+            <div x-show="projectTasks.pagination?.hasMore" class="mt-6 text-center">
+              <button @click="loadMoreTasks()" 
+                      :disabled="tasksLoading"
+                      class="px-4 py-2 bg-cyan-900 text-cyan-300 border border-cyan-600 hover:bg-cyan-800 disabled:opacity-50">
+                <span x-show="!tasksLoading">Load More Tasks</span>
+                <span x-show="tasksLoading">Loading...</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TASK DETAIL VIEW -->
+      <div x-show="currentView === 'task'" x-transition.opacity.duration.300ms class="p-6">
+        <div x-show="taskLoading" class="text-center py-12 text-cyan-600">Loading task...</div>
+        
+        <div x-show="!taskLoading && taskData.task" class="max-w-4xl mx-auto">
+          <!-- Breadcrumb -->
+          <div class="flex items-center gap-2 mb-4 text-sm">
+            <button @click="navigateTo('projects')" class="text-cyan-600 hover:text-cyan-400">Projects</button>
+            <span class="text-cyan-800">/</span>
+            <button @click="openProject(taskData.project?.hash)" class="text-cyan-600 hover:text-cyan-400" x-text="taskData.project?.name"></button>
+            <span class="text-cyan-800">/</span>
+            <span class="text-cyan-400" x-text="taskData.task?.id"></span>
+          </div>
+
+          <!-- Task Header -->
+          <div class="bg-gray-800 border-2 border-cyan-600 p-6 mb-6">
+            <div class="flex items-start justify-between">
+              <div>
+                <div class="flex items-center gap-3 mb-2">
+                  <span class="font-mono text-lg text-cyan-500" x-text="taskData.task?.id"></span>
+                  <span class="text-xs px-2 py-0.5 rounded" 
+                        :class="{
+                          'status-pending': taskData.task?.status === 'pending',
+                          'status-active': taskData.task?.status === 'active' || taskData.task?.status === 'in_progress',
+                          'status-blocked': taskData.task?.status === 'blocked',
+                          'status-completed': taskData.task?.status === 'completed' || taskData.task?.status === 'done'
+                        }"
+                        x-text="taskData.task?.status || 'pending'"></span>
+                  <span x-show="taskData.task?.priority" class="text-xs px-2 py-0.5 rounded priority-medium" x-text="taskData.task?.priority"></span>
+                </div>
+                <h2 class="text-2xl font-bold text-cyan-300" x-text="taskData.task?.title || taskData.task?.content"></h2>
+                <div x-show="taskData.task?.description" class="mt-4 text-cyan-400 text-sm whitespace-pre-wrap" x-text="taskData.task?.description"></div>
+              </div>
+            </div>
+            
+            <!-- Task Meta -->
+            <div class="grid grid-cols-4 gap-4 mt-6 pt-6 border-t border-cyan-700 text-sm">
+              <div>
+                <span class="text-cyan-600 block">Type</span>
+                <span class="text-cyan-300" x-text="taskData.task?.type || 'task'"></span>
+              </div>
+              <div>
+                <span class="text-cyan-600 block">Phase</span>
+                <span class="text-cyan-300" x-text="taskData.task?.phase || '-'"></span>
+              </div>
+              <div>
+                <span class="text-cyan-600 block">Created</span>
+                <span class="text-cyan-300" x-text="taskData.task?.createdAt ? new Date(taskData.task.createdAt).toLocaleDateString() : '-'"></span>
+              </div>
+              <div>
+                <span class="text-cyan-600 block">Updated</span>
+                <span class="text-cyan-300" x-text="taskData.task?.updatedAt ? new Date(taskData.task.updatedAt).toLocaleDateString() : '-'"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hierarchy -->
+          <div x-show="taskData.hierarchy" class="bg-gray-800 border-2 border-cyan-600 p-6 mb-6">
+            <h3 class="text-lg font-bold text-cyan-300 mb-4">HIERARCHY CONTEXT</h3>
+            
+            <!-- Parent -->
+            <div x-show="taskData.hierarchy?.parent" class="mb-4">
+              <span class="text-xs text-cyan-600 block mb-1">PARENT</span>
+              <div class="flex items-center gap-3 p-3 bg-cyan-900/20 rounded cursor-pointer hover:bg-cyan-900/30"
+                   @click="openTask(taskData.hierarchy.parent.id)">
+                <span class="font-mono text-xs text-cyan-500" x-text="taskData.hierarchy?.parent?.id"></span>
+                <span class="text-sm text-cyan-300" x-text="taskData.hierarchy?.parent?.title || taskData.hierarchy?.parent?.content"></span>
+              </div>
+            </div>
+            
+            <!-- Siblings -->
+            <div x-show="taskData.hierarchy?.siblings?.length > 0" class="mb-4">
+              <span class="text-xs text-cyan-600 block mb-1">SIBLINGS (Score: +0.15)</span>
+              <div class="space-y-1">
+                <template x-for="sibling in taskData.hierarchy?.siblings || []" :key="sibling.id">
+                  <div class="flex items-center gap-3 p-2 bg-gray-900 rounded cursor-pointer hover:bg-gray-800"
+                       @click="openTask(sibling.id)">
+                    <span class="font-mono text-xs text-cyan-600" x-text="sibling.id"></span>
+                    <span class="text-sm text-cyan-400" x-text="sibling.title || sibling.content"></span>
+                    <span class="ml-auto text-xs text-cyan-700" x-text="sibling.score"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+            
+            <!-- Children -->
+            <div x-show="taskData.hierarchy?.children?.length > 0">
+              <span class="text-xs text-cyan-600 block mb-1">CHILDREN</span>
+              <div class="space-y-1">
+                <template x-for="child in taskData.hierarchy?.children || []" :key="child.id">
+                  <div class="flex items-center gap-3 p-2 bg-gray-900 rounded cursor-pointer hover:bg-gray-800"
+                       @click="openTask(child.id)">
+                    <span class="font-mono text-xs text-cyan-600" x-text="child.id"></span>
+                    <span class="text-sm text-cyan-400" x-text="child.title || child.content"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEARCH VIEW -->
+      <div x-show="currentView === 'search'" x-transition.opacity.duration.300ms class="p-6">
+        <div class="mb-6">
+          <h2 class="text-3xl font-bold text-cyan-300">GLOBAL SEARCH</h2>
+          <p class="text-sm text-cyan-600 mt-1">Search tasks across all registered projects</p>
+        </div>
+
+        <!-- Search Input -->
+        <div class="bg-gray-800 border-2 border-cyan-600 p-4 mb-6">
+          <div class="flex gap-4">
+            <div class="flex-1">
+              <input x-ref="searchInput"
+                     x-model="searchQuery"
+                     @keydown.enter="performSearch()"
+                     type="text" 
+                     placeholder="Search tasks by ID, title, description, or labels..."
+                     class="w-full bg-gray-900 border border-cyan-700 text-cyan-400 px-4 py-3 focus:outline-none focus:border-cyan-400 placeholder-cyan-800"
+                  >
+            </div>
+            <button @click="performSearch()"
+                    :disabled="searching || !searchQuery"
+                    class="px-6 py-3 bg-cyan-900 text-cyan-300 border border-cyan-600 hover:bg-cyan-800 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              <span x-show="!searching">SEARCH</span>
+              <span x-show="searching">Searching...</span>
+            </button>
+          </div>
+          
+          <div class="flex gap-4 mt-4">
+            <div>
+              <label class="text-xs text-cyan-600 block mb-1">Limit to Project</label>
+              <select x-model="searchProjectFilter"
+                      class="bg-gray-900 border border-cyan-700 text-cyan-400 px-3 py-2 text-sm focus:outline-none focus:border-cyan-400"
+              >
+                <option value="">All Projects</option>
+                <template x-for="project in projects" :key="project.hash"
+                >
+                  <option :value="project.name" x-text="project.name"></option>
+                </template>
+              </select>
+            </div>
+            
+            <div>
+              <label class="text-xs text-cyan-600 block mb-1">Status</label>
+              <select x-model="searchStatusFilter"
+                      class="bg-gray-900 border border-cyan-700 text-cyan-400 px-3 py-2 text-sm focus:outline-none focus:border-cyan-400"
+              >
+                <option value="">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+            
+            <div>
+              <label class="text-xs text-cyan-600 block mb-1">Max Results</label>
+              <select x-model="searchLimit"
+                      class="bg-gray-900 border border-cyan-700 text-cyan-400 px-3 py-2 text-sm focus:outline-none focus:border-cyan-400"
+              >
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search Results -->
+        <div x-show="searchResults.length > 0" class="bg-gray-800 border-2 border-cyan-600">
+          <div class="p-4 border-b-2 border-cyan-600 bg-cyan-900/30 flex justify-between items-center">
+            <span class="font-bold text-cyan-300" x-text="'Results: ' + searchResults.length"></span>
+            <button @click="clearSearch()" class="text-xs text-cyan-600 hover:text-cyan-400">Clear</button>
+          </div>
+          
+          <div class="divide-y divide-cyan-800">
+            <template x-for="result in searchResults" :key="result.id || result.taskId">
+              <div class="p-4 hover:bg-cyan-900/20 cursor-pointer" @click="openTaskFromSearch(result)">
+                <div class="flex items-start justify-between">
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="font-mono text-xs text-cyan-500" x-text="result.id || result.taskId"></span>
+                      <span class="text-xs px-2 py-0.5 rounded" 
+                            :class="{
+                              'status-pending': result.status === 'pending',
+                              'status-active': result.status === 'active' || result.status === 'in_progress',
+                              'status-blocked': result.status === 'blocked',
+                              'status-completed': result.status === 'completed' || result.status === 'done'
+                            }"
+                            x-text="result.status || 'pending'"></span>
+                      <span x-show="result.priority" class="text-xs px-2 py-0.5 rounded priority-medium" x-text="result.priority"></span>
+                    </div>
+                    <div class="font-semibold text-cyan-300" x-text="result.title || result.content"></div>
+                    <div class="flex items-center gap-3 mt-2 text-xs">
+                      <span class="text-cyan-500" x-text="'Project: ' + (result.projectName || 'Unknown')"></span>
+                      <span x-show="result.projectHash" class="font-mono text-cyan-700" x-text="result.projectHash"></span>
+                    </div>
+                  </div>
+                  <svg class="w-5 h-5 text-cyan-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div x-show="searched && searchResults.length === 0 && !searching" class="text-center py-12 text-cyan-600">
+          No tasks found matching your search
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    function nexusApp() {
+      return {
+        // View state with URL routing
+        currentView: 'nexus',
+        currentHash: null,
+        
+        // Connection
+        connected: false,
+        wsStatus: 'Connecting...',
+        
+        // Loading states
+        loading: false,
+        searching: false,
+        searched: false,
+        projectLoading: false,
+        tasksLoading: false,
+        taskLoading: false,
+        
+        // Data
+        nexusData: {
+          version: '0.88.0',
+          status: 'unknown',
+          projects: { total: 0, registered: 0, healthy: 0, errors: 0, warnings: 0, topActive: [] },
+          stats: { totalProjects: 0, totalTasks: 0, pendingTasks: 0, activeTasks: 0, completedTasks: 0 },
+          labels: { totalUnique: 0, all: [] },
+          projectsList: []
+        },
+        
+        projects: [],
+        filteredProjects: [],
+        
+        // Project detail data
+        projectData: {
+          project: null,
+          stats: {},
+          hierarchy: { epics: [], orphaned: [], stats: {} },
+          issues: {}
+        },
+        projectTasks: {
+          tasks: [],
+          pagination: { limit: 50, offset: 0, hasMore: false, nextOffset: null }
+        },
+        taskFilter: { status: '', priority: '', type: '' },
+        
+        // Task detail data
+        taskData: {
+          task: null,
+          project: null,
+          hierarchy: null,
+          dependencies: null
+        },
+        
+        // Filters
+        healthFilter: 'all',
+        projectSearch: '',
+        
+        // Search
+        searchQuery: '',
+        searchProjectFilter: '',
+        searchStatusFilter: '',
+        searchLimit: '20',
+        searchResults: [],
+
+        init() {
+          // Parse initial hash
+          this.parseHash();
+          
+          // Listen for hash changes
+          window.addEventListener('hashchange', () => {
+            this.parseHash();
+          });
+          
+          this.loadNexus();
+          this.loadProjects();
+          this.connectWebSocket();
+        },
+
+        parseHash() {
+          const hash = window.location.hash || '#/';
+          const parts = hash.replace('#/', '').split('/');
+          
+          if (parts[0] === 'project' && parts[1]) {
+            this.currentView = 'project';
+            this.currentHash = parts[1];
+            this.loadProjectDetail(parts[1]);
+          } else if (parts[0] === 'task' && parts[1] && parts[2]) {
+            this.currentView = 'task';
+            this.currentHash = parts[1];
+            this.loadTaskDetail(parts[1], parts[2]);
+          } else if (parts[0] === 'projects') {
+            this.currentView = 'projects';
+          } else if (parts[0] === 'search') {
+            this.currentView = 'search';
+          } else {
+            this.currentView = 'nexus';
+          }
+        },
+
+        navigateTo(view) {
+          window.location.hash = view === 'nexus' ? '#/' : `#/${view}`;
+        },
+
+        openProject(hash) {
+          window.location.hash = `#/project/${hash}`;
+        },
+
+        openTask(taskId, projectHash) {
+          const hash = projectHash || this.currentHash || this.taskData.project?.hash;
+          if (hash) {
+            window.location.hash = `#/task/${hash}/${taskId}`;
+          }
+        },
+
+        openTaskFromSearch(result) {
+          if (result.projectHash) {
+            this.openTask(result.id || result.taskId, result.projectHash);
+          }
+        },
+
+        async loadProjectDetail(hash) {
+          this.projectLoading = true;
+          try {
+            const response = await fetch(`/api/projects/${hash}/dashboard`);
+            if (response.ok) {
+              this.projectData = await response.json();
+              // Expand first epic by default
+              if (this.projectData.hierarchy?.epics?.length > 0) {
+                this.projectData.hierarchy.epics[0].expanded = true;
+              }
+              // Load tasks
+              this.loadProjectTasks();
+            }
+          } catch (error) {
+            console.error('Failed to load project:', error);
+          }
+          this.projectLoading = false;
+        },
+
+        async loadProjectTasks() {
+          if (!this.currentHash) return;
+          
+          this.tasksLoading = true;
+          try {
+            const params = new URLSearchParams({
+              limit: '50',
+              offset: this.projectTasks.pagination.offset.toString()
+            });
+            
+            if (this.taskFilter.status) params.append('status', this.taskFilter.status);
+            if (this.taskFilter.priority) params.append('priority', this.taskFilter.priority);
+            
+            const response = await fetch(`/api/projects/${this.currentHash}/tasks?${params}`);
+            if (response.ok) {
+              const data = await response.json();
+              if (this.projectTasks.pagination.offset === 0) {
+                this.projectTasks.tasks = data.tasks;
+              } else {
+                this.projectTasks.tasks.push(...data.tasks);
+              }
+              this.projectTasks.pagination = data.pagination;
+            }
+          } catch (error) {
+            console.error('Failed to load tasks:', error);
+          }
+          this.tasksLoading = false;
+        },
+
+        loadMoreTasks() {
+          if (this.projectTasks.pagination.hasMore) {
+            this.projectTasks.pagination.offset = this.projectTasks.pagination.nextOffset;
+            this.loadProjectTasks();
+          }
+        },
+
+        async loadTaskDetail(hash, taskId) {
+          this.taskLoading = true;
+          try {
+            const response = await fetch(`/api/projects/${hash}/tasks/${taskId}`);
+            if (response.ok) {
+              this.taskData = await response.json();
+            }
+          } catch (error) {
+            console.error('Failed to load task:', error);
+          }
+          this.taskLoading = false;
+        },
+
+        async loadNexus() {
+          this.loading = true;
+          try {
+            const response = await fetch('/api/nexus/overview');
+            if (response.ok) {
+              const data = await response.json();
+              this.nexusData = { ...this.nexusData, ...data };
+            }
+          } catch (error) {
+            console.error('Failed to load nexus:', error);
+          }
+          this.loading = false;
+        },
+
+        async loadProjects() {
+          this.loading = true;
+          try {
+            const response = await fetch('/api/nexus/projects');
+            if (response.ok) {
+              const data = await response.json();
+              this.projects = data.projects || [];
+              this.applyFilters();
+            }
+          } catch (error) {
+            console.error('Failed to load projects:', error);
+          }
+          this.loading = false;
+        },
+
+        applyFilters() {
+          let filtered = [...this.projects];
+          
+          if (this.healthFilter !== 'all') {
+            filtered = filtered.filter(p => (p.healthStatus || 'unknown') === this.healthFilter);
+          }
+          
+          if (this.projectSearch) {
+            const search = this.projectSearch.toLowerCase();
+            filtered = filtered.filter(p => 
+              p.name.toLowerCase().includes(search) ||
+              p.path.toLowerCase().includes(search)
+            );
+          }
+          
+          this.filteredProjects = filtered;
+        },
+
+        async performSearch() {
+          if (!this.searchQuery) return;
+          
+          this.searching = true;
+          this.searched = true;
+          
+          try {
+            const params = new URLSearchParams({
+              q: this.searchQuery,
+              limit: this.searchLimit
+            });
+            
+            if (this.searchProjectFilter) {
+              params.append('project', this.searchProjectFilter);
+            }
+            if (this.searchStatusFilter) {
+              params.append('status', this.searchStatusFilter);
+            }
+            
+            const response = await fetch(`/api/nexus/search?${params}`);
+            if (response.ok) {
+              const data = await response.json();
+              this.searchResults = data.results || [];
+            }
+          } catch (error) {
+            console.error('Search failed:', error);
+            this.searchResults = [];
+          }
+          
+          this.searching = false;
+        },
+
+        clearSearch() {
+          this.searchQuery = '';
+          this.searchResults = [];
+          this.searched = false;
+        },
+
+        connectWebSocket() {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const ws = new WebSocket(`${protocol}//${window.location.host}/api/events`);
+          
+          ws.onopen = () => {
+            this.connected = true;
+            this.wsStatus = 'Live';
+          };
+          
+          ws.onclose = () => {
+            this.connected = false;
+            this.wsStatus = 'Reconnecting...';
+            setTimeout(() => this.connectWebSocket(), 3000);
+          };
+          
+          ws.onerror = () => {
+            this.wsStatus = 'Error';
+          };
+          
+          ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            if (msg.event === 'file-change') {
+              this.wsStatus = 'Updated';
+              setTimeout(() => {
+                if (this.connected) this.wsStatus = 'Live';
+              }, 2000);
+              
+              // Reload data based on current view
+              if (this.currentView === 'nexus') {
+                this.loadNexus();
+              } else if (this.currentView === 'projects') {
+                this.loadProjects();
+              } else if (this.currentView === 'project' && this.currentHash) {
+                this.loadProjectDetail(this.currentHash);
+              }
+            }
+          };
+        }
+      }
+    }
+  </script>
+</body>
+</html>
