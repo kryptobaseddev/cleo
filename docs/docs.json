@@ -113,7 +113,8 @@
           {
             "group": "MCP Integration",
             "pages": [
-              "guides/mcp-quickstart"
+              "guides/mcp-quickstart",
+              "guides/mcp-usage-guide"
             ]
           },
           {

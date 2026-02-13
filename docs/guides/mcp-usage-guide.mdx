@@ -1,0 +1,519 @@
+---
+title: "Using CLEO with AI Agents (MCP Guide)"
+description: "Beginner-friendly guide to managing tasks, debugging, planning features, and filing issues through the CLEO MCP tools"
+icon: "robot"
+---
+
+# Using CLEO with AI Agents
+
+This guide shows you how to use CLEO's MCP tools from any AI agent (Claude Code, Cursor, Windsurf, etc.) to manage your development work. No prior CLEO knowledge is needed.
+
+## How It Works
+
+CLEO gives your AI agent two tools:
+
+| Tool | Purpose | Think of it as... |
+|------|---------|-------------------|
+| **cleo_query** | Read data (never changes anything) | Looking at your task board |
+| **cleo_mutate** | Create or change data | Adding/moving cards on the board |
+
+Both tools take three parameters:
+- **domain** - What you're working with (tasks, session, issues, etc.)
+- **operation** - What you want to do (create, list, complete, etc.)
+- **params** - The details (title, description, task ID, etc.)
+
+## Before You Start
+
+Make sure CLEO is installed and the MCP server is configured:
+
+```bash
+# Install CLEO
+cleo init
+
+# Configure MCP for your AI tool
+cleo mcp-install
+```
+
+Verify it's working by asking your AI agent to run:
+
+```
+cleo_query domain=system operation=version
+```
+
+If you get back a version number, you're ready to go.
+
+---
+
+## Workflow 1: Adding a Feature
+
+Use this when you want to build something new and track it properly.
+
+<Steps>
+
+### Check if there's an active work session
+
+```json
+cleo_query
+  domain: "session"
+  operation: "status"
+```
+
+If there's already a session running, you can use it. If not, continue to step 2.
+
+### Create a task for your feature
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "create"
+  params: {
+    "title": "Add dark mode toggle to settings page",
+    "description": "Add a toggle switch in the settings page that lets users switch between light and dark themes. Should persist the preference in localStorage.",
+    "priority": "medium"
+  }
+```
+
+The response will include a task ID like `T1234`. Use this ID for all future operations on this task.
+
+<Warning>
+The title and description **must** be different from each other. CLEO rejects identical values to prevent copy-paste errors.
+</Warning>
+
+### Start a work session
+
+```json
+cleo_mutate
+  domain: "session"
+  operation: "start"
+  params: {
+    "scope": "task:T1234",
+    "name": "Adding dark mode",
+    "autoFocus": true
+  }
+```
+
+### Set your focus to the task
+
+```json
+cleo_mutate
+  domain: "session"
+  operation: "focus.set"
+  params: { "taskId": "T1234" }
+```
+
+### Do the implementation work
+
+Write the code, run tests, etc. You can add progress notes along the way:
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "update"
+  params: {
+    "taskId": "T1234",
+    "notes": "Toggle component done. Working on localStorage persistence."
+  }
+```
+
+### Mark it done
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "complete"
+  params: {
+    "taskId": "T1234",
+    "notes": "Dark mode toggle working. Preference persists across page reloads."
+  }
+```
+
+### End the session
+
+```json
+cleo_mutate
+  domain: "session"
+  operation: "end"
+  params: { "note": "Finished dark mode feature" }
+```
+
+</Steps>
+
+---
+
+## Workflow 2: Debugging an Issue
+
+Use this when something's broken and you want to track the investigation.
+
+<Steps>
+
+### Get a quick project overview
+
+```json
+cleo_query
+  domain: "system"
+  operation: "dash"
+```
+
+This shows you the current state of the project: active tasks, recent completions, and any blockers.
+
+### Search for related tasks
+
+Maybe someone already tracked this bug:
+
+```json
+cleo_query
+  domain: "tasks"
+  operation: "find"
+  params: { "query": "login timeout" }
+```
+
+### Create a task for the investigation
+
+If nothing exists yet, create one:
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "create"
+  params: {
+    "title": "Debug: login times out after 30 seconds",
+    "description": "Users report the login page hangs for 30s then shows a timeout error. Expected: login completes in under 3 seconds. Started happening after the auth refactor.",
+    "priority": "high"
+  }
+```
+
+### Focus on it and investigate
+
+```json
+cleo_mutate
+  domain: "session"
+  operation: "focus.set"
+  params: { "taskId": "T1235" }
+```
+
+Investigate the codebase, check logs, test hypotheses.
+
+### Record what you found
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "complete"
+  params: {
+    "taskId": "T1235",
+    "notes": "Root cause: auth middleware was making a sync HTTP call to the token endpoint. Fixed by switching to async with a 5s timeout."
+  }
+```
+
+</Steps>
+
+<Tip>
+If the bug is in CLEO itself (not your project), use the issue filing workflow in [Workflow 4](#workflow-4-filing-a-github-issue) instead.
+</Tip>
+
+---
+
+## Workflow 3: Planning a Large Feature
+
+Use this when a feature is too big to build in one go and you need to break it down into smaller pieces.
+
+<Steps>
+
+### Create a top-level parent task
+
+This represents the whole initiative. Everything else will live under it.
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "create"
+  params: {
+    "title": "User authentication system",
+    "description": "Complete auth system with signup, login, password reset, and session management. This is the parent task that groups all the sub-work.",
+    "priority": "high",
+    "type": "epic"
+  }
+```
+
+Note the returned ID (e.g., `T200`).
+
+### Start a planning session
+
+```json
+cleo_mutate
+  domain: "session"
+  operation: "start"
+  params: {
+    "scope": "epic:T200",
+    "name": "Planning auth system",
+    "autoFocus": true
+  }
+```
+
+### Break it into sub-tasks
+
+Create each piece of work under the parent:
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "create"
+  params: {
+    "title": "Research auth libraries",
+    "description": "Compare JWT vs session-based auth. Evaluate passport.js, lucia, and better-auth for our stack.",
+    "parent": "T200",
+    "priority": "high"
+  }
+```
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "create"
+  params: {
+    "title": "Implement signup flow",
+    "description": "Email/password signup with validation, duplicate checking, and welcome email.",
+    "parent": "T200",
+    "priority": "medium"
+  }
+```
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "create"
+  params: {
+    "title": "Implement login flow",
+    "description": "Email/password login with rate limiting, lockout after 5 failed attempts, and session creation.",
+    "parent": "T200",
+    "priority": "medium"
+  }
+```
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "create"
+  params: {
+    "title": "Add password reset",
+    "description": "Forgot password email with time-limited reset tokens. Token expires after 1 hour.",
+    "parent": "T200",
+    "priority": "low"
+  }
+```
+
+### Set up the order of work
+
+If some tasks need to be done before others, add dependencies:
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "update"
+  params: {
+    "taskId": "T202",
+    "depends": ["T201"]
+  }
+```
+
+This means "T202 (signup) can't start until T201 (research) is done."
+
+```json
+cleo_mutate
+  domain: "tasks"
+  operation: "update"
+  params: {
+    "taskId": "T203",
+    "depends": ["T201"]
+  }
+```
+
+### View the full plan
+
+See everything as a tree:
+
+```json
+cleo_query
+  domain: "tasks"
+  operation: "tree"
+  params: { "taskId": "T200" }
+```
+
+### Find out what to work on first
+
+```json
+cleo_query
+  domain: "tasks"
+  operation: "next"
+```
+
+CLEO will suggest the highest-priority unblocked task.
+
+### Check dependencies
+
+```json
+cleo_query
+  domain: "tasks"
+  operation: "deps"
+  params: { "taskId": "T200" }
+```
+
+</Steps>
+
+<Info>
+**Tips for good task breakdowns:**
+- Each sub-task should be completable in one focused work session
+- Use clear, specific descriptions (not "implement stuff")
+- Use **depends** to express ordering: "B depends on A" means do A first
+- Keep it to 5-7 sub-tasks per parent. If you need more, add a second level of grouping.
+</Info>
+
+---
+
+## Workflow 4: Filing a GitHub Issue
+
+Use this when you find a bug in CLEO itself, want to request a feature, or have a question.
+
+<Steps>
+
+### Preview before submitting
+
+Always use `dryRun: true` first to see what will be posted:
+
+**For a bug report:**
+
+```json
+cleo_mutate
+  domain: "issues"
+  operation: "create_bug"
+  params: {
+    "title": "Config file not loading from project directory",
+    "body": "When running cleo list from a subdirectory, the .cleo/config.json from the project root is not found. Expected: CLEO walks up the directory tree to find it.",
+    "severity": "high",
+    "dryRun": true
+  }
+```
+
+**For a feature request:**
+
+```json
+cleo_mutate
+  domain: "issues"
+  operation: "create_feature"
+  params: {
+    "title": "Add task templates for common workflows",
+    "body": "Would be useful to have cleo add --template auth that creates a pre-filled set of auth-related tasks with dependencies already set up.",
+    "dryRun": true
+  }
+```
+
+**For a question:**
+
+```json
+cleo_mutate
+  domain: "issues"
+  operation: "create_help"
+  params: {
+    "title": "How do I share tasks between team members?",
+    "body": "We have 3 developers using CLEO in the same repo. Is there a way to assign tasks to specific people and sync state?",
+    "dryRun": true
+  }
+```
+
+### Check the preview
+
+Review the output. It will show you the exact title, labels, and body that will be posted to GitHub.
+
+### Submit for real
+
+Once it looks right, run the same command **without** `dryRun`:
+
+```json
+cleo_mutate
+  domain: "issues"
+  operation: "create_bug"
+  params: {
+    "title": "Config file not loading from project directory",
+    "body": "When running cleo list from a subdirectory, the .cleo/config.json from the project root is not found. Expected: CLEO walks up the directory tree to find it.",
+    "severity": "high"
+  }
+```
+
+The response will include the GitHub issue URL.
+
+### Include diagnostics for bug reports
+
+For bug reports, it helps to include system info:
+
+```json
+cleo_query
+  domain: "issues"
+  operation: "diagnostics"
+```
+
+Paste the output into your bug report body.
+
+</Steps>
+
+**Optional parameters for bug reports:**
+
+| Parameter | Values | Purpose |
+|-----------|--------|---------|
+| `severity` | `low`, `medium`, `high`, `critical` | How bad is the bug |
+| `area` | `cli`, `mcp`, `docs`, `tests`, `other` | What part of CLEO is affected |
+
+---
+
+## Quick Reference: Common Operations
+
+### Reading data (cleo_query)
+
+| What you want | Domain | Operation | Key params |
+|---------------|--------|-----------|------------|
+| Project overview | `system` | `dash` | - |
+| List all tasks | `tasks` | `list` | `status`, `parent` |
+| Search tasks | `tasks` | `find` | `query` |
+| Full task details | `tasks` | `get` | `taskId` |
+| Check if task exists | `tasks` | `exists` | `taskId` |
+| See task tree | `tasks` | `tree` | `taskId` |
+| What should I do next? | `tasks` | `next` | - |
+| Current session | `session` | `status` | - |
+| What am I focused on? | `session` | `focus.get` | - |
+| System diagnostics | `issues` | `diagnostics` | - |
+| CLEO version | `system` | `version` | - |
+
+### Changing data (cleo_mutate)
+
+| What you want | Domain | Operation | Key params |
+|---------------|--------|-----------|------------|
+| Create a task | `tasks` | `create` | `title`, `description` |
+| Update a task | `tasks` | `update` | `taskId`, plus fields to change |
+| Complete a task | `tasks` | `complete` | `taskId`, `notes` |
+| Delete a task | `tasks` | `delete` | `taskId` |
+| Start a session | `session` | `start` | `scope`, `name`, `autoFocus` |
+| End a session | `session` | `end` | `note` |
+| Set focus | `session` | `focus.set` | `taskId` |
+| File a bug | `issues` | `create_bug` | `title`, `body`, `dryRun` |
+| Request a feature | `issues` | `create_feature` | `title`, `body`, `dryRun` |
+| Ask a question | `issues` | `create_help` | `title`, `body`, `dryRun` |
+
+---
+
+## Troubleshooting
+
+### Common errors
+
+| Error code | Meaning | Fix |
+|------------|---------|-----|
+| `E_NOT_FOUND` | Task ID doesn't exist | Use `cleo_query domain=tasks operation=find` to search |
+| `E_VALIDATION_FAILED` | Missing or invalid fields | Check that title and description are different, required fields are present |
+| `E_PARENT_NOT_FOUND` | Parent task doesn't exist | Verify the parent ID with `cleo_query domain=tasks operation=exists` |
+| `E_DEPTH_EXCEEDED` | Too many nesting levels | Max 3 levels: parent > task > subtask |
+| `E_RATE_LIMITED` | Too many requests | Wait a few seconds and try again |
+
+### Tips
+
+- **Always search before creating** - use `find` to check if a task already exists
+- **Use `dryRun: true`** for issue filing - preview before posting to GitHub
+- **End your sessions** - this keeps the state clean for next time
+- **Use `dash`** at the start of each conversation to see where things stand
