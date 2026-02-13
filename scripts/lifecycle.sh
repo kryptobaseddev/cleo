@@ -212,7 +212,7 @@ cmd_status() {
     local epic_id="$1"
 
     if [[ -z "$epic_id" ]]; then
-        error_json "E_INVALID_INPUT" "epicId is required" "$EXIT_USAGE"
+        output_error "E_INVALID_INPUT" "epicId is required" "$EXIT_USAGE"
         exit "$EXIT_USAGE"
     fi
 
@@ -300,7 +300,7 @@ cmd_validate() {
     local target_stage="$2"
 
     if [[ -z "$epic_id" || -z "$target_stage" ]]; then
-        error_json "E_INVALID_INPUT" "epicId and targetStage are required" "$EXIT_USAGE"
+        output_error "E_INVALID_INPUT" "epicId and targetStage are required" "$EXIT_USAGE"
         exit "$EXIT_USAGE"
     fi
 
@@ -444,7 +444,7 @@ cmd_export() {
         if [[ -f "$manifest_path" ]]; then
             data=$(cat "$manifest_path")
         else
-            error_json "E_NOT_FOUND" "No lifecycle data found for epic $epic_id" "$EXIT_NOT_FOUND"
+            output_error "E_NOT_FOUND" "No lifecycle data found for epic $epic_id" "$EXIT_NOT_FOUND"
             exit "$EXIT_NOT_FOUND"
         fi
     else
@@ -494,7 +494,7 @@ cmd_export() {
             fi
             ;;
         *)
-            error_json "E_INVALID_INPUT" "Invalid format: $format (use json or csv)" "$EXIT_USAGE"
+            output_error "E_INVALID_INPUT" "Invalid format: $format (use json or csv)" "$EXIT_USAGE"
             exit "$EXIT_USAGE"
             ;;
     esac
@@ -512,7 +512,7 @@ cmd_record() {
     local notes="${NOTES:-}"
 
     if [[ -z "$epic_id" || -z "$stage" || -z "$status" ]]; then
-        error_json "E_INVALID_INPUT" "epicId, stage, and status are required" "$EXIT_USAGE"
+        output_error "E_INVALID_INPUT" "epicId, stage, and status are required" "$EXIT_USAGE"
         exit "$EXIT_USAGE"
     fi
 
@@ -521,7 +521,7 @@ cmd_record() {
         research|consensus|specification|decomposition|implementation|validation|testing|release)
             ;;
         *)
-            error_json "E_INVALID_INPUT" "Invalid stage: $stage" "$EXIT_USAGE"
+            output_error "E_INVALID_INPUT" "Invalid stage: $stage" "$EXIT_USAGE"
             exit "$EXIT_USAGE"
             ;;
     esac
@@ -531,7 +531,7 @@ cmd_record() {
         completed|skipped|blocked|pending)
             ;;
         *)
-            error_json "E_INVALID_INPUT" "Invalid status: $status (use completed, skipped, blocked, or pending)" "$EXIT_USAGE"
+            output_error "E_INVALID_INPUT" "Invalid status: $status (use completed, skipped, blocked, or pending)" "$EXIT_USAGE"
             exit "$EXIT_USAGE"
             ;;
     esac
@@ -565,7 +565,7 @@ cmd_enforce() {
     local strict="${STRICT:-false}"
 
     if [[ -z "$epic_id" || -z "$stage" ]]; then
-        error_json "E_INVALID_INPUT" "epicId and stage are required" "$EXIT_USAGE"
+        output_error "E_INVALID_INPUT" "epicId and stage are required" "$EXIT_USAGE"
         exit "$EXIT_USAGE"
     fi
 
@@ -631,7 +631,7 @@ cmd_skip() {
     local reason="${SKIP_REASON:-}"
 
     if [[ -z "$epic_id" || -z "$stage" || -z "$reason" ]]; then
-        error_json "E_INVALID_INPUT" "epicId, stage, and reason are required" "$EXIT_USAGE"
+        output_error "E_INVALID_INPUT" "epicId, stage, and reason are required" "$EXIT_USAGE"
         exit "$EXIT_USAGE"
     fi
 
@@ -659,7 +659,7 @@ cmd_unskip() {
     local stage="$2"
 
     if [[ -z "$epic_id" || -z "$stage" ]]; then
-        error_json "E_INVALID_INPUT" "epicId and stage are required" "$EXIT_USAGE"
+        output_error "E_INVALID_INPUT" "epicId and stage are required" "$EXIT_USAGE"
         exit "$EXIT_USAGE"
     fi
 
@@ -686,12 +686,12 @@ cmd_import() {
     local overwrite="${OVERWRITE:-false}"
 
     if [[ -z "$source" ]]; then
-        error_json "E_INVALID_INPUT" "source is required" "$EXIT_USAGE"
+        output_error "E_INVALID_INPUT" "source is required" "$EXIT_USAGE"
         exit "$EXIT_USAGE"
     fi
 
     if [[ ! -f "$source" ]]; then
-        error_json "E_FILE_NOT_FOUND" "Source file not found: $source" "$EXIT_NOT_FOUND"
+        output_error "E_FILE_NOT_FOUND" "Source file not found: $source" "$EXIT_NOT_FOUND"
         exit "$EXIT_NOT_FOUND"
     fi
 
