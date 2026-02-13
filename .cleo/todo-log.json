@@ -108084,11 +108084,377 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_aea4c7acb4d5",
+      "timestamp": "2026-02-13T02:09:12Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4409",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T02:09:11Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ac626aac8211",
+      "timestamp": "2026-02-13T02:09:16Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4410",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T02:09:14Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_a32176539f98",
+      "timestamp": "2026-02-13T02:09:19Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4411",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T02:09:18Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770949267-d42dd8",
+      "timestamp": "2026-02-13T02:21:07Z",
+      "action": "task_created",
+      "taskId": "T4412",
+      "actor": "system",
+      "details": {
+        "title": "Regression test: cleo issue command and MCP issues domain (v0.94.0)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Regression test: cleo issue command and MCP issues domain (v0.94.0)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770949279-a21858",
+      "timestamp": "2026-02-13T02:21:19Z",
+      "action": "task_created",
+      "taskId": "T4413",
+      "actor": "system",
+      "details": {
+        "title": "Test CLI: cleo issue diagnostics --json returns valid JSON with all environment fields",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test CLI: cleo issue diagnostics --json returns valid JSON with all environment fields",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949286-64c60d",
+      "timestamp": "2026-02-13T02:21:26Z",
+      "action": "task_created",
+      "taskId": "T4414",
+      "actor": "system",
+      "details": {
+        "title": "Test CLI: cleo issue diagnostics --human outputs readable text",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test CLI: cleo issue diagnostics --human outputs readable text",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949297-7483fa",
+      "timestamp": "2026-02-13T02:21:37Z",
+      "action": "task_created",
+      "taskId": "T4415",
+      "actor": "system",
+      "details": {
+        "title": "Test: diagnostics --human",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: diagnostics --human",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949303-1c7127",
+      "timestamp": "2026-02-13T02:21:43Z",
+      "action": "task_created",
+      "taskId": "T4416",
+      "actor": "system",
+      "details": {
+        "title": "Test: diagnostics human output",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: diagnostics human output",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949311-0cf46c",
+      "timestamp": "2026-02-13T02:21:51Z",
+      "action": "task_created",
+      "taskId": "T4417",
+      "actor": "system",
+      "details": {
+        "title": "Test: bug dry-run JSON output",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: bug dry-run JSON output",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949317-e62432",
+      "timestamp": "2026-02-13T02:21:57Z",
+      "action": "task_created",
+      "taskId": "T4418",
+      "actor": "system",
+      "details": {
+        "title": "Test: feature dry-run JSON output",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: feature dry-run JSON output",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949323-58ef62",
+      "timestamp": "2026-02-13T02:22:03Z",
+      "action": "task_created",
+      "taskId": "T4419",
+      "actor": "system",
+      "details": {
+        "title": "Test: help dry-run JSON output",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: help dry-run JSON output",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949330-aea6d0",
+      "timestamp": "2026-02-13T02:22:10Z",
+      "action": "task_created",
+      "taskId": "T4420",
+      "actor": "system",
+      "details": {
+        "title": "Test: validation errors for missing fields",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: validation errors for missing fields",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949338-cfd135",
+      "timestamp": "2026-02-13T02:22:18Z",
+      "action": "task_created",
+      "taskId": "T4421",
+      "actor": "system",
+      "details": {
+        "title": "Test: validation error handling",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: validation error handling",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949344-38373d",
+      "timestamp": "2026-02-13T02:22:24Z",
+      "action": "task_created",
+      "taskId": "T4422",
+      "actor": "system",
+      "details": {
+        "title": "Test: validation errors",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: validation errors",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949351-b35b68",
+      "timestamp": "2026-02-13T02:22:31Z",
+      "action": "task_created",
+      "taskId": "T4423",
+      "actor": "system",
+      "details": {
+        "title": "Test: severity and area flags",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: severity and area flags",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949358-a9da52",
+      "timestamp": "2026-02-13T02:22:38Z",
+      "action": "task_created",
+      "taskId": "T4424",
+      "actor": "system",
+      "details": {
+        "title": "Test: commands index registration",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: commands index registration",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949365-bc5ba5",
+      "timestamp": "2026-02-13T02:22:45Z",
+      "action": "task_created",
+      "taskId": "T4425",
+      "actor": "system",
+      "details": {
+        "title": "Test: MCP cleo_query issues diagnostics",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: MCP cleo_query issues diagnostics",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949372-0b6431",
+      "timestamp": "2026-02-13T02:22:52Z",
+      "action": "task_created",
+      "taskId": "T4426",
+      "actor": "system",
+      "details": {
+        "title": "Test: MCP cleo_mutate create_bug",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: MCP cleo_mutate create_bug",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949379-76c9c8",
+      "timestamp": "2026-02-13T02:22:59Z",
+      "action": "task_created",
+      "taskId": "T4427",
+      "actor": "system",
+      "details": {
+        "title": "Test: MCP cleo_mutate create_feature and create_help",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: MCP cleo_mutate create_feature and create_help",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770949385-0d7296",
+      "timestamp": "2026-02-13T02:23:05Z",
+      "action": "task_created",
+      "taskId": "T4428",
+      "actor": "system",
+      "details": {
+        "title": "Test: MCP validation rejects missing params",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Test: MCP validation rejects missing params",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5611,
-    "lastEntry": "2026-02-12T21:24:01Z",
+    "totalEntries": 5614,
+    "lastEntry": "2026-02-13T02:09:19Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
