@@ -21,6 +21,7 @@
 .cleo/.context-state-session_*.json
 .cleo/context-states/
 .cleo/metrics/*.lock
+.cleo/metrics/COMPLIANCE.jsonl
 .cleo/rcsd/T*/
 .cleo/todo.json.backup-*
 .cleo/todo.json.corrupted
