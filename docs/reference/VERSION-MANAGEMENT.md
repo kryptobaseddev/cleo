@@ -36,7 +36,7 @@ cleo uses a **dual-track versioning system** to independently manage application
 0.15.0
 ```
 
-**Modified By**: `dev/bump-version.sh` (automated)
+**Modified By**: `cleo release ship --bump-version` via `lib/release/version-bump.sh` (config-driven)
 
 **Consumed By**:
 - `lib/version.sh` - Provides `get_version()` and `$CLEO_VERSION`
@@ -46,7 +46,7 @@ cleo uses a **dual-track versioning system** to independently manage application
 
 **Update Flow**:
 ```
-bump-version.sh → VERSION file → lib/version.sh → All scripts
+version-bump.sh (config-driven) → VERSION file → lib/version.sh → All scripts
 ```
 
 ### Schema Versions
@@ -188,18 +188,13 @@ Single command to update app version everywhere with validation.
 
 **Usage**:
 ```bash
-# Explicit version
-./dev/bump-version.sh 0.12.6
+# Via release ship (recommended)
+cleo release ship v0.12.6 --bump-version
 
-# Semver bump types
-./dev/bump-version.sh patch   # 0.12.5 → 0.12.6
-./dev/bump-version.sh minor   # 0.12.5 → 0.13.0
-./dev/bump-version.sh major   # 0.12.5 → 1.0.0
+# With dry-run preview
+cleo release ship v0.12.6 --bump-version --dry-run
 
-# Options
-./dev/bump-version.sh --dry-run patch    # Preview changes
-./dev/bump-version.sh --verbose minor    # Detailed output
-./dev/bump-version.sh --no-validate major  # Skip validation
+# Version bump is config-driven via .cleo/config.json release.versionBump
 ```
 
 **What It Updates** (automatically):

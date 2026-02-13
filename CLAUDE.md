@@ -130,8 +130,8 @@ bash -n scripts/*.sh lib/*.sh       # Quick syntax check on shell changes
 
 ### Development Tools
 ```bash
-./dev/bump-version.sh               # Update version across files
-./dev/validate-version.sh           # Verify version consistency
+cleo release ship <ver> --bump-version  # Bump version via config-driven system
+./dev/validate-version.sh              # Verify version consistency
 ./dev/benchmark-performance.sh      # Performance testing
 ```
 

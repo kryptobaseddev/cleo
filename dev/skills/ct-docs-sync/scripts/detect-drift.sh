@@ -609,7 +609,7 @@ check_version_sync() {
 
     if [[ -n "$version_file_ver" && -n "$readme_ver" && "$version_file_ver" != "$readme_ver" ]]; then
         log_warn "VERSION file ($version_file_ver) != README ($readme_ver)"
-        log_recommend "Run ./dev/bump-version.sh $version_file_ver"
+        log_recommend "Run cleo release ship v$version_file_ver --bump-version"
     else
         log_ok "VERSION and README are in sync"
     fi

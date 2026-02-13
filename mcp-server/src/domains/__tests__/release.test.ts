@@ -172,11 +172,11 @@ describe('ReleaseHandler', () => {
       expect((result.data as any).newVersion).toBe('0.80.3');
       expect((result.data as any).type).toBe('patch');
       expect(mockExecutor.execute).toHaveBeenCalledWith({
-        domain: 'bump-version',
-        operation: '',
-        args: ['patch'],
-        flags: { json: true },
-        customCommand: './dev/bump-version.sh',
+        domain: 'release',
+        operation: 'bump',
+        args: [],
+        flags: {},
+        customCommand: expect.stringContaining('bump_version_from_config'),
       });
     });
 
