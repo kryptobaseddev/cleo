@@ -19,12 +19,12 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 51 operations', () => {
+  it('should have exactly 54 operations', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(51);
+    expect(totalCount).toBe(54);
   });
 
-  it('should have all 8 domains', () => {
+  it('should have all 9 domains', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
     expect(domains).toEqual([
       'tasks',
@@ -35,6 +35,7 @@ describe('MUTATE_OPERATIONS', () => {
       'validate',
       'release',
       'system',
+      'issues',
     ]);
   });
 
@@ -47,6 +48,7 @@ describe('MUTATE_OPERATIONS', () => {
     expect(MUTATE_OPERATIONS.validate.length).toBe(2);
     expect(MUTATE_OPERATIONS.release.length).toBe(7);
     expect(MUTATE_OPERATIONS.system.length).toBe(10);
+    expect(MUTATE_OPERATIONS.issues.length).toBe(3);
   });
 });
 
@@ -74,6 +76,7 @@ describe('validateMutateParams', () => {
         'validate',
         'release',
         'system',
+        'issues',
       ];
 
       for (const domain of domains) {
@@ -480,7 +483,7 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(51);
+    expect(getMutateOperationCount()).toBe(54);
   });
 
   it('should return domain-specific counts', () => {
@@ -492,6 +495,7 @@ describe('getMutateOperationCount', () => {
     expect(getMutateOperationCount('validate')).toBe(2);
     expect(getMutateOperationCount('release')).toBe(7);
     expect(getMutateOperationCount('system')).toBe(10);
+    expect(getMutateOperationCount('issues')).toBe(3);
   });
 
   it('should return 0 for unknown domain', () => {
@@ -524,6 +528,7 @@ describe('getMutateDomains', () => {
       'validate',
       'release',
       'system',
+      'issues',
     ]);
   });
 });
@@ -559,6 +564,7 @@ describe('registerMutateTool', () => {
       'validate',
       'release',
       'system',
+      'issues',
     ]);
   });
 });

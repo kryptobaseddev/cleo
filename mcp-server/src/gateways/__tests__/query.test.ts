@@ -24,14 +24,14 @@ import {
 
 describe('Query Gateway', () => {
   describe('Operation Matrix', () => {
-    it('should have exactly 56 query operations', () => {
+    it('should have exactly 57 query operations', () => {
       const total = getQueryOperationCount();
-      expect(total).toBe(56);
+      expect(total).toBe(57);
     });
 
-    it('should have 7 query domains', () => {
+    it('should have 8 query domains', () => {
       const domains = getQueryDomains();
-      expect(domains).toHaveLength(7);
+      expect(domains).toHaveLength(8);
       expect(domains).toEqual([
         'tasks',
         'session',
@@ -40,6 +40,7 @@ describe('Query Gateway', () => {
         'lifecycle',
         'validate',
         'system',
+        'issues',
       ]);
     });
 
@@ -150,7 +151,7 @@ describe('Query Gateway', () => {
     it('should have all query domains in enum', () => {
       const tool = registerQueryTool();
       const enumValues = tool.inputSchema.properties.domain.enum;
-      expect(enumValues).toHaveLength(7);
+      expect(enumValues).toHaveLength(8);
       expect(enumValues).toEqual(getQueryDomains());
     });
 
