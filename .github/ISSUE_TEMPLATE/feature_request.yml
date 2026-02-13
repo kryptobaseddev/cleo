@@ -1,0 +1,123 @@
+name: Feature Request
+description: Suggest a new feature or improvement for CLEO
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Request
+
+        Help us improve CLEO! Describe what you'd like to see added or changed.
+
+        **If you're using an AI agent** to submit this, provide as much context as possible about the use case and workflow.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: |
+        What problem does this feature solve? Describe the situation where you need this.
+        Focus on the *problem*, not the solution.
+      placeholder: |
+        When working on a large project with 50+ tasks, I need to filter tasks by multiple
+        labels at once, but `cleo list` only supports filtering by a single label...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: |
+        How do you think this should work? Include example commands, expected output, or behavior.
+      placeholder: |
+        Add multi-label filtering to `cleo list`:
+        ```bash
+        cleo list --labels "bug,priority-high"
+        cleo list --labels "bug" --labels "priority-high"  # AND logic
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        Have you tried any workarounds? Are there other approaches that could solve this?
+      placeholder: |
+        Currently I pipe through jq manually:
+        ```bash
+        cleo list --json | jq '.[] | select(.labels | contains(["bug", "priority-high"]))'
+        ```
+        This works but is cumbersome and not discoverable for new users.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      description: Which part of CLEO does this relate to?
+      options:
+        - "Task management (add, update, complete, list)"
+        - "Session management (start, end, resume, scope)"
+        - "Hierarchy (epics, subtasks, dependencies)"
+        - "Search and filtering (find, list filters)"
+        - "Output and formatting (JSON, human-readable)"
+        - "Validation and data integrity"
+        - "Installation and setup"
+        - "MCP server integration"
+        - "Documentation"
+        - "AI agent workflow (skills, orchestrator, protocols)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: How big is this change?
+      options:
+        - "Small - Single command or flag addition"
+        - "Medium - Multiple components, moderate complexity"
+        - "Large - Cross-cutting change, new subsystem"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Your environment (optional)
+      description: |
+        If this feature depends on your environment, run this and paste the output:
+        ```bash
+        echo "CLEO: $(cleo version 2>/dev/null || echo 'not installed')" && echo "OS: $(uname -srm)" && echo "Shell: $SHELL"
+        ```
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: agent-usage
+    attributes:
+      label: Are you using an AI agent?
+      description: Are you (or your AI agent) filing this request?
+      options:
+        - "Yes - AI agent filed this request"
+        - "Yes - Human filing with AI agent assistance"
+        - "No - Filing manually"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: |
+        Links, screenshots, references to other tools that do this well, or anything else.
+    validations:
+      required: false

@@ -1,0 +1,97 @@
+name: Help / Question
+description: Ask for help using CLEO or understanding a feature
+title: "[Question]: "
+labels: ["question", "help"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Help / Question
+
+        Need help with CLEO? Ask here. No question is too basic.
+
+        **Before asking**, please check:
+        - [`cleo help`](https://github.com/kryptobaseddev/cleo) - Built-in help
+        - [Documentation](https://github.com/kryptobaseddev/cleo/tree/main/docs) - User guides
+        - [Existing issues](https://github.com/kryptobaseddev/cleo/issues?q=is%3Aissue+label%3Aquestion) - Someone may have asked already
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      description: |
+        Describe what you're trying to do and where you're stuck.
+      placeholder: |
+        I'm trying to set up CLEO for a new project, but I'm not sure how sessions
+        and scopes work together. When I run `cleo session start`, it asks for a scope...
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: |
+        What commands have you run or documentation have you read?
+      placeholder: |
+        I've tried:
+        1. `cleo help session`
+        2. Reading docs/usage.md
+        3. Running `cleo session start --name "test"` but got an error about scope
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Relevant output (if any)
+      description: |
+        If you're getting errors, paste the output here.
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic area
+      description: What area is your question about?
+      options:
+        - "Installation and setup"
+        - "Getting started / first use"
+        - "Task management (add, update, complete)"
+        - "Sessions and scopes"
+        - "Epics, subtasks, hierarchy"
+        - "Dependencies and blocking"
+        - "Search and filtering"
+        - "MCP server / AI agent integration"
+        - "Configuration"
+        - "Migration / upgrading"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Your environment
+      description: |
+        Run this command and paste the output:
+        ```bash
+        echo "CLEO: $(cleo version 2>/dev/null || echo 'not installed')" && echo "OS: $(uname -srm)" && echo "Bash: ${BASH_VERSION:-unknown}" && echo "Shell: $SHELL"
+        ```
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: agent-usage
+    attributes:
+      label: Are you using an AI agent?
+      description: Are you (or your AI agent) asking this question?
+      options:
+        - "Yes - AI agent filed this question"
+        - "Yes - Human filing with AI agent assistance"
+        - "No - Filing manually"
+    validations:
+      required: true
