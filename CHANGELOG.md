@@ -4,6 +4,21 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-02-13
+
+### Features
+- V2 full TypeScript architecture spec with LAFS-native design (T4454, T2021)
+- Manifest hierarchy schema extension with 5 new fields (T4353)
+- P3 golden parity test infrastructure - golden, degradation, safety tests (T4370, T4374, T4375)
+- LAFS Protocol conformance gap analysis (T4459)
+
+### Documentation
+- CLEO-V2-ARCHITECTURE-SPEC.md — dual-track CLI + MCP convergence plan
+- CLEO-MIGRATION-DOCTRINE.md v2.0 — both tracks parallel, LAFS foundational
+- MANIFEST-HIERARCHY-SCHEMA-SPEC.md — tree-aware query patterns
+- LAFS conformance gap analysis — remediation roadmap
+
+
 ## [0.97.0] - 2026-02-12
 
 ### Other Changes
