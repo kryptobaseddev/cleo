@@ -826,12 +826,26 @@
         "notes": "Release guardrails: task preview, epic completeness guard, double-listing detection",
         "gitTag": "v0.95.0",
         "changelog": "## [0.95.0] - 2026-02-12\n\n### Documentation\n- Update protocols/release.md and add tests for release guardrails (T4436)\n\n### Other Changes\n- Extract discover_release_tasks() pure function from populate_release_tasks() (T4432)\n- Create lib/release/release-guards.sh with epic-completeness and double-listing checks (T4433)\n- Add --preview flag and enhance --dry-run in release ship command (T4434)\n- Enhance release show with task details and discovery preview (T4435)"
+      },
+      {
+        "version": "v0.95.1",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-13T04:20:50Z",
+        "createdAt": "2026-02-13T04:20:35Z",
+        "tasks": [
+          "T4439",
+          "T4440"
+        ],
+        "notes": "Bug fixes: lifecycle EXIT_USAGE unbound variable (#20), release.prepare missing script (#21)",
+        "gitTag": "v0.95.1",
+        "changelog": "## [0.95.1] - 2026-02-12\n\n### Bug Fixes\n- Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression (T4439)\n- Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh (T4440)"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T04:19:50Z",
+  "lastUpdated": "2026-02-13T04:20:50Z",
   "_meta": {
-    "checksum": "39e7cc8e2103eedb",
+    "checksum": "43fd3ac816006772",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -840,7 +854,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2916
+    "generation": 2922
   },
   "focus": {
     "currentTask": null,
@@ -14540,17 +14554,32 @@
       "completedAt": "2026-02-13T04:19:50Z",
       "notes": [
         "[COMPLETED 2026-02-13T04:19:50Z] Added EXIT_USAGE definition at top of lifecycle.sh. Maps to EXIT_USAGE_ERROR fallback (64). All 30 references now resolve. Syntax verified."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T04:19:50Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4440",
       "title": "Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-13T04:19:43Z",
-      "updatedAt": "2026-02-13T04:19:43Z",
+      "updatedAt": "2026-02-13T04:19:51Z",
       "size": "medium",
       "position": 874,
       "positionVersion": 0,
@@ -14561,7 +14590,26 @@
         "fix",
         "mcp",
         "release"
-      ]
+      ],
+      "completedAt": "2026-02-13T04:19:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T04:19:51Z] Replaced ./dev/release-version.sh references in MCP release.prepare and release.publish with cleo release create/ship routing. TypeScript compiles clean. 26/26 Jest tests pass."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T04:19:52Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
