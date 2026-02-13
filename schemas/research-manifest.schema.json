@@ -87,7 +87,7 @@
     "agent_type": {
       "type": "string",
       "description": "Type of agent that created this output entry",
-      "enum": ["research", "implementation", "validation", "documentation", "analysis"],
+      "enum": ["research", "implementation", "validation", "documentation", "analysis", "specification"],
       "default": "research"
     },
     "source": {
@@ -133,6 +133,35 @@
       "items": {
         "type": "string"
       }
+    },
+    "parentId": {
+      "type": ["string", "null"],
+      "description": "Parent manifest entry ID for hierarchy (null for root entries)",
+      "default": null
+    },
+    "epicId": {
+      "type": ["string", "null"],
+      "description": "Root epic task ID this entry belongs to",
+      "pattern": "^T\\d+$",
+      "default": null
+    },
+    "path": {
+      "type": "string",
+      "description": "Slash-delimited ancestry path from root epic (e.g., 'T2968/T2973/T2997')",
+      "default": ""
+    },
+    "depth": {
+      "type": "integer",
+      "description": "Nesting depth (0=root, 1=child, 2=grandchild)",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 0
+    },
+    "childCount": {
+      "type": "integer",
+      "description": "Number of direct child entries",
+      "minimum": 0,
+      "default": 0
     },
     "audit": {
       "type": "object",
