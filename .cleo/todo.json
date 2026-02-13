@@ -767,18 +767,22 @@
       },
       {
         "version": "v0.94.1",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-13T02:53:04Z",
         "createdAt": "2026-02-13T02:52:23Z",
-        "tasks": [],
-        "notes": "Hotfix: fix CI test failures from v0.94.0 issues domain addition"
+        "tasks": [
+          "T4429"
+        ],
+        "notes": "Hotfix: fix CI test failures from v0.94.0 issues domain addition",
+        "gitTag": "v0.94.1",
+        "changelog": "## [0.94.1] - 2026-02-12\n\n### Other Changes\n- Fix v0.94.0 CI test failures for issues domain (T4429)"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T02:52:23Z",
+  "lastUpdated": "2026-02-13T02:53:04Z",
   "_meta": {
-    "checksum": "b0f73b3fba759078",
+    "checksum": "4d685e245a702b70",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -787,7 +791,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2882
+    "generation": 2887
   },
   "focus": {
     "currentTask": null,
@@ -14116,6 +14120,40 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "In new chat with local MCP build, call: cleo_mutate domain=issues operation=create_bug params={} (no title or body). Verify: success=false, error.code=E_VALIDATION_FAILED, error.message mentions missing title and body."
+    },
+    {
+      "id": "T4429",
+      "title": "Fix v0.94.0 CI test failures for issues domain",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T02:52:31Z",
+      "updatedAt": "2026-02-13T02:52:43Z",
+      "size": "medium",
+      "position": 869,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fix 3 CI workflow failures from v0.94.0 release: (1) gateway tests with hardcoded operation/domain counts not updated for issues domain, (2) @cleocode/caamp ESM module not resolvable by Jest requiring manual mock, (3) release workflow referencing moved lib/changelog.sh path",
+      "completedAt": "2026-02-13T02:52:43Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T02:52:43Z] Fixed gateway test counts (51->54 mutate, 56->57 query, 8->9 domains), added Jest mock for @cleocode/caamp ESM package, fixed release.yml changelog path to lib/ui/changelog.sh, updated system.test.ts operation lists, updated docs. All 967 tests pass."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T02:52:43Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
