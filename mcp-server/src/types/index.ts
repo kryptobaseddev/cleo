@@ -304,3 +304,39 @@ export type {
   SystemCleanupParams,
   SystemCleanupResult,
 } from './operations/system.js';
+
+// Skills domain (12 operations)
+export type {
+  SkillCategory,
+  SkillStatus,
+  DispatchStrategy,
+  SkillSummary,
+  SkillDetail,
+  DispatchCandidate,
+  // Query operations
+  SkillsListParams,
+  SkillsListResult,
+  SkillsShowParams,
+  SkillsShowResult,
+  SkillsSearchParams,
+  SkillsSearchResult,
+  SkillsDispatchParams,
+  SkillsDispatchResult,
+  SkillsVerifyParams,
+  SkillsVerifyResult,
+  SkillsDependenciesParams,
+  SkillsDependenciesResult,
+  // Mutate operations
+  SkillsInstallParams,
+  SkillsInstallResult,
+  SkillsUninstallParams,
+  SkillsUninstallResult,
+  SkillsEnableParams,
+  SkillsEnableResult,
+  SkillsDisableParams,
+  SkillsDisableResult,
+  SkillsConfigureParams,
+  SkillsConfigureResult,
+  SkillsRefreshParams,
+  SkillsRefreshResult,
+} from './operations/skills.js';

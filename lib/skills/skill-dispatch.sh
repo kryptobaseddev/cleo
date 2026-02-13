@@ -82,11 +82,15 @@ _SD_LIB_DIR="${BASH_SOURCE[0]%/*}/.."
 _SD_PROJECT_ROOT="${_SD_LIB_DIR}/.."
 [[ -d "${_SD_PROJECT_ROOT}/skills" ]] || _SD_PROJECT_ROOT="."
 
-# Path to manifest.json (single source of truth)
-_SD_MANIFEST_JSON="${_SD_PROJECT_ROOT}/skills/manifest.json"
+# Source multi-path resolvers
+source "${_SD_LIB_DIR}/skills/skill-paths.sh"
+source "${_SD_LIB_DIR}/skills/manifest-resolver.sh"
 
-# Path to subagent protocol base
-_SD_PROTOCOL_BASE="${_SD_PROJECT_ROOT}/skills/_shared/subagent-protocol-base.md"
+# Resolve manifest from cache/CAAMP/embedded (priority chain)
+_SD_MANIFEST_JSON="$(mr_resolve_manifest 2>/dev/null)" || _SD_MANIFEST_JSON="${_SD_PROJECT_ROOT}/skills/manifest.json"
+
+# Resolve protocol base from shared directories
+_SD_PROTOCOL_BASE="$(resolve_shared_path "subagent-protocol-base" 2>/dev/null)" || _SD_PROTOCOL_BASE="${_SD_PROJECT_ROOT}/skills/_shared/subagent-protocol-base.md"
 
 # Default fallback skill
 readonly _SD_DEFAULT_SKILL="ct-task-executor"
@@ -621,7 +625,9 @@ skill_inject() {
         return "$EXIT_NOT_FOUND"
     fi
 
-    local skill_file="${_SD_PROJECT_ROOT}/${skill_path}/SKILL.md"
+    local resolved_dir
+    resolved_dir="$(resolve_skill_path "$skill_name" 2>/dev/null)" || resolved_dir="${_SD_PROJECT_ROOT}/${skill_path}"
+    local skill_file="${resolved_dir}/SKILL.md"
     if [[ ! -f "$skill_file" ]]; then
         _sd_error "Skill file not found: $skill_file"
         return "$EXIT_FILE_ERROR"
@@ -645,7 +651,8 @@ skill_inject() {
 
     # Load conditional protocol if exists
     local conditional_protocol=""
-    local conditional_protocol_file="${_SD_PROJECT_ROOT}/protocols/${protocol_type}.md"
+    local conditional_protocol_file
+    conditional_protocol_file="$(resolve_protocol_path "$protocol_type" 2>/dev/null)" || conditional_protocol_file="${_SD_PROJECT_ROOT}/protocols/${protocol_type}.md"
     if [[ -f "$conditional_protocol_file" ]]; then
         conditional_protocol=$(ti_load_template "$conditional_protocol_file")
         _sd_debug "Loaded conditional protocol: ${protocol_type}.md"
@@ -1052,10 +1059,13 @@ skill_get_references() {
     local skill_path
     skill_path=$(echo "$metadata" | jq -r '.path // ""')
 
-    if [[ -n "$skill_path" && -d "${_SD_PROJECT_ROOT}/${skill_path}/references" ]]; then
+    local refs_base_dir
+    refs_base_dir="$(resolve_skill_path "$skill_name" 2>/dev/null)" || refs_base_dir="${_SD_PROJECT_ROOT}/${skill_path}"
+
+    if [[ -n "$skill_path" && -d "${refs_base_dir}/references" ]]; then
         # List markdown files in references directory
-        find "${_SD_PROJECT_ROOT}/${skill_path}/references" -name "*.md" -type f 2>/dev/null | \
-            sed "s|${_SD_PROJECT_ROOT}/${skill_path}/||"
+        find "${refs_base_dir}/references" -name "*.md" -type f 2>/dev/null | \
+            sed "s|${refs_base_dir}/||"
     fi
 
     return 0
@@ -1273,9 +1283,11 @@ skill_prepare_spawn() {
     # Handle null model
     [[ "$model" == "null" ]] && model="auto"
 
-    # Get skill file path
+    # Get skill file path (resolve via multi-path, fallback to embedded)
+    local resolved_skill_dir
+    resolved_skill_dir="$(resolve_skill_path "$skill_name" 2>/dev/null)" || resolved_skill_dir="${_SD_PROJECT_ROOT}/${skill_path}"
     local skill_file="${skill_path}/SKILL.md"
-    local full_skill_path="${_SD_PROJECT_ROOT}/${skill_file}"
+    local full_skill_path="${resolved_skill_dir}/SKILL.md"
 
     # Get references
     local references
@@ -1501,7 +1513,9 @@ skill_prepare_spawn_multi() {
 
         tier=$(echo "$metadata" | jq -r '.tier // 2')
         skill_path=$(echo "$metadata" | jq -r '.path // ""')
-        local skill_file="${_SD_PROJECT_ROOT}/${skill_path}/SKILL.md"
+        local resolved_multi_dir
+        resolved_multi_dir="$(resolve_skill_path "$skill" 2>/dev/null)" || resolved_multi_dir="${_SD_PROJECT_ROOT}/${skill_path}"
+        local skill_file="${resolved_multi_dir}/SKILL.md"
 
         if [[ ! -f "$skill_file" ]]; then
             _sd_warn "Skill file not found: $skill_file"
