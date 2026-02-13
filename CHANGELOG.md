@@ -4,6 +4,17 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-02-12
+
+### Bug Fixes
+- Fix release ship wiping planned release task links (T4386)
+
+### Other Changes
+- Implement cleo issue CLI command (T4409)
+- Add issues domain to MCP server (T4410)
+- Update AGENT-INJECTION.md with issue command (T4411)
+
+
 ## [0.93.4] - 2026-02-12
 
 ### Bug Fixes
