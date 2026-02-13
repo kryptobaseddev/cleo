@@ -793,18 +793,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T03:47:36Z",
+  "lastUpdated": "2026-02-13T03:54:21Z",
   "_meta": {
-    "checksum": "829f79d640752531",
+    "checksum": "0bdbf96895f35fe2",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-13T03:47:42Z",
+    "lastModified": "2026-02-13T03:48:04Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2893
+    "generation": 2897
   },
   "focus": {
     "currentTask": null,
@@ -14225,12 +14225,12 @@
     {
       "id": "T4432",
       "title": "Extract discover_release_tasks() pure function from populate_release_tasks()",
-      "status": "active",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4431",
       "createdAt": "2026-02-13T03:46:55Z",
-      "updatedAt": "2026-02-13T03:47:42Z",
+      "updatedAt": "2026-02-13T03:50:19Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -14241,17 +14241,36 @@
         "guardrails",
         "implementation",
         "release"
-      ]
+      ],
+      "completedAt": "2026-02-13T03:50:19Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T03:50:19Z] Extracted discover_release_tasks() pure function (lines 79-143) from populate_release_tasks(). Zero behavior change. Syntax and existing tests verified."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T03:50:19Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4433",
       "title": "Create lib/release/release-guards.sh with epic-completeness and double-listing checks",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4431",
       "createdAt": "2026-02-13T03:47:06Z",
-      "updatedAt": "2026-02-13T03:47:06Z",
+      "updatedAt": "2026-02-13T03:54:21Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -14264,6 +14283,10 @@
       ],
       "depends": [
         "T4432"
+      ],
+      "completedAt": "2026-02-13T03:54:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T03:54:21Z] Created lib/release/release-guards.sh with 4 functions: check_epic_completeness (line 34), check_double_listing (line 143), render_epic_completeness (line 196), render_double_listing (line 284). Added get_epic_completeness_mode() config getter at line 419 in release-config.sh. All syntax verified."
       ]
     },
     {
