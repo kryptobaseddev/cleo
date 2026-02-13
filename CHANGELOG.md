@@ -4,6 +4,14 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-02-12
+
+### Other Changes
+- EPIC: CLEO Nexus Command Center WebUI (T4284)
+- Set up web server package structure (Fastify + TypeScript) (T4285)
+- Implement WebSocket real-time update system (T4289)
+
+
 ## [0.96.0] - 2026-02-12
 
 ### Other Changes

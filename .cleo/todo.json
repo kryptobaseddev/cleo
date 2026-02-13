@@ -895,20 +895,22 @@
       },
       {
         "version": "v0.97.0",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-13T06:01:24Z",
         "createdAt": "2026-02-13T06:00:56Z",
         "tasks": [
           "T4284",
           "T4285",
           "T4289"
         ],
-        "notes": "Minor release for Web UI/Nexus dashboard specifications and scaffolding consolidation (commit fe08773)."
+        "notes": "Minor release: Web UI dashboard specification consolidation and Nexus command center scaffolding checkpoint.",
+        "gitTag": "v0.97.0",
+        "changelog": "## [0.97.0] - 2026-02-12\n\n### Other Changes\n- EPIC: CLEO Nexus Command Center WebUI (T4284)\n- Set up web server package structure (Fastify + TypeScript) (T4285)\n- Implement WebSocket real-time update system (T4289)"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T06:00:56Z",
+  "lastUpdated": "2026-02-13T06:01:24Z",
   "_meta": {
     "checksum": "631d2c9acdd88bcc",
     "configVersion": "2.1.0",
@@ -919,7 +921,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2955
+    "generation": 2957
   },
   "focus": {
     "currentTask": null,
