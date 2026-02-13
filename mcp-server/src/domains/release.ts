@@ -259,7 +259,7 @@ export class ReleaseHandler implements DomainHandler {
 
   /**
    * bump - Bump version (patch/minor/major)
-   * CLI: ./dev/bump-version.sh <type>
+   * Uses portable config-driven version bump from lib/release/version-bump.sh
    */
   private async mutateBump(params: ReleaseBumpParams): Promise<DomainResponse> {
     const startTime = Date.now();
@@ -287,12 +287,21 @@ export class ReleaseHandler implements DomainHandler {
       );
     }
 
+    // Use portable config-driven version bump library
+    // Sources lib/release/version-bump.sh, reads current VERSION, calculates new version, and bumps all configured files
+    const bumpScript = [
+      'source lib/release/version-bump.sh',
+      `CURRENT=$(cat VERSION 2>/dev/null || echo "0.0.0")`,
+      `NEW=$(calculate_new_version "$CURRENT" "${params.type}")`,
+      `bump_version_from_config "$NEW"`,
+    ].join(' && ');
+
     const result = await this.executor!.execute<ReleaseBumpResult>({
-      domain: 'bump-version',
-      operation: '',
-      args: [params.type],
-      flags: { json: true },
-      customCommand: './dev/bump-version.sh',
+      domain: 'release',
+      operation: 'bump',
+      args: [],
+      flags: {},
+      customCommand: `bash -c '${bumpScript}'`,
     });
 
     return this.wrapExecutorResult(result, 'cleo_mutate', 'release', 'bump', startTime);

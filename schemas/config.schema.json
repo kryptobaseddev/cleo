@@ -1619,6 +1619,86 @@
           },
           "default": []
         },
+        "guards": {
+          "type": "object",
+          "description": "Release guard configuration. Controls pre-release safety checks.",
+          "additionalProperties": false,
+          "properties": {
+            "epicCompleteness": {
+              "type": "string",
+              "enum": ["warn", "block", "off"],
+              "default": "warn",
+              "description": "Epic completeness guard mode. 'warn' shows incomplete tasks as warning, 'block' prevents release (use --force to override), 'off' disables check."
+            }
+          }
+        },
+        "versionBump": {
+          "type": "object",
+          "description": "Portable version bump configuration. Defines which files to update when bumping the project version during release.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable version bump during release ship --bump-version."
+            },
+            "files": {
+              "type": "array",
+              "description": "Files to update with the new version. Each entry defines a file path, update strategy, and strategy-specific options.",
+              "items": {
+                "type": "object",
+                "required": ["path", "strategy"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "File path relative to project root."
+                  },
+                  "strategy": {
+                    "type": "string",
+                    "enum": ["plain", "json", "toml", "sed"],
+                    "description": "Update strategy. 'plain' overwrites file with version string. 'json' updates a JSON field via jq. 'toml' updates a TOML key via sed. 'sed' applies a custom sed pattern."
+                  },
+                  "jsonPath": {
+                    "type": "string",
+                    "description": "jq path expression for 'json' strategy (e.g., '.version', '.package.version'). Required when strategy is 'json'."
+                  },
+                  "tomlKey": {
+                    "type": "string",
+                    "description": "TOML key to update for 'toml' strategy (e.g., 'version', 'package.version'). Required when strategy is 'toml'."
+                  },
+                  "sedPattern": {
+                    "type": "string",
+                    "description": "Custom sed substitution pattern for 'sed' strategy. Use {{VERSION}} as placeholder for the new version (e.g., 's|version-[0-9]+\\.[0-9]+\\.[0-9]+-|version-{{VERSION}}-|g'). Required when strategy is 'sed'."
+                  },
+                  "sedMatch": {
+                    "type": "string",
+                    "description": "Grep pattern to verify the sed target exists before applying. Used with 'sed' strategy to fail fast if the pattern is not found."
+                  },
+                  "optional": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, skip this file silently when it does not exist. If false (default), fail with an error."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Human-readable description of what this file contains (e.g., 'README version badge', 'NPM package version')."
+                  }
+                }
+              },
+              "default": []
+            },
+            "preValidate": {
+              "type": "string",
+              "description": "Shell command to run before version bump. Exit 0 = pass. Used to verify current version state is clean."
+            },
+            "postValidate": {
+              "type": "string",
+              "description": "Shell command to run after version bump. Exit 0 = pass. Used to verify all files were updated correctly."
+            }
+          }
+        },
         "changelog": {
           "type": "object",
           "description": "Changelog generation and output configuration.",

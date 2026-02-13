@@ -53,7 +53,7 @@ done
 
 **Sync versions:**
 ```bash
-./dev/bump-version.sh <version>
+cleo release ship v<version> --bump-version
 ```
 
 ### 4. README Completeness
@@ -118,7 +118,7 @@ cp docs/commands/existing.md docs/commands/new-command.md
 
 ### Step 4: Update Version
 ```bash
-./dev/bump-version.sh <new-version>
+cleo release ship v<new-version> --bump-version
 ```
 
 ### Step 5: Update CHANGELOG
@@ -175,7 +175,7 @@ Remove orphaned entries or verify script exists.
 Create documentation files following the standard template.
 
 ### "VERSION file != README"
-Run `./dev/bump-version.sh <version>` to sync.
+Run `cleo release ship v<version> --bump-version` to sync.
 
 ---
 

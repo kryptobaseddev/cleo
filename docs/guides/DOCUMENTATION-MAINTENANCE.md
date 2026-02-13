@@ -170,10 +170,9 @@ Include documentation updates in the same PR as code changes:
 ### 3. Version Bump Protocol
 
 When bumping version:
-1. Update `VERSION` file
-2. Run `./dev/bump-version.sh <version>`
-3. Update CHANGELOG.md
-4. Regenerate derived docs
+1. Run `cleo release ship v<version> --bump-version` (updates all configured files)
+2. Update CHANGELOG.md
+3. Regenerate derived docs
 
 ### 4. Stale Document Review
 
