@@ -42,6 +42,8 @@ ct session list            # Check sessions FIRST
 ct session status          # Current session
 ct dash                    # Project overview
 ct context                 # Context window usage
+ct issue bug --title "..." --body "..."   # File a bug report
+ct issue diagnostics       # Show system diagnostics
 ```
 
 ### Session Protocol

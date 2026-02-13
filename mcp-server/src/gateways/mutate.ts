@@ -18,7 +18,7 @@ import { logMutation, AuditEntry } from '../lib/audit.js';
  * Mutate request interface
  */
 export interface MutateRequest {
-  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'release' | 'system';
+  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'release' | 'system' | 'issues';
   operation: string;
   params?: Record<string, unknown>;
 }
@@ -100,12 +100,17 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'safestop',    // Graceful agent shutdown
     'uncancel',    // Restore cancelled tasks
   ],
+  issues: [
+    'create_bug',     // File a bug report
+    'create_feature', // Request a feature
+    'create_help',    // Ask a question
+  ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_MUTATE_COUNT = 51;
+const EXPECTED_MUTATE_COUNT = 54;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(

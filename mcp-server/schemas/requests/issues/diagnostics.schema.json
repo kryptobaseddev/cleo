@@ -1,0 +1,8 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "issues.diagnostics request",
+  "description": "Get system diagnostics for CLEO environment",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

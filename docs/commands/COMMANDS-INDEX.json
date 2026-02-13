@@ -2,8 +2,8 @@
   "$schema": "https://cleo-dev.com/schemas/v1/commands-index.schema.json",
   "_meta": {
     "version": "2.0.0",
-    "lastUpdated": "2026-02-11",
-    "totalCommands": 76,
+    "lastUpdated": "2026-02-13",
+    "totalCommands": 77,
     "specCompliance": "LLM-AGENT-FIRST-SPEC v3.0",
     "generatedFrom": "script-headers"
   },
@@ -65,6 +65,7 @@
       "sync"
     ],
     "system": [
+      "issue",
       "web"
     ],
     "validation": [
@@ -694,7 +695,9 @@
         "--exact",
         "--status",
         "--field",
-        "--include-archive"
+        "--include-archive",
+        "--limit",
+        "--offset"
       ],
       "exitCodes": [
         0,
@@ -848,6 +851,40 @@
       "note": "Usually called via 'sync --inject'"
     },
     {
+      "name": "issue",
+      "script": "issue.sh",
+      "category": "system",
+      "synopsis": "File bug reports, feature requests, or questions to CLEO GitHub repo",
+      "agentRelevance": "medium",
+      "jsonOutput": true,
+      "jsonDefault": false,
+      "flags": [
+        "--format",
+        "--json",
+        "--human",
+        "--quiet",
+        "--dry-run",
+        "--title",
+        "--body",
+        "--severity",
+        "--area",
+        "--open"
+      ],
+      "exitCodes": [
+        0,
+        2,
+        5,
+        6,
+        8
+      ],
+      "subcommands": [
+        "bug",
+        "feature",
+        "help",
+        "diagnostics"
+      ]
+    },
+    {
       "name": "labels",
       "script": "labels.sh",
       "category": "read",
@@ -949,6 +986,7 @@
         "--format",
         "--quiet",
         "--limit",
+        "--offset",
         "--operation",
         "--task"
       ],
@@ -1561,7 +1599,11 @@
         "--force",
         "--verbose",
         "--orphans",
-        "--stale"
+        "--stale",
+        "--repair",
+        "--no-focus",
+        "--limit",
+        "--offset"
       ],
       "exitCodes": [
         0,

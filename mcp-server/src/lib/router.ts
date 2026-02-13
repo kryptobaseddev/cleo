@@ -19,6 +19,7 @@ import { LifecycleHandler } from '../domains/lifecycle.js';
 import { ValidateHandler } from '../domains/validate.js';
 import { ReleaseHandler } from '../domains/release.js';
 import { SystemHandler } from '../domains/system.js';
+import { IssuesHandler } from '../domains/issues.js';
 import { formatError, createError } from './formatter.js';
 import { CLIExecutor } from './executor.js';
 import type { ResolvedMode } from './mode-detector.js';
@@ -131,6 +132,7 @@ export class DomainRouter {
       ['validate', new ValidateHandler(executor)],
       ['release', new ReleaseHandler(executor)],
       ['system', new SystemHandler(executor, undefined, executionMode)],
+      ['issues', new IssuesHandler(executor)],
     ]);
     this.useProtocolEnforcement = useProtocolEnforcement;
     this.verificationGate = new VerificationGate(useProtocolEnforcement);
