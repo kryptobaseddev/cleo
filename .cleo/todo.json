@@ -910,9 +910,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T06:01:24Z",
+  "lastUpdated": "2026-02-13T06:04:01Z",
   "_meta": {
-    "checksum": "631d2c9acdd88bcc",
+    "checksum": "915a2df0af83bbec",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -921,7 +921,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2957
+    "generation": 2958
   },
   "focus": {
     "currentTask": null,
@@ -14886,6 +14886,34 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "List backups with type/date/size. One-click restore with confirmation dialog. Creates safety backup before restore. Uses MCP system.backup/restore domain handlers."
+    },
+    {
+      "id": "T4453",
+      "title": "Checkpoint skills domain implementation stream",
+      "status": "active",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T06:03:54Z",
+      "updatedAt": "2026-02-13T06:04:01Z",
+      "size": "medium",
+      "position": 876,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Commit and push stashed skills domain implementation changes (manifest resolver, gateways, domain handlers, and tests) as isolated workstream checkpoint.",
+      "labels": [
+        "checkpoint",
+        "mcp",
+        "skills"
+      ],
+      "acceptance": [
+        "Stashed skills-domain changes are committed in one isolated commit",
+        "Changes are pushed to origin/main",
+        "No residual working-tree drift remains"
+      ],
+      "notes": [
+        "2026-02-13 06:04:01 UTC: Applying and committing stash@{0} skills-domain stream as isolated checkpoint."
+      ]
     }
   ],
   "labels": {}

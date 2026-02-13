@@ -929,7 +929,7 @@ describe('E2E Workflow Tests (MCP Spec Section 11)', () => {
   // =========================================================================
 
   describe('Router Domain Discovery', () => {
-    it('should expose all 9 domains', () => {
+    it('should expose all 10 domains', () => {
       const domains = router.getDomains();
       expect(domains).toContain('tasks');
       expect(domains).toContain('session');
@@ -940,7 +940,8 @@ describe('E2E Workflow Tests (MCP Spec Section 11)', () => {
       expect(domains).toContain('release');
       expect(domains).toContain('system');
       expect(domains).toContain('issues');
-      expect(domains).toHaveLength(9);
+      expect(domains).toContain('skills');
+      expect(domains).toHaveLength(10);
     });
 
     it('should return operations for each domain', () => {

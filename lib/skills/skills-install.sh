@@ -152,6 +152,12 @@ install_skills() {
         return 0
     fi
 
+    # CAAMP integration: skip legacy install if skills managed externally
+    if command -v caamp &>/dev/null && [[ -d "${AGENTS_HOME:-$HOME/.agents}/skills/ct-task-executor" ]]; then
+        echo "[skills-install] Skills managed by CAAMP at ${AGENTS_HOME:-$HOME/.agents}/skills/. Skipping legacy install." >&2
+        return 0
+    fi
+
     _init_skills_paths
 
     # Verify manifest exists
