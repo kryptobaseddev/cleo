@@ -108590,11 +108590,154 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_771be0b3296b",
+      "timestamp": "2026-02-13T03:30:23Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4430",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T03:30:22Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1770954407-79e5d0",
+      "timestamp": "2026-02-13T03:46:47Z",
+      "action": "task_created",
+      "taskId": "T4431",
+      "actor": "system",
+      "details": {
+        "title": "EPIC: Release Tooling Guardrails - Task Preview, Epic Completeness, Source Tracking",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "EPIC: Release Tooling Guardrails - Task Preview, Epic Completeness, Source Tracking",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770954415-8a86f7",
+      "timestamp": "2026-02-13T03:46:55Z",
+      "action": "task_created",
+      "taskId": "T4432",
+      "actor": "system",
+      "details": {
+        "title": "Extract discover_release_tasks() pure function from populate_release_tasks()",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Extract discover_release_tasks() pure function from populate_release_tasks()",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770954426-d9dfc4",
+      "timestamp": "2026-02-13T03:47:06Z",
+      "action": "task_created",
+      "taskId": "T4433",
+      "actor": "system",
+      "details": {
+        "title": "Create lib/release/release-guards.sh with epic-completeness and double-listing checks",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create lib/release/release-guards.sh with epic-completeness and double-listing checks",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770954439-496873",
+      "timestamp": "2026-02-13T03:47:19Z",
+      "action": "task_created",
+      "taskId": "T4434",
+      "actor": "system",
+      "details": {
+        "title": "Add --preview flag and enhance --dry-run in release ship command",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add --preview flag and enhance --dry-run in release ship command",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1770954447-53ea25",
+      "timestamp": "2026-02-13T03:47:27Z",
+      "action": "task_created",
+      "taskId": "T4435",
+      "actor": "system",
+      "details": {
+        "title": "Enhance release show with task details and discovery preview",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Enhance release show with task details and discovery preview",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1770954456-9fe175",
+      "timestamp": "2026-02-13T03:47:36Z",
+      "action": "task_created",
+      "taskId": "T4436",
+      "actor": "system",
+      "details": {
+        "title": "Update protocols/release.md and add tests for release guardrails",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Update protocols/release.md and add tests for release guardrails",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log_b81138692736",
+      "timestamp": "2026-02-13T03:47:42Z",
+      "sessionId": "session_20260212_194742_e6736f",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4432",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4431"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5619,
-    "lastEntry": "2026-02-13T02:52:44Z",
+    "totalEntries": 5621,
+    "lastEntry": "2026-02-13T03:47:42Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
