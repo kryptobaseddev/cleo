@@ -17,6 +17,18 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.95.2" tags={["Fix"]}>
+## v0.95.2 Release
+
+
+**Bug Fixes**
+- Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression (T4439)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.95.2)
+</Update>
+
 <Update label="February 2026" description="v0.95.1" tags={["Fix"]}>
 ## v0.95.1 Release
 
@@ -367,31 +379,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.89.0)
-</Update>
-
-<Update label="February 2026" description="v0.88.0" tags={["Installer", "Documentation", "CLI"]}>
-## v0.88.0 Release
-
-
-**Features**
-- feat: Smart mcp-install with 12-tool auto-detection and multi-format config writing — supports Claude Code, Claude Desktop, Cursor, Gemini CLI, Kimi, Antigravity, Windsurf, Goose, OpenCode, VS Code, Zed, Codex across 6 config formats (JSON, JSONC, TOML, YAML)
-- feat: JSONC support for Zed and OpenCode — strips comments for parsing, preserves comment header on write
-- feat: Goose YAML config format support — new _mcp_merge_goose_yaml handler
-- feat: Flatpak detection for Linux Zed installs
-- feat: Idempotent writes with post-merge verification — aborts if merge would lose existing entries
-- feat: Interactive and non-interactive modes (--all, --force, --dry-run, --json)
-
-**New Files**
-- lib/mcp-config.sh — core library: tool registry, detection, config generation, merge, backup, write
-- tests/unit/mcp-config.bats — 68 tests covering all formats and edge cases
-
-**Documentation**
-- docs/commands/mcp-install.mdx — full 12-tool reference with detection strategy and JSONC/YAML notes
-- mcp-server/README.md — auto-configure quickstart with per-tool config table
-- README.md — MCP Server section with one-liner install command
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.88.0)
 </Update>
 
 ## Earlier Releases
