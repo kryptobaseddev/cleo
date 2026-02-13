@@ -22,13 +22,13 @@ Current implementation operation matrix is maintained in:
 - `src/gateways/query.ts` (`EXPECTED_QUERY_COUNT=56`)
 - `src/gateways/mutate.ts` (`EXPECTED_MUTATE_COUNT=51`)
 
-Total implemented operations: **107** (core contract plus parity extensions).
+Total implemented operations: **111** (core contract plus parity extensions).
 
 **Token efficiency**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens) = **94% reduction**
 
 ## Features
 
-- **Full CLEO Access**: 107 implemented operations across 8 domains
+- **Full CLEO Access**: 111 implemented operations across 9 domains
 - **Protocol Enforcement**: RCSD-IVTR lifecycle with exit codes 60-70
 - **Anti-Hallucination**: 4-layer validation (schema → semantic → referential → protocol)
 - **Safety by Design**: Read operations cannot mutate state
