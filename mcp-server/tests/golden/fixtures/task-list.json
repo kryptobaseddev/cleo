@@ -1,0 +1,40 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/response.schema.json",
+  "_meta": {
+    "format": "json",
+    "version": "__DYNAMIC__",
+    "command": "list",
+    "timestamp": "__DYNAMIC__"
+  },
+  "success": true,
+  "tasks": [
+    {
+      "id": "T0001",
+      "title": "Golden epic",
+      "description": "Epic for golden parity testing",
+      "status": "active",
+      "created": "__DYNAMIC__",
+      "updated": "__DYNAMIC__"
+    },
+    {
+      "id": "T0002",
+      "title": "Golden child task 1",
+      "description": "First child task for golden testing",
+      "status": "pending",
+      "parent": "T0001",
+      "created": "__DYNAMIC__",
+      "updated": "__DYNAMIC__"
+    },
+    {
+      "id": "T0003",
+      "title": "Golden child task 2",
+      "description": "Second child task for golden testing",
+      "status": "pending",
+      "parent": "T0001",
+      "depends": ["T0002"],
+      "created": "__DYNAMIC__",
+      "updated": "__DYNAMIC__"
+    }
+  ],
+  "total": 3
+}

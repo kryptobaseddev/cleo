@@ -1,0 +1,20 @@
+{
+  "$schema": "https://cleo-dev.com/schemas/v1/response.schema.json",
+  "_meta": {
+    "format": "json",
+    "version": "__DYNAMIC__",
+    "command": "find",
+    "timestamp": "__DYNAMIC__"
+  },
+  "success": true,
+  "results": [
+    {
+      "id": "T0001",
+      "title": "Golden epic",
+      "status": "active",
+      "score": "__DYNAMIC__"
+    }
+  ],
+  "total": 1,
+  "query": "Golden epic"
+}
