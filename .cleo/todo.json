@@ -764,9 +764,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T02:23:36Z",
+  "lastUpdated": "2026-02-13T02:23:51Z",
   "_meta": {
-    "checksum": "82c260954edac3d9",
+    "checksum": "b0f73b3fba759078",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -775,7 +775,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2872
+    "generation": 2879
   },
   "focus": {
     "currentTask": null,
@@ -13941,41 +13941,6 @@
       "description": "Run: cleo issue diagnostics --json\nVerify: success=true, result.diagnostics contains cleoVersion, bashVersion, jqVersion, os, shell, cleoHome, ghVersion, installLocation. All fields are non-empty strings."
     },
     {
-      "id": "T4414",
-      "title": "Test CLI: cleo issue diagnostics --human outputs readable text",
-      "status": "cancelled",
-      "priority": "medium",
-      "type": "subtask",
-      "parentId": "T4412",
-      "createdAt": "2026-02-13T02:21:26Z",
-      "updatedAt": "2026-02-13T02:23:36Z",
-      "size": "medium",
-      "position": 2,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Run: cleo issue diagnostics --human\nVerify: Output starts with 'CLEO Diagnostics' header, contains labeled rows for CLEO Version, Bash Version, jq Version, OS, Shell, CLEO Home, gh CLI, Install Path. No JSON wrapping.",
-      "cancelledAt": "2026-02-13T02:23:36Z",
-      "cancelReason": "Duplicate of T4416",
-      "notes": [
-        "[CANCELLED 2026-02-13T02:23:36Z] Duplicate of T4416"
-      ]
-    },
-    {
-      "id": "T4415",
-      "title": "Test: diagnostics --human",
-      "status": "pending",
-      "priority": "medium",
-      "type": "subtask",
-      "parentId": "T4412",
-      "createdAt": "2026-02-13T02:21:37Z",
-      "updatedAt": "2026-02-13T02:21:37Z",
-      "size": "medium",
-      "position": 3,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Run cleo issue diagnostics --human. Verify output starts with CLEO Diagnostics header, has labeled rows for each field, no JSON wrapping."
-    },
-    {
       "id": "T4416",
       "title": "Test: diagnostics human output",
       "status": "pending",
@@ -14034,36 +13999,6 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "Run: cleo issue help --dry-run --title 'Test question' --body 'Question text' --json. Verify: success=true, dryRun=true, result.type=help, result.title starts with '[Question]: ', result.labels=[question,help], result.body contains '### What do you need help with?' section header."
-    },
-    {
-      "id": "T4420",
-      "title": "Test: validation errors for missing fields",
-      "status": "pending",
-      "priority": "medium",
-      "type": "subtask",
-      "parentId": "T4412",
-      "createdAt": "2026-02-13T02:22:10Z",
-      "updatedAt": "2026-02-13T02:22:10Z",
-      "size": "medium",
-      "position": 8,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Run: cleo issue bug --json (no --title or --body, non-TTY). Verify: exit code 6, error code E_INPUT_MISSING, message about missing --title. Then run: cleo issue bug --title 'test' --json (no --body). Verify: exit code 6, error about missing --body. Then run: cleo issue --json (no subcommand). Verify: exit code 2, error about missing subcommand."
-    },
-    {
-      "id": "T4421",
-      "title": "Test: validation error handling",
-      "status": "pending",
-      "priority": "medium",
-      "type": "subtask",
-      "parentId": "T4412",
-      "createdAt": "2026-02-13T02:22:18Z",
-      "updatedAt": "2026-02-13T02:22:18Z",
-      "size": "medium",
-      "position": 9,
-      "positionVersion": 0,
-      "phase": "core",
-      "description": "Test three error cases: (1) echo '' | cleo issue bug --json with no flags - expect exit 6, E_INPUT_MISSING for --title. (2) echo '' | cleo issue bug --title test --json - expect exit 6, E_INPUT_MISSING for --body. (3) cleo issue --json with no subcommand - expect exit 2, E_INPUT_MISSING."
     },
     {
       "id": "T4422",

@@ -17,7 +17,7 @@ import { createError } from '../lib/formatter.js';
  * Query request interface
  */
 export interface QueryRequest {
-  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'system';
+  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'system' | 'issues';
   operation: string;
   params?: Record<string, unknown>;
 }
@@ -102,12 +102,15 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'archive-stats',  // Archive analytics
     'sequence',       // ID sequence inspection
   ],
+  issues: [
+    'diagnostics',    // System diagnostics for bug reports
+  ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_QUERY_COUNT = 56;
+const EXPECTED_QUERY_COUNT = 57;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

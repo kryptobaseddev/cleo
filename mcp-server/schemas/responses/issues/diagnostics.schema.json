@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "issues.diagnostics response",
+  "description": "Response with CLEO system diagnostics",
+  "type": "object",
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "properties": {
+        "gateway": { "type": "string" },
+        "domain": { "type": "string", "const": "issues" },
+        "operation": { "type": "string", "const": "diagnostics" },
+        "version": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "duration_ms": { "type": "number" }
+      },
+      "required": ["gateway", "domain", "operation", "version", "timestamp", "duration_ms"]
+    },
+    "success": { "type": "boolean" },
+    "data": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "diagnostics": {
+              "type": "object",
+              "properties": {
+                "cleoVersion": { "type": "string" },
+                "bashVersion": { "type": "string" },
+                "jqVersion": { "type": "string" },
+                "os": { "type": "string" },
+                "shell": { "type": "string" },
+                "cleoHome": { "type": "string" },
+                "ghVersion": { "type": "string" },
+                "installLocation": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["_meta", "success"]
+}

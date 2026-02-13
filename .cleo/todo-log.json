@@ -108450,11 +108450,95 @@
         "status": "pending",
         "priority": "medium"
       }
+    },
+    {
+      "id": "log_5ba8dad9ee14",
+      "timestamp": "2026-02-13T02:23:37Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4414",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-13T02:23:36Z"
+      },
+      "details": {
+        "reason": "Duplicate of T4416",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_7c0e5de0b721",
+      "timestamp": "2026-02-13T02:23:41Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4415",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-13T02:23:40Z"
+      },
+      "details": {
+        "reason": "Duplicate of T4416",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_d690c1d568a6",
+      "timestamp": "2026-02-13T02:23:46Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4420",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-13T02:23:45Z"
+      },
+      "details": {
+        "reason": "Duplicate of T4422",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
+    },
+    {
+      "id": "log_637aedcba158",
+      "timestamp": "2026-02-13T02:23:50Z",
+      "sessionId": null,
+      "action": "task_cancelled",
+      "actor": "system",
+      "taskId": "T4421",
+      "before": {
+        "status": "pending",
+        "cancelledAt": null
+      },
+      "after": {
+        "status": "cancelled",
+        "cancelledAt": "2026-02-13T02:23:49Z"
+      },
+      "details": {
+        "reason": "Duplicate of T4422",
+        "childStrategy": "block",
+        "affectedCount": 1
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5614,
-    "lastEntry": "2026-02-13T02:09:19Z",
+    "totalEntries": 5618,
+    "lastEntry": "2026-02-13T02:23:50Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

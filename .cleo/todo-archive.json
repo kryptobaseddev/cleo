@@ -3,8 +3,8 @@
   "version": "2.4.0",
   "project": "claude-todo",
   "_meta": {
-    "totalArchived": 4161,
-    "lastArchived": "2026-02-11T05:25:29Z",
+    "totalArchived": 4165,
+    "lastArchived": "2026-02-13T02:23:51Z",
     "oldestTask": "2025-12-06T06:35:41Z",
     "newestTask": "2026-02-11T05:04:13Z",
     "lastModified": "2025-12-29T18:07:08Z",
@@ -153142,11 +153142,147 @@
         "lastUpdated": "2026-02-11T05:25:04Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4414",
+      "title": "Test CLI: cleo issue diagnostics --human outputs readable text",
+      "status": "cancelled",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4412",
+      "createdAt": "2026-02-13T02:21:26Z",
+      "updatedAt": "2026-02-13T02:23:36Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Run: cleo issue diagnostics --human\nVerify: Output starts with 'CLEO Diagnostics' header, contains labeled rows for CLEO Version, Bash Version, jq Version, OS, Shell, CLEO Home, gh CLI, Install Path. No JSON wrapping.",
+      "cancelledAt": "2026-02-13T02:23:36Z",
+      "notes": [
+        "[CANCELLED 2026-02-13T02:23:36Z] Duplicate of T4416"
+      ],
+      "completedAt": "2026-02-13T02:23:36Z",
+      "cancellationReason": "Duplicate of T4416",
+      "_archive": {
+        "archivedAt": "2026-02-13T02:23:38Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 0,
+        "cancellationDetails": {
+          "cancelledAt": "2026-02-13T02:23:36Z",
+          "cancellationReason": "Duplicate of T4416",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T4415",
+      "title": "Test: diagnostics --human",
+      "status": "cancelled",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4412",
+      "createdAt": "2026-02-13T02:21:37Z",
+      "updatedAt": "2026-02-13T02:23:40Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Run cleo issue diagnostics --human. Verify output starts with CLEO Diagnostics header, has labeled rows for each field, no JSON wrapping.",
+      "cancelledAt": "2026-02-13T02:23:40Z",
+      "notes": [
+        "[CANCELLED 2026-02-13T02:23:40Z] Duplicate of T4416"
+      ],
+      "completedAt": "2026-02-13T02:23:40Z",
+      "cancellationReason": "Duplicate of T4416",
+      "_archive": {
+        "archivedAt": "2026-02-13T02:23:42Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 0,
+        "cancellationDetails": {
+          "cancelledAt": "2026-02-13T02:23:40Z",
+          "cancellationReason": "Duplicate of T4416",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T4420",
+      "title": "Test: validation errors for missing fields",
+      "status": "cancelled",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4412",
+      "createdAt": "2026-02-13T02:22:10Z",
+      "updatedAt": "2026-02-13T02:23:45Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Run: cleo issue bug --json (no --title or --body, non-TTY). Verify: exit code 6, error code E_INPUT_MISSING, message about missing --title. Then run: cleo issue bug --title 'test' --json (no --body). Verify: exit code 6, error about missing --body. Then run: cleo issue --json (no subcommand). Verify: exit code 2, error about missing subcommand.",
+      "cancelledAt": "2026-02-13T02:23:45Z",
+      "notes": [
+        "[CANCELLED 2026-02-13T02:23:45Z] Duplicate of T4422"
+      ],
+      "completedAt": "2026-02-13T02:23:45Z",
+      "cancellationReason": "Duplicate of T4422",
+      "_archive": {
+        "archivedAt": "2026-02-13T02:23:47Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 0,
+        "cancellationDetails": {
+          "cancelledAt": "2026-02-13T02:23:45Z",
+          "cancellationReason": "Duplicate of T4422",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
+    },
+    {
+      "id": "T4421",
+      "title": "Test: validation error handling",
+      "status": "cancelled",
+      "priority": "medium",
+      "type": "subtask",
+      "parentId": "T4412",
+      "createdAt": "2026-02-13T02:22:18Z",
+      "updatedAt": "2026-02-13T02:23:49Z",
+      "size": "medium",
+      "position": 9,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Test three error cases: (1) echo '' | cleo issue bug --json with no flags - expect exit 6, E_INPUT_MISSING for --title. (2) echo '' | cleo issue bug --title test --json - expect exit 6, E_INPUT_MISSING for --body. (3) cleo issue --json with no subcommand - expect exit 2, E_INPUT_MISSING.",
+      "cancelledAt": "2026-02-13T02:23:49Z",
+      "notes": [
+        "[CANCELLED 2026-02-13T02:23:49Z] Duplicate of T4422"
+      ],
+      "completedAt": "2026-02-13T02:23:49Z",
+      "cancellationReason": "Duplicate of T4422",
+      "_archive": {
+        "archivedAt": "2026-02-13T02:23:51Z",
+        "reason": "cancelled",
+        "archiveSource": "delete-command",
+        "sessionId": "delete-command",
+        "cycleTimeDays": 0,
+        "cancellationDetails": {
+          "cancelledAt": "2026-02-13T02:23:49Z",
+          "cancellationReason": "Duplicate of T4422",
+          "cancelledBy": "delete-command",
+          "previousStatus": "pending"
+        }
+      }
     }
   ],
   "statistics": {
     "byPhase": {
-      "core": 2764,
+      "core": 2768,
       "maintenance": 56,
       "polish": 249,
       "setup": 61,
@@ -153155,7 +153291,7 @@
     "byPriority": {
       "critical": 288,
       "high": 999,
-      "medium": 2042,
+      "medium": 2046,
       "low": 115
     },
     "byLabel": {
@@ -153874,7 +154010,7 @@
       "wrapper": 2
     },
     "averageCycleTime": 1.26,
-    "cancelled": 164
+    "cancelled": 168
   },
   "phaseSummary": {
     "core": {
