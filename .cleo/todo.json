@@ -809,10 +809,27 @@
         "notes": "Fix MCP issues dryRun passthrough, fix tsconfig build, add beginner MCP usage guide",
         "gitTag": "v0.94.3",
         "changelog": "## [0.94.3] - 2026-02-12\n\n### Documentation\n- Update protocols/release.md and add tests for release guardrails (T4436)\n\n### Other Changes\n- Fix MCP issues handler missing dryRun passthrough (T4430)\n- Extract discover_release_tasks() pure function from populate_release_tasks() (T4432)\n- Create lib/release/release-guards.sh with epic-completeness and double-listing checks (T4433)\n- Add --preview flag and enhance --dry-run in release ship command (T4434)\n- Enhance release show with task details and discovery preview (T4435)\n- Add beginner-friendly MCP usage guide (T4438)"
+      },
+      {
+        "version": "v0.95.0",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-13T04:15:58Z",
+        "createdAt": "2026-02-13T04:14:58Z",
+        "tasks": [
+          "T4432",
+          "T4433",
+          "T4434",
+          "T4435",
+          "T4436"
+        ],
+        "notes": "Release guardrails: task preview, epic completeness guard, double-listing detection",
+        "gitTag": "v0.95.0",
+        "changelog": "## [0.95.0] - 2026-02-12\n\n### Documentation\n- Update protocols/release.md and add tests for release guardrails (T4436)\n\n### Other Changes\n- Extract discover_release_tasks() pure function from populate_release_tasks() (T4432)\n- Create lib/release/release-guards.sh with epic-completeness and double-listing checks (T4433)\n- Add --preview flag and enhance --dry-run in release ship command (T4434)\n- Enhance release show with task details and discovery preview (T4435)"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T04:14:33Z",
+  "lastUpdated": "2026-02-13T04:15:58Z",
   "_meta": {
     "checksum": "5f93e19a5041b400",
     "configVersion": "2.1.0",
@@ -823,7 +840,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2911
+    "generation": 2915
   },
   "focus": {
     "currentTask": null,
