@@ -108733,11 +108733,46 @@
         "type": "epic",
         "rootTaskId": "T4431"
       }
+    },
+    {
+      "id": "log_99e2678125a5",
+      "timestamp": "2026-02-13T03:48:05Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4432"
+      },
+      "after": {
+        "currentTask": "T4432"
+      },
+      "details": null
+    },
+    {
+      "id": "log_61a02a376e58",
+      "timestamp": "2026-02-13T03:50:20Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4432",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-13T03:50:19Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5621,
-    "lastEntry": "2026-02-13T03:47:42Z",
+    "totalEntries": 5623,
+    "lastEntry": "2026-02-13T03:50:20Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
