@@ -108572,6 +108572,24 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log-1770953401-be041a",
+      "timestamp": "2026-02-13T03:30:01Z",
+      "action": "task_created",
+      "taskId": "T4430",
+      "actor": "system",
+      "details": {
+        "title": "Fix MCP issues handler missing dryRun passthrough",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix MCP issues handler missing dryRun passthrough",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
