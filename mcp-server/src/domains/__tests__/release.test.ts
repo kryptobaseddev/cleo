@@ -313,8 +313,25 @@ describe('ReleaseHandler', () => {
       expect(result.error?.message).toContain('version is required');
     });
 
+    // @fix GitHub Issue #21 - publish now routes through cleo release ship
     it('should publish release', async () => {
-      const mockResponse = {
+      const versionResponse = {
+        success: true,
+        data: { version: '0.80.2' },
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 50,
+      };
+      const createResponse = {
+        success: true,
+        data: {},
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 50,
+      };
+      const shipResponse = {
         success: true,
         data: {
           version: '0.80.3',
@@ -329,24 +346,42 @@ describe('ReleaseHandler', () => {
         duration: 100,
       };
 
-      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
+      (mockExecutor.execute as any)
+        .mockResolvedValueOnce(versionResponse)
+        .mockResolvedValueOnce(createResponse)
+        .mockResolvedValueOnce(shipResponse);
 
       const result = await handler.mutate('publish', { type: 'patch' });
 
       expect(result.success).toBe(true);
       expect((result.data as any).version).toBe('0.80.3');
-      expect((result.data as any).pushed).toBe(false);
+      // Third call should be ship with bump-version and create-tag
       expect(mockExecutor.execute).toHaveBeenCalledWith({
-        domain: 'release-version',
-        operation: '',
-        args: ['patch'],
-        flags: { json: true },
-        customCommand: './dev/release-version.sh',
+        domain: 'release',
+        operation: 'ship',
+        args: ['v0.80.3'],
+        flags: { json: true, 'bump-version': true, 'create-tag': true },
       });
     });
 
     it('should publish release with push', async () => {
-      const mockResponse = {
+      const versionResponse = {
+        success: true,
+        data: { version: '0.80.2' },
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 50,
+      };
+      const createResponse = {
+        success: true,
+        data: {},
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        duration: 50,
+      };
+      const shipResponse = {
         success: true,
         data: {
           version: '0.80.3',
@@ -361,18 +396,20 @@ describe('ReleaseHandler', () => {
         duration: 100,
       };
 
-      (mockExecutor.execute as any).mockResolvedValue(mockResponse);
+      (mockExecutor.execute as any)
+        .mockResolvedValueOnce(versionResponse)
+        .mockResolvedValueOnce(createResponse)
+        .mockResolvedValueOnce(shipResponse);
 
       const result = await handler.mutate('publish', { type: 'patch', push: true });
 
       expect(result.success).toBe(true);
       expect((result.data as any).pushed).toBe(true);
       expect(mockExecutor.execute).toHaveBeenCalledWith({
-        domain: 'release-version',
-        operation: '',
-        args: ['patch'],
-        flags: { json: true, push: true },
-        customCommand: './dev/release-version.sh',
+        domain: 'release',
+        operation: 'ship',
+        args: ['v0.80.3'],
+        flags: { json: true, 'bump-version': true, 'create-tag': true, push: true },
       });
     });
 
