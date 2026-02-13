@@ -4,6 +4,12 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.95.3] - 2026-02-12
+
+### Bug Fixes
+- Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression (T4439)
+
+
 ## [0.95.2] - 2026-02-12
 
 ### Bug Fixes
