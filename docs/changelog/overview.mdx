@@ -17,6 +17,26 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.94.3" tags={["Fix", "Feature", "Documentation"]}>
+## v0.94.3 Release
+
+
+**Documentation**
+- Update protocols/release.md and add tests for release guardrails (T4436)
+
+**Other Changes**
+- Fix MCP issues handler missing dryRun passthrough (T4430)
+- Extract discover_release_tasks() pure function from populate_release_tasks() (T4432)
+- Create lib/release/release-guards.sh with epic-completeness and double-listing checks (T4433)
+- Add --preview flag and enhance --dry-run in release ship command (T4434)
+- Enhance release show with task details and discovery preview (T4435)
+- Add beginner-friendly MCP usage guide (T4438)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.94.3)
+</Update>
+
 <Update label="February 2026" description="v0.94.2" tags={["Fix"]}>
 ## v0.94.2 Release
 
@@ -369,26 +389,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.87.0)
-</Update>
-
-<Update label="February 2026" description="v0.86.0" tags={["Installer", "Orchestrator", "Sessions"]}>
-## v0.86.0 Release
-
-
-**Features**
-- feat: CLEO MCP Server - full CQRS implementation with 2-gateway architecture (T4248)
-  - 96/98 spec operations across 8 domains (tasks, session, orchestrate, research, lifecycle, validate, release, system)
-  - 2-gateway CQRS pattern (cleo_query + cleo_mutate) with 94% token reduction
-  - 4-layer verification gates (schema, semantic, referential, protocol)
-  - Rate limiting (100 query/min, 30 mutate/min, 10 spawn/min)
-  - Background jobs system for long-running operations
-  - Security hardening with input sanitization and path traversal prevention
-  - Query result caching with per-domain invalidation
-  - 1,041 tests (942 unit + 60 integration + 39 E2E)
-- feat: cleo mcp-install command for easy MCP server setup (T4248)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.86.0)
 </Update>
 
 ## Earlier Releases

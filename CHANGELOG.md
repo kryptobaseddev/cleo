@@ -4,6 +4,20 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.94.3] - 2026-02-12
+
+### Documentation
+- Update protocols/release.md and add tests for release guardrails (T4436)
+
+### Other Changes
+- Fix MCP issues handler missing dryRun passthrough (T4430)
+- Extract discover_release_tasks() pure function from populate_release_tasks() (T4432)
+- Create lib/release/release-guards.sh with epic-completeness and double-listing checks (T4433)
+- Add --preview flag and enhance --dry-run in release ship command (T4434)
+- Enhance release show with task details and discovery preview (T4435)
+- Add beginner-friendly MCP usage guide (T4438)
+
+
 ## [0.94.2] - 2026-02-12
 
 ### Other Changes
