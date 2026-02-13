@@ -3,10 +3,12 @@ title: "CLEO Strategic Roadmap"
 version: "1.2.0"
 status: "stable"
 created: "2026-02-03"
-updated: "2026-02-09"
+updated: "2026-02-13"
 epic: "T2968"
 authors: ["Claude Opus 4.5", "CLEO Development Team"]
 ---
+
+> **Note**: This document is a supporting reference under `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`. For canonical strategic direction, see the Canonical Plan. This document provides detailed phase definitions, success criteria, risk assessment, and gate enforcement.
 
 # CLEO Strategic Roadmap Specification
 
@@ -18,6 +20,16 @@ authors: ["Claude Opus 4.5", "CLEO Development Team"]
 **Revision Task**: T2998
 
 ---
+
+## Canonical Consolidation Notice (2026-02-13)
+
+This roadmap remains the detailed phase and evidence-gate reference, but canonical strategy and decision authority now live in:
+
+- `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`
+
+If wording in this roadmap differs from newer migration/architecture language, follow the canonical plan document. Historical context in this roadmap is intentionally preserved.
+
+Reconciliation rule: the strategic branch logic in this roadmap (for example, simplification fallback and TypeScript expansion gating) is historical context after 2026-02-13. Active execution authority is the canonical parallel-tracks plan.
 
 ## 1. Executive Summary
 
@@ -1242,8 +1254,12 @@ BRAIN Certification
 ---
 
 **Specification Status**: STABLE
-**Last Updated**: 2026-02-11
+**Last Updated**: 2026-02-13
 **Version**: 1.2.0
+**Reconciliation Update (2026-02-13)**:
+1. Added canonical consolidation notice and conflict-resolution pointer to `docs/specs/CLEO-CANONICAL-PLAN-SPEC.md`
+2. Clarified that strategic branch fallback language is preserved as historical context after parallel-tracks activation
+
 **Changes from v1.1.0**:
 1. MCP Server status updated: v0.91.0 shipped with native TypeScript engine (T4334)
 2. Unvalidated Assets table updated to reflect MCP implementation and TS migration validation
