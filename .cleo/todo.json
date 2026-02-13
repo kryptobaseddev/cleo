@@ -853,10 +853,21 @@
         "notes": "Fix lifecycle.sh error_json -> output_error (follow-up to #20)",
         "gitTag": "v0.95.2",
         "changelog": "## [0.95.2] - 2026-02-12\n\n### Bug Fixes\n- Fix EXIT_USAGE unbound variable in lifecycle.sh blocking all lifecycle progression (T4439)"
+      },
+      {
+        "version": "v0.95.3",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-13T04:27:18Z",
+        "tasks": [
+          "T4439"
+        ],
+        "notes": "Fix lifecycle trailing flags not parsed after subcommand break (completes #20 fix)"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T04:23:17Z",
+  "lastUpdated": "2026-02-13T04:27:18Z",
   "_meta": {
     "checksum": "43fd3ac816006772",
     "configVersion": "2.1.0",
@@ -867,7 +878,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2925
+    "generation": 2926
   },
   "focus": {
     "currentTask": null,
