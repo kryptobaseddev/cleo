@@ -19,12 +19,12 @@ import {
 } from '../mutate.js';
 
 describe('MUTATE_OPERATIONS', () => {
-  it('should have exactly 54 operations', () => {
+  it('should have exactly 60 operations', () => {
     const totalCount = Object.values(MUTATE_OPERATIONS).flat().length;
-    expect(totalCount).toBe(54);
+    expect(totalCount).toBe(60);
   });
 
-  it('should have all 9 domains', () => {
+  it('should have all 10 domains', () => {
     const domains = Object.keys(MUTATE_OPERATIONS);
     expect(domains).toEqual([
       'tasks',
@@ -36,6 +36,7 @@ describe('MUTATE_OPERATIONS', () => {
       'release',
       'system',
       'issues',
+      'skills',
     ]);
   });
 
@@ -483,7 +484,7 @@ describe('requiresSession', () => {
 
 describe('getMutateOperationCount', () => {
   it('should return total count without domain', () => {
-    expect(getMutateOperationCount()).toBe(54);
+    expect(getMutateOperationCount()).toBe(60);
   });
 
   it('should return domain-specific counts', () => {
@@ -529,6 +530,7 @@ describe('getMutateDomains', () => {
       'release',
       'system',
       'issues',
+      'skills',
     ]);
   });
 });
@@ -565,6 +567,7 @@ describe('registerMutateTool', () => {
       'release',
       'system',
       'issues',
+      'skills',
     ]);
   });
 });

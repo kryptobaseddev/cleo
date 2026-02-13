@@ -18,7 +18,7 @@ import { logMutation, AuditEntry } from '../lib/audit.js';
  * Mutate request interface
  */
 export interface MutateRequest {
-  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'release' | 'system' | 'issues';
+  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'release' | 'system' | 'issues' | 'skills';
   operation: string;
   params?: Record<string, unknown>;
 }
@@ -105,12 +105,20 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'create_feature', // Request a feature
     'create_help',    // Ask a question
   ],
+  skills: [
+    'install',        // Install a skill
+    'uninstall',      // Uninstall a skill
+    'enable',         // Enable a skill
+    'disable',        // Disable a skill
+    'configure',      // Configure a skill
+    'refresh',        // Refresh skill registry
+  ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_MUTATE_COUNT = 54;
+const EXPECTED_MUTATE_COUNT = 60;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(
@@ -244,6 +252,8 @@ function validateOperationParams(
       return validateReleaseParams(operation, params);
     case 'system':
       return validateSystemParams(operation, params);
+    case 'skills':
+      return validateSkillsParams(operation, params);
     default:
       return { valid: true };
   }
@@ -923,6 +933,47 @@ function validateSystemParams(
               exitCode: 6,
               message: 'Missing required parameter: taskId',
               fix: 'Provide taskId parameter for the cancelled task to restore',
+            },
+          },
+        };
+      }
+      break;
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validate skills domain parameters
+ */
+function validateSkillsParams(
+  operation: string,
+  params?: Record<string, unknown>
+): { valid: boolean; error?: DomainResponse } {
+  switch (operation) {
+    case 'install':
+    case 'uninstall':
+    case 'enable':
+    case 'disable':
+    case 'configure':
+      if (!params?.name) {
+        return {
+          valid: false,
+          error: {
+            _meta: {
+              gateway: 'cleo_mutate',
+              domain: 'skills',
+              operation,
+              version: '1.0.0',
+              timestamp: new Date().toISOString(),
+              duration_ms: 0,
+            },
+            success: false,
+            error: {
+              code: 'E_VALIDATION_FAILED',
+              exitCode: 6,
+              message: 'Missing required parameter: name',
+              fix: 'Provide name parameter for the skill',
             },
           },
         };

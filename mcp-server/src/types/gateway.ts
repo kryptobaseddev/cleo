@@ -20,7 +20,8 @@ export type DomainName =
   | 'lifecycle'
   | 'validate'
   | 'release'
-  | 'system';
+  | 'system'
+  | 'skills';
 
 /**
  * Base gateway request structure

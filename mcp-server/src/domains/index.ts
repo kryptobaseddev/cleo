@@ -15,3 +15,4 @@ export { ValidateHandler } from './validate.js';
 export { ReleaseHandler } from './release.js';
 export { SystemHandler } from './system.js';
 export { IssuesHandler } from './issues.js';
+export { SkillsHandler } from './skills.js';
