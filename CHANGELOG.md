@@ -4,6 +4,12 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.96.0] - 2026-02-12
+
+### Other Changes
+- Research: Version Bump Tooling Evaluation (T2200)
+
+
 ## [0.95.4] - 2026-02-12
 
 ### Bug Fixes
