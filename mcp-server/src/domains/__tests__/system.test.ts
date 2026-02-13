@@ -46,6 +46,10 @@ describe('SystemHandler', () => {
         'log',
         'archive-stats',
         'sequence',
+        'provider.list',
+        'provider.get',
+        'provider.detect',
+        'provider.installed',
       ]);
 
       expect(operations.mutate).toEqual([
@@ -60,6 +64,13 @@ describe('SystemHandler', () => {
         'job.cancel',
         'safestop',
         'uncancel',
+        'mcp.list',
+        'mcp.install',
+        'mcp.remove',
+        'injection.check',
+        'injection.checkAll',
+        'injection.update',
+        'injection.updateAll',
       ]);
     });
   });

@@ -2,7 +2,7 @@
  * CLEO MCP Server Type Definitions
  *
  * Central export file for all type definitions used across the MCP server.
- * Provides full type safety for all 96 operations across 8 domains.
+ * Provides full type safety for all 111 operations across 9 domains.
  *
  * @module types
  */

@@ -94,7 +94,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           # Source changelog functions
-          source lib/changelog.sh
+          source lib/ui/changelog.sh
 
           echo "## [${VERSION}] - $(date +%Y-%m-%d)" > release-notes.txt
           echo "" >> release-notes.txt

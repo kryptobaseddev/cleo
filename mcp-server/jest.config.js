@@ -11,6 +11,7 @@ export default {
   extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^@cleocode/caamp$': '<rootDir>/__mocks__/@cleocode/caamp.ts',
   },
   transform: {
     '^.+\\.ts$': [
