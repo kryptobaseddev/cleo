@@ -4,6 +4,12 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.95.4] - 2026-02-12
+
+### Bug Fixes
+- Fix release.prepare/publish MCP operations using deprecated dev/release-version.sh (T4440)
+
+
 ## [0.95.3] - 2026-02-12
 
 ### Bug Fixes
