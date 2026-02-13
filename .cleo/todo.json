@@ -793,9 +793,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T03:59:07Z",
+  "lastUpdated": "2026-02-13T04:05:53Z",
   "_meta": {
-    "checksum": "d8529c03dfc7772e",
+    "checksum": "486f0c1515117de5",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -804,10 +804,10 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2903
+    "generation": 2907
   },
   "focus": {
-    "currentTask": "T4436",
+    "currentTask": null,
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -14392,12 +14392,12 @@
     {
       "id": "T4436",
       "title": "Update protocols/release.md and add tests for release guardrails",
-      "status": "active",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4431",
       "createdAt": "2026-02-13T03:47:36Z",
-      "updatedAt": "2026-02-13T03:59:22Z",
+      "updatedAt": "2026-02-13T04:04:05Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -14412,6 +14412,59 @@
       "depends": [
         "T4433",
         "T4434"
+      ],
+      "completedAt": "2026-02-13T04:04:05Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T04:04:05Z] Protocol updated to v2.2.0 with --preview, --force, epic completeness guard, double-listing, and exit code 59 documentation. Created 27 unit tests in release-guards.bats and 4 integration tests appended to release-ship.bats. All tests passing."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-13T04:04:05Z",
+        "failureLog": []
+      }
+    },
+    {
+      "id": "T4437",
+      "title": "Add beginner-friendly MCP usage guide with workflow examples",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T04:05:40Z",
+      "updatedAt": "2026-02-13T04:05:40Z",
+      "size": "medium",
+      "position": 871,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create docs/guides/mcp-usage-guide.mdx with 4 beginner walkthroughs: adding a feature, debugging, planning large features, and filing GitHub issues. Add quick reference section to README.md and register in docs.json nav."
+    },
+    {
+      "id": "T4438",
+      "title": "Add beginner-friendly MCP usage guide",
+      "status": "done",
+      "priority": "medium",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-13T04:05:47Z",
+      "updatedAt": "2026-02-13T04:05:53Z",
+      "size": "medium",
+      "position": 872,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create docs/guides/mcp-usage-guide.mdx with 4 beginner walkthroughs and add quick reference to README.md.",
+      "completedAt": "2026-02-13T04:05:53Z",
+      "notes": [
+        "[COMPLETED 2026-02-13T04:05:53Z] Created mcp-usage-guide.mdx with 4 workflows, quick ref tables, and troubleshooting. Added to docs.json nav and README."
       ]
     }
   ],
