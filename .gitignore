@@ -17,6 +17,14 @@
 .cleo/.cache/
 .cleo/backup-metadata.json
 .cleo/.git-checkpoint-state
+.cleo/.current-session
+.cleo/.context-state-session_*.json
+.cleo/context-states/
+.cleo/metrics/*.lock
+.cleo/rcsd/T*/
+.cleo/todo.json.backup-*
+.cleo/todo.json.corrupted
+.cleo/todo.json.bak*
 
 # CLEO state directory - TRACKED for data integrity
 # Core task files (todo.json, todo-archive.json, config.json, sessions.json) are tracked
@@ -200,3 +208,8 @@ __pycache__/
 *.pyc
 .fuse_hidden*
 installed-skills.json
+
+# Local tool configuration and root-level npm lockfile noise
+.mcp.json
+opencode.json
+/package-lock.json
