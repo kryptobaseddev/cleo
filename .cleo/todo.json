@@ -777,10 +777,19 @@
         "notes": "Hotfix: fix CI test failures from v0.94.0 issues domain addition",
         "gitTag": "v0.94.1",
         "changelog": "## [0.94.1] - 2026-02-12\n\n### Other Changes\n- Fix v0.94.0 CI test failures for issues domain (T4429)"
+      },
+      {
+        "version": "v0.99.0-test",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-13T03:10:29Z",
+        "tasks": [],
+        "notes": "test release"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T02:53:04Z",
+  "lastUpdated": "2026-02-13T03:10:29Z",
   "_meta": {
     "checksum": "4d685e245a702b70",
     "configVersion": "2.1.0",
@@ -791,7 +800,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2887
+    "generation": 2888
   },
   "focus": {
     "currentTask": null,
