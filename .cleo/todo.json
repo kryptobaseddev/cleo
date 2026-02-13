@@ -764,10 +764,19 @@
         "notes": null,
         "gitTag": "v0.94.0",
         "changelog": "## [0.94.0] - 2026-02-12\n\n### Bug Fixes\n- Fix release ship wiping planned release task links (T4386)\n\n### Other Changes\n- Implement cleo issue CLI command (T4409)\n- Add issues domain to MCP server (T4410)\n- Update AGENT-INJECTION.md with issue command (T4411)"
+      },
+      {
+        "version": "v0.94.1",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-13T02:52:23Z",
+        "tasks": [],
+        "notes": "Hotfix: fix CI test failures from v0.94.0 issues domain addition"
       }
     ]
   },
-  "lastUpdated": "2026-02-13T02:24:57Z",
+  "lastUpdated": "2026-02-13T02:52:23Z",
   "_meta": {
     "checksum": "b0f73b3fba759078",
     "configVersion": "2.1.0",
@@ -778,7 +787,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 28,
-    "generation": 2881
+    "generation": 2882
   },
   "focus": {
     "currentTask": null,
