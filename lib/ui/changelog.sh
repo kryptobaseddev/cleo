@@ -12,8 +12,8 @@
 #
 # LAYER: 3 (Feature Layer)
 # DEPENDENCIES: file-ops.sh
-# PROVIDES: generate_changelog, get_release_tasks, format_changelog_json,
-#           write_changelog_file, append_to_changelog
+# PROVIDES: discover_release_tasks, generate_changelog, get_release_tasks,
+#           format_changelog_json, write_changelog_file, append_to_changelog
 
 #=== SOURCE GUARD ================================================
 [[ -n "${_CHANGELOG_LOADED:-}" ]] && return 0
@@ -54,21 +54,29 @@ CHANGELOG_FILE="${CHANGELOG_FILE:-CHANGELOG.md}"
 # HELPER FUNCTIONS
 # ============================================================================
 
-# populate_release_tasks - Auto-populate release.tasks[] using hybrid date+label strategy
+# discover_release_tasks - Pure function to discover task IDs for a release
+#
+# @task T4432
+# @epic T4431
+# @why Enable testable, side-effect-free task discovery separate from persistence
+# @what Extract the date-window + label-filter jq pipeline into a pure function
+#
+# Discovers task IDs that belong to a release using hybrid date+label strategy.
+# This is a pure function: it reads todo.json but does NOT write to it.
 #
 # Args:
 #   $1 - version (e.g., "v0.65.0")
 #   $2 - (optional) todo file path
 #
-# Output: Merges discovered task IDs into release.tasks[] (deduped)
+# Output: JSON array of task IDs to stdout (e.g., '["T001","T002"]')
 # Returns: 0 on success, 1 on failure
 #
 # Algorithm:
 #   1. Find tasks completed between prev_release and current_release
 #   2. Filter by labels: version/changelog/release
 #   3. Exclude epics (type != "epic")
-#   4. Merge into existing release.tasks[] array (deduped)
-populate_release_tasks() {
+#   4. Return JSON array of discovered task IDs
+discover_release_tasks() {
     local version="$1"
     local todo_file="${2:-$TODO_FILE}"
 
@@ -103,8 +111,7 @@ populate_release_tasks() {
     # @epic T2802
     # @why Prevent task double-counting across releases (data integrity)
     # @what Add version label priority filter - explicit labels beat generic labels
-    local task_ids
-    task_ids=$(jq -r \
+    jq -r \
         --arg start "$prev_timestamp" \
         --arg end "$release_timestamp" \
         --arg v1 "$version_normalized" \
@@ -132,7 +139,35 @@ populate_release_tasks() {
          ) |
          .id
         ]
-    ' "$todo_file")
+    ' "$todo_file"
+}
+
+# populate_release_tasks - Auto-populate release.tasks[] using hybrid date+label strategy
+#
+# Args:
+#   $1 - version (e.g., "v0.65.0")
+#   $2 - (optional) todo file path
+#
+# Output: Merges discovered task IDs into release.tasks[] (deduped)
+# Returns: 0 on success, 1 on failure
+#
+# Algorithm:
+#   1. Call discover_release_tasks() to find matching task IDs
+#   2. Merge into existing release.tasks[] array (deduped)
+#   3. Save updated todo.json
+#
+# Refactored for T4432: discovery logic extracted to discover_release_tasks()
+populate_release_tasks() {
+    local version="$1"
+    local todo_file="${2:-$TODO_FILE}"
+
+    # Normalize version
+    local version_normalized="${version#v}"
+    local version_with_v="v${version_normalized}"
+
+    # Discover task IDs using the pure function (T4432 refactor)
+    local task_ids
+    task_ids=$(discover_release_tasks "$version" "$todo_file") || return 1
 
     # Merge discovered IDs into existing release.tasks[] (preserve manual planning links)
     local updated_json

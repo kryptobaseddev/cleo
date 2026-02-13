@@ -102,6 +102,7 @@ source_lib "changelog.sh"
 source_lib "config.sh"  # @task T2823 - For get_release_gates()
 source_lib "release.sh" # @task T2845 - Release workflow functions
 source_lib "release-ci.sh" # @task T2670 - CI/CD template generation
+source_lib "release-guards.sh" # @task T4434 - Epic completeness & double-listing guards
 
 # Exit codes (50-59 range for release operations per spec)
 EXIT_RELEASE_NOT_FOUND=50
@@ -113,6 +114,7 @@ EXIT_VERSION_BUMP_FAILED=55
 EXIT_TAG_CREATION_FAILED=56
 EXIT_CHANGELOG_GENERATION_FAILED=57
 EXIT_TAG_EXISTS=58
+EXIT_TASKS_INCOMPLETE=59
 
 # Default configuration
 COMMAND_NAME="release"
@@ -139,6 +141,8 @@ CI_PLATFORM=""
 CI_OUTPUT=""
 CI_FORCE=""
 STRICT=""
+PREVIEW=""
+FORCE_GUARDS=""
 
 # Initialize flag defaults
 init_flag_defaults 2>/dev/null || true
@@ -175,6 +179,7 @@ Options:
     --create-tag         Create git tag for release (for ship)
     --force-tag          Overwrite existing git tag (requires --create-tag)
     --push               Push changes and tag to remote (for ship)
+    --preview            Preview which tasks would be included without shipping
     --dry-run            Show what would happen without making changes (for ship)
     --no-commit          Skip git commit (just update files) (for ship)
     --no-changelog       Skip changelog generation (for ship)
@@ -182,7 +187,7 @@ Options:
     --skip-validation    Skip all validation gates (for emergency releases)
     --output FILE        Output file for changelog (default: CHANGELOG.md)
     --platform PLATFORM  CI platform (github-actions|gitlab-ci|circleci) (for init-ci)
-    --force              Overwrite existing CI config file (for init-ci)
+    --force              Force operation (overrides tag conflict and epic guard blocking)
     --format, -f FORMAT  Output format: text | json (default: auto)
     --json               Shortcut for --format json
     --human              Shortcut for --format text
@@ -195,6 +200,7 @@ Examples:
     cleo release create v0.65.0 --target-date 2026-02-01
     cleo release plan v0.65.0 --tasks T2058,T2059
     cleo release ship v0.65.0 --bump-version --create-tag --push
+    cleo release ship v0.65.0 --preview  # Preview tasks and guards
     cleo release ship v0.65.0 --dry-run  # Preview what would happen
     cleo release ship v0.65.0 --notes "Schema 2.8.0 release"
     cleo release list
@@ -787,40 +793,6 @@ cmd_ship() {
     local normalized
     normalized=$(normalize_version "$version")
 
-    # DRY RUN: Preview mode
-    if [[ "$DRY_RUN" == "true" ]]; then
-        [[ "$FORMAT" != "json" ]] && echo ""
-        [[ "$FORMAT" != "json" ]] && log_warn "DRY RUN - Would perform:"
-        [[ "$FORMAT" != "json" ]] && echo "  1. Auto-populate release tasks from completed work"
-        [[ "$BUMP_VERSION" == "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  2. Bump VERSION to ${normalized#v}"
-        [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  3. Prepare CHANGELOG.md header for $normalized"
-        [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  4. Generate changelog from commits"
-        [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  5. Generate task-based changelog"
-        [[ "$FORMAT" != "json" ]] && echo "  6. Run validation gates"
-        [[ "$SKIP_COMMIT" != "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  7. Git commit: 'chore: Release ${normalized#v}'"
-        [[ "$CREATE_TAG" == "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  8. Git tag: $normalized"
-        [[ "$PUSH_TAG" == "true" ]] && [[ "$FORMAT" != "json" ]] && echo "  9. Git push origin main --tags"
-        [[ "$FORMAT" != "json" ]] && echo "  10. Mark release as 'released' in todo.json"
-
-        if [[ "$FORMAT" == "json" ]]; then
-            jq -n \
-                --arg version "$VERSION" \
-                '{
-                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
-                    "_meta": {
-                        "format": "json",
-                        "command": "release ship",
-                        "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
-                        "version": $version
-                    },
-                    "success": true,
-                    "dryRun": true,
-                    "message": "Dry run completed - no changes made"
-                }'
-        fi
-        return 0
-    fi
-
     # Check if release exists
     if ! release_exists "$normalized"; then
         log_error "Release $normalized not found" "E_RELEASE_NOT_FOUND" "$EXIT_RELEASE_NOT_FOUND" "Create it first: cleo release create $normalized"
@@ -839,6 +811,189 @@ cmd_ship() {
         exit "$EXIT_RELEASE_LOCKED"
     fi
 
+    # PREVIEW MODE: Show task preview without shipping
+    # @task T4434 @epic T4431
+    if [[ "${PREVIEW:-false}" == "true" ]]; then
+        # Get manually-planned tasks (current release.tasks[])
+        local manual_tasks
+        manual_tasks=$(jq -r --arg v "$normalized" '
+            .project.releases[] | select(.version == $v) | .tasks // []
+        ' "$TODO_FILE")
+
+        # Run discovery (pure, no writes)
+        local discovered_tasks
+        discovered_tasks=$(discover_release_tasks "$normalized" "$TODO_FILE" 2>/dev/null) || discovered_tasks="[]"
+
+        # Compute union (manual + discovered, deduped)
+        local all_tasks
+        all_tasks=$(jq -n --argjson manual "$manual_tasks" --argjson discovered "$discovered_tasks" '
+            ($manual + $discovered) | unique
+        ')
+
+        # Classify each task as "manual", "auto", or "both"
+        local task_details
+        task_details=$(jq -n --argjson manual "$manual_tasks" --argjson discovered "$discovered_tasks" --argjson all "$all_tasks" '
+            [($all)[] | . as $id |
+             {
+               id: $id,
+               inManual: ($manual | index($id) != null),
+               inDiscovered: ($discovered | index($id) != null)
+             } |
+             .source = (if .inManual and .inDiscovered then "both"
+                         elif .inManual then "manual"
+                         else "auto" end) |
+             del(.inManual, .inDiscovered)
+            ]
+        ')
+
+        # Enrich with task metadata (title, labels)
+        local enriched_tasks="[]"
+        for task_id in $(echo "$all_tasks" | jq -r '.[]'); do
+            local title labels source
+            title=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .title // "(archived or unknown)"' "$TODO_FILE")
+            labels=$(jq -c --arg id "$task_id" '.tasks[] | select(.id == $id) | .labels // []' "$TODO_FILE")
+            source=$(echo "$task_details" | jq -r --arg id "$task_id" '.[] | select(.id == $id) | .source')
+            [[ -z "$title" ]] && title="(archived or unknown)"
+            [[ -z "$labels" || "$labels" == "null" ]] && labels="[]"
+            enriched_tasks=$(echo "$enriched_tasks" | jq --arg id "$task_id" --arg title "$title" --argjson labels "$labels" --arg source "$source" '. + [{id: $id, title: $title, labels: $labels, source: $source}]')
+        done
+
+        # Run guard checks
+        local epic_result double_result
+        epic_result=$(check_epic_completeness "$all_tasks" "$TODO_FILE" 2>/dev/null) || epic_result='{"hasIncomplete":false,"epics":[],"orphanTasks":[]}'
+        double_result=$(check_double_listing "$all_tasks" "$normalized" "$TODO_FILE" 2>/dev/null) || double_result='{"hasOverlap":false,"overlaps":[]}'
+
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -n \
+                --arg version "$normalized" \
+                --argjson tasks "$enriched_tasks" \
+                --argjson epicCompleteness "$epic_result" \
+                --argjson doubleListing "$double_result" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        "format": "json",
+                        "command": "release ship --preview",
+                        "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+                        "version": $version
+                    },
+                    "success": true,
+                    "preview": true,
+                    "tasks": $tasks,
+                    "epicCompleteness": $epicCompleteness,
+                    "doubleListing": $doubleListing
+                }'
+        else
+            echo ""
+            echo -e "${BOLD}Release Preview: $normalized${NC}"
+            echo "════════════════════════════════════════════════════════════"
+
+            local total auto_count manual_count both_count
+            total=$(echo "$enriched_tasks" | jq 'length')
+            auto_count=$(echo "$enriched_tasks" | jq '[.[] | select(.source == "auto")] | length')
+            manual_count=$(echo "$enriched_tasks" | jq '[.[] | select(.source == "manual")] | length')
+            both_count=$(echo "$enriched_tasks" | jq '[.[] | select(.source == "both")] | length')
+
+            echo ""
+            echo "Tasks ($total total):"
+
+            # Show auto-discovered tasks
+            if [[ "$auto_count" -gt 0 || "$both_count" -gt 0 ]]; then
+                echo "  Auto-discovered ($((auto_count + both_count))):"
+                echo "$enriched_tasks" | jq -r '.[] | select(.source == "auto" or .source == "both") | "    \(.id)  \(.title)  [\(.labels | join(", "))]"'
+            fi
+
+            # Show manually-planned tasks
+            if [[ "$manual_count" -gt 0 ]]; then
+                echo "  Manually planned ($manual_count):"
+                echo "$enriched_tasks" | jq -r '.[] | select(.source == "manual") | "    \(.id)  \(.title)  [\(.labels | join(", "))]"'
+            fi
+
+            if [[ "$total" -eq 0 ]]; then
+                echo "  (no tasks found)"
+            fi
+
+            # Render guard results
+            echo ""
+            render_epic_completeness "$epic_result" "text"
+            render_double_listing "$double_result" "text"
+        fi
+
+        return 0
+    fi
+
+    # DRY RUN: Enhanced preview with task discovery and guard checks
+    # @task T4434 @epic T4431
+    if [[ "$DRY_RUN" == "true" ]]; then
+        # Run preview computation first
+        local manual_tasks discovered_tasks all_tasks
+        manual_tasks=$(jq -r --arg v "$normalized" '.project.releases[] | select(.version == $v) | .tasks // []' "$TODO_FILE")
+        discovered_tasks=$(discover_release_tasks "$normalized" "$TODO_FILE" 2>/dev/null) || discovered_tasks="[]"
+        all_tasks=$(jq -n --argjson manual "$manual_tasks" --argjson discovered "$discovered_tasks" '($manual + $discovered) | unique')
+
+        local epic_result double_result
+        epic_result=$(check_epic_completeness "$all_tasks" "$TODO_FILE" 2>/dev/null) || epic_result='{"hasIncomplete":false,"epics":[],"orphanTasks":[]}'
+        double_result=$(check_double_listing "$all_tasks" "$normalized" "$TODO_FILE" 2>/dev/null) || double_result='{"hasOverlap":false,"overlaps":[]}'
+
+        if [[ "$FORMAT" != "json" ]]; then
+            echo ""
+            log_warn "DRY RUN - Would perform:"
+            echo ""
+
+            # Show task summary
+            local total
+            total=$(echo "$all_tasks" | jq 'length')
+            echo "  Tasks to include ($total):"
+            for task_id in $(echo "$all_tasks" | jq -r '.[]'); do
+                local title
+                title=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .title // "(unknown)"' "$TODO_FILE")
+                echo "    $task_id  $title"
+            done
+            echo ""
+
+            # Show guard warnings
+            render_epic_completeness "$epic_result" "text"
+            render_double_listing "$double_result" "text"
+
+            # Show steps
+            echo "  Steps:"
+            echo "    1. Auto-populate release tasks from completed work"
+            [[ "$BUMP_VERSION" == "true" ]] && echo "    2. Bump VERSION to ${normalized#v}"
+            [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && echo "    3. Prepare CHANGELOG.md header for $normalized"
+            [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && echo "    4. Generate changelog from commits"
+            [[ "${SKIP_CHANGELOG:-false}" != "true" ]] && echo "    5. Generate task-based changelog"
+            echo "    6. Run validation gates"
+            [[ "$SKIP_COMMIT" != "true" ]] && echo "    7. Git commit: 'chore: Release ${normalized#v}'"
+            [[ "$CREATE_TAG" == "true" ]] && echo "    8. Git tag: $normalized"
+            [[ "$PUSH_TAG" == "true" ]] && echo "    9. Git push origin main --tags"
+            echo "    10. Mark release as 'released' in todo.json"
+        fi
+
+        if [[ "$FORMAT" == "json" ]]; then
+            jq -n \
+                --arg version "$normalized" \
+                --argjson tasks "$all_tasks" \
+                --argjson epicCompleteness "$epic_result" \
+                --argjson doubleListing "$double_result" \
+                '{
+                    "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
+                    "_meta": {
+                        "format": "json",
+                        "command": "release ship --dry-run",
+                        "timestamp": (now | strftime("%Y-%m-%dT%H:%M:%SZ")),
+                        "version": $version
+                    },
+                    "success": true,
+                    "dryRun": true,
+                    "tasks": $tasks,
+                    "epicCompleteness": $epicCompleteness,
+                    "doubleListing": $doubleListing,
+                    "message": "Dry run completed - no changes made"
+                }'
+        fi
+        return 0
+    fi
+
     # Step 0: Auto-populate release tasks using hybrid date+label strategy
     log_info "Discovering tasks for $normalized..."
     if ! populate_release_tasks "$normalized" "$TODO_FILE"; then
@@ -846,6 +1001,46 @@ cmd_ship() {
         exit "$EXIT_CHANGELOG_GENERATION_FAILED"
     fi
     log_info "Release tasks populated successfully"
+
+    # Step 0.5: Release guards (epic completeness + double-listing)
+    # @task T4434 @epic T4431
+    local guard_mode
+    guard_mode=$(get_epic_completeness_mode 2>/dev/null) || guard_mode="warn"
+
+    if [[ "$guard_mode" != "off" ]]; then
+        # Get current release task list after auto-populate
+        local release_task_ids
+        release_task_ids=$(jq -r --arg v "$normalized" '
+            .project.releases[] | select(.version == $v) | .tasks // []
+        ' "$TODO_FILE")
+
+        # Run epic completeness check
+        local epic_result
+        epic_result=$(check_epic_completeness "$release_task_ids" "$TODO_FILE" 2>/dev/null) || epic_result='{"hasIncomplete":false,"epics":[],"orphanTasks":[]}'
+
+        local has_incomplete
+        has_incomplete=$(echo "$epic_result" | jq -r '.hasIncomplete')
+
+        if [[ "$has_incomplete" == "true" ]]; then
+            render_epic_completeness "$epic_result" "${FORMAT:-text}"
+
+            if [[ "$guard_mode" == "block" && "${FORCE_GUARDS:-false}" != "true" ]]; then
+                log_error "Epic completeness check failed" "E_TASKS_INCOMPLETE" "$EXIT_TASKS_INCOMPLETE" "Use --force to override or set release.guards.epicCompleteness to 'warn'"
+                exit "$EXIT_TASKS_INCOMPLETE"
+            fi
+        fi
+
+        # Run double-listing check (always warn, never block)
+        local double_result
+        double_result=$(check_double_listing "$release_task_ids" "$normalized" "$TODO_FILE" 2>/dev/null) || double_result='{"hasOverlap":false,"overlaps":[]}'
+
+        local has_overlap
+        has_overlap=$(echo "$double_result" | jq -r '.hasOverlap')
+
+        if [[ "$has_overlap" == "true" ]]; then
+            render_double_listing "$double_result" "${FORMAT:-text}"
+        fi
+    fi
 
     # Step 1: Bump VERSION if requested
     if [[ "$BUMP_VERSION" == "true" ]]; then
@@ -1324,6 +1519,14 @@ cmd_list() {
 # Subcommand: show
 #####################################################################
 
+# cmd_show - Show detailed release information with task details and auto-discovery preview
+#
+# @task T4435
+# @epic T4431
+# @why Task IDs alone lack context; showing titles and auto-discovery preview
+#      helps users understand release scope and catch missing tasks
+# @what Enhance cmd_show to display task titles/labels alongside IDs, and show
+#       auto-discovery preview for planned/active releases in both text and JSON
 cmd_show() {
     local version="$1"
     shift
@@ -1342,10 +1545,93 @@ cmd_show() {
     local release
     release=$(get_release "$normalized")
 
+    local status
+    status=$(echo "$release" | jq -r '.status')
+    local tasks_json
+    tasks_json=$(echo "$release" | jq -c '.tasks // []')
+
+    # Build task details array: look up each assigned task in todo.json
+    local task_details_json="[]"
+    local task_id title labels_csv
+    while IFS= read -r task_id; do
+        [[ -z "$task_id" ]] && continue
+        title=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .title' "$TODO_FILE" 2>/dev/null)
+        if [[ -n "$title" && "$title" != "null" ]]; then
+            labels_csv=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | (.labels // []) | join(", ")' "$TODO_FILE" 2>/dev/null)
+            task_details_json=$(echo "$task_details_json" | jq -c \
+                --arg id "$task_id" \
+                --arg title "$title" \
+                --arg labels "$labels_csv" \
+                '. + [{"id": $id, "title": $title, "labels": ($labels | split(", ") | map(select(. != "")))}]')
+        else
+            task_details_json=$(echo "$task_details_json" | jq -c \
+                --arg id "$task_id" \
+                '. + [{"id": $id, "title": "(archived or unknown)", "labels": []}]')
+        fi
+    done < <(echo "$tasks_json" | jq -r '.[]')
+
+    # Auto-discovery: attempt for planned/active releases
+    local auto_discovery_available=false
+    local auto_discovered_ids="[]"
+    local additional_tasks_json="[]"
+    if [[ "$status" == "planned" || "$status" == "active" ]]; then
+        if declare -f discover_release_tasks >/dev/null 2>&1; then
+            local discover_output
+            if discover_output=$(discover_release_tasks "$normalized" "$TODO_FILE" 2>/dev/null); then
+                auto_discovery_available=true
+                auto_discovered_ids="$discover_output"
+
+                # Compute additional tasks (in auto-discovery but NOT in release.tasks[])
+                additional_tasks_json=$(jq -n -c \
+                    --argjson discovered "$auto_discovered_ids" \
+                    --argjson assigned "$tasks_json" \
+                    '[($discovered - $assigned)[]]')
+
+                # Annotate task_details with source: "both" (in assigned + discovered) or "manual" (assigned only)
+                task_details_json=$(echo "$task_details_json" | jq -c \
+                    --argjson discovered "$auto_discovered_ids" \
+                    '[.[] | .source = (if (.id as $i | $discovered | index($i)) then "both" else "manual" end)]')
+
+                # Build additional_tasks details (not yet assigned)
+                local additional_details="[]"
+                local add_id
+                while IFS= read -r add_id; do
+                    [[ -z "$add_id" ]] && continue
+                    title=$(jq -r --arg id "$add_id" '.tasks[] | select(.id == $id) | .title' "$TODO_FILE" 2>/dev/null)
+                    if [[ -n "$title" && "$title" != "null" ]]; then
+                        labels_csv=$(jq -r --arg id "$add_id" '.tasks[] | select(.id == $id) | (.labels // []) | join(", ")' "$TODO_FILE" 2>/dev/null)
+                        additional_details=$(echo "$additional_details" | jq -c \
+                            --arg id "$add_id" \
+                            --arg title "$title" \
+                            --arg labels "$labels_csv" \
+                            '. + [{"id": $id, "title": $title, "labels": ($labels | split(", ") | map(select(. != "")))}]')
+                    else
+                        additional_details=$(echo "$additional_details" | jq -c \
+                            --arg id "$add_id" \
+                            '. + [{"id": $id, "title": "(archived or unknown)", "labels": []}]')
+                    fi
+                done < <(echo "$additional_tasks_json" | jq -r '.[]')
+                additional_tasks_json="$additional_details"
+            fi
+        fi
+    fi
+
     if [[ "$FORMAT" == "json" ]]; then
+        local auto_discovery_obj
+        if [[ "$status" == "planned" || "$status" == "active" ]]; then
+            auto_discovery_obj=$(jq -n -c \
+                --argjson available "$auto_discovery_available" \
+                --argjson additional "$additional_tasks_json" \
+                '{available: $available, additionalTasks: $additional}')
+        else
+            auto_discovery_obj=$(jq -n -c '{available: false, additionalTasks: []}')
+        fi
+
         jq -n \
             --arg version "$VERSION" \
             --argjson release "$release" \
+            --argjson taskDetails "$task_details_json" \
+            --argjson autoDiscoveryPreview "$auto_discovery_obj" \
             '{
                 "$schema": "https://cleo-dev.com/schemas/v1/output.schema.json",
                 "_meta": {
@@ -1355,17 +1641,17 @@ cmd_show() {
                     "version": $version
                 },
                 "success": true,
-                "release": $release
+                "release": $release,
+                "taskDetails": $taskDetails,
+                "autoDiscoveryPreview": $autoDiscoveryPreview
             }'
         return
     fi
 
     # Text output
-    local status target_date released_at tasks notes
-    status=$(echo "$release" | jq -r '.status')
+    local target_date released_at notes
     target_date=$(echo "$release" | jq -r '.targetDate // "Not set"')
     released_at=$(echo "$release" | jq -r '.releasedAt // "Not released"')
-    tasks=$(echo "$release" | jq -r '.tasks // []')
     notes=$(echo "$release" | jq -r '.notes // ""')
 
     local status_color
@@ -1383,15 +1669,60 @@ cmd_show() {
     echo "Released At: $released_at"
 
     local task_count
-    task_count=$(echo "$tasks" | jq 'length')
+    task_count=$(echo "$tasks_json" | jq 'length')
     echo ""
-    echo "Tasks ($task_count):"
+    echo "Tasks ($task_count assigned):"
     if [[ "$task_count" -gt 0 ]]; then
-        echo "$tasks" | jq -r '.[]' | while read -r task_id; do
-            echo "  $BULLET $task_id"
+        echo "$task_details_json" | jq -r '.[] | @json' | while IFS= read -r entry; do
+            local tid tname tlabels tsource label_display source_display
+            tid=$(echo "$entry" | jq -r '.id')
+            tname=$(echo "$entry" | jq -r '.title')
+            tlabels=$(echo "$entry" | jq -r '(.labels // []) | join(", ")')
+            tsource=$(echo "$entry" | jq -r '.source // ""')
+            label_display=""
+            if [[ -n "$tlabels" ]]; then
+                label_display="  [$tlabels]"
+            fi
+            source_display=""
+            if [[ "$auto_discovery_available" == "true" && -n "$tsource" ]]; then
+                case "$tsource" in
+                    both) source_display="  (manual + auto)" ;;
+                    manual) source_display="  (manual only)" ;;
+                    auto) source_display="  (auto-discovered)" ;;
+                esac
+            fi
+            echo "  $BULLET $tid  $tname${label_display}${source_display}"
         done
     else
         echo "  (no tasks assigned)"
+    fi
+
+    # Auto-discovery preview for planned/active releases
+    if [[ "$status" == "planned" || "$status" == "active" ]]; then
+        echo ""
+        echo "Auto-Discovery Preview:"
+        if [[ "$auto_discovery_available" == "true" ]]; then
+            local additional_count
+            additional_count=$(echo "$additional_tasks_json" | jq 'length')
+            if [[ "$additional_count" -gt 0 ]]; then
+                echo "  Would additionally discover ($additional_count not yet assigned):"
+                echo "$additional_tasks_json" | jq -r '.[] | @json' | while IFS= read -r entry; do
+                    local aid aname alabels alabel_display
+                    aid=$(echo "$entry" | jq -r '.id')
+                    aname=$(echo "$entry" | jq -r '.title')
+                    alabels=$(echo "$entry" | jq -r '(.labels // []) | join(", ")')
+                    alabel_display=""
+                    if [[ -n "$alabels" ]]; then
+                        alabel_display="  [$alabels]"
+                    fi
+                    echo "    $BULLET $aid  $aname${alabel_display}"
+                done
+            else
+                echo "  (no additional tasks to discover)"
+            fi
+        else
+            echo "  (auto-discovery not available — release has no timestamp yet)"
+        fi
     fi
 
     if [[ -n "$notes" && "$notes" != "null" ]]; then
@@ -1625,9 +1956,13 @@ parse_args() {
                 continue
                 ;;
             --force)
-                # Can be used for both --force-tag and CI init --force
+                # Can be used for --force-tag, CI init --force, and ship guard override
+                # @task T4434
                 if [[ "$SUBCOMMAND" == "init-ci" ]]; then
                     CI_FORCE="true"
+                elif [[ "$SUBCOMMAND" == "ship" ]]; then
+                    FORCE_TAG="true"
+                    FORCE_GUARDS="true"
                 else
                     FORCE_TAG="true"
                 fi
@@ -1662,6 +1997,11 @@ parse_args() {
                 ;;
             --dry-run)
                 DRY_RUN="true"
+                shift
+                continue
+                ;;
+            --preview)
+                PREVIEW="true"
                 shift
                 continue
                 ;;
