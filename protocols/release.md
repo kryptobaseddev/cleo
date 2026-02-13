@@ -1,7 +1,7 @@
 # Release Protocol
 
 **Provenance**: @task T3155, @epic T3147
-**Version**: 2.1.0
+**Version**: 2.2.0
 **Type**: Conditional Protocol
 **Max Active**: 3 protocols (including base)
 
@@ -161,15 +161,18 @@ cleo release ship <version> [FLAGS]
 | `--run-tests` | boolean | false | Run test suite during validation (opt-in, slow) |
 | `--skip-validation` | boolean | false | Skip all validation gates (emergency releases) |
 | `--dry-run` | boolean | false | Preview what would happen without making changes |
+| `--preview` | boolean | false | Preview tasks and guards without shipping |
+| `--force` | boolean | false | Override epic completeness blocking and tag conflicts |
 | `--notes` | string | "" | Release notes |
 | `--output` | string | CHANGELOG.md | Changelog output file |
 
-**Exit codes**: 0 (success), 50 (`E_RELEASE_NOT_FOUND`), 52 (`E_RELEASE_LOCKED`), 54 (`E_VALIDATION_FAILED`), 55 (`E_VERSION_BUMP_FAILED`), 56 (`E_TAG_CREATION_FAILED`), 57 (`E_CHANGELOG_GENERATION_FAILED`), 58 (`E_TAG_EXISTS`)
+**Exit codes**: 0 (success), 50 (`E_RELEASE_NOT_FOUND`), 52 (`E_RELEASE_LOCKED`), 54 (`E_VALIDATION_FAILED`), 55 (`E_VERSION_BUMP_FAILED`), 56 (`E_TAG_CREATION_FAILED`), 57 (`E_CHANGELOG_GENERATION_FAILED`), 58 (`E_TAG_EXISTS`), 59 (`E_TASKS_INCOMPLETE`)
 
 **Ship Workflow** (10 steps):
 
 ```
  1. Auto-populate release tasks (date window + label matching from todo.json)
+ 1.5. Run release guards (epic completeness check, double-listing check)
  2. Bump version (if --bump-version)
  3. Ensure [Unreleased] section exists in CHANGELOG.md (creates if missing)
  4. Generate changelog from task metadata via lib/changelog.sh (unless --no-changelog)
@@ -182,7 +185,7 @@ cleo release ship <version> [FLAGS]
 11. Update release status to "released" in todo.json with releasedAt timestamp
 ```
 
-Steps 2-6 are conditional on flags. Step 7 is skippable with `--skip-validation`. The `--dry-run` flag previews all steps without executing.
+Steps 2-6 are conditional on flags. Step 1.5 runs always unless `release.guards.epicCompleteness` is `off`. The `--dry-run` flag previews all steps and task list without executing. The `--preview` flag shows only the task preview and guard results. Use `--force` to override epic completeness blocking.
 
 **`changelog` vs `ship`**: The `changelog` subcommand generates and previews changelog content without modifying release state. The `ship` subcommand performs the full release workflow including changelog generation, git operations, and status transition.
 
@@ -299,6 +302,56 @@ Tasks are also included if explicitly assigned via `cleo release plan --tasks T0
 
 ---
 
+<!-- @task T4436, @epic T4431 -->
+## Release Guards (v0.95.0+)
+
+Guards provide safety checks during `ship` without blocking by default.
+
+### Epic Completeness
+
+Checks whether all child tasks of an epic are included in the release. If epic T001 has 13 children but only 10 are shipping, the guard warns about the 3 missing tasks and their statuses.
+
+**Configuration** (`release.guards.epicCompleteness` in `.cleo/config.json`):
+
+| Mode | Behavior |
+|------|----------|
+| `warn` (default) | Log warnings about incomplete epics, continue shipping |
+| `block` | Exit with code 59 (`E_TASKS_INCOMPLETE`). Override with `--force` |
+| `off` | Skip epic completeness checks entirely |
+
+```json
+{
+  "release": {
+    "guards": {
+      "epicCompleteness": "warn"
+    }
+  }
+}
+```
+
+### Double-Listing Detection
+
+Warns when a task appears in both the current release and a previously-shipped release. This is always a warning, never blocks. Catches accidental overlap from manual `--tasks` additions.
+
+### Task Preview (`--preview`)
+
+Preview which tasks would be included in a release without shipping:
+
+```bash
+cleo release ship v0.95.0 --preview
+```
+
+Shows:
+- Auto-discovered tasks (from 6-filter pipeline)
+- Manually planned tasks (from `plan --tasks`)
+- Source classification: `auto`, `manual`, or `both`
+- Epic completeness warnings
+- Double-listing warnings
+
+The `--dry-run` flag includes the same preview plus the step enumeration.
+
+---
+
 ## Validation Gates
 
 | Gate | Check | Required | Notes |
@@ -394,7 +447,7 @@ The version sync is integrated into `dev/bump-version.sh` as step 6. It runs aft
 | 56 | `E_TAG_CREATION_FAILED` | Git tag/commit failed | Check git status, existing tags |
 | 57 | `E_CHANGELOG_GENERATION_FAILED` | Changelog failed | Check lib/changelog.sh |
 | 58 | `E_TAG_EXISTS` | Git tag already exists | Use `--force-tag` to overwrite |
-| 59 | `E_TASKS_INCOMPLETE` | Incomplete tasks | Complete or remove from release |
+| 59 | `E_TASKS_INCOMPLETE` | Epic completeness guard (block mode) | Complete remaining tasks, use `--force`, or set guard to `warn` |
 
 ---
 
@@ -629,7 +682,9 @@ Release complete. See MANIFEST.jsonl for summary.
 | No release tag | Cannot reference version |
 | Incomplete checklist | Missed steps |
 | Major releases without `--run-tests` | Quality risk for breaking changes |
+| Ignoring epic completeness warnings | Shipping partial epics without review |
+| Overusing --force | Bypasses guards that catch legitimate issues |
 
 ---
 
-*Protocol Version 2.1.0 - Canonical release reference (consolidated from RELEASE-MANAGEMENT.mdx)*
+*Protocol Version 2.2.0 - Canonical release reference (consolidated from RELEASE-MANAGEMENT.mdx)*

@@ -429,3 +429,75 @@ EOF
     # Should show timestamp
     assert_output --partial "Released at:"
 }
+
+# =============================================================================
+# TESTS: Release Guards Integration
+# @task T4436 @epic T4431
+# =============================================================================
+
+@test "ship --preview shows task list and exits cleanly" {
+    create_test_release_data
+
+    run bash "$RELEASE_SCRIPT" ship v0.65.0 --preview --format json
+    assert_success
+
+    # Extract JSON from output (may include log lines before JSON)
+    local json_output
+    json_output=$(echo "$output" | sed -n '/^{/,/^}/p' | tail -n +1)
+
+    # Should have preview: true in output
+    echo "$json_output" | jq -e '.preview == true' >/dev/null
+
+    # Should have tasks array
+    echo "$json_output" | jq -e '.tasks' >/dev/null
+}
+
+@test "ship --dry-run shows task preview in output" {
+    create_test_release_data
+
+    run bash "$RELEASE_SCRIPT" ship v0.65.0 --dry-run --format json
+    assert_success
+
+    # Extract JSON from output
+    local json_output
+    json_output=$(echo "$output" | sed -n '/^{/,/^}/p' | tail -n +1)
+
+    # Should have dryRun: true
+    echo "$json_output" | jq -e '.dryRun == true' >/dev/null
+
+    # Should have tasks array
+    echo "$json_output" | jq -e '.tasks' >/dev/null
+}
+
+@test "ship --preview does not modify release state" {
+    create_test_release_data
+
+    # Get status before
+    local status_before
+    status_before=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | .status' "$TODO_FILE")
+
+    # Run preview
+    run bash "$RELEASE_SCRIPT" ship v0.65.0 --preview --format json
+    assert_success
+
+    # Status should still be planned
+    local status_after
+    status_after=$(jq -r '.project.releases[] | select(.version == "v0.65.0") | .status' "$TODO_FILE")
+    [[ "$status_before" == "$status_after" ]]
+    [[ "$status_after" == "planned" ]]
+}
+
+@test "ship --preview includes guard check results" {
+    create_test_release_data
+
+    run bash "$RELEASE_SCRIPT" ship v0.65.0 --preview --format json
+    assert_success
+
+    # Extract JSON from output
+    local json_output
+    json_output=$(echo "$output" | sed -n '/^{/,/^}/p' | tail -n +1)
+
+    # Should have epicCompleteness and doubleListing guard results
+    echo "$json_output" | jq -e '.epicCompleteness' >/dev/null
+    echo "$json_output" | jq -e '.doubleListing' >/dev/null
+}

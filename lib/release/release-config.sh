@@ -402,6 +402,45 @@ get_security_config() {
 }
 
 # ============================================================================
+# GUARD CONFIGURATION
+# ============================================================================
+
+# Get epic completeness guard mode from config
+#
+# Reads .release.guards.epicCompleteness from .cleo/config.json.
+# Valid values: "warn" (default), "block", "off"
+#
+# Returns: Guard mode string to stdout
+# Exit codes: 0 always
+#
+# Usage: mode=$(get_epic_completeness_mode)
+#
+# @task T4433
+get_epic_completeness_mode() {
+    local config_file="${CONFIG_FILE:-.cleo/config.json}"
+
+    if [[ ! -f "$config_file" ]]; then
+        echo "warn"
+        return 0
+    fi
+
+    local mode
+    mode=$(jq -r '.release.guards.epicCompleteness // "warn"' "$config_file" 2>/dev/null)
+
+    # Validate and default to "warn" for unknown values
+    case "$mode" in
+        warn|block|off)
+            echo "$mode"
+            ;;
+        *)
+            echo "warn"
+            ;;
+    esac
+
+    return 0
+}
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -412,3 +451,4 @@ export -f get_release_gates
 export -f get_changelog_config
 export -f get_versioning_config
 export -f get_security_config
+export -f get_epic_completeness_mode
