@@ -936,9 +936,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T02:42:35Z",
+  "lastUpdated": "2026-02-14T04:54:41Z",
   "_meta": {
-    "checksum": "3e1d68b65c23bf89",
+    "checksum": "b24752911dd93f0a",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -947,7 +947,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2995
+    "generation": 2996
   },
   "focus": {
     "currentTask": null,
@@ -15494,7 +15494,7 @@
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-14T00:13:54Z",
-      "updatedAt": "2026-02-14T00:34:46Z",
+      "updatedAt": "2026-02-14T04:54:41Z",
       "size": "large",
       "position": 878,
       "positionVersion": 0,
@@ -15506,7 +15506,34 @@
       ],
       "completedAt": "2026-02-14T00:34:46Z",
       "notes": [
-        "[COMPLETED 2026-02-14T00:34:46Z] All 7 bugs fixed, shipped as v0.98.1, all GitHub issues #28-#34 closed with detailed resolution comments."
+        "[COMPLETED 2026-02-14T00:34:46Z] All 7 bugs fixed, shipped as v0.98.1, all GitHub issues #28-#34 closed with detailed resolution comments.",
+        "2026-02-14 04:54:41 UTC: SESSION HANDOFF (2026-02-14): \n\nWHAT WAS DONE:\n- All 7 CLI bug fixes implemented, tested (160/160 pass), committed (678818b), and pushed to origin/main\n- Tasks T4480-T4486 all marked done with completion notes\n- GitHub Issues #28-#34 all commented with detailed fix descriptions and CLOSED\n- Git tags v0.98.0 and v0.98.1 created and pushed\n- RCSD lifecycle skipped, IVTR lifecycle recorded through release stage\n\nWHAT IS BLOCKING:\n- CI fails on MCP server TypeScript build (pre-existing since feat(T4453) commit)\n- Root cause: @cleocode/ct-skills is file:../../cleo-skills (local path) in mcp-server/package.json\n- This local path doesn't exist on GitHub Actions runners → TS2307 Cannot find module\n- 13 cascading TS errors in src/domains/skills.ts (implicit any, type mismatches)\n- MCP server also showing -32000 connection closed error locally (possibly related)\n- No GitHub Release objects exist for v0.98.0 or v0.98.1 (only git tags)\n\nREMAINING TASKS:\n- T4488 (CRITICAL): Fix MCP server CI build - resolve @cleocode/ct-skills dependency\n- T4489 (HIGH): Create GitHub Releases for v0.98.0 and v0.98.1 (blocked by T4488)\n\nTHE CLI BUG FIXES ARE COMPLETE - only the release pipeline is broken."
+      ],
+      "files": [
+        "mcp-server/package.json",
+        "src/domains/skills.ts"
+      ],
+      "relates": [
+        {
+          "taskId": "T4453",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4480",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4486",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4488",
+          "type": "relates-to"
+        },
+        {
+          "taskId": "T4489",
+          "type": "relates-to"
+        }
       ]
     },
     {
@@ -15872,6 +15899,64 @@
         "lastUpdated": "2026-02-14T02:42:35Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4488",
+      "title": "Fix MCP server CI build: skills.ts TypeScript errors (BLOCKING RELEASE)",
+      "status": "pending",
+      "priority": "critical",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-14T04:54:17Z",
+      "updatedAt": "2026-02-14T04:54:17Z",
+      "size": "medium",
+      "position": 880,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "CI fails on all pushes to main because mcp-server/src/domains/skills.ts imports @cleocode/ct-skills which is a file: dependency (file:../../cleo-skills). This local path doesn't exist on GitHub Actions runners, causing TS2307 'Cannot find module' errors. All subsequent TS errors (TS7006 implicit any, TS2322 type mismatches) cascade from the missing module. This blocks ALL releases from v0.98.0 onward. Pre-existing issue since feat(T4453) commit.",
+      "labels": [
+        "blocker",
+        "bug",
+        "ci",
+        "mcp-server"
+      ],
+      "acceptance": [
+        "npm run build passes in CI (GitHub Actions)",
+        "TypeScript compilation succeeds without @cleocode/ct-skills being a local file: dep",
+        "MCP server starts without -32000 connection closed errors",
+        "All 3 Node versions in CI matrix (18/20/22) pass"
+      ],
+      "notes": [
+        "2026-02-14 04:54:17 UTC: STATUS REPORT (session ending): The 7 bash CLI bug fixes (GH #28-#34) are ALL implemented and committed (678818b). Code is on origin/main. Git tags v0.98.0 and v0.98.1 exist. But NO GitHub Release was created because CI fails. The root cause is @cleocode/ct-skills uses file:../../cleo-skills in package.json which doesn't exist on CI. Options: (1) publish ct-skills to npm, (2) bundle the types inline, (3) add ct-skills as a git submodule, (4) copy the package into mcp-server. The MCP server also shows -32000 connection closed errors locally which may be related to the build failure."
+      ]
+    },
+    {
+      "id": "T4489",
+      "title": "Create GitHub Releases for v0.98.0 and v0.98.1",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-14T04:54:26Z",
+      "updatedAt": "2026-02-14T04:54:26Z",
+      "size": "medium",
+      "position": 881,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Git tags v0.98.0 and v0.98.1 exist on origin but no GitHub Release objects were created. v0.98.0 was a docs/changelog release. v0.98.1 contains the 7 CLI bug fixes from GH #28-#34. Cannot create proper GitHub Releases until CI passes (blocked by T4488). Once CI is green: (1) verify v0.98.0 tag content, (2) create GH release for v0.98.0, (3) create GH release for v0.98.1 with changelog from the 7 bug fixes.",
+      "labels": [
+        "blocked",
+        "release"
+      ],
+      "acceptance": [
+        "GitHub Release exists for v0.98.0",
+        "GitHub Release exists for v0.98.1 with changelog",
+        "CI passes on main branch",
+        "GH issues #28-#34 are closed (already done)"
+      ],
+      "depends": [
+        "T4488"
+      ]
     }
   ],
   "labels": {}
