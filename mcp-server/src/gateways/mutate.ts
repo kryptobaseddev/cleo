@@ -18,7 +18,7 @@ import { logMutation, AuditEntry } from '../lib/audit.js';
  * Mutate request interface
  */
 export interface MutateRequest {
-  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'release' | 'system' | 'issues' | 'skills';
+  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'release' | 'system' | 'issues' | 'skills' | 'providers';
   operation: string;
   params?: Record<string, unknown>;
 }
@@ -113,12 +113,15 @@ export const MUTATE_OPERATIONS: Record<string, string[]> = {
     'configure',      // Configure a skill
     'refresh',        // Refresh skill registry
   ],
+  providers: [
+    'inject',         // Inject content into provider instruction files
+  ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_MUTATE_COUNT = 60;
+const EXPECTED_MUTATE_COUNT = 61;
 const actualMutateCount = Object.values(MUTATE_OPERATIONS).flat().length;
 if (actualMutateCount !== EXPECTED_MUTATE_COUNT) {
   console.error(

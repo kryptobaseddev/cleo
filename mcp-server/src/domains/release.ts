@@ -13,6 +13,19 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import type { ResolvedMode } from '../lib/mode-detector.js';
+import {
+  releasePrepare as nativeReleasePrepare,
+  releaseChangelog as nativeReleaseChangelog,
+  releaseList as nativeReleaseList,
+  releaseShow as nativeReleaseShow,
+  releaseCommit as nativeReleaseCommit,
+  releaseTag as nativeReleaseTag,
+  releaseGatesRun as nativeReleaseGatesRun,
+  releaseRollback as nativeReleaseRollback,
+  resolveProjectRoot,
+} from '../engine/index.js';
 import type {
   ReleaseType,
   ReleasePrepareParams,
@@ -85,7 +98,63 @@ interface ReleasePublishResult {
  * Release domain handler implementation
  */
 export class ReleaseHandler implements DomainHandler {
-  constructor(private executor?: CLIExecutor) {}
+  private executionMode: ResolvedMode;
+  private projectRoot: string;
+
+  constructor(private executor?: CLIExecutor, executionMode: ResolvedMode = 'cli') {
+    this.executionMode = executionMode;
+    this.projectRoot = resolveProjectRoot();
+  }
+
+  private useNative(operation: string, gateway: GatewayType): boolean {
+    if (this.executionMode === 'cli' && this.executor?.isAvailable()) {
+      return false;
+    }
+    return canRunNatively('release', operation, gateway);
+  }
+
+  private wrapNativeResult(
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    gateway: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+    if (result.success) {
+      return {
+        _meta: { gateway, domain: 'release', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        success: true,
+        data: result.data,
+      };
+    }
+    return {
+      _meta: { gateway, domain: 'release', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      success: false,
+      error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
+    };
+  }
+
+  private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+    switch (operation) {
+      case 'prepare':
+        return this.wrapNativeResult(
+          nativeReleasePrepare(params?.version as string, params?.tasks as string[], params?.notes as string, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      case 'changelog':
+        return this.wrapNativeResult(nativeReleaseChangelog(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'commit':
+        return this.wrapNativeResult(nativeReleaseCommit(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'tag':
+        return this.wrapNativeResult(nativeReleaseTag(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'gates.run':
+        return this.wrapNativeResult(nativeReleaseGatesRun(params?.version as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'rollback':
+        return this.wrapNativeResult(nativeReleaseRollback(params?.version as string, params?.reason as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      default:
+        return this.createErrorResponse('cleo_mutate', 'release', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
+    }
+  }
 
   /**
    * Query operations (read-only)
@@ -93,7 +162,6 @@ export class ReleaseHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations
     if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_query',
@@ -134,7 +202,14 @@ export class ReleaseHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations
+    if (this.useNative(operation, 'mutate')) {
+      try {
+        return this.mutateNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_mutate', 'release', operation, error, startTime);
+      }
+    }
+
     if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_mutate',

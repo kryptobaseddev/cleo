@@ -17,7 +17,7 @@ import { createError } from '../lib/formatter.js';
  * Query request interface
  */
 export interface QueryRequest {
-  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'system' | 'issues' | 'skills';
+  domain: 'tasks' | 'session' | 'orchestrate' | 'research' | 'lifecycle' | 'validate' | 'system' | 'issues' | 'skills' | 'providers';
   operation: string;
   params?: Record<string, unknown>;
 }
@@ -113,12 +113,17 @@ export const QUERY_OPERATIONS: Record<string, string[]> = {
     'verify',         // Validate skill frontmatter
     'dependencies',   // Skill dependency tree
   ],
+  providers: [
+    'list',           // List all registered providers
+    'detect',         // Detect installed providers
+    'inject_status',  // Check injection status
+  ],
 };
 
 /**
  * Total operation count check
  */
-const EXPECTED_QUERY_COUNT = 63;
+const EXPECTED_QUERY_COUNT = 66;
 const actualQueryCount = Object.values(QUERY_OPERATIONS).flat().length;
 if (actualQueryCount !== EXPECTED_QUERY_COUNT) {
   console.error(

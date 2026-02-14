@@ -16,6 +16,20 @@ import { ManifestReader, ManifestEntry, ManifestFilter } from '../lib/manifest.j
 import { validateEntry, serializeEntry } from '../lib/manifest-parser.js';
 import { appendFile, readFile, writeFile } from 'fs/promises';
 import { resolve } from 'path';
+import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import type { ResolvedMode } from '../lib/mode-detector.js';
+import {
+  researchShow as nativeResearchShow,
+  researchList as nativeResearchList,
+  researchQuery as nativeResearchQuery,
+  researchPending as nativeResearchPending,
+  researchStats as nativeResearchStats,
+  researchManifestRead as nativeResearchManifestRead,
+  researchLink as nativeResearchLink,
+  researchManifestAppend as nativeResearchManifestAppend,
+  researchManifestArchive as nativeResearchManifestArchive,
+  resolveProjectRoot,
+} from '../engine/index.js';
 
 /**
  * Research entry from manifest
@@ -137,12 +151,51 @@ interface ResearchManifestArchiveParams {
  */
 export class ResearchHandler implements DomainHandler {
   private manifestReader: ManifestReader;
+  private executionMode: ResolvedMode;
+  private projectRoot: string;
 
   constructor(
     private executor: CLIExecutor,
-    manifestPath: string = 'claudedocs/agent-outputs/MANIFEST.jsonl'
+    manifestPath: string = 'claudedocs/agent-outputs/MANIFEST.jsonl',
+    executionMode: ResolvedMode = 'cli'
   ) {
     this.manifestReader = new ManifestReader(manifestPath);
+    this.executionMode = executionMode;
+    this.projectRoot = resolveProjectRoot();
+  }
+
+  /**
+   * Check if we should use native engine for this operation
+   */
+  private useNative(operation: string, gateway: GatewayType): boolean {
+    if (this.executionMode === 'cli' && this.executor.isAvailable()) {
+      return false;
+    }
+    return canRunNatively('research', operation, gateway);
+  }
+
+  /**
+   * Wrap a native engine result in DomainResponse format
+   */
+  private wrapNativeResult(
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    gateway: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+    if (result.success) {
+      return {
+        _meta: { gateway, domain: 'research', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        success: true,
+        data: result.data,
+      };
+    }
+    return {
+      _meta: { gateway, domain: 'research', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      success: false,
+      error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
+    };
   }
 
   /**
@@ -151,7 +204,16 @@ export class ResearchHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // CLI-only domain: check CLI availability
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'query')) {
+      try {
+        return this.queryNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_query', 'research', operation, error, startTime);
+      }
+    }
+
+    // CLI-only operations: check CLI availability
     if (!this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_query',
@@ -203,12 +265,66 @@ export class ResearchHandler implements DomainHandler {
   }
 
   /**
+   * Native query dispatch
+   */
+  private queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+    switch (operation) {
+      case 'show':
+        return this.wrapNativeResult(nativeResearchShow(params?.researchId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'list':
+        return this.wrapNativeResult(nativeResearchList(params as any, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'query':
+      case 'search':
+        return this.wrapNativeResult(
+          nativeResearchQuery(params?.query as string, { confidence: params?.confidence as number, limit: params?.limit as number }, this.projectRoot),
+          'cleo_query', operation, startTime
+        );
+      case 'pending':
+        return this.wrapNativeResult(nativeResearchPending(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'stats':
+        return this.wrapNativeResult(nativeResearchStats(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'manifest.read':
+        return this.wrapNativeResult(nativeResearchManifestRead(params as any, this.projectRoot), 'cleo_query', operation, startTime);
+      default:
+        return this.createErrorResponse('cleo_query', 'research', operation, 'E_INVALID_OPERATION', `Unknown native query operation: ${operation}`, startTime);
+    }
+  }
+
+  /**
+   * Native mutate dispatch
+   */
+  private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+    switch (operation) {
+      case 'link':
+        return this.wrapNativeResult(
+          nativeResearchLink(params?.taskId as string, params?.researchId as string, params?.notes as string, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      case 'manifest.append':
+        return this.wrapNativeResult(nativeResearchManifestAppend(params?.entry as any, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'manifest.archive':
+        return this.wrapNativeResult(nativeResearchManifestArchive(params?.beforeDate as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      default:
+        return this.createErrorResponse('cleo_mutate', 'research', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
+    }
+  }
+
+  /**
    * Mutate operations (write)
    */
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // CLI-only domain: check CLI availability
+    // Native engine routing for supported operations
+    if (this.useNative(operation, 'mutate')) {
+      try {
+        return this.mutateNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_mutate', 'research', operation, error, startTime);
+      }
+    }
+
+    // CLI-only operations: check CLI availability
     if (!this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_mutate',

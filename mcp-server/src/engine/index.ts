@@ -127,6 +127,80 @@ export {
   type TemplateSection,
 } from './template-parser.js';
 
+// Research engine
+export {
+  researchShow,
+  researchList,
+  researchQuery,
+  researchPending,
+  researchStats,
+  researchManifestRead,
+  researchLink,
+  researchManifestAppend,
+  researchManifestArchive,
+  readManifestEntries,
+  filterEntries as filterManifestEntries,
+  type ManifestEntry as ResearchManifestEntry,
+} from './research-engine.js';
+
+// Lifecycle engine
+export {
+  lifecycleStatus,
+  lifecycleHistory,
+  lifecycleGates,
+  lifecyclePrerequisites,
+  lifecycleCheck,
+  lifecycleProgress,
+  lifecycleSkip,
+  lifecycleReset,
+  lifecycleGatePass,
+  lifecycleGateFail,
+  LIFECYCLE_STAGES,
+  type LifecycleStage,
+  type StageStatus,
+  type RcsdManifest,
+} from './lifecycle-engine.js';
+
+// Validate engine
+export {
+  validateSchemaOp,
+  validateTask as validateTaskOp,
+  validateProtocol,
+  validateManifest as validateManifestOp,
+  validateOutput,
+  validateComplianceSummary,
+  validateComplianceViolations,
+  validateComplianceRecord,
+  validateTestStatus,
+  validateTestCoverage,
+} from './validate-engine.js';
+
+// Orchestrate engine
+export {
+  orchestrateStatus,
+  orchestrateAnalyze,
+  orchestrateReady,
+  orchestrateNext,
+  orchestrateWaves,
+  orchestrateContext,
+  orchestrateSkillList,
+  orchestrateValidate,
+  orchestrateSpawn,
+  orchestrateStartup,
+} from './orchestrate-engine.js';
+
+// Release engine
+export {
+  releasePrepare,
+  releaseChangelog,
+  releaseList,
+  releaseShow,
+  releaseCommit,
+  releaseTag,
+  releaseGatesRun,
+  releaseRollback,
+} from './release-engine.js';
+
 // Capability matrix
 export {
   getOperationMode,
