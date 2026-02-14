@@ -111062,6 +111062,42 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log-1771044857-cd32ef",
+      "timestamp": "2026-02-14T04:54:17Z",
+      "action": "task_created",
+      "taskId": "T4488",
+      "actor": "system",
+      "details": {
+        "title": "Fix MCP server CI build: skills.ts TypeScript errors (BLOCKING RELEASE)",
+        "status": "pending",
+        "priority": "critical"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix MCP server CI build: skills.ts TypeScript errors (BLOCKING RELEASE)",
+        "status": "pending",
+        "priority": "critical"
+      }
+    },
+    {
+      "id": "log-1771044867-b4e819",
+      "timestamp": "2026-02-14T04:54:27Z",
+      "action": "task_created",
+      "taskId": "T4489",
+      "actor": "system",
+      "details": {
+        "title": "Create GitHub Releases for v0.98.0 and v0.98.1",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Create GitHub Releases for v0.98.0 and v0.98.1",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
