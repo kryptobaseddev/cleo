@@ -972,18 +972,18 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T08:58:31Z",
+  "lastUpdated": "2026-02-14T09:02:36Z",
   "_meta": {
-    "checksum": "594431d9a7b6c71c",
+    "checksum": "f0be076db25de6b8",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-14T08:35:40Z",
+    "lastModified": "2026-02-14T09:16:39Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 29,
-    "generation": 3374
+    "activeSessionCount": 30,
+    "generation": 3385
   },
   "focus": {
     "currentTask": null,
@@ -15259,7 +15259,22 @@
       "completedAt": "2026-02-14T08:58:31Z",
       "notes": [
         "[COMPLETED 2026-02-14T08:58:31Z] Added validate_manifest_hierarchy to research-manifest.sh with INV-1 through INV-6 checks. Fixed export ordering bug."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:58:32Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4357",
@@ -15279,12 +15294,12 @@
     {
       "id": "T4358",
       "title": "Phase 1 testing: manifest hierarchy unit and integration tests",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:37:47Z",
-      "updatedAt": "2026-02-11T23:37:53Z",
+      "updatedAt": "2026-02-14T08:59:25Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -15297,7 +15312,26 @@
       "depends": [
         "T4355",
         "T4356"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:59:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:59:25Z] Created tests/unit/manifest-hierarchy.bats with 15 tests covering: schema field presence, backward compatibility, tree invariant violations (INV-1 through INV-3), valid tree validation, enrichment defaults, and field preservation."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:59:26Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4360",
@@ -15317,12 +15351,12 @@
     {
       "id": "T4361",
       "title": "Implement cleo research tree command",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:38:04Z",
-      "updatedAt": "2026-02-11T23:38:04Z",
+      "updatedAt": "2026-02-14T09:01:19Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -15335,7 +15369,26 @@
       ],
       "depends": [
         "T4358"
-      ]
+      ],
+      "completedAt": "2026-02-14T09:01:19Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T09:01:19Z] Implemented run_tree in scripts/research.sh. Supports --root, --depth, --json flags. ASCII tree with depth-indented output and JSON mode for programmatic use."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:01:20Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4362",
@@ -15355,12 +15408,12 @@
     {
       "id": "T4363",
       "title": "Implement cleo research query --path for subtree queries",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:38:14Z",
-      "updatedAt": "2026-02-11T23:38:14Z",
+      "updatedAt": "2026-02-14T09:01:29Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
@@ -15373,17 +15426,36 @@
       ],
       "depends": [
         "T4358"
-      ]
+      ],
+      "completedAt": "2026-02-14T09:01:29Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T09:01:29Z] Implemented run_query in scripts/research.sh. Supports --path prefix filtering, --epic filter, --status filter. Returns JSON with count and matching entries."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:01:30Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4364",
       "title": "Implement cleo research aggregate for rollup statistics",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:38:22Z",
-      "updatedAt": "2026-02-11T23:38:22Z",
+      "updatedAt": "2026-02-14T09:01:38Z",
       "size": "medium",
       "position": 8,
       "positionVersion": 0,
@@ -15396,17 +15468,36 @@
       ],
       "depends": [
         "T4358"
-      ]
+      ],
+      "completedAt": "2026-02-14T09:01:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T09:01:38Z] Implemented run_aggregate in scripts/research.sh. Supports --epic for per-epic rollups (byStatus, byDepth, byAgentType, totalFindings, maxDepth, rootEntries, leafEntries). Global mode shows byEpic summary."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:01:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4365",
       "title": "Phase 2 performance benchmarks and go/no-go validation",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:38:36Z",
-      "updatedAt": "2026-02-11T23:38:40Z",
+      "updatedAt": "2026-02-14T09:02:35Z",
       "size": "small",
       "position": 9,
       "positionVersion": 0,
@@ -15420,7 +15511,26 @@
       "depends": [
         "T4361",
         "T4363"
-      ]
+      ],
+      "completedAt": "2026-02-14T09:02:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T09:02:35Z] Created dev/benchmark-manifest-hierarchy.sh. Benchmarks subtree query, tree render, and aggregate at current/1K/10K scales. Go recommendation: hierarchy fields provide structural correctness benefits beyond speed at current JSONL scale."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:02:36Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4366",
@@ -19067,12 +19177,12 @@
     {
       "id": "T4499",
       "title": "V2-VAL: Protocol enforcement regression testing (all 9 protocols)",
-      "status": "pending",
+      "status": "active",
       "priority": "high",
       "type": "task",
       "parentId": "T4498",
       "createdAt": "2026-02-14T06:48:01Z",
-      "updatedAt": "2026-02-14T06:48:01Z",
+      "updatedAt": "2026-02-14T09:16:39Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
