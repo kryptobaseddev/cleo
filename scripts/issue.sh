@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 ###CLEO
 # command: issue
+# aliases: issues
 # category: system
 # synopsis: File bug reports, feature requests, or questions to CLEO GitHub repo
 # relevance: medium
@@ -44,6 +45,7 @@ source "$LIB_DIR/core/error-json.sh"
 source "$LIB_DIR/core/output-format.sh"
 source "$LIB_DIR/core/version.sh"
 source "$LIB_DIR/ui/flags.sh"
+source "$LIB_DIR/issue/template-parser.sh"
 
 # Command name for error reporting
 COMMAND_NAME="issue"
@@ -60,6 +62,68 @@ BODY=""
 SEVERITY=""
 AREA=""
 OPEN_BROWSER=false
+
+# ============================================================================
+# TEMPLATE CONFIG
+# ============================================================================
+# DRY principle: Template metadata (title prefix, labels, section headers)
+# is read from config rather than hardcoded. Config sources (in priority order):
+#   1. Live parse: .github/ISSUE_TEMPLATE/*.yml (when in repo)
+#   2. Cached config: .cleo/issue-templates.json (from TS engine)
+#   3. Fallback: hardcoded defaults (backward compatibility)
+# Resolution is handled by lib/issue/template-parser.sh
+
+TEMPLATE_CONFIG=""
+
+load_template_config() {
+    # Determine repo root for template discovery
+    local repo_root=""
+    if [[ -n "${CLEO_ROOT:-}" ]]; then
+        repo_root="$CLEO_ROOT"
+    elif [[ -d "$SCRIPT_DIR/.." ]]; then
+        repo_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+    fi
+
+    TEMPLATE_CONFIG=$(get_template_config "${repo_root:-.}")
+
+    # Verify we got valid JSON with at least one key
+    if [[ -z "$TEMPLATE_CONFIG" ]] || ! echo "$TEMPLATE_CONFIG" | jq -e 'keys | length > 0' &>/dev/null; then
+        TEMPLATE_CONFIG=$(_tp_fallback_defaults)
+    fi
+}
+
+# Get title prefix for a subcommand
+get_title_prefix_for() {
+    local subcommand="$1"
+    echo "$TEMPLATE_CONFIG" | jq -r --arg sub "$subcommand" '.[$sub].titlePrefix // empty'
+}
+
+# Get labels for a subcommand as comma-separated string
+get_labels_for() {
+    local subcommand="$1"
+    echo "$TEMPLATE_CONFIG" | jq -r --arg sub "$subcommand" '.[$sub].labels | join(",")'
+}
+
+# Get the first textarea section label (primary content section)
+get_primary_section_label() {
+    local subcommand="$1"
+    echo "$TEMPLATE_CONFIG" | jq -r --arg sub "$subcommand" \
+        '.[$sub].sections[] | select(.type == "textarea") | .label' | head -1
+}
+
+# Get the agent-usage "Yes" answer text from the template
+get_agent_usage_text() {
+    local subcommand="$1"
+    # Check if agent-usage section has options defined
+    local text
+    text=$(echo "$TEMPLATE_CONFIG" | jq -r --arg sub "$subcommand" '
+        .[$sub].sections[]
+        | select(.id == "agent-usage")
+        | .options // empty
+        | .[]
+        | select(startswith("Yes"))' 2>/dev/null | head -1)
+    [[ -n "$text" ]] && echo "$text" || echo "Yes - AI agent filed this issue"
+}
 
 # ============================================================================
 # HELP
@@ -79,8 +143,8 @@ SUBCOMMANDS:
 OPTIONS:
     --title TEXT    Issue title (required for bug/feature/help)
     --body TEXT     Issue body/description (required for bug/feature/help)
-    --severity SEV  Severity level: low, medium, high, critical (bug only)
-    --area AREA     Affected area: cli, mcp, docs, tests, other
+    --severity SEV  Severity level (from template: Blocker, Major, Moderate, Minor)
+    --area AREA     Affected area (from template or: cli, mcp, docs, tests, other)
     --open          Open the issue in browser after creation
     --dry-run       Show what would be created without filing
     -f, --format    Output format: json (default) or human
@@ -184,35 +248,24 @@ build_template_body() {
     local issue_type="$1"
     local raw_body="$2"
 
+    # Get template-driven values
+    local primary_label
+    primary_label=$(get_primary_section_label "$issue_type")
+    [[ -z "$primary_label" || "$primary_label" == "null" ]] && primary_label="Description"
+
+    local agent_text
+    agent_text=$(get_agent_usage_text "$issue_type")
+    [[ -z "$agent_text" || "$agent_text" == "null" ]] && agent_text="Yes - AI agent filed this issue"
+
     # Severity/area metadata (appended as structured fields)
     local meta=""
     [[ -n "$SEVERITY" ]] && meta="${meta}\n**Severity**: ${SEVERITY}"
     [[ -n "$AREA" ]] && meta="${meta}\n**Area**: ${AREA}"
 
-    case "$issue_type" in
-        bug)
-            # Matches bug_report.yml: description, steps, expected, diagnostics
-            printf '### What happened?\n\n%s' "$raw_body"
-            [[ -n "$meta" ]] && printf '\n%b' "$meta"
-            printf '\n\n### Are you using an AI agent?\n\nYes - AI agent filed this issue\n'
-            ;;
-        feature)
-            # Matches feature_request.yml: problem, solution, area, scope
-            printf '### Problem or use case\n\n%s' "$raw_body"
-            [[ -n "$meta" ]] && printf '\n%b' "$meta"
-            printf '\n\n### Are you using an AI agent?\n\nYes - AI agent filed this request\n'
-            ;;
-        help)
-            # Matches help_question.yml: question, tried, topic
-            printf '### What do you need help with?\n\n%s' "$raw_body"
-            [[ -n "$meta" ]] && printf '\n%b' "$meta"
-            printf '\n\n### Are you using an AI agent?\n\nYes - AI agent filed this question\n'
-            ;;
-        *)
-            printf '%s' "$raw_body"
-            [[ -n "$meta" ]] && printf '\n%b' "$meta"
-            ;;
-    esac
+    # Build body using template section label
+    printf '### %s\n\n%s' "$primary_label" "$raw_body"
+    [[ -n "$meta" ]] && printf '\n%b' "$meta"
+    printf '\n\n### Are you using an AI agent?\n\n%s\n' "$agent_text"
 }
 
 # ============================================================================
@@ -472,14 +525,11 @@ handle_issue_type() {
         exit "$EXIT_VALIDATION_ERROR"
     fi
 
-    # Apply template title prefix (matches .github/ISSUE_TEMPLATE/*.yml)
-    local prefixed_title
-    case "$issue_type" in
-        bug)     prefixed_title="[Bug]: $TITLE" ;;
-        feature) prefixed_title="[Feature]: $TITLE" ;;
-        help)    prefixed_title="[Question]: $TITLE" ;;
-        *)       prefixed_title="$TITLE" ;;
-    esac
+    # Apply template title prefix (from template config — DRY)
+    local title_prefix
+    title_prefix=$(get_title_prefix_for "$issue_type")
+    [[ -z "$title_prefix" || "$title_prefix" == "null" ]] && title_prefix=""
+    local prefixed_title="${title_prefix}${TITLE}"
     TITLE="$prefixed_title"
 
     # Build structured body matching template sections
@@ -540,6 +590,9 @@ handle_issue_type() {
     # Check gh CLI before attempting to create
     check_gh_cli || exit $?
 
+    # Validate labels exist on repo (auto-create if missing)
+    ensure_labels_exist "$CLEO_REPO" "$labels" &>/dev/null || true
+
     # Create the issue
     local issue_url
     issue_url=$(create_issue "$TITLE" "$full_body" "$labels") || exit $?
@@ -582,17 +635,15 @@ handle_issue_type() {
 # ============================================================================
 main() {
     parse_args "$@"
+    load_template_config
 
     # Validate subcommand
     case "$SUBCOMMAND" in
-        bug)
-            handle_issue_type "bug" "bug,triage"
-            ;;
-        feature)
-            handle_issue_type "feature" "enhancement,triage"
-            ;;
-        help)
-            handle_issue_type "help" "question,help"
+        bug|feature|help)
+            local labels
+            labels=$(get_labels_for "$SUBCOMMAND")
+            [[ -z "$labels" || "$labels" == "null" ]] && labels="$SUBCOMMAND"
+            handle_issue_type "$SUBCOMMAND" "$labels"
             ;;
         diagnostics)
             handle_diagnostics

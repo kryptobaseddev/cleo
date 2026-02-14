@@ -203,6 +203,13 @@ const CAPABILITY_MATRIX: OperationCapability[] = [
   { domain: 'lifecycle', operation: 'gate.pass', gateway: 'mutate', mode: 'cli' },
   { domain: 'lifecycle', operation: 'gate.fail', gateway: 'mutate', mode: 'cli' },
 
+  // === Issues Domain ===
+  // Native query operations (template parsing)
+  { domain: 'issues', operation: 'templates',       gateway: 'query',  mode: 'native' },
+  { domain: 'issues', operation: 'validate_labels',  gateway: 'query',  mode: 'native' },
+  // Native mutate operations (config generation)
+  { domain: 'issues', operation: 'generate_config',  gateway: 'mutate', mode: 'native' },
+
   // === Release Domain (all CLI) ===
   { domain: 'release', operation: 'prepare', gateway: 'mutate', mode: 'cli' },
   { domain: 'release', operation: 'changelog', gateway: 'mutate', mode: 'cli' },

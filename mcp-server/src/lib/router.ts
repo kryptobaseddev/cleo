@@ -133,7 +133,7 @@ export class DomainRouter {
       ['validate', new ValidateHandler(executor)],
       ['release', new ReleaseHandler(executor)],
       ['system', new SystemHandler(executor, undefined, executionMode)],
-      ['issues', new IssuesHandler(executor)],
+      ['issues', new IssuesHandler(executor, executionMode)],
       ['skills', new SkillsHandler(executor)],
     ]);
     this.useProtocolEnforcement = useProtocolEnforcement;
