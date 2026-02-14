@@ -4,6 +4,14 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.98.4] - 2026-02-14
+
+### Other Changes
+- Set up parallel release infrastructure (T2055)
+- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)
+- V2-VAL: Changeset and release system review (T4505)
+
+
 ## [0.98.3] - 2026-02-13
 
 ### Tests

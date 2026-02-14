@@ -972,18 +972,22 @@
       },
       {
         "version": "v0.98.4",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-14T17:36:06Z",
         "createdAt": "2026-02-14T17:35:49Z",
         "tasks": [
-          "T4494"
+          "T4494",
+          "T2055",
+          "T4505"
         ],
-        "notes": null
+        "notes": null,
+        "gitTag": "v0.98.4",
+        "changelog": "## [0.98.4] - 2026-02-14\n\n### Other Changes\n- Set up parallel release infrastructure (T2055)\n- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)\n- V2-VAL: Changeset and release system review (T4505)"
       }
     ]
   },
-  "lastUpdated": "2026-02-14T17:35:49Z",
+  "lastUpdated": "2026-02-14T17:36:06Z",
   "_meta": {
     "checksum": "22dfb8aa516bd370",
     "configVersion": "2.1.0",
@@ -994,7 +998,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3419
+    "generation": 3421
   },
   "focus": {
     "currentTask": null,
