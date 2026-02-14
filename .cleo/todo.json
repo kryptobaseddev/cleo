@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T07:16:41Z",
+  "lastUpdated": "2026-02-14T07:59:58Z",
   "_meta": {
-    "checksum": "c72d7e485d62bedd",
+    "checksum": "fd662b2a3c0ec040",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -983,7 +983,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3268
+    "generation": 3269
   },
   "focus": {
     "currentTask": null,
@@ -6751,7 +6751,7 @@
     {
       "id": "T2023",
       "title": "Setup TypeScript project structure with esbuild",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2022",
@@ -6766,9 +6766,13 @@
         "setup",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:11:01Z",
+      "updatedAt": "2026-02-14T07:59:58Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:59:58Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:59:58Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ]
     },
     {
       "id": "T2024",
