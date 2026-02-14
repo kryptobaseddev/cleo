@@ -12,6 +12,21 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import type { ResolvedMode } from '../lib/mode-detector.js';
+import {
+  lifecycleStatus as nativeLifecycleStatus,
+  lifecycleHistory as nativeLifecycleHistory,
+  lifecycleGates as nativeLifecycleGates,
+  lifecyclePrerequisites as nativeLifecyclePrerequisites,
+  lifecycleCheck as nativeLifecycleCheck,
+  lifecycleProgress as nativeLifecycleProgress,
+  lifecycleSkip as nativeLifecycleSkip,
+  lifecycleReset as nativeLifecycleReset,
+  lifecycleGatePass as nativeLifecycleGatePass,
+  lifecycleGateFail as nativeLifecycleGateFail,
+  resolveProjectRoot,
+} from '../engine/index.js';
 
 /**
  * Lifecycle stages in RCSD-IVTR pipeline
@@ -291,7 +306,92 @@ interface LifecycleGateFailResult {
  * Lifecycle domain handler implementation
  */
 export class LifecycleHandler implements DomainHandler {
-  constructor(private executor: CLIExecutor) {}
+  private executionMode: ResolvedMode;
+  private projectRoot: string;
+
+  constructor(private executor: CLIExecutor, executionMode: ResolvedMode = 'cli') {
+    this.executionMode = executionMode;
+    this.projectRoot = resolveProjectRoot();
+  }
+
+  private useNative(operation: string, gateway: GatewayType): boolean {
+    if (this.executionMode === 'cli' && this.executor.isAvailable()) {
+      return false;
+    }
+    return canRunNatively('lifecycle', operation, gateway);
+  }
+
+  private wrapNativeResult(
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    gateway: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+    if (result.success) {
+      return {
+        _meta: { gateway, domain: 'lifecycle', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        success: true,
+        data: result.data,
+      };
+    }
+    return {
+      _meta: { gateway, domain: 'lifecycle', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      success: false,
+      error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
+    };
+  }
+
+  private queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+    switch (operation) {
+      case 'status':
+        return this.wrapNativeResult(nativeLifecycleStatus(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'check':
+      case 'validate':
+        return this.wrapNativeResult(nativeLifecycleCheck(params?.epicId as string, params?.targetStage as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'history':
+        return this.wrapNativeResult(nativeLifecycleHistory(params?.taskId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'gates':
+        return this.wrapNativeResult(nativeLifecycleGates(params?.taskId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'prerequisites':
+        return this.wrapNativeResult(nativeLifecyclePrerequisites(params?.targetStage as string, this.projectRoot), 'cleo_query', operation, startTime);
+      default:
+        return this.createErrorResponse('cleo_query', 'lifecycle', operation, 'E_INVALID_OPERATION', `Unknown native query operation: ${operation}`, startTime);
+    }
+  }
+
+  private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+    switch (operation) {
+      case 'progress':
+      case 'record':
+        return this.wrapNativeResult(
+          nativeLifecycleProgress(params?.taskId as string || params?.epicId as string, params?.stage as string, params?.status as string, params?.notes as string, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      case 'skip':
+        return this.wrapNativeResult(
+          nativeLifecycleSkip(params?.taskId as string || params?.epicId as string, params?.stage as string, params?.reason as string, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      case 'reset':
+        return this.wrapNativeResult(
+          nativeLifecycleReset(params?.taskId as string, params?.stage as string, params?.reason as string, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      case 'gate.pass':
+        return this.wrapNativeResult(
+          nativeLifecycleGatePass(params?.taskId as string, params?.gateName as string, params?.agent as string, params?.notes as string, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      case 'gate.fail':
+        return this.wrapNativeResult(
+          nativeLifecycleGateFail(params?.taskId as string, params?.gateName as string, params?.reason as string, this.projectRoot),
+          'cleo_mutate', operation, startTime
+        );
+      default:
+        return this.createErrorResponse('cleo_mutate', 'lifecycle', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
+    }
+  }
 
   /**
    * Query operations (read-only)
@@ -299,7 +399,14 @@ export class LifecycleHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // CLI-only domain: check CLI availability
+    if (this.useNative(operation, 'query')) {
+      try {
+        return this.queryNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_query', 'lifecycle', operation, error, startTime);
+      }
+    }
+
     if (!this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_query',
@@ -352,7 +459,14 @@ export class LifecycleHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // CLI-only domain: check CLI availability
+    if (this.useNative(operation, 'mutate')) {
+      try {
+        return this.mutateNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_mutate', 'lifecycle', operation, error, startTime);
+      }
+    }
+
     if (!this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_mutate',

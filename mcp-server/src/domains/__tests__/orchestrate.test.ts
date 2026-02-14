@@ -416,11 +416,13 @@ describe('OrchestrateHandler', () => {
       expect(result.error?.code).toBe('E_INTERNAL_ERROR');
     });
 
-    it('requires executor initialization', async () => {
+    it('falls back to native engine when no executor', async () => {
       const handlerNoExecutor = new OrchestrateHandler();
       const result = await handlerNoExecutor.query('status', { epicId: 'T2908' });
+      // Without executor, native engine handles the request
+      // E_NOT_FOUND is expected since the epic doesn't exist in test env
       expect(result.success).toBe(false);
-      expect(result.error?.code).toBe('E_CLI_REQUIRED');
+      expect(result.error?.code).toBe('E_NOT_FOUND');
     });
   });
 

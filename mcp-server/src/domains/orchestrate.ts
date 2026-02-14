@@ -12,6 +12,21 @@
 
 import { DomainHandler, DomainResponse } from '../lib/router.js';
 import { CLIExecutor } from '../lib/executor.js';
+import { canRunNatively, type GatewayType } from '../engine/capability-matrix.js';
+import type { ResolvedMode } from '../lib/mode-detector.js';
+import {
+  orchestrateStatus as nativeOrchestrateStatus,
+  orchestrateAnalyze as nativeOrchestrateAnalyze,
+  orchestrateReady as nativeOrchestrateReady,
+  orchestrateNext as nativeOrchestrateNext,
+  orchestrateWaves as nativeOrchestrateWaves,
+  orchestrateContext as nativeOrchestrateContext,
+  orchestrateSkillList as nativeOrchestrateSkillList,
+  orchestrateValidate as nativeOrchestrateValidate,
+  orchestrateSpawn as nativeOrchestrateSpawn,
+  orchestrateStartup as nativeOrchestrateStartup,
+  resolveProjectRoot,
+} from '../engine/index.js';
 
 /**
  * Query parameter types
@@ -170,7 +185,75 @@ interface OrchestrateSpawnResult {
  * Orchestrate domain handler implementation
  */
 export class OrchestrateHandler implements DomainHandler {
-  constructor(private executor?: CLIExecutor) {}
+  private executionMode: ResolvedMode;
+  private projectRoot: string;
+
+  constructor(private executor?: CLIExecutor, executionMode: ResolvedMode = 'cli') {
+    this.executionMode = executionMode;
+    this.projectRoot = resolveProjectRoot();
+  }
+
+  private useNative(operation: string, gateway: GatewayType): boolean {
+    if (this.executionMode === 'cli' && this.executor?.isAvailable()) {
+      return false;
+    }
+    return canRunNatively('orchestrate', operation, gateway);
+  }
+
+  private wrapNativeResult(
+    result: { success: boolean; data?: unknown; error?: { code: string; message: string; details?: unknown } },
+    gateway: string,
+    operation: string,
+    startTime: number
+  ): DomainResponse {
+    const duration_ms = Date.now() - startTime;
+    if (result.success) {
+      return {
+        _meta: { gateway, domain: 'orchestrate', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+        success: true,
+        data: result.data,
+      };
+    }
+    return {
+      _meta: { gateway, domain: 'orchestrate', operation, version: '1.0.0', timestamp: new Date().toISOString(), duration_ms },
+      success: false,
+      error: { code: result.error?.code || 'E_UNKNOWN', message: result.error?.message || 'Unknown error' },
+    };
+  }
+
+  private queryNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+    switch (operation) {
+      case 'status':
+        return this.wrapNativeResult(nativeOrchestrateStatus(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'analyze':
+        return this.wrapNativeResult(nativeOrchestrateAnalyze(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'ready':
+        return this.wrapNativeResult(nativeOrchestrateReady(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'next':
+        return this.wrapNativeResult(nativeOrchestrateNext(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'waves':
+        return this.wrapNativeResult(nativeOrchestrateWaves(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'context':
+        return this.wrapNativeResult(nativeOrchestrateContext(params?.epicId as string, this.projectRoot), 'cleo_query', operation, startTime);
+      case 'skill.list':
+        return this.wrapNativeResult(nativeOrchestrateSkillList(this.projectRoot), 'cleo_query', operation, startTime);
+      default:
+        return this.createErrorResponse('cleo_query', 'orchestrate', operation, 'E_INVALID_OPERATION', `Unknown native query operation: ${operation}`, startTime);
+    }
+  }
+
+  private mutateNative(operation: string, params: Record<string, unknown> | undefined, startTime: number): DomainResponse {
+    switch (operation) {
+      case 'startup':
+        return this.wrapNativeResult(nativeOrchestrateStartup(params?.epicId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'spawn':
+        return this.wrapNativeResult(nativeOrchestrateSpawn(params?.taskId as string, params?.skill as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      case 'validate':
+        return this.wrapNativeResult(nativeOrchestrateValidate(params?.taskId as string, this.projectRoot), 'cleo_mutate', operation, startTime);
+      default:
+        return this.createErrorResponse('cleo_mutate', 'orchestrate', operation, 'E_INVALID_OPERATION', `Unknown native mutate operation: ${operation}`, startTime);
+    }
+  }
 
   /**
    * Query operations (read-only)
@@ -178,7 +261,14 @@ export class OrchestrateHandler implements DomainHandler {
   async query(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations (orchestrate is CLI-only)
+    if (this.useNative(operation, 'query')) {
+      try {
+        return this.queryNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_query', 'orchestrate', operation, error, startTime);
+      }
+    }
+
     if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_query',
@@ -229,7 +319,14 @@ export class OrchestrateHandler implements DomainHandler {
   async mutate(operation: string, params?: Record<string, unknown>): Promise<DomainResponse> {
     const startTime = Date.now();
 
-    // Require executor for all operations (orchestrate is CLI-only)
+    if (this.useNative(operation, 'mutate')) {
+      try {
+        return this.mutateNative(operation, params, startTime);
+      } catch (error) {
+        return this.handleError('cleo_mutate', 'orchestrate', operation, error, startTime);
+      }
+    }
+
     if (!this.executor || !this.executor.isAvailable()) {
       return this.createErrorResponse(
         'cleo_mutate',
