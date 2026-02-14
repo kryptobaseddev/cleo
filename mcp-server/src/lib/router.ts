@@ -142,10 +142,29 @@ export class DomainRouter {
   }
 
   /**
+   * Domain alias map: singular CLI names → plural MCP domain names
+   * CLI uses 'issue' (singular), MCP uses 'issues' (plural).
+   * @task T4494
+   */
+  private static readonly DOMAIN_ALIASES: Record<string, string> = {
+    issue: 'issues',
+  };
+
+  /**
+   * Normalize domain name, resolving aliases to canonical names.
+   */
+  private normalizeDomain(domain: string): string {
+    return DomainRouter.DOMAIN_ALIASES[domain] ?? domain;
+  }
+
+  /**
    * Route an operation to the appropriate domain handler
    */
   async routeOperation(request: DomainRequest): Promise<DomainResponse> {
     const startTime = Date.now();
+
+    // Normalize domain aliases (e.g. 'issue' → 'issues')
+    request = { ...request, domain: this.normalizeDomain(request.domain) };
 
     try {
       // Validate the route

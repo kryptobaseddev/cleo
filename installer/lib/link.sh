@@ -334,7 +334,7 @@ _resolve_alias() {
         # Standard aliases
         ls) echo "list" ;; done) echo "complete" ;; new) echo "add" ;; edit) echo "update" ;;
         rm) echo "archive" ;; check) echo "validate" ;; overview) echo "dash" ;; search) echo "find" ;;
-        tags) echo "labels" ;; dig) echo "research" ;;
+        tags) echo "labels" ;; dig) echo "research" ;; issues) echo "issue" ;;
         # Task lifecycle aliases
         cancel) echo "delete" ;; restore-cancelled) echo "uncancel" ;; restore-done) echo "reopen" ;;
         # Hierarchy aliases
