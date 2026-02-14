@@ -936,9 +936,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T05:03:09Z",
+  "lastUpdated": "2026-02-14T05:04:23Z",
   "_meta": {
-    "checksum": "148aee51e7625fc1",
+    "checksum": "afed23e316164d82",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -947,7 +947,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3004
+    "generation": 3005
   },
   "focus": {
     "currentTask": null,
@@ -15967,7 +15967,7 @@
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-14T04:54:26Z",
-      "updatedAt": "2026-02-14T05:02:54Z",
+      "updatedAt": "2026-02-14T05:04:23Z",
       "size": "medium",
       "position": 881,
       "positionVersion": 0,
@@ -15988,13 +15988,21 @@
       ],
       "notes": [
         "2026-02-14 05:00:37 UTC: CURRENT STATE: T4488 fix (package.json file: → npm) is in working tree but uncommitted. Once committed, pushed, and CI passes, create GH releases for v0.98.0 and v0.98.1. Git tags already exist on remote. Latest GH release is v0.97.0.",
-        "2026-02-14 05:02:54 UTC: CORRECTION: v0.98.0 and v0.98.1 ARE properly released in CLEO's internal tracking (status=released, gitTag set). The 'missing' GitHub Releases are a separate concern — many prior versions (v0.78.0 through v0.93.x) also have git tags without GH Release objects. The actual blockers are: (1) CI is failing on MCP Server Tests workflow due to @cleocode/ct-skills file: dep, (2) package.json fix is in working tree but uncommitted. This task should be repurposed to: commit MCP dep fix, verify CI passes, then optionally create GH Release objects."
+        "2026-02-14 05:02:54 UTC: CORRECTION: v0.98.0 and v0.98.1 ARE properly released in CLEO's internal tracking (status=released, gitTag set). The 'missing' GitHub Releases are a separate concern — many prior versions (v0.78.0 through v0.93.x) also have git tags without GH Release objects. The actual blockers are: (1) CI is failing on MCP Server Tests workflow due to @cleocode/ct-skills file: dep, (2) package.json fix is in working tree but uncommitted. This task should be repurposed to: commit MCP dep fix, verify CI passes, then optionally create GH Release objects.",
+        "2026-02-14 05:04:23 UTC: ACCURATE STATE (final):\n- Git tags v0.98.0 and v0.98.1 exist on remote (confirmed via git ls-remote)\n- NO GitHub Release objects exist for either version (gh release list confirms latest is v0.97.0)\n- CLEO internally marks them released (todo.json) but cleo release ship only creates git tags, NOT GitHub Releases\n- The GitHub Release workflow triggers on tag push BUT requires CI to pass first\n- CI has been failing since feat(T4453) due to @cleocode/ct-skills file: dep\n- User's fix (package.json file: → npm) is in working tree but UNCOMMITTED\n\nNEXT SESSION MUST:\n1. Commit mcp-server/package.json + package-lock.json fix\n2. Push to origin/main  \n3. Wait for CI to pass\n4. Create GitHub Releases:\n   gh release create v0.98.0 --title 'v0.98.0' --notes 'V2 architecture spec, LAFS conformance analysis, P3 golden tests, Track B schema extension'\n   gh release create v0.98.1 --title 'v0.98.1' --latest --generate-notes\n5. Mark T4489 done"
       ],
       "relates": [
         {
           "taskId": "T4488",
           "type": "relates-to"
+        },
+        {
+          "taskId": "T4453",
+          "type": "relates-to"
         }
+      ],
+      "files": [
+        "mcp-server/package.json"
       ]
     }
   ],
