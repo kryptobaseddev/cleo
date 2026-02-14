@@ -324,6 +324,27 @@ set_session_focus() {
   fi
   in_scope=$(echo "$current_scope_ids" | jq --arg taskId "$task_id" 'index($taskId)')
 
+  # Fallback: if task not in computed scope, check parent chain
+  # This handles newly added descendants that recompute_session_scope may miss
+  if [[ "$in_scope" == "null" ]]; then
+    local root_task_id
+    root_task_id=$(echo "$session_info" | jq -r '.scope.rootTaskId // ""')
+    if [[ -n "$root_task_id" ]]; then
+      local parent_chain
+      parent_chain=$(echo "$todo_content" | jq -r --arg id "$task_id" '
+        .tasks as $tasks |
+        def parent_chain($tid):
+            if $tid == null or $tid == "" then []
+            else [$tid] + parent_chain([$tasks[] | select(.id == $tid) | .parentId][0] // "")
+            end;
+        parent_chain($id) | .[]
+      ')
+      if echo "$parent_chain" | grep -qx "$root_task_id"; then
+        in_scope="found"
+      fi
+    fi
+  fi
+
   if [[ "$in_scope" == "null" ]]; then
     unlock_file "$todo_fd"
     unlock_file "$sessions_fd"

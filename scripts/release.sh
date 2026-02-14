@@ -1072,14 +1072,56 @@ cmd_ship() {
                 files_failed=$(echo "$bump_result" | jq -r '.filesFailed')
                 log_info "VERSION bumped: ${files_updated} updated, ${files_skipped} skipped, ${files_failed} failed"
             fi
+
+            # Capture bumped file paths for git staging (GH #31)
+            BUMPED_FILES=$(echo "$bump_result" | jq -r '.files[] | select(.status == "updated") | .path' 2>/dev/null || true)
         else
-            # No version bump config — actionable error
-            check_version_bump_configured "$config_file" 2>&1 | while IFS= read -r line; do
-                echo "  $line" >&2
-            done
-            log_error "VERSION bump not configured" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" \
-                "Configure release.versionBump in $config_file (see error above)"
-            exit "$EXIT_VERSION_BUMP_FAILED"
+            # No version bump config — try auto-detection (GH #32)
+            log_info "No versionBump config found, attempting auto-detection..."
+            local auto_config
+            if auto_config=$(auto_detect_version_bump_files); then
+                log_info "Auto-detected version bump targets"
+                # Write auto-detected config to a temp file for bump_version_from_config
+                local tmp_config
+                tmp_config=$(mktemp)
+                # Merge auto-detected versionBump into existing config (or create minimal)
+                if [[ -f "$config_file" ]]; then
+                    jq --argjson vb "$auto_config" '.release.versionBump = $vb' "$config_file" > "$tmp_config"
+                else
+                    jq -nc --argjson vb "$auto_config" '{"release":{"versionBump":$vb}}' > "$tmp_config"
+                fi
+
+                local dry_run_flag="false"
+                [[ "${DRY_RUN:-false}" == "true" ]] && dry_run_flag="true"
+
+                local bump_result
+                if ! bump_result=$(bump_version_from_config "$version_no_v" "$dry_run_flag" "$tmp_config"); then
+                    log_error "VERSION bump failed (auto-detected)" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" \
+                        "Auto-detection found files but bump failed. Configure release.versionBump manually."
+                    rm -f "$tmp_config"
+                    exit "$EXIT_VERSION_BUMP_FAILED"
+                fi
+                rm -f "$tmp_config"
+
+                if [[ "$FORMAT" != "json" ]]; then
+                    local files_updated files_skipped files_failed
+                    files_updated=$(echo "$bump_result" | jq -r '.filesUpdated')
+                    files_skipped=$(echo "$bump_result" | jq -r '.filesSkipped')
+                    files_failed=$(echo "$bump_result" | jq -r '.filesFailed')
+                    log_info "VERSION bumped (auto-detected): ${files_updated} updated, ${files_skipped} skipped, ${files_failed} failed"
+                fi
+
+                # Capture bumped files for staging (same as configured path)
+                BUMPED_FILES=$(echo "$bump_result" | jq -r '.files[] | select(.status == "updated") | .path' 2>/dev/null || true)
+            else
+                # Auto-detection failed too — show actionable error
+                check_version_bump_configured "$config_file" 2>&1 | while IFS= read -r line; do
+                    echo "  $line" >&2
+                done
+                log_error "VERSION bump not configured and auto-detection found no project files" "E_VERSION_BUMP_FAILED" "$EXIT_VERSION_BUMP_FAILED" \
+                    "Configure release.versionBump in $config_file (see error above)"
+                exit "$EXIT_VERSION_BUMP_FAILED"
+            fi
         fi
         log_info "VERSION bumped successfully"
     fi
@@ -1222,6 +1264,13 @@ cmd_ship() {
         [[ -f "docs/changelog/overview.mdx" ]] && files_to_stage="$files_to_stage docs/changelog/overview.mdx"
         [[ -f ".cleo/todo.json" ]] && files_to_stage="$files_to_stage .cleo/todo.json"
         [[ -f "mcp-server/package.json" ]] && files_to_stage="$files_to_stage mcp-server/package.json"
+
+        # Add version-bumped files (GH #31)
+        if [[ -n "${BUMPED_FILES:-}" ]]; then
+            while IFS= read -r bumped_file; do
+                [[ -f "$bumped_file" ]] && files_to_stage="$files_to_stage $bumped_file"
+            done <<< "$BUMPED_FILES"
+        fi
 
         git add $files_to_stage 2>/dev/null || {
             log_warn "Some files could not be staged (may not exist)"
