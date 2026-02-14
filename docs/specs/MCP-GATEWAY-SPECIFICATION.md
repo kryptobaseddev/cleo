@@ -1,3 +1,7 @@
+> **SUPERSEDED**: This document has been superseded by `docs/specs/MCP-SERVER-SPECIFICATION.md` which defines the canonical 2-tool CQRS gateway architecture (`cleo_query`/`cleo_mutate`). This document described an earlier 8-gateway design that was never deployed. It is retained as historical context only.
+
+---
+
 # CLEO MCP Gateway Specification
 
 **Version**: 1.0.0
