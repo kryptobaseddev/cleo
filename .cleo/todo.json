@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T07:59:58Z",
+  "lastUpdated": "2026-02-14T08:02:40Z",
   "_meta": {
-    "checksum": "fd662b2a3c0ec040",
+    "checksum": "2501e6b2bc08020f",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -983,7 +983,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3269
+    "generation": 3338
   },
   "focus": {
     "currentTask": null,
@@ -4106,7 +4106,7 @@
     {
       "id": "T1417",
       "title": "Test: Integration tests for refactored init.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T1400",
@@ -4121,14 +4121,33 @@
         "integration",
         "testing"
       ],
-      "updatedAt": "2026-01-04T20:54:11Z",
+      "updatedAt": "2026-02-14T08:02:03Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:02:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:02:03Z] CANCELLED: Grandchild of T3013->T1400 (done). Bash integration test subtasks superseded by TS (T4454). Testing intent preserved in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:02:04Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1418",
       "title": "Test: Integration tests for refactored validate.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T1400",
@@ -4143,14 +4162,33 @@
         "testing",
         "validate"
       ],
-      "updatedAt": "2026-01-04T20:54:13Z",
+      "updatedAt": "2026-02-14T08:02:07Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:02:07Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:02:07Z] CANCELLED: Grandchild of T3013->T1400 (done). Bash integration test subtasks superseded by TS (T4454). Testing intent preserved in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:02:07Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1419",
       "title": "Test: Integration tests for refactored upgrade.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T1400",
@@ -4165,14 +4203,33 @@
         "testing",
         "upgrade"
       ],
-      "updatedAt": "2026-01-04T20:54:15Z",
+      "updatedAt": "2026-02-14T08:02:10Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:02:10Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:02:10Z] CANCELLED: Grandchild of T3013->T1400 (done). Bash integration test subtasks superseded by TS (T4454). Testing intent preserved in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:02:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1420",
       "title": "Test: Cross-command consistency verification",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T1400",
@@ -4192,9 +4249,28 @@
         "T1418",
         "T1419"
       ],
-      "updatedAt": "2026-01-04T20:54:18Z",
+      "updatedAt": "2026-02-14T08:02:13Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:02:13Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:02:13Z] CANCELLED: Grandchild of T3013->T1400 (done). Bash integration test subtasks superseded by TS (T4454). Testing intent preserved in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:02:14Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1432",
@@ -6772,12 +6848,27 @@
       "completedAt": "2026-02-14T07:59:58Z",
       "notes": [
         "[COMPLETED 2026-02-14T07:59:58Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2024",
       "title": "Implement exit-codes.ts enum matching lib/exit-codes.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2022",
@@ -6792,14 +6883,33 @@
         "foundation",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:11:04Z",
+      "updatedAt": "2026-02-14T08:00:04Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:04Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:04Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2025",
       "title": "Implement atomic file operations wrapper",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2022",
@@ -6814,14 +6924,33 @@
         "foundation",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:11:07Z",
+      "updatedAt": "2026-02-14T08:00:08Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:08Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:08Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:08Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2026",
       "title": "Create JSON Schema validator using Ajv",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2022",
@@ -6836,14 +6965,33 @@
         "typescript",
         "validation"
       ],
-      "updatedAt": "2026-01-23T06:11:09Z",
+      "updatedAt": "2026-02-14T08:00:11Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:11Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:11Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:12Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2027",
       "title": "Port basic commands: add, list, show",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2022",
@@ -6858,14 +7006,33 @@
         "foundation",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:11:29Z",
+      "updatedAt": "2026-02-14T08:00:15Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:15Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:15Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:16Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2028",
       "title": "Set up Vitest for unit testing",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2022",
@@ -6880,14 +7047,33 @@
         "testing",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:11:31Z",
+      "updatedAt": "2026-02-14T08:00:18Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:18Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:19Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2029",
       "title": "Create BATS compatibility wrapper for TypeScript CLI",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2022",
@@ -6903,14 +7089,33 @@
         "testing",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:11:33Z",
+      "updatedAt": "2026-02-14T08:00:22Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:22Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2030",
       "title": "Implement Zod schemas for CLI input validation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2022",
@@ -6926,9 +7131,28 @@
         "validation",
         "zod"
       ],
-      "updatedAt": "2026-01-23T06:11:36Z",
+      "updatedAt": "2026-02-14T08:00:25Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:25Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 1 (T4455-T4458)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:27Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2032",
@@ -6977,7 +7201,7 @@
     {
       "id": "T2033",
       "title": "Port task lifecycle commands: complete, update, delete",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2032",
@@ -6992,14 +7216,33 @@
         "core",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:12:09Z",
+      "updatedAt": "2026-02-14T08:00:30Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:30Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 2 (T4460-T4463)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2034",
       "title": "Port focus command group",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2032",
@@ -7015,14 +7258,33 @@
         "focus",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:12:12Z",
+      "updatedAt": "2026-02-14T08:00:34Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:34Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 2 (T4460-T4463)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:35Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2035",
       "title": "Port session management commands",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2032",
@@ -7038,14 +7300,33 @@
         "session",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:12:14Z",
+      "updatedAt": "2026-02-14T08:00:38Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:38Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 2 (T4460-T4463)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2036",
       "title": "Implement hierarchy validation and operations",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2032",
@@ -7060,14 +7341,33 @@
         "hierarchy",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:12:17Z",
+      "updatedAt": "2026-02-14T08:00:42Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:42Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:42Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 2 (T4460-T4463)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:44Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2037",
       "title": "Port dependency management commands",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2032",
@@ -7083,9 +7383,28 @@
         "deps",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:12:19Z",
+      "updatedAt": "2026-02-14T08:00:47Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:47Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 2 (T4460-T4463)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2039",
@@ -7134,7 +7453,7 @@
     {
       "id": "T2040",
       "title": "Port phase management commands",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2039",
@@ -7150,14 +7469,33 @@
         "phase",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:12:58Z",
+      "updatedAt": "2026-02-14T08:00:52Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:52Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:52Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:53Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2041",
       "title": "Port analysis and dashboard commands",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2039",
@@ -7173,14 +7511,33 @@
         "commands",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:13:00Z",
+      "updatedAt": "2026-02-14T08:00:56Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:00:56Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:00:56Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:00:57Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2042",
       "title": "Port research commands with manifest validation",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2039",
@@ -7196,14 +7553,33 @@
         "research",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:13:02Z",
+      "updatedAt": "2026-02-14T08:01:00Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:00Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:00Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2043",
       "title": "Implement O(n) dependency graph algorithm",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2039",
@@ -7219,14 +7595,33 @@
         "optimization",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:13:04Z",
+      "updatedAt": "2026-02-14T08:01:04Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:04Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:04Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2044",
       "title": "Port migration system for schema versioning",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2039",
@@ -7241,14 +7636,33 @@
         "migration",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:13:07Z",
+      "updatedAt": "2026-02-14T08:01:11Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:11Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:11Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:12Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2045",
       "title": "Port archive and maintenance commands",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2039",
@@ -7264,14 +7678,33 @@
         "commands",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:13:09Z",
+      "updatedAt": "2026-02-14T08:01:15Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:15Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:15Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:15Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2046",
       "title": "Port export and import commands",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2039",
@@ -7287,14 +7720,33 @@
         "export",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:13:12Z",
+      "updatedAt": "2026-02-14T08:01:18Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:18Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:18Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2047",
       "title": "Port find, exists, and utility commands",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2039",
@@ -7310,14 +7762,33 @@
         "typescript",
         "utility"
       ],
-      "updatedAt": "2026-01-23T06:13:25Z",
+      "updatedAt": "2026-02-14T08:01:21Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:21Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:22Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2048",
       "title": "Port orchestrator and context commands",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2039",
@@ -7333,9 +7804,28 @@
         "orchestrator",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:13:27Z",
+      "updatedAt": "2026-02-14T08:01:24Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:24Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 3 (T4464-T4468)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:25Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2050",
@@ -7384,7 +7874,7 @@
     {
       "id": "T2051",
       "title": "Performance benchmarking and optimization",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2050",
@@ -7399,14 +7889,33 @@
         "polish",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:14:12Z",
+      "updatedAt": "2026-02-14T08:01:27Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:27Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 4 (T4469-T4472)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2052",
       "title": "Implement DEBT-LEDGER.jsonl technical debt tracking",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2050",
@@ -7421,14 +7930,33 @@
         "polish",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:14:14Z",
+      "updatedAt": "2026-02-14T08:01:31Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:31Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 4 (T4469-T4472)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2053",
       "title": "Implement multi-agent compliance protocol",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2050",
@@ -7444,14 +7972,33 @@
         "polish",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:14:16Z",
+      "updatedAt": "2026-02-14T08:01:34Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:34Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 4 (T4469-T4472)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:35Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2054",
       "title": "Create migration guide and documentation",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2050",
@@ -7466,14 +8013,33 @@
         "polish",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:14:19Z",
+      "updatedAt": "2026-02-14T08:01:37Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:37Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:37Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 4 (T4469-T4472)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:38Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2055",
       "title": "Set up parallel release infrastructure",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T2050",
@@ -7488,14 +8054,33 @@
         "release",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:14:21Z",
+      "updatedAt": "2026-02-14T08:01:41Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:41Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:41Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 4 (T4469-T4472)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2056",
       "title": "Migrate BATS tests to Vitest where appropriate",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2050",
@@ -7511,14 +8096,33 @@
         "testing",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:14:23Z",
+      "updatedAt": "2026-02-14T08:01:44Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:44Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:44Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 4 (T4469-T4472)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2057",
       "title": "Implement verification gates system",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T2050",
@@ -7533,9 +8137,28 @@
         "typescript",
         "verification"
       ],
-      "updatedAt": "2026-01-23T06:14:26Z",
+      "updatedAt": "2026-02-14T08:01:47Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T08:01:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:01:47Z] CANCELLED: Grandchild of T2021 (superseded by T4454). Equivalent work redefined under T4454 Phase 4 (T4469-T4472)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:01:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2089",
@@ -7814,12 +8437,12 @@
     {
       "id": "T2158",
       "title": "Integrate changeset capture into complete.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2155",
       "createdAt": "2026-01-23T18:42:48Z",
-      "updatedAt": "2026-01-23T18:43:14Z",
+      "updatedAt": "2026-02-14T08:02:17Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -7844,9 +8467,13 @@
           "documented": null
         },
         "lastAgent": "coder",
-        "lastUpdated": "2026-02-14T07:03:02Z",
+        "lastUpdated": "2026-02-14T08:02:17Z",
         "failureLog": []
-      }
+      },
+      "completedAt": "2026-02-14T08:02:17Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:02:17Z] CANCELLED: Parent T2155 done. Bash changeset capture superseded by TS (T4454)."
+      ]
     },
     {
       "id": "T2159",
@@ -13590,9 +14217,9 @@
       "status": "pending",
       "priority": "high",
       "type": "task",
-      "parentId": "T4325",
+      "parentId": "T4454",
       "createdAt": "2026-02-11T04:51:15Z",
-      "updatedAt": "2026-02-11T04:53:54Z",
+      "updatedAt": "2026-02-14T08:02:38Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -13605,7 +14232,6 @@
       "status": "pending",
       "priority": "medium",
       "type": "task",
-      "parentId": "T4325",
       "createdAt": "2026-02-11T04:51:30Z",
       "updatedAt": "2026-02-11T05:02:23Z",
       "size": "medium",
