@@ -115571,11 +115571,61 @@
         "type": "epic",
         "rootTaskId": "T4498"
       }
+    },
+    {
+      "id": "log_5872c4377f4c",
+      "timestamp": "2026-02-14T09:17:43Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4499"
+      },
+      "after": {
+        "currentTask": "T4499"
+      },
+      "details": null
+    },
+    {
+      "id": "log_aa41be21b2a4",
+      "timestamp": "2026-02-14T09:21:02Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4499",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T09:21:01Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ea9374a469ce",
+      "timestamp": "2026-02-14T09:21:11Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4499"
+      },
+      "after": {
+        "currentTask": "T4500"
+      },
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 5989,
-    "lastEntry": "2026-02-14T09:16:40Z",
+    "totalEntries": 5992,
+    "lastEntry": "2026-02-14T09:21:11Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
