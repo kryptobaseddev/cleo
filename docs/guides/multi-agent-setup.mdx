@@ -120,7 +120,7 @@ cleo install --global --force
 ```
 ~/.cleo/
 ├── docs/
-│   ├── TODO_Task_Management.md       # Full reference
+│   ├── CLEO-INJECTION.md       # Full reference
 │   ├── DOCUMENTATION-MAINTENANCE.md
 │   ├── specs/
 │   └── commands/
@@ -135,7 +135,7 @@ cleo install --global --force
 ```markdown
 <!-- In CLAUDE.md, AGENTS.md, etc. -->
 For full CLEO documentation, see:
-@~/.cleo/docs/TODO_Task_Management.md
+@~/.cleo/templates/CLEO-INJECTION.md
 ```
 
 ### Method 3: Manual Global Setup (Current Workaround)
@@ -150,19 +150,19 @@ mkdir -p ~/.cleo/docs
 cp -r $CLEO_HOME/docs/* ~/.cleo/docs/
 
 # Verify
-ls ~/.cleo/docs/TODO_Task_Management.md
+ls ~/.cleo/templates/CLEO-INJECTION.md
 ```
 
 **Add to your agent config:**
 
 **Claude Code** (CLAUDE.md):
 ```markdown
-Full docs: @~/.cleo/docs/TODO_Task_Management.md
+Full docs: @~/.cleo/templates/CLEO-INJECTION.md
 ```
 
 **Gemini CLI** (GEMINI.md):
 ```markdown
-Complete reference: @~/.cleo/docs/TODO_Task_Management.md
+Complete reference: @~/.cleo/templates/CLEO-INJECTION.md
 ```
 
 **Update when CLEO version changes:**
@@ -217,7 +217,7 @@ uname -r | grep -i microsoft
 # Project Instructions
 
 Full task management docs:
-@~/.cleo/docs/TODO_Task_Management.md
+@~/.cleo/templates/CLEO-INJECTION.md
 
 ## Custom Instructions
 [Your project-specific instructions]
@@ -250,7 +250,7 @@ gemini config set context_file "AI_INSTRUCTIONS.md"
 <!-- GEMINI.md -->
 # Gemini Instructions
 
-Task management: @~/.cleo/docs/TODO_Task_Management.md
+Task management: @~/.cleo/templates/CLEO-INJECTION.md
 
 ## Model Settings
 - temperature: 0.7
@@ -278,7 +278,7 @@ Task management: @~/.cleo/docs/TODO_Task_Management.md
 # Multi-Agent Instructions
 
 This project uses CLEO for task management.
-Full reference: @~/.cleo/docs/TODO_Task_Management.md
+Full reference: @~/.cleo/templates/CLEO-INJECTION.md
 
 ## Quick Reference
 [Minimal command list - full docs in @ reference above]
@@ -409,20 +409,20 @@ ls -la *.md
 ### Agent Can't Read @ References
 
 **Symptoms:**
-- Agent doesn't see `@~/.cleo/docs/TODO_Task_Management.md`
+- Agent doesn't see `@~/.cleo/templates/CLEO-INJECTION.md`
 - "File not found" errors
 
 **Diagnosis:**
 
 ```bash
 # Verify file exists
-ls -la ~/.cleo/docs/TODO_Task_Management.md
+ls -la ~/.cleo/templates/CLEO-INJECTION.md
 
 # Check permissions
 ls -ld ~/.cleo ~/.cleo/docs
 
 # Test from agent's perspective (for Claude Code)
-cat "$(echo @~/.cleo/docs/TODO_Task_Management.md | sed 's/@//')"
+cat "$(echo @~/.cleo/templates/CLEO-INJECTION.md | sed 's/@//')"
 ```
 
 **Fixes:**
