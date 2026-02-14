@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T08:36:16Z",
+  "lastUpdated": "2026-02-14T08:41:24Z",
   "_meta": {
-    "checksum": "dfb4a80b631362be",
+    "checksum": "48479fa6613c442d",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -983,10 +983,10 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3339
+    "generation": 3346
   },
   "focus": {
-    "currentTask": "T4508",
+    "currentTask": null,
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -19089,17 +19089,32 @@
       "completedAt": "2026-02-14T08:36:16Z",
       "notes": [
         "[COMPLETED 2026-02-14T08:36:16Z] Updated operation counts in 4 user-facing docs: README.md (8->10 domains, 111->123 ops), mcp-server.mdx, mcp-quickstart.mdx, mcp-usage-guide.mdx"
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:36:17Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4509",
       "title": "Fix stale operation counts in mcp-server internal docs",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:15:55Z",
-      "updatedAt": "2026-02-14T07:15:55Z",
+      "updatedAt": "2026-02-14T08:38:30Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -19108,17 +19123,36 @@
       "labels": [
         "documentation",
         "drift"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:38:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:38:30Z] Updated 6 mcp-server docs"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:38:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4510",
       "title": "Fix stale gateway headers and test assertions",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:15:56Z",
-      "updatedAt": "2026-02-14T07:15:56Z",
+      "updatedAt": "2026-02-14T08:39:28Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -19128,17 +19162,36 @@
         "documentation",
         "drift",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:39:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:39:28Z] Fixed gateway headers (query.ts 56->63, mutate.ts 51->60), test comment (56->63 in 7->9 domains), types/index.ts (115->123), MCP-SERVER.mdx (98->123)"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:39:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4511",
       "title": "Update MCP-SERVER-SPECIFICATION.md per-domain operation counts",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:16:14Z",
-      "updatedAt": "2026-02-14T07:16:14Z",
+      "updatedAt": "2026-02-14T08:41:24Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -19147,6 +19200,10 @@
       "labels": [
         "documentation",
         "drift"
+      ],
+      "completedAt": "2026-02-14T08:41:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:41:24Z] Full reconciliation of MCP-SERVER-SPECIFICATION.md: updated query (48->63) and mutate (48->60) sections, added issues/skills domains, expanded system ops, added v1.1.0 changelog entry"
       ]
     },
     {
