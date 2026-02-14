@@ -949,9 +949,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T07:01:38Z",
+  "lastUpdated": "2026-02-14T07:05:36Z",
   "_meta": {
-    "checksum": "894cc8d2c34b2dd5",
+    "checksum": "5c2ba2c9e7c76f46",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -960,7 +960,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3102
+    "generation": 3258
   },
   "focus": {
     "currentTask": null,
@@ -1977,7 +1977,7 @@
     {
       "id": "T899",
       "title": "Fix test isolation issues for parallel execution",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T3013",
@@ -1987,20 +1987,37 @@
       "notes": [
         "2025-12-31 08:22:21 UTC: Investigation 2025-12-31: Session enforcement blocking tests. Root cause: common_setup.bash missing multiSession config, session-enforcement.sh defaults to true. Partial fix in v0.41.9 added explicit config. Remaining: verify fix, check default value in session-enforcement.sh line 91, consider separate fixtures for session tests.",
         "2025-12-31 08:22:38 UTC: Investigation 2025-12-31: Session enforcement blocking tests. Root cause: common_setup.bash missing multiSession config, session-enforcement.sh defaults to true (line 91). Partial fix in v0.41.9 added explicit config to test fixtures. Remaining work: verify fix works, consider changing default to false for backward compat, create separate fixtures for session-enabled tests.",
-        "2025-12-31 08:22:48 UTC: DETAILED FINDINGS: 1) lib/session-enforcement.sh:91 uses jq default // true which blocks tests. 2) 411 tests failed before fix. 3) Tests affected: all add/update/complete operations. 4) Fix applied: common_setup.bash now sets multiSession.enabled=false, session.requireSession=false. 5) Need to verify fix and consider if default should be false."
+        "2025-12-31 08:22:48 UTC: DETAILED FINDINGS: 1) lib/session-enforcement.sh:91 uses jq default // true which blocks tests. 2) 411 tests failed before fix. 3) Tests affected: all add/update/complete operations. 4) Fix applied: common_setup.bash now sets multiSession.enabled=false, session.requireSession=false. 5) Need to verify fix and consider if default should be false.",
+        "[COMPLETED 2026-02-14T07:04:18Z] CANCELLED: Parent T3013 done. Bash regression testing superseded by TS. Testing intent in T4498."
       ],
       "size": "medium",
       "labels": [],
       "position": 47,
       "positionVersion": 0,
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T07:04:18Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:04:18Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:19Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T901",
       "title": "Fix 3 remaining legacy common_setup calls",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T3013",
@@ -2012,19 +2029,36 @@
         "migration"
       ],
       "notes": [
-        "2025-12-27 03:36:25 UTC: Files needing fix:\n- tests/unit/edge-cases.bats (line 25): has setup_file() but setup() calls common_setup\n- tests/unit/file-locking.bats: same pattern\n- tests/golden/schema-validation.bats: same pattern\n\nFix: Replace 'common_setup' with 'common_setup_per_test' in each file's setup() function.\n\nPart of T884 Epic (BATS Optimization Phase 2)"
+        "2025-12-27 03:36:25 UTC: Files needing fix:\n- tests/unit/edge-cases.bats (line 25): has setup_file() but setup() calls common_setup\n- tests/unit/file-locking.bats: same pattern\n- tests/golden/schema-validation.bats: same pattern\n\nFix: Replace 'common_setup' with 'common_setup_per_test' in each file's setup() function.\n\nPart of T884 Epic (BATS Optimization Phase 2)",
+        "[COMPLETED 2026-02-14T07:04:21Z] CANCELLED: Parent T3013 done. Bash regression testing superseded by TS. Testing intent in T4498."
       ],
       "size": "medium",
       "position": 48,
       "positionVersion": 0,
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T07:04:21Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:04:21Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:22Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T902",
       "title": "Create static fixtures directory (optional)",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T3013",
@@ -2038,9 +2072,28 @@
       "size": "medium",
       "position": 49,
       "positionVersion": 0,
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T07:04:25Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:04:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:25Z] CANCELLED: Parent T3013 done. Bash regression testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:25Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T903",
@@ -3981,7 +4034,7 @@
     {
       "id": "T1400",
       "title": "Test: Integration tests for multi-file injection",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3013",
@@ -3995,15 +4048,16 @@
         "integration",
         "testing"
       ],
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T07:04:28Z",
       "notes": [
         "2026-01-23 05:32:06 UTC: Linked research: integration-tests-injection-2026-01-22 (Integration Tests for Multi-File Injection)",
         "[COMPLETED 2026-01-23T05:32:13Z] Created tests/integration/injection-workflow.bats with 19 integration tests covering init, upgrade, and validate injection workflows. All tests pass.",
         "[REOPENED 2026-01-26T17:50:48Z] Reason: Epic has pending children | Was completed at: 2026-01-23T05:32:13Z",
-        "2026-01-31 20:28:03 UTC: Removed orphan parent reference T1384 (parent not found in system)"
+        "2026-01-31 20:28:03 UTC: Removed orphan parent reference T1384 (parent not found in system)",
+        "[COMPLETED 2026-02-14T07:04:28Z] CANCELLED: Parent T3013 done. Bash regression testing superseded by TS. Testing intent in T4498."
       ],
       "verification": {
-        "passed": true,
+        "passed": false,
         "round": 0,
         "gates": {
           "implemented": true,
@@ -4014,7 +4068,7 @@
           "documented": null
         },
         "lastAgent": "coder",
-        "lastUpdated": "2026-01-23T05:32:14Z",
+        "lastUpdated": "2026-02-14T07:04:29Z",
         "failureLog": []
       },
       "relates": [
@@ -4023,7 +4077,8 @@
           "type": "relates-to"
         }
       ],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:04:28Z"
     },
     {
       "id": "T1417",
@@ -4608,7 +4663,7 @@
     {
       "id": "T1444",
       "title": "Update text format with truncation hints",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T1441",
@@ -4622,14 +4677,33 @@
         "implementation",
         "text-output"
       ],
-      "updatedAt": "2026-01-04T22:09:50Z",
+      "updatedAt": "2026-02-14T07:01:40Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:40Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:01:40Z] CANCELLED: Parent T1441 done. Bash session list refactor superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1445",
       "title": "Apply default sorting (lastActivity DESC) to session array",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T1441",
@@ -4646,9 +4720,28 @@
       "depends": [
         "T1439"
       ],
-      "updatedAt": "2026-01-04T22:09:53Z",
+      "updatedAt": "2026-02-14T07:01:43Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:43Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:01:43Z] CANCELLED: Parent T1441 done. Bash session list refactor superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:44Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1446",
@@ -4700,7 +4793,7 @@
     {
       "id": "T1447",
       "title": "Fix 'cleo list' command with pagination",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": "T1446",
@@ -4714,14 +4807,33 @@
         "implementation",
         "list-command"
       ],
-      "updatedAt": "2026-01-04T22:10:20Z",
+      "updatedAt": "2026-02-14T07:01:47Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:01:47Z] CANCELLED: Parent T1446 done. Bash list/log/history fixes superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1448",
       "title": "Fix 'cleo log' command with pagination",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T1446",
@@ -4735,14 +4847,33 @@
         "implementation",
         "log-command"
       ],
-      "updatedAt": "2026-01-04T22:10:22Z",
+      "updatedAt": "2026-02-14T07:01:50Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:50Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:01:50Z] CANCELLED: Parent T1446 done. Bash list/log/history fixes superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:51Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1449",
       "title": "Fix 'cleo history' command with pagination",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "subtask",
       "parentId": "T1446",
@@ -4756,9 +4887,28 @@
         "history-command",
         "implementation"
       ],
-      "updatedAt": "2026-01-04T22:10:25Z",
+      "updatedAt": "2026-02-14T07:01:54Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:54Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:01:54Z] CANCELLED: Parent T1446 done. Bash list/log/history fixes superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:54Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1450",
@@ -5475,7 +5625,7 @@
     {
       "id": "T1528",
       "title": "Investigate AGENTS.md context injection integration",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1523",
@@ -5491,16 +5641,33 @@
         "integration"
       ],
       "notes": [
-        "2026-01-06 05:32:34 UTC: Integration requirements: (1) Auto-discovery of available recipes, (2) Recipe descriptions injected to AGENTS.md, (3) Usage examples and parameter docs, (4) Trigger conditions (when should agent use each recipe), (5) Relationship to T1384 multi-file injection system. Consider: dynamic injection on session start, recipe metadata format, categorization."
+        "2026-01-06 05:32:34 UTC: Integration requirements: (1) Auto-discovery of available recipes, (2) Recipe descriptions injected to AGENTS.md, (3) Usage examples and parameter docs, (4) Trigger conditions (when should agent use each recipe), (5) Relationship to T1384 multi-file injection system. Consider: dynamic injection on session start, recipe metadata format, categorization.",
+        "[COMPLETED 2026-02-14T07:01:38Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:32:34Z",
+      "updatedAt": "2026-02-14T07:01:38Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:38Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1529",
       "title": "Evaluate integration gaps (hooks, native reporting)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1523",
@@ -5516,16 +5683,33 @@
         "integration"
       ],
       "notes": [
-        "2026-01-06 05:32:45 UTC: Integration gaps from analysis: (1) No .cleo/hooks directory or hook runner yet (on-commit.sh hypothetical), (2) Archive policies exist but need validation in lib/archive.sh, (3) Native 'cleo report' command doesn't exist (currently manual shell scripts), (4) Recipe execution dependencies. Prioritize: which gaps are blockers vs nice-to-have."
+        "2026-01-06 05:32:45 UTC: Integration gaps from analysis: (1) No .cleo/hooks directory or hook runner yet (on-commit.sh hypothetical), (2) Archive policies exist but need validation in lib/archive.sh, (3) Native 'cleo report' command doesn't exist (currently manual shell scripts), (4) Recipe execution dependencies. Prioritize: which gaps are blockers vs nice-to-have.",
+        "[COMPLETED 2026-02-14T07:01:42Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:32:45Z",
+      "updatedAt": "2026-02-14T07:01:42Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:42Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:42Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1530",
       "title": "Document recipe script candidates from ANALYSIS",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1523",
@@ -5542,7 +5726,8 @@
       ],
       "notes": [
         "2026-01-06 05:32:56 UTC: High-value recipes from analysis: (1) sprint-setup.sh - batch task creation with labels, (2) triage-bugs.sh - bug task creation workflow, (3) standup-report.sh - daily progress report generation, (4) prepare-release.sh - release checklist with dependencies, (5) sprint-cleanup.sh - end-of-sprint archival and reporting. For each: define parameters, cleo commands used, output format, error handling.",
-        "2026-01-06 05:38:47 UTC: HIGH-VALUE RECIPE CANDIDATES - Source: ANALYSIS section 2, WORKFLOWS.md lines 387-608\n\nRECIPE 1: sprint-setup.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Batch task creation for sprint planning\nLogic: Loop over task array, execute 'cleo add' with consistent labels\nExample: SPRINT_LABEL='sprint-12', create 6 tasks with priorities and phases\nCommands: cleo add, cleo list --label\nOutput: Markdown sprint checklist\nFeasibility: HIGH - simple shell loop, no complex dependencies\n\nRECIPE 2: triage-bugs.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Convert bug reports into cleo tasks\nLogic: Parse bug data (CSV/JSON), create tasks with bug label and priority\nCommands: cleo add --priority --labels bug,investigation\nOutput: Table of triaged bugs sorted by priority\nFeasibility: HIGH - standard cleo add wrapper\n\nRECIPE 3: standup-report.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Generate daily standup summary\nLogic: cleo list --status done --since yesterday + active + blocked tasks\nCommands: cleo list --status, cleo stats --period 7\nOutput: Markdown report with 3 sections (yesterday/today/blockers)\nFeasibility: HIGH - cleo list supports --status and date filters\nDependencies: Validate that --since parameter exists in list command\n\nRECIPE 4: prepare-release.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Create release checklist with dependency chain\nLogic: Sequential task creation where Task B depends on Task A\nCommands: cleo add --depends, pipe JSON output to extract task ID\nOutput: Release checklist markdown with ordered tasks\nFeasibility: HIGH - cleo add returns JSON with ID for chaining\nExample chain: version update → tests → changelog → tag → deploy\n\nRECIPE 5: sprint-cleanup.sh (HIGH VALUE / LOW EFFORT)\nPurpose: End-of-sprint reporting and archival\nLogic: Report stats, archive completed, backup, list carry-overs\nCommands: cleo stats, cleo archive, cleo backup, cleo list --label\nOutput: Sprint completion summary with incomplete task carryover\nFeasibility: HIGH - combines multiple existing commands\n\nADVANCED RECIPES (MEDIUM COMPLEXITY):\n6. batch-create.sh - CSV/JSON import for bulk task creation\n7. bulk-update.sh - Pipe cleo list to cleo update for batch modifications\n8. export-integration.sh - Export to GitHub Issues, JIRA, Trello formats\n\nRECIPE TEMPLATE STRUCTURE:\n#!/usr/bin/env bash\n# Recipe: <name>\n# Category: <sprint|release|reporting|bulk>\n# Description: <purpose>\n# Parameters: <name:type:required>\n# Dependencies: <cleo commands used>\n# Author: <author>\n# Version: <semver>\n\n# Metadata validation\n# Parameter parsing\n# Execution logic\n# Error handling\n# Output formatting"
+        "2026-01-06 05:38:47 UTC: HIGH-VALUE RECIPE CANDIDATES - Source: ANALYSIS section 2, WORKFLOWS.md lines 387-608\n\nRECIPE 1: sprint-setup.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Batch task creation for sprint planning\nLogic: Loop over task array, execute 'cleo add' with consistent labels\nExample: SPRINT_LABEL='sprint-12', create 6 tasks with priorities and phases\nCommands: cleo add, cleo list --label\nOutput: Markdown sprint checklist\nFeasibility: HIGH - simple shell loop, no complex dependencies\n\nRECIPE 2: triage-bugs.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Convert bug reports into cleo tasks\nLogic: Parse bug data (CSV/JSON), create tasks with bug label and priority\nCommands: cleo add --priority --labels bug,investigation\nOutput: Table of triaged bugs sorted by priority\nFeasibility: HIGH - standard cleo add wrapper\n\nRECIPE 3: standup-report.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Generate daily standup summary\nLogic: cleo list --status done --since yesterday + active + blocked tasks\nCommands: cleo list --status, cleo stats --period 7\nOutput: Markdown report with 3 sections (yesterday/today/blockers)\nFeasibility: HIGH - cleo list supports --status and date filters\nDependencies: Validate that --since parameter exists in list command\n\nRECIPE 4: prepare-release.sh (HIGH VALUE / LOW EFFORT)\nPurpose: Create release checklist with dependency chain\nLogic: Sequential task creation where Task B depends on Task A\nCommands: cleo add --depends, pipe JSON output to extract task ID\nOutput: Release checklist markdown with ordered tasks\nFeasibility: HIGH - cleo add returns JSON with ID for chaining\nExample chain: version update → tests → changelog → tag → deploy\n\nRECIPE 5: sprint-cleanup.sh (HIGH VALUE / LOW EFFORT)\nPurpose: End-of-sprint reporting and archival\nLogic: Report stats, archive completed, backup, list carry-overs\nCommands: cleo stats, cleo archive, cleo backup, cleo list --label\nOutput: Sprint completion summary with incomplete task carryover\nFeasibility: HIGH - combines multiple existing commands\n\nADVANCED RECIPES (MEDIUM COMPLEXITY):\n6. batch-create.sh - CSV/JSON import for bulk task creation\n7. bulk-update.sh - Pipe cleo list to cleo update for batch modifications\n8. export-integration.sh - Export to GitHub Issues, JIRA, Trello formats\n\nRECIPE TEMPLATE STRUCTURE:\n#!/usr/bin/env bash\n# Recipe: <name>\n# Category: <sprint|release|reporting|bulk>\n# Description: <purpose>\n# Parameters: <name:type:required>\n# Dependencies: <cleo commands used>\n# Author: <author>\n# Version: <semver>\n\n# Metadata validation\n# Parameter parsing\n# Execution logic\n# Error handling\n# Output formatting",
+        "[COMPLETED 2026-02-14T07:01:45Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
       "acceptance": [
         "Document all 5 high-value recipes: sprint-setup",
@@ -5559,14 +5744,30 @@
         "native reporting)",
         "Create recipe template specification for future recipes"
       ],
-      "updatedAt": "2026-01-06T05:32:56Z",
+      "updatedAt": "2026-02-14T07:01:45Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:45Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:46Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1531",
       "title": "Design recipe metadata format and schema",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1523",
@@ -5582,16 +5783,33 @@
         "schema"
       ],
       "notes": [
-        "2026-01-06 05:33:08 UTC: Metadata requirements: (1) Recipe name and description, (2) Required/optional parameters with types and validation, (3) CLEO command dependencies (which commands must exist), (4) Categories/tags for discovery, (5) Version and compatibility info, (6) Usage examples, (7) LLM-friendly documentation. Consider: YAML frontmatter in shell scripts vs separate JSON manifest."
+        "2026-01-06 05:33:08 UTC: Metadata requirements: (1) Recipe name and description, (2) Required/optional parameters with types and validation, (3) CLEO command dependencies (which commands must exist), (4) Categories/tags for discovery, (5) Version and compatibility info, (6) Usage examples, (7) LLM-friendly documentation. Consider: YAML frontmatter in shell scripts vs separate JSON manifest.",
+        "[COMPLETED 2026-02-14T07:01:48Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:33:08Z",
+      "updatedAt": "2026-02-14T07:01:48Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:48Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:49Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1532",
       "title": "Design LLM agent guide system (CLI-accessible)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1523",
@@ -5607,16 +5825,33 @@
         "documentation"
       ],
       "notes": [
-        "2026-01-06 05:33:19 UTC: Guide system requirements from ANALYSIS section 4: (1) Intent - what is the goal, (2) Prerequisites - context/config needed, (3) Steps - exact cleo commands to run, (4) Validation - how to verify success. Guides should be: markdown format, CLI-accessible, structured for parsing, versioned with CLEO. Topics: session workflows, task lifecycle, phase management, dependency chains, archive policies."
+        "2026-01-06 05:33:19 UTC: Guide system requirements from ANALYSIS section 4: (1) Intent - what is the goal, (2) Prerequisites - context/config needed, (3) Steps - exact cleo commands to run, (4) Validation - how to verify success. Guides should be: markdown format, CLI-accessible, structured for parsing, versioned with CLEO. Topics: session workflows, task lifecycle, phase management, dependency chains, archive policies.",
+        "[COMPLETED 2026-02-14T07:01:52Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:33:19Z",
+      "updatedAt": "2026-02-14T07:01:52Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:52Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:52Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1533",
       "title": "Create comprehensive recipes system specification",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1523",
@@ -5633,16 +5868,33 @@
       ],
       "notes": [
         "2026-01-06 05:33:33 UTC: Specification sections: (1) System overview and objectives, (2) Architecture diagram, (3) Recipe metadata schema, (4) Directory structure and discovery, (5) Security and validation model, (6) CLI command design, (7) Agent integration protocol, (8) LLM guide system, (9) Implementation phases (planning → core → testing → polish), (10) Success criteria and acceptance tests. Output: claudedocs/specs/RECIPES-SYSTEM-SPEC.md",
-        "2026-01-06 05:41:22 UTC: COMPREHENSIVE SPECIFICATION CONSOLIDATION - All research tasks feed into this deliverable\n\nDOCUMENT STRUCTURE (claudedocs/specs/RECIPES-SYSTEM-SPEC.md):\n\n1. SYSTEM OVERVIEW AND OBJECTIVES\n   - Agent-First design philosophy\n   - Multi-step workflow automation via single commands\n   - Integration with existing CLEO architecture\n\n2. ARCHITECTURE DIAGRAM\n   - Recipe directory structure (3-tier: project/user/system)\n   - Discovery and loading pipeline\n   - Execution engine with wave-based scheduling\n   - Integration points with T1062, T1165, T1114, T1384\n\n3. RECIPE METADATA SCHEMA\n   - JSON schema for recipe manifest\n   - YAML frontmatter specification\n   - Parameter type system and validation\n   - Category/tag taxonomy\n\n4. DIRECTORY STRUCTURE AND DISCOVERY\n   - .cleo/recipes/ (project-local)\n   - ~/.cleo/recipes/ (global user)\n   - /usr/local/share/cleo/recipes/ (system)\n   - Manifest caching and auto-discovery\n   - Naming conventions and organization\n\n5. SECURITY AND VALIDATION MODEL\n   - Threat model (LLM-generated, downloaded, modified recipes)\n   - 3-tier security (input validation, execution controls, sandboxing)\n   - Approval workflows (auto-approve, prompt, block)\n   - Checksum verification and GPG signing\n\n6. CLI COMMAND DESIGN\n   - cleo recipe list [--category <cat>]\n   - cleo recipe show <name>\n   - cleo recipe run <name> [--dry-run] [params...]\n   - cleo recipe validate <name>\n   - cleo recipe install <source>\n   - Integration with existing cleo commands\n\n7. AGENT INTEGRATION PROTOCOL\n   - T1384 multi-file injection integration\n   - AGENTS.md recipe advertisement\n   - Dynamic discovery on session start\n   - Trigger condition specification\n   - Usage examples in agent docs\n\n8. LLM GUIDE SYSTEM\n   - cleo guides list\n   - cleo guides show <topic>\n   - Structured markdown format (Intent/Prerequisites/Steps/Validation)\n   - CLI-accessible guide storage (docs/guides/)\n   - Version alignment with CLEO\n\n9. EXECUTION ARCHITECTURE\n   - Position system integration (T805)\n   - Wave-based dependency management\n   - Verification gates (T1150 integration)\n   - Multi-agent parallelization strategy\n   - Critical path optimization\n   - Error handling and rollback\n\n10. IMPLEMENTATION PHASES\n    - Phase 1 (setup): Research and design (THIS EPIC)\n    - Phase 2 (core): Recipe engine, CLI, security\n    - Phase 3 (testing): Validation, verification, integration tests\n    - Phase 4 (polish): Documentation, LLM guides, examples\n\n11. CROSS-EPIC COORDINATION\n    - T1062: Orchestration platform integration\n    - T1165: Release command coordination\n    - T1114: Git workflow pattern reuse\n    - T1384: Injection system integration\n\n12. SUCCESS CRITERIA AND ACCEPTANCE TESTS\n    - 5 high-value recipes implemented and tested\n    - Security validation passes all threat scenarios\n    - LLM agents can discover and execute recipes\n    - Integration tests with T1062, T1165, T1384\n    - Documentation complete and injected\n    - Performance benchmarks met (wave execution, parallelization)\n\nINPUTS FROM RESEARCH TASKS:\n- T1524: Validated vs hypothetical features matrix\n- T1525: Directory structure and discovery mechanism\n- T1526: Security threat model and controls\n- T1527: CLI command syntax and UX\n- T1528: AGENTS.md injection integration\n- T1529: Integration gaps (hooks, reporting)\n- T1530: 5 high-value recipe specifications\n- T1531: Recipe metadata schema\n- T1532: LLM guide system design\n- T1534: Position system integration\n- T1535: Verification gates design\n- T1536: Cross-epic coordination patterns\n- T1537: Wave-based dependency management\n- T1538: Execution strategy and parallelization\n\nOUTPUT: Single unified specification document ready for planning phase"
+        "2026-01-06 05:41:22 UTC: COMPREHENSIVE SPECIFICATION CONSOLIDATION - All research tasks feed into this deliverable\n\nDOCUMENT STRUCTURE (claudedocs/specs/RECIPES-SYSTEM-SPEC.md):\n\n1. SYSTEM OVERVIEW AND OBJECTIVES\n   - Agent-First design philosophy\n   - Multi-step workflow automation via single commands\n   - Integration with existing CLEO architecture\n\n2. ARCHITECTURE DIAGRAM\n   - Recipe directory structure (3-tier: project/user/system)\n   - Discovery and loading pipeline\n   - Execution engine with wave-based scheduling\n   - Integration points with T1062, T1165, T1114, T1384\n\n3. RECIPE METADATA SCHEMA\n   - JSON schema for recipe manifest\n   - YAML frontmatter specification\n   - Parameter type system and validation\n   - Category/tag taxonomy\n\n4. DIRECTORY STRUCTURE AND DISCOVERY\n   - .cleo/recipes/ (project-local)\n   - ~/.cleo/recipes/ (global user)\n   - /usr/local/share/cleo/recipes/ (system)\n   - Manifest caching and auto-discovery\n   - Naming conventions and organization\n\n5. SECURITY AND VALIDATION MODEL\n   - Threat model (LLM-generated, downloaded, modified recipes)\n   - 3-tier security (input validation, execution controls, sandboxing)\n   - Approval workflows (auto-approve, prompt, block)\n   - Checksum verification and GPG signing\n\n6. CLI COMMAND DESIGN\n   - cleo recipe list [--category <cat>]\n   - cleo recipe show <name>\n   - cleo recipe run <name> [--dry-run] [params...]\n   - cleo recipe validate <name>\n   - cleo recipe install <source>\n   - Integration with existing cleo commands\n\n7. AGENT INTEGRATION PROTOCOL\n   - T1384 multi-file injection integration\n   - AGENTS.md recipe advertisement\n   - Dynamic discovery on session start\n   - Trigger condition specification\n   - Usage examples in agent docs\n\n8. LLM GUIDE SYSTEM\n   - cleo guides list\n   - cleo guides show <topic>\n   - Structured markdown format (Intent/Prerequisites/Steps/Validation)\n   - CLI-accessible guide storage (docs/guides/)\n   - Version alignment with CLEO\n\n9. EXECUTION ARCHITECTURE\n   - Position system integration (T805)\n   - Wave-based dependency management\n   - Verification gates (T1150 integration)\n   - Multi-agent parallelization strategy\n   - Critical path optimization\n   - Error handling and rollback\n\n10. IMPLEMENTATION PHASES\n    - Phase 1 (setup): Research and design (THIS EPIC)\n    - Phase 2 (core): Recipe engine, CLI, security\n    - Phase 3 (testing): Validation, verification, integration tests\n    - Phase 4 (polish): Documentation, LLM guides, examples\n\n11. CROSS-EPIC COORDINATION\n    - T1062: Orchestration platform integration\n    - T1165: Release command coordination\n    - T1114: Git workflow pattern reuse\n    - T1384: Injection system integration\n\n12. SUCCESS CRITERIA AND ACCEPTANCE TESTS\n    - 5 high-value recipes implemented and tested\n    - Security validation passes all threat scenarios\n    - LLM agents can discover and execute recipes\n    - Integration tests with T1062, T1165, T1384\n    - Documentation complete and injected\n    - Performance benchmarks met (wave execution, parallelization)\n\nINPUTS FROM RESEARCH TASKS:\n- T1524: Validated vs hypothetical features matrix\n- T1525: Directory structure and discovery mechanism\n- T1526: Security threat model and controls\n- T1527: CLI command syntax and UX\n- T1528: AGENTS.md injection integration\n- T1529: Integration gaps (hooks, reporting)\n- T1530: 5 high-value recipe specifications\n- T1531: Recipe metadata schema\n- T1532: LLM guide system design\n- T1534: Position system integration\n- T1535: Verification gates design\n- T1536: Cross-epic coordination patterns\n- T1537: Wave-based dependency management\n- T1538: Execution strategy and parallelization\n\nOUTPUT: Single unified specification document ready for planning phase",
+        "[COMPLETED 2026-02-14T07:01:55Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:33:33Z",
+      "updatedAt": "2026-02-14T07:01:55Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:55Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:56Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1534",
       "title": "Research position system integration for recipe execution ordering",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1523",
@@ -5658,16 +5910,33 @@
         "position-system"
       ],
       "notes": [
-        "2026-01-06 05:39:10 UTC: POSITION SYSTEM CONTEXT - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Part 3\n\nT805 CAPABILITIES (complete):\n- Schema v2.6.0: position (integer, min 1) + positionVersion (conflict detection)\n- Scope: Per-parent (sibling ordering, not global)\n- Commands: cleo reorder <id> --position N, --before <id>, --after <id>, cleo swap\n- Auto-assignment: New tasks get position = max + 1 within sibling group\n\nRECIPE INTEGRATION USE CASES:\n1. Sprint workflow: setup → planning → execution → review → cleanup\n   - No dependencies between phases, but order matters\n   - Position enforces sequence without artificial blocking\n\n2. Release pipeline: build → test → stage → prod\n   - Can run in parallel if resources available\n   - Position shows recommended order for serial execution\n\n3. Daily standup: yesterday → today → blockers → stats\n   - Independent recipe sections\n   - Position maintains consistent report structure\n\nDESIGN QUESTIONS:\n- Should recipes define execution position in metadata?\n- Can recipes reorder themselves dynamically based on context?\n- How to handle position conflicts when recipes from different sources merge?\n- Integration with wave computation (position within wave)?\n\nREFERENCE: WORKFLOWS.md lines 162-197 (positional ordering strategy)"
+        "2026-01-06 05:39:10 UTC: POSITION SYSTEM CONTEXT - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Part 3\n\nT805 CAPABILITIES (complete):\n- Schema v2.6.0: position (integer, min 1) + positionVersion (conflict detection)\n- Scope: Per-parent (sibling ordering, not global)\n- Commands: cleo reorder <id> --position N, --before <id>, --after <id>, cleo swap\n- Auto-assignment: New tasks get position = max + 1 within sibling group\n\nRECIPE INTEGRATION USE CASES:\n1. Sprint workflow: setup → planning → execution → review → cleanup\n   - No dependencies between phases, but order matters\n   - Position enforces sequence without artificial blocking\n\n2. Release pipeline: build → test → stage → prod\n   - Can run in parallel if resources available\n   - Position shows recommended order for serial execution\n\n3. Daily standup: yesterday → today → blockers → stats\n   - Independent recipe sections\n   - Position maintains consistent report structure\n\nDESIGN QUESTIONS:\n- Should recipes define execution position in metadata?\n- Can recipes reorder themselves dynamically based on context?\n- How to handle position conflicts when recipes from different sources merge?\n- Integration with wave computation (position within wave)?\n\nREFERENCE: WORKFLOWS.md lines 162-197 (positional ordering strategy)",
+        "[COMPLETED 2026-02-14T07:01:58Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:39:10Z",
+      "updatedAt": "2026-02-14T07:01:58Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:01:58Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:01:59Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1535",
       "title": "Design verification gates for recipe quality assurance",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1523",
@@ -5683,16 +5952,33 @@
         "verification"
       ],
       "notes": [
-        "2026-01-06 05:39:29 UTC: VERIFICATION ARCHITECTURE - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Part 4\n\nT1150 VERIFICATION SCHEMA (implemented):\nGates: implemented, testsPassed, qaPassed, securityPassed, documented\nObject: verification.passed (boolean), round (integer), lastAgent, failureLog\nAuto-set: 'cleo complete' sets implemented=true\nManual: 'cleo verify <id> --gate testsPassed'\n\nRECIPE VERIFICATION GATES (proposed):\n1. recipeValidated - Recipe metadata and structure valid\n2. parametersChecked - All required parameters provided and valid\n3. dryRunPassed - Dry-run execution completed without errors\n4. executionSuccess - Actual execution completed successfully\n5. outputValidated - Output format matches specification\n\nWORKFLOW INTEGRATION:\nRecipe execution pipeline:\n1. Load recipe → validate metadata → recipeValidated=true\n2. Parse parameters → validate types → parametersChecked=true  \n3. Execute dry-run → check for errors → dryRunPassed=true\n4. Prompt user approval (if required)\n5. Execute recipe → monitor exit codes → executionSuccess=true\n6. Validate output format → outputValidated=true\n→ verification.passed = true (all gates set)\n\nPARENT AUTO-COMPLETE INTEGRATION:\nconfig.json: verification.requireForParentAutoComplete: true\nMulti-recipe workflows cannot complete until all recipe tasks verified\nPrevents premature workflow completion\n\nREFERENCE IMPLEMENTATION:\n- lib/verification.sh functions\n- Exit codes 40-47 for verification errors\n- T1154-T1162 implementation tasks"
+        "2026-01-06 05:39:29 UTC: VERIFICATION ARCHITECTURE - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Part 4\n\nT1150 VERIFICATION SCHEMA (implemented):\nGates: implemented, testsPassed, qaPassed, securityPassed, documented\nObject: verification.passed (boolean), round (integer), lastAgent, failureLog\nAuto-set: 'cleo complete' sets implemented=true\nManual: 'cleo verify <id> --gate testsPassed'\n\nRECIPE VERIFICATION GATES (proposed):\n1. recipeValidated - Recipe metadata and structure valid\n2. parametersChecked - All required parameters provided and valid\n3. dryRunPassed - Dry-run execution completed without errors\n4. executionSuccess - Actual execution completed successfully\n5. outputValidated - Output format matches specification\n\nWORKFLOW INTEGRATION:\nRecipe execution pipeline:\n1. Load recipe → validate metadata → recipeValidated=true\n2. Parse parameters → validate types → parametersChecked=true  \n3. Execute dry-run → check for errors → dryRunPassed=true\n4. Prompt user approval (if required)\n5. Execute recipe → monitor exit codes → executionSuccess=true\n6. Validate output format → outputValidated=true\n→ verification.passed = true (all gates set)\n\nPARENT AUTO-COMPLETE INTEGRATION:\nconfig.json: verification.requireForParentAutoComplete: true\nMulti-recipe workflows cannot complete until all recipe tasks verified\nPrevents premature workflow completion\n\nREFERENCE IMPLEMENTATION:\n- lib/verification.sh functions\n- Exit codes 40-47 for verification errors\n- T1154-T1162 implementation tasks",
+        "[COMPLETED 2026-02-14T07:02:01Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:39:29Z",
+      "updatedAt": "2026-02-14T07:02:01Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:01Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:02Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1536",
       "title": "Evaluate cross-epic recipe coordination patterns",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1523",
@@ -5708,16 +5994,33 @@
         "integration"
       ],
       "notes": [
-        "2026-01-06 05:39:55 UTC: CROSS-EPIC COORDINATION - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Parts 2, 5\n\nRELATED EPIC ANALYSIS:\n\nT1062: CLEO Orchestration Platform (20 tasks, Wave 0-8)\n- ReleasePipeline implementation (stage codes 50-59)\n- Python-based orchestration with DuckDB\n- Subagent spawning and monitoring\n- DEPENDENCY: Recipe system may use orchestration for complex workflows\n- CONFLICT: Recipes vs orchestration - when to use which?\n- INTEGRATION POINT: Recipes can trigger orchestration pipelines\n\nT1165: Automated Roadmap Generation (6 tasks, 2 done)\n- Release commands: cleo release create/plan/ship\n- Changelog generation\n- CONFLICT: T1165 release commands vs recipe release workflows\n- COORDINATION: Release recipes should align with cleo release syntax\n- INTEGRATION: prepare-release.sh recipe uses cleo release commands\n\nT1114: Git Workflow Orchestration (16 tasks, Wave 0-3)\n- Bash prototype for orchestration patterns\n- CLEO_SESSION env var implementation\n- tmux-based agent spawning\n- DEPENDENCY: T1062 depends on T1114 completing (validates patterns)\n- INTEGRATION: Recipes can use git workflow patterns from T1114\n\nT1384: Multi-File LLM Agent Instruction Injection (29 tasks, 3 pending)\n- Auto-injection to CLAUDE.md, AGENTS.md, GEMINI.md\n- Registry-based auto-discovery\n- CRITICAL: Recipes MUST integrate with injection system\n- INTEGRATION: Available recipes injected to agent docs on session start\n- DISCOVERY: Agents need to know what recipes exist (see T1528)\n\nCOORDINATION REQUIREMENTS:\n1. Recipe metadata format must support orchestration integration\n2. Release recipes coordinate with T1165 release commands\n3. Git workflow recipes use T1114 patterns\n4. Recipe discovery integrates with T1384 injection system\n5. Avoid duplicate functionality (recipes vs native commands)\n\nDEPENDENCY RECOMMENDATIONS (from ANALYSIS Part 5.1):\n- T1523 (Recipes) should consider T1062 orchestration architecture\n- Recipe CLI design (T1527) should review T1165 release commands\n- Recipe AGENTS.md integration (T1528) MUST align with T1384\n\nCROSS-REFERENCE NOTES TO ADD:\n- T1062: 'Review T1523 recipe system before implementing pipelines'\n- T1165: 'Coordinate with T1523 release recipes for command alignment'\n- T1384: 'Recipe discovery must integrate with injection system'"
+        "2026-01-06 05:39:55 UTC: CROSS-EPIC COORDINATION - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Parts 2, 5\n\nRELATED EPIC ANALYSIS:\n\nT1062: CLEO Orchestration Platform (20 tasks, Wave 0-8)\n- ReleasePipeline implementation (stage codes 50-59)\n- Python-based orchestration with DuckDB\n- Subagent spawning and monitoring\n- DEPENDENCY: Recipe system may use orchestration for complex workflows\n- CONFLICT: Recipes vs orchestration - when to use which?\n- INTEGRATION POINT: Recipes can trigger orchestration pipelines\n\nT1165: Automated Roadmap Generation (6 tasks, 2 done)\n- Release commands: cleo release create/plan/ship\n- Changelog generation\n- CONFLICT: T1165 release commands vs recipe release workflows\n- COORDINATION: Release recipes should align with cleo release syntax\n- INTEGRATION: prepare-release.sh recipe uses cleo release commands\n\nT1114: Git Workflow Orchestration (16 tasks, Wave 0-3)\n- Bash prototype for orchestration patterns\n- CLEO_SESSION env var implementation\n- tmux-based agent spawning\n- DEPENDENCY: T1062 depends on T1114 completing (validates patterns)\n- INTEGRATION: Recipes can use git workflow patterns from T1114\n\nT1384: Multi-File LLM Agent Instruction Injection (29 tasks, 3 pending)\n- Auto-injection to CLAUDE.md, AGENTS.md, GEMINI.md\n- Registry-based auto-discovery\n- CRITICAL: Recipes MUST integrate with injection system\n- INTEGRATION: Available recipes injected to agent docs on session start\n- DISCOVERY: Agents need to know what recipes exist (see T1528)\n\nCOORDINATION REQUIREMENTS:\n1. Recipe metadata format must support orchestration integration\n2. Release recipes coordinate with T1165 release commands\n3. Git workflow recipes use T1114 patterns\n4. Recipe discovery integrates with T1384 injection system\n5. Avoid duplicate functionality (recipes vs native commands)\n\nDEPENDENCY RECOMMENDATIONS (from ANALYSIS Part 5.1):\n- T1523 (Recipes) should consider T1062 orchestration architecture\n- Recipe CLI design (T1527) should review T1165 release commands\n- Recipe AGENTS.md integration (T1528) MUST align with T1384\n\nCROSS-REFERENCE NOTES TO ADD:\n- T1062: 'Review T1523 recipe system before implementing pipelines'\n- T1165: 'Coordinate with T1523 release recipes for command alignment'\n- T1384: 'Recipe discovery must integrate with injection system'",
+        "[COMPLETED 2026-02-14T07:02:05Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:39:55Z",
+      "updatedAt": "2026-02-14T07:02:05Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:05Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:05Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1537",
       "title": "Design wave-based recipe dependency management",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1523",
@@ -5733,16 +6036,33 @@
         "waves"
       ],
       "notes": [
-        "2026-01-06 05:40:21 UTC: WAVE COMPUTATION ARCHITECTURE - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Parts 1, 8\n\nWAVE ALGORITHM (from TASK-HIERARCHY-SPEC Part 6):\nwave(task) = max(deps.filter(d => d.status != 'done').map(d => wave(d))) + 1\nwave(task with no active deps) = 0\n\nSCOPE FILTERING:\n- Dependencies INSIDE scope: Affect wave computation\n- Dependencies OUTSIDE scope but done: Treated as satisfied\n- Dependencies OUTSIDE scope but NOT done: Task is BLOCKED (not in waves)\n\nRECIPE WAVE USE CASES:\n\nExample: Release Pipeline Recipe\nWave 0: version-update, changelog-draft (parallel - no deps)\nWave 1: run-tests (depends on version-update)\nWave 2: build-artifacts (depends on run-tests)\nWave 3: deploy-staging (depends on build-artifacts)\nWave 4: qa-approval (depends on deploy-staging)\nWave 5: deploy-production (depends on qa-approval)\n\nExample: Sprint Setup Recipe\nWave 0: create-epic, setup-labels (parallel - no deps)\nWave 1: create-feature-tasks (depends on epic)\nWave 2: create-test-tasks (depends on feature tasks)\nWave 3: generate-sprint-board (depends on all tasks)\n\nRECIPE DEPENDENCY DECLARATION:\nOption A: Recipe metadata declares dependencies on other recipes\n{\n  \"dependencies\": [\"setup-epic\", \"configure-labels\"],\n  \"outputs\": [\"EPIC_ID\", \"SPRINT_LABEL\"]\n}\n\nOption B: Recipe tasks created with explicit dependencies\nRecipe creates tasks T001, T002\nNext recipe uses --depends T001,T002\n\nPARALLELIZATION OPPORTUNITIES:\n- Wave 0 recipes can execute in parallel (no dependencies)\n- Within-wave parallelization if recipes independent\n- Agent assignment strategy (Agent 1: Wave 0 task A, Agent 2: Wave 0 task B)\n\nCRITICAL PATH ANALYSIS:\n- Longest path from Wave 0 → final wave\n- Identify bottleneck recipes that gate subsequent waves\n- Optimization: Minimize critical path by reordering non-dependent recipes\n\nREFERENCE: ANALYSIS Part 6 (Execution Strategy)"
+        "2026-01-06 05:40:21 UTC: WAVE COMPUTATION ARCHITECTURE - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Parts 1, 8\n\nWAVE ALGORITHM (from TASK-HIERARCHY-SPEC Part 6):\nwave(task) = max(deps.filter(d => d.status != 'done').map(d => wave(d))) + 1\nwave(task with no active deps) = 0\n\nSCOPE FILTERING:\n- Dependencies INSIDE scope: Affect wave computation\n- Dependencies OUTSIDE scope but done: Treated as satisfied\n- Dependencies OUTSIDE scope but NOT done: Task is BLOCKED (not in waves)\n\nRECIPE WAVE USE CASES:\n\nExample: Release Pipeline Recipe\nWave 0: version-update, changelog-draft (parallel - no deps)\nWave 1: run-tests (depends on version-update)\nWave 2: build-artifacts (depends on run-tests)\nWave 3: deploy-staging (depends on build-artifacts)\nWave 4: qa-approval (depends on deploy-staging)\nWave 5: deploy-production (depends on qa-approval)\n\nExample: Sprint Setup Recipe\nWave 0: create-epic, setup-labels (parallel - no deps)\nWave 1: create-feature-tasks (depends on epic)\nWave 2: create-test-tasks (depends on feature tasks)\nWave 3: generate-sprint-board (depends on all tasks)\n\nRECIPE DEPENDENCY DECLARATION:\nOption A: Recipe metadata declares dependencies on other recipes\n{\n  \"dependencies\": [\"setup-epic\", \"configure-labels\"],\n  \"outputs\": [\"EPIC_ID\", \"SPRINT_LABEL\"]\n}\n\nOption B: Recipe tasks created with explicit dependencies\nRecipe creates tasks T001, T002\nNext recipe uses --depends T001,T002\n\nPARALLELIZATION OPPORTUNITIES:\n- Wave 0 recipes can execute in parallel (no dependencies)\n- Within-wave parallelization if recipes independent\n- Agent assignment strategy (Agent 1: Wave 0 task A, Agent 2: Wave 0 task B)\n\nCRITICAL PATH ANALYSIS:\n- Longest path from Wave 0 → final wave\n- Identify bottleneck recipes that gate subsequent waves\n- Optimization: Minimize critical path by reordering non-dependent recipes\n\nREFERENCE: ANALYSIS Part 6 (Execution Strategy)",
+        "[COMPLETED 2026-02-14T07:02:08Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:40:21Z",
+      "updatedAt": "2026-02-14T07:02:08Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:08Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:08Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1538",
       "title": "Create recipe execution strategy and parallelization model",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T1523",
@@ -5758,11 +6078,28 @@
         "performance"
       ],
       "notes": [
-        "2026-01-06 05:40:51 UTC: EXECUTION STRATEGY - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Part 6\n\nPARALLELIZATION OPPORTUNITIES:\n\nWave 0 Execution (Ready Tasks):\n- Multiple recipes with no dependencies can execute in parallel\n- Agent assignment: distribute across available LLM agents\n- Resource limits: max concurrent recipe executions (configurable)\n- Example: 4 Wave 0 recipes → 4 agents in parallel\n\nParallel Group Patterns:\nGroup A (Research): Read-only recipes, can parallelize freely\nGroup B (Creation): Write recipes, need coordination to avoid conflicts\nGroup C (Subtasks): Independent recipe components, full parallelization\n\nAGENT ASSIGNMENT STRATEGY:\n\nPriority-based assignment:\nAgent 1: High-priority recipe (gates next wave)\nAgent 2: Medium-priority research recipe (parallel)\nAgent 3: Low-priority subtask (fills capacity)\nAgent 4: Standby (picks up next ready recipe)\n\nSession-aware assignment:\n- Each agent gets dedicated session scope\n- Session isolation prevents task conflicts\n- Multi-session v0.41.0+ supports concurrent agents\n\nLoad balancing:\n- Distribute wave tasks across agents evenly\n- Consider recipe size estimates (small/medium/large)\n- Avoid agent starvation (ensure work distribution)\n\nCRITICAL PATH ANALYSIS:\n\nIdentify bottleneck recipes:\n- Longest sequential chain from start to completion\n- Recipes that gate multiple downstream recipes\n- Optimization: prioritize critical path recipes\n\nExample Critical Path:\ncreate-epic (Wave 0) → create-tasks (Wave 1) → setup-deps (Wave 2) → finalize (Wave 3)\nLength: 4 waves\nBottleneck: create-epic (gates entire workflow)\nOptimization: Execute create-epic with highest priority agent\n\nERROR HANDLING AND ROLLBACK:\n\nRecipe failure modes:\n1. Validation failure (Wave 0) - BLOCK: Don't execute, report errors\n2. Execution failure (mid-recipe) - ROLLBACK: Undo partial changes\n3. Verification failure (post-execution) - RETRY: Fix and re-run\n4. Timeout - SUSPEND: Save state, resume later\n\nRollback strategies:\n- Safety backups before destructive recipes\n- Transaction log for recipe operations\n- Undo script generation for reversible recipes\n- Manual intervention for complex failures\n\nRESOURCE MANAGEMENT:\n\nConcurrent execution limits:\n- Max parallel agents (configurable per project)\n- Max parallel recipes per wave\n- Resource reservation (filesystem locks, API rate limits)\n\nContext window management:\n- Monitor LLM context usage per agent\n- Graceful degradation when approaching limits\n- Recipe result caching to reduce context\n\nPerformance optimization:\n- Recipe result memoization (avoid re-execution)\n- Dry-run caching (skip if recipe unchanged)\n- Incremental execution (resume from checkpoints)\n\nCOORDINATION PROTOCOLS:\n\nInter-agent communication:\n- Shared state via .cleo/*.json files\n- Lock files for write coordination\n- Event notifications for recipe completion\n\nWave synchronization:\n- All Wave N recipes must complete before Wave N+1 starts\n- Barrier pattern: wait for all parallel recipes\n- Timeout handling: proceed with partial completion or abort\n\nREFERENCE:\n- ANALYSIS Part 6.1: Parallelization Opportunities\n- ANALYSIS Part 6.2: Critical Path Analysis\n- Multi-session architecture from T1062"
+        "2026-01-06 05:40:51 UTC: EXECUTION STRATEGY - Source: ANALYSIS-TASK-DEPENDENCY-ARCHITECTURE.md Part 6\n\nPARALLELIZATION OPPORTUNITIES:\n\nWave 0 Execution (Ready Tasks):\n- Multiple recipes with no dependencies can execute in parallel\n- Agent assignment: distribute across available LLM agents\n- Resource limits: max concurrent recipe executions (configurable)\n- Example: 4 Wave 0 recipes → 4 agents in parallel\n\nParallel Group Patterns:\nGroup A (Research): Read-only recipes, can parallelize freely\nGroup B (Creation): Write recipes, need coordination to avoid conflicts\nGroup C (Subtasks): Independent recipe components, full parallelization\n\nAGENT ASSIGNMENT STRATEGY:\n\nPriority-based assignment:\nAgent 1: High-priority recipe (gates next wave)\nAgent 2: Medium-priority research recipe (parallel)\nAgent 3: Low-priority subtask (fills capacity)\nAgent 4: Standby (picks up next ready recipe)\n\nSession-aware assignment:\n- Each agent gets dedicated session scope\n- Session isolation prevents task conflicts\n- Multi-session v0.41.0+ supports concurrent agents\n\nLoad balancing:\n- Distribute wave tasks across agents evenly\n- Consider recipe size estimates (small/medium/large)\n- Avoid agent starvation (ensure work distribution)\n\nCRITICAL PATH ANALYSIS:\n\nIdentify bottleneck recipes:\n- Longest sequential chain from start to completion\n- Recipes that gate multiple downstream recipes\n- Optimization: prioritize critical path recipes\n\nExample Critical Path:\ncreate-epic (Wave 0) → create-tasks (Wave 1) → setup-deps (Wave 2) → finalize (Wave 3)\nLength: 4 waves\nBottleneck: create-epic (gates entire workflow)\nOptimization: Execute create-epic with highest priority agent\n\nERROR HANDLING AND ROLLBACK:\n\nRecipe failure modes:\n1. Validation failure (Wave 0) - BLOCK: Don't execute, report errors\n2. Execution failure (mid-recipe) - ROLLBACK: Undo partial changes\n3. Verification failure (post-execution) - RETRY: Fix and re-run\n4. Timeout - SUSPEND: Save state, resume later\n\nRollback strategies:\n- Safety backups before destructive recipes\n- Transaction log for recipe operations\n- Undo script generation for reversible recipes\n- Manual intervention for complex failures\n\nRESOURCE MANAGEMENT:\n\nConcurrent execution limits:\n- Max parallel agents (configurable per project)\n- Max parallel recipes per wave\n- Resource reservation (filesystem locks, API rate limits)\n\nContext window management:\n- Monitor LLM context usage per agent\n- Graceful degradation when approaching limits\n- Recipe result caching to reduce context\n\nPerformance optimization:\n- Recipe result memoization (avoid re-execution)\n- Dry-run caching (skip if recipe unchanged)\n- Incremental execution (resume from checkpoints)\n\nCOORDINATION PROTOCOLS:\n\nInter-agent communication:\n- Shared state via .cleo/*.json files\n- Lock files for write coordination\n- Event notifications for recipe completion\n\nWave synchronization:\n- All Wave N recipes must complete before Wave N+1 starts\n- Barrier pattern: wait for all parallel recipes\n- Timeout handling: proceed with partial completion or abort\n\nREFERENCE:\n- ANALYSIS Part 6.1: Parallelization Opportunities\n- ANALYSIS Part 6.2: Critical Path Analysis\n- Multi-session architecture from T1062",
+        "[COMPLETED 2026-02-14T07:02:11Z] CANCELLED: Parent T1523 done. Bash workflow recipes superseded by TS (T4454)."
       ],
-      "updatedAt": "2026-01-06T05:40:51Z",
+      "updatedAt": "2026-02-14T07:02:11Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:11Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:11Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1610",
@@ -6350,7 +6687,7 @@
     {
       "id": "T2022",
       "title": "Phase 1: Foundation - TypeScript Project Setup",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2021",
@@ -6365,9 +6702,28 @@
         "phase1",
         "typescript"
       ],
-      "updatedAt": "2026-01-23T06:10:41Z",
+      "updatedAt": "2026-02-14T07:02:38Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:38Z] CANCELLED: Parent T2021 superseded by T4454 (V2 LAFS-native TS). All phases redefined under T4454."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2023",
@@ -6550,7 +6906,7 @@
     {
       "id": "T2032",
       "title": "Phase 2: Core Commands - Task Lifecycle and Session",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2021",
@@ -6568,9 +6924,28 @@
       "depends": [
         "T2022"
       ],
-      "updatedAt": "2026-01-23T06:11:48Z",
+      "updatedAt": "2026-02-14T07:02:41Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:41Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:41Z] CANCELLED: Parent T2021 superseded by T4454 (V2 LAFS-native TS). All phases redefined under T4454."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:42Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2033",
@@ -6688,7 +7063,7 @@
     {
       "id": "T2039",
       "title": "Phase 3: Advanced Features - Complete Command Parity",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2021",
@@ -6706,9 +7081,28 @@
       "depends": [
         "T2032"
       ],
-      "updatedAt": "2026-01-23T06:12:29Z",
+      "updatedAt": "2026-02-14T07:02:45Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:45Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:45Z] CANCELLED: Parent T2021 superseded by T4454 (V2 LAFS-native TS). All phases redefined under T4454."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2040",
@@ -6919,7 +7313,7 @@
     {
       "id": "T2050",
       "title": "Phase 4: Polish and Transition - Production Release",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2021",
@@ -6937,9 +7331,28 @@
       "depends": [
         "T2039"
       ],
-      "updatedAt": "2026-01-23T06:13:38Z",
+      "updatedAt": "2026-02-14T07:02:48Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:02:48Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:48Z] CANCELLED: Parent T2021 superseded by T4454 (V2 LAFS-native TS). All phases redefined under T4454."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:49Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2051",
@@ -7295,12 +7708,12 @@
     {
       "id": "T2156",
       "title": "Add changeset field to todo.schema.json",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2155",
       "createdAt": "2026-01-23T18:42:31Z",
-      "updatedAt": "2026-01-30T18:54:45Z",
+      "updatedAt": "2026-02-14T07:02:54Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -7309,17 +7722,36 @@
       "labels": [
         "changeset",
         "schema"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:02:54Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:54Z] CANCELLED: Parent T2155 done. Bash changeset library superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:55Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2157",
       "title": "Create lib/changeset.sh capture library",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2155",
       "createdAt": "2026-01-23T18:42:46Z",
-      "updatedAt": "2026-01-23T18:43:11Z",
+      "updatedAt": "2026-02-14T07:02:58Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -7331,7 +7763,26 @@
       ],
       "depends": [
         "T2156"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:02:58Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:58Z] CANCELLED: Parent T2155 done. Bash changeset library superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:58Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2158",
@@ -7353,17 +7804,32 @@
       ],
       "depends": [
         "T2157"
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:02Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2159",
       "title": "Enhance ct release changelog with changeset aggregation",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2155",
       "createdAt": "2026-01-23T18:42:50Z",
-      "updatedAt": "2026-01-23T18:43:16Z",
+      "updatedAt": "2026-02-14T07:03:05Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -7375,17 +7841,36 @@
       ],
       "depends": [
         "T2158"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:03:05Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:05Z] CANCELLED: Parent T2155 done. Bash changeset library superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:06Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2160",
       "title": "Add ct changeset command for manual capture and inspection",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2155",
       "createdAt": "2026-01-23T18:42:52Z",
-      "updatedAt": "2026-01-23T18:43:19Z",
+      "updatedAt": "2026-02-14T07:03:09Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -7397,17 +7882,36 @@
       ],
       "depends": [
         "T2157"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:03:09Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:09Z] CANCELLED: Parent T2155 done. Bash changeset library superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:09Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2161",
       "title": "Update ct-dev-workflow skill with changeset awareness",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2155",
       "createdAt": "2026-01-23T18:42:54Z",
-      "updatedAt": "2026-01-23T18:43:21Z",
+      "updatedAt": "2026-02-14T07:03:12Z",
       "size": "small",
       "position": 6,
       "positionVersion": 0,
@@ -7419,17 +7923,36 @@
       ],
       "depends": [
         "T2158"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:03:12Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:12Z] CANCELLED: Parent T2155 done. Bash changeset library superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:13Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2162",
       "title": "Create BATS tests for changeset system",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2155",
       "createdAt": "2026-01-23T18:42:55Z",
-      "updatedAt": "2026-01-23T18:43:24Z",
+      "updatedAt": "2026-02-14T07:03:15Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
@@ -7441,7 +7964,26 @@
       ],
       "depends": [
         "T2157"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:03:15Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:15Z] CANCELLED: Parent T2155 done. Bash changeset library superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:16Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2199",
@@ -8249,12 +8791,12 @@
     {
       "id": "T2430",
       "title": "Create Python to TypeScript crosswalk reference",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T2021",
       "createdAt": "2026-01-27T03:22:16Z",
-      "updatedAt": "2026-01-27T03:22:16Z",
+      "updatedAt": "2026-02-14T07:02:51Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -8265,7 +8807,26 @@
         "migration",
         "rcsd",
         "typescript"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:02:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:51Z] CANCELLED: Parent T2021 superseded by T4454 (V2 LAFS-native TS). All phases redefined under T4454."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:52Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2483",
@@ -9032,452 +9593,812 @@
     {
       "id": "T2636",
       "title": "Validate AUTO-002: Read manifest key_findings only",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:03Z",
-      "updatedAt": "2026-01-28T06:06:03Z",
+      "updatedAt": "2026-02-14T07:02:27Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator reads manifest key_findings for handoff context and MUST NOT read full output files. Test manifest summary usage vs full file reads."
+      "description": "Verify orchestrator reads manifest key_findings for handoff context and MUST NOT read full output files. Test manifest summary usage vs full file reads.",
+      "completedAt": "2026-02-14T07:02:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:27Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2637",
       "title": "Validate AUTO-003: Decomposition separate from orchestration",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:05Z",
-      "updatedAt": "2026-01-28T06:06:05Z",
+      "updatedAt": "2026-02-14T07:02:30Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify decomposition (epic-architect) is separate from orchestration and that orchestrators MUST NOT decompose tasks. Test role separation."
+      "description": "Verify decomposition (epic-architect) is separate from orchestration and that orchestrators MUST NOT decompose tasks. Test role separation.",
+      "completedAt": "2026-02-14T07:02:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:30Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2638",
       "title": "Validate AUTO-004: Verify manifest before next spawn",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:07Z",
-      "updatedAt": "2026-01-28T06:06:07Z",
+      "updatedAt": "2026-02-14T07:02:34Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator verifies manifest entry exists BEFORE spawning next agent. Test compliance chain integrity."
+      "description": "Verify orchestrator verifies manifest entry exists BEFORE spawning next agent. Test compliance chain integrity.",
+      "completedAt": "2026-02-14T07:02:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:34Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2639",
       "title": "Validate AUTO-005: Dependency wave computation and spawn order",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:10Z",
-      "updatedAt": "2026-01-28T06:06:10Z",
+      "updatedAt": "2026-02-14T07:02:37Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator computes dependency waves and spawns in wave order. Test with complex dependency graph to ensure correct ordering."
+      "description": "Verify orchestrator computes dependency waves and spawns in wave order. Test with complex dependency graph to ensure correct ordering.",
+      "completedAt": "2026-02-14T07:02:37Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:37Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2640",
       "title": "Validate AUTO-006: Handle partial/blocked status",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:12Z",
-      "updatedAt": "2026-01-28T06:06:12Z",
+      "updatedAt": "2026-02-14T07:02:40Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator handles partial/blocked status by creating followup tasks. Test graceful degradation and no silent failures."
+      "description": "Verify orchestrator handles partial/blocked status by creating followup tasks. Test graceful degradation and no silent failures.",
+      "completedAt": "2026-02-14T07:02:40Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:40Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2641",
       "title": "Validate AUTO-007: No autonomous architectural decisions",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:14Z",
-      "updatedAt": "2026-01-28T06:06:14Z",
+      "updatedAt": "2026-02-14T07:02:44Z",
       "size": "medium",
       "position": 8,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator MUST NOT make architectural decisions autonomously. Test HITL gate enforcement for significant choices."
+      "description": "Verify orchestrator MUST NOT make architectural decisions autonomously. Test HITL gate enforcement for significant choices.",
+      "completedAt": "2026-02-14T07:02:44Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:44Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2642",
       "title": "Validate AUTO-008: Log autonomous decisions to manifest",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:16Z",
-      "updatedAt": "2026-01-28T06:06:16Z",
+      "updatedAt": "2026-02-14T07:02:47Z",
       "size": "medium",
       "position": 9,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator logs all autonomous decisions to manifest with required fields: type, timestamp, decision, rationale, task_id, agent, confidence. Test audit trail."
+      "description": "Verify orchestrator logs all autonomous decisions to manifest with required fields: type, timestamp, decision, rationale, task_id, agent, confidence. Test audit trail.",
+      "completedAt": "2026-02-14T07:02:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:47Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2643",
       "title": "Validate AUTO-009: Respect HITL gates",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:18Z",
-      "updatedAt": "2026-01-28T06:06:18Z",
+      "updatedAt": "2026-02-14T07:02:50Z",
       "size": "medium",
       "position": 10,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator respects HITL gates defined in PROJECT-LIFECYCLE-SPEC. Test human oversight at critical points."
+      "description": "Verify orchestrator respects HITL gates defined in PROJECT-LIFECYCLE-SPEC. Test human oversight at critical points.",
+      "completedAt": "2026-02-14T07:02:50Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:50Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2644",
       "title": "Validate AUTO-010: Prefer small atomic tasks",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:20Z",
-      "updatedAt": "2026-01-28T06:06:20Z",
+      "updatedAt": "2026-02-14T07:02:53Z",
       "size": "medium",
       "position": 11,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator SHOULD prefer small, atomic tasks over large batches. Test context efficiency and parallel execution capabilities."
+      "description": "Verify orchestrator SHOULD prefer small, atomic tasks over large batches. Test context efficiency and parallel execution capabilities.",
+      "completedAt": "2026-02-14T07:02:53Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:53Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2645",
       "title": "Validate AUTO-011: Autonomous operation within epic scope",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:22Z",
-      "updatedAt": "2026-01-28T06:06:22Z",
+      "updatedAt": "2026-02-14T07:02:57Z",
       "size": "medium",
       "position": 12,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator MAY proceed autonomously within approved epic scope. Test bounded autonomy and scope boundary enforcement."
+      "description": "Verify orchestrator MAY proceed autonomously within approved epic scope. Test bounded autonomy and scope boundary enforcement.",
+      "completedAt": "2026-02-14T07:02:57Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:57Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2646",
       "title": "Validate HNDOFF-001: Generate handoff at 80% context threshold",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:37Z",
-      "updatedAt": "2026-01-28T06:06:37Z",
+      "updatedAt": "2026-02-14T07:03:01Z",
       "size": "medium",
       "position": 13,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator generates handoff at context critical threshold (80%). Test graceful context management and threshold detection."
+      "description": "Verify orchestrator generates handoff at context critical threshold (80%). Test graceful context management and threshold detection.",
+      "completedAt": "2026-02-14T07:03:01Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:01Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:02Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2647",
       "title": "Validate HNDOFF-002: Generate handoff at wave boundary when stopping",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:39Z",
-      "updatedAt": "2026-01-28T06:06:39Z",
+      "updatedAt": "2026-02-14T07:03:04Z",
       "size": "medium",
       "position": 14,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator generates handoff at wave boundary if stopping. Test clean state preservation for resume."
+      "description": "Verify orchestrator generates handoff at wave boundary if stopping. Test clean state preservation for resume.",
+      "completedAt": "2026-02-14T07:03:04Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:04Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2648",
       "title": "Validate HNDOFF-003: Include resume command in handoff",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:41Z",
-      "updatedAt": "2026-01-28T06:06:41Z",
+      "updatedAt": "2026-02-14T07:03:08Z",
       "size": "medium",
       "position": 15,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator includes resume command in handoff document. Test actionable next step generation."
+      "description": "Verify orchestrator includes resume command in handoff document. Test actionable next step generation.",
+      "completedAt": "2026-02-14T07:03:08Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:08Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2649",
       "title": "Validate HNDOFF-004: Persist handoff to MANIFEST.jsonl",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:43Z",
-      "updatedAt": "2026-01-28T06:06:43Z",
+      "updatedAt": "2026-02-14T07:03:11Z",
       "size": "medium",
       "position": 16,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator persists handoff to MANIFEST.jsonl with agent_type: handoff. Test durable state storage."
+      "description": "Verify orchestrator persists handoff to MANIFEST.jsonl with agent_type: handoff. Test durable state storage.",
+      "completedAt": "2026-02-14T07:03:11Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:11Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2650",
       "title": "Validate HNDOFF-005: No in_progress tasks at handoff",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:45Z",
-      "updatedAt": "2026-01-28T06:06:45Z",
+      "updatedAt": "2026-02-14T07:03:14Z",
       "size": "medium",
       "position": 17,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator MUST NOT leave tasks in in_progress status at handoff. Test clean state invariant enforcement."
+      "description": "Verify orchestrator MUST NOT leave tasks in in_progress status at handoff. Test clean state invariant enforcement.",
+      "completedAt": "2026-02-14T07:03:14Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:14Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ]
     },
     {
       "id": "T2651",
       "title": "Validate HNDOFF-006: Prefer clean wave boundaries for stopping",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:06:49Z",
-      "updatedAt": "2026-01-28T06:06:49Z",
+      "updatedAt": "2026-02-14T07:03:18Z",
       "size": "medium",
       "position": 18,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator SHOULD prefer stopping at clean wave boundaries. Test simpler resume logic optimization."
+      "description": "Verify orchestrator SHOULD prefer stopping at clean wave boundaries. Test simpler resume logic optimization.",
+      "completedAt": "2026-02-14T07:03:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:18Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:18Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2652",
       "title": "Validate CONT-001: Read last handoff before resuming",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:04Z",
-      "updatedAt": "2026-01-28T06:07:04Z",
+      "updatedAt": "2026-02-14T07:03:21Z",
       "size": "medium",
       "position": 19,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator reads last handoff before resuming work. Test state recovery from MANIFEST.jsonl handoff entries."
+      "description": "Verify orchestrator reads last handoff before resuming work. Test state recovery from MANIFEST.jsonl handoff entries.",
+      "completedAt": "2026-02-14T07:03:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:21Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:21Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2653",
       "title": "Validate CONT-002: Verify task states match handoff expectations",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:06Z",
-      "updatedAt": "2026-01-28T06:07:06Z",
+      "updatedAt": "2026-02-14T07:03:24Z",
       "size": "medium",
       "position": 20,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator verifies task states match handoff expectations. Test detection of external changes between sessions."
+      "description": "Verify orchestrator verifies task states match handoff expectations. Test detection of external changes between sessions.",
+      "completedAt": "2026-02-14T07:03:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:24Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:25Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2654",
       "title": "Validate CONT-003: No state assumptions from previous conversation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:08Z",
-      "updatedAt": "2026-01-28T06:07:08Z",
+      "updatedAt": "2026-02-14T07:03:27Z",
       "size": "medium",
       "position": 21,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator MUST NOT assume state from previous conversation. Test stateless design enforcement."
+      "description": "Verify orchestrator MUST NOT assume state from previous conversation. Test stateless design enforcement.",
+      "completedAt": "2026-02-14T07:03:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:27Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2655",
       "title": "Validate CONT-004: Check concurrent modifications",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:10Z",
-      "updatedAt": "2026-01-28T06:07:10Z",
+      "updatedAt": "2026-02-14T07:03:30Z",
       "size": "medium",
       "position": 22,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator checks for concurrent modifications by other sessions. Test multi-agent safety mechanisms."
+      "description": "Verify orchestrator checks for concurrent modifications by other sessions. Test multi-agent safety mechanisms.",
+      "completedAt": "2026-02-14T07:03:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:30Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2656",
       "title": "Validate CONT-005: Summarize resumed context to user",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:13Z",
-      "updatedAt": "2026-01-28T06:07:13Z",
+      "updatedAt": "2026-02-14T07:03:34Z",
       "size": "medium",
       "position": 23,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator SHOULD summarize resumed context to user. Test transparency and communication patterns."
+      "description": "Verify orchestrator SHOULD summarize resumed context to user. Test transparency and communication patterns.",
+      "completedAt": "2026-02-14T07:03:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:34Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:34Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2657",
       "title": "Validate CONT-006: Hot resume optimization for <5min gaps",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:14Z",
-      "updatedAt": "2026-01-28T06:07:14Z",
+      "updatedAt": "2026-02-14T07:03:37Z",
       "size": "medium",
       "position": 24,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator MAY skip verification for hot resume (<5 min gap). Test performance optimization for rapid resume cycles."
+      "description": "Verify orchestrator MAY skip verification for hot resume (<5 min gap). Test performance optimization for rapid resume cycles.",
+      "completedAt": "2026-02-14T07:03:37Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:37Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:38Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2658",
       "title": "Validate CONT-007: No reprocessing of completed tasks",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:16Z",
-      "updatedAt": "2026-01-28T06:07:16Z",
+      "updatedAt": "2026-02-14T07:03:40Z",
       "size": "medium",
       "position": 25,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator MUST NOT reprocess completed tasks. Test idempotency and work deduplication."
+      "description": "Verify orchestrator MUST NOT reprocess completed tasks. Test idempotency and work deduplication.",
+      "completedAt": "2026-02-14T07:03:40Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:40Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2659",
       "title": "Validate exit code 64: EXIT_AUTONOMOUS_BOUNDARY",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:30Z",
-      "updatedAt": "2026-01-28T06:07:30Z",
+      "updatedAt": "2026-02-14T07:03:44Z",
       "size": "medium",
       "position": 26,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify exit code 64 (EXIT_AUTONOMOUS_BOUNDARY) triggers when autonomous operation boundary is reached. Test that HITL decision is required for recovery."
+      "description": "Verify exit code 64 (EXIT_AUTONOMOUS_BOUNDARY) triggers when autonomous operation boundary is reached. Test that HITL decision is required for recovery.",
+      "completedAt": "2026-02-14T07:03:44Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:44Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:44Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2660",
       "title": "Validate exit code 65: EXIT_HANDOFF_REQUIRED",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:32Z",
-      "updatedAt": "2026-01-28T06:07:32Z",
+      "updatedAt": "2026-02-14T07:03:47Z",
       "size": "medium",
       "position": 27,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify exit code 65 (EXIT_HANDOFF_REQUIRED) triggers when handoff must be generated before stopping. Test handoff generation and stop workflow."
+      "description": "Verify exit code 65 (EXIT_HANDOFF_REQUIRED) triggers when handoff must be generated before stopping. Test handoff generation and stop workflow.",
+      "completedAt": "2026-02-14T07:03:47Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:47Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:48Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2661",
       "title": "Validate exit code 66: EXIT_RESUME_FAILED",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:35Z",
-      "updatedAt": "2026-01-28T06:07:35Z",
+      "updatedAt": "2026-02-14T07:03:50Z",
       "size": "medium",
       "position": 28,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify exit code 66 (EXIT_RESUME_FAILED) triggers when resuming from handoff fails. Test session/handoff state verification on resume."
+      "description": "Verify exit code 66 (EXIT_RESUME_FAILED) triggers when resuming from handoff fails. Test session/handoff state verification on resume.",
+      "completedAt": "2026-02-14T07:03:50Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:50Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:51Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2662",
       "title": "Validate exit code 67: EXIT_CONCURRENT_SESSION",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:36Z",
-      "updatedAt": "2026-01-28T06:07:36Z",
+      "updatedAt": "2026-02-14T07:03:54Z",
       "size": "medium",
       "position": 29,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify exit code 67 (EXIT_CONCURRENT_SESSION) triggers when another session is active on same scope. Test concurrent session detection and scope conflicts."
+      "description": "Verify exit code 67 (EXIT_CONCURRENT_SESSION) triggers when another session is active on same scope. Test concurrent session detection and scope conflicts.",
+      "completedAt": "2026-02-14T07:03:54Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:54Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:54Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2663",
       "title": "Validate config schema: orchestrator.validation.customGates",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:39Z",
-      "updatedAt": "2026-01-28T06:07:39Z",
+      "updatedAt": "2026-02-14T07:03:57Z",
       "size": "medium",
       "position": 30,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify .cleo/config.json supports orchestrator.validation.customGates array with required schema fields (name, command, required, description). Test core gates execution order and custom gate integration."
+      "description": "Verify .cleo/config.json supports orchestrator.validation.customGates array with required schema fields (name, command, required, description). Test core gates execution order and custom gate integration.",
+      "completedAt": "2026-02-14T07:03:57Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:03:57Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:03:57Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2664",
       "title": "Validate CTX-006: Track cumulative context across session",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:50Z",
-      "updatedAt": "2026-01-28T06:07:50Z",
+      "updatedAt": "2026-02-14T07:04:00Z",
       "size": "medium",
       "position": 31,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator tracks cumulative context across session. Test awareness of total token usage and context state tracking."
+      "description": "Verify orchestrator tracks cumulative context across session. Test awareness of total token usage and context state tracking.",
+      "completedAt": "2026-02-14T07:04:00Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:00Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2665",
       "title": "Validate CTX-007: Checkpoint context state at wave boundaries",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T2633",
       "createdAt": "2026-01-28T06:07:52Z",
-      "updatedAt": "2026-01-28T06:07:52Z",
+      "updatedAt": "2026-02-14T07:04:03Z",
       "size": "medium",
       "position": 32,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Verify orchestrator checkpoints context state at wave boundaries. Test recovery point creation and context checkpoint format."
+      "description": "Verify orchestrator checkpoints context state at wave boundaries. Test recovery point creation and context checkpoint format.",
+      "completedAt": "2026-02-14T07:04:03Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:03Z] CANCELLED: Parent T2633 done. Bash orchestration validation superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:04Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2676",
@@ -9522,12 +10443,12 @@
     {
       "id": "T2723",
       "title": "Research: Define RCSD-IVTR protocol metrics framework",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1955",
       "createdAt": "2026-01-28T18:34:17Z",
-      "updatedAt": "2026-02-03T09:00:22Z",
+      "updatedAt": "2026-02-14T07:02:25Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -9536,22 +10457,60 @@
       "labels": [
         "metrics",
         "research"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:02:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:25Z] CANCELLED: Parent T1955 done. Bash-era protocol metrics superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:25Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2733",
       "title": "Reference: T2724 Protocol Metrics Infrastructure",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1955",
       "createdAt": "2026-01-29T21:52:50Z",
-      "updatedAt": "2026-02-03T09:00:25Z",
+      "updatedAt": "2026-02-14T07:02:28Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Link to T2724 epic - builds metrics infrastructure for ongoing compliance tracking"
+      "description": "Link to T2724 epic - builds metrics infrastructure for ongoing compliance tracking",
+      "completedAt": "2026-02-14T07:02:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:28Z] CANCELLED: Parent T1955 done. Bash-era protocol metrics superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:29Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2736",
@@ -9709,12 +10668,12 @@
     {
       "id": "T2814",
       "title": "Bug: CLI session commands have poor output/feedback",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1955",
       "createdAt": "2026-01-30T19:25:27Z",
-      "updatedAt": "2026-02-03T09:00:28Z",
+      "updatedAt": "2026-02-14T07:02:31Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -9726,17 +10685,36 @@
         "self-improvement",
         "session",
         "ux"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:02:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:02:31Z] CANCELLED: Parent T1955 done. Bash-era protocol metrics superseded by TS (T4454)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:32Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2815",
       "title": "Research: Autonomous Self-Improvement Ticket Logging System",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T1955",
       "createdAt": "2026-01-30T19:29:15Z",
-      "updatedAt": "2026-02-03T09:00:32Z",
+      "updatedAt": "2026-02-14T07:02:35Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -9749,11 +10727,28 @@
         "self-improvement"
       ],
       "notes": [
-        "2026-01-30 19:33:58 UTC: ADDITIONAL SCOPE - Bug-Log for Non-Dogfooding Users:\n\nWhen users run CLEO on projects OTHER than CLEO itself (not dogfooding), they may still discover CLEO bugs/improvements. Need mechanism to:\n\n1. Local Bug-Log file (.cleo/bug-log.json) to capture issues\n2. Optional upstream reporting (with user consent)\n3. Federated improvement collection across all CLEO installations\n4. Separate from project tasks - these are CLEO improvements, not project work\n\nConsider: cleo bug-report command that:\n- Creates local log entry\n- Optionally submits to central CLEO issue tracker\n- Includes context (version, command, error, reproduction steps)\n- Privacy-conscious (no project data leaked)\n\nThis enables the CLEO ecosystem to benefit from ALL users' discoveries, not just maintainers dogfooding."
+        "2026-01-30 19:33:58 UTC: ADDITIONAL SCOPE - Bug-Log for Non-Dogfooding Users:\n\nWhen users run CLEO on projects OTHER than CLEO itself (not dogfooding), they may still discover CLEO bugs/improvements. Need mechanism to:\n\n1. Local Bug-Log file (.cleo/bug-log.json) to capture issues\n2. Optional upstream reporting (with user consent)\n3. Federated improvement collection across all CLEO installations\n4. Separate from project tasks - these are CLEO improvements, not project work\n\nConsider: cleo bug-report command that:\n- Creates local log entry\n- Optionally submits to central CLEO issue tracker\n- Includes context (version, command, error, reproduction steps)\n- Privacy-conscious (no project data leaked)\n\nThis enables the CLEO ecosystem to benefit from ALL users' discoveries, not just maintainers dogfooding.",
+        "[COMPLETED 2026-02-14T07:02:35Z] CANCELLED: Parent T1955 done. Bash-era protocol metrics superseded by TS (T4454)."
       ],
       "files": [
         "cleo/bug-log.json"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:02:35Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:02:35Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2840",
@@ -10064,12 +11059,12 @@
     {
       "id": "T3023",
       "title": "Test: Protocol CLI Wrapper - consensus.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T21:36:23Z",
-      "updatedAt": "2026-02-03T22:26:28Z",
+      "updatedAt": "2026-02-14T07:04:31Z",
       "size": "small",
       "position": 2,
       "positionVersion": 0,
@@ -10079,17 +11074,36 @@
         "consensus",
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:31Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:32Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3025",
       "title": "Test: Protocol CLI Wrapper - decomposition.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T21:36:27Z",
-      "updatedAt": "2026-02-03T21:36:27Z",
+      "updatedAt": "2026-02-14T07:04:35Z",
       "size": "small",
       "position": 4,
       "positionVersion": 0,
@@ -10099,17 +11113,36 @@
         "decomposition",
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:35Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:35Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3027",
       "title": "Test: Protocol CLI Wrapper - contribution.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T21:36:32Z",
-      "updatedAt": "2026-02-03T21:36:32Z",
+      "updatedAt": "2026-02-14T07:04:38Z",
       "size": "small",
       "position": 6,
       "positionVersion": 0,
@@ -10119,17 +11152,36 @@
         "contribution",
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:38Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:38Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3028",
       "title": "Test: Protocol CLI Wrapper - validation.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T21:36:34Z",
-      "updatedAt": "2026-02-03T21:36:34Z",
+      "updatedAt": "2026-02-14T07:04:41Z",
       "size": "small",
       "position": 7,
       "positionVersion": 0,
@@ -10139,17 +11191,36 @@
         "protocols",
         "testing",
         "validation"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:41Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:41Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:42Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3029",
       "title": "Test: Protocol CLI Wrapper - testing.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T21:36:35Z",
-      "updatedAt": "2026-02-03T21:36:35Z",
+      "updatedAt": "2026-02-14T07:04:45Z",
       "size": "small",
       "position": 8,
       "positionVersion": 0,
@@ -10158,17 +11229,36 @@
       "labels": [
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:45Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:45Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:45Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3030",
       "title": "Test: Protocol CLI Wrapper - release.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T21:36:38Z",
-      "updatedAt": "2026-02-03T21:36:38Z",
+      "updatedAt": "2026-02-14T07:04:48Z",
       "size": "small",
       "position": 9,
       "positionVersion": 0,
@@ -10178,17 +11268,36 @@
         "protocols",
         "release",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:48Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:48Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:49Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3036",
       "title": "Research: Test OAuth2 authentication patterns",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T21:37:57Z",
-      "updatedAt": "2026-02-03T21:41:29Z",
+      "updatedAt": "2026-02-14T07:04:51Z",
       "size": "small",
       "position": 15,
       "positionVersion": 0,
@@ -10197,7 +11306,26 @@
       "labels": [
         "research",
         "test"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:51Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:51Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:52Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3037",
@@ -10248,12 +11376,12 @@
     {
       "id": "T3039",
       "title": "Test: Consensus validation - voting on architecture decision",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T22:27:20Z",
-      "updatedAt": "2026-02-03T22:27:20Z",
+      "updatedAt": "2026-02-14T07:04:55Z",
       "size": "medium",
       "position": 16,
       "positionVersion": 0,
@@ -10263,17 +11391,36 @@
         "consensus",
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:55Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:55Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:56Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3040",
       "title": "Test: Decomposition validation - break down epic",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T22:27:22Z",
-      "updatedAt": "2026-02-03T22:27:22Z",
+      "updatedAt": "2026-02-14T07:04:58Z",
       "size": "medium",
       "position": 17,
       "positionVersion": 0,
@@ -10283,17 +11430,36 @@
         "decomposition",
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:04:58Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:04:58Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:04:59Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3041",
       "title": "Test: Contribution validation - shared codebase modification",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T22:27:24Z",
-      "updatedAt": "2026-02-03T22:27:24Z",
+      "updatedAt": "2026-02-14T07:05:02Z",
       "size": "medium",
       "position": 18,
       "positionVersion": 0,
@@ -10303,17 +11469,36 @@
         "contribution",
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:02Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:02Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:02Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3042",
       "title": "Test: Validation protocol - quality gate check",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T22:27:26Z",
-      "updatedAt": "2026-02-03T22:27:26Z",
+      "updatedAt": "2026-02-14T07:05:05Z",
       "size": "medium",
       "position": 19,
       "positionVersion": 0,
@@ -10323,17 +11508,36 @@
         "protocols",
         "testing",
         "validation"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:05Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:05Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:06Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3043",
       "title": "Test: Testing protocol - test suite creation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T22:27:28Z",
-      "updatedAt": "2026-02-03T22:27:28Z",
+      "updatedAt": "2026-02-14T07:05:08Z",
       "size": "medium",
       "position": 20,
       "positionVersion": 0,
@@ -10342,17 +11546,36 @@
       "labels": [
         "protocols",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:08Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:08Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:09Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3044",
       "title": "Test: Release protocol - version bump workflow",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T22:27:31Z",
-      "updatedAt": "2026-02-03T22:27:31Z",
+      "updatedAt": "2026-02-14T07:05:12Z",
       "size": "medium",
       "position": 21,
       "positionVersion": 0,
@@ -10362,7 +11585,26 @@
         "protocols",
         "release",
         "testing"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:12Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:12Z] CANCELLED: Parent T3021 done. Bash protocol testing superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:12Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3045",
@@ -10432,12 +11674,12 @@
     {
       "id": "T3048",
       "title": "Research: Feature requirements",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:05Z",
-      "updatedAt": "2026-02-03T22:38:27Z",
+      "updatedAt": "2026-02-14T07:05:15Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -10445,17 +11687,36 @@
       "description": "Test stage: Feature requirements",
       "labels": [
         "research"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:15Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:15Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:16Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3049",
       "title": "Consensus: Architecture decision",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:06Z",
-      "updatedAt": "2026-02-03T22:37:06Z",
+      "updatedAt": "2026-02-14T07:05:18Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -10463,17 +11724,36 @@
       "description": "Test stage: Architecture decision",
       "labels": [
         "consensus"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:18Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:18Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:19Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3050",
       "title": "Specification: API spec",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:08Z",
-      "updatedAt": "2026-02-03T22:37:08Z",
+      "updatedAt": "2026-02-14T07:05:22Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -10481,17 +11761,36 @@
       "description": "Test stage: API spec",
       "labels": [
         "specification"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:22Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3051",
       "title": "Decomposition: Task breakdown",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:09Z",
-      "updatedAt": "2026-02-03T22:37:09Z",
+      "updatedAt": "2026-02-14T07:05:25Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -10499,17 +11798,36 @@
       "description": "Test stage: Task breakdown",
       "labels": [
         "decomposition"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:25Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:26Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3052",
       "title": "Implementation: Build feature",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:10Z",
-      "updatedAt": "2026-02-03T22:39:40Z",
+      "updatedAt": "2026-02-14T07:05:29Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -10517,17 +11835,36 @@
       "description": "Test stage: Build feature",
       "labels": [
         "implementation"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:29Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:29Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:29Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3053",
       "title": "Validation: Quality gates",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:11Z",
-      "updatedAt": "2026-02-03T22:37:11Z",
+      "updatedAt": "2026-02-14T07:05:32Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -10535,17 +11872,36 @@
       "description": "Test stage: Quality gates",
       "labels": [
         "validation"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:32Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:32Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:33Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3054",
       "title": "Testing: Test coverage",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:12Z",
-      "updatedAt": "2026-02-03T22:37:12Z",
+      "updatedAt": "2026-02-14T07:05:36Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
@@ -10553,6 +11909,10 @@
       "description": "Test stage: Test coverage",
       "labels": [
         "testing"
+      ],
+      "completedAt": "2026-02-14T07:05:36Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:36Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
       ]
     },
     {
