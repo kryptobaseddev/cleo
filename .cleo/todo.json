@@ -969,24 +969,35 @@
         "notes": null,
         "gitTag": "v0.98.3",
         "changelog": "## [0.98.3] - 2026-02-13\n\n### Tests\n- Test: Protocol CLI Wrapper - release.sh (T3030)\n- Test: Release protocol - version bump workflow (T3044)\n\n### Other Changes\n- Enhance ct release changelog with changeset aggregation (T2159)\n- Release: Version bump (T3055)\n- Create GitHub Releases for v0.98.0 and v0.98.1 (T4489)\n- Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18) (T4492)\n- Add label validation/auto-creation before gh issue create (GH #17) (T4493)\n- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)\n- Fix severity and area enum mismatches between CLI and templates (T4495)\n- Refactor build_template_body() to use parsed template sections instead of hardcoded headers (T4496)\n- Add tests for cleo issue template parsing and label validation (T4497)"
+      },
+      {
+        "version": "v0.98.4",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-14T17:35:49Z",
+        "tasks": [
+          "T4494"
+        ],
+        "notes": null
       }
     ]
   },
-  "lastUpdated": "2026-02-14T09:27:29Z",
+  "lastUpdated": "2026-02-14T17:35:49Z",
   "_meta": {
-    "checksum": "d74700ed82f7cfcf",
+    "checksum": "22dfb8aa516bd370",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-14T09:26:49Z",
+    "lastModified": "2026-02-14T09:31:56Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 30,
-    "generation": 3407
+    "activeSessionCount": 29,
+    "generation": 3419
   },
   "focus": {
-    "currentTask": "T4506",
+    "currentTask": null,
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -14760,12 +14771,12 @@
     {
       "id": "T4343",
       "title": "Evaluate extracting T4334 native engine modules into caamp",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4332",
       "createdAt": "2026-02-11T23:34:57Z",
-      "updatedAt": "2026-02-12T02:19:39Z",
+      "updatedAt": "2026-02-14T09:28:23Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -14776,7 +14787,8 @@
         "T4342"
       ],
       "notes": [
-        "2026-02-12 02:19:39 UTC: 2026-02-12 REPO VERIFIED: mcp-server/src/engine/schema-validator.ts uses Ajv with ajv-formats for JSON Schema validation. This is the native engine's own validation, not extracted from CAAMP. Task asks about extracting T4334 native engine modules INTO caamp - this is forward-looking architecture work, not yet started. Remains pending."
+        "2026-02-12 02:19:39 UTC: 2026-02-12 REPO VERIFIED: mcp-server/src/engine/schema-validator.ts uses Ajv with ajv-formats for JSON Schema validation. This is the native engine's own validation, not extracted from CAAMP. Task asks about extracting T4334 native engine modules INTO caamp - this is forward-looking architecture work, not yet started. Remains pending.",
+        "[COMPLETED 2026-02-14T09:28:23Z] Evaluation complete. Recommendation: Do NOT extract native engine modules into CAAMP. Rationale: (1) Zero overlap between native engine (tasks/sessions/config/lifecycle/orchestration/release/research/validation) and CAAMP (providers/skills/injection/MCP-config). (2) CAAMP is a multi-provider library; engine modules are CLEO-specific domain logic. (3) Extracting would create unnecessary coupling between CLEO task management and CAAMP provider infrastructure. (4) Engine modules depend on CLEO file format (todo.json, sessions.json) which is not relevant to CAAMP consumers. Keep the current complementary architecture."
       ],
       "files": [
         "mcp-server/src/engine/schema-validator.ts"
@@ -14786,7 +14798,23 @@
           "taskId": "T4334",
           "type": "relates-to"
         }
-      ]
+      ],
+      "completedAt": "2026-02-14T09:28:23Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:28:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4344",
@@ -15569,12 +15597,12 @@
     {
       "id": "T4367",
       "title": "Create CAAMP adapter layer in mcp-server for P0 provider/injection functions",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4332",
       "createdAt": "2026-02-11T23:46:11Z",
-      "updatedAt": "2026-02-12T02:19:42Z",
+      "updatedAt": "2026-02-14T09:28:56Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -15584,7 +15612,8 @@
         "T4342"
       ],
       "notes": [
-        "2026-02-12 02:19:42 UTC: 2026-02-12 REPO VERIFIED: No mcp-server/src/providers/caamp-adapter.ts exists. CAAMP adapter layer not yet created. Remains pending. Dependency T4342 now complete."
+        "2026-02-12 02:19:42 UTC: 2026-02-12 REPO VERIFIED: No mcp-server/src/providers/caamp-adapter.ts exists. CAAMP adapter layer not yet created. Remains pending. Dependency T4342 now complete.",
+        "[COMPLETED 2026-02-14T09:28:56Z] CAAMP adapter layer already exists and is complete at mcp-server/src/engine/caamp-adapter.ts. 15 EngineResult-wrapped functions covering all P0 operations: 6 provider ops (list/get/detect/installed/count/version), 5 MCP config ops (list/listAll/install/remove/configPath), 4 injection ops (check/checkAll/update/updateAll). Plus 4 utility re-exports. All functions follow the EngineResult pattern consistent with native engine modules."
       ],
       "files": [
         "mcp-server/src/providers/caamp-adapter.ts"
@@ -15594,17 +15623,33 @@
           "taskId": "T4342",
           "type": "relates-to"
         }
-      ]
+      ],
+      "completedAt": "2026-02-14T09:28:56Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:28:57Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4368",
       "title": "Add providers domain to MCP gateway with list/detect/inject operations",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4332",
       "createdAt": "2026-02-11T23:46:19Z",
-      "updatedAt": "2026-02-12T02:19:45Z",
+      "updatedAt": "2026-02-14T09:31:39Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -15614,14 +15659,31 @@
         "T4367"
       ],
       "notes": [
-        "2026-02-12 02:19:45 UTC: 2026-02-12 REPO VERIFIED: No 'providers' domain found in MCP gateway files. Not yet started. Remains pending. Blocked on T4367."
+        "2026-02-12 02:19:45 UTC: 2026-02-12 REPO VERIFIED: No 'providers' domain found in MCP gateway files. Not yet started. Remains pending. Blocked on T4367.",
+        "[COMPLETED 2026-02-14T09:31:39Z] Added providers domain to MCP gateway. Created ProvidersHandler (mcp-server/src/domains/providers.ts) with 3 query ops (list, detect, inject_status) and 1 mutate op (inject). Registered in router.ts, domains/index.ts, and both query/mutate gateway operation matrices. Total MCP operations: 66 query + 61 mutate = 127. TypeScript compilation clean."
       ],
       "relates": [
         {
           "taskId": "T4367",
           "type": "relates-to"
         }
-      ]
+      ],
+      "completedAt": "2026-02-14T09:31:39Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:31:40Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4369",
@@ -19461,7 +19523,22 @@
       "completedAt": "2026-02-14T09:27:29Z",
       "notes": [
         "[COMPLETED 2026-02-14T09:27:29Z] Created ADR-001: Storage Architecture Decision. Recommendation: Keep JSONL/JSON. Rationale: (1) Scale is adequate (10K tasks < 50ms), (2) agent-first JSON native, (3) git-trackable state, (4) zero native dependencies, (5) human-debuggable. SQLite rejected due to native module compilation, non-git-diffable, breaks agent workflow. Vector extensions overkill for current scale."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T09:27:30Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4507",
