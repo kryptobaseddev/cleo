@@ -17,6 +17,30 @@ Subscribe to updates via RSS at `/rss.xml` or follow the [GitHub releases](https
 This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptobaseddev/cleo/blob/main/CHANGELOG.md). Run `./scripts/generate-changelog.sh` to update.
 </Tip>
 
+<Update label="February 2026" description="v0.98.3" tags={["Fix", "Feature", "CLI"]}>
+## v0.98.3 Release
+
+
+**Tests**
+- Test: Protocol CLI Wrapper - release.sh (T3030)
+- Test: Release protocol - version bump workflow (T3044)
+
+**Other Changes**
+- Enhance ct release changelog with changeset aggregation (T2159)
+- Release: Version bump (T3055)
+- Create GitHub Releases for v0.98.0 and v0.98.1 (T4489)
+- Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18) (T4492)
+- Add label validation/auto-creation before gh issue create (GH #17) (T4493)
+- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)
+- Fix severity and area enum mismatches between CLI and templates (T4495)
+- Refactor build_template_body() to use parsed template sections instead of hardcoded headers (T4496)
+- Add tests for cleo issue template parsing and label validation (T4497)
+
+
+
+[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.98.3)
+</Update>
+
 <Update label="February 2026" description="v0.98.2" tags={["Feature"]}>
 ## v0.98.2 Release
 
@@ -304,19 +328,6 @@ This changelog is auto-generated from [CHANGELOG.md](https://github.com/kryptoba
 
 
 [View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.93.0)
-</Update>
-
-<Update label="February 2026" description="v0.92.1" tags={["Fix", "Sessions", "CLI"]}>
-## v0.92.1 Release
-
-
-**Fixes (T4334)**
-- fix(mcp): Update test mocks with isAvailable/setAvailable for dual-mode routing
-- fix(mcp): Update domain handler tests for native engine error code changes (E_CLI_REQUIRED)
-- fix(mcp): Update session/system tests for native engine behavior (project-not-initialized)
-
-
-[View full release notes](https://github.com/kryptobaseddev/cleo/releases/tag/v0.92.1)
 </Update>
 
 ## Earlier Releases
