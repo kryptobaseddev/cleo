@@ -949,9 +949,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T06:49:21Z",
+  "lastUpdated": "2026-02-14T06:49:38Z",
   "_meta": {
-    "checksum": "42296ac63c53c4e1",
+    "checksum": "8ba820dbe2184d8d",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -960,7 +960,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3037
+    "generation": 3055
   },
   "focus": {
     "currentTask": null,
@@ -1006,7 +1006,7 @@
     {
       "id": "T377",
       "title": "Extract CLI wrapper logic to lib/cli-utils.sh",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": null,
@@ -1019,14 +1019,31 @@
       ],
       "notes": [
         "2025-12-18 00:51:37 UTC: Refactoring task identified during compliance audit. CLI wrapper logic (700+ lines) in install.sh should be extracted for maintainability.",
-        "2025-12-26 20:35:30 UTC: Deferred to future polish phase - low priority refactoring, not blocking compliance"
+        "2025-12-26 20:35:30 UTC: Deferred to future polish phase - low priority refactoring, not blocking compliance",
+        "[COMPLETED 2026-02-14T06:49:29Z] CANCELLED: Bash-specific refactor, TS replaces. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ],
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
-      "updatedAt": "2025-12-18T00:21:13Z",
+      "updatedAt": "2026-02-14T06:49:29Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:49:29Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:49:30Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T424",
@@ -1155,7 +1172,7 @@
     {
       "id": "T525",
       "title": "CHORE: Implement memory retention automation script",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": null,
@@ -1171,9 +1188,13 @@
       "size": "medium",
       "position": 10,
       "positionVersion": 0,
-      "updatedAt": "2026-02-01T02:27:25Z",
+      "updatedAt": "2026-02-14T06:49:28Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:49:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:28Z] CANCELLED: Old architecture, 55+ days stale. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
+      ]
     },
     {
       "id": "T558",
@@ -2024,7 +2045,7 @@
     {
       "id": "T903",
       "title": "Implement jq batching per T887 assessment",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T3013",
@@ -2039,14 +2060,18 @@
       "size": "medium",
       "position": 50,
       "positionVersion": 0,
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T06:49:31Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:49:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:31Z] CANCELLED: jq optimization irrelevant in TS. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
+      ]
     },
     {
       "id": "T906",
       "title": "Implement jq batching in tests",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": null,
@@ -2061,14 +2086,16 @@
       "notes": [
         "2025-12-27 05:23:15 UTC: ANALYSIS (2025-12-27): Found 1,083 jq calls across 65 test files. Top 5 files: find.bats (54 calls), delete-preview.bats (52), archive-stats.bats (50), test-2.2.0-migration.bats (65), schema-validation.bats (29). Common patterns: 1) Multiple select+extract on same array, 2) Count then access, 3) Sequential field checks. Estimated 30-50% test speedup possible. However, this is a MAJOR refactoring effort affecting 65 files. Recommend deferring to future optimization sprint. Tests currently pass and run efficiently enough for development purposes.",
         "[COMPLETED 2025-12-27T05:23:17Z] Analysis complete. Large scope (65 files, 1083 calls) makes this a future optimization sprint candidate. Current performance is acceptable.",
-        "[REOPENED 2025-12-27T05:29:38Z] Reason: Task should remain open to track future jq batching optimization work. Analysis is complete but implementation is deferred. | Was completed at: 2025-12-27T05:23:17Z"
+        "[REOPENED 2025-12-27T05:29:38Z] Reason: Task should remain open to track future jq batching optimization work. Analysis is complete but implementation is deferred. | Was completed at: 2025-12-27T05:23:17Z",
+        "[COMPLETED 2026-02-14T06:49:32Z] CANCELLED: jq optimization irrelevant in TS. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ],
-      "updatedAt": "2025-12-27T05:29:38Z",
+      "updatedAt": "2026-02-14T06:49:32Z",
       "size": "medium",
       "position": 51,
       "positionVersion": 0,
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:49:32Z"
     },
     {
       "id": "T907",
@@ -3350,7 +3377,7 @@
     {
       "id": "T1342",
       "title": "EPIC: Fix CI Test Failures (80 tests)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "epic",
       "parentId": "T3013",
@@ -3367,17 +3394,19 @@
       "notes": [
         "2026-01-23 06:16:19 UTC: Scope expanded: 195 failures (was 80). Root cause analysis complete - see research-outputs/2026-01-22_test-failure-analysis.md. PRIMARY ISSUE: lib/config.sh boolean false bug affects 150+ tests. Secondary: context-alert (14), test helpers (9), schema drift (5), error codes (4), flock warnings (5).",
         "2026-01-23 06:19:01 UTC: Linked research: test-failure-analysis-2026-01-22 (Test Failure Analysis: 195 CI Failures)",
-        "2026-02-03 23:39:27 UTC: 2026-02-03: Updated failure count to 106 (down from 195). Integration testing (T3021) validated zero regressions from bug fixes. Current breakdown: agent-config (13), archive (40), cleo-subagent (11), graph-ops (14), injection (15), misc (13). All failures pre-existing, unrelated to protocol enforcement work."
+        "2026-02-03 23:39:27 UTC: 2026-02-03: Updated failure count to 106 (down from 195). Integration testing (T3021) validated zero regressions from bug fixes. Current breakdown: agent-config (13), archive (40), cleo-subagent (11), graph-ops (14), injection (15), misc (13). All failures pre-existing, unrelated to protocol enforcement work.",
+        "[COMPLETED 2026-02-14T06:49:24Z] CANCELLED: Bash CI test failures. Intent preserved in T4503 (CI/CD test suite green validation). Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ],
       "size": "medium",
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T06:49:24Z",
       "relates": [
         {
           "taskId": "T3021",
           "type": "relates-to"
         }
       ],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:49:24Z"
     },
     {
       "id": "T1349",
@@ -5134,7 +5163,7 @@
     {
       "id": "T1523",
       "title": "Workflow Recipes System Integration",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "epic",
       "parentId": null,
@@ -5152,11 +5181,13 @@
       ],
       "notes": [
         "2026-01-17 02:12:51 UTC: Research inputs moved to: claudedocs/analysis/ANALYSIS-WORKFLOWS-INTEGRATION.md and claudedocs/research/RESEARCH-PLAN.md",
-        "2026-01-23 03:08:06 UTC: Demoted - Workflow recipes stale, research trapped in notes"
+        "2026-01-23 03:08:06 UTC: Demoted - Workflow recipes stale, research trapped in notes",
+        "[COMPLETED 2026-02-14T06:49:37Z] CANCELLED: Stale, no progress, 38 days old. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ],
-      "updatedAt": "2026-01-23T03:08:08Z",
+      "updatedAt": "2026-02-14T06:49:37Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:49:37Z"
     },
     {
       "id": "T1524",
@@ -7061,12 +7092,12 @@
     {
       "id": "T2155",
       "title": "EPIC: CLEO Changeset and Release Lifecycle System",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "epic",
       "parentId": "T2286",
       "createdAt": "2026-01-23T18:42:07Z",
-      "updatedAt": "2026-01-25T23:48:58Z",
+      "updatedAt": "2026-02-14T06:49:27Z",
       "size": "large",
       "position": 2,
       "positionVersion": 1,
@@ -7075,6 +7106,10 @@
       "labels": [
         "infrastructure",
         "release-management"
+      ],
+      "completedAt": "2026-02-14T06:49:27Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:27Z] CANCELLED: Bash changeset system. Intent preserved in T4505 (changeset/release review). Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
@@ -7337,12 +7372,12 @@
     {
       "id": "T2235",
       "title": "EPIC: LLM-Powered Global Orchestration (v1.0.0)",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-01-24T10:30:32Z",
-      "updatedAt": "2026-01-26T22:19:49Z",
+      "updatedAt": "2026-02-14T06:49:38Z",
       "size": "large",
       "position": 140,
       "positionVersion": 3,
@@ -7358,7 +7393,8 @@
         "v1.0.0"
       ],
       "notes": [
-        "2026-01-26 22:19:49 UTC: Long-term vision. Depends on T2233/T2234 completion. Version label TBD."
+        "2026-01-26 22:19:49 UTC: Long-term vision. Depends on T2233/T2234 completion. Version label TBD.",
+        "[COMPLETED 2026-02-14T06:49:38Z] CANCELLED: Future/research, no progress. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ],
       "relates": [
         {
@@ -7369,7 +7405,8 @@
           "taskId": "T2234",
           "type": "relates-to"
         }
-      ]
+      ],
+      "completedAt": "2026-02-14T06:49:38Z"
     },
     {
       "id": "T2286",
@@ -8792,12 +8829,12 @@
     {
       "id": "T2633",
       "title": "Validate Autonomous Orchestration Spec Implementation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": "T2392",
       "createdAt": "2026-01-28T06:04:21Z",
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T06:49:25Z",
       "size": "medium",
       "position": 167,
       "positionVersion": 0,
@@ -8806,6 +8843,10 @@
       "labels": [
         "spec-test",
         "validation"
+      ],
+      "completedAt": "2026-02-14T06:49:25Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:25Z] CANCELLED: Bash orchestration testing. Intent preserved in T4500 (orchestration spec compliance in TS). Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
@@ -9412,12 +9453,12 @@
     {
       "id": "T2751",
       "title": "EPIC: Code Standardization and DRY Consolidation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-01-30T06:04:58Z",
-      "updatedAt": "2026-01-30T06:04:58Z",
+      "updatedAt": "2026-02-14T06:49:26Z",
       "size": "large",
       "position": 178,
       "positionVersion": 0,
@@ -9427,6 +9468,10 @@
         "dry",
         "refactor",
         "standardization"
+      ],
+      "completedAt": "2026-02-14T06:49:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:26Z] CANCELLED: Bash code quality. Intent preserved in T4501 (TS code quality standards). Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
@@ -9815,12 +9860,12 @@
     {
       "id": "T3021",
       "title": "EPIC: Integration Testing - Protocol Enforcement End-to-End",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": "T3013",
       "createdAt": "2026-02-03T21:35:21Z",
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T06:49:22Z",
       "size": "large",
       "position": 202,
       "positionVersion": 0,
@@ -9830,6 +9875,10 @@
         "integration",
         "protocols",
         "testing"
+      ],
+      "completedAt": "2026-02-14T06:49:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:22Z] CANCELLED: Bash-specific E2E testing. Intent preserved in T4499. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
@@ -9973,12 +10022,12 @@
     {
       "id": "T3037",
       "title": "Specification: API Endpoint Protocol",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-03T21:41:39Z",
-      "updatedAt": "2026-02-03T21:41:39Z",
+      "updatedAt": "2026-02-14T06:49:34Z",
       "size": "small",
       "position": 203,
       "positionVersion": 0,
@@ -9987,17 +10036,21 @@
       "labels": [
         "specification",
         "test"
+      ],
+      "completedAt": "2026-02-14T06:49:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:34Z] CANCELLED: Orphan, no context. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
       "id": "T3038",
       "title": "Implementation: Add utility function for testing",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-03T21:45:17Z",
-      "updatedAt": "2026-02-03T21:45:17Z",
+      "updatedAt": "2026-02-14T06:49:35Z",
       "size": "small",
       "position": 204,
       "positionVersion": 0,
@@ -10006,6 +10059,10 @@
       "labels": [
         "implementation",
         "test"
+      ],
+      "completedAt": "2026-02-14T06:49:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:35Z] CANCELLED: Orphan, no context. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
@@ -10130,12 +10187,12 @@
     {
       "id": "T3045",
       "title": "Implementation: Add logging utility",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3021",
       "createdAt": "2026-02-03T22:30:18Z",
-      "updatedAt": "2026-02-03T22:30:18Z",
+      "updatedAt": "2026-02-14T06:49:36Z",
       "size": "small",
       "position": 22,
       "positionVersion": 0,
@@ -10144,17 +10201,21 @@
       "labels": [
         "implementation",
         "test"
+      ],
+      "completedAt": "2026-02-14T06:49:36Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:36Z] CANCELLED: Orphan, no context. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
       "id": "T3046",
       "title": "Consensus: Validate protocol CLI coverage claim",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-03T22:33:49Z",
-      "updatedAt": "2026-02-03T22:33:49Z",
+      "updatedAt": "2026-02-14T06:49:36Z",
       "size": "small",
       "position": 205,
       "positionVersion": 0,
@@ -10163,22 +10224,30 @@
       "labels": [
         "consensus",
         "test"
+      ],
+      "completedAt": "2026-02-14T06:49:36Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:36Z] CANCELLED: Orphan, no context. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
       "id": "T3047",
       "title": "EPIC: Test Full Lifecycle - Sample Feature",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "epic",
       "parentId": "T3013",
       "createdAt": "2026-02-03T22:36:57Z",
-      "updatedAt": "2026-02-11T05:35:00Z",
+      "updatedAt": "2026-02-14T06:49:23Z",
       "size": "medium",
       "position": 206,
       "positionVersion": 0,
       "phase": "core",
-      "description": "End-to-end test of all 8 RCSD-IVTR lifecycle stages"
+      "description": "End-to-end test of all 8 RCSD-IVTR lifecycle stages",
+      "completedAt": "2026-02-14T06:49:23Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:23Z] CANCELLED: Bash-specific lifecycle testing. Intent preserved in T4498 (Post-TS Validation Sprint). Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
+      ]
     },
     {
       "id": "T3048",
@@ -10654,16 +10723,20 @@
     {
       "id": "T3126",
       "title": "BRAIN Phase 1 - Session context persistence",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "createdAt": "2026-02-07T03:29:01Z",
-      "updatedAt": "2026-02-07T03:29:53Z",
+      "updatedAt": "2026-02-14T06:49:33Z",
       "size": "medium",
       "position": 17,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Per BRAIN Spec Section 2.1: session-context.json, memory store/recall CLI."
+      "description": "Per BRAIN Spec Section 2.1: session-context.json, memory store/recall CLI.",
+      "completedAt": "2026-02-14T06:49:33Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:33Z] CANCELLED: Orphan concept, no epic, stale. Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
+      ]
     },
     {
       "id": "T3127",
