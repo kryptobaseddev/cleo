@@ -1,6 +1,6 @@
 ## Task Management (cleo)
 
-Use `ct` (alias for `cleo`) for task operations. Full docs: `~/.cleo/docs/TODO_Task_Management.md`
+Use `ct` (alias for `cleo`) for task operations. Global architecture: `~/.cleo/templates/CLEO-INJECTION.md`
 
 **Multi-Agent**: Auto-injected into CLAUDE.md, AGENTS.md, GEMINI.md. Update: `ct init --update-docs`
 
