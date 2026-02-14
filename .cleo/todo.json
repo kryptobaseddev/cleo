@@ -912,7 +912,7 @@
         "version": "v0.98.0",
         "status": "released",
         "targetDate": null,
-        "releasedAt": "2026-02-13T15:57:08Z",
+        "releasedAt": "2026-02-14T05:59:27Z",
         "createdAt": "2026-02-13T15:56:30Z",
         "tasks": [],
         "notes": "V2 architecture spec, LAFS conformance analysis, P3 golden tests, Track B schema extension",
@@ -936,7 +936,7 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T05:58:32Z",
+  "lastUpdated": "2026-02-14T05:59:27Z",
   "_meta": {
     "checksum": "afed23e316164d82",
     "configVersion": "2.1.0",
@@ -947,7 +947,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3007
+    "generation": 3009
   },
   "focus": {
     "currentTask": null,
