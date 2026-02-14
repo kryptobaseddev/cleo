@@ -4,6 +4,24 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.98.3] - 2026-02-13
+
+### Tests
+- Test: Protocol CLI Wrapper - release.sh (T3030)
+- Test: Release protocol - version bump workflow (T3044)
+
+### Other Changes
+- Enhance ct release changelog with changeset aggregation (T2159)
+- Release: Version bump (T3055)
+- Create GitHub Releases for v0.98.0 and v0.98.1 (T4489)
+- Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18) (T4492)
+- Add label validation/auto-creation before gh issue create (GH #17) (T4493)
+- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)
+- Fix severity and area enum mismatches between CLI and templates (T4495)
+- Refactor build_template_body() to use parsed template sections instead of hardcoded headers (T4496)
+- Add tests for cleo issue template parsing and label validation (T4497)
+
+
 ## [0.98.2] - 2026-02-13
 
 ### Other Changes

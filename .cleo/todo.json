@@ -946,10 +946,33 @@
         "notes": null,
         "gitTag": "v0.98.2",
         "changelog": "## [0.98.2] - 2026-02-13\n\n### Other Changes\n- feat(release): add --force re-ship support (T4490)"
+      },
+      {
+        "version": "v0.98.3",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-14T07:07:09Z",
+        "createdAt": "2026-02-14T07:06:35Z",
+        "tasks": [
+          "T4492",
+          "T4493",
+          "T4494",
+          "T4495",
+          "T4496",
+          "T4497",
+          "T2159",
+          "T3030",
+          "T3044",
+          "T3055",
+          "T4489"
+        ],
+        "notes": null,
+        "gitTag": "v0.98.3",
+        "changelog": "## [0.98.3] - 2026-02-13\n\n### Tests\n- Test: Protocol CLI Wrapper - release.sh (T3030)\n- Test: Release protocol - version bump workflow (T3044)\n\n### Other Changes\n- Enhance ct release changelog with changeset aggregation (T2159)\n- Release: Version bump (T3055)\n- Create GitHub Releases for v0.98.0 and v0.98.1 (T4489)\n- Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18) (T4492)\n- Add label validation/auto-creation before gh issue create (GH #17) (T4493)\n- Resolve issue/issues naming inconsistency between CLI and MCP (T4494)\n- Fix severity and area enum mismatches between CLI and templates (T4495)\n- Refactor build_template_body() to use parsed template sections instead of hardcoded headers (T4496)\n- Add tests for cleo issue template parsing and label validation (T4497)"
       }
     ]
   },
-  "lastUpdated": "2026-02-14T07:05:44Z",
+  "lastUpdated": "2026-02-14T07:07:09Z",
   "_meta": {
     "checksum": "ffb2b8d738687ec7",
     "configVersion": "2.1.0",
@@ -960,7 +983,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3263
+    "generation": 3267
   },
   "focus": {
     "currentTask": null,
