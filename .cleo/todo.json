@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T07:07:09Z",
+  "lastUpdated": "2026-02-14T07:15:38Z",
   "_meta": {
-    "checksum": "ffb2b8d738687ec7",
+    "checksum": "8fcd9d75b9608627",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -983,7 +983,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3267
+    "generation": 3268
   },
   "focus": {
     "currentTask": null,
@@ -18413,6 +18413,29 @@
       "labels": [
         "architecture",
         "storage"
+      ]
+    },
+    {
+      "id": "T4507",
+      "title": "EPIC: Documentation Audit - Fix Stale Operation Counts and Spec References",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-14T07:15:08Z",
+      "updatedAt": "2026-02-14T07:15:38Z",
+      "size": "medium",
+      "position": 885,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Fix ~25 stale operation count references and review partially-stale specs. Gateway registries: 63+60=123 deployed ops across 10 domains. Docs cite 93-111. See task notes for full file inventory.",
+      "labels": [
+        "audit",
+        "documentation",
+        "drift"
+      ],
+      "notes": [
+        "2026-02-14 07:15:38 UTC: CONTEXT: During V2 prep cleanup (2026-02-14), discovered severe operation count drift. Capability matrix: 138 entries. Gateway registries: 63+60=123 deployed ops. Docs cite various: 93, 96, 107, 111, 115, 162. Key spec headers already fixed (MCP-SERVER-SPEC, PARITY-MATRIX). ~25 other files still stale."
       ]
     }
   ],
