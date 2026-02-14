@@ -43,7 +43,7 @@
         "CQRS 2-gateway pattern (94% token reduction vs traditional MCP tool approach)",
         "RCSD-IVTR lifecycle protocol enforcement",
         "4-layer validation (schema, semantic, referential, protocol)",
-        "96 operations across 8 domains",
+        "123 operations across 10 domains",
         "Anti-hallucination validation on all task operations",
         "Atomic file operations with backup and rollback"
       ],

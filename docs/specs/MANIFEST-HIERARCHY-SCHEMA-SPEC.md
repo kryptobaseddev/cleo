@@ -4,6 +4,7 @@
 **Epic**: T4352 - Manifest Hierarchy + Path Query Engine
 **Date**: 2026-02-12
 **Status**: complete
+**Note**: jq examples in this spec are JSONL query patterns valid for both Bash and TypeScript implementations.
 
 ---
 

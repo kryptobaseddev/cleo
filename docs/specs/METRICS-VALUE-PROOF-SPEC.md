@@ -1,7 +1,7 @@
 # CLEO Metrics Value Proof Specification
 
 **Version**: 0.1.0
-**Status**: DRAFT
+**Status**: DRAFT (Bash OTel approach — concepts valid, implementation paths will be ported to TypeScript during V2 conversion)
 **Created**: 2026-02-01
 **Epic**: T2833
 

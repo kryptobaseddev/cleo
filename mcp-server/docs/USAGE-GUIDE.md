@@ -27,7 +27,7 @@ CLEO MCP Server provides a Model Context Protocol interface for CLEO's task mana
 
 **Key Benefits**:
 - **94% Token Reduction**: 2 tools (~1,800 tokens) vs 65 tools (~32,500 tokens)
-- **Full Capability**: All 96 operations across 8 domains accessible
+- **Full Capability**: All 123 operations across 10 domains accessible
 - **Safety by Design**: Read operations cannot mutate state
 - **Protocol Enforcement**: RCSD-IVTR lifecycle with automated validation
 - **Anti-Hallucination**: 4-layer validation prevents invalid operations

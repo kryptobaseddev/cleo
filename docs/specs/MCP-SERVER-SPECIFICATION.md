@@ -119,9 +119,9 @@ The original core contract matrix (96 operations) remains the baseline model; im
 }
 ```
 
-#### 2.1.2 Operations by Domain (48 Total: 46 spec + 2 background job ops)
+#### 2.1.2 Operations by Domain (63 Total)
 
-##### tasks (9 operations)
+##### tasks (10 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
@@ -134,6 +134,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `deps` | Get dependencies | `taskId`, `direction?` | Dependency graph |
 | `analyze` | Triage analysis | `epicId?` | Priority recommendations |
 | `next` | Next task suggestion | `epicId?`, `count?` | Suggested tasks |
+| `relates` | Query task relationships | `taskId` | Related task array |
 
 ##### session (5 operations)
 
@@ -192,7 +193,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `test.status` | Test suite status | `taskId?` | Pass/fail counts |
 | `test.coverage` | Coverage metrics | `taskId?` | Coverage percentages |
 
-##### system (5 operations)
+##### system (14 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
@@ -201,6 +202,32 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `config.get` | Get config value | `key` | Config value |
 | `stats` | Project statistics | - | Task/session stats |
 | `context` | Context window info | - | Token usage |
+| `job.status` | Get background job status | `jobId` | Job status |
+| `job.list` | List background jobs | `status?` | Job array |
+| `dash` | Project overview dashboard | - | Dashboard data |
+| `roadmap` | Roadmap generation | `epicId?` | Roadmap structure |
+| `labels` | Label listing and stats | `filter?` | Label array |
+| `compliance` | Compliance metrics | `scope?` | Metrics object |
+| `log` | Audit log entries | `limit?`, `since?` | Log entries |
+| `archive-stats` | Archive analytics | - | Archive metrics |
+| `sequence` | ID sequence inspection | - | Sequence state |
+
+##### issues (1 operation)
+
+| Operation | Description | Parameters | Returns |
+|-----------|-------------|------------|---------|
+| `diagnostics` | System diagnostics for bug reports | - | Diagnostics data |
+
+##### skills (6 operations)
+
+| Operation | Description | Parameters | Returns |
+|-----------|-------------|------------|---------|
+| `list` | List available skills | `filter?` | Skill array |
+| `show` | Skill details | `skillId` | Full skill object |
+| `search` | Search skills | `query` | Matched skills |
+| `dispatch` | Simulate skill dispatch | `taskId` | Dispatch recommendation |
+| `verify` | Validate skill frontmatter | `skillId` | Validation result |
+| `dependencies` | Skill dependency tree | `skillId` | Dependency graph |
 
 ---
 
@@ -226,7 +253,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
     "properties": {
       "domain": {
         "type": "string",
-        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "release", "system"],
+        "enum": ["tasks", "session", "orchestrate", "research", "lifecycle", "validate", "release", "system", "issues", "skills"],
         "description": "Functional domain to mutate"
       },
       "operation": {
@@ -243,9 +270,9 @@ The original core contract matrix (96 operations) remains the baseline model; im
 }
 ```
 
-#### 2.2.2 Operations by Domain (48 Total: 47 spec + 1 background job op)
+#### 2.2.2 Operations by Domain (60 Total)
 
-##### tasks (10 operations)
+##### tasks (11 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
@@ -259,6 +286,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `promote` | Promote subtask to task | `taskId` | Promoted task |
 | `reorder` | Reorder siblings | `taskId`, `position` | New order |
 | `reopen` | Reopen completed task | `taskId` | Reopened task |
+| `relates.add` | Add task relationship | `taskId`, `relatedId`, `type?` | Relationship confirmation |
 
 ##### session (7 operations)
 
@@ -320,7 +348,7 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `gates.run` | Run release gates | `gates?` | Gate results |
 | `rollback` | Rollback release | `version`, `reason` | Rollback status |
 
-##### system (7 operations)
+##### system (10 operations)
 
 | Operation | Description | Parameters | Returns |
 |-----------|-------------|------------|---------|
@@ -331,6 +359,28 @@ The original core contract matrix (96 operations) remains the baseline model; im
 | `migrate` | Run migrations | `version?`, `dryRun?` | Migration result |
 | `sync` | Sync with TodoWrite | `direction?` | Sync result |
 | `cleanup` | Cleanup stale data | `type`, `olderThan?` | Cleanup count |
+| `job.cancel` | Cancel background job | `jobId` | Cancellation status |
+| `safestop` | Graceful agent shutdown | `reason?` | Shutdown confirmation |
+| `uncancel` | Restore cancelled tasks | `taskId` | Restored task |
+
+##### issues (3 operations)
+
+| Operation | Description | Parameters | Returns |
+|-----------|-------------|------------|---------|
+| `create_bug` | File a bug report | `title`, `body`, `labels?` | Issue object |
+| `create_feature` | Request a feature | `title`, `body`, `labels?` | Issue object |
+| `create_help` | Ask a question | `title`, `body` | Issue object |
+
+##### skills (6 operations)
+
+| Operation | Description | Parameters | Returns |
+|-----------|-------------|------------|---------|
+| `install` | Install a skill | `skillId`, `source?` | Install status |
+| `uninstall` | Uninstall a skill | `skillId` | Uninstall status |
+| `enable` | Enable a skill | `skillId` | Enable status |
+| `disable` | Disable a skill | `skillId` | Disable status |
+| `configure` | Configure a skill | `skillId`, `config` | Configuration result |
+| `refresh` | Refresh skill registry | - | Refresh status |
 
 ---
 
@@ -878,9 +928,9 @@ These include, among others, relationship operations and extended system/observa
 
 Current expected implementation totals:
 
-- Query: 56
-- Mutate: 51
-- Total: 107
+- Query: 63
+- Mutate: 60
+- Total: 123
 
 ### 10.5 Thread Safety
 
@@ -1165,6 +1215,14 @@ Recommended limits:
 ---
 
 ## 16. Changelog
+
+### v1.1.0 (2026-02-14)
+
+- Updated operation counts to match gateway registries: 63 query + 60 mutate = 123 total
+- Added issues domain (1 query + 3 mutate) and skills domain (6 query + 6 mutate)
+- Updated tasks domain: added `relates` query and `relates.add` mutate operations
+- Updated system domain: expanded from 5+7=12 to 14+10=24 operations
+- Now 10 domains total (added issues and skills)
 
 ### v1.0.1 (2026-02-10)
 

@@ -4,8 +4,8 @@
  * Handles all read-only operations for discovery, status, analysis,
  * and validation checks. Never modifies state.
  *
- * Domains: tasks, session, orchestrate, research, lifecycle, validate, system
- * Total operations: 56
+ * Domains: tasks, session, orchestrate, research, lifecycle, validate, system, issues, skills
+ * Total operations: 63
  *
  * @task T2915
  */
