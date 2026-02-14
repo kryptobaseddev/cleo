@@ -978,11 +978,11 @@
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-13T03:59:22Z",
+    "lastModified": "2026-02-14T08:30:55Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 29,
+    "activeSessionCount": 28,
     "generation": 3338
   },
   "focus": {
