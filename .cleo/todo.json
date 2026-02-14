@@ -933,10 +933,19 @@
         "notes": null,
         "gitTag": "v0.98.1",
         "changelog": "## [0.98.1] - 2026-02-13\n\n### Bug Fixes\n- Fix release ship to stage and commit version-bumped files (GH #31) (T4482)\n- Auto-detect version bump targets when no versionBump config exists (GH #32) (T4484)\n- Fix misleading epic completeness check in release ship (GH #34) (T4486)"
+      },
+      {
+        "version": "v0.98.2",
+        "status": "planned",
+        "targetDate": null,
+        "releasedAt": null,
+        "createdAt": "2026-02-14T06:18:40Z",
+        "tasks": [],
+        "notes": null
       }
     ]
   },
-  "lastUpdated": "2026-02-14T06:05:51Z",
+  "lastUpdated": "2026-02-14T06:18:40Z",
   "_meta": {
     "checksum": "ba211065beb7fe3d",
     "configVersion": "2.1.0",
@@ -947,7 +956,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3013
+    "generation": 3014
   },
   "focus": {
     "currentTask": null,
