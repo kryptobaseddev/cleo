@@ -681,6 +681,18 @@ while [[ $# -gt 0 ]]; do
       MODE="stats"
       shift
       ;;
+    tree)
+      MODE="tree"
+      shift
+      ;;
+    query)
+      MODE="query"
+      shift
+      ;;
+    aggregate)
+      MODE="aggregate"
+      shift
+      ;;
     --url)
       MODE="url"
       shift
@@ -3962,6 +3974,159 @@ main() {
 }
 
 # ============================================================================
+# Hierarchy Commands (T4361, T4363, T4364)
+# ============================================================================
+
+# run_tree - Display manifest hierarchy as tree
+# @task T4361
+run_tree() {
+    local manifest_path root_id="" max_depth=10
+    manifest_path=$(_rm_get_manifest_path)
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --root) root_id="$2"; shift 2 ;;
+            --depth) max_depth="$2"; shift 2 ;;
+            --json) JSON_OUTPUT=true; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{"_meta":{"command":"research","operation":"tree"},"success":false,"error":{"code":"E_NOT_FOUND","message":"No manifest file found"}}'
+        return 4
+    fi
+
+    if [[ "${JSON_OUTPUT:-}" == "true" ]]; then
+        # JSON output: hierarchical tree structure
+        if [[ -n "$root_id" ]]; then
+            jq -s --arg rid "$root_id" --argjson md "$max_depth" '
+                [.[] | select(.epicId == $rid or .path == $rid or (.path | startswith($rid + "/")))]
+                | [.[] | select(.depth <= $md)]
+                | sort_by(.path)
+            ' "$manifest_path" | jq -n --argjson entries "$(cat)" \
+                '{"_meta":{"command":"research","operation":"tree"},"success":true,"result":{"root":$ARGS.named.root,"entries":$entries}}' \
+                --arg root "$root_id"
+        else
+            jq -s --argjson md "$max_depth" '
+                [.[] | select(.depth <= $md)]
+                | sort_by(.path // "")
+                | group_by(.epicId // "orphan")
+                | map({epicId: .[0].epicId, entries: .})
+            ' "$manifest_path" | jq -n --argjson groups "$(cat)" \
+                '{"_meta":{"command":"research","operation":"tree"},"success":true,"result":{"groups":$groups}}'
+        fi
+    else
+        # ASCII tree output
+        echo "Manifest Hierarchy Tree"
+        echo "======================"
+        echo ""
+
+        if [[ -n "$root_id" ]]; then
+            jq -r --arg rid "$root_id" --argjson md "$max_depth" '
+                select((.epicId == $rid or .path == $rid or (.path | startswith($rid + "/"))) and .depth <= $md) |
+                ("  " * .depth) + (if .depth > 0 then "|- " else "" end) + .id + " [" + .status + "] " + (.title // "untitled")
+            ' "$manifest_path"
+        else
+            jq -r --argjson md "$max_depth" '
+                select(.depth <= $md) |
+                ("  " * .depth) + (if .depth > 0 then "|- " else "" end) + .id + " [" + .status + "] " + (.title // "untitled")
+            ' "$manifest_path" | sort
+        fi
+
+        echo ""
+        local total
+        total=$(wc -l < "$manifest_path")
+        echo "Total entries: $total"
+    fi
+}
+
+# run_query - Query manifest entries by path prefix
+# @task T4363
+run_query() {
+    local manifest_path path_prefix="" epic_filter=""
+    manifest_path=$(_rm_get_manifest_path)
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --path) path_prefix="$2"; shift 2 ;;
+            --epic) epic_filter="$2"; shift 2 ;;
+            --status) STATUS_FILTER="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{"_meta":{"command":"research","operation":"query"},"success":false,"error":{"code":"E_NOT_FOUND","message":"No manifest file found"}}'
+        return 4
+    fi
+
+    local filter_expr="true"
+    [[ -n "$path_prefix" ]] && filter_expr="$filter_expr and (.path | startswith(\"$path_prefix\"))"
+    [[ -n "$epic_filter" ]] && filter_expr="$filter_expr and .epicId == \"$epic_filter\""
+    [[ -n "${STATUS_FILTER:-}" ]] && filter_expr="$filter_expr and .status == \"${STATUS_FILTER}\""
+
+    jq -s --arg pf "$path_prefix" --arg ef "$epic_filter" --arg sf "${STATUS_FILTER:-}" '
+        [.[] | select(
+            (if $pf != "" then (.path // "" | startswith($pf)) else true end) and
+            (if $ef != "" then .epicId == $ef else true end) and
+            (if $sf != "" then .status == $sf else true end)
+        )]
+    ' "$manifest_path" | jq -n --argjson entries "$(cat)" \
+        '{"_meta":{"command":"research","operation":"query"},"success":true,"result":{"count":($entries|length),"entries":$entries}}'
+}
+
+# run_aggregate - Rollup statistics over subtrees
+# @task T4364
+run_aggregate() {
+    local manifest_path epic_filter=""
+    manifest_path=$(_rm_get_manifest_path)
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --epic) epic_filter="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{"_meta":{"command":"research","operation":"aggregate"},"success":false,"error":{"code":"E_NOT_FOUND","message":"No manifest file found"}}'
+        return 4
+    fi
+
+    if [[ -n "$epic_filter" ]]; then
+        jq -s --arg eid "$epic_filter" '
+            [.[] | select(.epicId == $eid)] |
+            {
+                epicId: $eid,
+                totalEntries: length,
+                byStatus: (group_by(.status) | map({status: .[0].status, count: length}) | from_entries),
+                byDepth: (group_by(.depth) | map({depth: .[0].depth, count: length})),
+                byAgentType: (group_by(.agent_type // "unknown") | map({type: .[0].agent_type, count: length})),
+                totalFindings: ([.[].key_findings | length] | add // 0),
+                maxDepth: ([.[].depth] | max // 0),
+                rootEntries: [.[] | select(.depth == 0)] | length,
+                leafEntries: [.[] | select(.childCount == 0 or .childCount == null)] | length
+            }
+        ' "$manifest_path" | jq -n --argjson agg "$(cat)" \
+            '{"_meta":{"command":"research","operation":"aggregate"},"success":true,"result":$agg}'
+    else
+        jq -s '
+            group_by(.epicId // "orphan") |
+            map({
+                epicId: .[0].epicId,
+                count: length,
+                complete: [.[] | select(.status == "complete")] | length,
+                partial: [.[] | select(.status == "partial")] | length,
+                blocked: [.[] | select(.status == "blocked")] | length
+            })
+        ' "$manifest_path" | jq -n --argjson groups "$(cat)" \
+            '{"_meta":{"command":"research","operation":"aggregate"},"success":true,"result":{"totalEntries":([($groups[]?.count // 0)] | add),"byEpic":$groups}}'
+    fi
+}
+
+# ============================================================================
 # Dispatch
 # ============================================================================
 
@@ -4016,6 +4181,15 @@ case "$MODE" in
     ;;
   validate)
     run_validate
+    ;;
+  tree)
+    run_tree "$@"
+    ;;
+  query)
+    run_query "$@"
+    ;;
+  aggregate)
+    run_aggregate "$@"
     ;;
   *)
     main
