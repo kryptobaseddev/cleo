@@ -111577,11 +111577,31 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_4fcce9d5f7d6",
+      "timestamp": "2026-02-14T06:21:37Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4489",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T06:21:35Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5678,
-    "lastEntry": "2026-02-14T06:05:52Z",
+    "totalEntries": 5679,
+    "lastEntry": "2026-02-14T06:21:37Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
