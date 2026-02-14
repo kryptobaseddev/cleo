@@ -921,9 +921,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-13T16:38:36Z",
+  "lastUpdated": "2026-02-14T00:32:19Z",
   "_meta": {
-    "checksum": "7799a03286e9950c",
+    "checksum": "4ea9356f97141469",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -932,7 +932,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2974
+    "generation": 2975
   },
   "focus": {
     "currentTask": null,
@@ -15470,6 +15470,216 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "Add native TypeScript implementations for orchestrate domain operations: status, next, ready, analyze, context, waves, skill.list, startup, spawn, validate, parallel.start, parallel.end, check, skill.inject. Priority: high-frequency ops first."
+    },
+    {
+      "id": "T4479",
+      "title": "GitHub Issues #28-#34: CLI Bug Fixes and UX Improvements",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-14T00:13:54Z",
+      "updatedAt": "2026-02-14T00:13:54Z",
+      "size": "large",
+      "position": 878,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Umbrella epic for 7 GitHub issues (#28-#34) covering session management bugs, release pipeline fixes, config handling, and UX improvements. Organized in 3 waves by severity.",
+      "labels": [
+        "bug",
+        "cli"
+      ]
+    },
+    {
+      "id": "T4480",
+      "title": "Fix session start HARD conflict for overlapping epic scopes (GH #28)",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4479",
+      "createdAt": "2026-02-14T00:14:07Z",
+      "updatedAt": "2026-02-14T00:32:19Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Session start fails with HARD conflict when another session focuses a task in the same scoped epic. Sessions scoped to the same epic should coexist if they focus different tasks. Root cause: conflict detection checks epic scope overlap but not task-level focus overlap. Fix in lib/session/ conflict detection logic.",
+      "labels": [
+        "bug",
+        "session"
+      ],
+      "acceptance": [
+        "Sessions scoped to same epic can coexist when focusing different tasks",
+        "HARD conflict only triggers when two sessions try to focus the SAME task",
+        "Existing conflict detection for identical task focus still works"
+      ],
+      "completedAt": "2026-02-14T00:32:19Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T00:32:19Z] Fixed HARD conflict in detect_scope_conflict() to only trigger when focus tasks match, not when currentTask is anywhere in scope. Updated call site to pass focus_task."
+      ]
+    },
+    {
+      "id": "T4481",
+      "title": "Fix focus set scope check to traverse full descendant tree (GH #29)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4479",
+      "createdAt": "2026-02-14T00:14:11Z",
+      "updatedAt": "2026-02-14T00:14:11Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "ct focus set fails with 'not in session scope' for grandchild tasks of the scoped epic. Scope validation only checks direct children, not full descendants. Fix: add recursive ancestor traversal in scope validation so any descendant of the scoped epic is considered in-scope.",
+      "labels": [
+        "bug",
+        "session"
+      ],
+      "acceptance": [
+        "Focus set works for grandchildren of scoped epic",
+        "Focus set works for any depth of descendant",
+        "Tasks outside the scoped epic hierarchy are still rejected"
+      ]
+    },
+    {
+      "id": "T4482",
+      "title": "Fix release ship to stage and commit version-bumped files (GH #31)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4479",
+      "createdAt": "2026-02-14T00:14:15Z",
+      "updatedAt": "2026-02-14T00:14:15Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "release ship --bump-version modifies package.json and CHANGELOG.md but does not git add/commit them. Files are left unstaged. Fix: after version bump, stage the bumped files and commit with release message before tagging and pushing.",
+      "labels": [
+        "bug",
+        "release"
+      ],
+      "acceptance": [
+        "Version-bumped files are git-added after modification",
+        "Release commit includes bumped files",
+        "Tag is created on the commit containing version changes",
+        "Full flow works: bump -> stage -> commit -> tag -> push"
+      ]
+    },
+    {
+      "id": "T4483",
+      "title": "Fix config set to handle JSON array values (GH #30)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4479",
+      "createdAt": "2026-02-14T00:14:25Z",
+      "updatedAt": "2026-02-14T00:14:25Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "cleo config set fails with exit code 3 when the value is a JSON array string. The value parser doesn't handle complex JSON types like arrays of objects. Fix: detect JSON array/object values and pass them through jq for proper parsing before writing to config.",
+      "labels": [
+        "bug",
+        "config"
+      ],
+      "acceptance": [
+        "config set accepts JSON array values",
+        "config set accepts JSON object values",
+        "Simple string and number values still work",
+        "Nested dot-notation paths still work with JSON values"
+      ],
+      "depends": [
+        "T4480",
+        "T4481",
+        "T4482"
+      ]
+    },
+    {
+      "id": "T4484",
+      "title": "Auto-detect version bump targets when no versionBump config exists (GH #32)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4479",
+      "createdAt": "2026-02-14T00:14:29Z",
+      "updatedAt": "2026-02-14T00:14:29Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "release ship --bump-version fails when no versionBump config exists. Should auto-detect project type: package.json -> Node.js, setup.py/pyproject.toml -> Python, Cargo.toml -> Rust, etc. Fallback to error only if no known project file is found.",
+      "labels": [
+        "bug",
+        "release"
+      ],
+      "acceptance": [
+        "Auto-detects package.json for Node.js projects",
+        "Auto-detects at least one other project type (Python or Rust)",
+        "Still respects explicit versionBump config when present",
+        "Shows clear error when no project type can be detected"
+      ],
+      "depends": [
+        "T4482"
+      ]
+    },
+    {
+      "id": "T4485",
+      "title": "Improve ct complete error message and make notes configurable (GH #33)",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4479",
+      "createdAt": "2026-02-14T00:14:40Z",
+      "updatedAt": "2026-02-14T00:14:40Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "ct complete error says '--notes description' but should say '--notes \"description\"' to clarify it takes a string. Also add config flag validation.requireCompletionNotes (default true) so agent workflows can disable the notes requirement globally.",
+      "labels": [
+        "bug",
+        "ux"
+      ],
+      "acceptance": [
+        "Error message shows --notes with quoted example",
+        "New config flag validation.requireCompletionNotes controls notes requirement",
+        "Default behavior unchanged (notes required)",
+        "When config is false notes are optional"
+      ],
+      "depends": [
+        "T4483",
+        "T4484"
+      ]
+    },
+    {
+      "id": "T4486",
+      "title": "Fix misleading epic completeness check in release ship (GH #34)",
+      "status": "pending",
+      "priority": "low",
+      "type": "task",
+      "parentId": "T4479",
+      "createdAt": "2026-02-14T00:14:43Z",
+      "updatedAt": "2026-02-14T00:14:43Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "release ship reports epic completeness against ALL sibling tasks under the parent epic, not just tasks included in the release. For patch releases covering a subset of tasks, this is misleading. Fix: either scope completeness to tasks explicitly in the release, or suppress the warning for patch releases.",
+      "labels": [
+        "bug",
+        "release"
+      ],
+      "acceptance": [
+        "Epic completeness only counts tasks included in the release",
+        "OR epic completeness is suppressed for patch/minor releases",
+        "Warning message is clear about what tasks are missing and why"
+      ],
+      "depends": [
+        "T4484"
+      ]
     }
   ],
   "labels": {}

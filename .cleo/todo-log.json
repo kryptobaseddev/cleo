@@ -110671,6 +110671,150 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log-1771028034-cf965c",
+      "timestamp": "2026-02-14T00:13:54Z",
+      "action": "task_created",
+      "taskId": "T4479",
+      "actor": "system",
+      "details": {
+        "title": "GitHub Issues #28-#34: CLI Bug Fixes and UX Improvements",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "GitHub Issues #28-#34: CLI Bug Fixes and UX Improvements",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771028047-d2f653",
+      "timestamp": "2026-02-14T00:14:07Z",
+      "action": "task_created",
+      "taskId": "T4480",
+      "actor": "system",
+      "details": {
+        "title": "Fix session start HARD conflict for overlapping epic scopes (GH #28)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix session start HARD conflict for overlapping epic scopes (GH #28)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771028051-ee6890",
+      "timestamp": "2026-02-14T00:14:11Z",
+      "action": "task_created",
+      "taskId": "T4481",
+      "actor": "system",
+      "details": {
+        "title": "Fix focus set scope check to traverse full descendant tree (GH #29)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix focus set scope check to traverse full descendant tree (GH #29)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771028055-9cd469",
+      "timestamp": "2026-02-14T00:14:15Z",
+      "action": "task_created",
+      "taskId": "T4482",
+      "actor": "system",
+      "details": {
+        "title": "Fix release ship to stage and commit version-bumped files (GH #31)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix release ship to stage and commit version-bumped files (GH #31)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771028066-254325",
+      "timestamp": "2026-02-14T00:14:26Z",
+      "action": "task_created",
+      "taskId": "T4483",
+      "actor": "system",
+      "details": {
+        "title": "Fix config set to handle JSON array values (GH #30)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix config set to handle JSON array values (GH #30)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771028069-7c57e5",
+      "timestamp": "2026-02-14T00:14:29Z",
+      "action": "task_created",
+      "taskId": "T4484",
+      "actor": "system",
+      "details": {
+        "title": "Auto-detect version bump targets when no versionBump config exists (GH #32)",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Auto-detect version bump targets when no versionBump config exists (GH #32)",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771028080-cd278f",
+      "timestamp": "2026-02-14T00:14:40Z",
+      "action": "task_created",
+      "taskId": "T4485",
+      "actor": "system",
+      "details": {
+        "title": "Improve ct complete error message and make notes configurable (GH #33)",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Improve ct complete error message and make notes configurable (GH #33)",
+        "status": "pending",
+        "priority": "low"
+      }
+    },
+    {
+      "id": "log-1771028084-3df907",
+      "timestamp": "2026-02-14T00:14:44Z",
+      "action": "task_created",
+      "taskId": "T4486",
+      "actor": "system",
+      "details": {
+        "title": "Fix misleading epic completeness check in release ship (GH #34)",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix misleading epic completeness check in release ship (GH #34)",
+        "status": "pending",
+        "priority": "low"
+      }
     }
   ],
   "_meta": {
