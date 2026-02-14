@@ -267,17 +267,29 @@ else
   FORMAT="${FORMAT:-text}"
 fi
 
+# Check config for notes requirement (GH #33)
+if [[ -z "$NOTES" && "$SKIP_NOTES" == false ]]; then
+  _require_notes="true"
+  if declare -f get_config_value >/dev/null 2>&1; then
+    _require_notes=$(get_config_value "validation.requireCompletionNotes" "true" 2>/dev/null || echo "true")
+  fi
+  if [[ "$_require_notes" == "false" ]]; then
+    SKIP_NOTES=true
+  fi
+  unset _require_notes
+fi
+
 # Require notes unless --skip-notes is provided
 if [[ -z "$NOTES" && "$SKIP_NOTES" == false ]]; then
   if declare -f output_error >/dev/null 2>&1; then
-    output_error "$E_INPUT_MISSING" "Completion notes required. Use --notes 'description' or --skip-notes to bypass." \
-      "${EXIT_INVALID_INPUT:-2}" true "Example: cleo complete $TASK_ID --notes 'Implemented feature. Tests passing.'"
+    output_error "$E_INPUT_MISSING" "Completion notes required. Use --notes \"description\" or --skip-notes to bypass." \
+      "${EXIT_INVALID_INPUT:-2}" true "Example: cleo complete $TASK_ID --notes \"Implemented feature. Tests passing.\""
     exit "${EXIT_INVALID_INPUT:-2}"
   else
-    log_error "Completion notes required. Use --notes 'description' or --skip-notes to bypass."
+    log_error "Completion notes required. Use --notes \"description\" or --skip-notes to bypass."
     echo "" >&2
     echo "Example:" >&2
-    echo "  cleo complete $TASK_ID --notes 'Implemented feature. Tests passing.'" >&2
+    echo "  cleo complete $TASK_ID --notes \"Implemented feature. Tests passing.\"" >&2
     echo "  cleo complete $TASK_ID --skip-notes" >&2
     exit "$EXIT_INVALID_INPUT"
   fi

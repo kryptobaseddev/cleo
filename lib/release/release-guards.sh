@@ -94,7 +94,7 @@ check_epic_completeness() {
             # Children included in the release
             [ $children[] | select($releaseSet[.id] == true) ] as $included |
             # Children NOT in the release
-            [ $children[] | select($releaseSet[.id] != true) ] as $excluded |
+            [ $children[] | select($releaseSet[.id] != true and .status == "done") ] as $excluded |
             # Build missing list with status categorization
             {
                 epicId: $epicId,

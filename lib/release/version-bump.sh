@@ -193,6 +193,48 @@ Or edit .cleo/config.json directly.
 ACTIONABLE_EOF
 }
 
+# auto_detect_version_bump_files - Auto-detect version bump targets from project files
+#
+# Checks for common project files and returns a synthetic versionBump config.
+# Detection order: package.json, Cargo.toml, pyproject.toml, setup.py, VERSION
+#
+# Returns: 0 if detected, 1 if no project files found
+# Outputs: JSON versionBump config to stdout
+auto_detect_version_bump_files() {
+    local files='[]'
+    local detected=false
+
+    # Node.js
+    if [[ -f "package.json" ]]; then
+        files=$(echo "$files" | jq -c '. + [{"path":"package.json","strategy":"json","jsonPath":".version"}]')
+        detected=true
+    fi
+
+    # Rust
+    if [[ -f "Cargo.toml" ]]; then
+        files=$(echo "$files" | jq -c '. + [{"path":"Cargo.toml","strategy":"toml","tomlKey":"package.version"}]')
+        detected=true
+    fi
+
+    # Python (pyproject.toml)
+    if [[ -f "pyproject.toml" ]]; then
+        files=$(echo "$files" | jq -c '. + [{"path":"pyproject.toml","strategy":"toml","tomlKey":"project.version"}]')
+        detected=true
+    fi
+
+    # VERSION file (plain text)
+    if [[ -f "VERSION" ]]; then
+        files=$(echo "$files" | jq -c '. + [{"path":"VERSION","strategy":"plain"}]')
+        detected=true
+    fi
+
+    if [[ "$detected" != "true" ]]; then
+        return 1
+    fi
+
+    jq -nc --argjson files "$files" '{"enabled":true,"files":$files}'
+}
+
 # ============================================================================
 # FILE UPDATE STRATEGIES
 # ============================================================================

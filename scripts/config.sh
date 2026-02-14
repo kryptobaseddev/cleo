@@ -339,6 +339,16 @@ cmd_set() {
         value_type="boolean"
     elif [[ "$value" =~ ^-?[0-9]+$ ]]; then
         value_type="number"
+    elif [[ "$value" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
+        value_type="number"
+    elif echo "$value" | jq -e 'type' >/dev/null 2>&1; then
+        local jq_type
+        jq_type=$(echo "$value" | jq -r 'type')
+        if [[ "$jq_type" == "array" ]]; then
+            value_type="array"
+        elif [[ "$jq_type" == "object" ]]; then
+            value_type="object"
+        fi
     fi
 
     if [[ "$DRY_RUN" == true ]]; then

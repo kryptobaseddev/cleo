@@ -343,6 +343,7 @@ detect_scope_conflict() {
     local sessions_content="$1"
     local new_scope_ids="$2"
     local config_file="${3:-$(get_config_file)}"
+    local new_focus_task="${4:-}"
 
     # Get configuration
     local allow_nested allow_overlap
@@ -375,9 +376,20 @@ detect_scope_conflict() {
         existing_count=$(echo "$existing_ids" | jq 'length')
 
         # Check for HARD conflict (same currentTask)
-        if [[ -n "$current_task" ]] && echo "$new_scope_ids" | jq -e --arg id "$current_task" 'index($id)' >/dev/null 2>&1; then
-            echo "{\"type\":\"$CONFLICT_HARD\",\"sessionId\":\"$session_id\",\"overlappingTasks\":$overlap,\"message\":\"Task $current_task already focused by session $session_id\"}"
-            return
+        if [[ -n "$current_task" ]]; then
+            if [[ -n "$new_focus_task" ]]; then
+                # New session has a specific focus task — HARD only if it's the SAME task
+                if [[ "$new_focus_task" == "$current_task" ]]; then
+                    echo "{\"type\":\"$CONFLICT_HARD\",\"sessionId\":\"$session_id\",\"overlappingTasks\":$overlap,\"message\":\"Task $current_task already focused by session $session_id\"}"
+                    return
+                fi
+            else
+                # No focus task specified — fall back to original behavior (currentTask in scope)
+                if echo "$new_scope_ids" | jq -e --arg id "$current_task" 'index($id)' >/dev/null 2>&1; then
+                    echo "{\"type\":\"$CONFLICT_HARD\",\"sessionId\":\"$session_id\",\"overlappingTasks\":$overlap,\"message\":\"Task $current_task already focused by session $session_id\"}"
+                    return
+                fi
+            fi
         fi
 
         if [[ "$overlap_count" -eq 0 ]]; then
@@ -578,7 +590,7 @@ start_session() {
 
     # Check for conflicts
     local conflict_info conflict_code
-    conflict_info=$(detect_scope_conflict "$sessions_content" "$computed_ids")
+    conflict_info=$(detect_scope_conflict "$sessions_content" "$computed_ids" "" "$focus_task")
 
     # Capture exit code before any other commands (local resets $?)
     validate_scope_conflict "$conflict_info" "$sessions_content" || conflict_code=$?
