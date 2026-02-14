@@ -110815,11 +110815,189 @@
         "status": "pending",
         "priority": "low"
       }
+    },
+    {
+      "id": "log_7a3a9de9b9ad",
+      "timestamp": "2026-02-14T00:32:21Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4480",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:32:19Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_e0b6b0ca2cf9",
+      "timestamp": "2026-02-14T00:32:23Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4481",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:32:21Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_20be20626f12",
+      "timestamp": "2026-02-14T00:32:24Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4482",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:32:23Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_13888011d7c0",
+      "timestamp": "2026-02-14T00:32:26Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4483",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:32:24Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d8af879f8796",
+      "timestamp": "2026-02-14T00:32:27Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4484",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:32:26Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_f8c530c4b9b3",
+      "timestamp": "2026-02-14T00:32:29Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4485",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:32:28Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_ddacbb43a650",
+      "timestamp": "2026-02-14T00:32:30Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4486",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:32:29Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_710e99dd28c9",
+      "timestamp": "2026-02-14T00:34:47Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4479",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T00:34:46Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log-1771036932-49fc4e",
+      "timestamp": "2026-02-14T02:42:12Z",
+      "action": "task_created",
+      "taskId": "T4487",
+      "actor": "system",
+      "details": {
+        "title": "Archive and clear legacy git stashes",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Archive and clear legacy git stashes",
+        "status": "pending",
+        "priority": "medium"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5658,
-    "lastEntry": "2026-02-13T16:38:37Z",
+    "totalEntries": 5666,
+    "lastEntry": "2026-02-14T00:34:47Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
