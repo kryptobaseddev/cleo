@@ -936,16 +936,20 @@
       },
       {
         "version": "v0.98.2",
-        "status": "planned",
+        "status": "released",
         "targetDate": null,
-        "releasedAt": null,
+        "releasedAt": "2026-02-14T06:19:31Z",
         "createdAt": "2026-02-14T06:18:40Z",
-        "tasks": [],
-        "notes": null
+        "tasks": [
+          "T4490"
+        ],
+        "notes": null,
+        "gitTag": "v0.98.2",
+        "changelog": "## [0.98.2] - 2026-02-13\n\n### Other Changes\n- feat(release): add --force re-ship support (T4490)"
       }
     ]
   },
-  "lastUpdated": "2026-02-14T06:18:40Z",
+  "lastUpdated": "2026-02-14T06:19:31Z",
   "_meta": {
     "checksum": "ba211065beb7fe3d",
     "configVersion": "2.1.0",
@@ -956,7 +960,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3014
+    "generation": 3018
   },
   "focus": {
     "currentTask": null,

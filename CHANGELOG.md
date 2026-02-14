@@ -4,6 +4,15 @@ All notable changes to the CLEO system will be documented in this file.
 
 ## [Unreleased]
 
+## [0.98.2] - 2026-02-13
+
+### Other Changes
+- feat(release): add --force re-ship support (T4490)
+
+
+
+
+
 ## [0.98.1] - 2026-02-13
 
 ### Bug Fixes
