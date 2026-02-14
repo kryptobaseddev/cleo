@@ -93,9 +93,17 @@ load_template_config() {
 }
 
 # Get title prefix for a subcommand
+# Note: title prefixes like "[Bug]: " include a trailing space; if the YAML
+# parser stripped it, we re-add it to match the template intent.
 get_title_prefix_for() {
     local subcommand="$1"
-    echo "$TEMPLATE_CONFIG" | jq -r --arg sub "$subcommand" '.[$sub].titlePrefix // empty'
+    local prefix
+    prefix=$(echo "$TEMPLATE_CONFIG" | jq -r --arg sub "$subcommand" '.[$sub].titlePrefix // empty')
+    # Ensure prefix ends with a space if it's non-empty (template convention)
+    if [[ -n "$prefix" ]] && [[ "$prefix" != *" " ]]; then
+        prefix="$prefix "
+    fi
+    echo "$prefix"
 }
 
 # Get labels for a subcommand as comma-separated string
