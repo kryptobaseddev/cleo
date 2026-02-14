@@ -949,9 +949,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T06:21:36Z",
+  "lastUpdated": "2026-02-14T06:41:30Z",
   "_meta": {
-    "checksum": "6154b9e71847eba6",
+    "checksum": "384a258a8286c82e",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -960,7 +960,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3020
+    "generation": 3021
   },
   "focus": {
     "currentTask": null,
@@ -1908,7 +1908,7 @@
     {
       "id": "T883",
       "title": "FEATURE: Add persistent field for evergreen epics",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
@@ -1926,15 +1926,17 @@
         "2025-12-26 19:14:18 UTC: SCHEMA RECOMMENDATION: Add 'persistent' field (not 'autoComplete: false' - avoids double negative). Field is orthogonal to status and type, self-documenting, lives where it applies (on the epic itself). Default false preserves current behavior. LLM-agent-friendly: explicit intent, no cross-referencing needed. Evaluation score: Schema complexity LOW, Migration TRIVIAL, User understanding HIGH, Backward compat EXCELLENT.",
         "2025-12-26 19:14:33 UTC: IMPLEMENTATION SCOPE: (1) schemas/todo.schema.json - add persistent boolean field; (2) lib/hierarchy.sh - check persistent flag in handle_parent_auto_complete(); (3) scripts/add-task.sh - add --persistent flag for epic creation; (4) scripts/update-task.sh - add --persistent/--no-persistent toggles; (5) scripts/complete-task.sh - respect persistent in auto-complete logic; (6) tests/unit/hierarchy.bats - test persistent behavior; (7) docs/ - document flag usage. Complexity: Small/Medium scope, single focused PR.",
         "2025-12-26 19:14:51 UTC: WHY NOT ALTERNATIVES: (1) Sentinel Task Pattern - REJECTED: Hacky, pollutes task lists, blocks 100% completion metrics; (2) New 'bucket' Type - REJECTED: Type proliferation, muddies epic->task->subtask hierarchy, harder to convert existing epics; (3) Status 'evergreen' - REJECTED: Semantic violation (status is lifecycle, not behavior), breaks status filtering; (4) Label Convention - REJECTED: Hidden/implicit behavior, typo-prone, no schema validation; (5) Config persistentEpics list - REJECTED: Indirection, ID-coupling, config drift risk. The 'persistent' field wins on all criteria.",
-        "2025-12-26 19:15:08 UTC: USE CASES FOR PERSISTENT EPICS: (1) Tech Debt Backlog - ongoing remediation, never truly complete; (2) Bug Triage - continuous inflow of issues; (3) Research/Exploration - open-ended investigation; (4) Maintenance - recurring operational tasks; (5) Documentation - living docs that evolve. These categories benefit from epic organization (hierarchy, progress visibility) but should not auto-close when current children complete."
+        "2025-12-26 19:15:08 UTC: USE CASES FOR PERSISTENT EPICS: (1) Tech Debt Backlog - ongoing remediation, never truly complete; (2) Bug Triage - continuous inflow of issues; (3) Research/Exploration - open-ended investigation; (4) Maintenance - recurring operational tasks; (5) Documentation - living docs that evolve. These categories benefit from epic organization (hierarchy, progress visibility) but should not auto-close when current children complete.",
+        "[COMPLETED 2026-02-14T06:41:30Z] CANCELLED: Duplicate of T882"
       ],
       "description": "Add optional 'persistent: true' boolean field to task schema that prevents auto-completion when all children are done. For evergreen/bucket epics like Tech Debt, Bugs, Research, Maintenance that should never auto-close.\n\nSCHEMA CHANGE (schemas/todo.schema.json):\n  persistent: { type: boolean, default: false }\n\nCLI INTEGRATION:\n  claude-todo add 'Tech Debt' --type epic --persistent\n  claude-todo update T001 --persistent true\n\nFILES TO MODIFY:\n  - schemas/todo.schema.json\n  - lib/hierarchy.sh  \n  - scripts/add-task.sh\n  - scripts/update-task.sh\n  - scripts/complete-task.sh\n  - tests/unit/hierarchy.bats\n  - docs/\n\nSee notes for full 5-agent research consensus and analysis.",
       "size": "medium",
       "position": 46,
       "positionVersion": 0,
-      "updatedAt": "2025-12-26T14:52:51Z",
+      "updatedAt": "2026-02-14T06:41:30Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:41:30Z"
     },
     {
       "id": "T899",
@@ -16068,6 +16070,111 @@
         "lastUpdated": "2026-02-14T06:05:51Z",
         "failureLog": []
       }
+    },
+    {
+      "id": "T4491",
+      "title": "Refactor cleo issue: DRY template parsing, label validation, naming consistency (GH #17, #18)",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-14T06:36:31Z",
+      "updatedAt": "2026-02-14T06:36:31Z",
+      "size": "medium",
+      "position": 883,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Eliminate template duplication in cleo issue by reading from .github/ISSUE_TEMPLATE/*.yml as single source of truth. Fix label validation (GH#17), add template-driven body construction (GH#18), resolve issue/issues naming inconsistency between CLI and MCP, fix severity/area enum mismatches, and add DomainName type coverage."
+    },
+    {
+      "id": "T4492",
+      "title": "Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4491",
+      "createdAt": "2026-02-14T06:36:39Z",
+      "updatedAt": "2026-02-14T06:36:39Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create a template parser function that reads title prefix, labels, section headers, severity/area enums from the YAML template files. When running inside the repo, read directly. When running from install, use bundled template config (generated at install/build time). This is the DRY foundation — single source of truth for all template metadata."
+    },
+    {
+      "id": "T4493",
+      "title": "Add label validation/auto-creation before gh issue create (GH #17)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4491",
+      "createdAt": "2026-02-14T06:36:42Z",
+      "updatedAt": "2026-02-14T06:36:42Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Before calling gh issue create, validate that all required labels exist on the repo via gh label list. If missing, either auto-create them (with a warning) or fail gracefully with a clear message listing which labels need to be created. Eliminates the confusing gh exit code 8 error."
+    },
+    {
+      "id": "T4494",
+      "title": "Resolve issue/issues naming inconsistency between CLI and MCP",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4491",
+      "createdAt": "2026-02-14T06:36:45Z",
+      "updatedAt": "2026-02-14T06:36:45Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "CLI command is 'issue' (singular), MCP domain is 'issues' (plural). Add 'issues' as a CLI alias so both work. Add 'issues' to DomainName type in gateway.ts. Ensure MCP operations types exist in types/operations/. Document the canonical name."
+    },
+    {
+      "id": "T4495",
+      "title": "Fix severity and area enum mismatches between CLI and templates",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4491",
+      "createdAt": "2026-02-14T06:36:48Z",
+      "updatedAt": "2026-02-14T06:36:48Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "CLI uses low/medium/high/critical for severity; templates use Blocker/Major/Moderate/Minor. CLI uses cli/mcp/docs/tests/other for area; templates use 11 descriptive options. Align both to read from template YAML as source of truth, with CLI accepting either short aliases or full template values."
+    },
+    {
+      "id": "T4496",
+      "title": "Refactor build_template_body() to use parsed template sections instead of hardcoded headers",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4491",
+      "createdAt": "2026-02-14T06:36:52Z",
+      "updatedAt": "2026-02-14T06:36:52Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Replace hardcoded section headers in build_template_body() with template-parsed values. Generate all required template sections (not just the first one). For sections the CLI cannot auto-fill (e.g., steps to reproduce), include the header with a placeholder or skip gracefully. Ensure CLI-filed issues structurally match the template layout."
+    },
+    {
+      "id": "T4497",
+      "title": "Add tests for cleo issue template parsing and label validation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4491",
+      "createdAt": "2026-02-14T06:36:54Z",
+      "updatedAt": "2026-02-14T06:36:54Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Create BATS integration tests: template YAML parsing produces correct config, label validation catches missing labels, body construction matches template structure, severity/area mapping works, issue/issues alias resolves correctly."
     }
   ],
   "labels": {}
