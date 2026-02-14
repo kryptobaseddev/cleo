@@ -21,6 +21,7 @@ import { ReleaseHandler } from '../domains/release.js';
 import { SystemHandler } from '../domains/system.js';
 import { IssuesHandler } from '../domains/issues.js';
 import { SkillsHandler } from '../domains/skills.js';
+import { ProvidersHandler } from '../domains/providers.js';
 import { formatError, createError } from './formatter.js';
 import { CLIExecutor } from './executor.js';
 import type { ResolvedMode } from './mode-detector.js';
@@ -135,6 +136,7 @@ export class DomainRouter {
       ['system', new SystemHandler(executor, undefined, executionMode)],
       ['issues', new IssuesHandler(executor, executionMode)],
       ['skills', new SkillsHandler(executor)],
+      ['providers', new ProvidersHandler(executor)],
     ]);
     this.useProtocolEnforcement = useProtocolEnforcement;
     this.verificationGate = new VerificationGate(useProtocolEnforcement);
