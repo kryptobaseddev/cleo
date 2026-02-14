@@ -949,9 +949,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T07:05:36Z",
+  "lastUpdated": "2026-02-14T07:05:44Z",
   "_meta": {
-    "checksum": "5c2ba2c9e7c76f46",
+    "checksum": "ffb2b8d738687ec7",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -960,7 +960,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3258
+    "generation": 3263
   },
   "focus": {
     "currentTask": null,
@@ -10877,12 +10877,12 @@
     {
       "id": "T2865",
       "title": "Bug: Session start fails when epic has no pending tasks",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T2862",
       "createdAt": "2026-02-01T02:27:17Z",
-      "updatedAt": "2026-02-01T06:51:25Z",
+      "updatedAt": "2026-02-14T07:05:43Z",
       "size": "small",
       "position": 3,
       "positionVersion": 0,
@@ -10894,8 +10894,25 @@
       ],
       "notes": [
         "2026-02-01 02:37:39 UTC: Deferred - session start issue documented, workaround is to use existing pending task",
-        "2026-02-01 06:51:25 UTC: HITL DECISION: Implement Option 3 (--no-focus flag). Add --no-focus flag to session start that allows starting a session without auto-focus when all tasks are done. This is the least invasive solution that preserves existing behavior while enabling post-completion workflows."
-      ]
+        "2026-02-01 06:51:25 UTC: HITL DECISION: Implement Option 3 (--no-focus flag). Add --no-focus flag to session start that allows starting a session without auto-focus when all tasks are done. This is the least invasive solution that preserves existing behavior while enabling post-completion workflows.",
+        "[COMPLETED 2026-02-14T07:05:43Z] CANCELLED: Bash session start bug. TS rewrite (T4454) will redesign session management."
+      ],
+      "completedAt": "2026-02-14T07:05:43Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:44Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2885",
@@ -11913,17 +11930,32 @@
       "completedAt": "2026-02-14T07:05:36Z",
       "notes": [
         "[COMPLETED 2026-02-14T07:05:36Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:37Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3055",
       "title": "Release: Version bump",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T3047",
       "createdAt": "2026-02-03T22:37:14Z",
-      "updatedAt": "2026-02-03T22:37:14Z",
+      "updatedAt": "2026-02-14T07:05:40Z",
       "size": "medium",
       "position": 8,
       "positionVersion": 0,
@@ -11931,7 +11963,26 @@
       "description": "Test stage: Version bump",
       "labels": [
         "release"
-      ]
+      ],
+      "completedAt": "2026-02-14T07:05:40Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T07:05:40Z] CANCELLED: Parent T3047 done. Bash lifecycle test superseded by TS. Testing intent in T4498."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T07:05:40Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3056",
