@@ -115621,11 +115621,221 @@
         "currentTask": "T4500"
       },
       "details": null
+    },
+    {
+      "id": "log_bdbc11d87a51",
+      "timestamp": "2026-02-14T09:22:24Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4500",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T09:22:22Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_66ec92212032",
+      "timestamp": "2026-02-14T09:22:31Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4500"
+      },
+      "after": {
+        "currentTask": "T4501"
+      },
+      "details": null
+    },
+    {
+      "id": "log_6330062722f0",
+      "timestamp": "2026-02-14T09:23:09Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4501",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T09:23:07Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_63df01780926",
+      "timestamp": "2026-02-14T09:23:15Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4501"
+      },
+      "after": {
+        "currentTask": "T4502"
+      },
+      "details": null
+    },
+    {
+      "id": "log_1e0ef2e778c0",
+      "timestamp": "2026-02-14T09:24:13Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4502",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T09:24:12Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_74e9d67de9e7",
+      "timestamp": "2026-02-14T09:24:20Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4502"
+      },
+      "after": {
+        "currentTask": "T4503"
+      },
+      "details": null
+    },
+    {
+      "id": "log_dd5e3eb46714",
+      "timestamp": "2026-02-14T09:24:53Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4503",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T09:24:51Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_0cbd057856be",
+      "timestamp": "2026-02-14T09:25:00Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4503"
+      },
+      "after": {
+        "currentTask": "T4504"
+      },
+      "details": null
+    },
+    {
+      "id": "log_cef91783b116",
+      "timestamp": "2026-02-14T09:26:17Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4504",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T09:26:15Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_444ac17cf1b1",
+      "timestamp": "2026-02-14T09:26:24Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4504"
+      },
+      "after": {
+        "currentTask": "T4505"
+      },
+      "details": null
+    },
+    {
+      "id": "log_a5c8fa5034ae",
+      "timestamp": "2026-02-14T09:26:41Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4505",
+      "before": {
+        "status": "active",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T09:26:40Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_e578349665e7",
+      "timestamp": "2026-02-14T09:26:49Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4505"
+      },
+      "after": {
+        "currentTask": "T4506"
+      },
+      "details": null
     }
   ],
   "_meta": {
-    "totalEntries": 5992,
-    "lastEntry": "2026-02-14T09:21:11Z",
+    "totalEntries": 6004,
+    "lastEntry": "2026-02-14T09:26:49Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
