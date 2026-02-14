@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T08:46:45Z",
+  "lastUpdated": "2026-02-14T08:52:14Z",
   "_meta": {
-    "checksum": "0ad3318782db187f",
+    "checksum": "781e3be12b8ea84c",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -983,7 +983,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3354
+    "generation": 3366
   },
   "focus": {
     "currentTask": null,
@@ -8902,12 +8902,12 @@
     {
       "id": "T2295",
       "title": "Create templates/CLEO-INJECTION.md for global agent configuration",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4331",
       "createdAt": "2026-01-26T16:41:41Z",
-      "updatedAt": "2026-02-11T05:40:00Z",
+      "updatedAt": "2026-02-14T08:47:48Z",
       "size": "medium",
       "position": 22,
       "positionVersion": 0,
@@ -8918,18 +8918,35 @@
         "injection-system"
       ],
       "notes": [
-        "2026-01-26 19:08:30 UTC: Skills System: GLOBAL injection should point to ct-orchestrator after optimization"
-      ]
+        "2026-01-26 19:08:30 UTC: Skills System: GLOBAL injection should point to ct-orchestrator after optimization",
+        "[COMPLETED 2026-02-14T08:47:48Z] CLEO-INJECTION.md already exists at ~/.cleo/templates/CLEO-INJECTION.md and is injected into ~/.claude/CLAUDE.md via @ reference. Contains architecture overview, subagent protocol, lifecycle gates, token handling, output requirements - comprehensive global agent configuration."
+      ],
+      "completedAt": "2026-02-14T08:47:48Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:47:51Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2296",
       "title": "Optimize templates/AGENT-INJECTION.md for project-level context",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": "T4331",
       "createdAt": "2026-01-26T16:41:44Z",
-      "updatedAt": "2026-02-11T05:40:00Z",
+      "updatedAt": "2026-02-14T08:48:40Z",
       "size": "medium",
       "position": 23,
       "positionVersion": 0,
@@ -8943,18 +8960,35 @@
         "T2295"
       ],
       "notes": [
-        "2026-01-26 19:08:35 UTC: Skills System: PROJECT injection should reference slimmed ct-orchestrator"
-      ]
+        "2026-01-26 19:08:35 UTC: Skills System: PROJECT injection should reference slimmed ct-orchestrator",
+        "[COMPLETED 2026-02-14T08:48:40Z] Optimized AGENT-INJECTION.md from 169 lines to 116 lines (~3KB). Removed duplicated subagent architecture (now in CLEO-INJECTION.md), consolidated skill ecosystem section to pointer only, simplified project context section."
+      ],
+      "completedAt": "2026-02-14T08:48:40Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:48:43Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2299",
       "title": "Update init.sh to handle GLOBAL and PROJECT injections",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4331",
       "createdAt": "2026-01-26T16:42:18Z",
-      "updatedAt": "2026-02-11T05:40:00Z",
+      "updatedAt": "2026-02-14T08:49:09Z",
       "size": "medium",
       "position": 26,
       "positionVersion": 0,
@@ -8968,17 +9002,36 @@
         "T2295",
         "T2296",
         "T2344"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:49:09Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:49:09Z] init.sh already handles both GLOBAL (CLEO-INJECTION.md -> ~/.claude/CLAUDE.md) and PROJECT (AGENT-INJECTION.md -> project CLAUDE.md) injections. Supports --update-docs flag, CLEO:START/END markers, agent registry, and version checks. Injection library at lib/ui/injection.sh."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:49:09Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2300",
       "title": "Update upgrade.sh to refresh injection files",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4331",
       "createdAt": "2026-01-26T16:42:20Z",
-      "updatedAt": "2026-02-11T05:40:00Z",
+      "updatedAt": "2026-02-14T08:49:24Z",
       "size": "medium",
       "position": 27,
       "positionVersion": 0,
@@ -8990,17 +9043,36 @@
       ],
       "depends": [
         "T2299"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:49:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:49:24Z] upgrade.sh already handles injection refresh: sources lib/ui/injection.sh, runs injection_check_all for status, injection_update_all for refresh, syncs AGENT-INJECTION.md template from global to project. All required functionality is present."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:49:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2301",
       "title": "Update doctor.sh to validate both injection files",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4331",
       "createdAt": "2026-01-26T16:42:22Z",
-      "updatedAt": "2026-02-11T05:40:00Z",
+      "updatedAt": "2026-02-14T08:50:00Z",
       "size": "small",
       "position": 28,
       "positionVersion": 0,
@@ -9013,17 +9085,36 @@
       "depends": [
         "T2299",
         "T2300"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:50:00Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:50:00Z] doctor.sh already validates injection system: checks CLEO:START markers in agent docs, detects missing/outdated injections, reports as issues with fix suggestions. Both global and project injection paths are validated."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:50:01Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2302",
       "title": "Deprecate ~/.cleo/docs/TODO_Task_Management.md in favor of injections",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4331",
       "createdAt": "2026-01-26T16:42:42Z",
-      "updatedAt": "2026-02-11T05:40:00Z",
+      "updatedAt": "2026-02-14T08:52:14Z",
       "size": "small",
       "position": 29,
       "positionVersion": 0,
@@ -9036,6 +9127,10 @@
       "depends": [
         "T2300",
         "T2301"
+      ],
+      "completedAt": "2026-02-14T08:52:14Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:52:14Z] Deprecated TODO_Task_Management.md references: updated AGENT-INJECTION.md (both .cleo/templates/ and templates/), README.md, multi-agent-setup.mdx (12 refs), context-safeguard.mdx, PRIME-ARCHITECTURE.mdx. Redirected to CLEO-INJECTION.md and AGENT-INJECTION.md. CHANGELOG.md refs kept as historical."
       ]
     },
     {
@@ -19356,7 +19451,22 @@
       "completedAt": "2026-02-14T08:46:45Z",
       "notes": [
         "[COMPLETED 2026-02-14T08:46:45Z] Documented the 138 vs 123 discrepancy. Capability matrix is intentional superset: includes CLI aliases (show/get, add/create, focus-set/focus.set), CLI-only ops (stats, export, import), and legacy compat entries. Gateway registries (123) define canonical MCP API surface. Added clarifying comment to capability-matrix.ts."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:46:46Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
