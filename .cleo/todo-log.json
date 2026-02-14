@@ -111539,6 +111539,24 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log-1771049135-6acd75",
+      "timestamp": "2026-02-14T06:05:36Z",
+      "action": "task_created",
+      "taskId": "T4490",
+      "actor": "system",
+      "details": {
+        "title": "feat(release): add --force re-ship support",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "feat(release): add --force re-ship support",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {

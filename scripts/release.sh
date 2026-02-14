@@ -144,6 +144,7 @@ CI_FORCE=""
 STRICT=""
 PREVIEW=""
 FORCE_GUARDS=""
+FORCE_RESHIP=""
 
 # Initialize flag defaults
 init_flag_defaults 2>/dev/null || true
@@ -188,7 +189,7 @@ Options:
     --skip-validation    Skip all validation gates (for emergency releases)
     --output FILE        Output file for changelog (default: CHANGELOG.md)
     --platform PLATFORM  CI platform (github-actions|gitlab-ci|circleci) (for init-ci)
-    --force              Force operation (overrides tag conflict and epic guard blocking)
+    --force              Force operation (overrides tag conflict, epic guard, and allows re-ship)
     --format, -f FORMAT  Output format: text | json (default: auto)
     --json               Shortcut for --format json
     --human              Shortcut for --format text
@@ -808,8 +809,16 @@ cmd_ship() {
     local status
     status=$(echo "$current_release" | jq -r '.status')
     if [[ "$status" == "released" ]]; then
-        log_error "Release $normalized is already released" "E_RELEASE_LOCKED" "$EXIT_RELEASE_LOCKED" "Cannot ship an already released version"
-        exit "$EXIT_RELEASE_LOCKED"
+        if [[ "${FLAG_FORCE:-false}" == "true" || "${FORCE_RESHIP:-false}" == "true" ]]; then
+            log_warn "Re-shipping already released version $normalized (--force)"
+            log_warn "This will re-create the git tag and re-push if requested"
+            # Force tag overwrite since tag likely already exists
+            FORCE_TAG="true"
+        else
+            log_error "Release $normalized is already released" "E_RELEASE_LOCKED" "$EXIT_RELEASE_LOCKED" \
+                "Use --force to re-ship (e.g., after CI failure fix)"
+            exit "$EXIT_RELEASE_LOCKED"
+        fi
     fi
 
     # PREVIEW MODE: Show task preview without shipping
@@ -1398,9 +1407,13 @@ $release_desc"
                 fi
             fi
 
-            # Push tags
+            # Push tags (force-push if FORCE_TAG is set, e.g., during re-ship)
             if [[ "$git_tag_created" == true ]] && [[ "$push_success" == true ]]; then
-                if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push origin "$normalized" 2>&1; then
+                local tag_push_args=("origin" "$normalized")
+                if [[ "$FORCE_TAG" == "true" ]]; then
+                    tag_push_args=("origin" "$normalized" "--force")
+                fi
+                if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git push "${tag_push_args[@]}" 2>&1; then
                     log_error "Failed to push tag to remote" "E_TAG_CREATION_FAILED" "$EXIT_TAG_CREATION_FAILED" "Push manually: git push origin $normalized"
                 else
                     log_info "Tag pushed to remote"
@@ -2029,13 +2042,14 @@ parse_args() {
                 continue
                 ;;
             --force)
-                # Can be used for --force-tag, CI init --force, and ship guard override
+                # Can be used for --force-tag, CI init --force, ship guard override, and reship
                 # @task T4434
                 if [[ "$SUBCOMMAND" == "init-ci" ]]; then
                     CI_FORCE="true"
                 elif [[ "$SUBCOMMAND" == "ship" ]]; then
                     FORCE_TAG="true"
                     FORCE_GUARDS="true"
+                    FORCE_RESHIP="true"
                 else
                     FORCE_TAG="true"
                 fi

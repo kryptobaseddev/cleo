@@ -936,9 +936,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T06:00:44Z",
+  "lastUpdated": "2026-02-14T06:05:50Z",
   "_meta": {
-    "checksum": "afed23e316164d82",
+    "checksum": "ccd004597ea5caec",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -947,7 +947,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3011
+    "generation": 3012
   },
   "focus": {
     "currentTask": null,
@@ -16003,6 +16003,25 @@
       ],
       "files": [
         "mcp-server/package.json"
+      ]
+    },
+    {
+      "id": "T4490",
+      "title": "feat(release): add --force re-ship support",
+      "status": "done",
+      "priority": "high",
+      "type": "task",
+      "parentId": null,
+      "createdAt": "2026-02-14T06:05:35Z",
+      "updatedAt": "2026-02-14T06:05:50Z",
+      "size": "medium",
+      "position": 882,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Allow cleo release ship to re-ship already-released versions with --force flag, for CI failure recovery. Bypasses E_RELEASE_LOCKED guard, force-overwrites tags, force-pushes to remote.",
+      "completedAt": "2026-02-14T06:05:50Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:05:50Z] Implemented FORCE_RESHIP in scripts/release.sh cmd_ship() and parse_args(). Force tag push with --force when FORCE_TAG is set."
       ]
     }
   ],
