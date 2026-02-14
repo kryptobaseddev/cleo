@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-14T09:26:49Z",
-    "totalSessionsCreated": 625
+    "lastModified": "2026-02-14T09:31:56Z",
+    "totalSessionsCreated": 626
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35162,7 +35162,7 @@
     },
     {
       "id": "session_20260214_011639_786f1d",
-      "status": "active",
+      "status": "ended",
       "name": "V2 Validation Sprint",
       "agentId": null,
       "scope": {
@@ -35181,10 +35181,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T4506",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": "T4505",
-        "sessionNote": null,
+        "previousTask": "T4506",
+        "sessionNote": "T4498 validation sprint complete. All 8 tasks done: T4499-T4506.",
         "nextAction": null,
         "focusHistory": [
           {
@@ -35235,7 +35235,7 @@
         ]
       },
       "startedAt": "2026-02-14T09:16:39Z",
-      "lastActivity": "2026-02-14T09:26:49Z",
+      "lastActivity": "2026-02-14T09:27:48Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -35248,7 +35248,72 @@
         "start_timestamp": "2026-02-14T09:16:39Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-14T09:27:48Z"
+    },
+    {
+      "id": "session_20260214_012756_8f5bfd",
+      "status": "ended",
+      "name": "CAAMP Enhancements",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4332",
+        "computedTaskIds": [
+          "T4332",
+          "T4341",
+          "T4342",
+          "T4343",
+          "T4367",
+          "T4368",
+          "T4369"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4368",
+        "sessionNote": "CAAMP enhancements complete. T4343, T4367, T4368 done. T4341, T4342, T4369 were already done.",
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4343",
+            "timestamp": "2026-02-14T09:27:56Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4343",
+            "timestamp": "2026-02-14T09:28:01Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4367",
+            "timestamp": "2026-02-14T09:28:32Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4368",
+            "timestamp": "2026-02-14T09:29:05Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-14T09:27:56Z",
+      "lastActivity": "2026-02-14T09:31:56Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 4,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260214_012756_8f5bfd",
+        "start_timestamp": "2026-02-14T09:27:56Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-14T09:31:56Z"
     }
   ],
   "sessionHistory": [
