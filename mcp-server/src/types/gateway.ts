@@ -21,6 +21,7 @@ export type DomainName =
   | 'validate'
   | 'release'
   | 'system'
+  | 'issues'
   | 'skills';
 
 /**
