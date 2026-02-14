@@ -349,6 +349,31 @@ validate_task_in_scope() {
     local in_scope
     in_scope=$(echo "$scope_task_ids" | jq --arg id "$task_id" 'index($id) != null')
 
+    # Fallback: if task not in computed scope, check parent chain
+    # This handles newly added descendants that recompute_session_scope may miss
+    if [[ "$in_scope" != "true" ]]; then
+        local root_task_id
+        root_task_id=$(echo "$session_info" | jq -r '.scope.rootTaskId // ""')
+        if [[ -n "$root_task_id" ]]; then
+            local todo_file
+            todo_file="$(get_cleo_dir)/todo.json"
+            if [[ -f "$todo_file" ]]; then
+                local parent_chain
+                parent_chain=$(jq -r --arg id "$task_id" '
+                    .tasks as $tasks |
+                    def parent_chain($tid):
+                        if $tid == null or $tid == "" then []
+                        else [$tid] + parent_chain([$tasks[] | select(.id == $tid) | .parentId][0] // "")
+                        end;
+                    parent_chain($id) | .[]
+                ' "$todo_file")
+                if echo "$parent_chain" | grep -qx "$root_task_id"; then
+                    in_scope="true"
+                fi
+            fi
+        fi
+    fi
+
     if [[ "$in_scope" == "true" ]]; then
         return 0
     fi

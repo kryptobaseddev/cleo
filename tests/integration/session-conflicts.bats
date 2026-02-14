@@ -372,17 +372,19 @@ EOF
     assert_output --partial "conflict" || assert_output --partial "scope" || assert_output --partial "claimed"
 }
 
-@test "scope conflict: cannot start session with taskGroup overlapping existing epic scope" {
+@test "scope conflict: taskGroup overlapping existing epic scope allowed with nested warning (GH #28)" {
     create_conflict_test_todo
     create_multi_session_config
     create_active_session_on_epic  # Session on T001 epic
 
-    # Try to start session with taskGroup scope that overlaps
+    # Start session with taskGroup scope that overlaps but focuses a DIFFERENT task
+    # Per MULTI-SESSION spec: nested scopes allowed when allowNestedScopes=true
+    # and focus tasks are different (T003 != T002)
     run bash "$SCRIPTS_DIR/session.sh" start --scope taskGroup:T002 --focus T003
-    assert_failure
+    assert_success
 
-    # T002 and T003 are within T001's scope
-    assert_output --partial "conflict" || assert_output --partial "scope" || assert_output --partial "overlap"
+    # Should warn about nested scope
+    assert_output --partial "Warning" || assert_output --partial "nested"
 }
 
 @test "scope conflict: disjoint scopes allowed simultaneously" {
@@ -728,17 +730,19 @@ EOF
     fi
 }
 
-@test "scope claimed: nested scope within active epic scope rejected" {
+@test "scope claimed: nested scope within active epic scope allowed when focusing different task (GH #28)" {
     create_conflict_test_todo
     create_multi_session_config
     create_active_session_on_epic  # T001 epic session
 
-    # Try to start session with subtree scope that overlaps
+    # Start session with subtree scope that overlaps but focuses a DIFFERENT task
+    # Per MULTI-SESSION spec: nested scopes allowed when allowNestedScopes=true
+    # and focus tasks are different (T003 != T002)
     run bash "$SCRIPTS_DIR/session.sh" start --scope subtree:T002 --focus T003
-    assert_failure
+    assert_success
 
-    # T002 subtree is nested within T001 epic scope
-    assert_output --partial "conflict" || assert_output --partial "scope" || assert_output --partial "overlap"
+    # T002 subtree is nested within T001 epic scope - warn but allow
+    assert_output --partial "Warning" || assert_output --partial "nested"
 }
 
 @test "scope claimed: session list shows scopes to identify conflicts" {
