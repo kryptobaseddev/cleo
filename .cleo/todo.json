@@ -918,12 +918,27 @@
         "notes": "V2 architecture spec, LAFS conformance analysis, P3 golden tests, Track B schema extension",
         "gitTag": "v0.98.0",
         "changelog": "## [0.98.0] - 2026-02-13"
+      },
+      {
+        "version": "v0.98.1",
+        "status": "released",
+        "targetDate": null,
+        "releasedAt": "2026-02-14T00:33:27Z",
+        "createdAt": "2026-02-14T00:33:11Z",
+        "tasks": [
+          "T4482",
+          "T4484",
+          "T4486"
+        ],
+        "notes": null,
+        "gitTag": "v0.98.1",
+        "changelog": "## [0.98.1] - 2026-02-13\n\n### Bug Fixes\n- Fix release ship to stage and commit version-bumped files (GH #31) (T4482)\n- Auto-detect version bump targets when no versionBump config exists (GH #32) (T4484)\n- Fix misleading epic completeness check in release ship (GH #34) (T4486)"
       }
     ]
   },
-  "lastUpdated": "2026-02-14T00:32:19Z",
+  "lastUpdated": "2026-02-14T00:33:27Z",
   "_meta": {
-    "checksum": "4ea9356f97141469",
+    "checksum": "3abc465905b4e7cd",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -932,7 +947,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 2975
+    "generation": 2991
   },
   "focus": {
     "currentTask": null,
@@ -15516,17 +15531,32 @@
       "completedAt": "2026-02-14T00:32:19Z",
       "notes": [
         "[COMPLETED 2026-02-14T00:32:19Z] Fixed HARD conflict in detect_scope_conflict() to only trigger when focus tasks match, not when currentTask is anywhere in scope. Updated call site to pass focus_task."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T00:32:20Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4481",
       "title": "Fix focus set scope check to traverse full descendant tree (GH #29)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4479",
       "createdAt": "2026-02-14T00:14:11Z",
-      "updatedAt": "2026-02-14T00:14:11Z",
+      "updatedAt": "2026-02-14T00:32:21Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -15540,17 +15570,36 @@
         "Focus set works for grandchildren of scoped epic",
         "Focus set works for any depth of descendant",
         "Tasks outside the scoped epic hierarchy are still rejected"
-      ]
+      ],
+      "completedAt": "2026-02-14T00:32:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T00:32:21Z] Added parent-chain fallback in session-enforcement.sh and focus.sh to recognize descendants at any depth, not just those in stored computedTaskIds."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T00:32:22Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4482",
       "title": "Fix release ship to stage and commit version-bumped files (GH #31)",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4479",
       "createdAt": "2026-02-14T00:14:15Z",
-      "updatedAt": "2026-02-14T00:14:15Z",
+      "updatedAt": "2026-02-14T00:32:23Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -15565,17 +15614,36 @@
         "Release commit includes bumped files",
         "Tag is created on the commit containing version changes",
         "Full flow works: bump -> stage -> commit -> tag -> push"
-      ]
+      ],
+      "completedAt": "2026-02-14T00:32:23Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T00:32:23Z] Added BUMPED_FILES extraction from bump_result JSON and inclusion in files_to_stage at git commit step."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T00:32:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4483",
       "title": "Fix config set to handle JSON array values (GH #30)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4479",
       "createdAt": "2026-02-14T00:14:25Z",
-      "updatedAt": "2026-02-14T00:14:25Z",
+      "updatedAt": "2026-02-14T00:32:24Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -15595,17 +15663,36 @@
         "T4480",
         "T4481",
         "T4482"
-      ]
+      ],
+      "completedAt": "2026-02-14T00:32:24Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T00:32:24Z] Added JSON array/object type detection via jq in cmd_set() value type logic. write_config_file already handled array/object types."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T00:32:25Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4484",
       "title": "Auto-detect version bump targets when no versionBump config exists (GH #32)",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4479",
       "createdAt": "2026-02-14T00:14:29Z",
-      "updatedAt": "2026-02-14T00:14:29Z",
+      "updatedAt": "2026-02-14T00:32:26Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -15623,17 +15710,36 @@
       ],
       "depends": [
         "T4482"
-      ]
+      ],
+      "completedAt": "2026-02-14T00:32:26Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T00:32:26Z] Added auto_detect_version_bump_files() function and fallback in release ship else branch to detect package.json, Cargo.toml, pyproject.toml, VERSION."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T00:32:27Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4485",
       "title": "Improve ct complete error message and make notes configurable (GH #33)",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T4479",
       "createdAt": "2026-02-14T00:14:40Z",
-      "updatedAt": "2026-02-14T00:14:40Z",
+      "updatedAt": "2026-02-14T00:32:28Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -15652,17 +15758,36 @@
       "depends": [
         "T4483",
         "T4484"
-      ]
+      ],
+      "completedAt": "2026-02-14T00:32:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T00:32:28Z] Changed error message quoting from single to double quotes. Added validation.requireCompletionNotes config flag check."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T00:32:28Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4486",
       "title": "Fix misleading epic completeness check in release ship (GH #34)",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T4479",
       "createdAt": "2026-02-14T00:14:43Z",
-      "updatedAt": "2026-02-14T00:14:43Z",
+      "updatedAt": "2026-02-14T00:32:29Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
@@ -15679,7 +15804,26 @@
       ],
       "depends": [
         "T4484"
-      ]
+      ],
+      "completedAt": "2026-02-14T00:32:29Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T00:32:29Z] Changed epic completeness excluded filter to only flag done tasks not in release, ignoring pending/active/blocked tasks."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T00:32:30Z",
+        "failureLog": []
+      }
     }
   ],
   "labels": {}
