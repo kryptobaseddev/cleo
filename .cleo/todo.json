@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T08:52:14Z",
+  "lastUpdated": "2026-02-14T08:58:31Z",
   "_meta": {
-    "checksum": "781e3be12b8ea84c",
+    "checksum": "594431d9a7b6c71c",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -983,7 +983,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3366
+    "generation": 3374
   },
   "focus": {
     "currentTask": null,
@@ -9131,17 +9131,32 @@
       "completedAt": "2026-02-14T08:52:14Z",
       "notes": [
         "[COMPLETED 2026-02-14T08:52:14Z] Deprecated TODO_Task_Management.md references: updated AGENT-INJECTION.md (both .cleo/templates/ and templates/), README.md, multi-agent-setup.mdx (12 refs), context-safeguard.mdx, PRIME-ARCHITECTURE.mdx. Redirected to CLEO-INJECTION.md and AGENT-INJECTION.md. CHANGELOG.md refs kept as historical."
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:52:15Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2303",
       "title": "Add BATS tests for injection system validation",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4331",
       "createdAt": "2026-01-26T16:42:44Z",
-      "updatedAt": "2026-02-11T05:40:00Z",
+      "updatedAt": "2026-02-14T08:52:42Z",
       "size": "medium",
       "position": 30,
       "positionVersion": 0,
@@ -9154,7 +9169,26 @@
       "depends": [
         "T2301",
         "T1089"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:52:42Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:52:42Z] tests/unit/injection-system.bats already exists with 24 comprehensive tests covering: marker detection, global/project injection content, user content preservation, agent registry discovery, upgrade injection refresh, edge cases, and dry-run mode. All 6 test requirements from task spec are covered."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:52:43Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2304",
@@ -15122,12 +15156,12 @@
     {
       "id": "T4354",
       "title": "Implement manifest hierarchy field writers",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:37:18Z",
-      "updatedAt": "2026-02-11T23:37:18Z",
+      "updatedAt": "2026-02-14T08:55:23Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -15139,17 +15173,36 @@
       ],
       "depends": [
         "T4353"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:55:23Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:55:23Z] Implemented manifest hierarchy field writers in lib/skills/research-manifest.sh: (1) _rm_enrich_hierarchy_fields() auto-computes parentId, epicId, path, depth, childCount from linked_tasks and task hierarchy. (2) _rm_increment_parent_child_count() atomically updates parent childCount. (3) append_manifest() now calls enrichment before write. Schema already has fields from T4353."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:55:24Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4355",
       "title": "Backfill existing manifest entries with hierarchy fields",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:37:26Z",
-      "updatedAt": "2026-02-11T23:37:26Z",
+      "updatedAt": "2026-02-14T08:56:28Z",
       "size": "medium",
       "position": 3,
       "positionVersion": 0,
@@ -15161,17 +15214,36 @@
       ],
       "depends": [
         "T4354"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:56:28Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:56:28Z] Created dev/migrations/backfill-manifest-hierarchy.sh. Script: (1) backs up MANIFEST.jsonl, (2) enriches each entry with epicId/path/depth from linked_tasks and task hierarchy, (3) computes childCount in second pass, (4) generates report with orphan count. Handles 219 existing entries."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:56:29Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4356",
       "title": "Add tree invariant validation to manifest operations",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4352",
       "createdAt": "2026-02-11T23:37:34Z",
-      "updatedAt": "2026-02-11T23:37:34Z",
+      "updatedAt": "2026-02-14T08:58:31Z",
       "size": "medium",
       "position": 4,
       "positionVersion": 0,
@@ -15183,6 +15255,10 @@
       ],
       "depends": [
         "T4354"
+      ],
+      "completedAt": "2026-02-14T08:58:31Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:58:31Z] Added validate_manifest_hierarchy to research-manifest.sh with INV-1 through INV-6 checks. Fixed export ordering bug."
       ]
     },
     {
