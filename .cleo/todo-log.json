@@ -111482,11 +111482,68 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log_a6fec125a9a1",
+      "timestamp": "2026-02-14T05:04:24Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4489",
+      "before": {
+        "title": "Create GitHub Releases for v0.98.0 and v0.98.1",
+        "status": "pending",
+        "priority": "high",
+        "description": "Git tags v0.98.0 and v0.98.1 exist on origin but no GitHub Release objects were created. v0.98.0 was a docs/changelog release. v0.98.1 contains the 7 CLI bug fixes from GH #28-#34. Cannot create proper GitHub Releases until CI passes (blocked by T4488). Once CI is green: (1) verify v0.98.0 tag content, (2) create GH release for v0.98.0, (3) create GH release for v0.98.1 with changelog from the 7 bug fixes.",
+        "phase": "core",
+        "labels": [
+          "blocked",
+          "release"
+        ],
+        "files": null,
+        "acceptance": [
+          "GitHub Release exists for v0.98.0",
+          "GitHub Release exists for v0.98.1 with changelog",
+          "CI passes on main branch",
+          "GH issues #28-#34 are closed (already done)"
+        ],
+        "depends": [
+          "T4488"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Create GitHub Releases for v0.98.0 and v0.98.1",
+        "status": "pending",
+        "priority": "high",
+        "description": "Git tags v0.98.0 and v0.98.1 exist on origin but no GitHub Release objects were created. v0.98.0 was a docs/changelog release. v0.98.1 contains the 7 CLI bug fixes from GH #28-#34. Cannot create proper GitHub Releases until CI passes (blocked by T4488). Once CI is green: (1) verify v0.98.0 tag content, (2) create GH release for v0.98.0, (3) create GH release for v0.98.1 with changelog from the 7 bug fixes.",
+        "phase": "core",
+        "labels": [
+          "blocked",
+          "release"
+        ],
+        "files": [
+          "mcp-server/package.json"
+        ],
+        "acceptance": [
+          "GitHub Release exists for v0.98.0",
+          "GitHub Release exists for v0.98.1 with changelog",
+          "CI passes on main branch",
+          "GH issues #28-#34 are closed (already done)"
+        ],
+        "depends": [
+          "T4488"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5676,
-    "lastEntry": "2026-02-14T05:03:10Z",
+    "totalEntries": 5677,
+    "lastEntry": "2026-02-14T05:04:24Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
