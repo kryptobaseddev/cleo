@@ -115025,11 +115025,24 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log_363850423845",
+      "timestamp": "2026-02-14T08:30:55Z",
+      "sessionId": "session_20260212_194742_e6736f",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "Closing stale sessions for TS conversion team"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5826,
-    "lastEntry": "2026-02-14T08:02:39Z",
+    "totalEntries": 5827,
+    "lastEntry": "2026-02-14T08:30:55Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
