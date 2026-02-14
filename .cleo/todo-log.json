@@ -114123,11 +114123,198 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_7844223b765e",
+      "timestamp": "2026-02-14T07:15:39Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4507",
+      "before": {
+        "title": "EPIC: Documentation Audit - Fix Stale Operation Counts and Spec References",
+        "status": "pending",
+        "priority": "high",
+        "description": "Fix ~25 stale operation count references and review partially-stale specs. Gateway registries: 63+60=123 deployed ops across 10 domains. Docs cite 93-111. See task notes for full file inventory.",
+        "phase": "core",
+        "labels": [
+          "audit",
+          "documentation",
+          "drift"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "EPIC: Documentation Audit - Fix Stale Operation Counts and Spec References",
+        "status": "pending",
+        "priority": "high",
+        "description": "Fix ~25 stale operation count references and review partially-stale specs. Gateway registries: 63+60=123 deployed ops across 10 domains. Docs cite 93-111. See task notes for full file inventory.",
+        "phase": "core",
+        "labels": [
+          "audit",
+          "documentation",
+          "drift"
+        ],
+        "files": null,
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log-1771053354-46ce60",
+      "timestamp": "2026-02-14T07:15:54Z",
+      "action": "task_created",
+      "taskId": "T4508",
+      "actor": "system",
+      "details": {
+        "title": "Fix stale operation counts in README and user-facing docs",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix stale operation counts in README and user-facing docs",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771053355-728eb6",
+      "timestamp": "2026-02-14T07:15:55Z",
+      "action": "task_created",
+      "taskId": "T4509",
+      "actor": "system",
+      "details": {
+        "title": "Fix stale operation counts in mcp-server internal docs",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix stale operation counts in mcp-server internal docs",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771053356-7374d3",
+      "timestamp": "2026-02-14T07:15:56Z",
+      "action": "task_created",
+      "taskId": "T4510",
+      "actor": "system",
+      "details": {
+        "title": "Fix stale gateway headers and test assertions",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix stale gateway headers and test assertions",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771053374-ec278c",
+      "timestamp": "2026-02-14T07:16:14Z",
+      "action": "task_created",
+      "taskId": "T4511",
+      "actor": "system",
+      "details": {
+        "title": "Update MCP-SERVER-SPECIFICATION.md per-domain operation counts",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Update MCP-SERVER-SPECIFICATION.md per-domain operation counts",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771053375-d6f962",
+      "timestamp": "2026-02-14T07:16:15Z",
+      "action": "task_created",
+      "taskId": "T4512",
+      "actor": "system",
+      "details": {
+        "title": "Update stale operation counts in architecture and migration specs",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Update stale operation counts in architecture and migration specs",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771053376-a5d8b0",
+      "timestamp": "2026-02-14T07:16:16Z",
+      "action": "task_created",
+      "taskId": "T4513",
+      "actor": "system",
+      "details": {
+        "title": "Review partially-stale specs for Bash implementation references",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Review partially-stale specs for Bash implementation references",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771053400-26fdca",
+      "timestamp": "2026-02-14T07:16:40Z",
+      "action": "task_created",
+      "taskId": "T4514",
+      "actor": "system",
+      "details": {
+        "title": "Review claudedocs/specs/ for V2 relevance and Bash implementation refs",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Review claudedocs/specs/ for V2 relevance and Bash implementation refs",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771053401-7774e1",
+      "timestamp": "2026-02-14T07:16:41Z",
+      "action": "task_created",
+      "taskId": "T4515",
+      "actor": "system",
+      "details": {
+        "title": "Reconcile capability-matrix.ts (138) vs gateway registries (123) operation count discrepancy",
+        "status": "pending",
+        "priority": "low"
+      },
+      "before": null,
+      "after": {
+        "title": "Reconcile capability-matrix.ts (138) vs gateway registries (123) operation count discrepancy",
+        "status": "pending",
+        "priority": "low"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5790,
-    "lastEntry": "2026-02-14T07:05:44Z",
+    "totalEntries": 5791,
+    "lastEntry": "2026-02-14T07:15:39Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

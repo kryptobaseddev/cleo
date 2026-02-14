@@ -23,20 +23,20 @@
 
 | Source | Query | Mutate | Total |
 |--------|------:|-------:|------:|
-| Gateway registries (deployed) | 56 | 51 | 107 |
+| Gateway registries (deployed, v0.98.2) | 63 | 60 | 123 |
 | Schema registry baseline | 46 | 47 | 93 |
-| Delta (deployed - baseline) | +10 | +4 | +14 |
+| Delta (deployed - baseline) | +17 | +13 | +30 |
 
 ### 2.2 Schema Coverage
 
 | Check | Result |
 |------|--------|
 | Schema operations missing in gateways | 0 |
-| Gateway operations beyond schema baseline | 14 |
+| Gateway operations beyond schema baseline | 30 |
 
 Interpretation:
 - Baseline contract operations are fully implemented.
-- Deployment includes 14 parity extensions beyond baseline schema registry.
+- Deployment includes 30 parity extensions beyond baseline schema registry (issues domain, skills domain, system extensions, etc.).
 
 ---
 
