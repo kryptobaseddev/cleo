@@ -111557,11 +111557,31 @@
         "status": "pending",
         "priority": "high"
       }
+    },
+    {
+      "id": "log_56adef26406f",
+      "timestamp": "2026-02-14T06:05:52Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4490",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T06:05:50Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5677,
-    "lastEntry": "2026-02-14T05:04:24Z",
+    "totalEntries": 5678,
+    "lastEntry": "2026-02-14T06:05:52Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
