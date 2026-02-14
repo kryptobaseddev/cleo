@@ -949,9 +949,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T06:49:38Z",
+  "lastUpdated": "2026-02-14T07:00:35Z",
   "_meta": {
-    "checksum": "8ba820dbe2184d8d",
+    "checksum": "2ba8fd80f8189bc5",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -960,7 +960,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3055
+    "generation": 3056
   },
   "focus": {
     "currentTask": null,
@@ -3411,7 +3411,7 @@
     {
       "id": "T1349",
       "title": "Fix miscellaneous tests (5 tests)",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T1342",
@@ -3426,11 +3426,13 @@
         "testing"
       ],
       "notes": [
-        "2026-01-23 06:18:53 UTC: Re-analysis: Specific issues identified: flock warnings (T2085), text format assertions (T2088). Some may also be affected by T2079."
+        "2026-01-23 06:18:53 UTC: Re-analysis: Specific issues identified: flock warnings (T2085), text format assertions (T2088). Some may also be affected by T2079.",
+        "[COMPLETED 2026-02-14T07:00:35Z] CANCELLED: Parent T1342 completed. Bash-era test fixes superseded by TS (T4454). Testing intent preserved in T4498."
       ],
-      "updatedAt": "2026-01-29T23:52:06Z",
+      "updatedAt": "2026-02-14T07:00:35Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T07:00:35Z"
     },
     {
       "id": "T1354",
