@@ -4,8 +4,8 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-14T08:30:55Z",
-    "totalSessionsCreated": 622
+    "lastModified": "2026-02-14T08:35:40Z",
+    "totalSessionsCreated": 624
   },
   "config": {
     "maxConcurrentSessions": 5,
@@ -35038,6 +35038,127 @@
         "max_tokens": 200000
       },
       "endedAt": "2026-02-14T08:30:55Z"
+    },
+    {
+      "id": "session_20260214_003333_c25a96",
+      "status": "active",
+      "name": "V2 MCP Track",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4454",
+        "computedTaskIds": [
+          "T4454",
+          "T4327",
+          "T4455",
+          "T4456",
+          "T4457",
+          "T4458",
+          "T4460",
+          "T4461",
+          "T4462",
+          "T4463",
+          "T4464",
+          "T4465",
+          "T4466",
+          "T4467",
+          "T4468",
+          "T4469",
+          "T4470",
+          "T4471",
+          "T4472",
+          "T4474",
+          "T4475",
+          "T4476",
+          "T4477",
+          "T4478"
+        ]
+      },
+      "focus": {
+        "currentTask": "T4327",
+        "currentPhase": null,
+        "previousTask": null,
+        "sessionNote": null,
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4327",
+            "timestamp": "2026-02-14T08:33:33Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-14T08:33:33Z",
+      "lastActivity": "2026-02-14T08:33:33Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 1,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260214_003333_c25a96",
+        "start_timestamp": "2026-02-14T08:33:33Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      }
+    },
+    {
+      "id": "session_20260214_003459_1e5e03",
+      "status": "ended",
+      "name": "Doc Audit",
+      "agentId": null,
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4507",
+        "computedTaskIds": [
+          "T4507",
+          "T4508",
+          "T4509",
+          "T4510",
+          "T4511",
+          "T4512",
+          "T4513",
+          "T4514",
+          "T4515"
+        ]
+      },
+      "focus": {
+        "currentTask": null,
+        "currentPhase": null,
+        "previousTask": "T4508",
+        "sessionNote": "switching scope",
+        "nextAction": null,
+        "focusHistory": [
+          {
+            "taskId": "T4508",
+            "timestamp": "2026-02-14T08:34:59Z",
+            "action": "focused"
+          },
+          {
+            "taskId": "T4508",
+            "timestamp": "2026-02-14T08:35:22Z",
+            "action": "focused"
+          }
+        ]
+      },
+      "startedAt": "2026-02-14T08:34:59Z",
+      "lastActivity": "2026-02-14T08:35:40Z",
+      "suspendedAt": null,
+      "stats": {
+        "tasksCompleted": 0,
+        "focusChanges": 2,
+        "suspendCount": 0,
+        "resumeCount": 0
+      },
+      "startMetrics": {
+        "session_id": "session_20260214_003459_1e5e03",
+        "start_timestamp": "2026-02-14T08:34:59Z",
+        "start_tokens": 0,
+        "max_tokens": 200000
+      },
+      "endedAt": "2026-02-14T08:35:40Z"
     }
   ],
   "sessionHistory": [
