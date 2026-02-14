@@ -115156,11 +115156,91 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log_9d9ee4d183c1",
+      "timestamp": "2026-02-14T08:41:26Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4511",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T08:41:24Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_d5ac86024dd0",
+      "timestamp": "2026-02-14T08:42:24Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4512",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T08:42:22Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_af00ca617231",
+      "timestamp": "2026-02-14T08:43:31Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4513",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T08:43:30Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
+    },
+    {
+      "id": "log_21e835db854c",
+      "timestamp": "2026-02-14T08:46:04Z",
+      "sessionId": null,
+      "action": "status_changed",
+      "actor": "system",
+      "taskId": "T4514",
+      "before": {
+        "status": "pending",
+        "completedAt": null
+      },
+      "after": {
+        "status": "done",
+        "completedAt": "2026-02-14T08:46:02Z"
+      },
+      "details": {
+        "field": "status",
+        "operation": "complete"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5968,
-    "lastEntry": "2026-02-14T08:39:29Z",
+    "totalEntries": 5972,
+    "lastEntry": "2026-02-14T08:46:04Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

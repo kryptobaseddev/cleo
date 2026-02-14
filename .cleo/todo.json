@@ -972,9 +972,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T08:41:24Z",
+  "lastUpdated": "2026-02-14T08:46:45Z",
   "_meta": {
-    "checksum": "48479fa6613c442d",
+    "checksum": "0ad3318782db187f",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -983,7 +983,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3346
+    "generation": 3354
   },
   "focus": {
     "currentTask": null,
@@ -19204,17 +19204,32 @@
       "completedAt": "2026-02-14T08:41:24Z",
       "notes": [
         "[COMPLETED 2026-02-14T08:41:24Z] Full reconciliation of MCP-SERVER-SPECIFICATION.md: updated query (48->63) and mutate (48->60) sections, added issues/skills domains, expanded system ops, added v1.1.0 changelog entry"
-      ]
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:41:25Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4512",
       "title": "Update stale operation counts in architecture and migration specs",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:16:15Z",
-      "updatedAt": "2026-02-14T07:16:15Z",
+      "updatedAt": "2026-02-14T08:42:22Z",
       "size": "medium",
       "position": 5,
       "positionVersion": 0,
@@ -19223,17 +19238,36 @@
       "labels": [
         "documentation",
         "drift"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:42:22Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:42:22Z] Updated WEB-DASHBOARD-SPEC (162->123), V2-ARCHITECTURE-SPEC (~130->123), MIGRATION-DOCTRINE (~130->123). PATH-FORWARD and MCP-AGENT-INTERACTION-SPEC 29-op refs are historical v0.91.0 context, left as-is."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:42:23Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4513",
       "title": "Review partially-stale specs for Bash implementation references",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:16:16Z",
-      "updatedAt": "2026-02-14T07:16:16Z",
+      "updatedAt": "2026-02-14T08:43:30Z",
       "size": "medium",
       "position": 6,
       "positionVersion": 0,
@@ -19242,17 +19276,36 @@
       "labels": [
         "documentation",
         "review"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:43:30Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:43:30Z] Reviewed 5 specs with Bash refs. Added status annotations noting concepts valid, code paths to be ported to TS during V2. MANIFEST-HIERARCHY-SCHEMA jq examples are implementation-neutral."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:43:30Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4514",
       "title": "Review claudedocs/specs/ for V2 relevance and Bash implementation refs",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:16:40Z",
-      "updatedAt": "2026-02-14T07:16:40Z",
+      "updatedAt": "2026-02-14T08:46:02Z",
       "size": "medium",
       "position": 7,
       "positionVersion": 0,
@@ -19261,17 +19314,36 @@
       "labels": [
         "documentation",
         "review"
-      ]
+      ],
+      "completedAt": "2026-02-14T08:46:02Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:46:02Z] Reviewed all 6 claudedocs/specs/ files. Added v2_relevance frontmatter annotations: IMPORT-EXPORT-ALGORITHMS (Bash code needs TS adaptation), IMPORT-EXPORT-SPEC (concepts valid), IMPORT-LOGGING-INTEGRATION (patterns applicable, code needs rewrite), SETUP-CLAUDE-ALIASES (Bash-specific), T1031 (schema design transfers), T1032 (algorithm is language-neutral)."
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T08:46:03Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T4515",
       "title": "Reconcile capability-matrix.ts (138) vs gateway registries (123) operation count discrepancy",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:16:41Z",
-      "updatedAt": "2026-02-14T07:16:41Z",
+      "updatedAt": "2026-02-14T08:46:45Z",
       "size": "medium",
       "position": 8,
       "positionVersion": 0,
@@ -19280,6 +19352,10 @@
       "labels": [
         "architecture",
         "documentation"
+      ],
+      "completedAt": "2026-02-14T08:46:45Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:46:45Z] Documented the 138 vs 123 discrepancy. Capability matrix is intentional superset: includes CLI aliases (show/get, add/create, focus-set/focus.set), CLI-only ops (stats, export, import), and legacy compat entries. Gateway registries (123) define canonical MCP API surface. Added clarifying comment to capability-matrix.ts."
       ]
     }
   ],
