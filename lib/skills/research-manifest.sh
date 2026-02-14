@@ -787,6 +787,122 @@ read_manifest() {
 
 # append_manifest - Append single JSON entry to MANIFEST.jsonl
 # Args: $1 = JSON entry (single line)
+# _rm_enrich_hierarchy_fields - Add hierarchy fields to manifest entry
+# @task T4354
+# Args: $1 = JSON entry, $2 = manifest_path
+# Output: enriched JSON entry with parentId, epicId, path, depth, childCount
+# If fields are already present, they are preserved (no override).
+_rm_enrich_hierarchy_fields() {
+    local entry="$1"
+    local manifest_path="${2:-}"
+
+    # Check if hierarchy fields already fully populated
+    local has_hierarchy
+    has_hierarchy=$(echo "$entry" | jq -r 'if (.epicId != null and .path != null and .path != "") then "yes" else "no" end')
+    if [[ "$has_hierarchy" == "yes" ]]; then
+        echo "$entry"
+        return 0
+    fi
+
+    # Extract linked_tasks to derive hierarchy
+    local linked_tasks epic_id task_id
+    linked_tasks=$(echo "$entry" | jq -r '.linked_tasks // [] | .[]' 2>/dev/null)
+
+    # Find epic ID: first linked task that is an epic, or first task's parent epic
+    epic_id=""
+    task_id=""
+    while IFS= read -r tid; do
+        [[ -z "$tid" ]] && continue
+        # Check if this task is an epic
+        local task_type
+        task_type=$(cleo show "$tid" --json 2>/dev/null | jq -r '.task.type // "task"' 2>/dev/null || echo "task")
+        if [[ "$task_type" == "epic" ]]; then
+            epic_id="$tid"
+        elif [[ -z "$task_id" ]]; then
+            task_id="$tid"
+        fi
+    done <<< "$linked_tasks"
+
+    # If no epic found from linked_tasks, try to walk up from task_id
+    if [[ -z "$epic_id" && -n "$task_id" ]]; then
+        local parent_id
+        parent_id=$(cleo show "$task_id" --json 2>/dev/null | jq -r '.task.parentId // empty' 2>/dev/null || echo "")
+        if [[ -n "$parent_id" ]]; then
+            epic_id="$parent_id"
+            # Walk up one more level if needed
+            local grandparent
+            grandparent=$(cleo show "$parent_id" --json 2>/dev/null | jq -r '.task.parentId // empty' 2>/dev/null || echo "")
+            if [[ -n "$grandparent" ]]; then
+                epic_id="$grandparent"
+            fi
+        fi
+    fi
+
+    # Build path
+    local path="" depth=0
+    if [[ -n "$epic_id" && -n "$task_id" && "$epic_id" != "$task_id" ]]; then
+        # Check if task_id is direct child of epic
+        local task_parent
+        task_parent=$(cleo show "$task_id" --json 2>/dev/null | jq -r '.task.parentId // empty' 2>/dev/null || echo "")
+        if [[ "$task_parent" == "$epic_id" ]]; then
+            path="${epic_id}/${task_id}"
+            depth=1
+        elif [[ -n "$task_parent" ]]; then
+            path="${epic_id}/${task_parent}/${task_id}"
+            depth=2
+        else
+            path="${epic_id}/${task_id}"
+            depth=1
+        fi
+    elif [[ -n "$epic_id" ]]; then
+        path="${epic_id}"
+        depth=0
+    fi
+
+    # Find parent manifest entry (if manifest exists and path has parent)
+    local parent_id_val="null"
+    if [[ -n "$manifest_path" && -f "$manifest_path" && $depth -gt 0 ]]; then
+        # Parent path = remove last segment
+        local parent_path
+        parent_path="${path%/*}"
+        if [[ -n "$parent_path" ]]; then
+            parent_id_val=$(jq -r --arg pp "$parent_path" 'select(.path == $pp) | .id' "$manifest_path" 2>/dev/null | head -1)
+            [[ -z "$parent_id_val" ]] && parent_id_val="null"
+        fi
+    fi
+
+    # Enrich entry with hierarchy fields (only set if not already present)
+    echo "$entry" | jq \
+        --arg eid "${epic_id:-}" \
+        --arg p "$path" \
+        --argjson d "$depth" \
+        --arg pid "$parent_id_val" \
+        '. +
+        (if .parentId == null and $pid != "null" then {parentId: $pid} else {} end) +
+        (if .epicId == null and $eid != "" then {epicId: $eid} else {} end) +
+        (if (.path == null or .path == "") and $p != "" then {path: $p} else {} end) +
+        (if .depth == null then {depth: $d} else {} end) +
+        (if .childCount == null then {childCount: 0} else {} end)'
+}
+
+# _rm_increment_parent_child_count - Atomically increment a parent entry's childCount
+# @task T4354
+# Args: $1 = parent entry ID, $2 = manifest_path, $3 = lock_path
+_rm_increment_parent_child_count() {
+    local parent_id="$1" manifest_path="$2" lock_path="$3"
+    local tmp_file="${manifest_path}.tmp.$$"
+
+    (
+        flock -x 200 2>/dev/null
+        if [[ -f "$manifest_path" ]]; then
+            jq -c --arg pid "$parent_id" \
+                'if .id == $pid then .childCount = ((.childCount // 0) + 1) else . end' \
+                "$manifest_path" > "$tmp_file" 2>/dev/null && \
+                mv "$tmp_file" "$manifest_path"
+        fi
+    ) 200>"$lock_path"
+}
+
 # Output: JSON result wrapped in CLEO envelope
 # Returns: 0 on success, 6 if validation fails, 101 if duplicate
 # Thread Safety: Uses flock for atomic duplicate check + append
@@ -865,6 +981,9 @@ append_manifest() {
         fi
     fi
 
+    # Enrich entry with hierarchy fields if not already present (T4354)
+    entry=$(_rm_enrich_hierarchy_fields "$entry" "$manifest_path")
+
     # Compact JSON to single line before lock
     local compact_entry
     compact_entry=$(echo "$entry" | jq -c '.')
@@ -932,6 +1051,13 @@ append_manifest() {
                 }
             }'
         return 8
+    fi
+
+    # Update parent's childCount if this entry has a parentId (T4354)
+    local parent_ref
+    parent_ref=$(echo "$compact_entry" | jq -r '.parentId // empty')
+    if [[ -n "$parent_ref" && "$parent_ref" != "null" && -f "$manifest_path" ]]; then
+        _rm_increment_parent_child_count "$parent_ref" "$manifest_path" "$lock_path" || true
     fi
 
     # Check if rotation is needed after successful append (T1678)
@@ -2714,3 +2840,156 @@ export -f manifest_rotate
 export -f get_manifest_stats
 export -f compact_manifest
 export -f list_archived_entries
+
+# ============================================================================
+# HIERARCHY INVARIANT VALIDATION (T4356)
+# ============================================================================
+
+# validate_manifest_hierarchy - Check tree invariants across all manifest entries
+# @task T4356
+# Output: JSON with violations array and summary
+# Returns: 0 if valid, 6 if violations found
+validate_manifest_hierarchy() {
+    local manifest_path
+    manifest_path=$(_rm_get_manifest_path)
+
+    if [[ ! -f "$manifest_path" ]]; then
+        jq -n '{
+            "_meta": {"command": "research-manifest", "operation": "validate-hierarchy"},
+            "success": true,
+            "result": {"valid": true, "violations": [], "summary": "No manifest file"}
+        }'
+        return 0
+    fi
+
+    local violations=()
+    local entry_count=0
+    local hierarchy_count=0
+
+    # Load all entries into an associative array for O(1) lookups
+    declare -A entry_ids
+    declare -A entry_parents
+    declare -A entry_paths
+    declare -A entry_depths
+    declare -A entry_child_counts
+    declare -A actual_child_counts
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        ((entry_count++)) || true
+
+        local id parent_id path depth child_count
+        id=$(echo "$line" | jq -r '.id // empty' 2>/dev/null)
+        [[ -z "$id" ]] && continue
+
+        entry_ids["$id"]=1
+        parent_id=$(echo "$line" | jq -r '.parentId // empty' 2>/dev/null)
+        path=$(echo "$line" | jq -r '.path // ""' 2>/dev/null)
+        depth=$(echo "$line" | jq -r '.depth // 0' 2>/dev/null)
+        child_count=$(echo "$line" | jq -r '.childCount // 0' 2>/dev/null)
+
+        entry_parents["$id"]="$parent_id"
+        entry_paths["$id"]="$path"
+        entry_depths["$id"]="$depth"
+        entry_child_counts["$id"]="$child_count"
+
+        if [[ -n "$parent_id" && "$parent_id" != "null" ]]; then
+            ((hierarchy_count++)) || true
+            # Track actual child counts
+            actual_child_counts["$parent_id"]=$(( ${actual_child_counts["$parent_id"]:-0} + 1 ))
+        fi
+    done < "$manifest_path"
+
+    # INV-1: Parent reference integrity
+    for id in "${!entry_parents[@]}"; do
+        local pid="${entry_parents[$id]}"
+        if [[ -n "$pid" && "$pid" != "null" && -z "${entry_ids[$pid]:-}" ]]; then
+            violations+=("INV-1: Entry '$id' references non-existent parent '$pid'")
+        fi
+    done
+
+    # INV-2: Depth consistency (depth = number of / in path)
+    for id in "${!entry_paths[@]}"; do
+        local p="${entry_paths[$id]}"
+        local d="${entry_depths[$id]}"
+        if [[ -n "$p" && "$p" != "" ]]; then
+            local slash_count
+            slash_count=$(echo "$p" | tr -cd '/' | wc -c)
+            if [[ "$d" != "$slash_count" ]]; then
+                violations+=("INV-2: Entry '$id' depth=$d but path '$p' has $slash_count slashes")
+            fi
+        fi
+    done
+
+    # INV-3: childCount accuracy
+    for id in "${!entry_child_counts[@]}"; do
+        local claimed="${entry_child_counts[$id]}"
+        local actual="${actual_child_counts[$id]:-0}"
+        if [[ "$claimed" != "$actual" ]]; then
+            violations+=("INV-3: Entry '$id' claims childCount=$claimed but has $actual children")
+        fi
+    done
+
+    # INV-5: No cycles (check parentId chains terminate)
+    for id in "${!entry_parents[@]}"; do
+        local pid="${entry_parents[$id]}"
+        [[ -z "$pid" || "$pid" == "null" ]] && continue
+        local visited="$id"
+        local current="$pid"
+        local steps=0
+        while [[ -n "$current" && "$current" != "null" && $steps -lt 15 ]]; do
+            if [[ "$visited" == *"$current"* ]]; then
+                violations+=("INV-5: Cycle detected involving entry '$id'")
+                break
+            fi
+            visited="$visited $current"
+            current="${entry_parents[$current]:-}"
+            ((steps++)) || true
+        done
+    done
+
+    # INV-6: Depth bound
+    for id in "${!entry_depths[@]}"; do
+        local d="${entry_depths[$id]}"
+        if [[ "$d" -gt 10 ]]; then
+            violations+=("INV-6: Entry '$id' has depth=$d exceeding max 10")
+        fi
+    done
+
+    local violation_count=${#violations[@]}
+    local valid="true"
+    [[ $violation_count -gt 0 ]] && valid="false"
+
+    # Build JSON output
+    local violations_json="[]"
+    if [[ $violation_count -gt 0 ]]; then
+        violations_json=$(printf '%s\n' "${violations[@]}" | jq -R . | jq -s .)
+    fi
+
+    jq -n \
+        --argjson valid "$valid" \
+        --argjson violations "$violations_json" \
+        --argjson entry_count "$entry_count" \
+        --argjson hierarchy_count "$hierarchy_count" \
+        --argjson violation_count "$violation_count" \
+        '{
+            "_meta": {"command": "research-manifest", "operation": "validate-hierarchy"},
+            "success": true,
+            "result": {
+                "valid": $valid,
+                "violations": $violations,
+                "summary": {
+                    "totalEntries": $entry_count,
+                    "withHierarchy": $hierarchy_count,
+                    "violationCount": $violation_count
+                }
+            }
+        }'
+
+    if [[ $violation_count -gt 0 ]]; then
+        return "$EXIT_VALIDATION_ERROR"
+    fi
+    return 0
+}
+
+export -f validate_manifest_hierarchy
