@@ -858,6 +858,9 @@
       "agentRelevance": "medium",
       "jsonOutput": true,
       "jsonDefault": false,
+      "aliases": [
+        "issues"
+      ],
       "flags": [
         "--format",
         "--json",
