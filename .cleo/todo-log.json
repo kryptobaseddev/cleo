@@ -111597,6 +111597,132 @@
         "field": "status",
         "operation": "complete"
       }
+    },
+    {
+      "id": "log-1771050991-ad2769",
+      "timestamp": "2026-02-14T06:36:31Z",
+      "action": "task_created",
+      "taskId": "T4491",
+      "actor": "system",
+      "details": {
+        "title": "Refactor cleo issue: DRY template parsing, label validation, naming consistency (GH #17, #18)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Refactor cleo issue: DRY template parsing, label validation, naming consistency (GH #17, #18)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771050999-04003c",
+      "timestamp": "2026-02-14T06:36:39Z",
+      "action": "task_created",
+      "taskId": "T4492",
+      "actor": "system",
+      "details": {
+        "title": "Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Extract template config from .github/ISSUE_TEMPLATE/*.yml into shared config (GH #18)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771051002-bbfa6e",
+      "timestamp": "2026-02-14T06:36:42Z",
+      "action": "task_created",
+      "taskId": "T4493",
+      "actor": "system",
+      "details": {
+        "title": "Add label validation/auto-creation before gh issue create (GH #17)",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add label validation/auto-creation before gh issue create (GH #17)",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771051005-d464c2",
+      "timestamp": "2026-02-14T06:36:45Z",
+      "action": "task_created",
+      "taskId": "T4494",
+      "actor": "system",
+      "details": {
+        "title": "Resolve issue/issues naming inconsistency between CLI and MCP",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Resolve issue/issues naming inconsistency between CLI and MCP",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771051008-d33633",
+      "timestamp": "2026-02-14T06:36:48Z",
+      "action": "task_created",
+      "taskId": "T4495",
+      "actor": "system",
+      "details": {
+        "title": "Fix severity and area enum mismatches between CLI and templates",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "before": null,
+      "after": {
+        "title": "Fix severity and area enum mismatches between CLI and templates",
+        "status": "pending",
+        "priority": "medium"
+      }
+    },
+    {
+      "id": "log-1771051012-82fa71",
+      "timestamp": "2026-02-14T06:36:52Z",
+      "action": "task_created",
+      "taskId": "T4496",
+      "actor": "system",
+      "details": {
+        "title": "Refactor build_template_body() to use parsed template sections instead of hardcoded headers",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Refactor build_template_body() to use parsed template sections instead of hardcoded headers",
+        "status": "pending",
+        "priority": "high"
+      }
+    },
+    {
+      "id": "log-1771051014-c89832",
+      "timestamp": "2026-02-14T06:36:54Z",
+      "action": "task_created",
+      "taskId": "T4497",
+      "actor": "system",
+      "details": {
+        "title": "Add tests for cleo issue template parsing and label validation",
+        "status": "pending",
+        "priority": "high"
+      },
+      "before": null,
+      "after": {
+        "title": "Add tests for cleo issue template parsing and label validation",
+        "status": "pending",
+        "priority": "high"
+      }
     }
   ],
   "_meta": {
