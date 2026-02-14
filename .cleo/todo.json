@@ -949,9 +949,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T06:41:30Z",
+  "lastUpdated": "2026-02-14T06:49:21Z",
   "_meta": {
-    "checksum": "384a258a8286c82e",
+    "checksum": "42296ac63c53c4e1",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -960,7 +960,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3021
+    "generation": 3037
   },
   "focus": {
     "currentTask": null,
@@ -1936,7 +1936,22 @@
       "updatedAt": "2026-02-14T06:41:30Z",
       "relates": [],
       "origin": null,
-      "completedAt": "2026-02-14T06:41:30Z"
+      "completedAt": "2026-02-14T06:41:30Z",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:41:31Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T899",
@@ -2180,7 +2195,22 @@
       "positionVersion": 0,
       "updatedAt": "2025-12-30T07:46:02Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:41:42Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1079",
@@ -2427,7 +2457,7 @@
     {
       "id": "T1104",
       "title": "Subtask: Design verification table schema for DuckDB",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "subtask",
       "parentId": null,
@@ -2438,9 +2468,28 @@
       "labels": [],
       "position": 1,
       "positionVersion": 0,
-      "updatedAt": "2025-12-30T07:46:20Z",
+      "updatedAt": "2026-02-14T06:41:39Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:41:39Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:41:39Z] CANCELLED: DuckDB not in scope, TS chosen"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:41:40Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1105",
@@ -2476,7 +2525,22 @@
       "positionVersion": 0,
       "updatedAt": "2025-12-30T07:46:23Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:41:41Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1116",
@@ -3342,7 +3406,7 @@
     {
       "id": "T1354",
       "title": "Test alert task",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
@@ -3352,14 +3416,18 @@
       "phase": "core",
       "description": "Testing context alerts",
       "size": "medium",
-      "updatedAt": "2026-01-03T22:37:02Z",
+      "updatedAt": "2026-02-14T06:41:34Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:41:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:41:34Z] CANCELLED: Test artifact"
+      ]
     },
     {
       "id": "T1355",
       "title": "Alert test 2",
-      "status": "pending",
+      "status": "done",
       "priority": "medium",
       "type": "task",
       "parentId": null,
@@ -3369,9 +3437,28 @@
       "phase": "core",
       "description": "Testing caution level",
       "size": "medium",
-      "updatedAt": "2026-01-03T22:37:52Z",
+      "updatedAt": "2026-02-14T06:41:35Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:41:35Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:41:35Z] CANCELLED: Test artifact"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:41:36Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T1362",
@@ -5783,7 +5870,7 @@
     {
       "id": "T1955",
       "title": "EPIC: CLEO Self-Improvement and Compliance Tracking",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "epic",
       "parentId": null,
@@ -5798,16 +5885,18 @@
         "optimization",
         "persistent"
       ],
-      "updatedAt": "2026-01-23T04:18:00Z",
+      "updatedAt": "2026-02-14T06:41:32Z",
       "epicLifecycle": "review",
       "notes": [
         "[AUTO-COMPLETED 2026-01-22T23:57:39Z] All child tasks completed",
-        "[REOPENED 2026-01-22T23:58:07Z] Reason: Compliance tracking epic must NEVER close. Need to implement noAutoComplete feature. | Was completed at: 2026-01-22T23:57:39Z | (was auto-completed)"
+        "[REOPENED 2026-01-22T23:58:07Z] Reason: Compliance tracking epic must NEVER close. Need to implement noAutoComplete feature. | Was completed at: 2026-01-22T23:57:39Z | (was auto-completed)",
+        "[COMPLETED 2026-02-14T06:41:32Z] CANCELLED: Duplicate of completed T1954"
       ],
       "noAutoComplete": true,
       "size": "medium",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:41:32Z"
     },
     {
       "id": "T1964",
@@ -6001,7 +6090,7 @@
     {
       "id": "T2021",
       "title": "EPIC: CLEO v2.0 TypeScript Implementation",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "epic",
       "parentId": null,
@@ -6019,7 +6108,7 @@
       "depends": [
         "T2112"
       ],
-      "updatedAt": "2026-02-13T16:38:36Z",
+      "updatedAt": "2026-02-14T06:41:37Z",
       "relates": [
         {
           "taskId": "T2112",
@@ -6042,8 +6131,10 @@
       "notes": [
         "2026-02-11 23:33:49 UTC: MCP-first incremental migration is canonical strategy. T4334 (MCP native engine v0.91.0) provides foundation. The MCP server now operates cross-platform with 29 native operations. T2021 full TS conversion remains gated on T2112 but incremental MCP hotspot work proceeds independently.",
         "2026-02-12 02:20:00 UTC: 2026-02-12: MCP-native track (T4334/T4333) is independent and active. Delivered standalone cross-platform engine in v0.91.0-v0.93.1. T2021 covers full CLI/core Bash-to-TypeScript rewrite only -- remains gated on T2112 (Bash stabilization). MCP-first doctrine is canonical per CLEO-STRATEGIC-ROADMAP-SPEC.md.",
-        "2026-02-13 16:38:36 UTC: SUPERSEDED by T4454 (V2 Full TypeScript System). T2112 gate removed. Both tracks (MCP + CLI) now proceeding in parallel under T4454. This epic is retained for historical reference only."
-      ]
+        "2026-02-13 16:38:36 UTC: SUPERSEDED by T4454 (V2 Full TypeScript System). T2112 gate removed. Both tracks (MCP + CLI) now proceeding in parallel under T4454. This epic is retained for historical reference only.",
+        "[COMPLETED 2026-02-14T06:41:37Z] CANCELLED: Superseded by T4454 per CLEO-CANONICAL-PLAN-SPEC.md"
+      ],
+      "completedAt": "2026-02-14T06:41:37Z"
     },
     {
       "id": "T2022",
@@ -6847,7 +6938,7 @@
     {
       "id": "T2112",
       "title": "GATE: CLEO v1 Bash Stabilization Complete",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "task",
       "parentId": null,
@@ -6870,9 +6961,28 @@
         "T2286",
         "T998"
       ],
-      "updatedAt": "2026-01-27T03:21:00Z",
+      "updatedAt": "2026-02-14T06:41:38Z",
       "relates": [],
-      "origin": null
+      "origin": null,
+      "completedAt": "2026-02-14T06:41:38Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:41:38Z] CANCELLED: Gate removed per CLEO-CANONICAL-PLAN-SPEC.md Section 1.2 point 5"
+      ],
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:41:39Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T2113",
@@ -9681,12 +9791,12 @@
     {
       "id": "T3013",
       "title": "EPIC: Regression Testing - Protocol Enforcement System",
-      "status": "pending",
+      "status": "done",
       "priority": "critical",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-03T20:12:50Z",
-      "updatedAt": "2026-02-03T21:35:27Z",
+      "updatedAt": "2026-02-14T06:49:21Z",
       "size": "large",
       "position": 201,
       "positionVersion": 0,
@@ -9696,6 +9806,10 @@
         "protocols",
         "regression",
         "testing"
+      ],
+      "completedAt": "2026-02-14T06:49:21Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:49:21Z] CANCELLED: Bash-specific testing. Intent preserved in T4499 (protocol enforcement regression testing in TS). Testing/validation intent preserved in T4498 (Post-TS Validation Sprint)."
       ]
     },
     {
@@ -10375,7 +10489,22 @@
       "position": 11,
       "positionVersion": 0,
       "phase": "core",
-      "description": "Add --json flag support to cleo version command. Required for MCP server initialization and validation."
+      "description": "Add --json flag support to cleo version command. Required for MCP server initialization and validation.",
+      "verification": {
+        "passed": false,
+        "round": 0,
+        "gates": {
+          "implemented": true,
+          "testsPassed": null,
+          "qaPassed": null,
+          "cleanupDone": null,
+          "securityPassed": null,
+          "documented": null
+        },
+        "lastAgent": "coder",
+        "lastUpdated": "2026-02-14T06:41:43Z",
+        "failureLog": []
+      }
     },
     {
       "id": "T3104",
@@ -13292,12 +13421,12 @@
     {
       "id": "T4388",
       "title": "T4387 CLI Repro Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-12T21:21:34Z",
-      "updatedAt": "2026-02-12T21:21:34Z",
+      "updatedAt": "2026-02-14T06:41:33Z",
       "size": "medium",
       "position": 861,
       "positionVersion": 0,
@@ -13310,6 +13439,10 @@
       ],
       "acceptance": [
         "Repro hierarchy exists"
+      ],
+      "completedAt": "2026-02-14T06:41:33Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:41:33Z] CANCELLED: Temporary reproduction epic, no longer needed"
       ]
     },
     {
@@ -13552,12 +13685,12 @@
     {
       "id": "T4396",
       "title": "T4387 Stress Epic",
-      "status": "pending",
+      "status": "done",
       "priority": "low",
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-12T21:22:36Z",
-      "updatedAt": "2026-02-12T21:22:36Z",
+      "updatedAt": "2026-02-14T06:41:34Z",
       "size": "medium",
       "position": 864,
       "positionVersion": 0,
@@ -13570,6 +13703,10 @@
       ],
       "acceptance": [
         "Stress tasks created"
+      ],
+      "completedAt": "2026-02-14T06:41:34Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T06:41:34Z] CANCELLED: Temporary stress test epic, no longer needed"
       ]
     },
     {
@@ -16175,6 +16312,181 @@
       "positionVersion": 0,
       "phase": "core",
       "description": "Create BATS integration tests: template YAML parsing produces correct config, label validation catches missing labels, body construction matches template structure, severity/area mapping works, issue/issues alias resolves correctly."
+    },
+    {
+      "id": "T4498",
+      "title": "EPIC: Post-TypeScript Conversion Validation Sprint",
+      "status": "pending",
+      "priority": "high",
+      "type": "epic",
+      "parentId": null,
+      "createdAt": "2026-02-14T06:47:51Z",
+      "updatedAt": "2026-02-14T06:47:51Z",
+      "size": "medium",
+      "position": 884,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Master validation epic to verify the TypeScript conversion preserves all critical behaviors from the bash era. Captures testing methodology, protocol enforcement, spec compliance, code quality standards, and known bug fixes that must be validated in the new TS codebase. This epic should be executed AFTER T4454 Phase 2 (core CLI commands ported) is complete. Depends on T4454.",
+      "labels": [
+        "post-conversion",
+        "testing",
+        "validation"
+      ],
+      "depends": [
+        "T4454"
+      ]
+    },
+    {
+      "id": "T4499",
+      "title": "V2-VAL: Protocol enforcement regression testing (all 9 protocols)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:01Z",
+      "updatedAt": "2026-02-14T06:48:01Z",
+      "size": "medium",
+      "position": 1,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Port and validate all protocol enforcement tests from bash to TypeScript. Must cover: Research (RSCH-001 through RSCH-007), Consensus (CONS-001 through CONS-004), Specification (SPEC-001, SPEC-002), Decomposition (DCMP-003, DCMP-005, DCMP-006), Implementation (IMPL-003), Release (RLSE-001, RLSE-002), Validation (VALID-001, VALID-003), Testing (TEST-004, TEST-006). Source methodology from cancelled T3013/T3021. Verify exit codes, validation logic, and protocol-validation integration.",
+      "labels": [
+        "protocols",
+        "testing"
+      ]
+    },
+    {
+      "id": "T4500",
+      "title": "V2-VAL: Autonomous orchestration spec compliance validation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:04Z",
+      "updatedAt": "2026-02-14T06:48:04Z",
+      "size": "medium",
+      "position": 2,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Validate that the TypeScript orchestration implementation complies with the autonomous orchestration specification. Source methodology from cancelled T2633 (30 test cases). Verify: HITL workflows, subagent spawning, wave computation, context budgets, skill dispatch, session binding. Must cover both MCP and CLI pathways.",
+      "labels": [
+        "orchestration",
+        "testing"
+      ]
+    },
+    {
+      "id": "T4501",
+      "title": "V2-VAL: Code quality standards enforcement (linting, naming, DRY)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:07Z",
+      "updatedAt": "2026-02-14T06:48:07Z",
+      "size": "medium",
+      "position": 3,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Establish and enforce TypeScript code quality standards. Source principles from cancelled T2751. Includes: ESLint/Biome configuration, naming conventions, DRY consolidation review, consistent error handling patterns, type safety coverage. Define and document the TS code style guide.",
+      "labels": [
+        "quality",
+        "standards"
+      ]
+    },
+    {
+      "id": "T4502",
+      "title": "V2-VAL: Session system bug verification (carry-over from bash)",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:11Z",
+      "updatedAt": "2026-02-14T06:48:11Z",
+      "size": "medium",
+      "position": 4,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Verify that known bash session bugs do not carry over to TypeScript implementation. Bugs to verify fixed: session list fails with Argument list too long (T2305), session start ghost creation on failure (T3128), stale focus locks from ended sessions (T3118), session start fails with no pending tasks (T2865). Each bug should have a regression test.",
+      "labels": [
+        "bugs",
+        "session"
+      ]
+    },
+    {
+      "id": "T4503",
+      "title": "V2-VAL: CI/CD test suite green validation",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:14Z",
+      "updatedAt": "2026-02-14T06:48:14Z",
+      "size": "medium",
+      "position": 5,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Ensure complete CI test suite passes for the TypeScript codebase. Source concern from T1342 (80 failing bash tests). Validate: all unit tests pass, integration tests pass, E2E tests pass, type checking clean, linting clean, build succeeds on all target platforms. Define minimum coverage thresholds.",
+      "labels": [
+        "ci",
+        "testing"
+      ]
+    },
+    {
+      "id": "T4504",
+      "title": "V2-VAL: CLI behavior parity verification",
+      "status": "pending",
+      "priority": "high",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:17Z",
+      "updatedAt": "2026-02-14T06:48:17Z",
+      "size": "medium",
+      "position": 6,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Systematic verification that TypeScript CLI commands produce equivalent outputs and behaviors to the bash originals. Create parity test matrix covering all commands. Verify: exit codes match, JSON output schemas match, error messages are actionable, flags and options work identically. Use golden-file testing where appropriate.",
+      "labels": [
+        "cli",
+        "parity"
+      ]
+    },
+    {
+      "id": "T4505",
+      "title": "V2-VAL: Changeset and release system review",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:21Z",
+      "updatedAt": "2026-02-14T06:48:21Z",
+      "size": "medium",
+      "position": 7,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Review the changeset/release system for completeness in TypeScript. The bash-era T2155 changeset system may have valuable aspects not yet covered by the current cleo release commands. Audit: release create/plan/ship lifecycle, VERSION bump integration, git tag creation, changelog generation, CI/CD templates. Identify any gaps between bash release.sh capabilities and TS implementation.",
+      "labels": [
+        "release",
+        "review"
+      ]
+    },
+    {
+      "id": "T4506",
+      "title": "V2-VAL: Data storage architecture decision (JSONL vs SQLite+vectors)",
+      "status": "pending",
+      "priority": "medium",
+      "type": "task",
+      "parentId": "T4498",
+      "createdAt": "2026-02-14T06:48:26Z",
+      "updatedAt": "2026-02-14T06:48:26Z",
+      "size": "medium",
+      "position": 8,
+      "positionVersion": 0,
+      "phase": "core",
+      "description": "Make final architectural decision on data storage for the TypeScript era. Current: JSONL flat files (MANIFEST.jsonl, todo.json, sessions.json). Options: keep JSONL, migrate to SQLite with FTS5 for search, add vector embeddings for semantic task/research retrieval, hybrid approach. This is Decision D2 from the canonical plan. Evaluate at 1K+ tasks scale. Consider RAG/index systems for CLEO intelligence features.",
+      "labels": [
+        "architecture",
+        "storage"
+      ]
     }
   ],
   "labels": {}
