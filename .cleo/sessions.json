@@ -4,7 +4,7 @@
   "project": "claude-todo",
   "_meta": {
     "checksum": "",
-    "lastModified": "2026-02-13T03:59:22Z",
+    "lastModified": "2026-02-14T08:30:55Z",
     "totalSessionsCreated": 622
   },
   "config": {
@@ -34978,7 +34978,7 @@
     },
     {
       "id": "session_20260212_194742_e6736f",
-      "status": "active",
+      "status": "ended",
       "name": null,
       "agentId": null,
       "scope": {
@@ -34994,10 +34994,10 @@
         ]
       },
       "focus": {
-        "currentTask": "T4436",
+        "currentTask": null,
         "currentPhase": null,
-        "previousTask": "T4434",
-        "sessionNote": null,
+        "previousTask": "T4436",
+        "sessionNote": "Closing stale sessions for TS conversion team",
         "nextAction": null,
         "focusHistory": [
           {
@@ -35023,7 +35023,7 @@
         ]
       },
       "startedAt": "2026-02-13T03:47:42Z",
-      "lastActivity": "2026-02-13T03:59:22Z",
+      "lastActivity": "2026-02-14T08:30:55Z",
       "suspendedAt": null,
       "stats": {
         "tasksCompleted": 0,
@@ -35036,7 +35036,8 @@
         "start_timestamp": "2026-02-13T03:47:42Z",
         "start_tokens": 0,
         "max_tokens": 200000
-      }
+      },
+      "endedAt": "2026-02-14T08:30:55Z"
     }
   ],
   "sessionHistory": [
