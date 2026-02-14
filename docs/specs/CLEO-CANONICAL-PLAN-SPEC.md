@@ -194,7 +194,7 @@ These questions do not block current execution. They will be evaluated at their 
 | Startup time target (<50ms) | ADR D5 | T4454 Phase 1 | Planned |
 | BRAIN Certification | Roadmap Phase 3.5 | Untracked | Deferred to Phase 3.5 |
 | Nexus validation gate | Roadmap Phase 1 | Untracked | Retained as Phase 1 gate |
-| Web UI | Various discussions | Untracked | Not currently planned |
+| Web UI (Nexus Command Center) | T4284 epic, dashboard specs | T4284 | Active (Phase 0, read-only MVP) |
 
 ---
 
