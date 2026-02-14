@@ -111376,11 +111376,117 @@
       "details": {
         "operation": "update"
       }
+    },
+    {
+      "id": "log_d10c9b46ccb8",
+      "timestamp": "2026-02-14T05:02:55Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4489",
+      "before": {
+        "title": "Create GitHub Releases for v0.98.0 and v0.98.1",
+        "status": "pending",
+        "priority": "high",
+        "description": "Git tags v0.98.0 and v0.98.1 exist on origin but no GitHub Release objects were created. v0.98.0 was a docs/changelog release. v0.98.1 contains the 7 CLI bug fixes from GH #28-#34. Cannot create proper GitHub Releases until CI passes (blocked by T4488). Once CI is green: (1) verify v0.98.0 tag content, (2) create GH release for v0.98.0, (3) create GH release for v0.98.1 with changelog from the 7 bug fixes.",
+        "phase": "core",
+        "labels": [
+          "blocked",
+          "release"
+        ],
+        "files": null,
+        "acceptance": [
+          "GitHub Release exists for v0.98.0",
+          "GitHub Release exists for v0.98.1 with changelog",
+          "CI passes on main branch",
+          "GH issues #28-#34 are closed (already done)"
+        ],
+        "depends": [
+          "T4488"
+        ],
+        "blockedBy": null
+      },
+      "after": {
+        "title": "Create GitHub Releases for v0.98.0 and v0.98.1",
+        "status": "pending",
+        "priority": "high",
+        "description": "Git tags v0.98.0 and v0.98.1 exist on origin but no GitHub Release objects were created. v0.98.0 was a docs/changelog release. v0.98.1 contains the 7 CLI bug fixes from GH #28-#34. Cannot create proper GitHub Releases until CI passes (blocked by T4488). Once CI is green: (1) verify v0.98.0 tag content, (2) create GH release for v0.98.0, (3) create GH release for v0.98.1 with changelog from the 7 bug fixes.",
+        "phase": "core",
+        "labels": [
+          "blocked",
+          "release"
+        ],
+        "files": null,
+        "acceptance": [
+          "GitHub Release exists for v0.98.0",
+          "GitHub Release exists for v0.98.1 with changelog",
+          "CI passes on main branch",
+          "GH issues #28-#34 are closed (already done)"
+        ],
+        "depends": [
+          "T4488"
+        ],
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
+    },
+    {
+      "id": "log_a56f27c05d13",
+      "timestamp": "2026-02-14T05:03:10Z",
+      "sessionId": null,
+      "action": "task_updated",
+      "actor": "system",
+      "taskId": "T4479",
+      "before": {
+        "title": "GitHub Issues #28-#34: CLI Bug Fixes and UX Improvements",
+        "status": "done",
+        "priority": "high",
+        "description": "Umbrella epic for 7 GitHub issues (#28-#34) covering session management bugs, release pipeline fixes, config handling, and UX improvements. Organized in 3 waves by severity.",
+        "phase": "core",
+        "labels": [
+          "bug",
+          "cli"
+        ],
+        "files": [
+          "cleo/project-info.json",
+          "mcp-server/package-lock.json",
+          "mcp-server/package.json",
+          "src/domains/skills.ts"
+        ],
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "after": {
+        "title": "GitHub Issues #28-#34: CLI Bug Fixes and UX Improvements",
+        "status": "done",
+        "priority": "high",
+        "description": "Umbrella epic for 7 GitHub issues (#28-#34) covering session management bugs, release pipeline fixes, config handling, and UX improvements. Organized in 3 waves by severity.",
+        "phase": "core",
+        "labels": [
+          "bug",
+          "cli"
+        ],
+        "files": [
+          "cleo/project-info.json",
+          "mcp-server/package-lock.json",
+          "mcp-server/package.json",
+          "src/domains/skills.ts"
+        ],
+        "acceptance": null,
+        "depends": null,
+        "blockedBy": null
+      },
+      "details": {
+        "operation": "update"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5674,
-    "lastEntry": "2026-02-14T05:00:53Z",
+    "totalEntries": 5676,
+    "lastEntry": "2026-02-14T05:03:10Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"

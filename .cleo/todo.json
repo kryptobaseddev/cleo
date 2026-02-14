@@ -936,9 +936,9 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T05:00:52Z",
+  "lastUpdated": "2026-02-14T05:03:09Z",
   "_meta": {
-    "checksum": "0befcfaaa1f180f2",
+    "checksum": "148aee51e7625fc1",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
@@ -947,7 +947,7 @@
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
     "activeSessionCount": 29,
-    "generation": 3002
+    "generation": 3004
   },
   "focus": {
     "currentTask": null,
@@ -15494,7 +15494,7 @@
       "type": "epic",
       "parentId": null,
       "createdAt": "2026-02-14T00:13:54Z",
-      "updatedAt": "2026-02-14T05:00:52Z",
+      "updatedAt": "2026-02-14T05:03:09Z",
       "size": "large",
       "position": 878,
       "positionVersion": 0,
@@ -15508,7 +15508,8 @@
       "notes": [
         "[COMPLETED 2026-02-14T00:34:46Z] All 7 bugs fixed, shipped as v0.98.1, all GitHub issues #28-#34 closed with detailed resolution comments.",
         "2026-02-14 04:54:41 UTC: SESSION HANDOFF (2026-02-14): \n\nWHAT WAS DONE:\n- All 7 CLI bug fixes implemented, tested (160/160 pass), committed (678818b), and pushed to origin/main\n- Tasks T4480-T4486 all marked done with completion notes\n- GitHub Issues #28-#34 all commented with detailed fix descriptions and CLOSED\n- Git tags v0.98.0 and v0.98.1 created and pushed\n- RCSD lifecycle skipped, IVTR lifecycle recorded through release stage\n\nWHAT IS BLOCKING:\n- CI fails on MCP server TypeScript build (pre-existing since feat(T4453) commit)\n- Root cause: @cleocode/ct-skills is file:../../cleo-skills (local path) in mcp-server/package.json\n- This local path doesn't exist on GitHub Actions runners → TS2307 Cannot find module\n- 13 cascading TS errors in src/domains/skills.ts (implicit any, type mismatches)\n- MCP server also showing -32000 connection closed error locally (possibly related)\n- No GitHub Release objects exist for v0.98.0 or v0.98.1 (only git tags)\n\nREMAINING TASKS:\n- T4488 (CRITICAL): Fix MCP server CI build - resolve @cleocode/ct-skills dependency\n- T4489 (HIGH): Create GitHub Releases for v0.98.0 and v0.98.1 (blocked by T4488)\n\nTHE CLI BUG FIXES ARE COMPLETE - only the release pipeline is broken.",
-        "2026-02-14 05:00:52 UTC: FINAL SESSION STATE (2026-02-14 end of session 2):\n\nCOMPLETED THIS SESSION:\n- T4480-T4486: All 7 CLI bug fixes done (GH #28-#34)\n- GH Issues #28-#34: All closed with detailed comments\n- Commits on origin/main: 678818b (fixes), acbde68 (release v0.98.1)\n- Git tags v0.98.0, v0.98.1 pushed to remote\n- T4488 ROOT CAUSE IDENTIFIED: @cleocode deps were file: local paths\n- T4488 FIX APPLIED LOCALLY: package.json changed to npm registry versions\n- MCP server builds locally after the fix\n\nUNCOMMITTED IN WORKING TREE:\n- mcp-server/package.json (file: deps → npm registry versions)\n- mcp-server/package-lock.json (updated lockfile)\n- .cleo/project-info.json (metadata)\n\nFOR NEXT SESSION - DO IN ORDER:\n1. Commit the mcp-server/package.json + package-lock.json changes\n2. Push to origin/main\n3. Verify CI passes (MCP Server Tests workflow)\n4. Verify MCP server starts without -32000 errors\n5. Mark T4488 as done\n6. Create GitHub Releases for v0.98.0 and v0.98.1 (T4489)\n7. Mark T4489 as done\n8. Mark T4479 epic as done (all children complete)\n\nQUICK START: cleo show T4488 then cleo show T4489"
+        "2026-02-14 05:00:52 UTC: FINAL SESSION STATE (2026-02-14 end of session 2):\n\nCOMPLETED THIS SESSION:\n- T4480-T4486: All 7 CLI bug fixes done (GH #28-#34)\n- GH Issues #28-#34: All closed with detailed comments\n- Commits on origin/main: 678818b (fixes), acbde68 (release v0.98.1)\n- Git tags v0.98.0, v0.98.1 pushed to remote\n- T4488 ROOT CAUSE IDENTIFIED: @cleocode deps were file: local paths\n- T4488 FIX APPLIED LOCALLY: package.json changed to npm registry versions\n- MCP server builds locally after the fix\n\nUNCOMMITTED IN WORKING TREE:\n- mcp-server/package.json (file: deps → npm registry versions)\n- mcp-server/package-lock.json (updated lockfile)\n- .cleo/project-info.json (metadata)\n\nFOR NEXT SESSION - DO IN ORDER:\n1. Commit the mcp-server/package.json + package-lock.json changes\n2. Push to origin/main\n3. Verify CI passes (MCP Server Tests workflow)\n4. Verify MCP server starts without -32000 errors\n5. Mark T4488 as done\n6. Create GitHub Releases for v0.98.0 and v0.98.1 (T4489)\n7. Mark T4489 as done\n8. Mark T4479 epic as done (all children complete)\n\nQUICK START: cleo show T4488 then cleo show T4489",
+        "2026-02-14 05:03:09 UTC: FINAL SESSION STATE (2026-02-14 session 2 closeout):\n\nACCURATE STATUS:\n- v0.98.0: RELEASED in CLEO (releasedAt: 2026-02-13T15:57:08Z, gitTag: v0.98.0)\n- v0.98.1: RELEASED in CLEO (releasedAt: 2026-02-14T00:33:27Z, gitTag: v0.98.1)\n- Both releases are on origin/main with git tags pushed\n- All 7 CLI bug fixes committed (678818b) and pushed\n- GH Issues #28-#34 all CLOSED\n- T4480-T4486 all DONE\n- T4488 (MCP CI fix) DONE in CLEO but fix is UNCOMMITTED in working tree\n\nCI BLOCKER:\n- MCP Server Tests workflow fails: @cleocode/ct-skills was file:../../cleo-skills\n- User fixed package.json locally (file: → npm registry versions)\n- Changes in working tree: mcp-server/package.json, mcp-server/package-lock.json\n\nNEXT SESSION ACTIONS:\n1. git add mcp-server/package.json mcp-server/package-lock.json\n2. git commit -m 'fix(T4488): use npm registry for @cleocode deps instead of file: links'\n3. git push origin main\n4. Verify CI passes (gh run list --watch)\n5. Optionally create GH Release objects for v0.98.0 and v0.98.1"
       ],
       "files": [
         "cleo/project-info.json",
@@ -15966,7 +15967,7 @@
       "type": "task",
       "parentId": null,
       "createdAt": "2026-02-14T04:54:26Z",
-      "updatedAt": "2026-02-14T05:00:37Z",
+      "updatedAt": "2026-02-14T05:02:54Z",
       "size": "medium",
       "position": 881,
       "positionVersion": 0,
@@ -15986,7 +15987,8 @@
         "T4488"
       ],
       "notes": [
-        "2026-02-14 05:00:37 UTC: CURRENT STATE: T4488 fix (package.json file: → npm) is in working tree but uncommitted. Once committed, pushed, and CI passes, create GH releases for v0.98.0 and v0.98.1. Git tags already exist on remote. Latest GH release is v0.97.0."
+        "2026-02-14 05:00:37 UTC: CURRENT STATE: T4488 fix (package.json file: → npm) is in working tree but uncommitted. Once committed, pushed, and CI passes, create GH releases for v0.98.0 and v0.98.1. Git tags already exist on remote. Latest GH release is v0.97.0.",
+        "2026-02-14 05:02:54 UTC: CORRECTION: v0.98.0 and v0.98.1 ARE properly released in CLEO's internal tracking (status=released, gitTag set). The 'missing' GitHub Releases are a separate concern — many prior versions (v0.78.0 through v0.93.x) also have git tags without GH Release objects. The actual blockers are: (1) CI is failing on MCP Server Tests workflow due to @cleocode/ct-skills file: dep, (2) package.json fix is in working tree but uncommitted. This task should be repurposed to: commit MCP dep fix, verify CI passes, then optionally create GH Release objects."
       ],
       "relates": [
         {
