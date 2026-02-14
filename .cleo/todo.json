@@ -972,21 +972,21 @@
       }
     ]
   },
-  "lastUpdated": "2026-02-14T08:02:40Z",
+  "lastUpdated": "2026-02-14T08:36:16Z",
   "_meta": {
-    "checksum": "2501e6b2bc08020f",
+    "checksum": "dfb4a80b631362be",
     "configVersion": "2.1.0",
     "lastSessionId": null,
     "activeSession": null,
-    "lastModified": "2026-02-14T08:30:55Z",
+    "lastModified": "2026-02-14T08:35:40Z",
     "version": "2.10.0",
     "schemaVersion": "2.10.0",
     "multiSessionEnabled": true,
-    "activeSessionCount": 28,
-    "generation": 3338
+    "activeSessionCount": 29,
+    "generation": 3339
   },
   "focus": {
-    "currentTask": null,
+    "currentTask": "T4508",
     "blockedUntil": null,
     "sessionNote": "Retrofitted pagination metadata to list.sh, log.sh, find.sh. All existing tests pass.",
     "nextAction": "Implement T1984 (noAutoComplete) to prevent epic auto-close, then T1992 (hooks research) for automatic compliance capture",
@@ -14219,7 +14219,7 @@
       "type": "task",
       "parentId": "T4454",
       "createdAt": "2026-02-11T04:51:15Z",
-      "updatedAt": "2026-02-14T08:02:38Z",
+      "updatedAt": "2026-02-14T08:33:33Z",
       "size": "medium",
       "position": 2,
       "positionVersion": 0,
@@ -19071,12 +19071,12 @@
     {
       "id": "T4508",
       "title": "Fix stale operation counts in README and user-facing docs",
-      "status": "pending",
+      "status": "done",
       "priority": "high",
       "type": "task",
       "parentId": "T4507",
       "createdAt": "2026-02-14T07:15:54Z",
-      "updatedAt": "2026-02-14T07:15:54Z",
+      "updatedAt": "2026-02-14T08:36:16Z",
       "size": "medium",
       "position": 1,
       "positionVersion": 0,
@@ -19085,6 +19085,10 @@
       "labels": [
         "documentation",
         "drift"
+      ],
+      "completedAt": "2026-02-14T08:36:16Z",
+      "notes": [
+        "[COMPLETED 2026-02-14T08:36:16Z] Updated operation counts in 4 user-facing docs: README.md (8->10 domains, 111->123 ops), mcp-server.mdx, mcp-quickstart.mdx, mcp-usage-guide.mdx"
       ]
     },
     {

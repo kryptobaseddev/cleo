@@ -115038,11 +115038,69 @@
       "details": {
         "note": "Closing stale sessions for TS conversion team"
       }
+    },
+    {
+      "id": "log_0dc5334ec6a1",
+      "timestamp": "2026-02-14T08:33:34Z",
+      "sessionId": "session_20260214_003333_c25a96",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4327",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4454"
+      }
+    },
+    {
+      "id": "log_6d21f2af8985",
+      "timestamp": "2026-02-14T08:34:59Z",
+      "sessionId": "session_20260214_003459_1e5e03",
+      "action": "session_start",
+      "actor": "system",
+      "taskId": "T4508",
+      "before": null,
+      "after": null,
+      "details": "Multi-session started",
+      "scope": {
+        "type": "epic",
+        "rootTaskId": "T4507"
+      }
+    },
+    {
+      "id": "log_48b52da897dd",
+      "timestamp": "2026-02-14T08:35:22Z",
+      "sessionId": null,
+      "action": "session_focus_changed",
+      "actor": "claude",
+      "taskId": null,
+      "before": {
+        "currentTask": "T4508"
+      },
+      "after": {
+        "currentTask": "T4508"
+      },
+      "details": null
+    },
+    {
+      "id": "log_54e5d46b0d90",
+      "timestamp": "2026-02-14T08:35:40Z",
+      "sessionId": "session_20260214_003459_1e5e03",
+      "action": "session_end",
+      "actor": "system",
+      "taskId": null,
+      "before": null,
+      "after": null,
+      "details": {
+        "note": "switching scope"
+      }
     }
   ],
   "_meta": {
-    "totalEntries": 5827,
-    "lastEntry": "2026-02-14T08:30:55Z",
+    "totalEntries": 5965,
+    "lastEntry": "2026-02-14T08:35:40Z",
     "firstEntry": "2026-01-17T02:12:49Z",
     "entriesPruned": 2040,
     "schemaVersion": "2.4.0"
